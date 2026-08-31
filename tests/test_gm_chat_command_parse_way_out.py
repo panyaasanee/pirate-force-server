@@ -818,7 +818,12 @@ class TheUsageHintItselfTests(unittest.TestCase):
         SETS, so nothing saw the order, while the order reaches a human twice
         (`expected one of (...)` and the joined vocabulary)."""
         self.assertEqual(
-            ("warp", "npc", "item", "lv", "spawn", "say"),
+            # `gmprobe` appended last, deliberately: CORE-REQUEST-GM-043
+            # added a LANE-GM tooling command after the owner's original
+            # six (notes_to_chief 20260826_1630 section GM-003), and
+            # growing the tuple by one at the end is a smaller drift than
+            # reordering the six gameplay commands ahead of it.
+            ("warp", "npc", "item", "lv", "spawn", "say", "gmprobe"),
             tuple(gm_commands.COMMAND_USAGE),
         )
         self.assertEqual(

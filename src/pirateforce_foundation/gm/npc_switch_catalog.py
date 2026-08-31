@@ -17,6 +17,18 @@ mob_id one of the 7 client-flagged GM-switch NPCs" -- it says nothing about
 whether toggling one on the live server currently does anything, because
 ``npc on|off`` is not wired to any runtime effect yet (see GM-003 in
 docs/GM_LANE.md).
+
+8180/8181 (Water Lantern x2, same s_NAME literal in both rows -- see the
+TSV data file for the raw glyph, not repeated here: this .py source must
+stay cp874-safe, see test_gm_source_is_cp874_safe.py) label per
+COO-DECISION 2026-08-31T02:45+07:00
+(notes_to_chief/consumed/20260831_0245_COO-DECISION-gm042-owner-questions-
+npc-off-semantics-and-water-lantern-ids.md): catalog-only -- these two ids
+are client-flagged n_GM_SWITCH=1 the same as the other 5, but no
+server-side row for either has been found anywhere in this repo outside
+this lane's own catalog table. Treat "is one of the 7" (this module) and
+"exists as a server-side actor" as two different, unverified-equal claims
+-- do not infer the second from the first for 8180/8181 specifically.
 """
 from __future__ import annotations
 

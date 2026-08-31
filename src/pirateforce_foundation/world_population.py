@@ -251,6 +251,17 @@ class WorldPopulationGeneration:
     # have made "nobody asked" print as "nobody is missing", which is the
     # shape of claim CHARTER-02 forbids: a shortfall that goes unsaid.
     undressable: tuple[tuple[int, int, int, str], ...] | None = None
+    # Added round (LANE-A, GT-151 support): WHERE each undressable placement
+    # is, as (placement index, Mob-Set number, CLINE leader id, client name,
+    # x, y, z).  GT-151 ("seven holes eyes check") needs a tester standing in
+    # Port Royal to walk to each of the seven; ``undressable`` above named
+    # them but never carried a position, so finding one meant opening this
+    # module's UNRESOLVED table AND the raw placement source by hand.  Same
+    # ``None`` vs ``()`` rule as ``undressable``: ``None`` is "this build
+    # never measured it", ``()`` is "measured, nothing missing".
+    undressable_positions: (
+        tuple[tuple[int, int, int, str, float, float, float], ...] | None
+    ) = None
 
     @property
     def pc_bytes(self) -> int:
@@ -397,6 +408,32 @@ def undressable_placements_named(
     return tuple(named)
 
 
+def undressable_placements_positioned(
+    legacy: Any,
+) -> tuple[tuple[int, int, int, str, float, float, float], ...]:
+    """``undressable_placements_named`` with each row's world position.
+
+    (placement index, Mob-Set number, CLINE leader id, client name, x, y, z).
+    Built for GT-151: naming the seven placements the census cannot dress
+    (``undressable_placements_named``) told an operator WHO was missing, not
+    WHERE to stand to check.  The position is read from the same frozen
+    ``load_port_royal_placements(legacy)`` rows ``census_order`` itself walks,
+    so this cannot drift from the table the census was actually built over -
+    no second copy of the placement source is introduced.
+    """
+    positions = {
+        placement.placement_index: (placement.x, placement.y, placement.z)
+        for placement in load_port_royal_placements(legacy)
+    }
+    positioned = []
+    for index, template_id, leader, name in undressable_placements_named(
+        legacy
+    ):
+        x, y, z = positions[index]
+        positioned.append((index, template_id, leader, name, x, y, z))
+    return tuple(positioned)
+
+
 def _console_name(leader: int, name: str) -> str:
     """One name, reduced to something a cp874 console can print.
 
@@ -456,6 +493,38 @@ def undressable_console_token(
         return "undressable={0} {1}".format(len(dropped), rows)
     except Exception as error:  # never break a boot's own log line
         return "undressable=unavailable:" + type(error).__name__
+
+
+def undressable_positions_console_token(
+    generation: WorldPopulationGeneration,
+) -> str:
+    """The ``undressable_positions=`` field: WHERE the town's holes are.
+
+    GT-151 ("seven holes eyes check") asks a tester to walk to each of the
+    seven placements the census cannot dress and confirm the spot is empty.
+    ``undressable=`` above named them; this prints where to stand, in the
+    same world-unit space the census's own ``anchor=`` field already uses,
+    so a tester never has to open a source file to find a placement's
+    coordinates.  Same fail-closed shape as every other token on this line:
+    ``not_recorded`` for a generation that never measured it, ``0`` for a
+    generation that measured and found nothing missing, and no exception
+    ever escapes into a boot's own log line.
+    """
+    if type(generation) is not WorldPopulationGeneration:
+        return "undressable_positions=not_recorded"
+    positioned = generation.undressable_positions
+    if positioned is None:
+        return "undressable_positions=not_recorded"
+    try:
+        if not positioned:
+            return "undressable_positions=0"
+        rows = ",".join(
+            "P{0}@{1:.1f},{2:.1f},{3:.1f}".format(index, x, y, z)
+            for index, _template_id, _leader, _name, x, y, z in positioned
+        )
+        return "undressable_positions={0} {1}".format(len(positioned), rows)
+    except Exception as error:  # never break a boot's own log line
+        return "undressable_positions=unavailable:" + type(error).__name__
 
 
 def ceiling_console_token(
@@ -725,6 +794,10 @@ def build_world_population(
         # and nothing else, so a report that needed the placement table again
         # would have had to say "unmeasured" on every real boot.
         undressable_placements_named(legacy),
+        # Same reasoning, same call site, for GT-151: the position each row
+        # names has to be recorded while ``legacy`` -- the only thing that
+        # can resolve a placement index back to x/y/z -- is still in hand.
+        undressable_placements_positioned(legacy),
     )
 
 
@@ -1026,7 +1099,7 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
     return (
         "WORLD_CENSUS assembled={0}/{1} wire={2} bodies={3} pc={4}B frame={5}B "
         "anchor=({6:.3f},{7:.3f},{8:.3f}) reapply_ms={9} source={10} "
-        "shortfall={11} | {12} | {13} | {14} | {15}".format(
+        "shortfall={11} | {12} | {13} | {14} | {15} | {16}".format(
             report["assembled_count"], report["census_count"],
             report["wire_actor_count"] if report["counts_agree"]
             else "MISMATCH:%d" % report["wire_actor_count"],
@@ -1057,6 +1130,12 @@ def census_console_line(generation: WorldPopulationGeneration) -> str:
             # purpose - the list of who is missing is what raises the
             # question this field answers, and a log reads top to bottom.
             ceiling_console_token(generation),
+            # Appended last, for GT-151: the ceiling token says WHY the seven
+            # can never arrive; this says WHERE to stand to confirm it on a
+            # screen.  Same append-only rule as every field before it -- a
+            # reader matching ``WORLD_CENSUS `` or any earlier field is
+            # unaffected by this addition.
+            undressable_positions_console_token(generation),
         )
     )
 

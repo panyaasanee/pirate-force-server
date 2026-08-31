@@ -131,14 +131,19 @@ WHAT IT DOES NOT DO
   answers, "shortest path" ranks the blockers; it does not promise a pixel.
 * It does not broadcast.  `say` returns a per-connection action like every
   other action in this file; the GM sees his own line.  See `_say_action`.
-* !! It does not put a single ForcePos byte on the wire today, because
-  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.  ~~(RE-129
+* ~~!! It does not put a single ForcePos byte on the wire today, because
+  `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is None.~~ ~~(RE-129
   open)~~ RE-129 ANSWERED on 2026-08-28T20:09+07:00 -- the byte is 0 -- and
-  the constant is still None on purpose: COO-DECISION 21:30 locks it there
-  until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).
-  See that constant's block and `test_gm_force_pos_version_lock.py` -- and note
-  that release day edits TWO test files: `VersionGateTests` in this module's
-  own suite asserts the constant is None unconditionally.
+  ~~the constant is still None on purpose: COO-DECISION 21:30 locks it there
+  until chief's confirmed-position write point is on main (CORE-REQUEST-GM-030).~~
+  That write point (`GM_WARP_POSITION_CONFIRMED`, `runtime.py`) landed on
+  main, and COO-DECISION 20260830_1645/1742 lifted the lock: the constant is
+  now `0` and `/warp` (same-scene) composes real wire actions by default.
+  See that constant's block and `test_gm_force_pos_version_lock.py` -- ~~and
+  note that release day edits TWO test files: `VersionGateTests` in this
+  module's own suite asserts the constant is None unconditionally.~~ that
+  release day did edit both test files; `VersionGateTests` now asserts the
+  constant equals `0`.
   The rest of that constant's comment still holds: the vital version byte is
   per-vital (0x5A19 -> 0, ForcePos -> 0, TeleportVital -> 4 from the client's
   own constructors; SelectActor -> 10 from the legacy server source -- four
@@ -257,7 +262,15 @@ import sys
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from . import login_scene_stage, say_wire, teleport_wire
+from .. import gm_npc_toggle_recompose
+from . import (
+    bt_gm_probe,
+    item_catalog,
+    login_scene_stage,
+    npc_switch_catalog,
+    say_wire,
+    teleport_wire,
+)
 from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
@@ -345,6 +358,14 @@ WARP_ACTION_LABEL = "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS"
 # while the character never moved an inch.  A test pins the absence of that
 # substring against the same call site, not against this comment.
 SAY_ACTION_LABEL = "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE"
+
+# The action label for a GM `/gmprobe <variant_id>` (CORE-REQUEST-GM-043).
+#
+# !! MUST NOT CONTAIN `TELEPORT`, same reason as `SAY_ACTION_LABEL` above: a
+# probe variant repositions nobody, so it must never reopen the
+# move-authority grace window `runtime.py`'s `_move_authority_note_server_
+# moves` keys on that substring.
+GMPROBE_ACTION_LABEL = "LANE_GM_CHAT_GMPROBE_STATE_VITAL"
 
 # Console token printed on the production path whenever an authorized GM
 # command is handled.  `lane_hooks` prints `LANE_HOOK_FIRED` for the route
@@ -523,6 +544,41 @@ EVENT_CONSOLE_WRITE_FAILED_PREFIX = "gm_chat_action_console_write_failed_"
 EVENT_ACCEPTED_PREFIX = "gm_chat_action_accepted_"
 EVENT_REFUSED_PREFIX = "gm_chat_action_refused_"
 EVENT_NO_WIRE_PATH_PREFIX = "gm_chat_action_no_wire_path_"
+
+# CORE-REQUEST-GM-041's read point (`gm_npc_toggle_recompose.
+# npc_toggle_would_recompose`) answers a question chief built specifically
+# for this lane to ask from the `no_wire_path` branch below: would toggling
+# THIS mob_id change what the next recompose sends, today.  This is a
+# diagnostic event on top of `EVENT_NO_WIRE_PATH_PREFIX`, never a
+# replacement for it and never a change to `verdict` -- `npc` still composes
+# no action (see the module's own no-wire-path comment table).  Answer is
+# always `false` at HEAD (letter 20260830_1909: no on/off state store exists
+# yet for a recompose call site to read), and this event is what turns that
+# from a claim in a letter into something `GT-127`'s console grep can see on
+# every `/npc` line without opening a file.
+EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX = "gm_chat_action_npc_recompose_diagnostic_"
+
+# GM-042 prep's read point (`gm.item_catalog`, committed round `opr2xd`)
+# answers the same shape of question for `item` that
+# `EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX` answers for `npc`: is the id the
+# GM typed even a real item, today -- BEFORE this lane has any grant call
+# site to wire (letter 20260830_1924: no CORE-REQUEST opened yet, no
+# "give it to the runtime.py backpack" path exists the way
+# `mob_scene_recompose` exists for `npc`).  A diagnostic on top of
+# `EVENT_NO_WIRE_PATH_PREFIX`, never a replacement for it and never a
+# change to `verdict` -- `item` still composes no action either way, the
+# same rule `_note_npc_recompose_diagnostic`'s own docstring states.
+#
+# Three answers, not two, because `item_catalog.item_category()` can name
+# zero, one, or MORE than one category for the same numeric id (the
+# module's own docstring: 230 ids collide between misc/consumable alone).
+# An id that is ambiguous today would silently grant the wrong item's
+# stack size the day a grant call site lands if this lane's future
+# `item <id> <n>` wiring picked one category at random -- naming the
+# ambiguity now, while it is still parse+log, is what round `opr2xd`
+# asked "chief/Panya เป็นคนตัดสิน" about; this event is the measurement
+# that question is asked from, not a decision this lane made for them.
+EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX = "gm_chat_action_item_catalog_diagnostic_"
 EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
 EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
 EVENT_WARP_WITHHELD_NO_VERSION = (
@@ -567,6 +623,22 @@ EVENT_SAY_WITHHELD_NO_VERSION = (
 # warp prefix; this one now has none either.
 EVENT_SAY_VERSION_CODEC_MISMATCH = "gm_chat_action_say_version_codec_mismatch"
 EVENT_SAY_REFUSED_PREFIX = "gm_chat_action_say_refused_"
+# CORE-REQUEST-GM-043's `/gmprobe <variant_id>`.  No withheld-by-version-gate
+# event exists for this command -- see `_gmprobe_action`'s own docstring for
+# why: `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` was pinned outright by
+# RE-105, it was never a `None`-until-proven gate the way `warp`/`say`'s
+# constants are.
+#
+# The typed token itself is NEVER embedded in either name below (unlike
+# `EVENT_WARP_STAGED_PREFIX` + an int scene_id) -- `variant_id` is arbitrary
+# GM-typed text, the same class of value `usage_hint_for`'s own docstring
+# refuses to echo, and a fixed literal is exactly what the "unknown variant"
+# case needs since there is nothing about a real variant id worth reporting.
+EVENT_GMPROBE_UNKNOWN_VARIANT = "gm_chat_action_gmprobe_unknown_variant"
+# The suffix is an exception TYPE name, same contract as
+# `EVENT_WARP_REFUSED_PREFIX`/`EVENT_SAY_REFUSED_PREFIX` -- never a message,
+# which could embed the GM's typed text.
+EVENT_GMPROBE_REFUSED_PREFIX = "gm_chat_action_gmprobe_refused_"
 # The `outcome` audit row could not be appended (CORE-REQUEST-GM-032).  Two
 # names, because the two failures need different reading: the log write
 # failed for a reason the OS named, or the issued row handed back no id to
@@ -649,6 +721,11 @@ OUTCOME_WARP_NO_POSITION = f"{OUTCOME_REFUSED_PREFIX}warp_no_current_position"
 OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
     f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
 )
+# The one named refusal `/gmprobe` can write that is not an exception TYPE
+# suffix: the typed `variant_id` matched no row in
+# `bt_gm_probe.VARIANTS_BY_ID`.  A GM typo, not this lane's error -- and not
+# a guess at the closest match either (module docstring's own nonclaim).
+OUTCOME_GMPROBE_UNKNOWN_VARIANT = f"{OUTCOME_REFUSED_PREFIX}gmprobe_unknown_variant"
 OUTCOME_NO_WIRE_PATH = f"{OUTCOME_REFUSED_PREFIX}no_wire_path"
 # `refused_stage_<reason>`, where the reason is one of
 # `login_scene_stage`'s own REASON_* values (`not_gm_account`,
@@ -775,6 +852,100 @@ def _note(session: object, event: str) -> None:
         session.events.append(event)  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001 - see docstring; nothing escapes this module
         pass
+
+
+def _note_npc_recompose_diagnostic(session: object, command: object) -> None:
+    """Read-only diagnostic for a parsed `npc` command; never touches verdict.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH (this module's own rule, stated at
+    the `CONSOLE_TOKEN` print above) -- this function's only effect is one
+    `_note` call, exactly like that print.  The call site below runs it
+    AFTER `verdict` is already bound to `_Verdict(None, OUTCOME_NO_WIRE_PATH)`
+    -- pf-adversary (round `nbihci`) measured the first draft calling this
+    one line too early, before `verdict` was bound, so an uncaught exception
+    here would have propagated past the assignment instead of landing inside
+    it; harmless only because of the wrap below, and the wrong order to
+    trust by reading this docstring.  `_note` itself cannot raise (see its
+    own docstring); everything upstream of it here is wrapped so this
+    function cannot either -- a caller-supplied `command.args` of the wrong
+    shape (`GmCommandArgsError`'s own threat model -- a `tuple` SUBCLASS
+    lying through `__len__`/`__getitem__` defeats a plain `isinstance`
+    check, per `commands.py`'s own `_require_args_tuple`, which is why this
+    uses `type(args) is not tuple` and not `isinstance`) or a `mob_id` that
+    is not one of the 7 GM-switchable rows (`npc_toggle_would_recompose`'s
+    `ValueError`) must not turn a diagnostic into the reason `/npc` stopped
+    working.
+    """
+    try:
+        args = command.args
+        if type(args) is not tuple or len(args) != 2:
+            _note(session, f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}bad_args_shape")
+            return
+        mob_id = int(args[1])
+        if not npc_switch_catalog.is_gm_switchable_npc(mob_id):
+            _note(
+                session,
+                f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}not_switchable",
+            )
+            return
+        would_recompose = gm_npc_toggle_recompose.npc_toggle_would_recompose(mob_id)
+        _note(
+            session,
+            f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}would_recompose_"
+            f"{'true' if would_recompose else 'false'}",
+        )
+    except Exception as error:  # noqa: BLE001 - a diagnostic must not raise
+        _note(
+            session,
+            f"{EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}unexpected_{type(error).__name__}",
+        )
+
+
+def _note_item_catalog_diagnostic(session: object, command: object) -> None:
+    """Read-only diagnostic for a parsed `item` command; never touches verdict.
+
+    Mirrors `_note_npc_recompose_diagnostic` exactly (same shape guard, same
+    `noqa: BLE001` boundary, same "diagnostic may never alter dispatch"
+    rule) -- see that function's docstring for why `type(args) is not tuple`
+    and not `isinstance` guards the shape check.  `command.args` for `item`
+    is `(id, n)` (see `commands.py::parse_gm_command`'s `item` branch); only
+    `args[0]` is read here, `n` is not this diagnostic's question.
+
+    Three outcomes instead of two, because `item_catalog.item_category`
+    can name zero, one, or more than one category for the same id:
+      unknown            -- item_id is in none of the three tables
+      known_<category>   -- item_id resolves in exactly one (the common
+                             case); the category is named so a reader does
+                             not have to cross-reference a second file
+      ambiguous_<n>       -- item_id resolves in `n` categories (2 or 3);
+                             this is the exact shape round `opr2xd` found
+                             and asked chief/Panya to decide the grammar
+                             for -- naming it here does not decide it
+    """
+    try:
+        args = command.args
+        if type(args) is not tuple or len(args) != 2:
+            _note(session, f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}bad_args_shape")
+            return
+        item_id = int(args[0])
+        cats = item_catalog.item_category(item_id)
+        if not cats:
+            _note(session, f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}unknown")
+        elif len(cats) == 1:
+            _note(
+                session,
+                f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}known_{cats[0]}",
+            )
+        else:
+            _note(
+                session,
+                f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}ambiguous_{len(cats)}",
+            )
+    except Exception as error:  # noqa: BLE001 - a diagnostic must not raise
+        _note(
+            session,
+            f"{EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}unexpected_{type(error).__name__}",
+        )
 
 
 def make_gm_chat_command_action(
@@ -947,12 +1118,18 @@ def _make_action(
         )
     elif command.name == "say":
         verdict = _say_action(session, command, legacy)
+    elif command.name == "gmprobe":
+        verdict = _gmprobe_action(session, command, legacy)
     else:
         # Parsed and audited, but this lane has no proven server->client
         # wire for it yet.  Named, not silent: "nothing happened" and "we
         # never built that half" look identical on screen.
         _note(session, f"{EVENT_NO_WIRE_PATH_PREFIX}{command.name}")
         verdict = _Verdict(None, OUTCOME_NO_WIRE_PATH)
+        if command.name == "npc":
+            _note_npc_recompose_diagnostic(session, command)
+        elif command.name == "item":
+            _note_item_catalog_diagnostic(session, command)
 
     action = verdict.action
     # ONE write point for the `outcome` row, deliberately: CORE-REQUEST-GM-032
@@ -1816,6 +1993,84 @@ def _say_action(session: object, command: object, legacy: object) -> _Verdict:
         )
 
     return _Verdict((SAY_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
+
+
+def _gmprobe_action(session: object, command: object, legacy: object) -> _Verdict:
+    """One authorized `/gmprobe <variant_id>` -> a `GM_UpdateGMStateVital` action.
+
+    CORE-REQUEST-GM-043 (chief CHIEF-REPLY 2026-08-31T03:57+07:00, option A):
+    lets an attended tester fire any of
+    `bt_gm_probe.iter_state_vital_bit_variants`'s 14 named field-combinations
+    mid-session by typing its `variant_id`, instead of the one hardcoded
+    value the login-time call site already sends once per boot (`GT-164` was
+    BLOCKED on exactly that limit -- pf_bridge notes_to_chief 20260831_0321).
+    No new wire logic lives here: this composes through
+    `bt_gm_probe.build_variant_frame` -> `gm.state_wire`'s pinned
+    `GM_UpdateGMStateVital` builder (span_sha256-pinned byte layout,
+    RE-089/RE-105), the same seam `_warp_action`/`_say_action` use for their
+    own composers.
+
+    NO VERSION GATE HERE, unlike `_warp_action`/`_say_action`.  Both of those
+    gate on a vital_version constant that started life as `None` until an RE
+    ticket proved a byte (`RE-129`, `RE-132`).
+    `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` was never that kind of
+    constant -- RE-105 pinned it at `0` outright, as the one value that
+    survives the generic VitalData version check for this vital, not as an
+    unmeasured placeholder waiting on a follow-up RE.  `build_variant_frame`
+    already defaults to that pinned value; this function passes the variant
+    through and lets the composer supply it, rather than re-importing the
+    constant here, so the two modules cannot drift apart on which byte is
+    "confirmed".
+
+    UNKNOWN `variant_id` IS A NAMED REFUSAL, NEVER A GUESS.
+    `gm/commands.py::parse_gm_command` accepts any single-token
+    `variant_id` -- it does not import this lane's variant table, the same
+    separation `warp`'s `scene_catalog` hint keeps (a catalog miss there is
+    a hint for the log, decided downstream, never a parse-time rule; see
+    `describe_warp_target`).  Whether the token names a REAL variant is
+    decided HERE, at dispatch, the one place this module and
+    `bt_gm_probe.VARIANTS_BY_ID` are both in scope -- so a typo is refused
+    by name (`OUTCOME_GMPROBE_UNKNOWN_VARIANT`), never rounded to the
+    nearest known id.
+
+    THE SAME "REGARDLESS OF SOURCE" GUARD `warp_executor`/`say_wire` apply
+    to their own `command.args` reads.  `parse_gm_command` always hands back
+    a real 1-tuple of `str`, but this module accepts a `GmCommand`
+    regardless of where it came from (see `GmCommandArgsError`'s docstring
+    in `commands.py`), so a hand-built one with the wrong SHAPE must not
+    raise a bare `TypeError`/`IndexError` out of this function -- `type(args)
+    is not tuple`, not `isinstance`, for the same tuple-subclass reason
+    `warp_executor._require_args_tuple`'s own comment gives.
+
+    NONCLAIM, carried from `bt_gm_probe`'s own module docstring: composing
+    and sending this frame is not evidence that anything renders on a
+    client.  Whether `GMUI_BASIC` opens for a given variant is a
+    client-observable fact only an attended `GT-164` run can produce.
+    """
+    args = command.args
+    if type(args) is not tuple or len(args) != 1:
+        _note(session, f"{EVENT_GMPROBE_REFUSED_PREFIX}GmProbeArgsShape")
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}gmprobe_GmProbeArgsShape"
+        )
+
+    variant = bt_gm_probe.variant_by_id(args[0])
+    if variant is None:
+        _note(session, EVENT_GMPROBE_UNKNOWN_VARIANT)
+        return _Verdict(None, OUTCOME_GMPROBE_UNKNOWN_VARIANT)
+
+    try:
+        pc, frame = bt_gm_probe.build_variant_frame(legacy, variant)
+    except Exception as error:  # noqa: BLE001 - a composer failure must
+        # surface as a named refusal, never an exception escaping onto the
+        # shared listener thread.  Type name only, same reasoning as every
+        # other refusal in this module.
+        _note(session, f"{EVENT_GMPROBE_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}gmprobe_{type(error).__name__}"
+        )
+
+    return _Verdict((GMPROBE_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
 
 
 def _current_position(session: object) -> object | None:

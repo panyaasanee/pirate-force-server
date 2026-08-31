@@ -163,7 +163,7 @@ EXPECT_PROVEN_NEW = 0
 # were the only entries left without an id_slot_va.  Round 86 ran this same
 # matcher over them - the matcher is NOT relaxed for them in any way.
 #
-# 🔴 ERRATUM to the NAMES-FOLD-003 task brief: the brief says "38 entries ...
+# !! ERRATUM to the NAMES-FOLD-003 task brief: the brief says "38 entries ...
 # carry no id_slot_va".  The population is 49 (all of the v141-sourced rows);
 # 38 is the number that CLEARS both conditions.  Both numbers are pinned below
 # so the two can never be confused again.

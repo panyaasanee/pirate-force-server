@@ -259,9 +259,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 18,
-  "src_actor_stream_call_sites": 27,
-  "src_modules_building_actor_entries": 17,
+  "src_actor_entry_call_sites": 19,
+  "src_actor_stream_call_sites": 28,
+  "src_modules_building_actor_entries": 18,
   "src_modules_building_actor_entries_names": [
     "field_mobs.py",
     "hostile_hp_link_hypothesis.py",
@@ -279,6 +279,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "world_population.py",
     "world_population_bg0002.py",
     "world_population_bg0004.py",
+    "world_population_bg0010.py",
     "world_population_bg0015.py"
   ],
   "src_modules_doing_both": 4,
@@ -598,13 +599,76 @@ live in the `RUNTIMERES_COUNTS` block, a live mirror of a tool run that is expec
 write code. All six are re-pinned in the tool with the lane named beside the count, and the `guards`
 total stays **152** (six values re-pinned, no guard added or removed).
 
-**Round h1utu5 (lane A), `src_actor_entry_call_sites` 17 -> 18, `src_actor_stream_call_sites`
-26 -> 27, `src_modules_building_actor_entries` 16 -> 17.** `world_population_bg0004.py`, the
-Bg0004 (Slave Market Island) census composer - BUILD-002 door 1, `COO-DECISION
-2026-08-30T14:41+07:00` - builds one entry and sends one carrier, the same shape
-`world_population_bg0002.py` and `world_population_bg0015.py` added before it. Not wired to any
-player-visible path yet (nothing under `src/` imports it - the module's own test pins that as a
-tripwire), so this is a `src/`-only move; no runtime behavior changed for this round. This is a
-NOTE rather than an erratum for the same reason as the note above: no published sentence in this
-report was wrong, the three moved numbers live in `RUNTIMERES_COUNTS`, and the `guards` total
-stays **152** (three values re-pinned, no guard added or removed).
+## NOTE — round 6p22bu (2026-08-30, LANE-A): three live-mirror counts move for the Bg0004 census
+
+`COO-DECISION 2026-08-30T14:41+07:00` approved LANE-A's own recommendation to start the CLINE->MOBS
+crosswalk for scene 4 (Slave Market Island) next, of the ten still-shut doors surveyed in round
+`12lyda` — highest native placement count (116) of the ten. `world_population_bg0004.py`, the census
+half of that pair (`world_bg0004_identity.py` is the identity half and builds no actor entries itself),
+builds one entry and sends one carrier — the same single-module move `world_population_bg0015.py` made
+at round `w0pu2i`.
+
+`src_actor_entry_call_sites` moves **17 -> 18**, `src_actor_stream_call_sites` moves **26 -> 27**, and
+`src_modules_building_actor_entries` moves **16 -> 17** (the new name sorts in alphabetically between
+`world_population_bg0002.py` and `world_population_bg0015.py`). This is a NOTE rather than an erratum
+because no published sentence was wrong — the three moved numbers live in the `RUNTIMERES_COUNTS`
+block, a live mirror of a tool run that is expected to move when we write code; all three are re-pinned
+in the tool (`tools/pf_runtimeres_actor_entry_static.py`) and in the bridge-only test module
+(`tests/test_runtimeres_actor_entry_static.py`) in the same round, and the `guards` total stays **152**
+(three values re-pinned, no guard added or removed).
+
+**Not wired.** Unlike bg0002/bg0015 at the round each first landed, this module is not registered in
+`world_scene_travel.CENSUS_SOURCES` or `world_population_handoff.ROSTER_COMPOSERS` this round, and
+scene 4's `login_entry_allowed` stays `false` per the COO decision's own instruction (do not open the
+door until the population component is ready). No player-reachable path changes because of this round;
+`tests/test_world_population_bg0004.py::test_nothing_under_src_imports_this_module_yet` pins that state
+so the day it is wired is a deliberate, visible change to that test, the same protocol
+`test_world_population_bg0015.py`'s own import-census test already documents.
+
+## NOTE — round u3jo4g (2026-08-31, LANE-A): three live-mirror counts move for the Bg0010 census
+
+Second door of the same `COO-DECISION 2026-08-30T14:41+07:00` sequence: round `12lyda`'s own
+placement-count table names scene 10 (Bg0010, "Deep Sea Temple floor 1", 100 native placements) as the
+next-highest after scene 4. `world_population_bg0010.py`, the census half of that pair
+(`world_bg0010_identity.py` is the identity half and builds no actor entries itself), builds one entry
+and sends one carrier — the same single-module move `world_population_bg0004.py` made at round `6p22bu`.
+
+`src_actor_entry_call_sites` moves **18 -> 19**, `src_actor_stream_call_sites` moves **27 -> 28**, and
+`src_modules_building_actor_entries` moves **17 -> 18** (the new name sorts in alphabetically between
+`world_population_bg0004.py` and `world_population_bg0015.py`). This is a NOTE rather than an erratum
+because no published sentence was wrong — the three moved numbers live in the `RUNTIMERES_COUNTS`
+block, a live mirror of a tool run that is expected to move when we write code; all three are re-pinned
+in the tool (`tools/pf_runtimeres_actor_entry_static.py`) and in the bridge-only test module
+(`tests/test_runtimeres_actor_entry_static.py`) in the same round, and the `guards` total stays **152**
+(three values re-pinned, no guard added or removed).
+
+**Not wired.** Same as bg0004 at its own build round, this module is not registered in
+`world_scene_travel.CENSUS_SOURCES` or `world_population_handoff.ROSTER_COMPOSERS` this round, and
+scene 10's `login_entry_allowed` stays `false` (nothing in this round's COO authority extends to
+opening a door — that is a separate later round, same three-round rhythm bg0004 used: build, wire,
+open). No player-reachable path changes because of this round;
+`tests/test_world_population_bg0010.py::test_nothing_under_src_imports_this_module_yet` pins that state.
+This scene also carries a registry-level landing-geometry caution
+(`scenarios/world_scene_registry_001.json`'s own `table_row_differences.the_two_interiors`, pf-adversary
+round `ga91m5`) that a future door-opening round must read before flipping `login_entry_allowed` — not
+relevant to this round's composer build, recorded here only so the citation is not lost between rounds.
+
+## NOTE — round c42axq (2026-08-31, LANE-A): Bg0010 wired, none of the three counts above move
+
+Wiring round for the pair this NOTE's own round (`u3jo4g`) built: `world_scene_travel.CENSUS_SOURCES`,
+`world_population_handoff.ROSTER_COMPOSERS`, and `lane_hooks/lane_a_scene_census.py`'s console reader
+each gain a `bg0010_roster` entry, mirroring `world_population_bg0004`'s own wiring round (`2jdde8`).
+`src_actor_entry_call_sites` / `src_actor_stream_call_sites` / `src_modules_building_actor_entries` are
+**unchanged** by this round — the module that builds the actor entries already existed and was already
+counted at round `u3jo4g`; wiring adds two new *importers* of that module
+(`world_population_handoff.py`, `lane_hooks/lane_a_scene_census.py`), and neither of those files itself
+calls `make_remote_actor_entry`/`make_npc_attr`, so none of the three counts this report tracks move.
+`tests/test_static_verifier_pins_cloud.py` confirmed green with no re-pin needed.
+
+The test named above,
+`test_world_population_bg0010.py::test_nothing_under_src_imports_this_module_yet`, was renamed to
+`test_only_the_population_seam_imports_this_module` this round and now asserts the exact importer set
+(`lane_a_scene_census.py`, `world_population_handoff.py`) rather than the empty set — the same rename
+`test_world_population_bg0004.py`'s own equivalent test went through at round `2jdde8`. Scene 10's
+`login_entry_allowed` still reads `false`: this round wires the composer into both seam tables without
+opening the door, same as bg0004's own wiring round left it.

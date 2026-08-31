@@ -1,12 +1,17 @@
-"""Bg0004 (Slave Market Island) census composer - LANE-A BUILD-002 door 1.
+"""Bg0004 (Slave Market Island) census composer - LANE-A.
 
-``COO-DECISION 2026-08-30T14:41+07:00`` picked scene 4 as the first of ten
-already-checked-safe shut doors to build a composer for.  This is the fourth
-sibling of the same pattern ``world_population`` (scene 1), ``_bg0002``
-(scene 2) and ``_bg0015`` (scene 14) already ship: it refuses anywhere but
-scene 4, over ``world_bg0004_identity``'s 84 shippable placements of 116.
-Every wire call below is the exact frozen serializer the other three already
-use (``legacy.make_npc_attr`` / ``make_remote_movement_attr`` /
+``COO-DECISION 2026-08-30T14:41+07:00`` approved this lane's own
+recommendation to build scene 4's CLINE->MOBS crosswalk next, of the ten
+still-shut doors surveyed in round ``12lyda``.  This is the census half; the
+identity half is ``world_bg0004_identity``.
+
+THE SIBLING PATTERN, NOT A FORK.  ``world_population`` builds bg0001's
+census and refuses anywhere but scene 1; ``world_population_bg0002`` and
+``world_population_bg0015`` are the same shape for scenes 2 and 14.  This is
+the fourth: it refuses anywhere but scene 4, over
+``world_bg0004_identity``'s 109 shippable placements of 116.  Every wire call
+below is the exact frozen serializer the other three already use
+(``legacy.make_npc_attr`` / ``make_remote_movement_attr`` /
 ``make_remote_actor_entry`` / ``make_runtime_remote_actors``), and the wire
 header constants and the accepted initial+reapply schedule are IMPORTED from
 ``world_population`` rather than redefined - they describe the wire format,
@@ -14,39 +19,35 @@ which is not scene-specific.
 
 WHAT IS DIFFERENT FROM THE OTHER THREE, NAMED RATHER THAN LEFT IMPLICIT.
 
-* This scene has the biggest unresolved fraction of the four: 32 of 116
-  placements (28%) are dropped, dominated by one dense 25-placement cluster
-  (Mob-Set 107) whose leader has no ``MOBS_TIP`` name at all.  See
-  ``world_bg0004_identity``'s docstring for the full breakdown.  The console
-  line prints ``assembled=N/116`` every boot, never quietly against the 84
-  that happen to resolve.
-* No faction/hostile bit on ANY entry here, same convention as the other
-  three: this module ships identity and position, not combat presentation.
-  A caller that wants the 11 ranked Mob-Set rows (28, 29, 30, 31 .. 38, 45,
-  46, 108 - the resolved rows with ``rank != 0`` in
-  ``world_bg0004_identity._RESOLVED_ROWS``) hostile owes them the same
-  override splice lane B's hostile-monster module and ``mob_death.py`` use
-  for the other scenes, generalized here - not built in this module.
+* Unlike Bg0002 (every placement named) and like Bg0001/Bg0015, this scene
+  has ONE placement family that ships with an EMPTY name: Mob-Set 107
+  (leader 917, outfit ``INVISIBLE``), which alone accounts for 25 of the 109
+  shippable placements - see ``world_bg0004_identity``'s own docstring for
+  why that is the same shape Port Royal already ships (leader 917 there
+  too, at its own Mob-Set 98/103) rather than a new refusal rule.
 * HP is real and comes from the table chain, not composed:
-  ``STANDARD_MOB[MOBS.n_LEVEL_MIN].n_HPMAX``.  Sent as current == max
-  (alive), matching every other census in this tree.
-
-THE HANDBACK, STATED PLAINLY BECAUSE IT IS THIS ROUND'S REAL LIMIT.  Nothing
-in this repository calls this module yet.  ``runtime.py``'s census dispatch
-is chief's file, not this lane's, and this round does not touch it or ask
-for scene 4's login door to open (``COO-DECISION 2026-08-30T14:41+07:00``
-says explicitly: "ยังไม่แก้ login_entry_allowed ของฉาก 4 จนกว่าตัวประกอบจะ
-พร้อมจริง" - do not open the door until the composer is ready, and a single
-round's composer with no attended eyes on it yet is not "ready" in the sense
-that decision means).  The one-line request for the next wiring step is in
-this round's PR body.
-
-WHAT THIS MODULE DOES NOT CLAIM.  Everything
-``world_bg0004_identity``'s "WHAT THIS MODULE DOES NOT CLAIM" says,
-unchanged, and: no human has ever seen this scene in this project, so there
-is no client-observable layer under any of it yet.  Until a ticket exists
-for this scene, ``census_console_lines`` is wire/DB-layer evidence and
-nothing above that.
+  ``STANDARD_MOB[MOBS.n_LEVEL_MIN].n_HPMAX``, sent as current == max
+  (alive), matching every other composer's "no half-dead spawn" convention.
+* There is no faction bit on any entry here.  Whether any of this scene's
+  monster-shaped placements (Scythe Beetle, Dragon Gladiator, Orc Chief and
+  so on - the level 46-58 sets that carry a nonzero MOBS.n_RANK) should be
+  hostile is a LANE-B decision (the same split PANYA-DECISION 2026-08-27
+  20:10 drew for Bg0002's "widen the hostile faction pair" item), deliberately
+  not made here - a wrong identity a player can walk up to and read is
+  recoverable, a wrong identity that attacks on sight is not.
+* WIRED, ROUND 2jdde8, DOOR STILL SHUT.  This module is now registered in
+  ``world_scene_travel.CENSUS_SOURCES`` and
+  ``world_population_handoff.ROSTER_COMPOSERS`` (the same two-table change
+  ``world_population_bg0015`` needed, and
+  ``lane_hooks/lane_a_scene_census.py`` reads its console lines the same
+  way).  Scene 4's ``login_entry_allowed`` STILL reads ``false`` (COO-DECISION
+  2026-08-30T14:41's own instruction stands: the wiring round is not the
+  door-opening round), and the admission check in
+  ``lane_hooks/lane_a_scene_census.py`` declines every call this composer
+  receives on the real registry today - see that module's own docstring for
+  the property this rests on.  A player sees exactly what they saw
+  yesterday because of this file, same as the round scene 14's composer was
+  wired and still sat behind a shut door for several more rounds.
 """
 
 from __future__ import annotations
@@ -64,9 +65,11 @@ from .population import (
 )
 
 
-# Convention marker only: nothing branches on it and no chief-owned file
-# imports this module yet.  See the handback above before reading this as
-# "live today".
+# Convention marker only: nothing chief-owned (runtime.py/app.py) imports
+# this module directly.  It IS imported from this lane's own
+# world_population_handoff.py and lane_hooks/lane_a_scene_census.py since
+# round 2jdde8 - see the module docstring's "WIRED, DOOR STILL SHUT"
+# paragraph for why that import does not make this live today.
 production_allowed = True
 test_only = False
 
@@ -144,11 +147,13 @@ def _require_actor_count(actor_count: Any) -> int:
 def census_order(
     player_xyz: tuple[float, float, float],
 ) -> tuple[identity.Bg0004Placement, ...]:
-    """The 84 shippable placements, nearest the anchor first.
+    """The 109 shippable placements, nearest the anchor first.
 
-    Nearest-first is the same order the other three censuses use.
-    ``shippable_placements`` has already dropped the 32 with no identity;
-    this only orders what it returned.
+    Nearest-first is the same order every other composer uses, and it is
+    what makes a truncated count (a caller asking for fewer than the whole
+    roster) show the player the actors around them rather than an arbitrary
+    slice of the island.  ``shippable_placements`` has already dropped the
+    seven with no identity; this only orders what it returned.
     """
     x, y, z = _require_anchor(player_xyz)
     ordered = sorted(
@@ -162,16 +167,20 @@ def census_order(
 
 
 def _entry(legacy: Any, placement: identity.Bg0004Placement) -> bytes:
-    """One actor entry: the same frozen shape the other three censuses build.
+    """One actor entry: the same frozen shape every other census builds.
 
-    The first ``make_npc_attr`` parameter is the real ``MOBS.n_ID`` from the
-    CLINE crosswalk, never the Mob-Set number, matching bg0001's and
-    bg0015's identity modules.
+    The first ``make_npc_attr`` parameter is the serializer's own
+    "MOBS/template u16 at +0x78", and what goes into it is the REAL
+    ``MOBS.n_ID`` from the CLINE crosswalk - never the Mob-Set number, which
+    is the exact mistake ``GT-078`` put on the owner's screen for bg0001.
 
     HEADING.  This scene's placement rows carry no heading column either
-    (same shape ``world_population_bg0002``'s ``_entry`` measured), so this
-    reuses ``world_population.HEADINGS`` on the placement index exactly as
-    the other three scenes do.
+    (measured the same way ``world_population_bg0002``'s ``_entry`` measured
+    it for its own scene: the extra f32 triple this TSV format carries is a
+    round-number 0-6000 range repeated across unrelated rows, the shape of a
+    radius/range, not a rotation), so this reuses ``world_population.
+    HEADINGS`` on the placement index exactly as every other scene does
+    rather than inventing a second heading policy.
     """
     npc_attr = legacy.make_npc_attr(
         placement.n_id,
@@ -206,10 +215,10 @@ def build_bg0004_population(
 ) -> Bg0004PopulationGeneration:
     """Build the Bg0004 roster as ONE RuntimeRes collection.  Sends nothing.
 
-    ``scene_id`` has no default on purpose, the same reason the other three
-    builders give: every actor in this table is encoded with scene 4, and a
-    caller that forgets which scene it is in would deliver slave-market
-    NPCs into the wrong map.  Refuses anywhere but scene 4.
+    ``scene_id`` has no default on purpose, the same reason every other
+    builder gives: every actor in this table is encoded with scene 4, and a
+    caller that forgets which scene it is in would deliver slave-market NPCs
+    into a different map.  Refuses anywhere but scene 4.
     """
     if type(scene_id) is not int or scene_id != SCENE_N_ID:
         raise Bg0004CensusError(
@@ -218,6 +227,9 @@ def build_bg0004_population(
     if count_source not in COUNT_SOURCES:
         raise Bg0004CensusError("unknown count source %r" % count_source)
     count = _require_actor_count(actor_count)
+    # Same guard bg0015's composer carries (pf-adversary, round w0pu2i):
+    # without it a caller can build a 5-actor census, label it "full roster",
+    # and the console line would print an unexplained shortfall.
     if count_source == COUNT_SOURCE_FULL_ROSTER and count != ROSTER_COUNT:
         raise Bg0004CensusError(
             "count source %r claims the whole roster but the count is %d, "
@@ -258,8 +270,12 @@ def wire_actor_count(generation: Bg0004PopulationGeneration) -> int:
 
 
 def dispatch_report(generation: Bg0004PopulationGeneration) -> dict:
-    """Count what assembled BEFORE it goes out, cross-checked against the
-    bytes -- the same three numbers every census in this tree reports."""
+    """Count what assembled BEFORE it goes out, cross-checked against the bytes.
+
+    The same three numbers every other census reports: what was assembled,
+    what the wire header says, and whether the body bytes really total that
+    many entries.
+    """
     if type(generation) is not Bg0004PopulationGeneration:
         raise Bg0004CensusError(
             "dispatch report needs a Bg0004PopulationGeneration")
@@ -298,11 +314,10 @@ def dispatch_report(generation: Bg0004PopulationGeneration) -> dict:
 
 
 def census_console_line(generation: Bg0004PopulationGeneration) -> str:
-    """The one grep-able ``WORLD_CENSUS`` line a boot in this scene prints.
-
-    ``assembled=N/116`` against the scene's REAL placement count, not
-    against the 84 that happen to resolve.  ASCII only (bridge console is
-    cp874).
+    """The one grep-able ``WORLD_CENSUS_BG0004`` line a boot in this scene
+    prints.  ``assembled=N/116`` against the scene's REAL placement count,
+    not against the 109 that happen to resolve.  ASCII only (bridge console
+    is cp874).
     """
     report = dispatch_report(generation)
     return (
@@ -324,7 +339,14 @@ def census_console_line(generation: Bg0004PopulationGeneration) -> str:
 
 
 def actor_lines(generation: Bg0004PopulationGeneration) -> tuple[str, ...]:
-    """One ASCII line per actor: ``n_ID name level @x,y,z``."""
+    """One ASCII line per actor: ``n_ID name lv%d hp%d @x,y,z``.
+
+    The headless half of the two-layer evidence rule: a grader can read who
+    this census says is standing where, without a client.  Every name in the
+    shipped table is ASCII by ``world_bg0004_identity._self_check`` (empty
+    for set 107's INVISIBLE marker, which prints as an empty name rather than
+    a fabricated one).
+    """
     if type(generation) is not Bg0004PopulationGeneration:
         raise Bg0004CensusError("actor lines need a Bg0004PopulationGeneration")
     placements = {p.placement_index: p
@@ -341,11 +363,16 @@ def actor_lines(generation: Bg0004PopulationGeneration) -> tuple[str, ...]:
 
 
 def unresolved_lines() -> tuple[str, ...]:
-    """One ASCII line per DROPPED placement, with the reason."""
+    """One ASCII line per DROPPED placement, with the reason.
+
+    CHARTER-02's rule in executable form: a shortfall is reported with the
+    real number and the real reason, in the same console output as the
+    census, rather than left for someone to notice as a missing actor.
+    """
     return tuple(
         "BG0004_UNSHIPPED placement=%d set=%d cline_row=%d leader_n_id=%d "
         "reason=%s"
-        % (row["placement_index"], row["mobset_key"], row["cline_row_id"],
+        % (row["placement_index"], row["template_id"], row["cline_row_id"],
            row["leader_n_id"], row["reason"].replace(" ", "_"))
         for row in identity.unshippable_placements()
     )
@@ -356,7 +383,14 @@ def census_console_lines(
 ) -> tuple[str, ...]:
     """``WORLD_CENSUS_BG0004`` + one line per actor + one per dropped one.
 
-    Built from ONE generation, never composing the roster twice.
+    Everything a headless proof for this scene needs, in one call, built from
+    ONE generation.  Deliberately does NOT print a ``WORLD_SCENE`` line the
+    way ``world_population_bg0002``'s helper does: this scene's registry
+    entry already has a pinned ``spawn`` (the CLIENT_MARKER_TABLE point), so
+    a caller that wants that line can get it from
+    ``world_scene_travel.entry_console_line`` directly - reproducing it here
+    would print scene-registry evidence a second way for no reason this
+    module owns.
     """
     generation = build_bg0004_population(
         legacy, player_xyz, scene_id=SCENE_N_ID,

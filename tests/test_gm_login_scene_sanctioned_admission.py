@@ -31,12 +31,18 @@ together and each is cheap to break by accident:
 WHAT IS NOT CLAIMED HERE.  Nothing in this file claims a byte reached a
 client, that anybody warped anywhere, or that scene 126 is reachable in
 game.  These are module-layer facts about which scene ids two config
-readers accept.  MEASURED on main this round: lane A's registry row for 126
-does not exist yet (`sanctioned_barred_blocker(126) ==
-lane_a_registry_row_missing`), so the widening admits NOTHING today and the
-route is still one merge short.  The tests below that need the row supply a
-STAND-IN registry rather than waiting for it -- which is also what makes
-them keep working the day the real row lands.
+readers accept.  MEASURED on `main` as of round `R249` (chief, gate-red
+repair of `pirate-force-server#332`): lane A's registry row for 126 landed
+(`sanctioned_barred_blocker(126) == login_path_bars_it_needs_core_request_gm_038`),
+pinned at `(3050, 232, 90)` and barred at ordinary login -- so the single-use
+widening NOW ADMITS scene 126 (`single_use_entry_is_admissible(126)` is
+`True`), while the plain login-scene map still refuses it
+(`stageable_scene_ids()` does not carry it).  The route this file's tests
+guard is therefore live, not "one merge short" -- see
+`TheSanctionNowAdmitsViaSingleUseOnlyTests` below.  Most tests in this file
+never depended on which world was true: they supply a STAND-IN registry
+(`registry_with_sanctioned_row`) so they exercise the SAME question
+regardless of what lane A has landed on disk.
 
 NONCLAIM (GM lane rule): every route exercised here is a GM shortcut.  A
 tester who reaches scene 126 this way has skipped whatever in-game travel
@@ -142,32 +148,56 @@ def registry_with_sanctioned_row(*, login_entry_allowed=False, spawn=True):
         login_entry_allowed=login_entry_allowed,
         spawn=SANCTIONED_SPAWN_PER_CHIEF_DECISION if spawn else None,
     )
-    return world_scene_travel.SceneRegistry(destinations=base.destinations + (row,))
+    # `SceneRegistry.__getitem__` is a linear scan returning the first row
+    # whose n_id matches.  Since lane A landed the real n_id==SANCTIONED
+    # row (round `oprday`, PR #332), `base.destinations` already carries
+    # one -- appending the stand-in after it would make `registry[SANCTIONED]`
+    # resolve to the REAL row instead of this fixture's variant, silently
+    # feeding every caller of this helper the wrong shape.  Drop any
+    # existing row with the same id before appending the stand-in so this
+    # fixture keeps building the shape its `login_entry_allowed`/`spawn`
+    # arguments ask for, independent of whether the real row exists yet.
+    kept = tuple(d for d in base.destinations if d.n_id != SANCTIONED)
+    return world_scene_travel.SceneRegistry(destinations=kept + (row,))
 
 
 @requires_a_sanctioned_scene
-class TheSanctionAdmitsNothingOnMainTodayTests(unittest.TestCase):
+class TheSanctionNowAdmitsViaSingleUseOnlyTests(unittest.TestCase):
     """The state of the route as measured, not as hoped.
 
-    This class goes RED the day lane A lands the row -- deliberately.  At
-    that moment the sentence "the widening admits nothing today" in this
-    file's docstring, in `login_scene_admission`'s header, and in the round
-    letter all stop being true at once, and somebody has to come and say so
-    rather than leaving three documents lying.
+    RENAMED from `TheSanctionAdmitsNothingOnMainTodayTests` in round
+    `R249` (chief, gate-red repair of `pirate-force-server#332`): lane A
+    landed the scene-126 registry row that round (pinned spawn, barred at
+    ordinary login), which is exactly the event this class's old docstring
+    said would turn it red "deliberately".  It did, and this is the
+    "somebody has to come and say so" that docstring asked for -- the
+    class now measures the OTHER true state: the single-use widening
+    admits scene 126, the plain login-scene map still does not, and
+    neither of the other two documents that sentence named needs a
+    correction (`login_scene_admission`'s header never repeated the claim;
+    the round letter is history and stays as written).
     """
 
-    def test_lane_a_has_not_landed_the_row_yet(self):
+    def test_lane_a_has_landed_the_row_barred_at_login(self):
         self.assertEqual(
-            A.BLOCKER_NO_REGISTRY_ROW,
+            A.BLOCKER_LOGIN_PATH_BARS_IT,
             A.sanctioned_barred_blocker(SANCTIONED),
-            "if this is red, lane A landed the row: re-read this file's "
-            "docstring and the round letter, both of which say it had not",
+            "if this is anything else, lane A's registry row for scene "
+            "126 either disappeared or changed shape (spawn/login_entry_"
+            "allowed) since round R249 landed it on main -- re-read "
+            "pirate-force-server#332 before touching this assertion",
         )
 
-    def test_so_the_widening_admits_nothing_today(self):
-        self.assertFalse(A.single_use_entry_is_admissible(SANCTIONED))
+    def test_so_the_widening_admits_it_for_single_use_only(self):
+        self.assertTrue(A.single_use_entry_is_admissible(SANCTIONED))
+        self.assertNotIn(SANCTIONED, A.stageable_scene_ids())
+        self.assertIn(SANCTIONED, A.single_use_stageable_scene_ids())
         self.assertEqual(
-            A.stageable_scene_ids(), A.single_use_stageable_scene_ids()
+            set(A.single_use_stageable_scene_ids())
+            - set(A.stageable_scene_ids()),
+            {SANCTIONED},
+            "the single-use map should widen by exactly the one sanctioned "
+            "scene, not by more than the sanction map names",
         )
 
 
@@ -200,10 +230,20 @@ class OnlyTheBlockerTheBypassFixesTests(unittest.TestCase):
         )
 
     def test_a_missing_row_is_still_refused(self):
-        # The state on main today, asserted through the parameter rather
-        # than through the disk so it keeps testing the rule after the row
-        # lands.
+        # Lane A's real row for 126 landed on main in round R249
+        # (`pirate-force-server#332`), so the disk registry no longer
+        # exercises "missing row" on its own -- build that shape through
+        # the parameter instead, which is what this test's own comment
+        # always intended ("asserted through the parameter rather than
+        # through the disk so it keeps testing the rule after the row
+        # lands").
         registry = world_scene_travel.load_scene_registry()
+        registry = replace(
+            registry,
+            destinations=tuple(
+                d for d in registry.destinations if d.n_id != SANCTIONED
+            ),
+        )
         self.assertEqual(
             A.BLOCKER_NO_REGISTRY_ROW,
             A.sanctioned_barred_blocker(SANCTIONED, scene_registry=registry),
@@ -392,13 +432,20 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
     """
 
     def test_a_single_use_refusal_is_flagged(self):
+        # Lane A's real row for 126 landed on main in round R249
+        # (`pirate-force-server#332`) with a pinned spawn, so the single-use
+        # rule now ADMITS it -- the real disk can no longer stand in for "a
+        # sanctioned scene refused by the single-use rule".  Use a stand-in
+        # registry where the row exists but has no pinned spawn instead:
+        # still refused (`BLOCKER_NO_PINNED_SPAWN`), still flagged
+        # single_use, and no longer dependent on lane A never landing.
         self.write_gm_map(SANCTIONED)
         with self.assertRaises(
             login_scene_override.LoginSceneRefusedError
         ) as caught:
             login_scene_override.load_login_scene_overrides(
                 self.gm_map_path,
-                scene_registry=world_scene_travel.load_scene_registry(),
+                scene_registry=registry_with_sanctioned_row(spawn=False),
             )
         self.assertTrue(caught.exception.single_use)
         self.assertEqual(SANCTIONED, caught.exception.scene_id)
@@ -440,9 +487,12 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
                 A.disk_admits_under_rule(SANCTIONED, single_use=False),
                 "the plain rule -- the standalone map's rule -- must not",
             )
-        # And on the disk as it stands today, both refuse, for the honest
-        # reason that lane A's row is not there.
-        self.assertFalse(A.disk_admits_under_rule(SANCTIONED, single_use=True))
+        # UPDATED round R249 (chief, gate-red repair of
+        # `pirate-force-server#332`): lane A's row for 126 is on the real
+        # disk now, pinned and barred at login -- so outside the mocked
+        # "future" this context manager used to simulate, the single-use
+        # rule already admits it, and only the plain rule still refuses.
+        self.assertTrue(A.disk_admits_under_rule(SANCTIONED, single_use=True))
         self.assertFalse(A.disk_admits_under_rule(SANCTIONED, single_use=False))
 
     def test_the_remedy_word_follows_the_rule_that_refused(self):
@@ -457,7 +507,18 @@ class TheRefusalCarriesTheRuleThatRefusedTests(_ConfigCase):
         from pirateforce_foundation.gm import login_scene_consume as C
 
         self.write_gm_map(SANCTIONED)
-        stale_snapshot = world_scene_travel.load_scene_registry()
+        # Lane A's row landed on the real disk in round R249
+        # (`pirate-force-server#332`), so a plain snapshot of the disk can
+        # no longer stand in for "booted before lane A merged" -- build
+        # that shape explicitly instead of relying on which world happens
+        # to be true today.
+        disk_today = world_scene_travel.load_scene_registry()
+        stale_snapshot = replace(
+            disk_today,
+            destinations=tuple(
+                d for d in disk_today.destinations if d.n_id != SANCTIONED
+            ),
+        )
         with lane_a_row_on_disk(registry_with_sanctioned_row()):
             result = C.consume_login_scene_override(
                 self.GM_ACCOUNT,
@@ -621,12 +682,23 @@ class TheUndoBelievesTheSameRuleTests(_ConfigCase):
         self.assertIn(
             SANCTIONED, A.single_use_stageable_scene_ids(scene_registry=registry)
         )
-        result = self.stage(SANCTIONED, registry)
+        # Lane A's real row landed on the real disk in round R249
+        # (`pirate-force-server#332`), so an unmocked call no longer
+        # exercises "before the merge" -- that state now has to be built
+        # explicitly, the same way `TheRefusalCarriesTheRuleThatRefusedTests`
+        # does it, rather than relied on as the ambient truth of the repo.
+        disk_before_merge = replace(
+            registry,
+            destinations=tuple(
+                d for d in registry.destinations if d.n_id != SANCTIONED
+            ),
+        )
+        with lane_a_row_on_disk(disk_before_merge):
+            result = self.stage(SANCTIONED, registry)
         self.assertFalse(
             result.staged,
-            "if this goes green the disk grew the row -- re-read the bound "
-            "above; the way out and the stage now agree and this test is "
-            "testing nothing",
+            "the way out (computed from the snapshot) named a scene the "
+            "disk (still missing the row) had to refuse",
         )
         # Both readings agreeing is what closes the gap, and it is the
         # state the day lane A merges AND the process is restarted.
@@ -649,7 +721,22 @@ class TheUndoBelievesTheSameRuleTests(_ConfigCase):
         # the disk reading is asked first and refuses, so nothing is
         # written.  This is what makes the test above a statement about
         # lane A's merge rather than about a mock.
-        result = self.stage(SANCTIONED, registry_with_sanctioned_row())
+        #
+        # Round R249 landed lane A's real row on the real disk, so "NOT on
+        # disk" now has to be built explicitly (`lane_a_row_on_disk` mocked
+        # to a row-less registry) instead of relied on as the ambient state
+        # of the repo -- otherwise both the disk and the snapshot would
+        # admit it and this test would stage the very thing it means to
+        # refuse.
+        disk_today = world_scene_travel.load_scene_registry()
+        disk_before_merge = replace(
+            disk_today,
+            destinations=tuple(
+                d for d in disk_today.destinations if d.n_id != SANCTIONED
+            ),
+        )
+        with lane_a_row_on_disk(disk_before_merge):
+            result = self.stage(SANCTIONED, registry_with_sanctioned_row())
         self.assertFalse(result.staged)
         self.assertEqual(
             login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE, result.reason
@@ -728,17 +815,34 @@ class TheUndoBelievesTheSameRuleTests(_ConfigCase):
 
     def test_a_snapshot_that_lacks_the_row_still_narrows_the_write(self):
         # A SNAPSHOT MAY NOT WIDEN A WRITE, and it may still narrow one.
-        # The disk has no row for the sanctioned scene today, so this is
-        # also the live state: staging it against the real registry refuses.
-        self.assertFalse(
-            self.stage(SANCTIONED, world_scene_travel.load_scene_registry()).staged
+        # Round R249 landed lane A's row on the real disk, so "a snapshot
+        # that lacks the row" now has to be built explicitly rather than
+        # read off the disk as-is -- the disk itself narrows nothing today.
+        disk_today = world_scene_travel.load_scene_registry()
+        missing_row = replace(
+            disk_today,
+            destinations=tuple(
+                d for d in disk_today.destinations if d.n_id != SANCTIONED
+            ),
         )
+        self.assertFalse(self.stage(SANCTIONED, missing_row).staged)
         self.assertEqual({}, json.loads(self.gm_map_path.read_text())
                          .get("gm_login_scene", {}) if self.gm_map_path.exists()
                          else {})
 
     def test_the_refusal_names_the_sanction_rather_than_a_bare_no_entry(self):
-        result = self.stage(SANCTIONED, world_scene_travel.load_scene_registry())
+        # Round R249 landed lane A's row on the real disk, so provoking the
+        # DISK-refuses-it branch (the one this test is about) needs an
+        # explicit "before merge" disk now, not the unmocked one.
+        disk_today = world_scene_travel.load_scene_registry()
+        disk_before_merge = replace(
+            disk_today,
+            destinations=tuple(
+                d for d in disk_today.destinations if d.n_id != SANCTIONED
+            ),
+        )
+        with lane_a_row_on_disk(disk_before_merge):
+            result = self.stage(SANCTIONED, disk_before_merge)
         self.assertEqual(
             login_scene_stage.REASON_SANCTIONED_NOT_YET_REACHABLE, result.reason
         )

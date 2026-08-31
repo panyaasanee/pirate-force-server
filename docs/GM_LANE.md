@@ -4624,3 +4624,670 @@ are a ladder whose top rung this lane cannot reach.
 ที่วัดผ่าน dispatcher จริงแบบ headless (`QueuedRowLandsEndToEndTests`) และเทสออฟไลน์
 · ประตู ForcePos ยังปิดอยู่ (`FORCE_POS_VITAL_VERSION_CONFIRMED is None`, RE-129)
 ⇒ รอบนี้ไม่ได้ทำให้ไบต์ใด ๆ ออกสู่ไคลเอนต์เพิ่มขึ้นแม้แต่ไบต์เดียว
+
+### `spawn` closed bounded-negative, `npc` opened as `CORE-REQUEST-GM-041` (round `5btl0q`)
+
+chief (round `nnlka4`, `notes_to_chief 20260830_1804`) confirmed by an independent source-wide grep
+that no function in `src/` or `gm/` creates a new mob actor and inserts it into a running world -- the
+project's only `def spawn*` is a coordinate finder (`world_scene_travel.py:657`), not an actor factory.
+`gm/commands.py`'s module docstring is updated to state this as settled (bounded-negative), not
+"RE-open" -- a future round must not reopen a CORE-REQUEST asking for a mob-spawn factory call site,
+because there is no factory to call. Making `spawn` real needs a new engine feature, out of scope for a
+CORE-REQUEST.
+
+`npc on|off <mob_id>` is a different shape of problem: it toggles an NPC that already exists in the
+game's own tables (`gm/npc_switch_catalog.py`'s 7 `n_GM_SWITCH=1` rows), not a new actor. `runtime.py`
+already runs a re-encode/admission cycle for existing mobs via `mob_scene_recompose.recompose_frames`
+(`:4342,4640,4650`) and `mob_scene_recompose.census_anchor` (`:7230,7498,7715,7924`) --
+`CORE-REQUEST-GM-041` (`notes_to_chief 20260830_1817`) asks chief for a call site that lets `gm/`
+trigger that same cycle for a GM-switchable `mob_id`, mirroring how `CORE-REQUEST-011` bridges `warp`.
+Not built yet -- `npc` still only parses and logs, same as every other GM-003 command, until the call
+site lands and an end-to-end test proves it.
+
+**NONCLAIM:** no client opened, no live measurement, no code path added this round beyond a docstring
+edit -- `npc`/`item`/`lv`/`spawn`/`warp`/`say` all behave identically to before this round.
+
+### `npc` gets a real diagnostic answer instead of a static assumption (round `nbihci`)
+
+`CORE-REQUEST-GM-041`'s read point (`gm_npc_toggle_recompose.npc_toggle_would_recompose`,
+chief's module, round `bunu7v`) is now called from `gm/chat_command_action.py`'s no-wire-path
+branch for `npc` only -- one diagnostic event
+(`gm_chat_action_npc_recompose_diagnostic_{not_switchable,would_recompose_true,
+would_recompose_false,bad_args_shape,unexpected_<ExcType>}`), never a change to `verdict`.
+Runs AFTER `verdict` is bound (pf-adversary this round measured the first draft calling it one
+line too early, before the binding -- fixed, and the call site's own comment now says so
+correctly). Shape guard uses `type(args) is not tuple`, matching `commands.py`'s own
+`_require_args_tuple` -- an `isinstance` check was proposed first and pf-adversary reproduced a
+`tuple` subclass lying through `__len__`/`__getitem__` defeating it; a live test
+(`test_a_lying_tuple_subclass_is_rejected_not_trusted`) pins the fix.
+
+Opened `CORE-REQUEST-GM-042` (state store + write point + roster filter) for the follow-up that
+would flip the diagnostic's answer from a measured `false` to a real per-mob check -- chief's own
+letter invited this as a separate request, not part of GM-041's scope.
+
+**NONCLAIM:** `npc on|off` still has zero effect in the game, exactly as before this round -- the
+diagnostic only lets a console grep tell "would recompose" from "would not" today, both of which
+mean nothing changes yet.
+
+## Round `dao2gd` -- item_catalog's one bare KeyError, and the blank scene rows that were never pinned
+
+Consumed chief's reply of 2026-08-30T21:00+07:00 to `CORE-REQUEST-GM-042`
+(`notes_to_chief/20260830_2100_CHIEF-REPLY-CORE-REQUEST-GM-042-store-plus-write-point-deferred-
+filter-wiring-too-risky-partial-read.md`) -- GM-042 stays OPEN, chief built neither the state
+store nor the roster filter this round, and reading that letter unlocked nothing new on this
+lane's own file territory (`gm/`) to build against. No code changed from it; see this round's own
+`notes_to_chief` letter for the acknowledgement.
+
+With no unblocked wiring step ready (`spawn` bounded-negative since `nnlka4`, `npc`/`item`/`lv`
+still waiting on a runtime.py call site none of which a CORE-REQUEST can shortcut this round), this
+round read `gm/item_catalog.py`, `gm/scene_catalog.py` and their test files end to end for edge-case
+gaps left by GM-004 (scene catalog) and the GM-042 prep item catalog -- neither module had touched
+runtime.py or another lane's file, and neither has an open RE/CORE-REQUEST blocking it. Found two:
+
+**1. `item_catalog.item_max_stack` leaked a bare, unnamed `KeyError`.** Every other lookup this
+module exposes (`item_name`, `is_known_item`) raises a `KeyError`/`ValueError` naming the id and
+category that failed to resolve. `item_max_stack(99999999, category="misc")` instead raised
+`KeyError('99999999')` -- the dict's own repr, with no mention of the category it was checked
+against. A caller catching `KeyError` by type cannot tell that apart from an unrelated bug (a wrong
+dict, a typo'd key) without reading this function's source. Fixed by wrapping the one dict lookup
+(`gm/item_catalog.py:170-186`) in the same try/except-and-rename pattern `item_name` already uses;
+no behavior change for a known id, confirmed by a test that reads the plain int back
+(`tests/test_gm_item_catalog.py::test_item_max_stack_known_id_unaffected_by_the_error_message_fix`).
+A second test pins that the message names the category actually QUERIED, not one the id happens to
+resolve in elsewhere (id `1` is known in `quest` but not `consumable` --
+`test_item_max_stack_unknown_id_message_names_the_category_it_was_checked_against`). `item_max_stack`
+has no production caller yet (grepped; only test files call it, matching the module's own GM-042
+prep docstring), so this is a contract cleanup with zero live-path risk, not a wiring change.
+
+**2. Four scene ids the client's own table leaves nameless were untested.** `gm_scene_name_tip.tsv`
+rows 13/137/138/141 carry an empty string in BOTH `s_SCENE_NAME` and `s_GM_SCENE_NAME` -- not a
+parsing gap this module introduced, a fact of the committed client table (verified against the raw
+tsv, not guessed). `scene_catalog.is_known_scene_id(13)` is `True` and `gm_scene_name(13)` returns
+`""`, which was previously unexercised by any test -- the existing suite only pinned a real name
+(id 1/2/3) and a truly-absent id (123456), leaving the third state (id present, name blank) to be
+discovered by whoever next read `gm_scene_name(13) == ""` and had to guess whether that was a bug.
+Pinned in `tests/test_gm_scene_catalog.py::test_blank_rows_in_the_clients_own_table_are_known_but_
+empty_named` and, one layer up, in `commands.describe_warp_target` via
+`tests/test_gm_commands.py::DescribeWarpTargetTests::test_a_scene_id_the_client_itself_left_
+nameless_is_still_known_not_none` -- `describe_warp_target(warp 13)` returns `""`, not `None`, and
+a caller must not read that empty string as "unknown scene, refuse the warp": the warp itself is
+judged by `login_scene_admission`/`world_scene_travel`, never by this hint. No source or docstring
+changed for either module; both are documentation-by-test of behavior that already existed.
+
+### pf-adversary
+
+The dedicated `pf-adversary` subagent tool was not reachable from this delegated session (no
+`Agent`/`Task`-shaped tool was present in this round's tool set -- checked via tool search before
+concluding this, not assumed). Ran the equivalent adversarial pass by hand instead of skipping it:
+grepped every production and test caller of `item_max_stack` to confirm zero live-path callers exist
+(only `tests/test_gm_item_catalog.py`, matching the module's own "GM-042 prep, not wired yet"
+docstring, so the message-text change cannot break a runtime consumer); re-derived the four blank
+scene ids straight from the committed tsv rather than trusting a memory of them; ran the full `gm_`
+test slice (1052 passed, 0 failed) both before describing this round's findings and after applying
+the fix, to rule out an unrelated regression riding along. Recorded here rather than silently
+substituted, per this lane's own file-territory rule that a gap in process gets named, not folded
+into "reviewed" language it did not earn this round.
+
+### What is NOT claimed
+
+Neither finding is wired to any client-observable behavior and neither touches `runtime.py`,
+`app.py`, `pf_login_game_server_v141.py`, or another lane's `scenarios/*.json`. `item_max_stack` and
+`describe_warp_target` are read by tests only today (GM-042/GM-004 prep) -- this round changed one
+error message and added coverage, nothing a tester watching a live game session can see change.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `dao2gd`)
+
+ไม่มี -- รอบนี้ไม่มีอะไรใหม่ให้ผู้เทสหน้าจอเกมเห็น การเปลี่ยนแปลงทั้งหมดอยู่ในข้อความ error ของฟังก์ชัน
+เตรียมงาน (`item_catalog.item_max_stack`, ยังไม่ถูกเรียกจาก production path ใด ๆ) และเทสที่ pin
+พฤติกรรมเดิมของ `scene_catalog`/`commands.describe_warp_target` ที่มีอยู่แล้วแต่ยังไม่เคยมีเทสคุม
+
+**NONCLAIM:** ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจาก
+รอบนี้ -- `warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ รอบนี้เป็นการ
+ทำความสะอาด error-contract และเทสล้วน ๆ ไม่มีการใช้ GM ข้ามขั้นตอนใดเลย เพราะไม่มีการทดสอบไคลเอนต์จริง
+
+## รอบ `xq4vrn` -- 2026-08-30T23:45+07:00 -- GM-042 prep: `item` gets the same read-only diagnostic `npc` has
+
+### หนึ่งบรรทัด
+
+`gm/chat_command_action.py` ต้นรอบ (Addendum A) ยืนยันซ้ำว่ารอบก่อน (`2f9xji`) landed ครบ: `pf_bridge#535`
+merged=true; `pirate-force-server#337` merged=false แต่ diff ของมันซ้ำซ้อนกับ chief's merged `#334`
+ทุกจุด (ตรวจด้วย `pull_request_read get_files`/`get diff` ทั้งคู่ตรง ๆ ไม่เชื่อจดหมาย) -- ไม่ต้อง
+cherry-pick อะไร ยืนยันซ้ำจาก `origin/main` เองว่า `test_gm_login_scene_sanctioned_barred.py` มี dedup
+filter (`d.n_id != SANCTIONED`) ครบแล้วจริง แล้วจึงต่อยอด: `gm/item_catalog.py` (สร้างรอบ `opr2xd`, GM-042
+prep) มีอยู่แล้วแต่ไม่เคยถูกเรียกจากที่ไหนใน `gm/` เลย -- รอบนี้เพิ่ม `_note_item_catalog_diagnostic`
+mirror ของ `_note_npc_recompose_diagnostic` (CORE-REQUEST-GM-041's ของ `npc`) ทุกกระเบียดนิ้ว: same
+`type(args) is not tuple` guard, same `noqa: BLE001` boundary, called จากจุดเดิมหลัง `verdict` ผูกค่า
+แล้ว (จุดที่ pf-adversary รอบ `nbihci` เคยจับได้ว่าเรียกเร็วไปหนึ่งบรรทัด)
+
+### ทำไมสามคำตอบ ไม่ใช่สองแบบ npc
+
+`item_catalog.item_category(item_id)` คืน 0, 1 หรือมากกว่า 1 หมวด (module docstring: id ชนกันข้ามตาราง
+misc/consumable/quest จริง วัดแล้ว) -- diagnostic รอบนี้จึงตอบสามแบบ: `unknown` (ไม่มีในตารางไหนเลย)
+`known_<category>` (พบหมวดเดียว -- กรณีทั่วไป) `ambiguous_<n>` (พบ n หมวด, n=2 หรือ 3) วัดสดยืนยันตัวอย่าง
+จริงแทนการเดาจาก docstring เดิม (docstring ยกตัวอย่าง id 1/6 ผิดคู่จากที่วัดได้จริงรอบนี้ -- id 1 ชนกัน
+misc+quest ไม่ใช่ misc+consumable อย่างที่ตัวอย่างเดิมบอก; ไม่ได้แก้ docstring เพราะยังไม่ใช่จุดที่รอบนี้
+แตะ แต่บันทึกไว้ตรงนี้ให้คนอ่านรอบหน้ารู้ว่าตัวอย่างในเอกสารต้นทางคลาดเคลื่อนจากตารางจริงเล็กน้อย)
+
+### ทำไมยังไม่เปิด CORE-REQUEST หรือขยาย grammar
+
+คำถาม "จะทำ `item <id> <n>` ยังไงกับ id ที่ชนกันข้ามหมวด" (ที่รอบ `opr2xd` บอกไว้ว่า "chief/Panya
+เป็นคนตัดสิน ไม่ใช่ฝั่งนี้") **ยังไม่ตัดสิน** -- diagnostic รอบนี้แค่ทำให้คำถามนั้น**วัดได้จากคอนโซล**
+ทุกครั้งที่พิมพ์ `/item <id> <n>` (ไม่ต้องเปิดไฟล์ ndjson) ไม่ใช่การตัดสินใจแทน ไม่แตะ grammar 2-argument
+เดิมเลย (`COMMAND_USAGE["item"]` ไม่เปลี่ยน) เพราะการเพิ่ม argument ที่สามเป็นการเปลี่ยน interface ที่
+operator เห็น ต้องรอ chief/Panya เคาะก่อนตามที่ระบุไว้แล้ว
+
+### เทส (ยืนยันด้วย mutation-kill จริง ไม่ใช่แค่เขียนแล้วเขียว)
+
+5 เทสใหม่ใน `tests/test_gm_chat_command_action.py`: known-single-category (id 11 -> `quest`),
+unknown (id สมมติใหญ่เกินตาราง), ambiguous (id 1 -> 2 หมวด), exception-safety (`RuntimeError` ถูก mock
+เข้าไปที่ `item_catalog.item_category` -> `unexpected_RuntimeError`, ไม่หลุดออกนอกฟังก์ชัน), lying-tuple
+(`tuple` subclass โกหก `__len__`/`__getitem__` -> `bad_args_shape`, ไม่มี `known_`/`ambiguous_` event
+ใด ๆ หลุดออกมา) -- ยืนยัน mutation-kill ของกรณี single-category ด้วยมือ (`pf-adversary` subagent ไม่มีให้
+เรียกอีกครั้ง, สี่รอบติดต่อกันแล้วนับจาก `opr2xd`): แก้ `elif len(cats) == 1` เป็น `== 999` ชั่วคราว รัน
+เทส เห็นแดงจริง (`known_quest` หาไม่เจอ, ได้ `ambiguous_1` แทน) แล้วคืนของเดิม รันเขียวอีกครั้งก่อนคอมมิต
+(ระหว่างขั้นตอนนี้พลาดใช้ `git checkout --` ทับไฟล์ source ทั้งไฟล์โดยไม่ตั้งใจครั้งหนึ่ง -- เขียนซ้ำใหม่
+ทั้งหมดจาก diff ที่จำได้ ตรวจด้วย `git diff`/pytest ซ้ำจนมั่นใจว่าเหมือนของเดิมทุกบรรทัดก่อนไปต่อ บันทึก
+ไว้ตรงนี้เป็นบทเรียนกระบวนการ ไม่ใช่เพราะกระทบผลลัพธ์สุดท้าย)
+
+`pytest tests/test_gm_chat_command_action.py -q`: **68 passed** (+5 จากเดิม), 64 subtests
+`pytest tests/ -q` เต็ม: **5595 passed, 327 skipped, 9729 subtests passed**, 0 failed (base
+`origin/main` ที่ 53b9a0b ต้นรอบ, cloud sanity)
+
+### กล่องจดหมาย (Addendum B)
+
+สองใบบริโภครอบนี้ (ทั้งคู่ addressed ถึงสาย GM, ไม่มี `.CONSUMED.txt` มาก่อน):
+- `20260830_2048_COO-DECISION-warp-cross-scene-waits-for-gt106-r2.md`: ตัดสินไม่เปิด live teleport
+  กลางเซสชันจนกว่า `GT-106-R2` (ของ chief, ยังไม่เห็นว่าเปิดในคิว ณ เวลาที่ตรวจรอบนี้) จะมีผล -- ตรวจ
+  โค้ดจริง (grep `login_scene_stage.py`/`warp_executor.py`/`chat_command_action.py` หา
+  `[สมมติของสาย GM - รอ COO ยืนยัน]` ที่เกี่ยวกับหัวข้อนี้โดยเฉพาะ): **ไม่พบป้ายให้ลบ** -- ทางเลือก 3
+  (live teleport) ไม่เคยถูกเขียนเป็นโค้ดเลยสักบรรทัด อยู่แค่ระดับข้อเสนอในจดหมาย ป้ายที่จดหมายสั่งให้ลบ
+  จึงไม่มีอยู่จริงให้ลบ -- พฤติกรรม stage-รอ-login-หน้าเดิมของ `warp_executor.py`/`login_scene_stage.py`
+  ไม่เปลี่ยนแปลงเลยสักบรรทัด ตรงตามที่ COO สั่ง
+- `20260830_2244_COO-DECISION-claim-before-work-rule-for-shared-tickets.md`: กติกา "ประกาศจองก่อนเริ่ม"
+  สำหรับใบเปิดกว้างเกินหนึ่งสาย -- รับทราบ ไม่มีใบแบบนั้นเปิดอยู่ในกล่องจดหมายรอบนี้ให้ต้องจอง แต่บันทึก
+  กติกาไว้ที่นี่เพื่อให้รอบหน้าเห็นก่อนหยิบใบเปิดกว้าง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ไม่มี -- `item <id> <n>` ยังคง parse+log เหมือนเดิมทุกประการ ไม่มีการแจกไอเทมจริง รอบนี้แค่เพิ่มบรรทัด
+diagnostic บนคอนโซล/ndjson event ที่นักพัฒนา/ผู้ตรวจอ่านได้ ไม่ใช่สิ่งที่ผู้เล่นหรือผู้เทสในเกมเห็น
+
+### nonclaim
+
+ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจากรอบนี้ --
+`warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ ไม่แตะ
+`runtime.py`/`app.py`/`pf_login_game_server_v141.py` และไม่แตะ `scenarios/world_*.json`/
+`scenarios/combat_*.json` ของสายอื่นเลยตลอดรอบ วัดผลจาก `pytest`/`grep`/`git diff`/`pull_request_read`
+ที่รันจริงเท่านั้น ไม่มีการใช้ GM ข้ามขั้นตอนใดเพราะไม่มีการทดสอบไคลเอนต์จริงในรอบนี้เลย
+
+— สาย GM รอบ `xq4vrn`
+
+## รอบ `aejgap` -- 2026-08-31T00:25+07:00 -- pf-adversary กลับมาใช้ได้: จับ off-by-one ใน docstring ของ `item_catalog.py`
+
+### หนึ่งบรรทัด
+
+ต้นรอบ (Addendum A) ยืนยัน `pf_bridge#541`/`pirate-force-server#342` (รอบ `xq4vrn`) ทั้งคู่ `merged: true`
+บน main แล้ว ไม่มีอะไรต้องกู้ กล่องจดหมายไม่มีใบที่จ่าหน้าถึงสายนี้ค้างบริโภค (สามใบ cc ถึงสายนี้ในคืนนี้
+เป็นเรื่องกติกา CLAIM ของสายอื่น ไม่มีข้อสั่งสายนี้) backlog ในเขต `gm/` ทั้งสามจุด (`GM-042` เต็ม, `GT-128`)
+ยังบล็อกบน chief/COO เหมือนเดิม -- แต่รอบนี้ `pf-adversary` subagent **เรียกได้จริงเป็นครั้งแรกในรอบ
+ติดต่อกันห้ารอบ** (`opr2xd`/`dao2gd`/`xq4vrn` ก่อนหน้าไม่มีให้เรียก) จึงใช้ตัวเลือก (ง) ของกฎข้อ F: ให้
+มันตรวจ `gm/` ทั้งโมดูลหาหนี้สินทางเทคนิคที่ค้างจากการไม่มีมันมาสี่รอบ
+
+### สิ่งที่พบ (ยืนยันซ้ำเองก่อนแก้ ไม่เชื่อผล subagent เปล่า ๆ)
+
+`item_catalog.py` docstring ("IMPORTANT finding" ย่อหน้า) อ้างว่า "id 6 is 'Earth Element' (misc) but
+'Fruit Wine Jar' (consumable)" -- ตรวจตรงกับ `gm/data/gm_item_misc.tsv`/`gm_item_consumable.tsv`/
+`gm_item_quest.tsv` ที่ pin sha256 ไว้เอง (`awk -F'\t'` ตรงบนไฟล์ ไม่ใช่เชื่อ docstring): **id 6 ไม่มีอยู่
+ในตาราง misc เลย** (id 6 มีแค่ใน consumable="Fruit Wine Jar" และ quest="Lucky Canine" -- เป็นคู่ชน
+consumable/quest ไม่ใช่ misc/consumable ตามที่ docstring อ้าง) ส่วน "Earth Element" ตัวจริงอยู่ที่ **id 7**
+ของตาราง misc -- และ id 7 เองก็ชนกับ consumable id 7 = "Fruit Wine Jar" พอดี (สามทาง จริง ๆ ยังชนกับ
+quest id 7 = "Princess Sick Leave" ด้วย) สรุปคือผู้เขียนย่อหน้าเดิมพิมพ์เลข id ผิดหนึ่งตัว (เอาชื่อจริงของ
+id 7 มาแปะไว้ใต้เลข 6) ไม่ใช่ชื่อไอเทมผิด -- ตัวอย่าง id 1 ในย่อหน้าเดียวกัน (misc="Adventure Key" /
+quest="Sky Lantern") ตรวจแล้วถูกต้องอยู่แล้ว ไม่แตะ
+
+ผลกระทบจริง: ไม่มีโค้ด production ทางใดอ่าน docstring นี้เป็นข้อมูล (`item_category()`/`item_name()`/
+`is_known_item()`/`item_max_stack()` อ่านจากไฟล์ tsv ตรง ๆ ไม่เคยอ่านตัวเลขจาก docstring) แต่ย่อหน้านี้
+เป็นจุดเดียวที่เตือนคนต่อไปที่จะ wire `item <id> <n>` ให้แจกไอเทมจริงว่า id ชนข้ามตารางได้ -- ถ้าใครเชื่อ
+ตัวอย่าง id 6 แทนที่จะวัดสดตอนตัดสินใจ จะได้ทั้งหมวดผิดและชื่อไอเทมผิด ตรงกับสิ่งที่ย่อหน้านี้เขียนมาเพื่อ
+ป้องกันพอดี -- `tests/test_gm_chat_command_action.py` (commit ก่อนหน้า) มีคอมเมนต์รับรู้ปัญหานี้แล้วแต่
+เลี่ยงด้วยการวัดสดแทนที่จะแก้ docstring ตรง ๆ
+
+### สิ่งที่แก้
+
+1. `item_catalog.py` บรรทัด docstring: `id 6` → `id 7` (แก้ตัวเลขเดียว ชื่อไอเทมทั้งสองที่อ้างถูกอยู่แล้ว)
+2. `tests/test_gm_item_catalog.py::test_module_docstrings_misc_consumable_example_id_matches_the_data`
+   (ใหม่): pin ตัวอย่าง id 7 ของ docstring กับข้อมูลจริงในไฟล์ (`misc[7]=="Earth Element"`,
+   `consumable[7]=="Fruit Wine Jar"`, ทั้งสองอยู่ใน `item_category(7)`, และ `6 not in misc`) ตอบคำถามที่
+   `pf-adversary` ทิ้งไว้ตรง ๆ: "มีกลไกผูก docstring ตัวอย่างกับข้อมูลจริงไหม" -- ตอนนี้มีหนึ่งเทสที่ทำแบบ
+   นั้น ถ้า data refresh รอบหน้าย้ายชื่อออกจาก id 7 เทสนี้แดงทันทีแทนที่จะปล่อยให้ docstring ค้างผิดอีกรอบ
+   mutation-kill ยืนยันด้วยมือ: เปลี่ยนชื่อฟังก์ชัน `item_category` ชั่วคราวให้เรียกไม่ได้ เห็นเทสนี้ (และอีก
+   6 เทสในไฟล์เดียวกัน) แดงจริงด้วย `NameError`, คืนของเดิม รันเขียวอีกครั้งก่อนคอมมิต
+
+`pytest tests/test_gm_item_catalog.py -q`: **14 passed** (+1), 12 subtests
+`pytest tests/test_gm_*.py -q`: **1054 passed** (+1), 469 subtests, 0 failed
+`pytest tests/ -q` เต็ม: **5596 passed** (+1), 327 skipped, 9729 subtests passed, 0 failed (cloud sanity,
+base `origin/main` ต้นรอบ)
+
+### สิ่งที่ pf-adversary ตรวจแล้วไม่พบข้อบกพร่อง (บันทึกไว้กันขุดซ้ำ)
+
+`chat_command_action.py`'s `_note_item_catalog_diagnostic` (ลำดับเรียก, shape guard, exception boundary),
+`scene_catalog.py` blank-row handling, `dispatch.py` rate-limiter/capture-quota locking, `accounts.py`,
+`npc_switch_catalog.py`, `login_scene_override.py`, `warp_executor.py`/`teleport_wire.py`/
+`warp_target_record.py` round-trip encode/decode -- อ่านครบ ไม่พบข้อบกพร่องจริงที่ยืนยันได้ พบข้อสังเกต
+อ่อนหนึ่งจุด (`chat_command.py`'s `_command_log_quota_allows` ไม่มี lock รอบ stat-then-append ต่างจาก
+`_capture_quota_allows` ที่มี) แต่ผลกระทบเล็กมาก (ต่อ write ไม่เกิน ~650 ไบต์) ไม่ยืนยันเป็นบั๊กจริง บันทึก
+ไว้เป็นจุดที่รอบหน้าอาจดูซ้ำ ไม่ใช่ finding
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ไม่มี -- แก้ docstring และเพิ่มเทสเท่านั้น ไม่มีบรรทัดใดของ `item <id> <n>` หรือคำสั่ง GM อื่นเปลี่ยน
+พฤติกรรม `item` ยัง parse+log เหมือนเดิมทุกประการ ไม่มีการแจกไอเทมจริง
+
+### nonclaim
+
+ไม่มีการเปิด client ไม่มีการวัดกับไคลเอนต์จริง ไม่มีบรรทัดใดของ GM ไปถึงไวร์เพิ่มขึ้นจากรอบนี้ --
+`warp`/`npc`/`item`/`lv`/`spawn`/`say` ทั้งหมดยังทำงานเหมือนเดิมทุกประการ ไม่แตะ
+`runtime.py`/`app.py`/`pf_login_game_server_v141.py` และไม่แตะ `scenarios/world_*.json`/
+`scenarios/combat_*.json` ของสายอื่นเลย ไม่มีการใช้ GM ข้ามขั้นตอนใดเพราะไม่มีการทดสอบไคลเอนต์จริงในรอบนี้
+เลย การแก้ครั้งนี้เป็นเอกสาร (docstring) + เทสล้วน ๆ ไม่แตะ logic ของ `item_category`/`item_name`/
+`is_known_item`/`item_max_stack` แม้แต่บรรทัดเดียว
+
+— สาย GM รอบ `aejgap`
+
+## รอบ `gm17278` (2026-08-31T02:25+07:00) — BT_GM/GMUI_BASIC experiment fork (RE-164/GT-165)
+
+### คำสั่ง
+
+`notes_to_chief/20260831_0152_PANYA-ORDER-LANE-GM-make-the-BT_GM-button-and-GMUI_BASIC-window-actually-work.md`
+(เจ้าของ, เขียนแทนโดยกะ1-A): ทำให้ปุ่ม `BT_GM` เปิดหน้าต่าง `GMUI_BASIC` ได้จริง เป็นงานหลักของสาย GM
+รอบนี้ แทนงานรองอื่น -- `gm/attr_wire.py` (COO-DECISION 2026-08-31T01:46+07:00, six นาทีก่อนหน้า) ถูกเลื่อน
+ออกไปรอบถัดไปตามข้อความของใบสั่งเองที่ว่า "แทนการวนกฎ F ทำงานรองไปเรื่อย ๆ"
+
+### สิ่งที่รู้แล้วก่อนรอบนี้ (ห้ามขุดซ้ำ)
+
+`RE-126` CLOSED: ปุ่ม `BT_GM` ผูกกับ object เดียวกับ dispatcher จริง (ไม่ใช่ผูกผิดตัว) -- ปิดท้ายด้วย
+รายชื่อสี่ผู้ต้องสงสัยที่เหลือ (connection context / query-0x25 gate ตอนคลิก / current-UI object-key จริง
+/ create path `0x007280D0`) แล้วปฏิเสธจะเดา `GT-103` A/B: NO-RESULT ที่มีค่า -- สี่สถานะ UI คลิกแล้วเงียบ
+ทุกครั้ง หักล้างข้อเสนอเชิงปฏิบัติของ `RE-118` ("current-UI key ต้องไม่ว่าง")
+
+### สิ่งที่สร้างรอบนี้
+
+1. `src/pirateforce_foundation/gm/bt_gm_probe.py` (ใหม่) -- experiment fork ตามแบบ `PF_ADHOC_ATTR_PROBE`:
+   - `iter_state_vital_bit_variants()`/`build_variant_frame()`/`build_variant_payload()`: 14 variant ของ
+     เฟรม `GM_UpdateGMStateVital` (`0x5A19`) ทีละฟิลด์ -- ใช้ `gm/state_wire.py`'s proven builder ตรง ๆ
+     ไม่เพิ่ม tag/offset ใหม่แม้แต่ตัวเดียว ครอบคลุมบิต 0-7 ของ `field_0x14` + ค่าสูงสุด `0xFFFFFFFF` +
+     ทั้งสอง u8 field -- **ไม่ครอบคลุมบิต 8-31 ของ `field_0x14` รอบนี้โดยตั้งใจ** (ช่องว่างที่บันทึกไว้
+     ชัดเจน ไม่ใช่ครบทุกกรณี รอบหน้าอาจขยาย)
+   - `SUSPECT_STUBS` (3 รายการ, แท็ก `[สมมติของสาย GM - รอ RE]`): ผู้ต้องสงสัย connection-context /
+     current-UI-object-key เก็บเป็นคำถาม+เหตุผลที่ยังต่อสายไม่ได้รอบนี้ -- ไม่มีการเดาความหมาย ผู้ต้อง
+     สงสัย query-gate-value-at-click-time ก็เป็น stub เช่นกัน (เป็นคำถามเรื่อง**เวลา**ที่ client เช็คซ้ำ
+     gate ไม่ใช่ค่าที่เฟรมนี้ตั้งได้) -- ผู้ต้องสงสัยตัวที่สี่ (factory ถูกเรียกไหม) ไม่ใช่ stub เพราะเป็น
+     **ผล**ที่การคลิกทดสอบสังเกต ไม่ใช่ตัวแปรขาเข้า
+2. `tests/test_gm_bt_gm_probe.py` (ใหม่, 22 เทส): ตรวจ frame/payload construction เท่านั้น (ความยาว 41/9
+   ไบต์ตรงกับที่ใบสั่งเจ้าของเรียก "เฟรม 41 ไบต์ที่พินแล้ว", vital id คงที่, field range, variant id ไม่ซ้ำ,
+   stub metadata) -- **ไม่มีเทสใดอ้างว่าหน้าต่างเปิด** ตามกฎ nonclaim ที่ตัวไฟล์ประกาศเอง
+3. `pf_bridge/CLIENT_RE_QUEUE.md`: เปิด `RE-164` (ใบสอบสวนหลัก, tag `[NEEDS-ATTENDED-CAPTURE]`)
+4. `pf_bridge/GAME_TEST_QUEUE.md`: เปิด `GT-165` (สเปกคลิกสำหรับกะ1-A ทีละ variant) -- **สถานะ BLOCKED**
+   ดูข้อถัดไป
+5. `pf_bridge/notes_to_chief/20260831_0225_LANE-GM-CORE-REQUEST-GM-043-...md`: ตรวจ `runtime.py:6424-6438`
+   แล้วพบว่าจุดเรียก `make_gm_update_state_frame` ที่มีอยู่ตอนนี้ยิงค่าคงที่ `(0,1,0)` ครั้งเดียวตอน
+   ล็อกอินของบัญชี GM เท่านั้น (`ALWAYS ON, no scenario flag` ตามคอมเมนต์จุดเรียกเอง) -- ไม่มีทางยิง
+   variant อื่นระหว่าง session เดียวกันได้เลย `GT-165` จึง BLOCKED จนกว่าจุดเสียบใหม่ (เสนอสองทางเลือก:
+   GM chat-command ใหม่ หรือ debug scenario flag) จะลงจาก chief
+
+### pf-adversary รอบนี้
+
+ตรวจ `bt_gm_probe.py`/เทสก่อน commit -- ดูหัวข้อ "pf-adversary" ด้านล่างสำหรับสิ่งที่พบ/แก้
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ยังไม่มี -- รอบนี้สร้างแค่ตัวสร้างเฟรม/เทส/ใบคิว ยังไม่มีจุดเรียกที่ยิง variant ได้จริง (`CORE-REQUEST-GM-043`
+รออยู่) `GT-165` เขียนสเปกไว้ล่วงหน้าแล้วแต่คลิกไม่ได้จนกว่าจุดเสียบจะลง
+
+### nonclaim
+
+**ไม่มีการอ้างว่า `GMUI_BASIC` เปิดหรือไม่เปิดจาก variant ใดเลยรอบนี้** -- ไม่มีการเปิด client ไม่มีการส่ง
+เฟรมจริงไปยังไคลเอนต์จริง สาย GM ไม่มีจอ ไม่มีอิมเมจไคลเอนต์ การคลิกจริงเป็นของกะ1-A เท่านั้นตามกฎใบเดียว
+ผู้ทำเดียว -- งานรอบนี้ทั้งหมดคือการ**สร้างเครื่องมือให้พร้อมสำหรับการคลิกทดสอบ** ไม่ใช่การพิสูจน์ว่าปุ่ม
+ทำงาน ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py` (อ่านอย่างเดียวผ่าน `legacy_bridge` ตาม
+ที่เทสเดิมทำอยู่แล้ว) และไม่แตะ `scenarios/world_*.json`/`scenarios/combat_*.json`
+
+`pytest tests/test_gm_bt_gm_probe.py -q`: **22 passed**
+`pytest tests/test_gm_*.py -q`: **1076 passed** (+22, tracked-file guard test นับรวม), 471 subtests, 0 failed
+`pytest tests/ -q` เต็ม: **5626 passed** (+30), 327 skipped, 9733 subtests passed, 0 failed (cloud sanity,
+base `origin/main` ต้นรอบ)
+`python3 tools/verify_hypothesis_ledger.py` / `verify_functional_coverage.py`: ทั้งคู่ PASS ไม่มี drift
+
+— สาย GM รอบ `gm17278`
+
+## รอบ `jz4don` (2026-08-31T04:2x+07:00) — `/gmprobe <variant_id>` chat command (CORE-REQUEST-GM-043)
+
+### คำสั่ง
+
+`notes_to_chief/20260831_0357_CHIEF-REPLY-CORE-REQUEST-GM-043-decision-option-A-gmprobe-chat-command.md`:
+chief ตัดสินทางเลือก A -- คำสั่งแชท `/gmprobe <variant_id>` ต่อสายผ่าน dispatch เดียวกับ `/warp`/`/say`
+เรียก `bt_gm_probe.build_variant_frame` เพิ่มเทส dispatch wiring แบบเดียวกับ `WarpActionTests` -- ไม่ต้อง
+แตะ `runtime.py` เพราะ `GM_UpdateGMStateVital` proven เต็มแล้ว (`RE-105`/`RE-089`)
+
+### สิ่งที่สร้างรอบนี้
+
+1. `gm/commands.py`: เพิ่ม `"gmprobe": "gmprobe <variant_id>"` ต่อท้าย `COMMAND_USAGE` (ลำดับ 7 คำสั่ง
+   เดิม 6 ของเจ้าของยังเหมือนเดิม ต่อท้ายเท่านั้น -- pin โดย
+   `test_gm_chat_command_parse_way_out.py::TheUsageHintItselfTests::
+   test_the_vocabulary_order_is_pinned_because_a_human_reads_it`) + branch parse ใหม่ใน `parse_gm_command`
+   -- รับ token เดียวเป็น `variant_id` (str ใด ๆ ที่มี 1 คำ) ไม่ตรวจกับตาราง `bt_gm_probe` ที่ชั้นนี้
+   (แยกชั้นเหมือน `warp`'s `scene_catalog` hint -- ตรวจจริงที่ dispatch)
+2. `gm/bt_gm_probe.py`: เพิ่ม `VARIANTS_BY_ID` (dict สร้างจาก `iter_state_vital_bit_variants()` ตัวเดียว
+   กันสองตารางเพี้ยนออกจากกัน), `known_variant_ids()`, `variant_by_id()` -- คืน `None` สำหรับ id ที่ไม่รู้จัก
+   ไม่เดาตัวใกล้เคียง
+3. `gm/chat_command_action.py`: `GMPROBE_ACTION_LABEL` (ไม่มีคำว่า `TELEPORT` -- probe ไม่ขยับตัวละคร),
+   `EVENT_GMPROBE_UNKNOWN_VARIANT`/`EVENT_GMPROBE_REFUSED_PREFIX`/`OUTCOME_GMPROBE_UNKNOWN_VARIANT`,
+   ฟังก์ชัน `_gmprobe_action` (โมเดลตาม `_warp_action`/`_say_action`) ต่อเข้า `_make_action`'s dispatch
+   -- **ไม่มี version gate** ต่างจาก `warp`/`say`: `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` ถูก RE-105
+   พิน 0 ไว้ตรง ๆ ตั้งแต่ต้น ไม่ใช่ค่า `None`-รอพิสูจน์แบบ `FORCE_POS_VITAL_VERSION_CONFIRMED`/
+   `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` -- ไม่มีประตูให้ปิด
+4. เทสใหม่: `GmprobeActionTests` (9 เคส) ใน `tests/test_gm_chat_command_action.py` -- variant รู้จักกลาย
+   เป็น action จริง, variant ไม่รู้จักถูกปฏิเสธแบบมีชื่อ (ไม่เดา), ครบทั้ง 14 variant compose ได้โดยไม่ต้อง
+   เปิดประตูใด, `args` shape ปลอมถูกปฏิเสธ (เหมือน `warp_executor`/`say_wire`), composer ที่ explode ถูก
+   ตั้งชื่อไม่รั่วไหล, ไม่ต้องมีตำแหน่งผู้เล่น (ต่างจาก `/warp`), ไม่ park warp target ใด ๆ
+5. อัปเดต pin tests สามจุดตามที่โค้ดเปลี่ยนแปลงจริงบังคับ: `TheUsageHintItselfTests` (ลำดับ vocabulary),
+   `TheExerciseTableCoversTheWholeCommandSurfaceTests`'s `COMMAND_EXERCISES` (tripwire คำสั่งใหม่ต้องเดิน
+   ผ่านประตู standalone-map-not-writable), `EventNameContractTests`'s `EXPECTED`/`EXPECTED_LABELS` (พิน
+   ชื่อ constant ใหม่เป็น literal)
+
+### pf-adversary รอบนี้
+
+เรียก agent `pf-adversary` ไม่ได้ในสภาพแวดล้อมนี้ (ไม่มี Task/agent-launch tool ในชุดเครื่องมือของรอบนี้)
+-- ตรวจทานเองอย่างเข้มแทนตามกติกา: ใช้ threat model เดียวกับ `warp_executor`/`say_wire` ทุกจุด
+(`type(args) is not tuple`, ไม่ใช่ `isinstance`, กัน tuple subclass โกหก), จับ `Exception` กว้างรอบ
+composer ไม่ให้หลุดไปกลางเธรดฟัง, ไม่ echo `variant_id` ที่ GM พิมพ์เข้า event/console เลย (ใช้ literal
+คงที่สำหรับ unknown-variant แทน), ไม่แตะ label ที่มีคำว่า `TELEPORT`, และรันสวีตเต็มก่อน/หลังเปรียบเทียบ
+ผลต่าง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ตอนนี้กะ1-A ยิง `bt_gm_probe`'s 14 variant ไหนก็ได้ระหว่าง session จริงด้วยการพิมพ์ `/gmprobe <variant_id>`
+ในแชท GM แทนที่จะรอค่าคงที่เดียวที่ยิงครั้งเดียวตอนล็อกอิน -- `GT-164` (เดิมชื่อ `GT-165` ในรอบ `gm17278`
+เปลี่ยนเลขตามอนุสัญญาโปรเจกต์ในรอบ `b3fgm6`) ไม่ BLOCKED อีกต่อไปด้วยเหตุผลเดิม เปิดให้เทสได้จริงรอบนี้
+
+### nonclaim
+
+**ไม่มีการอ้างว่า `GMUI_BASIC` เปิดหรือไม่เปิดจาก variant ใดเลย** -- การยิง `/gmprobe` ผ่านคำสั่งแชทไม่ใช่
+หลักฐานว่าอะไรเรนเดอร์บนไคลเอนต์ ยังต้องรอ `GT-164` (attended click test) เป็นผู้ตอบ ไม่มีการเปิด client
+ไม่มีการวัดกับไคลเอนต์จริงในรอบนี้ ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py` (ยังคง
+dispatch call site เดิมของ chief ไม่เปลี่ยน) ไม่แตะ `scenarios/world_*.json`/`scenarios/combat_*.json`
+ไม่ให้สถานะ GM กับบัญชีใดที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ milestone จากผลที่ได้ด้วย GM
+
+`pytest tests/test_gm_*.py -q`: **1097 passed** (+21), 506 subtests, 4 skipped, 0 failed
+`pytest tests/ -q` เต็ม: **5649 passed** (+23), 327 skipped, 9758 subtests passed, 0 failed
+`python3 tools/verify_hypothesis_ledger.py`: PASS entries=47, ไม่มี drift
+`python3 tools/verify_functional_coverage.py`: PASS domains=8, ไม่มี drift
+
+— สาย GM รอบ `jz4don`
+
+## รอบ `gm-20260831-0517` (2026-08-31T05:1x-05:5x+07:00) — verify-only + npc_switch_catalog.py 8180/8181 label (COO-DECISION 0245)
+
+### ต้นรอบ
+
+- ไม่มี PR `[LANE-GM]` เปิดค้างทั้งสอง repo ก่อนยึดล็อก — ยึดด้วย empty commit "round claim:
+  gm-20260831-0517" แล้วเปิด draft PR ทันที (`pf_bridge#565`, `pirate-force-server#361`)
+- PR `[LANE-GM]` ล่าสุดของแต่ละ repo (`pf_bridge#561`, `pirate-force-server#357`, รอบ `jz4don`):
+  `pull_request_read(method=get)` ยืนยัน `merged=true` ทั้งคู่ — งานอยู่บน main จริง ไม่ต้องกู้คืน
+- กล่องจดหมาย: ไล่ `notes_to_chief/` หาใบที่จ่าหน้าถึง LANE-GM หรือเปิดโดย LANE-GM ที่ยังไม่มี
+  `.CONSUMED.txt` (ทั้งสองรูปแบบชื่อไฟล์ที่ใช้ในโปรเจกต์นี้) — **ไม่พบใบใหม่ที่ต้องบริโภครอบนี้** ใบล่าสุดที่
+  แตะ LANE-GM ตรง (`0430_LANE-GM-STATUS`, `0245_COO-DECISION-gm042-owner-questions`) มี `.CONSUMED.txt`
+  ครบแล้วทั้งคู่ (chief round `8skr91` backfill)
+
+### สถานะ RE-164/GT-164 (เรื่องหลักของ `PANYA-ORDER 0152`)
+
+ตรวจแล้วไม่มีอะไรให้ต่อสายเพิ่มรอบนี้: `GT-164` ปลด BLOCKED แล้วตั้งแต่รอบ `jz4don` (จุดเสียบ `/gmprobe
+<variant_id>` อยู่บน main) รอเพียงกะ1-A คลิกจริงในเซสชัน attended — ไม่ใช่งานที่ทำได้ในสภาพแวดล้อมรีโมต
+ไม่มีจอของรอบนี้ `RE-164` suspect 1/3/4 (connection context / current-UI object-key / create path
+`0x007280D0`) ต้องใช้ disassembly ของไบนารีไคลเอนต์จริง (VA อ้างอิงเป็นของ client .exe) — เป็นงาน RE lane
+ไม่ใช่ของ LANE-GM ตามกฎ "ถ้าเป็นงาน RE ไม่ใช่ของเรา เขียนใบขอแทนเดา" ใบ `RE-164` เปิดรออยู่แล้วจากรอบก่อน
+ไม่ต้องเปิดซ้ำ
+
+### สิ่งที่ทำรอบนี้ (เดียว, เล็ก, ปลอดภัย)
+
+`gm/npc_switch_catalog.py`: เติมป้าย docstring สำหรับ `8180`/`8181` (Water Lantern x2) ตามที่
+`COO-DECISION 20260831_0245` สั่งไว้ ("ครั้งต่อไปที่แตะไฟล์นี้ ให้ป้ายว่า catalog-only ยังไม่พบแถว
+server-side") — ไม่มีการเปลี่ยน logic ใด ๆ ในไฟล์ เป็นการเพิ่ม docstring บรรทัดเดียวเท่านั้น
+
+🔴 **พลาดแล้วแก้เอง**: ร่างแรกของ docstring ใส่ตัวอักษรจริงของ `s_NAME` (อักษรจีนดั้งเดิม ไม่ใช่ไทย) ลงในไฟล์
+`.py` ตรง ๆ — รันสวีตพบว่า `test_gm_source_is_cp874_safe.py` fail จริง (ตัวอักษรนั้นไม่มี mapping ใน cp874)
+แก้เป็นข้อความ ASCII ที่ชี้ไปที่ไฟล์ TSV แทนก่อน commit ไม่ได้ปล่อยโค้ดที่ทำให้ gate แดงหลุดออกไป
+
+### pf-adversary รอบนี้
+
+diff เดียวคือ docstring 12 บรรทัดใหม่ ไม่มีการเปลี่ยน logic/ฟังก์ชัน/ทางแยกใด ๆ — ไม่มี threat model ใหม่ให้
+ตรวจ (ไม่ใช่การแก้คำผิดตามตัวอักษร แต่ก็ไม่มีความเสี่ยง logic ให้ pf-adversary จับ) รันสวีตเต็มก่อน/หลัง
+ยืนยันจำนวนเทสไม่เปลี่ยน (`5661 passed` ทั้งสองครั้ง หลังนับรวมเทสที่ chief merge เพิ่มระหว่างรอบก่อนหน้า)
+
+### เช็คสวีต
+
+- `pytest tests/ -q` เต็ม: **5661 passed**, 323 skipped, 9758 subtests passed, 0 failed เขียว(cloud sanity)
+- `python3 tools/verify_hypothesis_ledger.py`: PASS entries=47 ไม่มี drift
+- `python3 tools/verify_functional_coverage.py`: PASS domains=8 ไม่มี drift (8 domain ยังเปิดเหมือนเดิม)
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบนี้ไม่มีจุดเสียบใหม่ที่ยิงได้จริง `GT-164` ยังรอกะ1-A คลิกจริงเหมือนเดิมทุกประการ (ปลด BLOCKED
+ไปแล้วตั้งแต่รอบ `jz4don`) การเปลี่ยนแปลงรอบนี้คือ docstring/label เท่านั้น ไม่กระทบพฤติกรรมรันไทม์ใด ๆ
+
+### nonclaim
+
+1. ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่ได้เปิด client ไม่มีจอในสภาพแวดล้อมนี้
+2. ไม่ได้ตัดสินหรือเดาคำตอบของ `RE-164` suspect ใดเลย — ยังคงเป็นใบเปิดรอ RE lane เหมือนเดิม
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. ป้าย 8180/8181 เป็น docstring เท่านั้น ไม่ได้เพิ่ม/ลด behavior ของ `is_gm_switchable_npc`/`npc_gm_name`
+   ทั้งสอง id ยังถูกมองว่า "เป็นหนึ่งใน 7" เหมือนเดิมทุกประการ (แค่ไม่ให้ใครอ่านแล้วเข้าใจผิดว่ามีแถว
+   server-side ยืนยันแล้ว)
+
+### PR
+
+- `pf_bridge#565` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#361` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `gm-20260831-0517`
+
+## รอบ `1q7nxu` (2026-08-31T08:2x+07:00) — RE-164 ปิดสองใน สี่ผู้ต้องสงสัยด้วย static synthesis
+
+### สรุป
+
+ไม่มีจอ ไม่มี client image ในสภาพแวดล้อมนี้เหมือนทุกรอบ — แต่พบว่า `RE-164` suspect ข้อ 2
+(query-0x25 gate ถูกเรียกซ้ำตอนคลิกหรือไม่) และข้อ 4 (factory `0x007280D0` ถูกเรียกไหมหรือมี
+early-return) **ตอบได้แล้ว** จากสองใบที่ commit อยู่ก่อน `RE-164` จะเปิดด้วยซ้ำ (`RE-104`, `RE-118`)
+แค่ไม่มีใครเอามา cross-reference กับ `RE-164` ตอนเปิดใบ ไม่ใช่หลักฐานใหม่ เป็นช่องว่างของการสังเคราะห์
+รายละเอียด/บรรทัดอ้างอิงเต็มอยู่ใน `pf_bridge/CLIENT_RE_QUEUE.md` RE-164 (แก้ tag เป็น
+`[PARTIAL — 2/4 CLOSED STATIC, 2/4 NEEDS-ATTENDED-CAPTURE]`)
+
+ข้อ 1 (connection context ตรง session ไหม) กับข้อ 3 (current-UI object-key เงื่อนไขจริง) ยังปิดไม่ได้
+— ทั้งคู่ต้องไล่ disassembly ต่อจากจุดที่ `RE-118` หยุดไว้ (write-site ของ `[0x01032EC4]` / vfunc chain
+ต่อจาก `[0x008946C0,0x008946EA)`) ไม่มีในอิมเมจของ clone นี้ ยังคง tag `[NEEDS-ATTENDED-CAPTURE]`
+
+### ที่ทำรอบนี้
+
+1. ยืนยัน round-lock ว่าง (ไม่มี PR `[LANE-GM]` เปิดค้างทั้งสอง repo) ก่อนเริ่ม
+2. Addendum A: ตรวจ `pf_bridge#573`/`pirate-force-server#367` (รอบ `rob5s4` ก่อนหน้า) ด้วย
+   `pull_request_read` โดยตรง — `merged=true` ทั้งคู่ (⚠️ `list_pull_requests` คืน `merged:false` ผิด
+   สำหรับ PR เดียวกัน ตามที่ใบ `1936` เคยเตือนไว้ — ใช้ `pull_request_read` เท่านั้น) ไม่มีงานหาย
+3. บริโภคจดหมาย `20260831_0723_KA1A-CORRECTION-*` (แก้คำวินิจฉัยของกะ1-A สองข้อ ไม่ต้องดำเนินการเพิ่ม
+   `gm/attr_wire.py` ยัง shelve ตาม COO-DECISION 0350) — วาง stub + สำเนาไป `consumed/`
+4. มอบหมาย `pf-static-re` agent ไล่สี่ผู้ต้องสงสัยของ `RE-164` จาก artifact ที่ commit แล้วเท่านั้น
+   (ไม่แตะ client) พบว่าข้อ 2/4 มีคำตอบอยู่แล้วในใบเก่า แก้ `CLIENT_RE_QUEUE.md` ให้สะท้อนสถานะจริง
+5. ไม่มีโค้ดเปลี่ยนในเขต `src/pirateforce_foundation/gm/` รอบนี้ — งานเป็นเอกสาร/คิวล้วน
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยน `GT-164` ยังรอกะ1-A คลิกจริงเหมือนเดิมทุกประการ
+รอบนี้แค่ทำให้ `RE-164` มีสถานะที่ถูกต้อง (ครึ่งหนึ่งปิดแล้ว) แทนที่จะเขียนว่า "ยังไม่มีใครตอบสักข้อ"
+ซึ่งผิดตั้งแต่ตอนเปิดใบ
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (`pirate-force-server` HEAD ปัจจุบัน): 1085 passed, 500 subtests
+เขียว(cloud sanity) — ไม่มี drift เพราะไม่มีการแก้ไฟล์ `src/`/`tests/`
+
+### nonclaim
+
+1. ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่ได้เปิด client ไม่มีจอในสภาพแวดล้อมนี้ — สอง suspect ที่
+   ปิดคือการอ่าน artifact เก่าใหม่ ไม่ใช่หลักฐานใหม่จากไบนารี
+2. ข้อ 1 กับ 3 ของ `RE-164` ยังไม่ปิด ห้ามอ้างว่า RE-164 ปิดครบ — เปิด CORE-REQUEST/ใบขอ RE runner แทนถ้า
+   จะไล่ต่อทาง static (ต้องมี client image) หรือรอ attended capture
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. ไม่ได้แก้ `bt_gm_probe.py` หรือเทสใด ๆ รอบนี้ — เขตโค้ดของ `pirate-force-server` ไม่มีการเปลี่ยนแปลง
+
+### PR
+
+- `pf_bridge#578` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#370` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit;
+  ไม่มีไฟล์ `src/` เปลี่ยนรอบนี้)
+
+— สาย GM รอบ `1q7nxu`
+
+## รอบ `szmgeh` (2026-08-31T09:2x+07:00) — GT-164 ปิดหัวใบ, field_0x0b_second codified เป็นสวิตช์การมองเห็น
+
+### สรุป
+
+กล่องจดหมายมีสองใบใหม่จ่าหน้า LANE-GM: (1) `KA1A-DELIVERY` ยืนยัน adhoc-probe reference materials
+เข้า repo แล้ว (อ่านอย่างเดียว) และ `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 0350` เหมือนเดิม --
+ไม่มีการกระทำเพิ่ม (2) `GT164-RESULT` -- กะ1-A คลิก `BT_GM` จริงครบ 14/14 variant ของ `bt_gm_probe.py`:
+ไม่มีตัวไหนเปิด `GMUI_BASIC` (bounded negative ปิด `RE-164` ข้อ 2 ทั้งชั้น static+attended) แต่พบผลข้างเคียง
+ที่มีค่า: `field_0x0b_second` (รู้จักอยู่แล้วจาก `RE-089`/`RE-104`/`CORE-REQUEST-020` ว่าคุมการมองเห็นปุ่ม
+ตอน login) ยืนยันด้วยตาเป็นครั้งแรกว่าคุมการมองเห็น**กลางเซสชัน**ด้วย ผ่าน `/gmprobe` 14/14 ไม่มีข้อยกเว้น
+ไม่ต้อง relog
+
+### ที่ทำรอบนี้
+
+1. ยืนยัน round-lock ว่าง, reset สองสาขาลง origin/main สะอาด (ไม่มีงานค้างของตัวเอง), ยึดล็อกก่อนเริ่ม
+2. บริโภคจดหมายทั้งสองใบ (`KA1A-DELIVERY` 0828, `GT164-RESULT` 0901) -- stub + สำเนาไป `consumed/`
+3. `pf_bridge/CLIENT_RE_QUEUE.md` RE-164 -- เติมชั้น attended ใต้ข้อ 2 (ไม่ลบของเดิม), แก้ tag หัวใบ,
+   แก้บรรทัด pass-criteria ที่ค้าง `BLOCKED` ให้ตรงความจริง, เพิ่ม nonclaim ข้อ 6, เพิ่ม link
+4. `pf_bridge/GAME_TEST_QUEUE.md` GT-164 -- ปิดหัวใบเป็น RESULT, เก็บสถานะเดิมไว้อ่านประกอบ (ไม่ลบ)
+5. `src/pirateforce_foundation/gm/bt_gm_probe.py` -- เพิ่ม `observed_button_visible()`,
+   `guaranteed_visible_variant_ids()`, `guaranteed_hidden_variant_ids()` (pure predicate เหนือ generator
+   เดิม ไม่มี field/เฟรมใหม่) พร้อม docstring อ้างอิง `GT-164`/`RE-089`/`RE-104`/`CORE-REQUEST-020` และ
+   nonclaim ชัดว่า "มองเห็นได้" ไม่ใช่ "คลิกได้ผล" -- เพื่อให้ผู้เทสรอบต่อไปที่ไล่ `RE-164` ข้อ 1/3 เลือก
+   variant ที่รู้แล้วว่าปุ่มโชว์แน่ ไม่ต้องเดา
+6. `tests/test_gm_bt_gm_probe.py` -- เพิ่ม 12 เทสใหม่ (`ObservedButtonVisibilityTests`) ปักตารางการมองเห็น
+   ตรงกับใบผลของ `GT-164` เป๊ะ (3 visible / 11 hidden ของ 14 variant)
+7. pf-adversary self-review ก่อน commit (ไม่มี agent `pf-adversary` แยกในอิมเมจนี้ -- ตามที่รอบ
+   `stale-stageable-count-refreshed` เคยบันทึกไว้แล้ว ทำเป็น self-review ตรวจทีละ hunk แทน): ตรวจ
+   overclaim (ไม่มี -- ทุกคำอ้างอิงมีเลขบรรทัด/ที่มา), ตรวจ safety (ไม่แตะ account/permission logic ใด ๆ
+   เป็น pure metadata เหนือ generator เดิม), ตรวจเขตเขียน (แค่ `gm/bt_gm_probe.py` +
+   `tests/test_gm_bt_gm_probe.py`) -- ไม่พบจุดต้องแก้
+
+### เขียว
+
+`pytest tests/test_gm_bt_gm_probe.py -q`: 26 passed (14 เดิม + 12 ใหม่) · `pytest tests/test_gm_*.py -q`:
+1089 passed, 500 subtests เขียว(cloud sanity, รันจริงในรอบนี้หลัง fetch origin/main)
+
+### nonclaim
+
+1. `GT-164` ปิดแล้วตอบเฉพาะข้อ 2 ของ `RE-164` เท่านั้น -- ข้อ 1/3/4 ไม่ถูกแตะเพิ่มรอบนี้ ข้อ 1/3 ยังเปิด
+   รอ attended capture หรือ static RE เพิ่มที่ไม่มีในอิมเมจของ clone นี้
+2. "ปุ่มมองเห็นได้" (`field_0x0b_second=1`) ไม่ใช่ "คลิกแล้วเปิดหน้าต่าง" -- สองเรื่องคนละชั้น พิสูจน์แล้ว
+   ว่าแยกกัน (14/14 ที่มองเห็นได้ก็ยังคลิกไม่เปิด) `observed_button_visible` และเพื่อนบอกแค่การมองเห็น
+   ไม่เคยอ้างเรื่องคลิก
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. warp ด้วย GM ไปเกาะแล้วเห็นเกาะ ไม่ใช่ M2 ผ่าน -- ไม่มีการอ้าง milestone ใด ๆ ในรอบนี้
+5. ไม่มี client image/จอในสภาพแวดล้อมนี้เหมือนทุกรอบ -- โค้ดที่เพิ่มรอบนี้เป็นการ codify ผลที่กะ1-A
+   สังเกตมาแล้ว ไม่ใช่การยิงเฟรมใหม่หรือสังเกตใหม่จากรอบนี้เอง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ผู้เทสที่ไล่ `RE-164` ข้อ 1/3 ต่อ (connection-context / current-UI object-key) สามารถเรียก
+`bt_gm_probe.guaranteed_visible_variant_ids()` เพื่อเลือก variant ที่รู้แล้วว่าปุ่ม `BT_GM` จะโชว์แน่ก่อน
+เริ่มไล่ suspect ถัดไป แทนที่จะต้องเดาหรือเจอปุ่มหายกลางเซสชันโดยไม่รู้สาเหตุเหมือนก่อนหน้านี้ (เมื่อวาน
+ต้องดูเอาเองว่าปุ่มโชว์ไหม วันนี้มีตารางที่ยืนยันแล้วให้เลือกได้ตรง ๆ)
+
+### PR
+
+- `pf_bridge#581` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#373` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `szmgeh`
+
+## รอบ `oykcib` (2026-08-31T10:1x+07:00) — verify-only, backlog สี่ทางว่างเหมือนรอบ `szmgeh`
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่ (ไม่เชื่อผลรอบก่อน): ไม่มีจดหมาย `ADDRESSEE: LANE-GM` ค้าง, ไม่มี
+CORE-REQUEST/COO-DECISION ใหม่อ้างเลข `GM-0xx`, `GT-164` ปิดหัวใบแล้วไม่มีใบ GT อื่นของสาย GM ค้าง, ไม่มี
+technical debt ใหม่ใน `gm/` (`grep TODO/FIXME/XXX/HACK` สดรอบนี้ = สองรายการเดิมที่ไม่ใช่ debt จริง)
+`RE-164` ข้อ 1/3 ยังบล็อกด้วยเหตุผลเดียวกับที่ `COO-DECISION 20260831_0745` วินิจฉัยไปแล้วว่าเป็นบล็อกนอกเขต
+(ต้องการ client binary image ระดับ VA หรือเซสชัน attended จริง) ตามคำสั่ง COO ("ไม่ต้องยื่นใบใหม่จนกว่า
+สภาพเปลี่ยน") รอบนี้จึงไม่เปิด ASK-COO ซ้ำ เขียนใบ STATUS แทน
+
+ไม่มีไฟล์ `src/`/`tests/`/`scenarios/` เปลี่ยนรอบนี้ทั้งสอง repo — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1018_verify_only_backlog_still_empty_re164_external_blockers_unchanged.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (HEAD ปัจจุบัน, รันจริงรอบนี้): 1089 passed, 500 subtests เขียว(cloud
+sanity) — ตัวเลขเดียวกับรอบ `szmgeh` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 20260831_0350`
+เหมือนเดิม
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `szmgeh`
+
+### PR
+
+- `pf_bridge#585` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#376` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `oykcib`
+
+## รอบ `qy8vln` (2026-08-31T11:18+07:00) — verify-only, backlog สี่ทางว่างเหมือนรอบ `oykcib`
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่ (ไม่เชื่อผลรอบก่อน แม้ห่างกันแค่ ~1 ชั่วโมง): ไม่มีจดหมาย
+`ADDRESSEE: LANE-GM` ค้าง (RE-088..091 มี `.CONSUMED.txt` ครบแล้ว), ไม่มี CORE-REQUEST/COO-DECISION ใหม่
+อ้างเลข `GM-0xx` ที่ยังไม่บริโภค (3 ไฟล์ที่ grep เจอเป็น cc FYI ถึง COO/ATTENDED เนื้อหา `GM-042` consume
+ไปแล้ว), `GT-164` ปิดหัวใบแล้วไม่มีใบ GT อื่นของสาย GM ค้าง, ไม่มี technical debt ใหม่ใน `gm/` (`grep
+TODO/FIXME/XXX/HACK` สดรอบนี้ = สองรายการเดิมที่ไม่ใช่ debt จริง) `RE-164` ข้อ 1/3 ยังบล็อกด้วยเหตุผลเดียว
+กับที่ `COO-DECISION 20260831_0745` วินิจฉัยไปแล้วว่าเป็นบล็อกนอกเขต (ต้องการ client binary image ระดับ VA
+หรือเซสชัน attended จริง) ตามคำสั่ง COO ("ไม่ต้องยื่นใบใหม่จนกว่าสภาพเปลี่ยน") รอบนี้จึงไม่เปิด ASK-COO ซ้ำ
+เขียนใบ STATUS แทน
+
+ไม่มีไฟล์ `src/`/`tests/`/`scenarios/` เปลี่ยนรอบนี้ทั้งสอง repo — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1118_verify_only_backlog_still_empty_matches_oykcib.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (HEAD ปัจจุบัน, รันจริงรอบนี้): 1089 passed, 500 subtests เขียว(cloud
+sanity) — ตัวเลขเดียวกับรอบ `oykcib` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 20260831_0350`
+เหมือนเดิม
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `oykcib`
+
+### PR
+
+- `pf_bridge#588` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#378` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `qy8vln`

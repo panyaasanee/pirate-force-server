@@ -30,7 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch
+from pirateforce_foundation import world_m2_crossing_handoff
 from pirateforce_foundation import world_m2_return_leg
+from pirateforce_foundation import world_population
+from pirateforce_foundation import world_population_handoff
 from pirateforce_foundation import world_scene_travel
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -673,6 +676,227 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         self.assertIn("owed=YES", line)
         self.assertIn("source=pinned_home_entry", line)
         self.assertIn("call_site_passed_no_departure_row", line)
+
+    def test_a_successful_crossing_reports_the_return_population_owed(self):
+        """The fourth report line on the same flagless call site: the
+        population handoff the RETURN trip would need, named but not built
+        (``world_m2_return_leg.return_population_owed`` -- see that
+        function's own docstring for why it stays a source/count report
+        rather than a composed frame).  Wired the same way the three report
+        lines before it were: through ``columbus_quest_dispatch``'s own
+        call, with no ``runtime.py`` edit.
+
+        MUTATION-PROOF: drop the emit call and this test's line count goes to
+        zero; swap in the eager ``handoff_on_crossing`` builder by mistake
+        and ``kind=census``/``count=`` would still print but the module's own
+        import-list tripwire (``test_world_m2_return_leg.py``) fails first.
+        """
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-columbus-return-population")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        population_lines = [
+            line for line in printed.splitlines()
+            if line.startswith("WORLD_M2_RETURN_POPULATION")
+        ]
+        self.assertEqual(len(population_lines), 1, printed)
+        line = population_lines[0]
+        self.assertIn("owed=YES", line)
+        self.assertIn(
+            "source=" + world_scene_travel.CENSUS_SOURCE, line)
+        self.assertIn("kind=census", line)
+        self.assertIn("composed=NO", line)
+        expected_count, expected_source = (
+            world_population.census_count_for_dispatch()
+        )
+        self.assertIn("count={0}".format(expected_count), line)
+        self.assertIn("count_source=" + expected_source, line)
+        # _emit records AND prints (the e0daaa convention).
+        self.assertIn(line, state.events)
+
+
+class CrossingHandoffQueuedWiringTests(unittest.TestCase):
+    """CORE-REQUEST (LANE-A round czoo9t) wired by chief round R250/65etwo:
+    ``world_m2_crossing_handoff.crossing_handoff()`` is now actually QUEUED
+    on the flagless Columbus 3021 path (``crossing_handoff_dispatched=True``
+    at the ``runtime.py`` call site), not merely composed-and-printed the
+    way round `czoo9t` shipped it.
+
+    THIS CLASS IS THE GAP CHIEF NAMED IN ITS OWN ROUND REPORT.  R250's own
+    text says it plainly: "ไม่มีเทสไหน assert บรรทัดคอนโซล/`dispatched=`
+    ที่จุดรวมนี้โดยตรง ... นี่คือ 'false green' ที่แท้จริง" -- the wiring
+    that actually sends bytes to the client landed with zero coverage of
+    its own join, verified only by one hand-run probe during that round
+    that left no trace on `main`.  Every test below is new this round and
+    was RUN AGAINST THE PRE-EXISTING `runtime.py` code with no source edit
+    of this round's own -- there was nothing to build, only something real
+    already shipped to pin down before a future edit can regress it
+    silently.
+
+    MUTATION-PROOF, checked by hand against `runtime.py:5036` before
+    writing this docstring: reverting ``crossing_handoff_dispatched=True``
+    to the module's own default (``False``) at that one call site flips
+    ``dispatched=NO`` back on -- caught by
+    ``test_the_console_line_says_dispatched_yes_exactly_once`` below.
+    Removing the ``handoff_actions`` splice (``runtime.py:5100-5111``)
+    drops the clear frame out of the action list entirely -- caught by
+    ``test_the_crossing_handoff_frame_is_queued_before_the_teleport_frame``.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+
+    def _real_state(self, token):
+        state_type = make_state_class(self.legacy, self.lifecycle, self.projector)
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        state.dispatch(self.legacy.parse_outer(_target_pos_pc(self.legacy)))
+        return state
+
+    def _cross(self, token):
+        state = self._real_state(token)
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        return state
+
+    def test_the_crossing_handoff_frame_is_queued_before_the_teleport_frame(self):
+        state = self._cross("tok-crossing-handoff-queued")
+        # The SAME handoff the runtime call site reads, recomputed through
+        # this lane's own public functions -- not a second, hand-guessed
+        # encoder.
+        expected_entry = columbus_quest_dispatch.resolve_columbus_arrival()
+        expected_handoff = world_m2_crossing_handoff.crossing_handoff(
+            self.legacy, expected_entry,
+        )
+        self.assertTrue(expected_handoff.sends_a_frame)
+        self.assertEqual(
+            expected_handoff.dispatch_slot,
+            world_population_handoff.SLOT_BEFORE_TELEPORT,
+        )
+
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        labels = [action[0] for action in actions]
+        self.assertIn(expected_handoff.label, labels, actions)
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
+        self.assertLess(
+            labels.index(expected_handoff.label),
+            labels.index(
+                "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE"
+            ),
+            "the clear frame's own dispatch_slot is before_teleport -- it "
+            f"must be queued ahead of the teleport action: {actions!r}",
+        )
+        handoff_action = [
+            action for action in actions if action[0] == expected_handoff.label
+        ][0]
+        self.assertEqual(handoff_action[1], expected_handoff.pc)
+        self.assertEqual(handoff_action[2], expected_handoff.frame)
+
+    def test_the_console_line_says_dispatched_yes_exactly_once(self):
+        import io
+        from contextlib import redirect_stdout
+
+        state = self._real_state("tok-crossing-handoff-dispatched-yes")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        printed = buffer.getvalue()
+        handoff_lines = [
+            line for line in printed.splitlines()
+            if line.startswith(world_m2_crossing_handoff.CONSOLE_TAG)
+        ]
+        self.assertEqual(len(handoff_lines), 1, printed)
+        line = handoff_lines[0]
+        self.assertIn(" dispatched=YES ", line)
+        self.assertNotIn("dispatched=NO", line)
+        self.assertIn(" composed=YES ", line)
+        # e0daaa convention: emit records AND prints the same line.
+        self.assertIn(line, state.events)
+        self.assertIn(
+            "world_m2_crossing_handoff_clear_scene_17", state.events,
+        )
+
+    def test_a_successful_crossing_clears_the_frozen_membership_fields(self):
+        """A CLEAR handoff's own ``membership_reset.clears_everything`` is
+        ``True`` (nothing replaces Port Royal's roster with a sea roster --
+        the sea composer refuses to invent one, see
+        ``world_population_handoff.SCENES_INTENTIONALLY_UNPOPULATED``), so
+        the frozen state's own membership fields must go to ``None``, not
+        be left holding Port Royal's placement indices after the boat
+        sails.  Armed non-``None`` by the harness's own TargetPos frame
+        before the crossing, checked ``None`` after."""
+        state = self._real_state("tok-crossing-handoff-membership-reset")
+        self.assertIsNotNone(state.population_indices)
+        self.assertIsNotNone(state.world_census_indices)
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        self.assertIsNone(state.population_indices)
+        self.assertIsNone(state.world_census_indices)
 
 
 if __name__ == "__main__":

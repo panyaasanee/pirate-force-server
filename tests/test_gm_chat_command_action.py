@@ -4,18 +4,25 @@
 authorized, decoded and audited, and a non-GM's is not.  This file proves the
 SEND half, which is the one that decides whether anything happens on screen:
 
-1. THE SAFETY GATE IS REAL, NOT DECORATIVE.  With
-   `FORCE_POS_VITAL_VERSION_CONFIRMED = None` (today, RE-129 open) a valid
-   `/warp` from a real GM must produce NO action and a named event.  GT-101
-   measured what an unproven vital version does to a real client -- modal
-   error, connection halted, socket closed -- so "we composed the frame
-   anyway and someone will notice later" is the failure this file exists to
-   make impossible.
-2. THE PATH ACTUALLY WORKS once that one byte is known.  With the constant
-   patched to a value, the same chat line must yield a real
+1. THE SAFETY GATE IS REAL, NOT DECORATIVE.  COO-DECISION 20260830_1645
+   (reaffirmed 20260830_1742) lifted the earlier lock and set
+   `FORCE_POS_VITAL_VERSION_CONFIRMED = 0` on the shipped tree -- RE-129's
+   measured byte, sent now that runtime.py's confirmed-write point is real.
+   The withheld path this point (1) is about did not go away: with the gate
+   forced SHUT (`open_the_version_gate`'s sibling below patches it back to
+   `None`), a valid `/warp` from a real GM must still produce NO action and a
+   named event.  GT-101 measured what an unproven vital version does to a
+   real client -- modal error, connection halted, socket closed -- so "we
+   composed the frame anyway and someone will notice later" is the failure
+   this file exists to make impossible, and it must stay impossible whether
+   the gate is shut by the shipped constant or by a test forcing it shut.
+2. THE PATH ACTUALLY WORKS now that the byte is shipped.  On the unpatched
+   constant, the same chat line must yield a real
    `(label, pc, frame, delay)` action whose bytes are the ForcePos frame the
-   pinned composer builds -- so the day RE-129 answers, the change is that
-   constant and nothing else.
+   pinned composer builds.  `open_the_version_gate` below still patches in
+   `UNPROVEN_TEST_VERSION` for every test that only needs SOME open gate and
+   must not be read as evidence about the real client's accepted version --
+   the shipped value itself is pinned separately, in `VersionGateTests`.
 3. NOTHING ESCAPES.  The call site is chief's dispatch on the game-listener
    thread, shared by every player.  Every hostile session shape below must
    come back as None plus an event, never as an exception.
@@ -166,17 +173,37 @@ class _Case(unittest.TestCase):
             UNPROVEN_TEST_VERSION,
         )
 
+    def close_the_version_gate(self):
+        """The sibling of `open_the_version_gate`, for the tests that prove
+        the withheld path.  RE-129's byte shipped (COO-DECISION 20260830_1645
+        / 20260830_1742), so the shipped constant no longer withholds
+        anything on its own -- a test that means to exercise the withheld
+        branch must say so explicitly, by patching the gate SHUT itself,
+        instead of relying on what used to be the default.
+        """
+        return mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        )
+
 
 class VersionGateTests(_Case):
-    def test_the_shipped_constant_is_still_none_so_no_bytes_can_go_out(self):
-        # If this ever fails without RE-129 being answered and cited in
-        # teleport_wire.py's own comment, someone guessed the byte GT-101
-        # measured as session-killing.
-        self.assertIsNone(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED)
+    def test_the_shipped_constant_is_confirmed_at_the_re129_value(self):
+        # If this ever fails without a COO-DECISION superseding
+        # 20260830_1645/20260830_1742 and cited in teleport_wire.py's own
+        # comment, someone changed the shipped release gate by hand.  The
+        # value itself -- 0 -- is RE-129's measured byte, and it is written
+        # here as a literal so a drift in either direction (back to None, or
+        # to some other byte) goes red instead of silently matching whatever
+        # the source currently says.
+        self.assertEqual(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED, 0)
 
-    def test_a_valid_gm_warp_yields_no_action_while_the_version_is_unknown(self):
+    def test_a_valid_gm_warp_yields_no_action_while_the_gate_is_shut(self):
+        # The shipped constant no longer withholds by itself (COO-DECISION
+        # 20260830_1645/1742), so this test forces the gate shut to prove the
+        # withheld branch still exists and still refuses to compose.
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = self.act(session, "/warp 2 100 200")
+        with self.close_the_version_gate():
+            action = self.act(session, "/warp 2 100 200")
         self.assertIsNone(action)
         self.assertIn(
             chat_command_action.EVENT_WARP_WITHHELD_NO_VERSION, session.events
@@ -184,9 +211,11 @@ class VersionGateTests(_Case):
 
     def test_the_line_is_still_authorized_and_audited_while_withheld(self):
         # The audit half must not regress just because the send half is
-        # gated: GT-127 is decided on this log.
+        # gated: GT-127 is decided on this log.  Gate forced shut for the
+        # same reason as the test above.
         session = FakeSession(position=FakePosition(scene_id=2))
-        self.act(session, "/warp 2 100 200")
+        with self.close_the_version_gate():
+            self.act(session, "/warp 2 100 200")
         records = self.log_records()
         # Two rows since CORE-REQUEST-GM-032: the issued row this test has
         # always checked, plus the outcome row that says the frame was
@@ -309,6 +338,177 @@ class WarpActionTests(_Case):
                     session.events,
                 )
 
+    def test_npc_on_a_switchable_mob_id_gets_the_measured_recompose_answer(self):
+        # CORE-REQUEST-GM-041's read point (`gm_npc_toggle_recompose.
+        # npc_toggle_would_recompose`) answers False for every switchable
+        # mob_id today (letter 20260830_1909) -- this pins that the chat
+        # route actually asks it, not a hand-picked expectation.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/npc on 855")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}npc",
+            session.events,
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "would_recompose_false",
+            session.events,
+        )
+
+    def test_npc_on_a_non_switchable_mob_id_is_named_not_guessed(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/npc on 999999")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "not_switchable",
+            session.events,
+        )
+
+    def test_the_diagnostic_never_alters_dispatch_when_it_blows_up(self):
+        # A DIAGNOSTIC MAY NEVER ALTER DISPATCH: even if the read point
+        # itself raises something unexpected, `/npc` still resolves to
+        # no-wire-path, never to an exception escaping the chat route.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate(), mock.patch.object(
+            chat_command_action.gm_npc_toggle_recompose,
+            "npc_toggle_would_recompose",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/npc on 855")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "unexpected_RuntimeError",
+            session.events,
+        )
+
+    def test_a_lying_tuple_subclass_is_rejected_not_trusted(self):
+        # pf-adversary (round `nbihci`): a `tuple` subclass whose real
+        # storage is empty but whose overridden `__len__`/`__getitem__` lie
+        # to report length 2 must not sail past the shape guard and produce
+        # a `would_recompose_*` event for data that was never really there
+        # -- `commands.py::_require_args_tuple`'s own `type(args) is not
+        # tuple` check exists for exactly this, and this diagnostic now uses
+        # the same check instead of the weaker `isinstance`.
+        class Liar(tuple):
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, index):
+                return "on" if index == 0 else "855"
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        chat_command_action._note_npc_recompose_diagnostic(
+            session, GmCommand(name="npc", args=Liar(), raw="/npc on 855")
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX}"
+            "bad_args_shape",
+            session.events,
+        )
+        for event in session.events:
+            self.assertNotIn("would_recompose", event)
+
+    def test_item_with_a_single_category_id_names_that_category(self):
+        # id 11 resolves in exactly one of the three item tables (measured
+        # live against gm/item_catalog.py, not assumed from its docstring's
+        # own examples -- id 1 and id 6 turned out ambiguous differently
+        # than that docstring's illustration, which is exactly why this
+        # diagnostic measures instead of guessing).
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 11 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}item",
+            session.events,
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "known_quest",
+            session.events,
+        )
+
+    def test_item_with_an_unknown_id_is_named_not_guessed(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 99999999 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "unknown",
+            session.events,
+        )
+
+    def test_item_with_an_id_that_collides_across_categories_is_named_ambiguous(
+        self,
+    ):
+        # id 1 resolves in two of the three tables (measured, see the
+        # single-category test above) -- this is the exact shape round
+        # `opr2xd` flagged as a future grammar question for chief/Panya to
+        # decide, not this lane; the diagnostic names it without picking one.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate():
+            action = self.act(session, "/item 1 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "ambiguous_2",
+            session.events,
+        )
+
+    def test_item_diagnostic_never_alters_dispatch_when_it_blows_up(self):
+        # Same rule as npc's own version of this test: a diagnostic that
+        # raises must still resolve to no-wire-path, never escape the route.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with self.open_the_version_gate(), mock.patch.object(
+            chat_command_action.item_catalog,
+            "item_category",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/item 11 2")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "unexpected_RuntimeError",
+            session.events,
+        )
+
+    def test_item_diagnostic_rejects_a_lying_tuple_subclass(self):
+        # Same threat model as npc's own version: a `tuple` subclass whose
+        # overridden `__len__`/`__getitem__` lie about having 2 real
+        # elements must not sail past the shape guard.
+        class Liar(tuple):
+            def __len__(self):
+                return 2
+
+            def __getitem__(self, index):
+                return "11" if index == 0 else "2"
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        chat_command_action._note_item_catalog_diagnostic(
+            session, GmCommand(name="item", args=Liar(), raw="/item 11 2")
+        )
+        self.assertIn(
+            f"{chat_command_action.EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX}"
+            "bad_args_shape",
+            session.events,
+        )
+        for event in session.events:
+            self.assertNotIn("known_", event)
+            self.assertNotIn("ambiguous_", event)
+
     def test_say_sends_nothing_on_the_strength_of_the_warp_gate_alone(self):
         # The two gates are independent, and this is the pin that says so:
         # opening ForcePos's constant must not make a `say` frame go out.
@@ -320,6 +520,131 @@ class WarpActionTests(_Case):
         self.assertIn(
             chat_command_action.EVENT_SAY_WITHHELD_NO_VERSION, session.events
         )
+
+
+class GmprobeActionTests(_Case):
+    """CORE-REQUEST-GM-043: `/gmprobe <variant_id>` -> `GM_UpdateGMStateVital`.
+
+    Modelled on `WarpActionTests` per chief's CHIEF-REPLY (2026-08-31T03:57
+    +07:00): a known variant_id becomes a real composed action, an unknown
+    one is a named refusal, and -- unlike `/warp`/`/say` -- no version gate
+    has to be opened first, because `GM_UPDATE_STATE_VITAL_VERSION_
+    CONFIRMED` was pinned outright by RE-105 rather than starting life as
+    `None`.
+    """
+
+    def test_a_known_variant_becomes_a_real_state_vital_action(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNotNone(action)
+        label, pc, frame, delay = action
+        self.assertEqual(label, chat_command_action.GMPROBE_ACTION_LABEL)
+        self.assertEqual(delay, 0.0)
+        self.assertIsInstance(pc, (bytes, bytearray))
+        self.assertIsInstance(frame, (bytes, bytearray))
+
+    def test_the_bytes_are_the_pinned_composers_bytes_not_new_ones(self):
+        # This module must never become a second place that knows how to
+        # build the state-vital frame: it composes through
+        # bt_gm_probe/state_wire or not at all.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        _label, pc, frame, _delay = self.act(session, "/gmprobe u32-bit3")
+        expected_pc, expected_frame = chat_command_action.bt_gm_probe.build_variant_frame(
+            self.legacy, chat_command_action.bt_gm_probe.VARIANTS_BY_ID["u32-bit3"]
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+
+    def test_every_named_variant_composes_without_a_version_gate_open(self):
+        # No `open_the_version_gate()` context anywhere in this test --
+        # that is the point being pinned: RE-105 already confirmed this
+        # vital's version, so there is nothing left to gate.
+        for variant_id in chat_command_action.bt_gm_probe.known_variant_ids():
+            with self.subTest(variant_id=variant_id):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                session = FakeSession(position=FakePosition(scene_id=2))
+                action = self.act(session, f"/gmprobe {variant_id}")
+                self.assertIsNotNone(action)
+
+    def test_an_unknown_variant_id_is_a_named_refusal_not_a_guess(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        action = self.act(session, "/gmprobe not-a-real-variant")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_GMPROBE_UNKNOWN_VARIANT, session.events
+        )
+
+    def test_the_unknown_variant_outcome_is_audited(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/gmprobe not-a-real-variant")
+        records = self.log_records()
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["command"], "gmprobe")
+        self.assertEqual(
+            records[1]["outcome"],
+            chat_command_action.OUTCOME_GMPROBE_UNKNOWN_VARIANT,
+        )
+
+    def test_gmprobe_needs_no_position_unlike_warp(self):
+        # A probe writes GM state, not a location -- a GM with no selected
+        # character (the case that refuses `/warp`) still gets a `/gmprobe`.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=None)
+        action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNotNone(action)
+
+    def test_a_composer_that_explodes_is_named_not_leaked(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with mock.patch.object(
+            chat_command_action.bt_gm_probe,
+            "build_variant_frame",
+            side_effect=RuntimeError("boom"),
+        ):
+            action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_GMPROBE_REFUSED_PREFIX}RuntimeError",
+            session.events,
+        )
+
+    def test_a_lying_tuple_subclass_is_rejected_not_trusted(self):
+        # Same threat model as warp_executor/say_wire's own args-shape
+        # guards: a `tuple` subclass whose real storage disagrees with its
+        # overridden `__len__`/`__getitem__` must not sail past this
+        # module's own shape check.
+        class Liar(tuple):
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, index):
+                raise AttributeError("gotcha")
+
+        session = FakeSession(position=FakePosition(scene_id=2))
+        outcome = chat_command.ChatCommandOutcome(
+            authorized=True,
+            command=GmCommand(name="gmprobe", args=Liar(), raw="/gmprobe x"),
+            text="/gmprobe x",
+            refusal_reason=None,
+        )
+        with mock.patch.object(
+            chat_command_action, "handle_local_talk_chat", return_value=outcome
+        ):
+            action = self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_GMPROBE_REFUSED_PREFIX}GmProbeArgsShape",
+            session.events,
+        )
+
+    def test_gmprobe_parks_no_warp_target(self):
+        session = FakeSession(position=FakePosition(scene_id=2))
+        self.act(session, "/gmprobe baseline-all-zero")
+        self.assertIsNone(getattr(session, "gm_last_warp_target", None))
 
 
 class WarpTargetRecordingTests(_Case):
@@ -363,10 +688,12 @@ class WarpTargetRecordingTests(_Case):
         self.assertEqual(bytes(frame), bytes(expected))
 
     def test_a_withheld_warp_parks_nothing(self):
-        # The shipped state today (RE-129 open): no bytes, so no destination
-        # for a later position row to be measured against.
+        # Gate forced shut (COO-DECISION 20260830_1645/1742 lifted the
+        # shipped lock, so this is no longer the default): no bytes, so no
+        # destination for a later position row to be measured against.
         session = self.session_with_character()
-        self.assertIsNone(self.act(session, "/warp 2 100 200"))
+        with self.close_the_version_gate():
+            self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertIsNone(warp_target_record.take_warp_target(session, 41))
 
     def test_a_refused_warp_parks_nothing(self):
@@ -793,6 +1120,25 @@ class EventNameContractTests(_Case):
         "EVENT_QUEUED_CONFIRM_FIRED_TWICE": (
             "gm_chat_action_queued_confirm_fired_twice"
         ),
+        # CORE-REQUEST-GM-041's read point, wired this round: a diagnostic
+        # on top of `EVENT_NO_WIRE_PATH_PREFIX` for `npc` specifically, never
+        # a replacement for it.
+        "EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX": (
+            "gm_chat_action_npc_recompose_diagnostic_"
+        ),
+        # GM-042 prep's read point, wired this round: same shape of
+        # diagnostic on top of `EVENT_NO_WIRE_PATH_PREFIX` for `item`, never
+        # a replacement for it -- see that constant's own comment above.
+        "EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX": (
+            "gm_chat_action_item_catalog_diagnostic_"
+        ),
+        # CORE-REQUEST-GM-043: `/gmprobe <variant_id>`.  No withheld-by-
+        # version-gate event exists for this command -- see
+        # `_gmprobe_action`'s own docstring for why (RE-105 pinned
+        # `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` outright, it was never a
+        # `None`-until-proven gate the way `warp`/`say`'s constants are).
+        "EVENT_GMPROBE_UNKNOWN_VARIANT": "gm_chat_action_gmprobe_unknown_variant",
+        "EVENT_GMPROBE_REFUSED_PREFIX": "gm_chat_action_gmprobe_refused_",
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -801,6 +1147,7 @@ class EventNameContractTests(_Case):
     EXPECTED_LABELS = {
         "WARP_ACTION_LABEL": "LANE_GM_CHAT_WARP_TELEPORT_FORCE_POS",
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
+        "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
     }
 
     # The live hook route's names, pinned here as text for the disjointness
@@ -1108,11 +1455,18 @@ class ProductionCallShapeTests(_Case):
 
     def test_the_default_argument_call_authorizes_and_audits(self):
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = chat_command_action.make_gm_chat_command_action(
-            session, make_chat_payload("/warp 2 100 200"), self.legacy
-        )
-        # Version gate still shut, so no action -- but the audit half must
-        # work through the production path, because that is GT-127's verdict.
+        # Gate forced shut: this test's own subject is the withheld outcome
+        # row through the default-argument path, not the version gate, but
+        # since COO-DECISION 20260830_1645/1742 the shipped constant no
+        # longer withholds by itself -- so the withheld state it asserts on
+        # below has to be established explicitly.
+        with self.close_the_version_gate():
+            action = chat_command_action.make_gm_chat_command_action(
+                session, make_chat_payload("/warp 2 100 200"), self.legacy
+            )
+        # Version gate forced shut above, so no action -- but the audit half
+        # must work through the production path, because that is GT-127's
+        # verdict.
         self.assertIsNone(action)
         landed = self.tmp / "capture" / "gm_command_log.ndjson"
         self.assertTrue(

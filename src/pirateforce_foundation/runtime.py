@@ -23,6 +23,7 @@ from . import scene_admission_gate
 from . import trace_path
 from . import world_density
 from . import world_face_frame
+from . import world_m2_crossing_handoff
 from . import world_population
 from . import world_population_bg0002
 from . import world_population_handoff
@@ -45,6 +46,12 @@ from .gm.login_scene_consume import (
     CONSUME_FAILED,
     STANDALONE_NOT_CONSUMED,
     consume_login_scene_override,
+)
+from .gm.warp_target_record import (
+    current_character_id,
+    distance_to_target,
+    position_matches_target,
+    take_warp_target_with_reason,
 )
 
 from .model import Position
@@ -1106,6 +1113,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # warp.  dispatch() opens it, dispatch() closes it.
                 self.gm_warp_confirm_window_open = False
                 self.gm_warp_pending_character = None
+                # CORE-REQUEST-GM-030/031: the destination `gm.warp_target_
+                # record` handed back for this confirm window, or None when
+                # nothing was parked (or the parked record did not survive
+                # `take_warp_target_with_reason`'s checks -- see
+                # `gm_warp_confirm_target_reason` for why in that case).
+                # Read only inside the same frame the confirm window opened
+                # and closed on -- see `_gm_warp_open_confirm_window` and
+                # `_gm_warp_close_confirm_window`.
+                self.gm_warp_confirm_target = None
+                self.gm_warp_confirm_target_reason = None
                 # CHIEF-DECISION 20260829_0520 option A, second half (round
                 # ngwnnj/R223, added after pf-adversary measured what the
                 # first half did on its own).  True for a session whose
@@ -3760,12 +3777,97 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     self.gm_warp_confirm_window_open = False
                     print("GM_WARP_POSITION_CONFIRMED", file=sys.stderr)
                     self.events.append("gm_warp_position_confirmed")
+                    # CORE-REQUEST-GM-030/031.  Strictly additive, and only
+                    # ever reached immediately after the token above -- never
+                    # instead of it, never gating it.  Whether the row that
+                    # was just confirmed is also the point the GM's own
+                    # /warp asked for, per gm.warp_target_record.
+                    self._gm_warp_note_position_target(candidate)
             if verdict is not None:
                 # Only now.  A checkpoint that raised (a stale or stolen lease
                 # is the frozen path's own refusal) must not leave an event
                 # saying the reading was admitted, a counter saying it was, or
                 # a baseline pointing where no row points.
                 self._move_authority_record_admitted(verdict, target, stamp)
+
+        def _gm_warp_note_position_target(self, candidate) -> None:
+            """CORE-REQUEST-GM-030/031: is the confirmed row the GM's target.
+
+            Called ONLY from the branch above, immediately after
+            ``GM_WARP_POSITION_CONFIRMED`` printed and its own event fired --
+            never on any other path, and never able to change whether that
+            token fires.  Purely diagnostic: nothing here may raise, and
+            nothing here may be read by anything that decides whether a
+            position is written.
+
+            ``self.gm_warp_confirm_target`` is whatever
+            ``_gm_warp_open_confirm_window`` parked for THIS confirm window
+            (None if nothing was, or the parked record did not survive
+            ``take_warp_target_with_reason``'s own checks -- see
+            ``self.gm_warp_confirm_target_reason`` for which).
+            """
+            target = self.gm_warp_confirm_target
+            if target is None:
+                reason = self.gm_warp_confirm_target_reason or "unknown"
+                self.events.append(f"gm_warp_position_target_unknown_{reason}")
+                return
+            try:
+                matches = position_matches_target(target, candidate)
+                distance = distance_to_target(target, candidate)
+            except Exception:  # noqa: BLE001 - diagnostic only; see docstring
+                self.events.append(
+                    "gm_warp_position_target_unknown_compare_failed"
+                )
+                return
+            if matches:
+                print("GM_WARP_POSITION_TARGET_MATCH", file=sys.stderr)
+                self.events.append("gm_warp_position_target_match")
+                return
+            if distance is not None:
+                print("GM_WARP_POSITION_TARGET_MISMATCH", file=sys.stderr)
+                self.events.append(
+                    f"gm_warp_position_target_mismatch_{int(round(distance))}"
+                )
+                return
+            reason = self._gm_warp_target_unknown_reason(target, candidate)
+            self.events.append(f"gm_warp_position_target_unknown_{reason}")
+
+        @staticmethod
+        def _gm_warp_target_unknown_reason(target, position) -> str:
+            """Why ``distance_to_target`` could not compare, for the event.
+
+            Mirrors ``distance_to_target``'s own guards read-only -- this
+            never gates anything, it only names, after the fact, whichever
+            one of them is why the comparison came back None.  Never raises:
+            an exception here would blame a diagnostic label for a listener
+            thread crash.
+            """
+            try:
+                scene_id = getattr(position, "scene_id", None)
+                if type(scene_id) is not int or scene_id != target.scene_id:
+                    return "different_scene"
+                for axis in ("x", "y", "z"):
+                    try:
+                        reported = getattr(position, axis, None)
+                    except Exception:  # noqa: BLE001
+                        return "missing_axis"
+                    if (
+                        not isinstance(reported, (int, float))
+                        or isinstance(reported, bool)
+                    ):
+                        return "missing_axis"
+                    try:
+                        reported = float(reported)
+                    except (OverflowError, ValueError):
+                        return "not_finite"
+                    if not math.isfinite(reported):
+                        return "not_finite"
+                # Every axis was present and finite -- the None therefore
+                # came from the squared-distance sum overflowing or landing
+                # non-finite, which is the same family of answer.
+                return "not_finite"
+            except Exception:  # noqa: BLE001
+                return "unknown"
 
         def _move_authority_verdict(self, target):
             """MOVE-AUTHORITY-002 (HYP-PF-030): decide, do not reply.
@@ -4918,6 +5020,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 )
                                 else None
                             ),
+                            # CORE-REQUEST (LANE-A, round czoo9t): the
+                            # one-token flip columbus_quest_dispatch.py's own
+                            # docstring names -- unconditional True is safe
+                            # AT THIS CALL SITE ONLY because
+                            # resolve_columbus_arrival always targets the
+                            # fixed COLUMBUS_DEST_SCENE_ID (17) with a
+                            # well-formed synthetic Position, so a successful
+                            # dispatch here always composes a readable
+                            # KIND_CLEAR handoff with sends_a_frame=True
+                            # (pf-adversary, this round: confirmed by
+                            # reading resolve_columbus_arrival and by a live
+                            # probe).  The else-branch below always queues
+                            # the frame this promises, in the same edit.
+                            crossing_handoff_dispatched=True,
                         )
                     except columbus_quest_dispatch.ColumbusDispatchRefused as error:
                         for reason in error.reasons:
@@ -4934,12 +5050,88 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         tp_pc, tp_frame = legacy.make_login_teleport(
                             *entry.teleport_fields
                         )
-                        actions.append((
+                        # CORE-REQUEST (LANE-A, round czoo9t): this crossing
+                        # sent TeleportVital alone -- the actor collection
+                        # the client got at login (up to 115 actors;
+                        # WORLD_POP_STOWAWAYS and RE-162 Job 4 independently
+                        # found the same gap) was still standing in the
+                        # water after the player sailed out.
+                        #
+                        # NO SECOND PRINT HERE (pf-adversary, this round,
+                        # caught the first draft doing one): the dispatch
+                        # call above already composed and reported this
+                        # exact handoff through its own ``emit`` -- printing
+                        # AND recording it once, correctly, in
+                        # ``self.events`` -- now that
+                        # ``crossing_handoff_dispatched=True`` makes that
+                        # report true.  A second bare ``print`` here would
+                        # bypass ``self.events`` and put a second,
+                        # unrecorded line on the console for one crossing.
+                        # Composed again here via this lane's own wrapper
+                        # (world_m2_crossing_handoff.crossing_handoff, not
+                        # the seam directly, so tests/
+                        # test_world_population_bg0015.py's one-call-per-
+                        # blessed-file census stays satisfied) ONLY to read
+                        # back the bytes/slot/reset this block needs to
+                        # queue -- composing a 27-byte CLEAR twice costs
+                        # nothing today (world_m2_crossing_handoff.py's own
+                        # docstring).  Mirrors the travel-gate call site
+                        # above (runtime.py:7146) for dispatch_slot and
+                        # reapply_ms: read from the handoff, never
+                        # hardcoded.
+                        handoff = world_m2_crossing_handoff.crossing_handoff(
+                            legacy, entry,
+                        )
+                        crossing_actions = [(
                             "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE",
                             tp_pc, tp_frame, 0.0,
-                        ))
+                        )]
+                        if handoff.sends_a_frame:
+                            handoff_actions = [(
+                                handoff.label, handoff.pc, handoff.frame,
+                                0.0,
+                            )]
+                            if handoff.reapply_ms is not None:
+                                handoff_actions.append((
+                                    handoff.label + "_REAPPLY",
+                                    handoff.pc, handoff.frame,
+                                    handoff.reapply_ms / 1000.0,
+                                ))
+                            if (
+                                handoff.dispatch_slot
+                                == world_population_handoff
+                                .SLOT_BEFORE_TELEPORT
+                            ):
+                                crossing_actions = (
+                                    handoff_actions + crossing_actions
+                                )
+                            else:
+                                crossing_actions = (
+                                    crossing_actions + handoff_actions
+                                )
+                        for action in crossing_actions:
+                            actions.append(action)
+                        # BOTH frozen-state membership fields together
+                        # (MembershipReset's docstring), read AFTER the
+                        # handoff is composed above, not before: the
+                        # console line and WORLD_POP_STOWAWAYS both report
+                        # world_census_indices, and resetting first would
+                        # make both print 0 in the boot where they should
+                        # report the real count (k882hm-D3).
+                        reset = handoff.membership_reset
+                        self.population_indices = reset.population_indices
+                        self.population_refresh_anchor = (
+                            reset.population_refresh_anchor
+                        )
+                        self.world_census_indices = (
+                            reset.population_indices
+                        )
                         self.events.append(
                             "core_request_014_columbus_scene17_teleport_sent"
+                        )
+                        self.events.append(
+                            "world_m2_crossing_handoff_"
+                            f"{handoff.kind}_scene_{handoff.scene_id}"
                         )
                 elif (
                     not self.columbus_quest3205_dispatch_attempted
@@ -4998,11 +5190,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if parsed.nested_id != legacy.TARGET_POS_VITAL:
                 return False
             self.gm_warp_position_pending = False
+            # CORE-REQUEST-GM-030/031.  Unconditional, on every pass that
+            # reaches here -- whatever the character check just below decides
+            # -- so a target parked for a character this connection has since
+            # switched away from is taken (and therefore cleared) here rather
+            # than surviving to leak onto a later, unrelated confirm window.
+            record, reason = take_warp_target_with_reason(
+                self, current_character_id(self),
+            )
+            self.gm_warp_confirm_target = record.target if record else None
+            self.gm_warp_confirm_target_reason = reason if not record else None
             selected = self.foundation.selected
             if getattr(selected, "id", None) != self.gm_warp_pending_character:
                 # The warp was armed for another character (re-select on the
                 # same connection).  Disarm and name it: a token here would
                 # put one character's warp on another character's row.
+                #
+                # NONCLAIM (pf-adversary, this round): gm_warp_pending_character
+                # and record.character_id are always written from the same
+                # `current_character_id(self)` at arm time
+                # (chat_command_action.py's call to record_warp_target), so any
+                # real re-select that would make take_warp_target_with_reason
+                # return REASON_CHARACTER_MISMATCH also trips THIS guard first
+                # and returns False before the window (and therefore
+                # _gm_warp_note_position_target) ever runs.  That makes the
+                # "gm_warp_position_target_unknown_character_mismatch" event in
+                # _gm_warp_note_position_target unreachable from any real
+                # dispatch path today -- it is proven only by a test that parks
+                # a WarpTargetRecord directly, bypassing this call chain.  Left
+                # in as defense-in-depth per CORE-REQUEST-GM-031 item 5, not as
+                # a claim that this branch fires in production.  See
+                # CORE-REQUEST-GM-031 follow-up reply for the guard-order
+                # question this raises.
                 self.events.append(
                     "gm_warp_position_not_confirmed_character_changed"
                 )
@@ -5020,6 +5239,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             if not warp_frame or not self.gm_warp_confirm_window_open:
                 return
             self.gm_warp_confirm_window_open = False
+            # CORE-REQUEST-GM-030/031: this frame's parked target (if any)
+            # was for THIS confirm window, which just closed without a
+            # durable write.  Leaving it set would let the next unrelated
+            # frame -- one that opens no confirm window at all, because
+            # gm_warp_position_pending is already False by now -- read a
+            # target that has nothing to do with it (test d's regression).
+            self.gm_warp_confirm_target = None
+            self.gm_warp_confirm_target_reason = None
             reason = (
                 "scene_load_scenario" if scene_load_scenario is not None
                 else "no_durable_position_write"
@@ -6334,17 +6561,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # Same frozen serializer, same fail-closed shape: any
                     # refusal or length drift falls back to the untouched
                     # production bytes with a named event, never a
-                    # half-composed frame.  KNOWN GAP (pf-adversary,
-                    # unresolved this round): the serializer itself only
-                    # accepts scene_id in (1, 2) -- a character stored in
-                    # any OTHER pinned scene (e.g. 278, 997/FilmScene) still
-                    # falls back to plain bytes here, silently, because the
-                    # frozen probe was never proven for those scenes.  Not
-                    # reachable by a normal player today (world-travel gates
-                    # stay closed by default), but real for RE-073's
-                    # FilmScene work and for any future world-travel
-                    # unlock -- flagged to COO/Panya in this round's reply,
-                    # not silently declared solved.
+                    # half-composed frame.  UPDATED 2026-08-30 by chief
+                    # (LANE-A round `vvy6q7`, 20260830_0050 letter, item @2'):
+                    # the "only scene_id in (1, 2)" half of this comment
+                    # is STALE -- the composer now accepts {1, 2, 14} and
+                    # decides by rule (registry login_entry_allowed AND
+                    # n_SAVE == 1), not by a hardcoded list. The other half
+                    # still holds: any OTHER pinned scene (e.g. 278, 997/
+                    # FilmScene) still falls back to plain bytes here,
+                    # because those scenes have n_SAVE == 0, not because of
+                    # their scene_id -- and that fallback is now named
+                    # (`faction_refused_scene_997_n_save_is_0_not_1`) instead
+                    # of silent. Real for RE-073's FilmScene work and for any
+                    # future world-travel unlock of a scene with n_SAVE == 0.
                     try:
                         faction_pc, faction_frame = (
                             self.foundation.projector.start_game(

@@ -362,15 +362,19 @@ class TestTheAnswer(unittest.TestCase):
         # count moves -- the entry-builder counts below are unchanged,
         # because that module composes bodies other modules built and
         # invents none of its own.
-        # 26 -> 27, 17 -> 18, 16 -> 17 on 2026-08-31 (LANE-A round h1utu5):
+        # 26 -> 27, 17 -> 18, 16 -> 17 on 2026-08-30 (LANE-A round 6p22bu):
         # world_population_bg0004.py, the Bg0004 (Slave Market Island)
-        # census -- BUILD-002 door 1, COO-DECISION 2026-08-30T14:41+07:00 --
-        # builds one entry and sends one carrier, the same single-module
-        # move bg0002/bg0015 made.  Not wired to any player-visible path
-        # this round.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 27)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 18)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 17)
+        # census (COO-DECISION 2026-08-30T14:41+07:00), builds one entry and
+        # sends one carrier -- the same single-module move bg0015 made.  Not
+        # wired to any player-reachable path this round.
+        # 27 -> 28, 18 -> 19, 17 -> 18 on 2026-08-31 (LANE-A round u3jo4g):
+        # world_population_bg0010.py, the Bg0010 (Deep Sea Temple floor 1)
+        # census (second door of the same COO-DECISION 2026-08-30T14:41+07:00
+        # sequence), the same single-module move.  Not wired to any
+        # player-reachable path this round either.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 28)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 19)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 18)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

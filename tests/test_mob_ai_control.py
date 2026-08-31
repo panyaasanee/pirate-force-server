@@ -433,6 +433,22 @@ class RegisterTests(unittest.TestCase):
             self.assertEqual(state.threat, ())
             self.assertEqual(state.leash_origin, (mob.x, mob.y, mob.z))
 
+    def test_mob_of_returns_the_row_s_own_monster(self):
+        # mob_of had zero call sites anywhere in src/ or tests/ (pf-adversary,
+        # round p0qia9) while its sibling accessor state_of is exercised by
+        # ~18 assertions.  A correct one-liner with no test is still a
+        # regression waiting to happen on a class this module calls "frozen,
+        # load-bearing" -- so pin what it actually returns.
+        for mob in self.roster:
+            self.assertEqual(
+                self.register.mob_of(mob.actor_identity), mob)
+
+    def test_mob_of_refuses_an_untracked_identity_the_same_way_state_of_does(self):
+        with self.assertRaises(MobAiControlError) as caught:
+            self.register.mob_of(0x7FFF)
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_control.REFUSE_NOT_TRACKED)
+
     def test_the_register_is_sorted_unique_and_never_mutated(self):
         identities = self.register.identities()
         self.assertEqual(list(identities), sorted(identities))

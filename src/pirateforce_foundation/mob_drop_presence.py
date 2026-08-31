@@ -23,6 +23,20 @@ the lever the order was handed with only touches one of them:
     Fixing that is TWO LINES in a file this lane does not own -- see
     :data:`DROP_PRESENCE_WIRING`.
 
+    **THIS IS NOW WIRED.**  Chief's commit ``432381a2`` (round ``t7t5yd``,
+    2026-08-30T01:33+07:00) put the ask into ``runtime.py``'s MOB_LOOT block
+    -- the commit message's own words are "is the five DROP_PRESENCE_WIRING
+    lines verbatim".  Read that as a fact about ``runtime.py`` re-derived by
+    a test, not as this sentence: ``tests/test_mob_drop_presence.py``'s
+    ``ModuleShapeTests.test_the_wiring_ask_is_fulfilled_re_derived_from_
+    runtime_py`` parses the four ``mob_drop_presence.<name>(`` calls the ask
+    below names and confirms ``runtime.py``'s own AST really calls all four
+    today; ``tests/test_mob_drop_presence_wiring.py`` separately drives the
+    real dispatcher through a kill and pins the resulting behaviour.  The ask
+    text right below is kept as it was written -- this lane does not rewrite
+    an ask after the fact -- but a reader landing on it from the module
+    docstring should not treat it as still open.
+
   HOLE 2 -- THE CLIENT'S LABEL.  GT-045 measured the floating red name at
     0.2-0.4 s of screen life (frame-extracted, and the recorder duplicates
     frames in threes, so the number may not be written more precisely than
@@ -542,6 +556,19 @@ def presence_event(step: Any) -> str:
 
 # ---------------------------------------------------------------------------
 # The wiring ask.  runtime.py is chief's file; this is the whole change.
+#
+# STATUS: WIRED, not open.  Chief's commit 432381a2 (round t7t5yd,
+# 2026-08-30T01:33+07:00) put these five lines into runtime.py's MOB_LOOT
+# block -- verbatim, per that commit's own message.  This lane found this
+# text still framed as an unanswered ask on round jiy6lj (this round) with
+# no test re-deriving that fact from source, which is the same failure mode
+# GOVERNED_BAG_ALLOWLIST_OWNER had before round hpronz's AST tripwire: a
+# hand-typed status that cannot self-report going (or having gone) stale.
+# The string body below is left byte-for-byte as it was asked -- this lane
+# does not rewrite an ask after the fact -- but tests/test_mob_drop_presence.
+# py's ModuleShapeTests.test_the_wiring_ask_is_fulfilled_re_derived_from_
+# runtime_py is the thing that would go red if this status note itself ever
+# went stale (wiring reverted without this comment being noticed).
 # ---------------------------------------------------------------------------
 DROP_PRESENCE_WIRING = """runtime.py, the MOB_LOOT block of _dispatch_mob_combat
 (today: 'if drops:' ... 'for loot_pc, loot_frame in mob_loot.drop_frames(' ...
@@ -593,4 +620,99 @@ WHAT EACH LINE REPLACES, AND WHY IT IS NOT A CADENCE CHANGE:
 
 NOTHING ELSE MOVES.  No timer, no thread, no new dispatch branch, no scenario
 flag: production_allowed is True and this behaviour is on for every boot.
+"""
+
+# ---------------------------------------------------------------------------
+# PANYA-ORDER 2026-08-30T14:50+07:00 step 1-2 (relayed
+# notes_to_chief/20260830_1450_PANYA-ORDER-prove-drop-persistence-BEFORE-
+# GT146-click-test-plus-nonclaim-routing-error.md): can the ground-loot
+# element be made to stay visible/clickable >= 30 s, proven headless first.
+#
+# tests/test_mob_drop_presence_sustained_resend_hypothesis.py answers the
+# mechanism half: ``sustain_a_kill(cell, legacy, ())`` -- the SAME function
+# the per-kill path above already calls, called again with no new kill --
+# resends the whole live ledger's frames at zero placement cost and zero new
+# byte layout, and does so correctly across a proven >= 30 s window (34 s,
+# uneven cadence, well inside the 120 s DROP_LIFETIME_SECONDS ceiling). This
+# test still stands as a true, adversary-checked fact about the mechanism.
+#
+# ~~"Send the frame again periodically" is therefore not a mechanism to
+# build; it is a call site to add, gated by a scenario flag so it stays
+# test-only.."~~ WITHDRAWN, same round (u98etz), after a fetch surfaced work
+# this lane did not have when it wrote that sentence: round ``xt0g9c``
+# (earlier the same evening) had already re-verified this exact mechanism
+# headless (tests/test_mob_drop_presence.py, 48/48) and an ATTENDED round
+# that followed it (GT143/GT132/GT149, notes_to_chief/20260830_1554) measured
+# the real client label life at 0.2 s regardless of the server-side ledger
+# surviving 120 s -- the bottleneck this lane's proof addresses was never the
+# one blocking GT-146.  The COO then explicitly RULED, 2026-08-30T17:42+07:00
+# (notes_to_chief/20260830_1742_COO-DECISION-label-life-drop-announcement-
+# rule-stands.md), NOT to open any repeated-resend path -- capped or
+# movement-driven -- until an attended round fires exactly ONE extra resend
+# after the first drop and measures whether the label comes back.  The
+# call-site proposal below is exactly the kind of standing (repeated, not
+# single) resend that ruling refuses, so it is NOT a live ask: nobody should
+# wire it from this text.  It is kept, struck, rather than deleted, as the
+# record of what this lane asked for before it knew the ruling existed.
+# ---------------------------------------------------------------------------
+WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING = """runtime.py, the TargetPosVital
+scenario cluster that already gates ground_loot_hypothesis and
+ground_loot_nameprop_hypothesis (search 'nested_id == legacy.TARGET_POS_VITAL'
+-- three sibling blocks, all reading a scenario kwarg that defaults to None).
+
+ADD A FOURTH SIBLING BLOCK, new scenario kwarg
+``mob_drop_presence_resend_scenario`` (None by default, same constructor/
+__slots__/repr wiring as the two neighbours it sits beside -- see how
+``ground_loot_hypothesis_scenario`` is threaded through __init__ and
+docs/GM_LANE.md-style scenario tables for the exact shape chief already
+copies twice):
+
+  if (
+      mob_drop_presence_resend_scenario is not None
+      and self.runtime_ack_sent
+      and self.teleport_sent
+      and self.foundation.selected is not None
+      and nested_id == legacy.TARGET_POS_VITAL
+  ):
+      step = mob_drop_presence.sustain_a_kill(self.mob_loot_cell, legacy, ())
+      print(mob_drop_presence.describe_presence(step))
+      actions.extend(mob_drop_presence.loot_actions(step))
+      self.events.append(mob_drop_presence.presence_event(step))
+
+NOTE WHAT IS DELIBERATELY ABSENT: no ``_sent`` latch (unlike the two
+neighbours, which fire ONCE per session).  This block is meant to fire on
+EVERY qualifying TargetPosVital while the flag is set, because the whole
+point is CADENCE -- a client-driven event that already arrives every time
+the player moves, not a server clock (the COO's 2026-08-26 refusal was of a
+TIMER; there is no timer here, only an existing message handled one more
+way). ``sustain_a_kill`` costs nothing extra when the ground is empty
+(STATE_NOTHING_ON_THE_GROUND, frames=()) and composes no new bytes ever --
+it is the identical function object the always-on per-kill call site above
+already calls in production.
+
+THE SCENARIO FLAG ITSELF is the part this lane has not built: a permission-
+token loader/validator following the ``ground_loot_hypothesis`` pattern
+(frozen allowlisted profile, ``production_allowed = False``, refuses any
+drifted file by name). Until that token exists this block simply never
+fires (``mob_drop_presence_resend_scenario is None`` on every default boot),
+so landing the block ahead of the token is safe and unblocks the token being
+built in either lane's next round without a second runtime.py edit.
+
+pf-adversary (this round) asked who verifies the token defaults to refused
+before this wiring lands: the same guarantee ``ground_loot_hypothesis`` gives
+by construction, not by convention -- the CONSTRUCTOR arg defaults to
+``None`` (nothing fires with no file passed), the loader accepts only the
+one frozen profile by identity (``require_ground_loot_hypothesis_scenario``,
+``is`` not ``==``, so no value-equal lookalike opens it), and
+``load_ground_loot_hypothesis_scenario`` refuses any file that is not an
+exact match to the allowlisted body. Whoever builds the token for this flag
+owes the same three properties and a test pinning each one, exactly as
+``tests/test_ground_loot_hypothesis.py`` already does for the sibling --
+this file does not build that token and must not be read as claiming the
+default is safe until that test exists.
+
+WHAT THIS DOES NOT DO: it does not change what LABEL_LIFE_SECONDS_MIN/MAX
+mean, it does not set REEMISSION_REDRAWS_THE_LABEL (that stays an attended-
+only measurement), and it does not touch the always-on per-kill call site
+above in any way.
 """

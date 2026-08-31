@@ -58,8 +58,10 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # opened Hell Volcano Island at login).  It arrived through the REGISTRY,
 # which is this file's whole point: the sanctioned scene 126 still grants
 # nothing, and 14 is here because a pinned row says open, not because a
-# letter said so.
-ADMISSIBLE_TODAY = (1, 2, 14, 278, 997)
+# letter said so.  Scene 4 joined it round bq4mst the same way (COO-DECISION
+# 20260830_1441, this lane's own census composer judged ready).  Scene 10
+# joined it round 3t75jw, second door in the same queue.
+ADMISSIBLE_TODAY = (1, 2, 4, 10, 14, 278, 997)
 # The one scene a chief letter sanctions today.
 SANCTIONED = 126
 # Pinned, named, and barred at login -- the shape scene 126 will have once
@@ -79,9 +81,15 @@ def _registry_with_sanctioned_row(*, login_entry_allowed: bool):
     landed = dataclasses.replace(
         source, n_id=SANCTIONED, login_entry_allowed=login_entry_allowed
     )
-    return dataclasses.replace(
-        registry, destinations=registry.destinations + (landed,)
-    )
+    # `SceneRegistry.__getitem__` is a linear scan returning the first row
+    # whose n_id matches.  Lane A's real scene-126 row is on main now
+    # (round R249, `pirate-force-server#332`), so `registry.destinations`
+    # already carries one -- appending this stand-in after it would leave
+    # `registry[SANCTIONED]` resolving to the real row instead of the
+    # `login_entry_allowed` this helper's caller asked for. Drop any
+    # existing row with the same id first.
+    kept = tuple(d for d in registry.destinations if d.n_id != SANCTIONED)
+    return dataclasses.replace(registry, destinations=kept + (landed,))
 
 
 class TheSanctionSetGrantsNothingTests(unittest.TestCase):
@@ -391,8 +399,26 @@ class TheStagePathSaysWhichRefusalItIsTests(unittest.TestCase):
             config_path=self.config_path,
         )
 
+    def _disk_before_lane_a_merge(self):
+        # Round R249 (chief, gate-red repair of `pirate-force-server#332`)
+        # landed lane A's real scene-126 row on the real disk, so this
+        # class's "not yet reachable" scenario has to build the pre-merge
+        # disk explicitly now instead of reading it off the unmocked disk.
+        registry = world_scene_travel.load_scene_registry()
+        return dataclasses.replace(
+            registry,
+            destinations=tuple(
+                d for d in registry.destinations if d.n_id != SANCTIONED
+            ),
+        )
+
     def test_the_sanctioned_scene_refuses_with_its_own_reason(self):
-        result = self._stage(SANCTIONED)
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            return_value=self._disk_before_lane_a_merge(),
+        ):
+            result = self._stage(SANCTIONED)
         self.assertFalse(result.staged)
         self.assertEqual(
             result.reason,
@@ -407,7 +433,12 @@ class TheStagePathSaysWhichRefusalItIsTests(unittest.TestCase):
         )
 
     def test_the_refusal_writes_nothing_at_all(self):
-        self._stage(SANCTIONED)
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            return_value=self._disk_before_lane_a_merge(),
+        ):
+            self._stage(SANCTIONED)
         self.assertFalse(self.config_path.exists())
 
     def test_the_new_reason_is_classified_as_destination_shaped(self):

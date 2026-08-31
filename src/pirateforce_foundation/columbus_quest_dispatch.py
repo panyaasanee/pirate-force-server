@@ -207,7 +207,9 @@ exact one-line hook needed.
 from __future__ import annotations
 
 from . import population
+from . import world_m2_crossing_handoff
 from . import world_m2_return_leg
+from . import world_m2_sea_destination
 from . import world_population_handoff
 from . import world_scene_entry
 from .model import Position
@@ -495,11 +497,17 @@ def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
         )
         return
     if legacy is None:
-        # NOT a failure and deliberately not silent.  The call site in
-        # runtime.py does not pass the frozen module or the membership
-        # today, so the honest answer is "nobody asked the table", printed
-        # in the same field shape as the measured line so one grep catches
-        # both states.
+        # NOT a failure and deliberately not silent.
+        # CORRECTED round 4lrspn: this comment used
+        # to claim, present tense, that "the call site in runtime.py does not
+        # pass the frozen module or the membership today" -- false at HEAD,
+        # struck rather than left to mislead a reader who does not also read
+        # runtime.py.  Since round R229/qb70g2 the real call site DOES pass
+        # both (``runtime.py:4985-4986``), so this branch is dead on that
+        # path; it still fires from any OTHER caller (tests, a future call
+        # site) that hands over no legacy module, and the honest answer for
+        # THAT caller is "nobody asked the table", printed in the same field
+        # shape as the measured line so one grep catches both states.
         emit(
             "WORLD_POP_STOWAWAYS unmeasured reason=call_site_passed_no_legacy "
             "anchor=({0:.3f},{1:.3f},{2:.3f})".format(*anchor)
@@ -512,7 +520,8 @@ def _emit_arrival_stowaways(entry, *, legacy, held_indices, emit):
 
 
 def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
-                                held_indices=None, departed_from=None):
+                                held_indices=None, departed_from=None,
+                                crossing_handoff_dispatched=False):
     """The compound action CORE-REQUEST-014 asked for was bind-vehicle-then-
     teleport; what M2 actually ships today, by owner decree, is teleport
     alone.
@@ -544,10 +553,21 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     the crossing prints it.  ``legacy`` and ``held_indices`` are OPTIONAL and
     default to the call site as it stands today, which has neither to hand:
     without them the line still prints, saying it is unmeasured and why, so
-    the console never goes quiet about a question it cannot answer.  The
+    the console never goes quiet about a question it cannot answer.  ~~The
     one-token change that turns it into names and distances -
     ``legacy=legacy, held_indices=self.world_census_indices`` at
-    ``runtime.py``'s existing call - is this round's CORE-REQUEST to chief.
+    ``runtime.py``'s existing call - is this round's CORE-REQUEST to
+    chief.~~ LANDED (chief, round R229/qb70g2, ``runtime.py``'s
+    ``_dispatch_columbus_quest3021`` now passes both at its call to
+    ``dispatch_columbus_quest3021`` below).  Struck rather than deleted:
+    accurate when written, and a reader who still believes it would go
+    looking for a CORE-REQUEST that already landed instead of reading the
+    live call site.  ``departed_from`` (see the parameter of the same name
+    on this function) landed the same way, one CORE-REQUEST later.
+    (Round 4lrspn independently re-derived and drafted the same correction
+    before finding this one already on ``main`` after a mid-round rebase;
+    kept this wording rather than duplicating it, since a diff cannot say
+    the same true thing twice.)
 
     NOTHING HERE DECIDES ANYTHING.  No refusal reads this line, the wire is
     untouched, the returned ``SceneEntry`` is untouched, and a failure inside
@@ -560,6 +580,22 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     evidence stream.  So every quest-3021 dispatch now records one more
     event than it did yesterday.  Nothing asserts that sequence today; a
     round that starts asserting it should know this line is in it.
+
+    A FIFTH REPORT, APPENDED LAST (LANE-A, M2), NAMES THE DOOR ITSELF.
+    ``world_m2_sea_destination`` has held the whole eight-island Columbus
+    crosswalk and the [CONTESTED] var2 reading since round drrnpu; nothing
+    on this default path ever printed a word of it before this round.
+    ``world_m2_sea_destination.console_line_safe`` -- never raises, same
+    reason as every report above -- is the line.  Reuses the SAME
+    ``registry`` this function already resolved scene 17 against; composes
+    nothing new and sends no frame.
+
+    A SIXTH REPORT, APPENDED LAST AGAIN (LANE-A, M2, this round).  Widens
+    the fifth report's question ("does the registry hold a place to land")
+    from scene 17 alone to all eight ``COLUMBUS_ROUTES`` islands --
+    ``world_m2_sea_destination.sea_map_console_line_safe``, same
+    never-raises shape, same reused ``registry``, no claim that the other
+    seven doors are reachable today.
     """
     try:
         entry = resolve_columbus_arrival(registry=registry, emit=emit)
@@ -579,10 +615,82 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # mcxexp).  Report only, never raises, and it changes nothing that is
     # sent: see world_m2_return_leg's docstring for the three things it does
     # not claim.  ``departed_from`` is the row this character was standing on
-    # in Port Royal; the call site does not pass it yet, and the line says so
-    # in the same field shape as the measured one rather than going quiet.
+    # in Port Royal.
+    # CORRECTED round 4lrspn: this comment used to
+    # say "the call site does not pass it yet" - false at HEAD, the
+    # ``runtime.py`` call site has passed it since round R229/qb70g2.  The
+    # line still says so in the same field shape as the measured one on any
+    # OTHER call (default parameter, tests) that hands over none, rather than
+    # going quiet.
     emit(world_m2_return_leg.return_leg_console_line(
         entry, departed=departed_from, registry=registry))
+    # THE POPULATION HANDOFF THE RETURN TRIP WOULD OWE, NAMED BUT NOT BUILT.
+    # ``world_m2_return_leg``'s own docstring explains why this stays a
+    # source/count REPORT rather than a composed frame: there is no dispatch
+    # site that sends anyone home yet (``RE-077``'s in-game return trigger is
+    # still open), so building the actual home-scene roster on every OUTBOUND
+    # crossing, just to describe a trip nobody can currently take, would pay
+    # the exact per-crossing cost the crossing-handoff module next door warns
+    # against - on a path that runs today for a trip that does not.
+    emit(world_m2_return_leg.return_population_console_line(
+        entry, departed=departed_from, registry=registry))
+    # THE POPULATION HANDOFF THIS CROSSING OWES AND DOES NOT SEND.  Composed
+    # here, on the default path, for every crossing -- see
+    # ``world_m2_crossing_handoff``'s docstring for the two independent
+    # sources (this lane's own WORLD_POP_STOWAWAYS line, and RE-162 Job 4)
+    # that found the same gap from opposite directions.  For scene 17 the
+    # answer is a 27-byte CLEAR in slot ``before_teleport``; the whole of
+    # Port Royal is on the client until something queues it.
+    #
+    # REPORT ONLY, TODAY.  The bytes exist on this line and go nowhere: this
+    # function returns a ``SceneEntry`` and the caller in ``runtime.py``
+    # composes the outbound action list, so the queueing is a block in the
+    # chief's file (this round's CORE-REQUEST).
+    #
+    # ``crossing_handoff_dispatched`` IS THE ONE-TOKEN FLIP, and it is the
+    # same shape the three keywords above it landed by (``legacy=``,
+    # ``held_indices=``, ``departed_from=``, each a CORE-REQUEST of its own).
+    # It defaults to False because that is currently TRUE - nothing queues
+    # these bytes - and it is a parameter rather than a constant so the edit
+    # that starts queueing them is also the edit that stops the console
+    # claiming otherwise.  A ``dispatched=YES`` printed by a boot that queued
+    # nothing would be worse than no line at all.
+    #
+    # ``held_indices`` is the collection the client is still holding, the same
+    # value the stowaway line above reads, so the two lines cannot disagree
+    # about the number they are both describing.
+    emit(world_m2_crossing_handoff.crossing_handoff_console_line(
+        world_m2_crossing_handoff.crossing_handoff(legacy, entry),
+        dispatched=crossing_handoff_dispatched,
+        held=held_indices,
+    ))
+    # WHERE THE DOOR ITSELF LEADS, NAMED OUT LOUD -- ROUND (LANE-A, M2).
+    # ``world_m2_sea_destination`` has measured the whole Columbus-route
+    # crosswalk (eight islands, the [CONTESTED] var2 reading, the
+    # decreed-vs-measured arrival state) since round drrnpu and nothing on
+    # this default path ever printed a word of it.  Appended last, after
+    # the frame-bearing crossing-handoff report, for the same reason every
+    # earlier addition here was appended rather than inserted: the decision
+    # line and the reports ahead of it are pinned by POSITION in
+    # ``tests/test_columbus_quest_dispatch.py``, and a line inserted between
+    # two pinned ones fails that pin on purpose.  Uses the SAME ``registry``
+    # ``resolve_columbus_arrival`` already resolved scene 17 against above --
+    # never re-reads the file (``world_m2_sea_destination``'s own docstring:
+    # "this module must not read the file itself").
+    emit(world_m2_sea_destination.console_line_safe(registry))
+    # THE OTHER SEVEN DOORS, NAMED WITHOUT PRETENDING ANY OF THEM OPEN --
+    # ROUND (LANE-A, M2), APPENDED LAST FOR THE SAME REASON AS EVERY REPORT
+    # ABOVE.  ``world_m2_sea_destination.COLUMBUS_ROUTES`` has held all eight
+    # islands' target scenes and model ids since round drrnpu; only scene
+    # 17's registry readiness was ever asked about on this default path.
+    # This widens that ONE question ("does the registry hold a place to
+    # land") across all eight, reusing the exact same registry-reading
+    # functions scene 17's own report calls -- not a second selector, the
+    # same one fed a wider input set.  It does not claim a player can reach
+    # the other seven today (only row 3021 dispatches, here, and whether the
+    # other seven islands' Columbus NPCs are even placed by default is
+    # unmeasured); it reports registry-side readiness only.
+    emit(world_m2_sea_destination.sea_map_console_line_safe(registry))
     return entry
 
 

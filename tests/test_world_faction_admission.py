@@ -85,6 +85,12 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 HOME = 1
 SCENE_2 = 2
 VOLCANO = 14
+# ADDED round bq4mst (LANE-A): opened the same round this constant was added.
+SLAVE_MARKET = 4
+# ADDED round 3t75jw (LANE-A): opened the same round this constant was added,
+# second of the ten doors -- carries an elevated landing-geometry flag
+# (registry's own the_two_interiors) this file does not track; see GT-166.
+DEEP_SEA_TEMPLE = 10
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
 STAGE_OPEN_BUT_NOT_A_HOME = 278
@@ -134,10 +140,19 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
 
     def test_the_admitted_set_is_exactly_the_two_proven_scenes_and_the_volcano(
             self):
-        self.assertEqual((HOME, SCENE_2, VOLCANO), wfa.admitted_scene_ids())
+        # ADDED round bq4mst: scene 4 (SLAVE_MARKET) opened this round
+        # (COO-DECISION 20260830_1441) and carries n_SAVE 1, so the DERIVED
+        # set now includes it -- this is the file's own point, that the set
+        # follows the registry rather than a list somebody wrote once.
+        # UPDATED round 3t75jw: scene 10 (DEEP_SEA_TEMPLE) opened second,
+        # same basis, and also carries n_SAVE 1.
+        self.assertEqual(
+            (HOME, SCENE_2, SLAVE_MARKET, DEEP_SEA_TEMPLE, VOLCANO),
+            wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
-        for scene_id in (HOME, SCENE_2, VOLCANO):
+        for scene_id in (HOME, SCENE_2, SLAVE_MARKET, DEEP_SEA_TEMPLE,
+                          VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -170,13 +185,18 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
     def test_the_console_line_follows_a_registry_that_moves(self):
         # The half a literal cannot fake: hand it a registry with another
         # door open and the printed set has to change.
+        # UPDATED round 3t75jw: the base registry this opens ON TOP OF now
+        # already admits scene 10 (DEEP_SEA_TEMPLE), so the expected string
+        # grew a digit that is not the one this test opens.
         with tempfile.TemporaryDirectory() as work:
             opened, _ = _registry_with_door(
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
             self.assertIn(
-                f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},14", line)
-            self.assertNotIn("scenes=1,2,14 ", line)
+                f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},4,"
+                f"{DEEP_SEA_TEMPLE},14",
+                line)
+            self.assertNotIn(f"scenes=1,2,4,{DEEP_SEA_TEMPLE},14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):

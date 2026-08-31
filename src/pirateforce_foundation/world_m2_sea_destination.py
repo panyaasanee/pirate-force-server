@@ -358,6 +358,27 @@ COLUMBUS_ROUTES = (
     (250, 8, 3028, 41, 305),
 )
 
+# Every COLUMBUS_ROUTES target scene's own model id and CONSTDATA_TH__
+# SCENE_NAME.n_MARKER value, read directly from that table (not derived
+# through the Bg100<n> arithmetic that happens to hold for six of the eight
+# and breaks for the other two - 39/40/41 are Bg1023/Bg1024/Bg1025, not
+# Bg1006/Bg1007/Bg1008).  Measured 2026-08-31 (LANE-A, M2):
+#
+#   17 Bg1001  18 Bg1002  19 Bg1003  20 Bg1004  21 Bg1005
+#   39 Bg1023  40 Bg1024  41 Bg1025
+#
+# and every one of the eight carries n_MARKER == 0 - the same "no authored
+# arrival point KEYED BY SCENE" finding this module already reported for
+# scene 17 alone, now confirmed across every reachable Columbus destination
+# rather than assumed to extend past the one door this project has walked.
+COLUMBUS_ROUTE_SCENE_MODEL_ID = {
+    17: "Bg1001", 18: "Bg1002", 19: "Bg1003", 20: "Bg1004", 21: "Bg1005",
+    39: "Bg1023", 40: "Bg1024", 41: "Bg1025",
+}
+COLUMBUS_ROUTE_SCENE_NAME_MARKER = {
+    17: 0, 18: 0, 19: 0, 20: 0, 21: 0, 39: 0, 40: 0, 41: 0,
+}
+
 # Row -> the scene its n_VARI_2 names.  Row 3205 is the second option on the
 # same screen and its n_VARI_2 (1) is Port Royal, which is what its own
 # title says - the control that makes this column readable as a scene id.
@@ -564,14 +585,19 @@ def route_for(columbus_mobs_n_id: int) -> tuple[int, int, int, int] | None:
     return None
 
 
-def _target(registry):
-    """The registry's row for scene 17, or None when it pins none.
+def _target_for(registry, scene_id: int):
+    """The registry's row for ``scene_id``, or None when it pins none.
 
     ``registry`` is REQUIRED and never defaulted.  ``world_scene_travel.
     destination()`` falls back to loading the file from disk when it is given
     a falsy registry, so a caller who forgot the argument would otherwise get
     a confident answer sourced from a file this module never meant to open -
     a boot reading one registry while this line reads another.
+
+    Generalized from the original scene-17-only ``_target`` (round drrnpu) so
+    ``sea_map_console_line`` below can ask the same question of every
+    ``COLUMBUS_ROUTES`` target without a second lookup path - see that
+    function's docstring for why widening beat writing one.
     """
     if registry is None:
         raise SeaDestinationError(
@@ -582,7 +608,7 @@ def _target(registry):
         # Refusing here rather than below keeps the REFUSED answer honest.
         # world_scene_travel.destination() indexes whatever it is given, so a
         # string or a list would raise IndexError, get caught as "this
-        # registry does not carry scene 17", and hand back a confident
+        # registry does not carry the scene", and hand back a confident
         # refusal about a registry that was never one.
         raise SeaDestinationError(
             "that is not a scene registry - expected the object "
@@ -592,21 +618,31 @@ def _target(registry):
     from . import world_scene_travel
 
     try:
-        return world_scene_travel.destination(DESTINATION_SCENE_N_ID, registry)
+        return world_scene_travel.destination(scene_id, registry)
     except Exception:
         # Not in this registry: a refusal, fail-closed, never an exception
         # into a caller's boot.
         return None
 
 
-def arrival_position(registry) -> tuple[float, float, float] | None:
-    """Scene 17's pinned arrival point, or None if the registry pins none.
+def _target(registry):
+    """The registry's row for scene 17 - the one destination this module's
+    older, scene-17-only reports were written against.  Unchanged signature;
+    now a thin call onto :func:`_target_for`.
+    """
+    return _target_for(registry, DESTINATION_SCENE_N_ID)
+
+
+def arrival_position_for(
+    registry, scene_id: int,
+) -> tuple[float, float, float] | None:
+    """``scene_id``'s pinned arrival point, or None if the registry pins none.
 
     Takes the registry rather than loading one: the caller (runtime.py) reads
     it once at boot, and a module that opened the file itself would be the
     second copy this file was just corrected for holding.
     """
-    target = _target(registry)
+    target = _target_for(registry, scene_id)
     if target is None:
         return None
     from . import world_scene_travel
@@ -619,23 +655,30 @@ def arrival_position(registry) -> tuple[float, float, float] | None:
         return None
 
 
+def arrival_position(registry) -> tuple[float, float, float] | None:
+    """Scene 17's pinned arrival point.  Thin call onto the ``_for`` helper,
+    kept as its own name because every existing caller reads scene 17
+    specifically and this signature must not change under them.
+    """
+    return arrival_position_for(registry, DESTINATION_SCENE_N_ID)
+
+
 def arrival_provenance(registry) -> str | None:
     """The provenance string the registry carries for that point, verbatim."""
     target = _target(registry)
     return None if target is None else target.spawn_provenance
 
 
-def arrival_is_decreed(registry) -> bool:
-    """Whether the pinned point still rests on the owner's decree.
+def arrival_is_decreed_for(registry, scene_id: int) -> bool:
+    """Whether ``scene_id``'s pinned point still rests on the owner's decree.
 
-    True today.  GT-106 has satisfied the decree's own written expiry
-    condition (module docstring, item 3), but retiring the prefix changes two
-    other modules' behaviour and one console token, so it is a decision this
-    module reports rather than takes.
+    Generalized so :func:`destination_state_for` can answer for any
+    ``COLUMBUS_ROUTES`` target, not only scene 17.
     """
     from . import world_scene_travel
 
-    provenance = arrival_provenance(registry)
+    target = _target_for(registry, scene_id)
+    provenance = None if target is None else target.spawn_provenance
     if provenance is None:
         return False
     return provenance.startswith(
@@ -643,17 +686,38 @@ def arrival_is_decreed(registry) -> bool:
     )
 
 
-def destination_state(registry) -> str:
-    """REFUSED, READY_DECREED or READY_NOT_DECREED - one word for a console.
+def arrival_is_decreed(registry) -> bool:
+    """Whether scene 17's pinned point still rests on the owner's decree.
+
+    True today.  GT-106 has satisfied the decree's own written expiry
+    condition (module docstring, item 3), but retiring the prefix changes two
+    other modules' behaviour and one console token, so it is a decision this
+    module reports rather than takes.
+    """
+    return arrival_is_decreed_for(registry, DESTINATION_SCENE_N_ID)
+
+
+def destination_state_for(registry, scene_id: int) -> str:
+    """REFUSED, READY_DECREED or READY_NOT_DECREED for ``scene_id``.
 
     The third state is deliberately not called READY_MEASURED: it is the
     absence of the decree prefix, which is not the presence of a measurement.
+    Generalized from the scene-17-only ``destination_state`` (round drrnpu)
+    for the same reason as ``_target_for`` above.
     """
-    if arrival_position(registry) is None:
+    if arrival_position_for(registry, scene_id) is None:
         return STATE_REFUSED
-    return STATE_READY_DECREED if arrival_is_decreed(registry) else (
-        STATE_READY_NOT_DECREED
-    )
+    return STATE_READY_DECREED if arrival_is_decreed_for(
+        registry, scene_id,
+    ) else STATE_READY_NOT_DECREED
+
+
+def destination_state(registry) -> str:
+    """REFUSED, READY_DECREED or READY_NOT_DECREED - one word for a console.
+
+    Thin call onto :func:`destination_state_for` for scene 17.
+    """
+    return destination_state_for(registry, DESTINATION_SCENE_N_ID)
 
 
 def destination_ready(registry) -> bool:
@@ -726,6 +790,148 @@ def console_line(registry) -> str:
             refusal_reason(registry) or "none",
         )
     )
+
+
+def console_line_safe(registry) -> str:
+    """The ``M2_SEA_DESTINATION`` line, for every crossing, every boot.
+
+    ROUND (LANE-A, M2): ``console_line`` above has existed since round
+    drrnpu and was never called from anywhere on the default path -- this
+    module named the [CONTESTED] var2 reading and measured the whole
+    Columbus-route crosswalk, and then nobody read it out loud on a boot.
+    This is the wrapper that fixes that, in the same shape every other
+    WORLD_M2_* report in this M2 family already uses (``world_m2_return_leg
+    .return_leg_console_line``, ``.return_population_console_line``):
+    NEVER RAISES, because the call site is on the frame path with no
+    ``except`` of its own -- a report that can throw would turn a naming gap
+    into a lost crossing.
+
+    ``registry=None`` IS A NAMED CASE, NOT A CRASH.  ``dispatch_columbus_
+    quest3021`` accepts ``registry=None`` (``world_scene_entry.resolve_entry``
+    then falls back to a fresh disk read for the SceneEntry itself), so a
+    caller that never passed one can still reach this line.  ``_target``
+    refuses ``None`` outright -- deliberately, per its own docstring, this
+    module must not read the file itself -- so the same
+    ``call_site_passed_no_<thing>`` shape ``world_m2_return_leg`` and
+    ``_emit_arrival_stowaways`` already use for their own optional
+    arguments is used here rather than folding it into the generic
+    ``except`` below, which would report a true absence as an opaque
+    ``SeaDestinationError``.
+
+    ANY OTHER SHAPE ``console_line`` REJECTS (e.g. an object with no
+    ``destinations`` attribute) IS A GENUINE, UNNAMED REFUSAL, kept as a
+    real ``try`` rather than an assumption: a future call site is not
+    obligated to share the precondition every call site THIS round wires
+    (``resolve_columbus_arrival`` already having proven the SAME registry
+    resolves scene 17) actually holds.
+    """
+    if registry is None:
+        return (
+            "M2_SEA_DESTINATION unmeasured "
+            "reason=call_site_passed_no_registry"
+        )
+    try:
+        return console_line(registry)
+    except Exception as error:  # a report must not be able to end a boot
+        return (
+            "M2_SEA_DESTINATION unmeasured reason=refused:"
+            + type(error).__name__
+        )
+
+
+# The console token for the wider report below, deliberately NOT
+# "M2_SEA_DESTINATION": that token names one door (scene 17), and a reader
+# who greps it must not find a summary of all eight mixed in with it.
+SEA_MAP_CONSOLE_TAG = "WORLD_M2_SEA_MAP"
+
+
+def sea_map_lines(registry) -> tuple[tuple[int, str, str], ...]:
+    """(target scene, model id, state) for every ``COLUMBUS_ROUTES`` island.
+
+    THE WIDENING THIS FUNCTION IS, AND WHY IT REUSES RATHER THAN RE-DERIVES.
+    ``console_line`` above has only ever asked the registry about scene 17 -
+    the one door this project's default boot can actually open.  The other
+    seven rows of ``COLUMBUS_ROUTES`` have carried a measured target scene
+    and model id since round drrnpu and nothing has ever asked the registry
+    about THEM.  This function asks, using the exact same ``destination_
+    state_for``/``arrival_position_for`` this file already trusts for scene
+    17 - a wider input set fed to the same encoder, not a second one.
+
+    WHAT THIS DOES NOT CLAIM.  It does not claim a player can reach any of
+    the other seven doors today: ``dispatch_columbus_quest3021`` dispatches
+    only row 3021, and whether the other seven islands' own Columbus NPCs
+    are even placed on a default boot is unmeasured by this module.  It
+    answers one narrower, still-useful question with no identity dependency
+    at all: IF a later round wires one of those rows, does the registry
+    already hold a place to land, or would that crossing refuse on arrival
+    the same way scene 17 once did before round drrnpu pinned it.
+
+    Raises the same way ``console_line`` does on a malformed registry -
+    ``sea_map_console_line_safe`` below is the never-raises wrapper for the
+    frame path, in the same two-function shape as scene 17's own report.
+    """
+    if registry is None:
+        raise SeaDestinationError(
+            "a scene registry is required - pass the one the boot loaded, "
+            "never None (this module must not read the file itself)"
+        )
+    rows = []
+    for _mobs_n_id, _home, _row_id, target, _ocean in COLUMBUS_ROUTES:
+        model_id = COLUMBUS_ROUTE_SCENE_MODEL_ID[target]
+        state = destination_state_for(registry, target)
+        rows.append((target, model_id, state))
+    return tuple(rows)
+
+
+def sea_map_console_line(registry) -> str:
+    """One ASCII line summarising registry readiness for all eight islands.
+
+    Counts rather than eight separate lines: the M2 family's other reports
+    are each about the ONE crossing this dispatch just made, and a console
+    that grew eight lines for a single click would bury them.  The full
+    per-scene detail is still in the line (``detail=``), just packed rather
+    than repeated as separate ``emit`` calls.
+    """
+    rows = sea_map_lines(registry)
+    ready_decreed = sum(1 for _s, _m, state in rows if state == STATE_READY_DECREED)
+    ready_not_decreed = sum(
+        1 for _s, _m, state in rows if state == STATE_READY_NOT_DECREED
+    )
+    refused = sum(1 for _s, _m, state in rows if state == STATE_REFUSED)
+    detail = ",".join(
+        "%d:%s" % (scene, state) for scene, _model, state in rows
+    )
+    return (
+        "{tag} islands={islands} ready_decreed={ready_decreed} "
+        "ready_not_decreed={ready_not_decreed} refused={refused} "
+        "detail={detail} evidence={evidence} reason=none".format(
+            tag=SEA_MAP_CONSOLE_TAG,
+            islands=len(rows),
+            ready_decreed=ready_decreed,
+            ready_not_decreed=ready_not_decreed,
+            refused=refused,
+            detail=detail,
+            evidence=ARRIVAL_EVIDENCE_TICKET,
+        )
+    )
+
+
+def sea_map_console_line_safe(registry) -> str:
+    """The ``WORLD_M2_SEA_MAP`` line, for every crossing, every boot.
+
+    NEVER RAISES, same reason and same two-function shape as ``console_line``
+    / ``console_line_safe`` next door: this is on the frame path with no
+    ``except`` of its own in the caller.
+    """
+    if registry is None:
+        return SEA_MAP_CONSOLE_TAG + " unmeasured reason=call_site_passed_no_registry"
+    try:
+        return sea_map_console_line(registry)
+    except Exception as error:  # a report must not be able to end a boot
+        return (
+            SEA_MAP_CONSOLE_TAG + " unmeasured reason=refused:"
+            + type(error).__name__
+        )
 
 
 def _self_check() -> None:
@@ -804,6 +1010,33 @@ def _self_check() -> None:
                 "inside its row count - one of the two was mis-measured"
                 % (cline_type,)
             )
+    route_targets = {row[3] for row in COLUMBUS_ROUTES}
+    if set(COLUMBUS_ROUTE_SCENE_MODEL_ID) != route_targets:
+        raise SeaDestinationError(
+            "COLUMBUS_ROUTE_SCENE_MODEL_ID must name exactly the eight "
+            "COLUMBUS_ROUTES targets - the sea-map report would silently "
+            "drop or invent an island"
+        )
+    if set(COLUMBUS_ROUTE_SCENE_NAME_MARKER) != route_targets:
+        raise SeaDestinationError(
+            "COLUMBUS_ROUTE_SCENE_NAME_MARKER must name exactly the eight "
+            "COLUMBUS_ROUTES targets, same reason as the model-id table"
+        )
+    if COLUMBUS_ROUTE_SCENE_MODEL_ID[DESTINATION_SCENE_N_ID] != (
+        DESTINATION_SCENE_MODEL_ID
+    ):
+        raise SeaDestinationError(
+            "scene 17's model id disagrees between the single-door constant "
+            "and the eight-island table - one of the two was edited alone"
+        )
+    if any(marker != 0 for marker in COLUMBUS_ROUTE_SCENE_NAME_MARKER.values()):
+        raise SeaDestinationError(
+            "a COLUMBUS_ROUTES target now carries a nonzero SCENE_NAME."
+            "n_MARKER - the sea-map report's refusal text assumes every "
+            "island shares scene 17's 'no arrival point keyed by scene' "
+            "finding, and that assumption needs re-checking against the "
+            "table before this constant changes"
+        )
 
 
 _self_check()

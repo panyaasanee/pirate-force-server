@@ -246,6 +246,8 @@ from typing import Any, Callable
 # would take it as evidence this module still composes scene 2.  The module
 # is still NAMED in this docstring and in LOGIN_OWNED_SOURCES, which is where
 # the relationship now lives.
+from . import world_population_bg0004
+from . import world_population_bg0010
 from . import world_population_bg0015
 from .world_population import (
     COLLECTION_TAG,
@@ -401,6 +403,42 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         generation_type=world_population_bg0015.Bg0015PopulationGeneration,
         full_roster_count=world_population_bg0015.DEFAULT_ACTOR_COUNT,
     ),
+    # ADDED ROUND 2jdde8 (2026-08-30T18:3x+07:00, LANE-A), the wiring half of
+    # the pair round 6p22bu built and deliberately left unwired.  Same shape
+    # as bg0015's entry above (``placement_indices`` is the field name both
+    # generations share, not ``indices``), and NOT covered by the
+    # LOGIN_OWNED_SOURCES exclusion below: scene 4 has no login-path
+    # populator today (registry row ``login_entry_allowed: false``, no
+    # runtime.py branch dedicated to it the way scene 2's is), so this entry
+    # is not composing over anything.
+    "bg0004_roster": _SceneComposer(
+        source="bg0004_roster",
+        build=world_population_bg0004.build_bg0004_population,
+        full_roster_count_source=world_population_bg0004.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0004.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0004.dispatch_report,
+        generation_type=world_population_bg0004.Bg0004PopulationGeneration,
+        full_roster_count=world_population_bg0004.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND c42axq (2026-08-31, LANE-A), the wiring half of the pair
+    # round u3jo4g built and deliberately left unwired.  Same shape as
+    # bg0004's entry above (``placement_indices`` is the field name both
+    # generations share, not ``indices``), and NOT covered by the
+    # LOGIN_OWNED_SOURCES exclusion below: scene 10 has no login-path
+    # populator today (registry row ``login_entry_allowed: false``, no
+    # runtime.py branch dedicated to it), so this entry is not composing
+    # over anything.
+    "bg0010_roster": _SceneComposer(
+        source="bg0010_roster",
+        build=world_population_bg0010.build_bg0010_population,
+        full_roster_count_source=world_population_bg0010.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0010.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0010.dispatch_report,
+        generation_type=world_population_bg0010.Bg0010PopulationGeneration,
+        full_roster_count=world_population_bg0010.DEFAULT_ACTOR_COUNT,
+    ),
 }
 
 
@@ -454,6 +492,34 @@ SCENES_INTENTIONALLY_UNPOPULATED: dict[int, str] = {
     # The pinned candidate COO-DECISION 0550 did not choose.  No placements have
     # been mined for it at all - this one is genuinely "nobody has looked".
     997: "not_the_chosen_candidate_no_placements_mined",
+    # THE SEA, AND THE FIRST ENTRY IN THIS TABLE WITH A PRODUCTION READER.
+    # Added round pf-builder/M2 crossing-handoff.  278 and 997 are scenes no
+    # crossing reaches; scene 17 is the ONE scene a player can send themselves
+    # to on a default boot (Columbus, row 3021, ``columbus_quest_dispatch``;
+    # the whole word is avoided here for the same reason
+    # ``world_m2_crossing_handoff``'s docstring names - the
+    # QuestAndShopStateGuard word scan, which this file is not on the
+    # allowlist for and should not be added to for a comment), so this is the
+    # first row
+    # here that an actual arrival will read.
+    #
+    # THE MEASUREMENT, re-derived this round from the client's own tables
+    # rather than quoted:
+    #   gamedata/scene/Bg1001/Bg1001.placements.tsv -> 8 placements, and every
+    #   one of the 8 is a ``Mob_set_N`` row (sets 1-6).  Reading a Mob-Set
+    #   number as an actor identity is the reading GT-078 REJECTED, the same
+    #   wall scene 278 is behind.
+    #   CONSTDATA_TH__SCENE_NAME.tsv row 17 -> ``n_CLINE_TYPE = 4294967295``
+    #   (0xFFFFFFFF, "none"), so the Mob-Set -> CLINE -> MOBS crosswalk that
+    #   resolves other scenes' sets has NOTHING TO RESOLVE THROUGH here.  It
+    #   is not that nobody ran the crosswalk; the column the crosswalk keys on
+    #   is absent.  All seven sea scenes (17-23, Bg1001-Bg1007) carry the same
+    #   4294967295, checked rather than assumed.
+    # So scene 17 cannot be populated from committed evidence at all, and a
+    # composer for it would be an invented cast.  Arriving to an empty sea is
+    # the honest world; arriving with Port Royal still on the client is not,
+    # and that is what the CLEAR this branch composes is for.
+    17: "sea_scene_no_cline_type_mob_set_placements_unresolvable_gt078",
 }
 
 

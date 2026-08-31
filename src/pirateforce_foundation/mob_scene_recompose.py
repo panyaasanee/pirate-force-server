@@ -209,6 +209,44 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "has no combat roster and no strike can reach a recompose.  This "
         "lane composes it in the same round its first roster row lands."
     ),
+    # ADDED ROUND 2jdde8 (LANE-A), same day the tripwire above predicted:
+    # "the next scene another lane opens is red here on the commit that
+    # opens it."  Verified rather than assumed from the scene 14 entry's
+    # shape (PYTHONIOENCODING-neutral, read-only check this round):
+    # ``field_mobs.scene_for_scene_id(4)`` also returns ``None`` -- scene 4
+    # is in NEITHER of field_mobs' two tables either, so the identical
+    # reasoning applies verbatim.  This is a co-maintenance edit outside
+    # LANE-A's four named write-zone paths, made for the same reason round
+    # 6p22bu's actor-entry-pin fix was: leaving a shared cross-lane tripwire
+    # red is not an option this round can choose, and the fact asserted here
+    # (no combat roster reachable) is independently verifiable table data,
+    # not a LANE-B judgment call this round is making on their behalf.
+    # LANE-B/chief: please review and correct the wording if this table's
+    # convention expects more than the bare fact for a new entry.
+    4: (
+        "Bg0004 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round 2jdde8, door still shut); "
+        "field_mobs names no scene 4 at all, so it has no combat roster and "
+        "no strike can reach a recompose.  Unlike scene 14 this composer is "
+        "not live yet (scene 4's login_entry_allowed is false), so no player "
+        "reaches it because of this entry; acknowledged now so the tripwire "
+        "does not fire silently the day the door opens."
+    ),
+    # ADDED ROUND c42axq (LANE-A), same shape as the scene 4 entry above:
+    # scene 10 entered ``world_scene_travel.CENSUS_SOURCES`` this round
+    # (wiring the identity+census pair round u3jo4g built).  Verified rather
+    # than assumed: ``field_mobs.scene_for_scene_id(10)`` also returns
+    # ``None`` -- scene 10 is in neither of field_mobs' two tables either,
+    # so the identical reasoning applies verbatim.
+    10: (
+        "Bg0010 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round c42axq, door still shut); "
+        "field_mobs names no scene 10 at all, so it has no combat roster and "
+        "no strike can reach a recompose.  This composer is not live yet "
+        "(scene 10's login_entry_allowed is false), so no player reaches it "
+        "because of this entry; acknowledged now so the tripwire does not "
+        "fire silently the day the door opens."
+    ),
 }
 
 
@@ -1086,6 +1124,13 @@ def _describe(record: "SceneRecompose") -> tuple[str, ...]:
 # ``PersistentGameSessionState``; none of it changes what a scene-1 session
 # sends today.
 SCENE_RECOMPOSE_WIRING = r'''
+# [CORRECTED, round qf83nz-B, to match runtime.py rather than describe an
+# idealised shape it never had.  pf-adversary (self-review, round qf83nz)
+# measured the two apart: the ORIGINAL text of this block never named the
+# per-scene guard the call site actually gates recompose behind, and never
+# said the "no anchor" arm still ships with no MOB_SCENE_RECOMPOSE line.
+# Both are named below now, where the caller reads them.]
+#
 # (1) AT ARRIVAL, EVERY SCENE -- replace the two bare attributes with the
 #     stamped record.  Both scene branches, not just bg0002: the guard below
 #     stops being "am I in scene 1" only when both sides carry a stamp.
@@ -1095,20 +1140,69 @@ self.census_anchor_record = mob_scene_recompose.census_anchor(
 
 # (2) AT THE BAR FRAME AND AT THE DEATH FRAMES -- one call replaces the
 #     scene-1-only guard, and the fallback arm keeps its current bytes.
-record = mob_scene_recompose.recompose_frames(
-    legacy, self.census_anchor_record, self.mob_death_register,
-    ledger=self.mob_combat_ledger, roster=roster,
-    dead_timer=mob_death.DYING_TIMER_SECONDS,   # DEAD_TIMER_SECONDS for the
-    objects=self.diag_multi_objects,            # dead frame and the bar frame
-)
-for line in mob_scene_recompose.describe_recompose(record):
-    print(line)
-if record.composed:
-    bar_pc, bar_frame = record.pc, record.frame
+#     THIS IS GATED, not unconditional: ``runtime.py`` only calls
+#     ``recompose_frames`` when it already holds an anchor record AND that
+#     anchor's OWN ``scene_id`` equals the character's current
+#     ``position.scene_id`` (not "the anchor exists" alone -- a stamp from a
+#     scene the player has since left must not recompose the scene they are
+#     in now).  ``objects=`` is ALSO conditional: the five diagnostic
+#     objects are bg0001 placements and are only passed when
+#     ``anchor_record.scene_id == world_population.SCENE_ID``, so a
+#     scene-2 recompose in a session that stamped them at an earlier
+#     scene-1 arrival stays composable.
+if (
+    self.census_anchor_record is not None
+    and census_scene_id == self.census_anchor_record.scene_id
+):
+    record = mob_scene_recompose.recompose_frames(
+        legacy, self.census_anchor_record, self.mob_death_register,
+        ledger=self.mob_combat_ledger, roster=roster,
+        dead_timer=mob_death.DYING_TIMER_SECONDS,  # DEAD_TIMER_SECONDS for
+        objects=(                                  # the dead frame and the
+            self.diag_multi_objects                # bar frame
+            if self.census_anchor_record.scene_id
+            == world_population.SCENE_ID else ()
+        ),
+    )
+    for line in mob_scene_recompose.describe_recompose(record):
+        print(line)
+    if record.composed:
+        bar_pc, bar_frame = record.pc, record.frame
+    else:
+        bar_pc, bar_frame = step.bar_pc, step.bar_frame
+        # NOT naive "skipped_" + record.state: a ``refused_*`` state keeps
+        # its exact spelling (no double "skipped_refused_" tag) and every
+        # other non-composed state is named as the skip it is --
+        # ``_recompose_event_suffix`` (runtime.py) is the single place that
+        # applies this rule; both event strings it can produce here are
+        # pinned live (``tests/test_mob_combat_census_wiring.py``,
+        # ``tests/test_world_wipe_headless_proof.py``).
+        self.events.append(
+            "mob_combat_bar_census_compose_"
+            + _recompose_event_suffix(record)
+        )
 else:
+    # (2a) NO ANCHOR, OR AN ANCHOR STAMPED FOR ANOTHER SCENE.  STILL NOT
+    #     WIRED, as of round qf83nz.  This arm ships the one-entry frame
+    #     (the same RE-092 world-wipe shape as ``no_composer_for_scene``)
+    #     but prints NO ``mob_scene_recompose`` line at all -- pf-adversary
+    #     (round k882hm, D4) named this the honest limit of the guard
+    #     above, and it is still true: the module's own console line is
+    #     silent for exactly the state the wiring ask was written for.
+    #     :func:`no_anchor_record` (built round qf83nz, see its own
+    #     docstring) exists to close this -- ``STATE_NO_ANCHOR`` /
+    #     ``STATE_ANCHOR_SCENE_MISMATCH``, ``composed`` always False,
+    #     ``fatal`` always False -- but no call site passes it through
+    #     :func:`describe_recompose` here yet.  Wiring it needs the SAME
+    #     event-token discipline the ``if`` branch already keeps
+    #     (``tests/test_mob_combat_dispatch.py``'s D6 invariant: no event
+    #     name may start with ``skipped_``/``refused_`` outside the names
+    #     already pinned), which is why this lane left it to the chief
+    #     rather than adding the print itself from outside this file.
     bar_pc, bar_frame = step.bar_pc, step.bar_frame
     self.events.append(
-        "mob_combat_bar_census_compose_skipped_" + record.state)
+        "mob_combat_bar_census_compose_skipped_no_population_anchor"
+    )
 
 # (3) THE DECISION THIS MODULE CANNOT MAKE FOR THE CALL SITE.  Today the
 #     fallback above is the ONE-ENTRY frame RE-092 proved erases every other

@@ -52,6 +52,23 @@ class GmSceneCatalogTests(unittest.TestCase):
         self.assertIn(327, ids)
         self.assertGreaterEqual(len(ids), 20)
 
+    def test_blank_rows_in_the_clients_own_table_are_known_but_empty_named(self):
+        # scene_name_tip.tsv itself carries four rows (13, 137, 138, 141)
+        # where BOTH s_SCENE_NAME and s_GM_SCENE_NAME are blank in the
+        # client's own committed table -- not a parsing gap this module
+        # introduced. Pinned here because `is_known_scene_id` returning True
+        # for a blank-named row is easy to misread as a bug the first time
+        # someone reads `gm_scene_name(13) == ""` rather than a fact of the
+        # source data: the id has a row (so `warp <its id>` gets no "unknown
+        # scene" flag from `commands.describe_warp_target`), it is simply a
+        # row the client itself left nameless. Distinct from
+        # `test_unknown_scene_id_raises`, which is an id with NO row at all.
+        for blank_id in (13, 137, 138, 141):
+            with self.subTest(scene_id=blank_id):
+                self.assertTrue(scene_catalog.is_known_scene_id(blank_id))
+                self.assertEqual(scene_catalog.gm_scene_name(blank_id), "")
+                self.assertEqual(scene_catalog.SCENE_ID_TO_NAME[blank_id], "")
+
     def test_non_sequential_high_ids_present(self):
         # the table's n_ID column is not contiguous 1..330; 997/999 exist too
         self.assertTrue(scene_catalog.is_known_scene_id(997))

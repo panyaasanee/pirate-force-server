@@ -604,3 +604,7 @@
 
 # round swlc56 - shared code-token scanner for the static verifiers negatives
 !/tools/pf_code_token_scan.py
+
+# round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
+# machinery only, never project content
+/.claude/worktrees/

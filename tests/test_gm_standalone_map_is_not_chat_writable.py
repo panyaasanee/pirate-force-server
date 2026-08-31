@@ -152,6 +152,7 @@ COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     "lv": ("/lv 40",),
     "spawn": ("/spawn 1001",),
     "say": ("/say hello",),
+    "gmprobe": ("/gmprobe baseline-all-zero",),
 }
 
 # Lines that are not valid commands at all, run through the same door: a
@@ -618,9 +619,13 @@ class ChatCommandsCannotWriteTheStandaloneMapTests(_Case):
         )
 
     def test_the_shipped_say_gate_is_still_shut(self):
-        # The patch above must never be mistaken for the lock moving.
+        # The patch above must never be mistaken for the say lock moving.
+        # The warp lock DID move (COO-DECISION 20260830_1645/1742, RE-129
+        # measured value) -- that is a separate, sanctioned release, not a
+        # regression of this test's own subject (the say gate, RE-132 still
+        # open).
         self.assertIsNone(say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED)
-        self.assertIsNone(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED)
+        self.assertEqual(teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED, 0)
 
     def test_malformed_and_hostile_lines_do_not_reach_it_either(self):
         _, watch = self._drive(HOSTILE_LINES)

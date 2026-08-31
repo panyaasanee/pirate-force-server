@@ -348,10 +348,22 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     # ``test_the_identity_tables_shop_hits_are_all_npc_title_data`` below,
     # which fails the moment a "shop" appears anywhere in that file except in
     # a data row of the identity table.
+    # AMENDMENT 2026-08-30 (LANE-B, RE-157 job 1).  trade_session_membership.py
+    # names "trade" throughout its module docstring and identifiers
+    # (ActiveStoreSession, build_session, admits()) but implements no cart,
+    # price, product or purchase logic at all: it is a fail-closed
+    # scene+actor+generation membership predicate over a caller-supplied
+    # session record, the exact shape of mob_combat_membership.py's already-
+    # allowed sibling predicate (that module trips no word from this list
+    # only because its own vocabulary is "combat"/"census", not "trade").
+    # There is still no call site in runtime.py for either guard -- see the
+    # module's own CORE-REQUEST -- so nothing about store state, pricing or
+    # a purchase outcome is decided here.
     ALLOWED_HITS = {
         "columbus_quest_dispatch.py": {"quest"},
         "runtime.py": {"quest"},
         "world_port_royal_identity.py": {"shop"},
+        "trade_session_membership.py": {"trade"},
     }
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.

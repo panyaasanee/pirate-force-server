@@ -242,8 +242,19 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # to scenes the registry declares open AND n_SAVE 1) and the census
         # admission check lane_a_scene_census already carried.  The other ten
         # marker doors are still shut and this tuple still says so.
+        # IT GREW AGAIN, ROUND bq4mst.  LANE-A round bq4mst opened scene 4
+        # (Slave Market Island) on COO-DECISION 20260830_1441, the first of
+        # the ten from round ga91m5 to open, once its census composer
+        # (world_population_bg0004.py) was judged ready rather than merely
+        # wired.  Same condition as scene 14's: the gate arrived first
+        # (scene_admission_gate.py, R236, confirmed by COO-DECISION
+        # 20260830_1351) and the door opened after.  The other nine of the
+        # original ten are UNCHANGED and this tuple otherwise still says so.
+        # IT GREW A SECOND TIME, ROUND 3t75jw.  Scene 10 (Deep Sea Temple
+        # floor 1) opened second, same queue, same condition.
         self.assertEqual(
-            (1, 2, 14, 278, 997), login_scene_stage.stageable_scene_ids()
+            (1, 2, 4, 10, 14, 278, 997),
+            login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():
             with self.subTest(scene_id=scene_id):

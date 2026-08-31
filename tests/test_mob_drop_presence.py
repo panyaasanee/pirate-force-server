@@ -51,6 +51,38 @@ KILLER = 0x750059
 SRC = ROOT / "src/pirateforce_foundation"
 
 
+def _call_names(module_name):
+    """Every name a Python file in src/ actually CALLS, by function/method.
+
+    Same helper, same AST-walk shape, as ``tests/test_mob_pickup.py``'s
+    ``_call_names`` (added round hpronz to re-derive that GT-124's call site
+    was really absent from ``runtime.py``, instead of trusting a hand-typed
+    string that names it).  It lives in both files rather than being shared
+    for the same reason that file's docstring gives: a test that imports its
+    own oracle from the file it is cross-checking would fail together with
+    it.  This copy is used the other way around from that one -- to confirm
+    a described call site IS reached, not that it is absent -- because
+    ``mob_drop_presence.DROP_PRESENCE_WIRING`` describes an ask that chief
+    has since fulfilled (round t7t5yd, commit 432381a2), and only an AST walk
+    over ``runtime.py`` itself, not the prose that says so, can keep proving
+    that.
+    """
+    import ast
+
+    source = (
+        ROOT / "src" / "pirateforce_foundation" / f"{module_name}.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+        if name:
+            names.add(name)
+    return names
+
+
 class _Clock:
     """A clock that only moves when a test says so."""
 
@@ -807,6 +839,50 @@ class ModuleShapeTests(unittest.TestCase):
         self.assertIn("take(drop.drop_key)", wiring)
         self.assertIn("prune_previous_kills", wiring)
         wiring.encode("ascii")
+
+    def test_the_wiring_ask_is_fulfilled_re_derived_from_runtime_py(self):
+        """THE OTHER DIRECTION of round hpronz's GT-124 tripwire.
+
+        That round's finding (repeated in round j0u64p's letter) was that a
+        hand-typed OWNER string cannot self-report going stale once a call
+        site starts existing.  ``DROP_PRESENCE_WIRING`` is the same shape of
+        string, describing an ask instead of a blocker, and it went stale the
+        other way: chief wired it (commit 432381a2, round t7t5yd) and no
+        round since has re-derived that fact from source, only from a commit
+        message and a behavioural dispatcher test
+        (``tests/test_mob_drop_presence_wiring.py``).  This test closes that
+        gap with the same tool -- an AST walk over ``runtime.py`` -- rather
+        than trusting either the commit message or this test's own comment.
+
+        The four symbols are regex-extracted from ``DROP_PRESENCE_WIRING``
+        itself (``mob_drop_presence.<name>(``), not hand-copied a second
+        time, so a future edit to the ask's own wording keeps this test
+        honest about what it is checking.
+        """
+        import re
+
+        wiring = mob_drop_presence.DROP_PRESENCE_WIRING
+        symbols = re.findall(r"mob_drop_presence\.(\w+)\(", wiring)
+        self.assertEqual(
+            sorted(symbols),
+            sorted(
+                ["sustain_a_kill", "describe_presence", "loot_actions",
+                 "presence_event"]
+            ),
+            "DROP_PRESENCE_WIRING's four mob_drop_presence.<name>( calls "
+            "changed shape -- this test's expectation needs updating "
+            "alongside it before its result can be trusted.",
+        )
+        runtime_calls = _call_names("runtime")
+        missing = [name for name in symbols if name not in runtime_calls]
+        self.assertEqual(
+            missing, [],
+            f"runtime.py no longer calls {missing} -- DROP_PRESENCE_WIRING's "
+            "ask has regressed (or was never really wired the way this "
+            "module's docstring now claims).  mob_drop_presence.py's "
+            "'STATUS: WIRED' note needs this round's attention, not a "
+            "silent green.",
+        )
 
     def test_the_step_is_a_typed_record_not_a_dict(self):
         self.assertTrue(issubclass(PresenceStep, tuple))
