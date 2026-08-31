@@ -234,7 +234,7 @@ class WiringLineTests(unittest.TestCase):
                     names = [node.module or ""] + [
                         alias.name for alias in node.names]
                 if any("mob_ai_scheduler" in name for name in names):
-                    importers.append(str(path.relative_to(SRC_ROOT)))
+                    importers.append(path.relative_to(SRC_ROOT).as_posix())
         self.assertEqual(
             sorted(set(importers)), ["lane_hooks/lane_b_mob_ai_tick.py"],
             "mob_ai_scheduler now has a DIFFERENT importer set than round "
