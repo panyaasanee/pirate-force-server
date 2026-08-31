@@ -84,6 +84,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
+from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_entry  # noqa: E402
@@ -113,6 +114,12 @@ ROSTER_COUNT = 81
 # this project's history rule: it was true for two rounds (6p22bu, 2jdde8).
 SLAVE_MARKET = 4
 SLAVE_MARKET_ROSTER_COUNT = 109
+# ADDED round c42axq (LANE-A): bg0010's own scene id and roster size, wired
+# this round into the same two tables VOLCANO/SLAVE_MARKET use.  Same shape
+# as SLAVE_MARKET at round 2jdde8 -- the real registry row stays SHUT -- see
+# ``DeepSeaTempleRegistrationTests`` below for the test that pins that fact.
+DEEP_SEA_TEMPLE = 10
+DEEP_SEA_TEMPLE_ROSTER_COUNT = 94
 
 
 def _legacy():
@@ -378,15 +385,16 @@ class ComposerContractTests(unittest.TestCase):
             world_scene_travel.destination(VOLCANO))
         cls._work = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls._work.cleanup)
-        # BOTH of this lane's scenes open in the one registry the loop-based
-        # tests below share (ADDED round 2jdde8): a registry that only opens
-        # VOLCANO makes every ``scenes_this_lane_composes_for()`` loop below
-        # silently decline for scene 4 the moment that scene registered,
-        # which is the same "identical to an oversight" shape this file's
-        # own SkippedScenesAreNamedTests exists to catch on the production
+        # ALL THREE of this lane's scenes open in the one registry the
+        # loop-based tests below share (ADDED round 2jdde8, WIDENED round
+        # c42axq): a registry that leaves DEEP_SEA_TEMPLE shut makes every
+        # ``scenes_this_lane_composes_for()`` loop below silently decline for
+        # scene 10 the moment that scene registered, which is the same
+        # "identical to an oversight" shape this file's own
+        # SkippedScenesAreNamedTests exists to catch on the production
         # tables -- a test fixture can commit the same sin.
         cls.open_registry, _ = _registry_with_door_open(
-            Path(cls._work.name), (VOLCANO, SLAVE_MARKET))
+            Path(cls._work.name), (VOLCANO, SLAVE_MARKET, DEEP_SEA_TEMPLE))
 
     def _compose(self, scene_id=VOLCANO, anchor=None):
         return lane_a._compose_for_scene(scene_id)(
@@ -839,6 +847,93 @@ class SlaveMarketRegistrationTests(unittest.TestCase):
             self.assertEqual(
                 len(unshipped),
                 len(world_population_bg0004.unresolved_lines()))
+            for line in result.console_lines:
+                with self.subTest(line=line[:40]):
+                    line.encode("ascii")
+
+
+class DeepSeaTempleRegistrationTests(unittest.TestCase):
+    """Scene 10's own half of this round: wired, and pinned as still shut.
+
+    ADDED round c42axq (LANE-A), same shape as ``SlaveMarketRegistrationTests``
+    at round 2jdde8.  Every VOLCANO/SLAVE_MARKET test above that loops over
+    ``scenes_this_lane_composes_for()`` already exercises scene 10 too, so
+    this class is deliberately narrow: it drives the ONE thing those loops
+    do not - what the REPOSITORY'S OWN registry file says about scene 10
+    today, which is the opposite of what it says about scene 14 (and, since
+    round bq4mst, scene 4).  Mirrors
+    ``TheAdmissionCheckIsTheGateTests.test_the_composer_declines_for_every_
+    scene_it_registered`` in property, pinned here per-scene the same way
+    ``SlaveMarketRegistrationTests`` pins scene 4's, for the same reason: a
+    silent flip of this boolean should be caught by a red test, not
+    discovered in an attended round.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(DEEP_SEA_TEMPLE))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+
+    def test_the_module_registered_a_composer_for_scene_10(self):
+        composer = lane_hooks.scene_census_composer(DEEP_SEA_TEMPLE)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_the_real_registry_still_shuts_this_door(self):
+        """WHAT THE FILE ON MAIN DOES TODAY, STATED AS AN ASSERTION.
+
+        This round's own instruction ("wire the composer, do not open the
+        door") is a sentence in the round's own file; this is the same fact
+        read back from the actual registry file this repository ships, so a
+        later round that forgets and flips it gets a red test instead of a
+        silent door.
+        """
+        destination = world_scene_travel.destination(
+            DEEP_SEA_TEMPLE, world_scene_travel.load_scene_registry())
+        self.assertFalse(destination.login_entry_allowed)
+        result = lane_a._compose_for_scene(DEEP_SEA_TEMPLE)(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=DEEP_SEA_TEMPLE,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+        self.assertIsNone(result)
+
+    def test_opened_in_a_temp_registry_it_composes_the_full_roster(self):
+        """The other half: the wiring itself works once a door opens.
+
+        Never against the repository's file (see the module above this
+        test file borrows its temp-registry pattern from) - this proves the
+        PLUMBING is sound, not that the door should open today.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            registry, _ = _registry_with_door_open(
+                Path(work), DEEP_SEA_TEMPLE)
+            result = lane_a._compose_for_scene(DEEP_SEA_TEMPLE)(
+                legacy=self.legacy,
+                anchor=self.anchor,
+                scene_id=DEEP_SEA_TEMPLE,
+                scene_entry_registry=registry,
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(result.actor_count, DEEP_SEA_TEMPLE_ROSTER_COUNT)
+            self.assertTrue(
+                result.console_lines[0].startswith(
+                    "WORLD_POP_HANDOFF scene=10 "),
+                result.console_lines[0])
+            self.assertTrue(
+                any(line.startswith("WORLD_CENSUS_BG0010 ")
+                    for line in result.console_lines))
+            unshipped = [
+                line for line in result.console_lines
+                if line.startswith("BG0010_UNSHIPPED ")
+            ]
+            self.assertEqual(
+                len(unshipped),
+                len(world_population_bg0010.unresolved_lines()))
             for line in result.console_lines:
                 with self.subTest(line=line[:40]):
                     line.encode("ascii")

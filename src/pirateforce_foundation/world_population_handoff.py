@@ -247,6 +247,7 @@ from typing import Any, Callable
 # is still NAMED in this docstring and in LOGIN_OWNED_SOURCES, which is where
 # the relationship now lives.
 from . import world_population_bg0004
+from . import world_population_bg0010
 from . import world_population_bg0015
 from .world_population import (
     COLLECTION_TAG,
@@ -419,6 +420,24 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0004.dispatch_report,
         generation_type=world_population_bg0004.Bg0004PopulationGeneration,
         full_roster_count=world_population_bg0004.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND c42axq (2026-08-31, LANE-A), the wiring half of the pair
+    # round u3jo4g built and deliberately left unwired.  Same shape as
+    # bg0004's entry above (``placement_indices`` is the field name both
+    # generations share, not ``indices``), and NOT covered by the
+    # LOGIN_OWNED_SOURCES exclusion below: scene 10 has no login-path
+    # populator today (registry row ``login_entry_allowed: false``, no
+    # runtime.py branch dedicated to it), so this entry is not composing
+    # over anything.
+    "bg0010_roster": _SceneComposer(
+        source="bg0010_roster",
+        build=world_population_bg0010.build_bg0010_population,
+        full_roster_count_source=world_population_bg0010.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0010.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0010.dispatch_report,
+        generation_type=world_population_bg0010.Bg0010PopulationGeneration,
+        full_roster_count=world_population_bg0010.DEFAULT_ACTOR_COUNT,
     ),
 }
 

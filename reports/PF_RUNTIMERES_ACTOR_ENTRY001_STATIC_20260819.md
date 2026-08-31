@@ -652,3 +652,23 @@ This scene also carries a registry-level landing-geometry caution
 (`scenarios/world_scene_registry_001.json`'s own `table_row_differences.the_two_interiors`, pf-adversary
 round `ga91m5`) that a future door-opening round must read before flipping `login_entry_allowed` — not
 relevant to this round's composer build, recorded here only so the citation is not lost between rounds.
+
+## NOTE — round c42axq (2026-08-31, LANE-A): Bg0010 wired, none of the three counts above move
+
+Wiring round for the pair this NOTE's own round (`u3jo4g`) built: `world_scene_travel.CENSUS_SOURCES`,
+`world_population_handoff.ROSTER_COMPOSERS`, and `lane_hooks/lane_a_scene_census.py`'s console reader
+each gain a `bg0010_roster` entry, mirroring `world_population_bg0004`'s own wiring round (`2jdde8`).
+`src_actor_entry_call_sites` / `src_actor_stream_call_sites` / `src_modules_building_actor_entries` are
+**unchanged** by this round — the module that builds the actor entries already existed and was already
+counted at round `u3jo4g`; wiring adds two new *importers* of that module
+(`world_population_handoff.py`, `lane_hooks/lane_a_scene_census.py`), and neither of those files itself
+calls `make_remote_actor_entry`/`make_npc_attr`, so none of the three counts this report tracks move.
+`tests/test_static_verifier_pins_cloud.py` confirmed green with no re-pin needed.
+
+The test named above,
+`test_world_population_bg0010.py::test_nothing_under_src_imports_this_module_yet`, was renamed to
+`test_only_the_population_seam_imports_this_module` this round and now asserts the exact importer set
+(`lane_a_scene_census.py`, `world_population_handoff.py`) rather than the empty set — the same rename
+`test_world_population_bg0004.py`'s own equivalent test went through at round `2jdde8`. Scene 10's
+`login_entry_allowed` still reads `false`: this round wires the composer into both seam tables without
+opening the door, same as bg0004's own wiring round left it.

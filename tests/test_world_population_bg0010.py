@@ -9,7 +9,9 @@ a headless boot would print say the true numbers including the shortfall.
 
 What it cannot prove, and does not: that a client draws any of it.  Nobody
 has been in this scene.  There is no ticket number for it yet -- see the
-module's own "NOT WIRED" paragraph for why.
+module's own "WIRED, DOOR STILL SHUT" paragraph for why (registered in the
+seam round c42axq, but the registry row that would let a login reach it is
+still false).
 """
 from __future__ import annotations
 
@@ -184,13 +186,23 @@ class Bg0010Census(unittest.TestCase):
                 count_source=census.COUNT_SOURCE_FULL_ROSTER)
         self.assertEqual(self._build().actor_count, census.ROSTER_COUNT)
 
-    def test_nothing_under_src_imports_this_module_yet(self) -> None:
-        # This round builds the composer only -- wiring (registering it in
-        # world_scene_travel.CENSUS_SOURCES / world_population_handoff.
-        # ROSTER_COMPOSERS, the way bg0004's own round 2jdde8 later did for
-        # that scene) is deliberately left for a later round.  An AST walk,
-        # not a text search, the same discipline
-        # test_world_population_bg0004.py's own equivalent test uses.
+    def test_only_the_population_seam_imports_this_module(self) -> None:
+        # ~~test_nothing_under_src_imports_this_module_yet~~ -- renamed and
+        # widened round c42axq (LANE-A), the same way
+        # test_world_population_bg0004.py's own equivalent test was renamed
+        # in round 2jdde8, the round that wired that scene.
+        #
+        # WHAT CHANGED, AND WHAT DID NOT.  ``world_population_handoff`` now
+        # imports this module, because the arrival seam composes THIS roster
+        # for a scene-10 arrival.  ``lane_hooks/lane_a_scene_census.py`` also
+        # imports it, for its console readers only (census_console_line /
+        # actor_lines / unresolved_lines) - the roster itself still comes
+        # from the seam.  What has NOT changed: ``runtime.py`` still does not
+        # import either, and scene 10's registry row stays shut, so no player
+        # reaches this roster because of this round.  An AST walk, not a text
+        # search: this module's NAME appears in sibling docstrings on purpose
+        # (world_bg0010_identity points at it), and a grep would call that
+        # wiring.
         import ast
 
         importers = []
@@ -209,7 +221,12 @@ class Bg0010Census(unittest.TestCase):
                 if any("world_population_bg0010" in name for name in names):
                     importers.append(path.name)
                     break
-        self.assertEqual(importers, [])
+        # EXACT SET, not "contains" - a third importer, or the seam being
+        # swapped for a direct runtime.py import, both fail here and have to
+        # be argued for in a round of their own.
+        self.assertEqual(
+            sorted(importers),
+            ["lane_a_scene_census.py", "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover
