@@ -442,6 +442,13 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         process's life -- it must latch (one event, no frame, no retry)
         exactly like the sibling population-build refusal a few lines
         below it, not silently re-raise and re-log on every later poll.
+
+        EVENT NAME CHANGED, chief round ``4w5j25``: the arrival trigger is
+        no longer bg0002-only (PANYA-ORDER 20260901_0215 section 4), so the
+        refusal it latches can now name any non-home scene and the fixed
+        ``bg0002`` in the old spelling would be a log that lies.  Same
+        latch, same one-event-no-retry behaviour, scene id now IN the
+        string: ``world_census_arrival_anchor_refused_scene_<id>_<Type>``.
         """
         state, _login_actions, _out = self._state_at_scene2(
             "bg0002_arrival_anchor_failure"
@@ -460,7 +467,7 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         self.assertIs(state.world_census_sent, False)
         self.assertIs(state.world_census_refused, True)
         self.assertIn(
-            "world_census_bg0002_arrival_anchor_refused_ValueError",
+            "world_census_arrival_anchor_refused_scene_2_ValueError",
             state.events,
         )
         # A later poll, even with the real function restored, must NOT
@@ -471,7 +478,7 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         self.assertIs(state.world_census_sent, False)
         self.assertEqual(
             state.events.count(
-                "world_census_bg0002_arrival_anchor_refused_ValueError"
+                "world_census_arrival_anchor_refused_scene_2_ValueError"
             ),
             1,
         )
@@ -480,6 +487,17 @@ class Bg0002CensusWiringTests(unittest.TestCase):
         """Control for the disjunct itself: an ordinary scene-1 boot must
         NOT gain the arrival trigger -- an empty poll with no TargetPosVital
         must send nothing, exactly as before this CORE-REQUEST.
+
+        STILL TRUE, AND FOR A SHARPER REASON, after chief round ``4w5j25``
+        widened the disjunct from "scene 2" to "any scene but home"
+        (PANYA-ORDER 20260901_0215 section 4): home is now the ONE excluded
+        scene, because it is the only census arm that arms
+        ``population_indices`` with no lane_hooks ChooseNPC responder in
+        front of the frozen v141:4395-4416 loop, which unpacks
+        ``last_target_pos`` with no None check.  That crash is driven
+        directly in tests/test_world_census_arrival_trigger.py; this test
+        stays exactly as it was, as the cheap tripwire on the disjunct
+        itself.
         """
         state, character = self._login_and_create("bg0001_arrival_control")
         self._start_game(state, character)

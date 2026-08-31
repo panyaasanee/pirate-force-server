@@ -61,7 +61,9 @@ tests against the real, committed identity/placement modules):
 
     home 1 (Port Royal,      MOBS 156): PLACED     (columbus_actor_identity
                                                       resolves placement_index 1)
-    home 2 (Prison Exile,    MOBS 360): NOT PLACED - see the discrepancy below
+    home 2 (Prison Exile,    MOBS 360): PLACED - RE-173 closed the
+                                          discrepancy below; regenerated in
+                                          ``scene2_prison_exile_tables.py``
     home 3 (Spice Paradise,  MOBS  36): PLACED (world_bg0003_identity, 62 shippable)
     home 4 (Slave Market,    MOBS  67): PLACED (world_bg0004_identity, 109 shippable)
     home 5 (Evil Port,       MOBS 105): PLACED (world_bg0005_identity, 87 shippable)
@@ -69,24 +71,29 @@ tests against the real, committed identity/placement modules):
     home 7 (Voodoo,          MOBS 362): PLACED (world_bg0007_identity, 56 shippable)
     home 8 (Silver Harbour,  MOBS 250): PLACED (world_bg0008_identity, 69 shippable)
 
-A GENUINE DISCREPANCY, REPORTED RATHER THAN GUESSED AT.  Home scene 2
-(Prison Exile)'s own ``scene2_prison_exile_tables.KNOWN_PLACEMENTS`` row 63
-carries a placement named "Columbus" (outfit ``M055_000_000_N``, title
-"Marine Transport Station" - the exact same outfit/title every other
-island's Columbus row carries) with MOBS n_id **36**, not the **360**
-``world_m2_sea_destination.COLUMBUS_ROUTES`` names for home scene 2.  This is
-not a made-up number on either side: ``gamedata/tables/CONSTDATA_TH__
+A DISCREPANCY THIS ROUND FOUND, SENT TO LANE C, AND RE-173 CLOSED (history
+kept below rather than deleted).  Home scene 2 (Prison Exile)'s own
+``scene2_prison_exile_tables.KNOWN_PLACEMENTS`` row 63 carried a placement
+named "Columbus" (outfit ``M055_000_000_N``, title "Marine Transport
+Station" - the exact same outfit/title every other island's Columbus row
+carries) with MOBS n_id **36**, not the **360**
+``world_m2_sea_destination.COLUMBUS_ROUTES`` names for home scene 2.  This
+was not a made-up number on either side: ``gamedata/tables/CONSTDATA_TH__
 MOBS.tsv`` carries TWO separate rows, n_id 36 AND n_id 360, both named
 "..." (Columbus, in the client's own CJK string) with the identical outfit
 ``M055_000_000_N`` - so both ids are real, committed MOBS rows, and n_id 36
 is also the id ``world_bg0003_identity`` (home 3, Spice Paradise) already
-uses for ITS OWN Columbus.  Two different scenes' own resolved tables cannot
-both be citing the correct row for two different islands if they name the
-SAME id, so this module reports home 2 as NOT_PLACED against the id
+uses for ITS OWN Columbus.  Two different scenes' own resolved tables could
+not both be citing the correct row for two different islands while naming
+the SAME id, so this module reported home 2 as NOT_PLACED against the id
 ``COLUMBUS_ROUTES`` names for it (360) rather than silently accepting 36 as
-a stand-in - CHARTER-02's "never invent a row the client's own tables do not
-have" cuts against guessing which of the two tables is the one that is
-wrong.  Sent to lane C (RE) rather than fixed here - see the round handoff.
+a stand-in, and sent RE-173 to lane C to find the crosswalk rather than
+guess.  RE-173's result (2026-09-01T03:03+07:00): scene 2's own CLINE
+crosswalk (``n_CLINE_TYPE=2``, key ``(2,36)``) resolves the placement's
+Mob-Set number 36 to ``n_LEADER_BK1=360`` - the SAME 360 ``COLUMBUS_ROUTES``
+already named, not a guess between the two.  ``scene2_prison_exile_tables.py``
+row 63 was regenerated from MOBS 360 per RE-173's BUILD_IMPACT and this
+module now reports home 2 as PLACED.
 
 WHAT THIS DOES NOT CLAIM.  It does not claim any of these seven islands'
 Columbus is CLICKABLE today - reaching him needs a runtime.py dispatch this

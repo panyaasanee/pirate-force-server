@@ -58,7 +58,13 @@ class TriggerStateForTests(unittest.TestCase):
         """Ground truth, re-derived directly against each scene's own
         shipped identity module rather than trusted from this module's own
         docstring - a passing test here is what caught the ``template_id``
-        vs ``identity.mobs_n_id`` mistake before it shipped."""
+        vs ``identity.mobs_n_id`` mistake before it shipped.
+
+        Home scene 2 used to be a documented exception (RE-173 open,
+        Prison Exile's table carried MOBS n_id 36 instead of the 360
+        ``COLUMBUS_ROUTES`` names) - RE-173 closed that discrepancy and
+        ``scene2_prison_exile_tables.py`` row 63 was regenerated from MOBS
+        360, so home scene 2 now matches every other island exactly."""
         for mobs_n_id, home_scene, _row, _target, _ocean in (
             world_m2_sea_destination.COLUMBUS_ROUTES
         ):
@@ -66,24 +72,15 @@ class TriggerStateForTests(unittest.TestCase):
                 continue
             with self.subTest(home_scene=home_scene, mobs_n_id=mobs_n_id):
                 state = trig.trigger_state_for(mobs_n_id, home_scene)
-                if home_scene == 2:
-                    # THE DISCREPANCY THIS ROUND FOUND AND DID NOT PAPER
-                    # OVER: Prison Exile's own table places MOBS n_id 36
-                    # (Spice Paradise's Columbus) under its "Columbus" row,
-                    # not 360 - see the module docstring for the full
-                    # citation trail (both 36 and 360 are real
-                    # CONSTDATA_TH__MOBS.tsv rows).
-                    self.assertEqual(state, trig.STATE_NOT_PLACED)
-                else:
-                    self.assertEqual(state, trig.STATE_PLACED)
+                self.assertEqual(state, trig.STATE_PLACED)
 
-    def test_home_scene_2_columbus_is_present_under_the_OTHER_id(self):
-        """Pins the actual finding, not just its absence: 36 - not 360 - is
-        what Prison Exile's own table carries for its Columbus row, so a
-        reader can tell "wrong id" from "no Columbus placed at all"."""
+    def test_home_scene_2_columbus_is_present_under_the_re173_resolved_id(self):
+        """Pins the RE-173 resolution: 360 - the CLINE-resolved MOBS id, not
+        the raw Mob-Set number 36 - is what Prison Exile's own table now
+        carries for its Columbus row."""
         ids = trig._bg0002_mobs_n_ids()
-        self.assertIn(36, ids)
-        self.assertNotIn(360, ids)
+        self.assertIn(360, ids)
+        self.assertNotIn(36, ids)
 
 
 class TriggerReadinessRowsTests(unittest.TestCase):
@@ -91,18 +88,15 @@ class TriggerReadinessRowsTests(unittest.TestCase):
         rows = trig.trigger_readiness_rows(legacy=_legacy())
         self.assertEqual(len(rows), len(world_m2_sea_destination.COLUMBUS_ROUTES))
         by_home = {home: state for _mobs, home, state in rows}
-        self.assertEqual(by_home[1], trig.STATE_PLACED)
-        self.assertEqual(by_home[2], trig.STATE_NOT_PLACED)
-        for home in (3, 4, 5, 6, 7, 8):
+        for home in (1, 2, 3, 4, 5, 6, 7, 8):
             self.assertEqual(by_home[home], trig.STATE_PLACED)
 
     def test_without_legacy_only_home_scene_1_goes_unmeasured(self):
         rows = trig.trigger_readiness_rows()
         by_home = {home: state for _mobs, home, state in rows}
         self.assertEqual(by_home[1], trig.STATE_UNMEASURED)
-        for home in (3, 4, 5, 6, 7, 8):
+        for home in (2, 3, 4, 5, 6, 7, 8):
             self.assertEqual(by_home[home], trig.STATE_PLACED)
-        self.assertEqual(by_home[2], trig.STATE_NOT_PLACED)
 
 
 class ConsoleLineTests(unittest.TestCase):
@@ -110,11 +104,11 @@ class ConsoleLineTests(unittest.TestCase):
         line = trig.trigger_readiness_console_line(legacy=_legacy())
         self.assertTrue(line.startswith(trig.CONSOLE_TAG + " "))
         self.assertIn("islands=8", line)
-        self.assertIn("placed=7", line)
-        self.assertIn("not_placed=1", line)
+        self.assertIn("placed=8", line)
+        self.assertIn("not_placed=0", line)
         self.assertIn("unmeasured=0", line)
         self.assertIn("1:PLACED", line)
-        self.assertIn("2:NOT_PLACED", line)
+        self.assertIn("2:PLACED", line)
 
     def test_never_raises_and_reports_unmeasured_with_no_legacy(self):
         line = trig.trigger_readiness_console_line()
@@ -142,8 +136,8 @@ class DispatchWiringTests(unittest.TestCase):
         )
         self.assertTrue(
             lines[-1].startswith(trig.CONSOLE_TAG + " "), lines)
-        self.assertIn("placed=7", lines[-1])
-        self.assertIn("not_placed=1", lines[-1])
+        self.assertIn("placed=8", lines[-1])
+        self.assertIn("not_placed=0", lines[-1])
 
     def test_the_line_still_prints_when_the_call_site_has_no_legacy(self):
         lines = []
