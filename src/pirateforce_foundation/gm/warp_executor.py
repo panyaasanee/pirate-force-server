@@ -135,6 +135,7 @@ import math
 import struct
 from dataclasses import dataclass
 
+from .. import world_scene_travel
 from ..population import SCENE_SEQUENCE
 from .commands import GmCommand
 from .scene_catalog import is_known_scene_id
@@ -392,6 +393,110 @@ def make_warp_teleport_frame_with_target(
     wire_y = struct.unpack("<f", struct.pack("<f", y))[0]
     wire_z = struct.unpack("<f", struct.pack("<f", z))[0]
     return pc, frame, WarpTarget(scene_id, wire_x, wire_y, wire_z)
+
+
+def warp_no_coords_live_target(scene_id: int):
+    """The `world_scene_travel` destination for GM-A's bare `warp <scene_id>`
+    (no x/y), or ``None`` when this scene id keeps the OLD stage-only rule.
+
+    GM-A (`pf_bridge/notes_to_chief/20260901_0215_PANYA-ORDER-*.md` section
+    3, chief's `R278` broadcast) asks for a bare `/warp <scene_id>` to land
+    LIVE at "that destination map's standard spawn point ... resolved via
+    `SCENE_NAME[n].n_MARKER`" (`GT-182`'s own objective, quoting
+    `COO-DECISION 20260829_0542`) rather than only staging the next login
+    the way this shape always has.  `world_scene_travel.py` already carries
+    exactly that per-scene pinned point (`destination`/`spawn_position`,
+    the same anchor `runtime.py`'s bg0002 eager-census arrival path uses,
+    per `R278`) -- this function is the one place that decides whether a
+    given scene id has one, so `_warp_action`'s routing and this module's
+    frame builder below cannot disagree about which scenes qualify.
+
+    GATED ON `has_authored_entry` (`entry_marker != 0`, i.e. n_MARKER != 0),
+    NOT ON "world_scene_travel has ANY spawn pinned" -- those are different
+    questions and conflating them would be a real regression.  Four scene
+    ids in the registry today (17, 126, 278, 997) carry a pinned `spawn`
+    with NO marker (`n_MARKER == 0`): an owner-decreed or native-placement
+    point, `evidence_tier` "authored"/"decreed_provisional", never a
+    developer-authored ARRIVAL marker.  `GT-182` nonclaim 4 is explicit that
+    those scenes "keep the OLD rule" (stage-only) on purpose -- and scene
+    278 specifically already has a PINNED TEST asserting that
+    (`tests/test_gm_chat_command_action.py::ProductionCallShapeTests::
+    test_the_default_argument_call_stages_where_gt141_says_it_does`, GT-141)
+    that this function's gate must not silently flip.  Checking
+    `has_authored_entry` instead of "spawn is not None" is what keeps that
+    test's answer unchanged while still opening the marker-backed scenes
+    (1-11, 14, 130 today) GT-182 itself names as the shape to build (its own
+    example list: "scene 4/5/6/8/10").
+
+    Never raises for an unpinned, markerless, or entirely unknown scene id
+    -- all three answer `None`, the same "caller falls back to staging"
+    signal, and telling them apart is not this function's job.  Only a
+    scene_id that is not a plain int raises, the same contract every other
+    `_require_int` call in this module keeps.
+    """
+    scene_id = _require_int(scene_id, "scene_id")
+    try:
+        target = world_scene_travel.destination(scene_id)
+    except (KeyError, ValueError):
+        # KeyError: scene_id is not in world_scene_travel's registry at all
+        # (a scene LANE-A has not opened yet, or never will).  ValueError:
+        # `destination`'s own `_require_int` on a scene_id outside its
+        # 1..0xFFFF wire range -- already validated above by this function's
+        # own `_require_int`, kept here only so a future change to either
+        # module's range cannot turn into an uncaught exception.
+        return None
+    if not target.has_authored_entry or target.spawn is None:
+        return None
+    return target
+
+
+def make_warp_teleport_frame_no_coords_with_target(
+    legacy,
+    scene_id: int,
+) -> tuple[bytes, bytes, WarpTarget]:
+    """Build a live `TeleportVital` for GM-A's bare `warp <scene_id>` shape.
+
+    Sibling of `make_warp_teleport_frame_with_target` above, with ONE
+    difference that is the entire point of this function: `x`/`y`/`z` come
+    from `world_scene_travel.spawn_position` (the destination's own pinned
+    marker point), never from a `GmCommand`'s typed arguments or from the
+    caller's current z -- this is the fix for `GT-172`'s finding F-2 (a
+    coordinate-carrying warp sends the OLD scene's z, so the character
+    floats or sticks at the new one).  A bare `warp <scene_id>` has no typed
+    x/y to begin with, so there is nothing to disagree with the marker
+    point; F-2 is dodged by construction for this shape, not patched.
+
+    `scene_id` IS RE-CHECKED here via `warp_no_coords_live_target`, not
+    trusted from a caller that already checked it once -- the same
+    single-validation-pass discipline `make_warp_force_pos_frame_with_target`
+    documents for its own duplicate-caller threat model.  Routing (deciding
+    whether a `warp` command reaches this function at all) stays
+    `gm/chat_command_action.py::_warp_action`'s job, same split as the
+    with-coordinates sibling.
+
+    `scene_seq` is `SCENE_SEQUENCE` (0), the identical constant the
+    with-coordinates sibling uses and the only value ever measured at any
+    scene crossing in this project -- see that function's own comment.
+    """
+    target = warp_no_coords_live_target(scene_id)
+    if target is None:
+        raise WarpExecutorError(
+            f"scene_id {scene_id} has no world_scene_travel authored-marker "
+            "entry (n_MARKER == 0, or not in that registry at all) -- GM-A's "
+            "live no-coordinate warp only reaches marker-backed scenes; this "
+            "scene id keeps the old stage-only behaviour (GT-182 nonclaim 4)"
+        )
+    x, y, z = world_scene_travel.spawn_position(target)
+    pc, frame = legacy.make_login_teleport(target.n_id, SCENE_SEQUENCE, x, y, z)
+    # Same wire-value round trip as `make_warp_teleport_frame_with_target`'s
+    # own comment explains: no payload comes back from a fixed constructor
+    # to decode, so binary32 round-tripping the composer's own input
+    # reproduces the wire's value byte-for-byte without re-parsing the frame
+    # this function just built.
+    wire_x = struct.unpack("<f", struct.pack("<f", x))[0]
+    wire_y = struct.unpack("<f", struct.pack("<f", y))[0]
+    wire_z = struct.unpack("<f", struct.pack("<f", z))[0]
+    return pc, frame, WarpTarget(target.n_id, wire_x, wire_y, wire_z)
 
 
 def warp_command_scene_id(command: GmCommand) -> int:

@@ -346,6 +346,67 @@ class WarpActionTests(_Case):
         )
         self.assertEqual({}, self.staged_login_scenes())
 
+    def test_a_bare_cross_scene_warp_to_a_marker_scene_now_fires_live(self):
+        # GM-A (R278, round jd4jqp): the shape `test_scene_only_warp_with_
+        # no_coordinates_stages_and_sends_nothing` below covers is a
+        # SAME-scene bare warp. This is the NEW case -- a DIFFERENT,
+        # marker-backed scene, no coordinates.
+        from pirateforce_foundation import world_scene_travel
+
+        target = world_scene_travel.destination(4)
+        x, y, z = world_scene_travel.spawn_position(target)
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 4")
+        self.assertIsNotNone(action)
+        label, pc, frame, delay = action
+        self.assertEqual(
+            label,
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+        self.assertIn("TELEPORT", label)
+        self.assertEqual(delay, 0.0)
+        expected_pc, expected_frame = self.legacy.make_login_teleport(
+            4, 0, x, y, z
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        # The z is the DESTINATION's own pinned marker z, not the GM's old
+        # scene-2 z (30.0) -- this is GT-172 finding F-2's fix for this shape.
+        self.assertNotEqual(z, 30.0)
+        # Nothing staged: the live branch fired, same "no config entry"
+        # property the with-coordinates sibling test asserts.
+        self.assertEqual({}, self.staged_login_scenes())
+
+    def test_a_bare_cross_scene_warp_to_a_markerless_scene_still_stages(self):
+        # GT-182 nonclaim 4: scene 278 (n_MARKER == 0) keeps the OLD rule
+        # even though world_scene_travel has A pinned spawn for it -- this
+        # is the regression this round's `has_authored_entry` gate exists
+        # to prevent, mirrored here at the chat-command layer (the same
+        # scene id `ProductionCallShapeTests.test_the_default_argument_
+        # call_stages_where_gt141_says_it_does` already pins at the
+        # default-argument-call layer).
+        session = FakeSession(position=FakePosition(scene_id=2))
+        action = self.act(session, "/warp 278")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
+        )
+        self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
+
+    def test_flipping_the_authorization_flag_off_falls_back_to_staging_too(self):
+        # Same kill switch WARP_CROSS_SCENE_TELEPORT's own test proves,
+        # exercised on the no-coordinates sibling.
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            action = self.act(session, "/warp 4")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}4", session.events
+        )
+        self.assertEqual({self.GM_ACCOUNT: 4}, self.staged_login_scenes())
+
     def test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing(self):
         # ~~Refused~~ (round `gejldf`): the bare form carries no coordinates
         # for ForcePos to put in a frame, which is exactly the case the
@@ -1210,6 +1271,10 @@ class EventNameContractTests(_Case):
         "WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL": (
             "LANE_GM_CHAT_WARP_CROSS_SCENE_TELEPORT_VITAL"
         ),
+        # GM-A (`R278`, round jd4jqp): the bare-form live-teleport sibling.
+        "WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL": (
+            "LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_TELEPORT_VITAL"
+        ),
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
         "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
     }
@@ -1621,6 +1686,40 @@ class ContractTests(_Case):
         self.assertEqual(len(action), 4)
         self.assertEqual(
             action[0], chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
+        )
+        self.assertIsInstance(action[1], (bytes, bytearray))
+        self.assertIsInstance(action[2], (bytes, bytearray))
+        self.assertIsInstance(action[3], float)
+
+    def test_the_no_coords_teleport_label_carries_TELEPORT_too(self):
+        # GM-A (R278, round jd4jqp): same contract as the two labels above,
+        # for the same reason -- this frame is also a real TeleportVital.
+        self.assertIn(
+            "TELEPORT",
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+
+    def test_the_no_coords_teleport_label_is_ascii_too(self):
+        label = chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        self.assertEqual(label, label.encode("ascii").decode())
+
+    def test_the_no_coords_teleport_label_differs_from_its_sibling(self):
+        # The whole point of a second label (see its own comment): an
+        # attended tester reading the console must be able to tell "GM
+        # typed x/y" from "server picked the marker spawn" apart.
+        self.assertNotEqual(
+            chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+
+    def test_the_no_coords_teleport_action_shape_matches_what_runtime_appends(self):
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 4")
+        self.assertIsInstance(action, tuple)
+        self.assertEqual(len(action), 4)
+        self.assertEqual(
+            action[0],
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
         )
         self.assertIsInstance(action[1], (bytes, bytearray))
         self.assertIsInstance(action[2], (bytes, bytearray))

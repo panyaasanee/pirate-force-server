@@ -5946,3 +5946,62 @@ that until chief answers the three letters opened this round.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0318_k0w291_gt172_pass_three_findings_opened.md`
 PR: `pf_bridge` (this repo's companion) -- numbers filled in once opened
+
+## รอบ `jd4jqp` (2026-09-01T04:44+07:00) -- GM-A built (PR pending), P-3 RE-164 retagged, P-2 finding
+
+`R278` formally assigned P-2/P-3/GM-A/GM-B to this lane. Consumed it plus the two CHIEF-REPLY
+letters answering `CORE-REQUEST-GM-045`/`-046` from last round.
+
+**GM-A built**: `gm/warp_executor.py` gained `warp_no_coords_live_target(scene_id)` and
+`make_warp_teleport_frame_no_coords_with_target(legacy, scene_id)`; `gm/chat_command_action.py`
+gained `_warp_teleport_action_no_coords` and a new action label
+`WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL` (carries `TELEPORT`, per the move-authority
+substring rule). A bare `/warp <scene_id>` naming a DIFFERENT scene now fires a live
+`TeleportVital` at that scene's `world_scene_travel.spawn_position(world_scene_travel.
+destination(scene_id))` -- the exact call pattern `R278`/`CHIEF-REPLY-GM-046` named -- instead of
+only staging, whenever that scene's `has_authored_entry` (n_MARKER != 0) is true. Scenes with no
+marker (17, 126, 278, 997) keep the old stage-only behaviour on purpose -- `GT-182`'s own
+nonclaim 4 requires it, and scene 278 specifically has a pinned regression test
+(`ProductionCallShapeTests::test_the_default_argument_call_stages_where_gt141_says_it_does`)
+that would have broken under a looser "spawn is not None" gate. Full local suite green (6140
+passed / 0 failed) after fixing 12 tests across five other `test_gm_*.py` files whose fixtures
+used scene 2 (marker-backed) as their canonical "stages, does not send" example -- fixed by
+patching `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED = False` at exactly those call sites, the
+same isolation the with-coordinates sibling's own kill-switch test already established, not by
+narrowing GM-A's own scope. `pirate-force-server#438` (`CORE-REQUEST-GM-045`,
+`_gm_warp_resync_selected_scene`) covers this new branch's census-scene-resync for free, verified
+from source: that method keys on the `WarpTargetRecord` `_park_warp_target` parks, which both the
+with- and without-coordinates branches call identically, not on any action-label string. `GT-182`
+stays BLOCKED (headless only, PR not yet merged as of this round) -- see its own status note and
+this round's STATUS letter for the full nonclaim.
+
+**P-3**: `pf_bridge/CLIENT_RE_QUEUE.md`'s `RE-164` items 1/3 were tagged `NEEDS-ATTENDED-CAPTURE`,
+which is the wrong route -- the ticket's own text says they need bridge-side disassembly
+continuation, not a game click. Retagged to `STATIC-ON-BRIDGE` per the routing-tag rule chief
+restored this cycle (`PROCESS_GATES.md` §18), so the RE runner idle 30h on the bridge can pick
+them up. No content/nonclaim changed, header only.
+
+**P-2**: searched broadly (`grep -rli` across `src/`) for any fontstyle/name-color computation --
+found none in `gm/`; the only matches are `mob_aggro.py`/`mob_ai_control.py`/
+`field_mob_ai_tables.py` (LANE-B's combat/mob-AI territory, which already carries an
+idle/aggro/return/dead phase machine but no `runtime.py` call site yet). Filed as a finding, not
+code, in this round's STATUS letter -- also found a new lead for the "dead=gray" gap chief named
+(three more rows in `PF_ATTR_NAME_COLOR_SELECTOR.tsv` naming `fontstyle_id=63` under a condition
+matching `PF_COMBAT_LIFECYCLE.tsv`'s dead-predicate vslot, but those rows' own nonclaim repeats
+three times that fontstyle 63 is not proven equivalent to dead) -- routed to `RE-155` (LANE-A's
+open ticket on this exact topic), not opened as a new ticket.
+
+**GM-B**: `gm/attr_wire.py`'s fail-closed gate is unchanged and still locked -- `COO-DECISION
+20260901_0147` still says "try RE-172 first, decide path 1 vs 2 only if negative"; RE-172 came
+back negative and the follow-up letter asking for that decision is still unanswered by the owner.
+The same policy that blocks `/lv` blocks `/speed`. No new code.
+
+**pf-adversary**: this session's toolset carries no Agent/Task tool to spawn a subagent (searched
+via `ToolSearch` before concluding absent) -- substituted a thorough self-adversarial review
+before committing (12 points: login_scene_admission bypass parity with the already-COO-approved
+with-coordinates sibling, double registry-load per call as a named inefficiency not a
+correctness bug, no new global mutable state, audit logging reuses the already-tested shared
+pipe) -- flagged `[สมมติของสาย GM - รอ COO ยืนยัน]` in this round's STATUS letter.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0444_jd4jqp_gm-a-live-warp-built-p3-retag-p2-finding.md`
+PR: `pf_bridge` / `pirate-force-server` (numbers filled in once opened)

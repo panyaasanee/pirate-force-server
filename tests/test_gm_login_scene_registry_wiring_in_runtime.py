@@ -60,6 +60,7 @@ from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
 from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import login_scene_override  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
     reset_rate_limit_state_for_tests,
 )
@@ -333,14 +334,23 @@ class RegistrySnapshotWiringTests(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()):
                 self._login_and_start(state, "wire_tester")
 
-        with contextlib.redirect_stdout(io.StringIO()):
-            with contextlib.redirect_stderr(io.StringIO()) as stderr:
-                state.dispatch(self.legacy.parse_outer(
-                    _synthetic_chat_pc(
-                        self.legacy,
-                        _chat_payload(f"/warp {STAGED_SCENE_ID}"),
-                    )
-                ))
+        # GM-A (R278, round jd4jqp): STAGED_SCENE_ID (scene 2) is
+        # marker-backed, so a bare `/warp 2` now fires live instead of
+        # staging on an UNRESTRICTED registry -- but this test's own
+        # subject is whether a REFUSING snapshot blocks the STAGE path,
+        # so the live short-circuit is turned off to keep exercising that
+        # mechanism specifically.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with contextlib.redirect_stderr(io.StringIO()) as stderr:
+                    state.dispatch(self.legacy.parse_outer(
+                        _synthetic_chat_pc(
+                            self.legacy,
+                            _chat_payload(f"/warp {STAGED_SCENE_ID}"),
+                        )
+                    ))
 
         self.assertEqual(self._gm_map(), {})
         self.assertNotIn(

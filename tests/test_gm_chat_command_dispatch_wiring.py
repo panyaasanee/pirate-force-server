@@ -73,6 +73,7 @@ from pirateforce_foundation.gm import chat_command  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.gm.dispatch import (  # noqa: E402
     reset_rate_limit_state_for_tests,
 )
@@ -278,9 +279,21 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
             # longer the same login.  With the route mocked out, the control
             # stages nothing, so running it first leaves both sides on a
             # login with no override.
-            control = self._actions_without_the_route("gm_runner", "/warp 2")
-            state = self._login_and_start("gm_runner")
-            actions = self._say(state, "/warp 2")
+            # GM-A (R278, round jd4jqp) made a bare cross-scene `/warp` to a
+            # MARKER-BACKED scene fire live instead of staging -- scene 2
+            # (Prison Exile Island) is one of those scenes. This test's own
+            # subject is dispatch-wiring/audit parity, not GM-A's new live
+            # branch, so the live short-circuit is turned off here to keep
+            # exercising the STAGE mechanism this test was built around --
+            # the same isolation `warp_executor`'s own
+            # `test_flipping_the_authorization_flag_off_falls_back_to_
+            # staging` test uses for the with-coordinates sibling.
+            with mock.patch.object(
+                warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+            ):
+                control = self._actions_without_the_route("gm_runner", "/warp 2")
+                state = self._login_and_start("gm_runner")
+                actions = self._say(state, "/warp 2")
             # Observe-only: the point adds no reply of its own.
             self.assertEqual(actions, control)
         self.assertIn("gm_chat_action_accepted_warp", state.events)
@@ -358,9 +371,17 @@ class ChatCommandDispatchWiringTests(unittest.TestCase):
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
-            state = self._login_and_start("gm_runner")
-            rx_before = state.rx_frames
-            actions = self._say(state, "/warp 2")
+            # Same isolation as `test_a_gm_command_typed_in_chat_reaches_
+            # the_audit_log` above, same reason: this test pins the frame's
+            # OWN three-action baseline, unrelated to GM-A's new live
+            # branch for a bare cross-scene `/warp` -- the flag is turned
+            # off so scene 2 keeps staging (no fourth action) here too.
+            with mock.patch.object(
+                warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+            ):
+                state = self._login_and_start("gm_runner")
+                rx_before = state.rx_frames
+                actions = self._say(state, "/warp 2")
         self.assertEqual(
             self._labels(actions),
             [
