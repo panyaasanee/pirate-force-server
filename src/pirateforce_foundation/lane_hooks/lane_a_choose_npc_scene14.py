@@ -32,6 +32,17 @@ actors' positions, models or names changes; only "click gets no wire
 response" becomes "click gets an answered frame" -- whether a client renders
 that answer the same way it renders Port Royal's is exactly what `GT-134`
 and a follow-up click test still have to measure.
+UPDATED, LANE-A round `yfbqmg`, 2026-09-01: a defect chief's
+pf-adversary run caught (see "WHY IT NOW ALSO READS
+``field_mob_hostile_bg0015``" below) meant that clicking ANY of scene 14's
+81 actors silently reverted the 12 hostile-spliced ones back to civilian on
+the wire -- so `GT-178` would have read as "hostile splice does not work"
+the moment a tester clicked before checking aggro, when the real defect was
+one layer down and wire-only.  After this round's fix: a click leaves all
+81 actors' civilian/hostile identity exactly as the arrival census set it;
+only whether a wire-level regression test would have caught this earlier
+changes, not anything `GT-134`/`GT-178` themselves render differently
+(neither ticket has run yet against this fix).
 
 WHY THIS FILE EXISTS.  COO-DECISION 20260830_0818 (answering chief's
 ``CHIEF-ASK-COO`` 20260830_0155) approved a ChooseNPC responder for roster
@@ -132,6 +143,36 @@ or writes ``self`` -- it takes the state it needs as arguments, the same
 ``census_composer`` convention -- so it cannot arm the frozen path by
 accident.
 
+WHY IT NOW ALSO READS ``field_mob_hostile_bg0015`` (LANE-A round `yfbqmg`,
+2026-09-01).  CONFIRMED DEFECT
+(``pf_bridge/notes_to_chief/20260831_2318_CHIEF-TO-LANE-A-choosenpc-
+scene14-reverts-hostile-splice-to-civilian.md``, chief's own mutation-tested
+pf-adversary run, round R274): before this round, every ``NPCAttr`` body
+above came from ``legacy.make_npc_attr`` alone, which knows nothing about
+``field_mob_hostile_bg0015.scene14_hostile_overrides`` -- the hostile
+faction+level splice ``world_population_handoff._roster_handoff`` writes
+into 12 of the 81 placements on arrival (this same round's LANE-A+LANE-B
+CORE-REQUEST, ``20260831_2151_LANE-A-TO-CHIEF-*.md``).  So the FIRST
+``ChooseNPC``/``TARGET_VITAL`` click after arrival -- on ANY of the 81
+actors, spliced or not, because this function always rebuilds all of
+``population_indices`` to answer one -- silently overwrote the wire's own
+already-sent hostile bodies back to civilian, with no error and nothing in
+``console_lines`` naming it.  The fix is the same choice
+``_hostile_mobs_by_placement_index`` and its call site below make: for each
+of the 12 overridden placement indices, build the NPCAttr body with
+``field_mobs.hostile_npc_attr`` (the SAME encoder ``_roster_handoff``'s
+splice already ships, not a re-derivation) instead of
+``legacy.make_npc_attr``; every other placement is unaffected.  The clicked
+actor's ``MovementAttr`` (heading toward the player) is unchanged either
+way -- that half of the response answers "where do I turn to face them",
+which has nothing to do with civilian vs. hostile identity, so a hostile
+placement's ``MovementAttr`` is still built from the same
+``_heading_to_player`` call as before, not from
+``field_mobs.hostile_actor_entry``'s own fixed-heading movement (that
+function bakes together a body this responder does not want, since it
+answers every click with the SAME heading regardless of where the player
+stands -- correct for an arrival census, wrong for a face-the-player click).
+
 FAIL CLOSED.  A chosen identity outside ``population_indices``, a placement
 this table does not carry (never invented -- see the module docstring of
 ``world_bg0015_identity`` on the ten placements with no shippable identity),
@@ -145,6 +186,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .. import field_mob_hostile_bg0015 as hostile_bg0015
+from .. import field_mobs
 from .. import lane_hooks
 from .. import world_bg0015_identity as identity
 from .lane_a_scene_census import scene_is_open_to_players
@@ -177,6 +220,35 @@ def _placements_by_index() -> dict[int, Any]:
     return {p.placement_index: p for p in identity.shippable_placements()}
 
 
+def _hostile_mobs_by_placement_index() -> dict[int, Any]:
+    """Placement index -> ``field_mobs.FieldMob`` for this scene's 12
+    hostile-splice placements, rebuilt per call (same non-caching convention
+    as :func:`_placements_by_index` above, same reason: pure over a fixed
+    table).
+
+    THE BUG THIS EXISTS TO CLOSE (``pf_bridge/notes_to_chief/20260831_2318_
+    CHIEF-TO-LANE-A-choosenpc-scene14-reverts-hostile-splice-to-civilian.md``,
+    confirmed by chief's own mutation-tested pf-adversary run, round R274):
+    before this function existed, EVERY ``ChooseNPC``/``TARGET_VITAL`` click
+    on scene 14 -- the clicked actor or any of the other 80 -- rebuilt all 81
+    ``NPCAttr`` bodies through ``legacy.make_npc_attr`` alone, which knows
+    nothing about ``field_mob_hostile_bg0015``'s hostile-faction+level
+    splice.  ``world_population_handoff._roster_handoff`` already splices
+    that override into the ARRIVAL census (``composer.source ==
+    "bg0015_roster"`` branch, this round's own CORE-REQUEST with lane B) --
+    but this responder rebuilds its OWN collection from scratch on every
+    click instead of reusing that composed generation, so the very first
+    click after arrival silently overwrote the 12 spliced actors back to
+    plain civilians on the WIRE, with no error and no console line naming
+    it.  This helper is the one addition that lets :func:`respond` tell the
+    two apart before choosing which encoder to call -- see its own call
+    site below.
+    """
+    return {
+        mob.placement_index: mob for mob in hostile_bg0015.scene14_hostile_roster()
+    }
+
+
 def respond(
     *,
     legacy: Any,
@@ -203,6 +275,7 @@ def respond(
     if population_indices is None or last_target_pos is None:
         return None
     by_idx = _placements_by_index()
+    hostile_by_idx = _hostile_mobs_by_placement_index()
     player_x, player_y = last_target_pos[0], last_target_pos[1]
     for actor_identity in dict.fromkeys(chosen_identities):
         selected_idx = actor_identity - 0x2000 - 1
@@ -224,15 +297,27 @@ def respond(
                 # "drop and say so" discipline world_face_frame.py uses.
                 omitted += 1
                 continue
-            attrs = [(
-                legacy.NPC_ATTR,
-                legacy.make_npc_attr(
+            hostile_mob = hostile_by_idx.get(idx)
+            if hostile_mob is not None:
+                # THE FIX: this placement is one of the 12 the arrival
+                # census splices hostile (field_mob_hostile_bg0015).  A
+                # civilian legacy.make_npc_attr body here would silently
+                # revert that splice on the wire the moment ANY of the 81
+                # actors gets clicked -- see _hostile_mobs_by_placement_
+                # index's own docstring for the confirmed defect this
+                # branch closes.
+                npc_attr_bytes = field_mobs.hostile_npc_attr(
+                    legacy, hostile_mob, current_hp=hostile_mob.max_hp,
+                    scene_id=scene_id, scene_sequence=0,
+                )
+            else:
+                npc_attr_bytes = legacy.make_npc_attr(
                     placement.n_id, placement.actor_identity, scene_id, 0,
                     placement.visual_preset, current_hp=placement.max_hp,
                     max_hp=placement.max_hp,
                     basic_name=placement.display_name,
-                ),
-            )]
+                )
+            attrs = [(legacy.NPC_ATTR, npc_attr_bytes)]
             if idx == selected_idx:
                 heading = legacy._heading_to_player(
                     placement.x, placement.y, player_x, player_y,

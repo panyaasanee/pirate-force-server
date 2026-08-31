@@ -99,11 +99,15 @@ from pirateforce_foundation.model import Position  # noqa: E402
 # ADDED round ir0lpw (LANE-A): scene 9 (Death City Sea) joined the same
 # way, eighth door in the same queue -- built, wired and opened in one
 # round.
-# ADDED this round (LANE-A, round 68mm02): scene 11 (Deep Sea Temple
-# floor 2) joined the same way, ninth door in the same queue -- built,
-# wired and opened in one round.  This is the elevated-risk row
-# (the_two_interiors, shared only with scene 10).
-ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 278, 997)
+# ADDED round 68mm02 (LANE-A): scene 11 (Deep Sea Temple floor 2) joined
+# the same way, ninth door in the same queue -- built, wired and opened
+# in one round.  This is the elevated-risk row (the_two_interiors, shared
+# only with scene 10).
+# ADDED this round (LANE-A, round yfbqmg): scene 130 (Navy Training Camp)
+# joined the same way, TENTH AND LAST door in the same queue -- built,
+# wired and opened in one round.  With this scene, every one of the ten
+# doors round 12lyda surveyed is open at login.
+ADMISSIBLE_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
 # The GM-gated (single-use) map's own way out, which is wider than the
 # plain set above by exactly one scene since round R249 (chief, gate-red
 # repair of `pirate-force-server#332`): lane A landed the scene-126
@@ -117,10 +121,17 @@ HOME = 1
 # `login_entry_allowed: false` -- the exact entry that locked an account out.
 BARRED_AT_LOGIN = 17
 # Named in the client's catalog and pinned `login_entry_allowed: false`.
-# MOVED this round from scene 11 (Deep Sea Temple floor 2, which opened
-# this round -- see ADMISSIBLE_TODAY above) to scene 130 (Navy Training
-# Camp), the only door of the ten this lane has not yet opened.
-NAMED_BUT_UNPINNED = 130
+# MOVED this round (yfbqmg) from scene 130 (Navy Training Camp, which
+# opened this round -- see ADMISSIBLE_TODAY above -- the TENTH AND LAST
+# of the original ten doors) to scene 12, a PERMANENT choice rather than
+# another door this lane will eventually open: 12 is in the 330-row GM
+# name table (TEXTDATA_TH__SCENE_NAME_TIP, "Drake empty Walled") and NOT
+# in the 271-row CONSTDATA_TH__SCENE_NAME table at all, so it has no
+# n_MARKER to gain and rule 1 can never reach it -- the same reasoning
+# `test_gm_login_scene_stage.py`'s own `NAMED_BUT_UNPINNED = 12` already
+# uses, adopted here so this file stops needing to move this constant
+# every time a door opens.
+NAMED_BUT_UNPINNED = 12
 
 
 class ThePredicateTests(unittest.TestCase):
@@ -380,10 +391,11 @@ class TheAdmissibleSetIsAlsoNamedTests(unittest.TestCase):
         # 14 joined the set in LANE-A round vvy6q7, 4 in round bq4mst, 10 in
         # round 3t75jw, 5 in round l03cgh, 6 in round fx0007, 8 in round
         # p4wire, 3 in round p7wm17, 7 in round 78zayw, 9 in round ir0lpw,
-        # 11 this round (68mm02); 997 is the row this test bends into
-        # UNNAMED, which is why it is the one id missing here.
+        # 11 in round 68mm02, 130 this round (yfbqmg); 997 is the row this
+        # test bends into UNNAMED, which is why it is the one id missing
+        # here.
         self.assertEqual(
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 278), offered)
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278), offered)
 
 
 class TheConsoleLineNeverAltersDispatchTests(unittest.TestCase):

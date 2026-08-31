@@ -30,6 +30,24 @@ cover every NAMED field (this module's 55-row `FIELDS` table below, not a
 100%-of-47 bar), and the remaining unnamed fields must be preserved
 losslessly from whatever the real current block is -- not zeroed, not
 invented. That is the mechanism this module exists to build.
+`COO-DECISION 2026-09-01T00:43+07:00` (`pf_bridge/notes_to_chief/
+20260901_0043_COO-DECISION-attr-wire-unlock-criteria-replaced-shelve-stays-
+locked.md`) ratified this as the standing 3-point unlock definition -- (a)
+encoder covers every named field, (b) unnamed fields preserved lossless,
+never zeroed, (c) a version-confirmation constant gates the live send, same
+shape as `warp`/`say`. That letter does NOT audit this module against the
+three points, and neither does this note: (a) and (c) hold at the code
+level (`FIELDS` covers every `known=True` row; the gate constant below
+mirrors `teleport_wire`/`say_wire`'s pattern exactly), but (b) is NOT yet
+true as an outcome -- this module's own "open part" section above already
+says the first named-field send will still zero every currently-nonzero
+UNNAMED field, because there is no raw-block source to preserve them from
+today. Whether that gap is closed by path 1 (accept the risk) or path 2
+(name-only, possibly not viable) is still routed to the owner
+(`pf_bridge/notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-attr-wire-path1-
+vs-path2-after-re172-negative.md`), per `COO-DECISION 20260831_1843`.
+Nothing below sends live until that answer lands, and (b) is not satisfied
+until it does.
 
 ## The proven part
 

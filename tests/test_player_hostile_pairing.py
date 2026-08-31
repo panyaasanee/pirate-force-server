@@ -101,12 +101,15 @@ class PlayerHostilePairingTests(unittest.TestCase):
     def test_unaccepted_scene_fails_closed_to_untouched_production_bytes(self):
         # Any scene ``world_faction_admission`` does not admit must come
         # back byte-identical to production, never a fabricated or
-        # half-composed frame.  MOVED this round (68mm02) from scene 11
-        # (Deep Sea Temple floor 2, which world_faction_admission now
-        # admits since its registry row opened this round) to scene 130
-        # (Navy Training Camp), the only door of the ten this lane has not
-        # yet opened.
-        character = _character(130, 0)
+        # half-composed frame.  MOVED this round (yfbqmg) from scene 130
+        # (Navy Training Camp, which world_faction_admission now admits
+        # since its registry row opened this round -- the TENTH AND LAST
+        # of the original ten doors) to scene 17 ("a ship at sea"): a
+        # PERMANENT choice rather than another door this lane will
+        # eventually open (n_SAVE 0 in the committed registry, so it can
+        # never satisfy world_faction_admission's own two-condition gate
+        # by a door flip alone).
+        character = _character(17, 0)
         pc, frame = self._production_start_game(character)
         out_pc, out_frame, sent, event = (
             php.compose_start_game_with_player_pairing(

@@ -258,6 +258,7 @@ from . import world_population_bg0009
 from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
+from . import world_population_bg4001
 from .world_population import (
     COLLECTION_TAG,
     COUNT_SOURCE_CALLER,
@@ -561,6 +562,24 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0011.dispatch_report,
         generation_type=world_population_bg0011.Bg0011PopulationGeneration,
         full_roster_count=world_population_bg0011.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND yfbqmg (2026-09-01, LANE-A), build+wire+open in one round
+    # for the TENTH AND LAST door of the original ten (scene 130, Navy
+    # Training Camp) - same shape as bg0011's entry above.  NOT covered by
+    # the LOGIN_OWNED_SOURCES exclusion below: scene 130 has no login-path
+    # populator today before this round (no runtime.py branch dedicated to
+    # it), so this entry is not composing over anything.  Unlike bg0011,
+    # this is NOT an elevated-risk row (see world_bg4001_identity.py's own
+    # docstring).
+    "bg4001_roster": _SceneComposer(
+        source="bg4001_roster",
+        build=world_population_bg4001.build_bg4001_population,
+        full_roster_count_source=world_population_bg4001.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg4001.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg4001.dispatch_report,
+        generation_type=world_population_bg4001.Bg4001PopulationGeneration,
+        full_roster_count=world_population_bg4001.DEFAULT_ACTOR_COUNT,
     ),
 }
 

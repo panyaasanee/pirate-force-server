@@ -34,6 +34,7 @@ from . import world_scene_travel
 from . import world_travel_gate
 
 from . import lane_hooks
+from .lane_hooks import lane_b_mob_ai_tick
 from .gm.accounts import is_gm_account
 from .gm import chat_command_action
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
@@ -5172,6 +5173,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # the next frame the tester walked by hand.
             warp_frame = self._gm_warp_open_confirm_window(parsed)
             actions = self._dispatch_with_lanes(parsed)
+            # COO-DECISION 20260901_0145 / lane_hooks.lane_b_mob_ai_tick's own
+            # LANE_B_MOB_AI_TICK_WIRING (round iok5z1 named this exact block,
+            # this round pastes it): the one direct-call site
+            # mob_ai_scheduler.tick_session had zero callers for. Guards on
+            # the same vital a moving player already sends continuously, so
+            # nothing new is composed on frames that are not one. Composes no
+            # frame either way (Door B is a separate, larger decision this
+            # does not make).
+            if (parsed.nested_id == legacy.TARGET_POS_VITAL and
+                    self.last_target_pos is not None and
+                    getattr(self, "mob_ai_register", None) is not None and
+                    getattr(self, "mob_combat_ledger", None) is not None and
+                    self.foundation.selected is not None and
+                    lane_hooks.module_production_allowed(
+                        "lane_hooks.lane_b_mob_ai_tick")):
+                selected = self.foundation.selected
+                performer = (
+                    (selected.identity_hi & 0xFFFFFFFF) << 32
+                    | (selected.identity_lo & 0xFFFFFFFF)
+                )
+                x, y, z, _heading = self.last_target_pos
+                self.mob_ai_register, _tick_results = (
+                    lane_b_mob_ai_tick.maybe_tick(
+                        self.mob_ai_register, self.mob_combat_ledger,
+                        performer, (x, y, z),
+                    )
+                )
             if move_authority_hypothesis_scenario is not None:
                 self._move_authority_note_server_moves(actions)
             self._gm_warp_close_confirm_window(warp_frame)

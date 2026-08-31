@@ -141,15 +141,20 @@ class CauseIsReachableTests(_Case):
         self.assertNotIn("stale", result.cause)
 
     def test_a_named_scene_that_is_simply_not_stageable_says_the_same(self):
-        # Scene 130 HAS a name in the 330-row catalog and is still not
+        # Scene 12 HAS a name in the 330-row catalog and is still not
         # admissible.  pf-adversary called this the ~99% typo and it was
         # the case the inverted token sent to a pointless restart.  MOVED
-        # this round (68mm02) from scene 11 (Deep Sea Temple floor 2, which
-        # opened this round) to scene 130 (Navy Training Camp), the only
-        # door of the ten this lane has not yet opened.
+        # this round (yfbqmg) from scene 130 (Navy Training Camp, which
+        # opened this round -- the TENTH AND LAST of the original ten
+        # doors) to scene 12, a PERMANENT choice rather than another door
+        # this lane will eventually open: 12 is in the 330-row GM name
+        # table and NOT in the 271-row CONSTDATA_TH__SCENE_NAME table at
+        # all, so it has no n_MARKER to gain and rule 1 can never reach it
+        # -- same reasoning `test_gm_login_scene_admission.py`'s own
+        # ``NAMED_BUT_UNPINNED`` now uses.
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(
-            json.dumps({"gm_login_scene": {self.GM_ACCOUNT: 130}}),
+            json.dumps({"gm_login_scene": {self.GM_ACCOUNT: 12}}),
             encoding="utf-8",
         )
         self.assert_failed_with(self.consume(), C.CAUSE_SCENE_NOT_ADMISSIBLE)
