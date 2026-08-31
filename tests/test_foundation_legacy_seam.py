@@ -859,22 +859,52 @@ class FoundationLegacySeamTests(unittest.TestCase):
         # silently change which copy runs.
         self.assertNotIn("import pf_login_game_server", source)
 
-    def test_app_patches_the_ground_heartbeat_before_adapting_the_listener(self):
-        # CORE-REQUEST (LANE-B round n8kq4r, P-1): v141's frozen heartbeat_worker
-        # calls legacy.make_runtime_res_empty_exact() via a global lookup, and
-        # adapt_game_listener() copies legacy's globals ONCE when it builds the
-        # wrapped listener -- so the monkeypatch only takes effect if it runs
-        # BEFORE that call, not merely before the listener thread starts
-        # accepting connections (the bug pf-adversary caught in the CORE-REQUEST
-        # letter's first draft).
+    def test_app_installs_the_ground_heartbeat_patch_before_adapting_the_listener(self):
+        # CORE-REQUEST (LANE-B round n8kq4r, P-1): the patch must be installed
+        # before the listener thread's body can run.  install_ground_heartbeat_
+        # preserve(legacy) must appear before adapt_game_listener(...) is
+        # called in main() -- source order is what makes this true regardless
+        # of exactly when adapt_game_listener's own globals snapshot happens.
         source = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
         self.assertIn(
             "from .mob_loot import preserve_ground_heartbeat_frame", source)
-        patch_at = source.index(
-            "legacy.make_runtime_res_empty_exact = "
-            "lambda: preserve_ground_heartbeat_frame(legacy)")
+        install_at = source.index("install_ground_heartbeat_preserve(legacy)")
         adapt_at = source.index("legacy.game_listener = adapt_game_listener(")
-        self.assertLess(patch_at, adapt_at)
+        self.assertLess(install_at, adapt_at)
+
+    def test_ground_heartbeat_patch_only_changes_the_heartbeat_worker_caller(self):
+        # pf-adversary (this round): a plain attribute replacement on
+        # legacy.make_runtime_res_empty_exact would ALSO change
+        # RUNTIME_RES_ACK_FIRST_REQ (the very first packet sent on connect,
+        # a different call site that resolves the same global name) even
+        # though nothing reviewed or tested that path under the new shape.
+        # install_ground_heartbeat_preserve must scope the swap to the
+        # heartbeat_worker caller only, and leave every other caller -- this
+        # test in particular -- getting v141's original, unmodified bytes.
+        from pirateforce_foundation.app import install_ground_heartbeat_preserve
+        from pirateforce_foundation.legacy_bridge import load_legacy
+        from pirateforce_foundation.mob_loot import preserve_ground_heartbeat_frame
+
+        legacy = load_legacy(ROOT / PINNED_LEGACY_MODULE)
+        original_pc, original_frame = legacy.make_runtime_res_empty_exact()
+
+        install_ground_heartbeat_preserve(legacy)
+
+        def heartbeat_worker():
+            return legacy.make_runtime_res_empty_exact()
+
+        preserved_pc, preserved_frame = heartbeat_worker()
+        expected_pc, expected_frame = preserve_ground_heartbeat_frame(legacy)
+        self.assertEqual(preserved_pc, expected_pc)
+        self.assertEqual(preserved_frame, expected_frame)
+        self.assertNotEqual(preserved_pc, original_pc)
+
+        # A caller with any other frame name -- this test method itself, or
+        # RUNTIME_RES_ACK_FIRST_REQ's dispatch-time call in real use -- must
+        # still get v141's original CLEAR-shape bytes, unchanged.
+        unaffected_pc, unaffected_frame = legacy.make_runtime_res_empty_exact()
+        self.assertEqual(unaffected_pc, original_pc)
+        self.assertEqual(unaffected_frame, original_frame)
 
     def test_the_foundation_state_class_subclasses_frozen_v141(self):
         source = (SRC_ROOT / "runtime.py").read_text(encoding="utf-8")

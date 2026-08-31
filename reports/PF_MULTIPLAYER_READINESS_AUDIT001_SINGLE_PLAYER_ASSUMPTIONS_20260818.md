@@ -182,7 +182,7 @@ The second half of the note — *"ตาราง `sessions` รองรับ�
 | `src/pirateforce_foundation/app.py` | modify | L05 |
 | `src/pirateforce_foundation/<new concurrent listener>.py` | **new** | T01–T07, I01–I04, L01–L04, W08–W10 |
 
-The pinned 89: `test_single_session_limitation.py` (7), `test_session_row_persistence.py` (13), `test_startup_stale_lease_recovery.py` (15), `test_connection_lifecycle.py` (12), `test_server_shutdown.py` (15), `test_runtime_console.py` (5), `test_foundation_legacy_seam.py` (22).
+The pinned 91: `test_single_session_limitation.py` (7), `test_session_row_persistence.py` (13), `test_startup_stale_lease_recovery.py` (15), `test_connection_lifecycle.py` (12), `test_server_shutdown.py` (15), `test_runtime_console.py` (5), `test_foundation_legacy_seam.py` (24).
 
 **Why the new file is unavoidable, and why it is the whole story.** 18 of the 32 sites are inside `current/pf_login_game_server_v141.py`. Policy forbids editing it, and the existing escape hatch — `adapt_game_listener` (`connection.py:226`), which re-executes the frozen code object against substituted globals — can swap *objects* but cannot change *control flow*. `s.accept()` already routes through Foundation (`ListeningGameSocket.accept`, `connection.py:179`); the serial part is the loop body, and the loop body is code. So the ~440-line listener body (`v141:7371`–`7850`) and the ~65-line LOGIN loop (`v141:7933`–`8007`) must be **re-implemented** in a Foundation-owned module that calls the same frozen primitives (`recv_frame`, `parse_outer`, `state.dispatch`, `frame_pc`). This is the largest single piece of work the project has ever contemplated in `src/`, and it is also the one that cannot be done in halves.
 
@@ -406,7 +406,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "package_a_files_new": 1,
   "package_a_sites_covered": 32,
   "package_a_pinned_test_files": 7,
-  "package_a_pinned_test_functions": 90,
+  "package_a_pinned_test_functions": 91,
   "package_b_files_touched": 5,
   "package_b_files_new": 2,
   "package_b_sites_covered": 6,

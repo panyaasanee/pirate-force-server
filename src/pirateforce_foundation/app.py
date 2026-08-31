@@ -91,6 +91,47 @@ def resolve_item_move_capture_db(path: str) -> str:
         raise FileNotFoundError(resolved)
     return str(resolved)
 
+
+def install_ground_heartbeat_preserve(legacy) -> None:
+    """CORE-REQUEST (LANE-B round n8kq4r, P-1): stop v141's frozen heartbeat
+    from clearing every ground-drop on the client every ~2s.
+
+    ``legacy.make_runtime_res_empty_exact`` is one shared global name that
+    THREE different frozen call sites resolve at call time: the connection's
+    ``RUNTIME_RES_ACK_FIRST_REQ`` (session dispatch, first packet on
+    connect), ``run_self_test`` (already neutralized separately, see
+    ``legacy.run_self_test = lambda ...`` below), and ``heartbeat_worker``
+    (nested inside ``game_listener``, called every ~2s) -- a plain attribute
+    replacement would change all three, but only ``heartbeat_worker``'s
+    behaviour is what CORE-REQUEST asked to fix and what
+    ``preserve_ground_heartbeat_frame`` was reviewed against (pf-adversary,
+    this round: the first-connect ack's byte content under the new shape is
+    unaudited). So this wraps rather than replaces, and only substitutes the
+    PRESERVE shape when the caller's frame is ``heartbeat_worker`` itself --
+    every other caller (including any future one) keeps v141's original
+    behaviour unchanged.
+
+    On placement: this only needs to run before the listener thread's body
+    executes (the thread that resolves this global at call time), not before
+    ``adapt_game_listener(...)`` is called -- ``adapt_game_listener``'s own
+    "one-time globals copy" (``connection.py``'s ``adapted()``) happens
+    *inside* the wrapper closure, at invocation, not when
+    ``adapt_game_listener(original, ...)`` itself is called to build it
+    (pf-adversary, this round, correcting the CORE-REQUEST letter's stated
+    mechanism). Calling this before the ``legacy.game_listener =
+    adapt_game_listener(...)`` assignment below is still correct -- just for
+    a weaker reason than that letter claimed.
+    """
+    original = legacy.make_runtime_res_empty_exact
+
+    def make_runtime_res_empty_exact_ground_heartbeat_aware():
+        if sys._getframe(1).f_code.co_name == "heartbeat_worker":
+            return preserve_ground_heartbeat_frame(legacy)
+        return original()
+
+    legacy.make_runtime_res_empty_exact = make_runtime_res_empty_exact_ground_heartbeat_aware
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
     pre = argparse.ArgumentParser(add_help=False)
@@ -846,17 +887,7 @@ def main() -> int:
         # world_travel_gate.lane_reason.
         travel_gate_debug_enabled=known.enable_travel_gate_debug,
     )
-    # CORE-REQUEST (LANE-B round n8kq4r, notes_to_chief/20260901_0420_...): P-1
-    # ground-drop-clears-every-heartbeat fix.  v141's frozen heartbeat_worker
-    # (reused byte-for-byte via adapt_game_listener below) calls
-    # legacy.make_runtime_res_empty_exact() through a global lookup, so
-    # patching the attribute on the legacy module swaps every heartbeat body
-    # for the PRESERVE shape (pool present, count 0) instead of the CLEAR
-    # shape (both masks absent) it ships with -- must happen before
-    # adapt_game_listener(...) is called, since that call does a one-time
-    # dict copy of legacy's globals, not a live reference (pf-adversary
-    # correction in the CORE-REQUEST letter).
-    legacy.make_runtime_res_empty_exact = lambda: preserve_ground_heartbeat_frame(legacy)
+    install_ground_heartbeat_preserve(legacy)
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,
     )
