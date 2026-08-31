@@ -207,6 +207,7 @@ exact one-line hook needed.
 from __future__ import annotations
 
 from . import population
+from . import world_m2_columbus_trigger_readiness
 from . import world_m2_crossing_handoff
 from . import world_m2_return_leg
 from . import world_m2_sea_destination
@@ -596,6 +597,18 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     ``world_m2_sea_destination.sea_map_console_line_safe``, same
     never-raises shape, same reused ``registry``, no claim that the other
     seven doors are reachable today.
+
+    A SEVENTH REPORT, APPENDED LAST AGAIN (LANE-A, M2, this round).  The
+    sixth report's own docstring named the half it left unmeasured: whether
+    each island's own Columbus is even PLACED in that island's default cast.
+    ``world_m2_columbus_trigger_readiness.trigger_readiness_console_line`` --
+    same never-raises shape, this time reusing ``legacy`` (already a
+    parameter here) instead of ``registry`` -- answers it by reading the six
+    already-shipped per-scene identity modules plus this module's own
+    ``columbus_actor_identity`` for Port Royal.  Composes nothing new and
+    sends no frame; see that module's own docstring for a genuine data
+    discrepancy this measurement surfaced (home scene 2) that this round
+    reports rather than silently resolves.
     """
     try:
         entry = resolve_columbus_arrival(registry=registry, emit=emit)
@@ -691,6 +704,20 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # other seven islands' Columbus NPCs are even placed by default is
     # unmeasured); it reports registry-side readiness only.
     emit(world_m2_sea_destination.sea_map_console_line_safe(registry))
+    # THE TRIGGER SIDE OF THE SAME QUESTION, APPENDED LAST AGAIN -- ROUND
+    # (LANE-A, M2).  The report above answers "does the registry hold a
+    # place to LAND" for all eight islands; nothing on this default path had
+    # ever asked the other half its own docstring named unmeasured: is each
+    # island's own Columbus even PLACED in that island's default cast.
+    # ``world_m2_columbus_trigger_readiness`` answers it by reusing the six
+    # already-shipped per-scene identity modules (BUILD-001 lineage) plus
+    # this module's own ``columbus_actor_identity`` for Port Royal - not a
+    # second, silently divergent placement reader.  ``legacy`` is the same
+    # optional parameter every report above already takes; without it, home
+    # scene 1's row prints UNMEASURED rather than going quiet, exactly like
+    # every other report in this family.
+    emit(world_m2_columbus_trigger_readiness.trigger_readiness_console_line(
+        legacy=legacy))
     return entry
 
 
