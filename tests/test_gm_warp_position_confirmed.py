@@ -783,5 +783,140 @@ class GmWarpPositionTargetTests(GmWarpPositionConfirmedTests):
         )
 
 
+class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
+    """CORE-REQUEST-GM-045 -- the destination scene is named immediately.
+
+    ``pf_bridge/notes_to_chief/20260901_0318_LANE-GM-CORE-REQUEST-GM-045-*``
+    measured (GT-172, four repeats) that a live cross-scene ``/warp`` left
+    ``self.foundation.selected.position.scene_id`` naming the DEPARTURE
+    scene through the very next ``WORLD-CENSUS-001`` dispatch, because
+    ``gm/chat_command_action.py``'s warp path never touches ``runtime.py``
+    session state by design. This class pins the in-memory-only resync
+    ``_gm_warp_resync_selected_scene`` (armed from
+    ``_gm_warp_note_position_pending``, right where the warp action is
+    detected) that fixes exactly that gap, using the class above's own
+    harness (``_arm_the_warp_with_target`` parks a real ``WarpTargetRecord``
+    on the connection before ``dispatch()`` runs, the same order
+    ``chat_command_action`` uses in production).
+
+    NOT proven here: that a client's screen follows (RE-129, unchanged).
+    This is about what the in-memory row names between the warp and the
+    next TargetPos report -- the same scope ``GM_WARP_POSITION_CONFIRMED``
+    and ``GM_WARP_POSITION_TARGET_MATCH`` already have, one dispatch call
+    earlier.
+    """
+
+    def test_a_cross_scene_warp_resyncs_the_selected_scene_at_arm_time(self):
+        state = self._login_and_start("gmwarp_resync01")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z + 10.0)
+
+        self._arm_the_warp_with_target(state, target)
+
+        position = state.foundation.selected.position
+        self.assertEqual(position.scene_id, destination_scene)
+        # x/y/z/heading are deliberately NOT resynced from the target --
+        # see _gm_warp_resync_selected_scene's own docstring for why
+        # rewriting them here would make _checkpoint_exact_target's change
+        # detection blind to the very first real report.  The departure
+        # scene's last known coordinates ride along until that report.
+        self.assertEqual(position.x, x)
+        self.assertEqual(position.y, y)
+        self.assertEqual(position.z, z)
+        self.assertEqual(position.heading, 0.0)
+        self.assertIn(
+            f"gm_warp_selected_scene_resynced_{destination_scene}",
+            state.events,
+        )
+        # No durable write yet: that is still _checkpoint_exact_target's
+        # job, on the next TargetPos, unchanged by this resync.
+        self.assertEqual(self._row_scene(state), departure_scene)
+
+    def test_a_same_scene_warp_does_not_fire_the_resync_event(self):
+        state = self._login_and_start("gmwarp_resync02")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 40.0, y + 20.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, scene_id,
+        )
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_selected_scene_resynced_")
+                for event in state.events
+            )
+        )
+
+    def test_the_confirm_window_still_matches_after_a_cross_scene_resync(self):
+        """The resync must not disturb CORE-REQUEST-GM-030/031's own match.
+
+        Regression guard: ``_gm_warp_resync_selected_scene`` reads the
+        parked record without consuming it, specifically so
+        ``_gm_warp_open_confirm_window``'s own ``take_warp_target_with_
+        reason`` on the next frame still finds it.
+        """
+        state = self._login_and_start("gmwarp_resync03")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+        err = self._report(state, target.x, target.y, target.z)
+
+        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(self._match_or_mismatch_lines(err), [MATCH_TOKEN])
+        self.assertEqual(state.events.count(MATCH_EVENT), 1)
+
+    def test_a_second_warp_to_a_different_scene_resyncs_to_the_second_one(self):
+        """pf-adversary, this round: the rearmed branch must resync too.
+
+        ``record_warp_target`` unconditionally overwrites the parked target
+        on every new ``/warp`` (its own docstring: "Replacing is correct,
+        not lossy"), so by the time ``_gm_warp_note_position_pending`` sees
+        the SECOND warp's action, ``gm_last_warp_target`` already names the
+        second destination -- an earlier draft of this fix skipped the
+        resync on the "rearmed" branch entirely (it only ran on first arm),
+        which left ``selected.position.scene_id`` stuck on the FIRST warp's
+        scene for the rest of the chain: exactly CORE-REQUEST-GM-045's own
+        measured symptom, one warp later. Two warps, two different scenes,
+        no TargetPos report between them.
+        """
+        state = self._login_and_start("gmwarp_resync04")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        first_scene = departure_scene + 1
+        second_scene = departure_scene + 2
+        first_target = WarpTarget(first_scene, x + 100.0, y + 50.0, z)
+        second_target = WarpTarget(second_scene, x + 900.0, y + 400.0, z)
+
+        self._arm_the_warp_with_target(state, first_target)
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, first_scene,
+        )
+
+        self._arm_the_warp_with_target(state, second_target)
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, second_scene,
+        )
+        self.assertIn("gm_warp_position_pending_rearmed", state.events)
+        self.assertEqual(
+            state.events.count(
+                f"gm_warp_selected_scene_resynced_{second_scene}",
+            ),
+            1,
+        )
+        # gm_warp_position_pending/gm_warp_pending_character are the FIRST
+        # warp's, unchanged -- CORE-REQUEST-GM-030/031's own token logic is
+        # explicitly out of scope for this fix; only the scene label moved.
+        self.assertTrue(state.gm_warp_position_pending)
+
+
 if __name__ == "__main__":
     unittest.main()
