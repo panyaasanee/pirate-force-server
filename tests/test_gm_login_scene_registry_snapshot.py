@@ -74,14 +74,14 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # built+wired+opened in one round.  Scene 6 joined it round fx0007, fourth
 # door, same shape.  Scene 8 joined it round p4wire, fifth door, same
 # shape.  Scene 3 joined it round p7wm17, sixth door, same shape.  Scene 7
-# joined it this round (78zayw), seventh door, same shape -- and is
-# therefore no longer a usable BARRED_ON_DISK example, so that constant
-# moves to scene 9 (still shut, one of the three doors this lane has not
-# yet opened).
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 10, 14, 278, 997)
-# Named in the client's scene table (Death City Sea) and pinned
+# joined it round 78zayw, seventh door, same shape.  Scene 9 joined it this
+# round (ir0lpw), eighth door, same shape -- and is therefore no longer a
+# usable BARRED_ON_DISK example, so that constant moves to scene 11 (still
+# shut, one of the two doors this lane has not yet opened: 11, 130).
+ADMISSIBLE_ON_DISK_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 278, 997)
+# Named in the client's scene table (Deep Sea Temple floor 2) and pinned
 # `login_entry_allowed: false`, so the disk reading refuses it.
-BARRED_ON_DISK = 9
+BARRED_ON_DISK = 11
 # Admissible on disk today, so a snapshot that drops it is NARROWER.
 ADMISSIBLE_ON_DISK = 2
 

@@ -101,11 +101,12 @@ class PlayerHostilePairingTests(unittest.TestCase):
     def test_unaccepted_scene_fails_closed_to_untouched_production_bytes(self):
         # Any scene ``world_faction_admission`` does not admit must come
         # back byte-identical to production, never a fabricated or
-        # half-composed frame.  MOVED this round from scene 7 (Voodoo
-        # Island, which world_faction_admission now admits since its
-        # registry row opened this round) to scene 9 (Death City Sea),
-        # still one of the three doors this lane has not yet opened.
-        character = _character(9, 0)
+        # half-composed frame.  MOVED this round (ir0lpw) from scene 9
+        # (Death City Sea, which world_faction_admission now admits since
+        # its registry row opened this round) to scene 11 (Deep Sea Temple
+        # floor 2), still one of the two doors this lane has not yet
+        # opened (11, 130).
+        character = _character(11, 0)
         pc, frame = self._production_start_game(character)
         out_pc, out_frame, sent, event = (
             php.compose_start_game_with_player_pairing(

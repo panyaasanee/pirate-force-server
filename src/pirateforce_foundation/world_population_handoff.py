@@ -254,6 +254,7 @@ from . import world_population_bg0005
 from . import world_population_bg0006
 from . import world_population_bg0007
 from . import world_population_bg0008
+from . import world_population_bg0009
 from . import world_population_bg0010
 from . import world_population_bg0015
 from .world_population import (
@@ -525,6 +526,22 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0007.dispatch_report,
         generation_type=world_population_bg0007.Bg0007PopulationGeneration,
         full_roster_count=world_population_bg0007.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND ir0lpw (2026-08-31, LANE-A), build+wire+open in one round
+    # for the eighth door (scene 9, Death City Sea) - same shape as
+    # bg0007's entry above.  NOT covered by the LOGIN_OWNED_SOURCES
+    # exclusion below: scene 9 has no login-path populator today before
+    # this round (no runtime.py branch dedicated to it), so this entry is
+    # not composing over anything.
+    "bg0009_roster": _SceneComposer(
+        source="bg0009_roster",
+        build=world_population_bg0009.build_bg0009_population,
+        full_roster_count_source=world_population_bg0009.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0009.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0009.dispatch_report,
+        generation_type=world_population_bg0009.Bg0009PopulationGeneration,
+        full_roster_count=world_population_bg0009.DEFAULT_ACTOR_COUNT,
     ),
 }
 

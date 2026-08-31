@@ -260,10 +260,14 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # opened fifth, same queue, same compressed shape.
         # IT GREW A SIXTH TIME, ROUND p7wm17.  Scene 3 (Spice Paradise
         # Island) opened sixth, same queue, same compressed shape.
-        # IT GREW A SEVENTH TIME, THIS ROUND (78zayw).  Scene 7 (Voodoo
+        # IT GREW A SEVENTH TIME, ROUND 78zayw.  Scene 7 (Voodoo
         # Island) opened seventh, same queue, same compressed shape.
+        # IT GREW AN EIGHTH TIME, THIS ROUND (ir0lpw).  Scene 9 (Death City
+        # Sea) opened eighth, same queue, same compressed shape.  The other
+        # two of the original ten (11, 130) are UNCHANGED and this tuple
+        # otherwise still says so.
         self.assertEqual(
-            (1, 2, 3, 4, 5, 6, 7, 8, 10, 14, 278, 997),
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 14, 278, 997),
             login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():
