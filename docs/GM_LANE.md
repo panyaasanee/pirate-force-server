@@ -5794,3 +5794,46 @@ attended tester can do beyond yesterday.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0018_dgyakk_verify_only_mailbox_hygiene_all_fronts_external.md`
 PR: `pf_bridge#645`, `pirate-force-server#423` (this one)
+
+## รอบ `bmedw1` (2026-09-01T01:22+07:00) -- consume COO-DECISION 0043, docstring-only, no unlock
+
+Consumed `pf_bridge/notes_to_chief/20260901_0043_COO-DECISION-attr-wire-unlock-
+criteria-replaced-shelve-stays-locked.md` (ADDRESSEE: LANE-GM, first letter this round
+addressed to this lane by name). It ratifies a 3-point unlock definition -- (a) encoder
+covers every named field, (b) unnamed fields preserved lossless, (c) a
+version-confirmation constant gates the live send -- but does not itself audit this
+module against the three. Checked directly: (a) and (c) hold at the code level; (b)
+does NOT hold yet as an outcome -- no raw-block source exists to preserve unnamed
+fields from, so the first named-field send would still zero them, which is exactly why
+path 1 vs path 2 for `/lv` is still routed to the owner
+(`pf_bridge/notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-*`, unanswered, not urgent per
+that letter's own text). A first draft of this docstring update claimed the letter
+"confirmed this module already satisfies all three" -- pf-adversary caught that this
+overclaimed and self-contradicted the very next sentence about the open path 1/2
+question; fixed before commit. No logic, no test, no gate touched --
+`UPDATE_ATTR_VITAL_VERSION_CONFIRMED` stays `None`. Checked the other three channels
+fresh (CORE-REQUEST-GM-0xx replies, GT queue read-only, own round backlog): nothing new
+in any of them this round.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` -> **1164 passed, 537 subtests** (docstring-only
+change, no regressions expected or found).
+
+### nonclaim
+
+1. Does not claim attr-wire is unlocked or that `/lv` can send live -- shelve stands,
+   `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` is still `None`.
+2. Does not claim path 1 or path 2 was chosen -- that question stays with the owner.
+3. Did not give GM status to any account outside `gm_accounts.json`; no milestone
+   declared from this round's results; no `runtime.py`/`app.py`/
+   `pf_login_game_server_v141.py`/canonical DB/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` touched.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- docstring/mailbox round only. `GT-172` (READY from an earlier round) is still
+the only thing an attended tester can do beyond yesterday.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0122_bmedw1_consume_coo_0043_docstring_only.md`
+PR: `pf_bridge#649`, `pirate-force-server#426` (this one)
