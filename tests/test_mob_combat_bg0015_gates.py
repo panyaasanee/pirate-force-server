@@ -376,7 +376,25 @@ class Bg0015WiredPathTests(unittest.TestCase):
         kill was driven. Other gates this lane has already measured and not
         touched stay exactly where they were:
         :func:`templates_without_a_death_ruling` is non-empty (owner-only)
-        and :func:`recompose_status` still reports no scene-14 composer.
+        and :func:`recompose_status` still reports no scene-14 composer
+        (``has_composer`` is ``False`` -- re-verified live this round).
+
+        ~~the recompose reply is
+        ``mob_combat_bar_census_compose_skipped_no_population_anchor``~~ IS
+        STRUCK, round n8kq4r addendum (post-merge, unrelated to this lane's
+        own edits): chief's already-merged R278 work widened the eager NPC
+        census disjunct from bg0002-only to every scene but home
+        (``runtime.py``, commit ``b69071f6``), so scene 14 now gets an
+        arrival-census anchor (``last_target_pos``-equivalent) WITHOUT this
+        test's helper ever sending a ``TargetPosVital`` -- a real improvement,
+        not a regression.  The "attack before any anchor exists" branch this
+        test used to land in (``runtime.py``'s ``else`` arm,
+        ``no_population_anchor``) is therefore no longer reached; the swing
+        now reaches the recompose call itself, which still refuses because
+        scene 14 has no registered composer (``has_composer=False``, same
+        gate :func:`recompose_status` already named) -- so the event this
+        test now measures is ``no_composer_for_scene``, one gate further
+        along than before, and this file did not move that gate.
         """
         # Imported plainly by name: the approved-importer guard sweeps
         # src/**/*.py only, and tests/test_field_mob_hostile_bg0015.py
@@ -400,12 +418,17 @@ class Bg0015WiredPathTests(unittest.TestCase):
             state.mob_combat_ledger.identities(),
             tuple(sorted(gates.splice_identities(self.legacy))))
         # The one reply this specific (non-strike) packet produces today,
-        # measured rather than assumed: a "no population anchor" note on
+        # measured rather than assumed: a "no composer for scene" note on
         # the recompose path -- the still-open composer gate named above,
-        # not the ai-table gate this test used to exercise.
+        # not the ai-table gate this test used to exercise.  ROUND n8kq4r
+        # ADDENDUM (post-merge): this used to be
+        # "..._skipped_no_population_anchor" -- see the docstring above for
+        # why the merge moved this test one gate further along without this
+        # file touching runtime.py.
         self.assertIn(
-            "mob_combat_bar_census_compose_skipped_no_population_anchor",
+            "mob_combat_bar_census_compose_skipped_no_composer_for_scene",
             state.events)
+        self.assertFalse(gates.recompose_status()["has_composer"])
 
 
 if __name__ == "__main__":

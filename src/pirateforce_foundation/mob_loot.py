@@ -2375,6 +2375,107 @@ def refresh_frames(legacy: Any, ledger: Any) -> tuple:
     return drop_frames(legacy, ledger.drops)
 
 
+# ---------------------------------------------------------------------------
+# HEARTBEAT-PRESERVE-001.  CORE-REQUEST answer, not yet wired anywhere.
+#
+# Codex static RE (pf_bridge notes_to_chief/CODEX_URGENT_20260901_0324_DROP_
+# HEARTBEAT_CLEARS_SET.md) found that ``pf_login_game_server_v141.py``'s
+# clock-driven transport heartbeat -- sent every ~2 s by every accepted GAME
+# session, independent of any action batch -- calls
+# ``make_runtime_res_empty_exact()``, whose body sets BOTH derived-mask bytes
+# to ``0x00`` (``u8tag(0x0B, 0)`` twice): the inherited VitalData list AND the
+# ground-object (``0x08``) list are both marked ABSENT.  Per the image
+# evidence in that letter, an absent 0x08 list means a NULL
+# ``TerrainThingPool`` pointer reaches the client reconciler
+# (``0x006AF970``), and a NULL pool is read as "clear everything", not "no
+# change" -- so this heartbeat erases every ground drop roughly every two
+# seconds, regardless of whether ``sustain_a_kill`` (this module, via
+# :mod:`mob_drop_presence`) just carried a live ledger onto the wire in the
+# SAME session.
+#
+# ``current/pf_login_game_server_v141.py`` is frozen (COO-DECISION
+# 2026-08-29T03:45); COO-DECISION 20260901_0347 (pf_bridge notes_to_chief/)
+# ruled the fix must land at a live producer, not at v141, and named the
+# exact shape: every RuntimeRes sent while the ground still needs
+# preserving must carry a non-NULL pool -- present-count 0 when nothing new
+# needs reconciling (PRESERVE, not CLEAR), present-count > 0 with the full
+# live set when something does (RECONCILE, what ``refresh_frames`` already
+# builds).  This function is the PRESERVE half: same envelope shape
+# ``drop_collection_pc`` already composes, ground-list mask 0x08 PRESENT,
+# count = 0, zero elements.  It is NOT ``drop_collection_pc(legacy, ())`` --
+# that call refuses on purpose (``REFUSE_GENERATION_IS_EMPTY``, RE-130: an
+# empty GENERATION is meaningless because nothing dropped) -- this is a
+# different wire shape for a different situation: a heartbeat that has
+# nothing new to reconcile and must say so without also saying "nothing is
+# on the ground".
+#
+# WHAT THIS FUNCTION DOES NOT DO.  It does not read a ``DropLedgerCell``, a
+# session, or any live state -- the PRESERVE body never varies, so nothing
+# here needs to.  It does not touch v141, ``runtime.py``, ``app.py``, or the
+# heartbeat call site: composing the bytes and WIRING them in are two
+# different jobs, and COO-DECISION 20260901_0347 assigned only the first one
+# to this lane (find the producer, name the exact fix; chief wires it).  See
+# ``notes_to_chief/`` (bridge) for the CORE-REQUEST this function answers.
+# ---------------------------------------------------------------------------
+PRESERVE_GROUND_HEARTBEAT_PC_SIZE = DROP_ENVELOPE_SIZE   # 17: envelope, no elements
+PRESERVE_GROUND_HEARTBEAT_FRAME_SIZE = 27                # measured, pinned below
+
+
+def preserve_ground_heartbeat_pc(legacy: Any) -> bytes:
+    """The PRESERVE heartbeat body: pool present (mask 0x08), count = 0.
+
+    Composed the same way every other pc in this module is -- via the legacy
+    tag primitives, then checked against the pin -- so a moved serializer
+    fails this function instead of shipping silently different bytes.
+    """
+    pc = bytearray()
+    pc += legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+    pc += legacy.u32tag(0x14, 0)
+    pc += legacy.u8tag(0x08, ENVELOPE_VERSION)
+    pc += legacy.u8tag(0x0B, 0)                                # inherited none
+    pc += legacy.u8tag(0x0B, RUNTIME_DERIVED_BIT_GROUND_LIST)  # derived 0x08 PRESENT
+    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 0)             # count = 0: preserve
+    pc = bytes(pc)
+    expected = DROP_ENVELOPE_CONSTANT_PIN + legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 0)
+    if pc != expected:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve-heartbeat envelope is not the pinned envelope; the "
+            "legacy serializer moved under this lane and it refuses to emit")
+    if len(pc) != PRESERVE_GROUND_HEARTBEAT_PC_SIZE:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve-heartbeat pc is %d bytes, composed %d"
+            % (PRESERVE_GROUND_HEARTBEAT_PC_SIZE, len(pc)))
+    return pc
+
+
+def preserve_ground_heartbeat_frame(legacy: Any) -> tuple[bytes, bytes]:
+    """``(pc, frame)`` for the PRESERVE heartbeat -- same shape ``legacy.
+    make_runtime_res_empty_exact()`` returns, so a call site can swap the two
+    without changing anything else.  ``frame`` is composed via ``legacy.
+    frame_pc``, the same framing entry point every other emitter in this
+    module uses, and checked against a byte pin so a moved framing layer
+    fails here rather than at a live socket.
+    """
+    pc = preserve_ground_heartbeat_pc(legacy)
+    frame = legacy.frame_pc(pc)
+    if len(frame) != PRESERVE_GROUND_HEARTBEAT_FRAME_SIZE:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve-heartbeat frame is %d bytes, composed %d"
+            % (PRESERVE_GROUND_HEARTBEAT_FRAME_SIZE, len(frame)))
+    if frame[:len(DROP_FRAME_MAGIC_PIN)] != DROP_FRAME_MAGIC_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve-heartbeat frame magic is not the pinned magic")
+    if frame[len(frame) - len(pc):] != pc:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the framed body is not the pc that was composed")
+    return pc, frame
+
+
 def money_element(legacy: Any, money: Any) -> bytes:
     """Refuse, by name.  A money slot has no item id and the element needs one."""
     raise MobLootContractError(

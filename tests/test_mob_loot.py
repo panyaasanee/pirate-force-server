@@ -63,6 +63,8 @@ from pirateforce_foundation.mob_loot import (
     MOB_LOOT_NONCLAIMS,
     MOB_LOOT_REFUSAL_REASONS,
     MONEY_ITEM_ID,
+    PRESERVE_GROUND_HEARTBEAT_FRAME_SIZE,
+    PRESERVE_GROUND_HEARTBEAT_PC_SIZE,
     RUNTIME_DERIVED_BIT_GROUND_LIST,
     DropItem,
     DropLedger,
@@ -72,6 +74,7 @@ from pirateforce_foundation.mob_loot import (
     MoneyDrop,
     as_wire_float,
     commit_drops,
+    drop_collection_pc,
     drop_element,
     drop_frames,
     drop_pc,
@@ -80,6 +83,8 @@ from pirateforce_foundation.mob_loot import (
     money_element,
     pin_document,
     place_drops,
+    preserve_ground_heartbeat_frame,
+    preserve_ground_heartbeat_pc,
     production_allowed,
     rate_succeeds,
     refresh_frames,
@@ -1715,6 +1720,93 @@ class MobLootTests(unittest.TestCase):
         self.assertTrue(
             any(row[3] != 0 for row in field_drop_tables.ITEMS.values()),
             "the model column is still carried as a table fingerprint")
+
+
+class PreserveGroundHeartbeatTests(unittest.TestCase):
+    """HEARTBEAT-PRESERVE-001 (COO-DECISION 20260901_0347, CODEX_URGENT
+    20260901_0324): the pool-present, count=0 heartbeat body this lane
+    composed as the CORE-REQUEST answer for the transport heartbeat that
+    otherwise sends a NULL ground-object pool every ~2 s.
+
+    Nothing here calls the listener, the socket, or v141's heartbeat_worker
+    -- that wiring is chief's, per the COO's own routing.  These tests pin
+    only the bytes this module composes and offers.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_preserve_pc_is_the_pinned_seventeen_bytes(self):
+        pc = preserve_ground_heartbeat_pc(self.legacy)
+        self.assertEqual(len(pc), PRESERVE_GROUND_HEARTBEAT_PC_SIZE)
+        self.assertEqual(len(pc), DROP_ENVELOPE_SIZE)
+        self.assertEqual(
+            pc.hex(), "129d6e140000000008040b000b08120000",
+            "the preserve-heartbeat body drifted from the byte pin this "
+            "lane measured against the legacy encoder")
+
+    def test_preserve_pc_derived_mask_is_present_not_absent(self):
+        """The whole point: byte 12 (0-indexed) is 0x08, not 0x00.
+
+        ``make_runtime_res_empty_exact`` (v141) writes ``0x0B, 0x00`` in this
+        position -- an ABSENT ground list, which Codex's image evidence reads
+        as a NULL pool that clears every drop.  This function writes
+        ``0x0B, 0x08`` -- a PRESENT, empty (count=0) list, which the same
+        evidence reads as preserve/no-op.
+        """
+        pc = preserve_ground_heartbeat_pc(self.legacy)
+        self.assertEqual(pc[10], 0x0B)
+        self.assertEqual(pc[11], 0x00, "inherited VitalData mask must stay absent")
+        self.assertEqual(pc[12], 0x0B)
+        self.assertEqual(
+            pc[13], RUNTIME_DERIVED_BIT_GROUND_LIST,
+            "ground-list derived mask must be PRESENT, unlike the empty "
+            "heartbeat v141 sends today")
+        empty_pc, _empty_frame = self.legacy.make_runtime_res_empty_exact()
+        self.assertEqual(
+            empty_pc[12:14], self.legacy.u8tag(0x0B, 0),
+            "confirms what this test is contrasted against: v141's own "
+            "empty heartbeat marks the ground list ABSENT")
+
+    def test_preserve_pc_declares_zero_elements(self):
+        pc = preserve_ground_heartbeat_pc(self.legacy)
+        declared = struct.unpack("<H", pc[15:17])[0]
+        self.assertEqual(declared, 0)
+        self.assertEqual(len(pc), DROP_ENVELOPE_SIZE)  # no element payload
+
+    def test_preserve_frame_is_the_pinned_twenty_seven_bytes(self):
+        pc, frame = preserve_ground_heartbeat_frame(self.legacy)
+        self.assertEqual(len(frame), PRESERVE_GROUND_HEARTBEAT_FRAME_SIZE)
+        self.assertEqual(
+            frame.hex(),
+            "ac3e255f130000001140129d6e140000000008040b000b08120000")
+        self.assertEqual(frame[len(frame) - len(pc):], pc)
+
+    def test_preserve_frame_matches_the_legacy_framer(self):
+        """Cross-check against ``legacy.frame_pc`` directly, the same framing
+        entry point ``drop_frames`` uses -- so a moved framer fails here
+        too, not only inside a kill-time emission."""
+        pc = preserve_ground_heartbeat_pc(self.legacy)
+        self.assertEqual(self.legacy.frame_pc(pc), preserve_ground_heartbeat_frame(self.legacy)[1])
+
+    def test_preserve_is_not_the_refused_empty_generation(self):
+        """``drop_collection_pc(legacy, ())`` refuses on purpose (RE-130: an
+        empty KILL generation is meaningless).  The preserve heartbeat is a
+        different situation -- nothing new to reconcile, not "a kill
+        dropped nothing" -- and must not raise the same way."""
+        with self.assertRaises(MobLootContractError) as caught:
+            drop_collection_pc(self.legacy, ())
+        self.assertEqual(caught.exception.args[0], "generation_is_empty")
+        # The preserve function does not raise for the same shape.
+        preserve_ground_heartbeat_pc(self.legacy)
+
+    def test_preserve_pc_is_shorter_than_any_real_drop_pc(self):
+        """No element payload ever rides on this frame -- it is strictly the
+        envelope, always, so it can never be mistaken for a one-drop
+        announcement by length alone."""
+        pc = preserve_ground_heartbeat_pc(self.legacy)
+        self.assertLess(len(pc), DROP_PC_SIZE)
 
 
 if __name__ == "__main__":
