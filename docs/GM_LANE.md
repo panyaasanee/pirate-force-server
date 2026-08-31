@@ -5291,3 +5291,46 @@ sanity) — ตัวเลขเดียวกับรอบ `oykcib` ไม�
 - `pirate-force-server#378` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
 
 — สาย GM รอบ `qy8vln`
+
+## รอบ `x9wq3r` (2026-08-31T13:28+07:00) — verify-only ครั้งที่ 5 ติดกัน + ยืนยันซ้ำ MCP undraft
+
+### สรุป
+
+ตรวจกล่องจดหมาย + backlog สี่ทางสดใหม่ (ไม่เชื่อผลรอบก่อน): สภาพยังเหมือนรอบ `ep8v23` ทุกประการ — นี่คือ
+รอบ verify-only ที่ 5 ติดกัน (`szmgeh`, `oykcib`, `qy8vln`, `ep8v23`, `x9wq3r`) นับตั้งแต่
+`COO-DECISION 20260831_0745` วินิจฉัยว่า `RE-164` ข้อ 1/3 เป็นบล็อกนอกเขต (ต้องการ client binary image
+ระดับ VA หรือ attended session จริง ไม่มีทั้งคู่ในสภาพแวดล้อมคลาวด์นี้) `GM-042`/`GT-128` ยังเป็นลูกบอลของ
+chief ตามคำสั่ง COO ("ไม่ต้องยื่นใบใหม่จนกว่าสภาพเปลี่ยน") รอบนี้จึงไม่เปิด ASK-COO ซ้ำ
+
+งานจริงของรอบนี้: อ่านกล่องจดหมายพบ `20260831_1242_KA1A-CORRECTION-*.md` ขอการยืนยันครั้งที่สองของวิธี
+`update_pull_request(draft=false)` (MCP tool) — รอบนี้เรียกกับ `pf_bridge#598` และ `pirate-force-server#386`
+แล้ว `pull_request_read get` ยืนยัน `draft:false` สดทั้งคู่ทันที ทั้งสองใบยัง merge ไม่สำเร็จภายในรอบนี้
+(`mergeable_state: unstable` ตอน GET — CI ยังไม่จบ) นี่เป็นการยืนยันครั้งที่สองจากสายที่ไม่ใช่สาย A
+
+ไม่มีไฟล์ `src/`/`tests/`/`scenarios/` เปลี่ยนรอบนี้ทั้งสอง repo — รายละเอียดเต็มอยู่ที่ `pf_bridge`
+`rounds/GM_20260831_1328_verify_only_fifth_round_plus_mcp_undraft_second_confirmation.md`
+
+### เขียว
+
+`pytest tests/test_gm_*.py -q` (HEAD ปัจจุบัน, รันจริงรอบนี้): 1089 passed, 504 subtests เขียว(cloud
+sanity) — ตัวเลขเดียวกับรอบ `ep8v23` ไม่มี drift
+
+### nonclaim
+
+ไม่ได้ยิงเฟรมใด ๆ ใส่ client จริงรอบนี้ ไม่มีจอ/client image ในสภาพแวดล้อมนี้ `RE-164` ข้อ 1/3 ยังไม่ปิด
+ไม่มีความคืบหน้าใหม่ (verify-only ตามเจตนา) ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+`scenarios/world_*.json`/`scenarios/combat_*.json` ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มี
+การประกาศ milestone จากผลที่ได้ด้วย GM การยืนยัน MCP undraft รอบนี้เป็นตัวอย่างที่สองเท่านั้น ไม่ใช่การพิสูจน์
+ว่าใช้ได้ 100% ของทุกกรณี
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** — รอบ verify-only ล้วน ไม่มีจุดเสียบใหม่ ไม่มี behavior เปลี่ยนจากตอนจบรอบ `ep8v23`
+
+### PR
+
+- `pf_bridge#598` (draft ต้นรอบ ปลด draft ด้วย MCP `update_pull_request` ระหว่างรอบ ไม่ใช่ท้ายรอบ — ทดสอบ
+  วิธีการเป็นเป้าหมายหลักของรอบ)
+- `pirate-force-server#386` (เดียวกัน + wake-gate commit ท้ายรอบ)
+
+— สาย GM รอบ `x9wq3r`
