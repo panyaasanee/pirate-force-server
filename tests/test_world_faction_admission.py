@@ -103,18 +103,22 @@ SILVER_HARBOUR = 8
 # second of the ten doors -- carries an elevated landing-geometry flag
 # (registry's own the_two_interiors) this file does not track; see GT-166.
 DEEP_SEA_TEMPLE = 10
-# ADDED this round (LANE-A): opened the same round this constant was added,
-# sixth of the ten doors, built+wired+opened in one round -- no elevated
-# landing-geometry flag on this row (checked, not assumed).
+# ADDED round p7wm17 (LANE-A): opened the same round this constant was
+# added, sixth of the ten doors, built+wired+opened in one round -- no
+# elevated landing-geometry flag on this row (checked, not assumed).
 SPICE_PARADISE = 3
+# ADDED this round (LANE-A, 78zayw): opened the same round this constant
+# was added, seventh of the ten doors, built+wired+opened in one round --
+# no elevated landing-geometry flag on this row (checked, not assumed).
+VOODOO_ISLAND = 7
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
 STAGE_OPEN_BUT_NOT_A_HOME = 278
 # Pinned, shut at login: one of the ten marker scenes round ga91m5
-# addressed.  MOVED this round from scene 3 (Spice Paradise Island, which
-# opened this round -- see SPICE_PARADISE above) to scene 7 (Voodoo
-# Island), still one of the four doors this lane has not yet opened.
-SHUT_AT_LOGIN = 7
+# addressed.  MOVED this round from scene 7 (Voodoo Island, which opened
+# this round -- see VOODOO_ISLAND above) to scene 9 (Death City Sea),
+# still one of the three doors this lane has not yet opened.
+SHUT_AT_LOGIN = 9
 
 
 def _legacy():
@@ -171,17 +175,20 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # same basis, also n_SAVE 1.
         # UPDATED round p4wire: scene 8 (SILVER_HARBOUR) opened fifth, same
         # basis, also n_SAVE 1.
-        # UPDATED this round: scene 3 (SPICE_PARADISE) opened sixth, same
+        # UPDATED round p7wm17: scene 3 (SPICE_PARADISE) opened sixth, same
         # basis, also n_SAVE 1.
+        # UPDATED this round (78zayw): scene 7 (VOODOO_ISLAND) opened
+        # seventh, same basis, also n_SAVE 1.
         self.assertEqual(
             (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET, EVIL_PORT,
-             OCEAN_WALLED_CITY, SILVER_HARBOUR, DEEP_SEA_TEMPLE, VOLCANO),
+             OCEAN_WALLED_CITY, VOODOO_ISLAND, SILVER_HARBOUR,
+             DEEP_SEA_TEMPLE, VOLCANO),
             wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
         for scene_id in (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET,
-                          EVIL_PORT, OCEAN_WALLED_CITY, SILVER_HARBOUR,
-                          DEEP_SEA_TEMPLE, VOLCANO):
+                          EVIL_PORT, OCEAN_WALLED_CITY, VOODOO_ISLAND,
+                          SILVER_HARBOUR, DEEP_SEA_TEMPLE, VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -226,23 +233,27 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # UPDATED round p4wire: the base registry now also already admits
         # scene 8 (SILVER_HARBOUR), one more digit that is not the one this
         # test opens.
-        # UPDATED this round: the base registry now also already admits
+        # UPDATED round p7wm17: the base registry now also already admits
         # scene 3 (SPICE_PARADISE), one more digit that is not the one this
         # test opens -- and SHUT_AT_LOGIN itself moved from scene 3 to
         # scene 7 (Voodoo Island, still shut) for the same reason.
+        # UPDATED this round (78zayw): the base registry now also already
+        # admits scene 7 (VOODOO_ISLAND), one more digit that is not the
+        # one this test opens -- and SHUT_AT_LOGIN itself moved from scene
+        # 7 to scene 9 (Death City Sea, still shut) for the same reason.
         with tempfile.TemporaryDirectory() as work:
             opened, _ = _registry_with_door(
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
             self.assertIn(
                 f"WORLD_FACTION_ADMISSION scenes=1,2,{SPICE_PARADISE},4,"
-                f"{EVIL_PORT},{OCEAN_WALLED_CITY},{SHUT_AT_LOGIN},"
-                f"{SILVER_HARBOUR},{DEEP_SEA_TEMPLE},14",
+                f"{EVIL_PORT},{OCEAN_WALLED_CITY},{VOODOO_ISLAND},"
+                f"{SILVER_HARBOUR},{SHUT_AT_LOGIN},{DEEP_SEA_TEMPLE},14",
                 line)
             self.assertNotIn(
                 f"scenes=1,2,{SPICE_PARADISE},4,{EVIL_PORT},"
-                f"{OCEAN_WALLED_CITY},{SILVER_HARBOUR},{DEEP_SEA_TEMPLE},"
-                f"14 ", line)
+                f"{OCEAN_WALLED_CITY},{VOODOO_ISLAND},{SILVER_HARBOUR},"
+                f"{DEEP_SEA_TEMPLE},14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):

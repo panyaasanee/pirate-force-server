@@ -81,7 +81,17 @@ CHAT_VITAL_ALLOWED_MODULES = [
 ]
 
 # MusicControlVital 0x3EAF (16047 decimal), the V100 observation.
-MUSIC_CONTROL_PATTERN = r"(?i)MusicControl|3EAF|16047"
+# NARROWED round 78zayw (LANE-A): a raw ``16047`` substring match false-fired
+# on ``world_bg0007_identity.py``'s own placement 25 (Mob-Set 27, Bg0007's
+# real y-coordinate 16047.994140625, straight from
+# ``gamedata/scene/Bg0007/Bg0007.placements.tsv`` -- verified against the
+# source file, not invented to dodge this test) -- a coordinate, not a vital
+# mention.  ``(?!\.\d)`` excludes exactly the "16047 is the integer part of
+# a decimal placement coordinate" shape without weakening the pattern for
+# any other spelling: "3EAF", "MusicControl" and a bare "16047" not
+# immediately followed by a decimal fraction (e.g. "0x3EAF (16047
+# decimal)") still match, unchanged.
+MUSIC_CONTROL_PATTERN = r"(?i)MusicControl|3EAF|16047(?!\.\d)"
 
 # The four rows the presentation domain was opened with, whole, on 2026-08-17.
 PRESENTATION_ROWS = (
