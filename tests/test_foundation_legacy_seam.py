@@ -859,6 +859,23 @@ class FoundationLegacySeamTests(unittest.TestCase):
         # silently change which copy runs.
         self.assertNotIn("import pf_login_game_server", source)
 
+    def test_app_patches_the_ground_heartbeat_before_adapting_the_listener(self):
+        # CORE-REQUEST (LANE-B round n8kq4r, P-1): v141's frozen heartbeat_worker
+        # calls legacy.make_runtime_res_empty_exact() via a global lookup, and
+        # adapt_game_listener() copies legacy's globals ONCE when it builds the
+        # wrapped listener -- so the monkeypatch only takes effect if it runs
+        # BEFORE that call, not merely before the listener thread starts
+        # accepting connections (the bug pf-adversary caught in the CORE-REQUEST
+        # letter's first draft).
+        source = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "from .mob_loot import preserve_ground_heartbeat_frame", source)
+        patch_at = source.index(
+            "legacy.make_runtime_res_empty_exact = "
+            "lambda: preserve_ground_heartbeat_frame(legacy)")
+        adapt_at = source.index("legacy.game_listener = adapt_game_listener(")
+        self.assertLess(patch_at, adapt_at)
+
     def test_the_foundation_state_class_subclasses_frozen_v141(self):
         source = (SRC_ROOT / "runtime.py").read_text(encoding="utf-8")
         tree = ast.parse(source)

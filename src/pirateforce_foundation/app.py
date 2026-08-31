@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
+from .mob_loot import preserve_ground_heartbeat_frame
 from .lifecycle import CharacterLifecycle
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
@@ -845,6 +846,17 @@ def main() -> int:
         # world_travel_gate.lane_reason.
         travel_gate_debug_enabled=known.enable_travel_gate_debug,
     )
+    # CORE-REQUEST (LANE-B round n8kq4r, notes_to_chief/20260901_0420_...): P-1
+    # ground-drop-clears-every-heartbeat fix.  v141's frozen heartbeat_worker
+    # (reused byte-for-byte via adapt_game_listener below) calls
+    # legacy.make_runtime_res_empty_exact() through a global lookup, so
+    # patching the attribute on the legacy module swaps every heartbeat body
+    # for the PRESERVE shape (pool present, count 0) instead of the CLEAR
+    # shape (both masks absent) it ships with -- must happen before
+    # adapt_game_listener(...) is called, since that call does a one-time
+    # dict copy of legacy's globals, not a live reference (pf-adversary
+    # correction in the CORE-REQUEST letter).
+    legacy.make_runtime_res_empty_exact = lambda: preserve_ground_heartbeat_frame(legacy)
     legacy.game_listener = adapt_game_listener(
         legacy.game_listener, connection_bindings, managed_sockets,
     )
