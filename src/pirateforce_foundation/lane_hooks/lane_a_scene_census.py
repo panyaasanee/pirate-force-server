@@ -141,6 +141,7 @@ from .. import world_population_bg0005
 from .. import world_population_bg0006
 from .. import world_population_bg0007
 from .. import world_population_bg0008
+from .. import world_population_bg0009
 from .. import world_population_bg0010
 from .. import world_population_bg0015
 from .. import world_population_handoff
@@ -273,6 +274,22 @@ _CONSOLE_LINES_OF = {
         (world_population_bg0007.census_console_line(generation),)
         + world_population_bg0007.actor_lines(generation)
         + world_population_bg0007.unresolved_lines()
+    ),
+    # ADDED round ir0lpw (2026-08-31, LANE-A): the second table this scene
+    # needs a row in, per "HOW A SCENE GETS ADDED" above. Registered here
+    # AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so
+    # neither table can be true without the other for even one round. Same
+    # compressed build+wire+open pass rounds ``l03cgh``/``fx0007``/
+    # ``p4wire``/``p7wm17``/``78zayw`` used for scenes 5, 6, 8, 3 and 7 -
+    # this round also flips scene 9's registry row (see
+    # ``scenarios/world_scene_registry_001.json``'s own
+    # ``login_entry_allowed_because`` for the D1/D2/D3 check this round ran
+    # against THIS scene) - so THE ADMISSION CHECK above now ADMITS calls
+    # this composer receives in production.
+    "bg0009_roster": lambda generation: (
+        (world_population_bg0009.census_console_line(generation),)
+        + world_population_bg0009.actor_lines(generation)
+        + world_population_bg0009.unresolved_lines()
     ),
 }
 

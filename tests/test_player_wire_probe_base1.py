@@ -223,12 +223,13 @@ class ProbeBase1LoginAttrTests(_LegacyCase):
             make_actor_attr_with_name_class_and_faction(
                 self.legacy, IDENTITY_LO, IDENTITY_HI, SCENE_ID, SCENE_SEQ, NAME, 2,
             )
-        # Scene 9 (Death City Sea), not admitted -- MOVED this round from
-        # scene 7 (Voodoo Island), which world_faction_admission now
-        # admits since its registry row opened this round.
+        # Scene 11 (Deep Sea Temple floor 2), not admitted -- MOVED this
+        # round (ir0lpw) from scene 9 (Death City Sea), which
+        # world_faction_admission now admits since its registry row opened
+        # this round.
         with self.assertRaises(ValueError):
             make_actor_attr_with_name_class_and_faction(
-                self.legacy, IDENTITY_LO, IDENTITY_HI, 9, SCENE_SEQ, NAME, 1,
+                self.legacy, IDENTITY_LO, IDENTITY_HI, 11, SCENE_SEQ, NAME, 1,
             )
 
     def test_class_and_level_arguments_still_thread_through(self):
