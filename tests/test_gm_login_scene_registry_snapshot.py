@@ -75,15 +75,32 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # door, same shape.  Scene 8 joined it round p4wire, fifth door, same
 # shape.  Scene 3 joined it round p7wm17, sixth door, same shape.  Scene 7
 # joined it round 78zayw, seventh door, same shape.  Scene 9 joined it round
-# ir0lpw, eighth door, same shape.  Scene 11 joined it this round (68mm02),
-# ninth door, same shape (elevated-risk row, the_two_interiors, shared only
-# with scene 10) -- and is therefore no longer a usable BARRED_ON_DISK
-# example, so that constant moves to scene 130 (the only door of the ten
-# this lane has not yet opened).
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 278, 997)
-# Named in the client's scene table (Navy Training Camp) and pinned
-# `login_entry_allowed: false`, so the disk reading refuses it.
-BARRED_ON_DISK = 130
+# ir0lpw, eighth door, same shape.  Scene 11 joined it round 68mm02, ninth
+# door, same shape (elevated-risk row, the_two_interiors, shared only with
+# scene 10).  Scene 130 joined it this round (yfbqmg), TENTH AND LAST door,
+# same shape, NOT elevated-risk -- and is therefore no longer a usable
+# BARRED_ON_DISK example (every one of the original ten doors is now open),
+# so that constant moves to scene 17: PERMANENT rather than another door
+# this lane will eventually open.  126 (Atlantis) was considered and
+# refused: this file's own fixtures drive ``login_scene_stage.stage``, the
+# GM-gated path, whose OWN admissibility is the WIDENED single-use set
+# (``login_scene_admission.SINGLE_USE_ADMISSIBLE_TODAY`` includes 126 by
+# name, `CORE-REQUEST-GM-038`) -- 126 is NOT barred on this path, measured
+# directly (four tests went red asserting it was refused when it was
+# actually staged).  17 IS barred under every reading this file or its
+# sibling `test_gm_login_scene_admission.py`/`test_gm_login_scene_
+# sanctioned_barred.py` drives.  ``test_no_snapshot_can_make_a_written_
+# file_unreadable_by_default`` below already iterates the literal 17
+# alongside ``BARRED_ON_DISK`` in the same tuple, so this collapses two of
+# its three cases into one scene id -- harmless (both still run, same
+# assertions, same coverage of the same scene) rather than a distinct
+# example, named here so a reader does not have to rediscover it.
+ADMISSIBLE_ON_DISK_TODAY = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997)
+# Named in the client's scene table ("a ship at sea") and pinned
+# `login_entry_allowed: false` under EVERY admissibility reading this file
+# drives (plain and GM single-use both refuse it), so the disk reading
+# refuses it.
+BARRED_ON_DISK = 17
 # Admissible on disk today, so a snapshot that drops it is NARROWER.
 ADMISSIBLE_ON_DISK = 2
 

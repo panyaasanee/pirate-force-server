@@ -620,16 +620,27 @@ class Scene14RegistryTests(unittest.TestCase):
         ``test_scene_9_opened_separately_and_that_is_a_different_round``
         below.
 
-        UPDATED this round (68mm02): scene 11 left this set the same way,
-        ninth of the ten doors this lane has opened -- built, wired and
-        opened in one round, same compressed shape as scenes 5's, 6's,
-        8's, 3's, 7's and 9's, EXCEPT that this row DOES carry the
-        elevated landing-geometry flag (``the_two_interiors``, shared only
-        with scene 10) -- checked, not assumed.  See
+        UPDATED round 68mm02: scene 11 left this set the same way, ninth of
+        the ten doors this lane has opened -- built, wired and opened in
+        one round, same compressed shape as scenes 5's, 6's, 8's, 3's,
+        7's and 9's, EXCEPT that this row DOES carry the elevated
+        landing-geometry flag (``the_two_interiors``, shared only with
+        scene 10) -- checked, not assumed.  See
         ``test_scene_11_opened_separately_and_that_is_a_different_round``
         below.
+
+        UPDATED this round (yfbqmg): scene 130 left this set the same way,
+        TENTH AND LAST of the ten doors this lane has opened -- built,
+        wired and opened in one round, same compressed shape as scenes
+        5's, 6's, 8's, 3's, 7's, 9's and 11's, and does NOT carry the
+        elevated landing-geometry flag.  See
+        ``test_scene_130_opened_separately_and_that_is_a_different_round``
+        below.  The loop below now iterates an EMPTY tuple -- every one of
+        the ten doors is open, so this test passes vacuously rather than
+        being deleted (this project's rule on history: strike, don't
+        remove).
         """
-        for scene_id in (130,):
+        for scene_id in ():
             with self.subTest(scene_id=scene_id):
                 target = world_scene_travel.destination(
                     scene_id, self.registry)
@@ -754,6 +765,23 @@ class Scene14RegistryTests(unittest.TestCase):
         target = world_scene_travel.destination(11, self.registry)
         self.assertTrue(target.login_entry_allowed)
         self.assertTrue(world_faction_admission.admits(11, self.registry))
+
+    def test_scene_130_opened_separately_and_that_is_a_different_round(self):
+        """ADDED this round (yfbqmg): the TENTH AND LAST scene removed from
+        the tuple above.
+
+        Same reasoning as scenes 4's, 10's, 5's, 6's, 8's, 3's, 7's, 9's
+        and 11's sibling tests.  UNLIKE scenes 10 and 11, scene 130 (Navy
+        Training Camp) does NOT carry the elevated landing-geometry flag
+        (``the_two_interiors``) -- checked, not assumed, in
+        ``world_bg4001_identity``'s own docstring (n_CANGLIDE 1,
+        n_LIMIT_HEIGHT 0, not the (0, 0) pair that flag names).  With this
+        test green, every one of the ten doors round ``12lyda`` surveyed
+        is open at login.
+        """
+        target = world_scene_travel.destination(130, self.registry)
+        self.assertTrue(target.login_entry_allowed)
+        self.assertTrue(world_faction_admission.admits(130, self.registry))
 
     def test_a_non_login_caller_still_lands_on_the_marker_and_says_so(self):
         # The door being shut to logins does not make the pin untestable:

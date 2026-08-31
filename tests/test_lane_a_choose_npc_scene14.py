@@ -55,6 +55,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mob_hostile_bg0015  # noqa: E402
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
@@ -386,6 +388,83 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
             last_target_pos=(0.0, 0.0, 0.0, 0.0),
         )
         self.assertIsNone(answer)
+
+
+class AClickPreservesTheHostileSpliceTests(unittest.TestCase):
+    """Regression coverage for ``pf_bridge/notes_to_chief/20260831_2318_
+    CHIEF-TO-LANE-A-choosenpc-scene14-reverts-hostile-splice-to-civilian.md``
+    (CONFIRMED defect, chief's own mutation-tested pf-adversary run, round
+    R274): before LANE-A round `yfbqmg`'s fix, clicking ANY actor in scene
+    14 rebuilt every ``NPCAttr`` through the civilian encoder alone --
+    ``respond()`` always rebuilds all 81 entries around the one clicked, so
+    the 12 placements ``world_population_handoff._roster_handoff`` splices
+    hostile on arrival silently reverted to plain civilians on the wire on
+    the very first click, whether or not the clicked actor was one of the
+    12.  This class clicks an UNRELATED (non-hostile) actor on purpose, so
+    a regression shows up purely in the other 80 rebuilt entries, not in
+    the clicked one's own movement bytes.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+
+    def test_a_click_on_an_unrelated_actor_still_carries_the_hostile_bodies(
+        self,
+    ):
+        legacy = self.legacy
+        placements = responder_mod._placements_by_index()
+        population_indices = tuple(sorted(placements))
+        hostile_indices = set(
+            field_mob_hostile_bg0015.DEFAULT_HOSTILE_PLACEMENT_INDICES
+        )
+        self.assertTrue(hostile_indices.issubset(set(population_indices)))
+
+        selected_idx = next(
+            idx for idx in population_indices if idx not in hostile_indices
+        )
+        actor_identity = 0x2000 + selected_idx + 1
+
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(actor_identity,),
+            population_indices=population_indices,
+            last_target_pos=(0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+
+        hostile_roster = {
+            mob.placement_index: mob
+            for mob in field_mob_hostile_bg0015.scene14_hostile_roster()
+        }
+        checked = 0
+        for idx in hostile_indices:
+            mob = hostile_roster[idx]
+            placement = placements[idx]
+            hostile_body = field_mobs.hostile_npc_attr(
+                legacy, mob, current_hp=mob.max_hp,
+                scene_id=responder_mod.SCENE_N_ID, scene_sequence=0,
+            )
+            civilian_body = legacy.make_npc_attr(
+                placement.n_id, placement.actor_identity,
+                responder_mod.SCENE_N_ID, 0, placement.visual_preset,
+                current_hp=placement.max_hp, max_hp=placement.max_hp,
+                basic_name=placement.display_name,
+            )
+            self.assertIn(
+                hostile_body, answer.pc,
+                f"placement {idx}'s hostile NPCAttr body is missing from "
+                "the click response -- the hostile splice was reverted",
+            )
+            if civilian_body != hostile_body:
+                self.assertNotIn(
+                    civilian_body, answer.pc,
+                    f"placement {idx}'s CIVILIAN NPCAttr body is present "
+                    "in the click response -- the hostile splice was "
+                    "reverted",
+                )
+            checked += 1
+        self.assertEqual(checked, 12)
 
 
 def _shut_registry(work: Path):

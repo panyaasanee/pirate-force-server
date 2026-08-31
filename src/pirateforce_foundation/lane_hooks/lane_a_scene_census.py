@@ -145,6 +145,7 @@ from .. import world_population_bg0009
 from .. import world_population_bg0010
 from .. import world_population_bg0011
 from .. import world_population_bg0015
+from .. import world_population_bg4001
 from .. import world_population_handoff
 from .. import world_scene_travel
 
@@ -307,6 +308,22 @@ _CONSOLE_LINES_OF = {
         (world_population_bg0011.census_console_line(generation),)
         + world_population_bg0011.actor_lines(generation)
         + world_population_bg0011.unresolved_lines()
+    ),
+    # ADDED round yfbqmg (2026-09-01, LANE-A): the tenth and LAST door of
+    # the original ten, same shape as the scene-11 entry above.  Registered
+    # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
+    # so neither table can be true without the other for even one round.
+    # Same compressed build+wire+open pass rounds ``l03cgh``/``fx0007``/
+    # ``p4wire``/``p7wm17``/``78zayw``/``ir0lpw``/``68mm02`` used for
+    # scenes 5, 6, 8, 3, 7, 9 and 11 - this round also flips scene 130's
+    # registry row (see ``scenarios/world_scene_registry_001.json``'s own
+    # ``login_entry_allowed_because`` for the D1/D2/D3 check this round ran
+    # against THIS scene) - so THE ADMISSION CHECK above now ADMITS calls
+    # this composer receives in production.
+    "bg4001_roster": lambda generation: (
+        (world_population_bg4001.census_console_line(generation),)
+        + world_population_bg4001.actor_lines(generation)
+        + world_population_bg4001.unresolved_lines()
     ),
 }
 
