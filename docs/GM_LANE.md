@@ -48,7 +48,7 @@ trusting a claim here that a mismatch would invalidate):
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
 | 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE`. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
 | 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
-| 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire) |
+| 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`) -- round-trip encode/decode of the untagged length-prefixed raw bytes, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client (Global-scope `Channel_*` family) | **already proven elsewhere in this repo -- do not re-derive or re-codec in this lane's zone.** `reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` (byte-exact static, 69 static guards + `tests/test_chat_channel_family_static.py`, 15 passed) proves `Channel_GMGlobalMessageVital` shares serializer `0x65AD40` with four other channels (LocalTalk/Party/Guild/ActorBoardcast) byte-for-byte identically: `tag 0x48 + u32 byte-length + UTF-16LE` wstring codec, field order `speaker@+0x34` then `body@+0x18`. This is a **different, more specific wire shape** than `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`'s coarser `UNTAGGED_WSTRING16LE_LEN32LE` label for the same offsets implies (no leading tag byte) -- the report's claim is corroborated against real captured GT-006 frames (three independent byte-for-byte hash cross-checks against pins produced by an unrelated code path), which the TSV row alone is not. `src/pirateforce_foundation/channel_message_hypothesis.py` already implements a tested encoder/decoder for all five shared-serializer channels including this one (`CHANNEL_MESSAGE_FIELD_ORDER`, `SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"] = 0x9F2C`). **This lane tried to build its own codec for this message in a since-retracted round (see "Attempted and retracted" below) before finding this.** `gm/say_wire.py` (say-wire round, below) now bridges a parsed `say` `GmCommand` to that existing encoder by import -- no second codec. |
 | 0x0E80 | `ForcePos` | direction NOT_OBSERVED (0 captured frames either way, `PF_FIELD_VALIDATION.tsv`) | **RE-090 PASS/DONE**: vec3 only, three `f32tag(0x2A)` (X/Y/Z), span_sha256 `7c6f6cb7...860e0d`. Vital id is not a table row in `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` (the client computes it at runtime from the name, it is not a stored constant); reproduced here from that file's own documented formula -- see "Vital id formula" below. Codec: `gm/teleport_wire.py`. |
 | 0x1BA4 | `CWarpResult` | direction NOT_OBSERVED (0 captured frames either way) | **RE-090 PASS/DONE**: flat `qwordtag(0x32)` + vec3 (`f32tag(0x2A)` x3) + `u16tag(0x12)`, span_sha256 `5e3acf83...986c6db6a9`. The name `Result` is not evidence of direction. Codec: `gm/teleport_wire.py`. |
@@ -5693,3 +5693,83 @@ stale ต้องแก้ (`GT-172` READY จากรอบก่อน, `GT-
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2124_a10g3c_verify_only_9th_round_re172_still_open.md`
 PR: `pf_bridge#632`, `pirate-force-server#414` (นี้)
+
+## Round `thhkup` (2026-08-31T23:2x+07:00) -- RE-172 closed bounded-negative (own ticket, answered from committed static evidence), plus a reference codec for `CheatVital`
+
+Mailbox this round carried two new letters addressed `ADDRESSEE: LANE-GM`
+(`notes_to_chief/20260831_2305_KA1A-TO-LANE-GM-*` and its selfcorrection
+follow-up `20260831_2315_KA1A-SELFCORRECTION-*`): the attended tester
+pointed out that `RE-172` (`CLIENT_RE_QUEUE.md:3277`) is assigned to this
+lane itself ("ผู้เปิดใบเป็นผู้บริโภคผล -- สาย GM เปิดเอง บริโภคผลเอง") and
+its own pass criteria says both questions are answerable from static source
+already committed to this clone, no capture and no attended session needed.
+Previous rounds (`qgmm2s` and earlier) had been treating it as blocked on a
+"RE lane" that does not run as a cloud routine -- true, but irrelevant,
+since the ticket was never routed to that lane in the first place.
+
+**What this round did:** answered both of `RE-172`'s questions from source
+already in this clone -- (1) no other named VitalData message (of 520 in
+`pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`) resolves a call into
+`ActorAttr`'s or `BasicAttr`'s own codec entry points, and even
+`pf_bridge/notes_to_chief/reference_codex_attr/PF_ATTR_CLASS_CENSUS.tsv`
+(Codex's own deepest class-level census) flags
+`NO_REGISTERED_VTABLE_BOUNDARY_THROUGH_OWN_PLUS_0x34` for both classes --
+unresolved even there, `UpdateAttrVital` included; (2) `model.py` (full
+file) and all five `migrations/*.sql` files (full, not grepped) persist no
+column shaped like any `attr_wire.py::FIELDS` row outside `actor_wire`.
+Both negative -- closed `RE-172` as DONE/BOUNDED-NEGATIVE in
+`pf_bridge/CLIENT_RE_QUEUE.md` (full trail:
+`pf_bridge/notes_to_chief/20260831_2326_RE-172-RESULT-*`). Per
+`COO-DECISION 20260831_1843`'s own advance instruction ("RE-172 negative =>
+route straight to the owner, not COO deciding for this lane"), opened
+`pf_bridge/notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-attr-wire-path1-vs-path2-after-re172-negative.md`
+naming path 1 (accept the irreversible zero-unknown-fields risk) vs path 2
+(name-only fields forever, possibly technically impossible) for the owner
+to decide -- `attr_wire.py`'s fail-closed gate is untouched, every byte,
+pending that answer.
+
+**`gm/cheat_wire.py`** (new, this round): a structural round-trip codec for
+`CheatVital` (0x162E) -- the untagged `uint32-LE`-length-prefixed narrow
+string `PF_SERIALIZER_FIELDS.tsv` rows 565-566 prove byte-exact. Built per
+this round's own rule-F menu (a known field layout not gated on RE-172 or
+`say_wire`'s lock) as a reference codec only, the same role
+`teleport_wire.py`'s `ForcePos`/`CWarpResult` held before `warp_executor.py`
+bridged them -- nothing in this package imports it, and this round does not
+propose wiring it into `dispatch.py`/`runtime.py`. It keeps the string as
+raw `bytes`, never decoded, because the byte encoding (cp874/ascii/other)
+is not proven anywhere in the cited rows. See the wire-facts table above
+and the module's own docstring for the full citation. Tests:
+`tests/test_gm_cheat_wire.py`, 14 cases (encode bounds, round-trip,
+truncation/oversize/trailing-byte rejection, vital-id check against the
+bridge registry).
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` -> **1164 passed, 529 subtests**
+(was 1150/523 last round; +14 new `test_gm_cheat_wire.py` cases, no
+regressions).
+
+### nonclaim
+
+1. `RE-172`'s negative answer is bounded to what is committed and
+   searchable in this clone (520 named messages + the deepest available
+   class census) -- it does not prove no such source exists anywhere in the
+   real client, only that none was found here.
+2. `gm/cheat_wire.py` does not claim `CheatVital` is related to this lane's
+   actual GM command channel (`GM_RunGMCommandVital`, 0x51E9) -- the shared
+   `+0x14` offset is coincidence of position in two unrelated structs, said
+   explicitly in the module docstring.
+3. No status/gate/policy change to `attr_wire.py`, `say_wire.py`,
+   `dispatch.py`, or `runtime.py` this round.
+4. Did not give GM status to any account outside `gm_accounts.json`; no
+   milestone declared from this round's results.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้ (round `thhkup`)
+
+**ไม่มีการเปลี่ยนแปลงที่ผู้เทสสัมผัสได้โดยตรง** -- `RE-172` ปิดเป็นข้อมูลนโยบายที่ส่งต่อให้เจ้าของ
+ตัดสินใจ (path 1 vs path 2 สำหรับ `/lv`), และ `gm/cheat_wire.py` เป็น reference codec ที่ไม่ได้ต่อสาย
+เข้าอะไรที่ผู้เทสเรียกได้ `GT-172` (READY จากรอบก่อน) ยังเป็นทางเดียวที่ผู้เทส attended ทำได้เพิ่มจาก
+เมื่อวาน
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2330_thhkup_re172_closed_plus_cheat_wire_codec.md`
+PR: `pf_bridge#<TBD>`, `pirate-force-server#<TBD>` (this one)
