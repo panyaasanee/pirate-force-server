@@ -1364,6 +1364,22 @@ class DropLedger:
     drops: tuple = ()
     generation: int = 0
     issued_through: int = DROP_KEY_BASE
+    # NO SCENE TERM.  Keyed by ``actor_identity`` alone (round `h40iwu`,
+    # answering the risk `pf_bridge/notes_to_chief/20260901_0106_LANE-B-
+    # STATUS-bg0015-combat-ledger-gap-measured-*.md` recorded but left
+    # unfixed).  This is safe TODAY only because ``kill_token``
+    # (``death_step.register.generation``) counts up forever across every
+    # scene and never resets, and because
+    # ``field_mobs.cross_scene_identity_collisions()`` returns no LIVE
+    # collision at HEAD (Bg0002/Bg0015 collide at placement 87, but Bg0015
+    # is not registered in ``field_mobs._SCENE_TABLE_MODULES`` yet).  If
+    # either of those two facts stops being true -- a scene-scoped or
+    # per-scene-reset token, or a second live scene sharing an identity --
+    # a re-kill of the colliding identity would be wrongly refused as
+    # ``mob_already_looted``.  ``tests/test_mob_loot.py``'s
+    # ``test_a_kill_token_that_moves_backward_for_the_same_identity_is_
+    # refused_the_same_way_a_replay_is`` pins the exact boundary
+    # (``previous >= kill_token``) this depends on.
     looted: tuple = ()
 
     def __post_init__(self) -> None:
