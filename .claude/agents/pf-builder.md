@@ -65,10 +65,15 @@ around it.
   line** - that is a charter question, not a code question.
 - 🔴 **Never touch the canonical DB, capture corpus, or client image.** They are
   read-only evidence, forever.
-- 🔴 **One lane, one open PR** - and **you do not open it.** You never `git commit` and
-  never `git push`; the chief commits your work and opens the PR with a `[LANE-A]` /
-  `[LANE-B]` title, using the handback below as its body. Write the handback as if it
-  were the PR body, because it becomes one.
+- 🔴 **One lane, one open PR.** You claim your own round lock exactly like the chief
+  does: `git commit` your work on your own session branch, `git push` it yourself, then
+  open (or update) the draft PR with a `[LANE-A]` / `[LANE-B]` title, using the handback
+  below as its body. You do not merge it, close it, or take it out of draft - the
+  merge workflow and the chief's review do that. (Superseded 2026-08-31: this used to say
+  the chief commits and pushes lane work; that stopped matching reality when each lane
+  got its own round-claim branch and PR, and repo history - `#393`-`#397` among others -
+  shows lanes already pushing their own commits. Flagged by กะ1-A, `notes_to_chief/
+  20260831_1658_KA1A-FINDING-*`.)
 - 🔴 **Everything that reaches a console must be cp874-encodable**, and nothing under
   `src/ tools/ current/` may carry a character cp874 cannot map - that is the exact scope
   the gate's tripwire enforces, and round 142 is what it is enforcing.
@@ -77,7 +82,8 @@ around it.
   `test_character_identity_binding.py`) and those characters ARE the assertions. Deleting
   them leaves the tests green and asserting nothing. Note also that cp874 is Thai, so
   "cp874-encodable" is not "ASCII" - Thai prose is fine, emoji and CJK are not.
-- **Never `git commit` or `git push`.** Report every file you touched, with a count.
+- **Commit and push your own round's work to your own branch.** Report every file you
+  touched, with a count.
 - Stay inside your scope. Report anything you noticed outside it instead of fixing it.
 
 ## What you hand back
