@@ -31,7 +31,10 @@ from pirateforce_foundation.gm.bt_gm_probe import (
     SuspectHypothesisStub,
     build_variant_frame,
     build_variant_payload,
+    guaranteed_hidden_variant_ids,
+    guaranteed_visible_variant_ids,
     iter_state_vital_bit_variants,
+    observed_button_visible,
 )
 
 
@@ -144,6 +147,47 @@ class BuildVariantFrameTests(unittest.TestCase):
         variant = StateVitalBitVariant("t", 1, 0, 0, "test variant")
         _pc, frame = build_variant_frame(self.legacy, variant)
         self.assertIn(GM_UPDATE_GM_STATE_VITAL_ID.to_bytes(2, "little"), frame)
+
+
+class ObservedButtonVisibilityTests(unittest.TestCase):
+    """GT-164 attended result (pf_bridge notes_to_chief
+    20260831_0901_GT164-RESULT-...): field_0x0b_second == 1 -> BT_GM visible,
+    14/14, no exception. These tests pin that table so a future edit to
+    iter_state_vital_bit_variants cannot silently drift from it without a
+    failing test -- they do NOT claim anything about click behaviour.
+    """
+
+    def test_visibility_tracks_field_0x0b_second_only(self):
+        for variant in iter_state_vital_bit_variants():
+            self.assertEqual(
+                observed_button_visible(variant),
+                variant.field_0x0b_second == 1,
+                f"{variant.variant_id} visibility must track field_0x0b_second only",
+            )
+
+    def test_guaranteed_visible_ids_match_gt164s_reported_three(self):
+        # GT-164's table: second-byte-1 / both-bytes-1 / all-fields-1 were the
+        # only three of 14 variants with field_0x0b_second == 1.
+        self.assertEqual(
+            set(guaranteed_visible_variant_ids()),
+            {"second-byte-1", "both-bytes-1", "all-fields-1"},
+        )
+
+    def test_guaranteed_hidden_ids_are_the_other_eleven(self):
+        visible = set(guaranteed_visible_variant_ids())
+        hidden = set(guaranteed_hidden_variant_ids())
+        all_ids = {v.variant_id for v in iter_state_vital_bit_variants()}
+        self.assertEqual(visible | hidden, all_ids)
+        self.assertEqual(visible & hidden, set())
+        self.assertEqual(len(hidden), 11)
+
+    def test_field_0x0b_first_and_field_0x14_have_no_effect_on_visibility(self):
+        # GT-164 nonclaim: neither field moved visibility in either direction,
+        # including the field_0x14 all-ones boundary -- spot-check both ends.
+        variants = {v.variant_id: v for v in iter_state_vital_bit_variants()}
+        self.assertFalse(observed_button_visible(variants["first-byte-1"]))
+        self.assertFalse(observed_button_visible(variants["u32-max"]))
+        self.assertTrue(observed_button_visible(variants["all-fields-1"]))
 
 
 class SuspectHypothesisStubTests(unittest.TestCase):
