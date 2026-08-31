@@ -49,19 +49,24 @@ WHAT IS DIFFERENT FROM BG0004, NAMED RATHER THAN LEFT IMPLICIT.
   stand.  Recorded here because a future round that wires this composer into
   a real login path must read that registry block first, before flipping
   ``login_entry_allowed``.
-* WIRED, ROUND c42axq, DOOR STILL SHUT.  This module is now registered in
+* WIRED, ROUND c42axq.  This module is registered in
   ``world_scene_travel.CENSUS_SOURCES`` and
   ``world_population_handoff.ROSTER_COMPOSERS`` (the same two-table change
-  ``world_population_bg0004`` needed at round 2jdde8, and
+  ``world_population_bg0004`` needed at round 2jdde8), and
   ``lane_hooks/lane_a_scene_census.py`` reads its console lines the same
-  way).  Scene 10's ``login_entry_allowed`` STILL reads ``false`` (opening
-  the door is a later round's judgment call, same as scene 4's own
-  three-round history: build u3jo4g, wire c42axq, open TBD), and the
-  admission check in ``lane_hooks/lane_a_scene_census.py`` declines every
-  call this composer receives on the real registry today.  A player sees
-  exactly what they saw yesterday because of this file, same as the round
-  scene 4's composer was wired and still sat behind a shut door for a
-  round.
+  way.
+* DOOR OPENED, ROUND 3t75jw.  Scene 10's ``login_entry_allowed`` now reads
+  ``true`` (same three-round history as scene 4: build u3jo4g, wire c42axq,
+  open 3t75jw) -- see ``scenarios/world_scene_registry_001.json``'s own
+  ``login_entry_allowed_because`` on this row for the D1/D2/D3 check this
+  round ran against THIS scene rather than assuming scene 4's answer.  ONE
+  DIFFERENCE FROM SCENE 4, NAMED THERE TOO: this row's landing-geometry flag
+  (see above) is NOT resolved by this flip, only made checkable -- GT-166
+  opens in the same round asking an attended pass to look at the landing
+  point before this scene's roster is read as more than composed-and-sent.
+  A character whose own persisted row names scene 10, or a GM ``/warp 10``,
+  now reaches this scene's login path and receives up to 94 of its 100
+  native placements instead of a login refusal.
 """
 
 from __future__ import annotations
