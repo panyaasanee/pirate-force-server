@@ -52,6 +52,20 @@ the nonclaim above one bit: composing and sending a frame through a chat
 command is still not evidence that anything renders; it only removes the
 "only one hardcoded value, only once at login" limit `GT-164` was BLOCKED
 on (pf_bridge notes_to_chief 20260831_0321).
+
+GT-164 RESULT LANDED (2026-08-31, pf_bridge notes_to_chief
+20260831_0901_GT164-RESULT-bounded-negative-on-suspect-2-plus-field-0x0b-
+second-is-the-button-visibility-switch.md): attended click sweep across all
+14 variants above -- NONE opened `GMUI_BASIC` (the nonclaim above still
+holds in full: this module has still never been shown, by itself, to open
+that window). Incidentally, the sweep gave the first ATTENDED confirmation
+that `field_0x0b_second` (already known from static RE, RE-089/RE-104,
+CORE-REQUEST-020) gates `BT_GM` VISIBILITY specifically, mid-session, via
+`/gmprobe` and not only the one hardcoded login frame -- 14/14, no
+exception, client re-draws with no relog. See `observed_button_visible` /
+`guaranteed_visible_variant_ids` / `guaranteed_hidden_variant_ids` below.
+Visibility is still not click-success: do not read those helpers as
+answering any of the four suspects.
 """
 from __future__ import annotations
 
@@ -207,6 +221,60 @@ def known_variant_ids() -> tuple[str, ...]:
     return tuple(VARIANTS_BY_ID)
 
 
+def observed_button_visible(variant: StateVitalBitVariant) -> bool:
+    """Does GT-164's attended evidence say `BT_GM` is drawn for this variant?
+
+    `field_0x0b_second` was already known, pre-`RE-164`, to gate `BT_GM`
+    VISIBILITY at login time -- RE-089/RE-104 traced wire `+0x15==1` to that
+    effect, and `CORE-REQUEST-020` flipped the one hardcoded login send to
+    `field_0x0b_second=1` on that basis (`GT-107-R3`,
+    `notes_to_chief/20260827_2014_CHIEF-REPLY-CORE-REQUEST-020-bt-gm-field-
+    wired.md`). What `GT-164` (`pf_bridge/notes_to_chief/
+    20260831_0901_GT164-RESULT-bounded-negative-on-suspect-2-plus-field-0x0b-
+    second-is-the-button-visibility-switch.md`) adds is NOT a new field --
+    it is the first ATTENDED, client-observable confirmation of the same
+    rule, fired mid-session through `/gmprobe` (not only the one hardcoded
+    login frame), across all 14 named variants, with the button re-drawing
+    live with no relog: `field_0x0b_second == 1` -> button shown, 14/14, no
+    exception; `field_0x0b_first` and `field_0x14` (bits 0-7, and the
+    all-ones boundary) had zero observed effect on visibility either way.
+
+    NONCLAIM (read before calling this anywhere): "visible" is not "click
+    works". GT-164's OWN headline result is that none of these 14 variants
+    made a click open `GMUI_BASIC` -- see the module docstring's four
+    suspects and `SUSPECT_STUBS`. This predicate exists so an attended
+    tester chasing suspects 1/3 (connection-context, current-UI object-key)
+    can pick a variant that GUARANTEES the button is on-screen first,
+    instead of re-deriving that from scratch or tripping over it hidden by
+    accident -- it says nothing about what happens after the click.
+    """
+    return variant.field_0x0b_second == 1
+
+
+def guaranteed_visible_variant_ids() -> tuple[str, ...]:
+    """`variant_id`s that GT-164 attended-confirmed draw `BT_GM` visibly.
+
+    Generator order, per `observed_button_visible` above. Use this to pick a
+    known-visible variant before an attended suspect-1/3 capture, rather
+    than guessing or repeating GT-164's own sweep.
+    """
+    return tuple(
+        v.variant_id for v in iter_state_vital_bit_variants() if observed_button_visible(v)
+    )
+
+
+def guaranteed_hidden_variant_ids() -> tuple[str, ...]:
+    """`variant_id`s that GT-164 attended-confirmed hide `BT_GM`.
+
+    The complement of `guaranteed_visible_variant_ids`, useful for setting up
+    a "button starts hidden" precondition (e.g. to re-observe the live
+    re-render GT-164 reported, without relogging) the same explicit way.
+    """
+    return tuple(
+        v.variant_id for v in iter_state_vital_bit_variants() if not observed_button_visible(v)
+    )
+
+
 def variant_by_id(variant_id: str) -> StateVitalBitVariant | None:
     """The named variant, or None if `variant_id` matches none of them.
 
@@ -324,6 +392,9 @@ __all__ = [
     "iter_state_vital_bit_variants",
     "build_variant_frame",
     "build_variant_payload",
+    "observed_button_visible",
+    "guaranteed_visible_variant_ids",
+    "guaranteed_hidden_variant_ids",
     "SuspectHypothesisStub",
     "CONNECTION_CONTEXT_SUSPECT",
     "QUERY_GATE_VALUE_AT_CLICK_TIME_SUSPECT",

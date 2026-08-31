@@ -5148,3 +5148,68 @@ early-return) **ตอบได้แล้ว** จากสองใบที�
   ไม่มีไฟล์ `src/` เปลี่ยนรอบนี้)
 
 — สาย GM รอบ `1q7nxu`
+
+## รอบ `szmgeh` (2026-08-31T09:2x+07:00) — GT-164 ปิดหัวใบ, field_0x0b_second codified เป็นสวิตช์การมองเห็น
+
+### สรุป
+
+กล่องจดหมายมีสองใบใหม่จ่าหน้า LANE-GM: (1) `KA1A-DELIVERY` ยืนยัน adhoc-probe reference materials
+เข้า repo แล้ว (อ่านอย่างเดียว) และ `gm/attr_wire.py` ยัง shelve ตาม `COO-DECISION 0350` เหมือนเดิม --
+ไม่มีการกระทำเพิ่ม (2) `GT164-RESULT` -- กะ1-A คลิก `BT_GM` จริงครบ 14/14 variant ของ `bt_gm_probe.py`:
+ไม่มีตัวไหนเปิด `GMUI_BASIC` (bounded negative ปิด `RE-164` ข้อ 2 ทั้งชั้น static+attended) แต่พบผลข้างเคียง
+ที่มีค่า: `field_0x0b_second` (รู้จักอยู่แล้วจาก `RE-089`/`RE-104`/`CORE-REQUEST-020` ว่าคุมการมองเห็นปุ่ม
+ตอน login) ยืนยันด้วยตาเป็นครั้งแรกว่าคุมการมองเห็น**กลางเซสชัน**ด้วย ผ่าน `/gmprobe` 14/14 ไม่มีข้อยกเว้น
+ไม่ต้อง relog
+
+### ที่ทำรอบนี้
+
+1. ยืนยัน round-lock ว่าง, reset สองสาขาลง origin/main สะอาด (ไม่มีงานค้างของตัวเอง), ยึดล็อกก่อนเริ่ม
+2. บริโภคจดหมายทั้งสองใบ (`KA1A-DELIVERY` 0828, `GT164-RESULT` 0901) -- stub + สำเนาไป `consumed/`
+3. `pf_bridge/CLIENT_RE_QUEUE.md` RE-164 -- เติมชั้น attended ใต้ข้อ 2 (ไม่ลบของเดิม), แก้ tag หัวใบ,
+   แก้บรรทัด pass-criteria ที่ค้าง `BLOCKED` ให้ตรงความจริง, เพิ่ม nonclaim ข้อ 6, เพิ่ม link
+4. `pf_bridge/GAME_TEST_QUEUE.md` GT-164 -- ปิดหัวใบเป็น RESULT, เก็บสถานะเดิมไว้อ่านประกอบ (ไม่ลบ)
+5. `src/pirateforce_foundation/gm/bt_gm_probe.py` -- เพิ่ม `observed_button_visible()`,
+   `guaranteed_visible_variant_ids()`, `guaranteed_hidden_variant_ids()` (pure predicate เหนือ generator
+   เดิม ไม่มี field/เฟรมใหม่) พร้อม docstring อ้างอิง `GT-164`/`RE-089`/`RE-104`/`CORE-REQUEST-020` และ
+   nonclaim ชัดว่า "มองเห็นได้" ไม่ใช่ "คลิกได้ผล" -- เพื่อให้ผู้เทสรอบต่อไปที่ไล่ `RE-164` ข้อ 1/3 เลือก
+   variant ที่รู้แล้วว่าปุ่มโชว์แน่ ไม่ต้องเดา
+6. `tests/test_gm_bt_gm_probe.py` -- เพิ่ม 12 เทสใหม่ (`ObservedButtonVisibilityTests`) ปักตารางการมองเห็น
+   ตรงกับใบผลของ `GT-164` เป๊ะ (3 visible / 11 hidden ของ 14 variant)
+7. pf-adversary self-review ก่อน commit (ไม่มี agent `pf-adversary` แยกในอิมเมจนี้ -- ตามที่รอบ
+   `stale-stageable-count-refreshed` เคยบันทึกไว้แล้ว ทำเป็น self-review ตรวจทีละ hunk แทน): ตรวจ
+   overclaim (ไม่มี -- ทุกคำอ้างอิงมีเลขบรรทัด/ที่มา), ตรวจ safety (ไม่แตะ account/permission logic ใด ๆ
+   เป็น pure metadata เหนือ generator เดิม), ตรวจเขตเขียน (แค่ `gm/bt_gm_probe.py` +
+   `tests/test_gm_bt_gm_probe.py`) -- ไม่พบจุดต้องแก้
+
+### เขียว
+
+`pytest tests/test_gm_bt_gm_probe.py -q`: 26 passed (14 เดิม + 12 ใหม่) · `pytest tests/test_gm_*.py -q`:
+1089 passed, 500 subtests เขียว(cloud sanity, รันจริงในรอบนี้หลัง fetch origin/main)
+
+### nonclaim
+
+1. `GT-164` ปิดแล้วตอบเฉพาะข้อ 2 ของ `RE-164` เท่านั้น -- ข้อ 1/3/4 ไม่ถูกแตะเพิ่มรอบนี้ ข้อ 1/3 ยังเปิด
+   รอ attended capture หรือ static RE เพิ่มที่ไม่มีในอิมเมจของ clone นี้
+2. "ปุ่มมองเห็นได้" (`field_0x0b_second=1`) ไม่ใช่ "คลิกแล้วเปิดหน้าต่าง" -- สองเรื่องคนละชั้น พิสูจน์แล้ว
+   ว่าแยกกัน (14/14 ที่มองเห็นได้ก็ยังคลิกไม่เปิด) `observed_button_visible` และเพื่อนบอกแค่การมองเห็น
+   ไม่เคยอ้างเรื่องคลิก
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/`scenarios/world_*.json`/
+   `scenarios/combat_*.json` เลยรอบนี้ ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts` ไม่มีการประกาศ
+   milestone จากผลที่ได้ด้วย GM
+4. warp ด้วย GM ไปเกาะแล้วเห็นเกาะ ไม่ใช่ M2 ผ่าน -- ไม่มีการอ้าง milestone ใด ๆ ในรอบนี้
+5. ไม่มี client image/จอในสภาพแวดล้อมนี้เหมือนทุกรอบ -- โค้ดที่เพิ่มรอบนี้เป็นการ codify ผลที่กะ1-A
+   สังเกตมาแล้ว ไม่ใช่การยิงเฟรมใหม่หรือสังเกตใหม่จากรอบนี้เอง
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ผู้เทสที่ไล่ `RE-164` ข้อ 1/3 ต่อ (connection-context / current-UI object-key) สามารถเรียก
+`bt_gm_probe.guaranteed_visible_variant_ids()` เพื่อเลือก variant ที่รู้แล้วว่าปุ่ม `BT_GM` จะโชว์แน่ก่อน
+เริ่มไล่ suspect ถัดไป แทนที่จะต้องเดาหรือเจอปุ่มหายกลางเซสชันโดยไม่รู้สาเหตุเหมือนก่อนหน้านี้ (เมื่อวาน
+ต้องดูเอาเองว่าปุ่มโชว์ไหม วันนี้มีตารางที่ยืนยันแล้วให้เลือกได้ตรง ๆ)
+
+### PR
+
+- `pf_bridge#581` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle)
+- `pirate-force-server#373` (draft ต้นรอบ ปิดท้ายรอบนี้เป็น ready + retitle + wake-gate commit)
+
+— สาย GM รอบ `szmgeh`
