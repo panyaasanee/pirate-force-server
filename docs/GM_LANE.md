@@ -5879,3 +5879,70 @@ round) is still the only thing an attended tester can do beyond yesterday.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0216_kv02mn_verify_only_10th_round_waiting_on_owner.md`
 PR: `pf_bridge#653`, `pirate-force-server#429` (this one)
+
+## รอบ `k0w291` (2026-09-01T03:18+07:00) -- GT-172 closed PASS, three new findings opened
+
+Consumed `pf_bridge/notes_to_chief/20260901_0225_GT172-RESULT-PASS-*.md` (ADDRESSEE:
+LANE-GM, attended tester). GT-172 PASSED at both layers: `/warp <scene> x y` in the
+chat box moved a live client mid-session with no relog, confirmed on wire
+(`LANE_GM_CHAT_WARP_CROSS_SCENE_TELEPORT_VITAL` -> `TeleportVital`, 4/4 fires
+succeeded). Closed the GT-172 header in `pf_bridge/GAME_TEST_QUEUE.md` as PASS (this
+lane's own queue entry).
+
+Three observations from that test session were opened as their own letters, as the
+result letter asked, rather than folded into a FAIL that GT-172 did not earn:
+
+- **F-1** (`CORE-REQUEST-GM-045`): the console showed `WORLD_CENSUS ... scene=bg0001`
+  (the origin scene) after a live warp to scene 278, with zero census lines for 278
+  itself. Traced to source, not guessed: `gm/chat_command_action.py::_warp_teleport_
+  action`'s own docstring states no new `runtime.py` call site was needed to land the
+  live-teleport path, so it never touches the session state (`self.foundation.
+  selected.position`, `self.last_target_pos`) that `runtime.py`'s `WORLD-CENSUS-001`
+  block reads to decide which scene to census. Outside this lane's write zone
+  (`runtime.py` is chief's) -- filed as a request, not fixed here.
+- **F-2** (`CORE-REQUEST-GM-046`): a live cross-scene warp carries the origin scene's
+  `z` unchanged, so the destination can leave the GM floating/stuck in geometry.
+  `gm/warp_executor.py` deliberately never invents an elevation (its own docstring),
+  and this lane has no per-scene spawn/ground data anywhere in `gm/` -- confirmed by
+  grepping `gm/scene_catalog.py` (no spawn fields) and both `pf_bridge/external/
+  00_SEARCH_HERE_FIRST.md` / `pf_bridge/gamedata/00_SEARCH_HERE_FIRST.md` for
+  spawn/respawn terms (no hits, verified live before writing the letter, not asserted
+  from memory). This is a data request, not a code-site request, and it lines up
+  directly with the owner's new GM-A ask (`pf_bridge/notes_to_chief/
+  20260901_0215_PANYA-ORDER-drop-milestones-*.md`).
+- **F-3** (FINDING, no code request): a live warp does not update the scene staged
+  for next login (`gm/login_scene_stage.py`) -- by design, the two mechanisms were
+  always independent, but it is counter-intuitive and directly relevant to GM-A's
+  design once a lane is assigned it.
+
+This lane deliberately did NOT claim GM-A/GM-B from the owner's `20260901_0215`
+letter this round, even though both are GM-prefixed: that letter asks chief to
+announce lane assignments explicitly, and the most recent chief broadcast checked
+(`FROM_CHIEF_R277`, 02:00) predates it, so no assignment exists yet -- claiming ahead
+of that risks colliding with whichever lane chief actually names.
+
+No `src/`/`scenarios/`/`tests/` change this round (letters, queue header, docs, round
+notes only) -- pf-adversary not invoked, same precedent as rounds `dgyakk`/`bmedw1`/
+`kv02mn`.
+
+### nonclaim
+
+1. Does not claim F-1/F-2 are fixed or even confirmed by chief -- both are open
+   requests.
+2. Does not claim GM-A/GM-B belong to this lane -- waiting on chief's assignment per
+   letter `20260901_0215` item 6.1.
+3. Did not give GM status to any account outside `gm_accounts.json`; no milestone
+   declared (milestones already paused per letter `20260901_0215` item 2); no
+   `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json` touched.
+4. Did not delete any history -- new stubs only, originals copied to
+   `pf_bridge/notes_to_chief/consumed/`.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+`GT-172` is now formally closed PASS in the queue (it was READY-but-unfired
+yesterday). No new call site exists yet for an attended tester to exercise beyond
+that until chief answers the three letters opened this round.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0318_k0w291_gt172_pass_three_findings_opened.md`
+PR: `pf_bridge` (this repo's companion) -- numbers filled in once opened
