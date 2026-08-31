@@ -1,108 +1,109 @@
-"""LANE-B / BUILD-004+005: the gates between scene 14's ALREADY-SHIPPING
-actors and any of them being fightable, each one measured rather than
-argued.
+"""LANE-B / BUILD-004+005: what registering Bg0015 would actually do,
+measured at HEAD by this lane, one measurement per function.
 
-RENAMED AND REWRITTEN IN ROUND 6cm6ry after pf-adversary broke the first
-draft's central claim.  The first draft was called ``mob_combat_bg0015_gap``
-and said the missing thing was the combat LEDGER.  That was wrong twice
-over, and both corrections are load-bearing enough to state before anything
-else:
+THE HEADLINE, AND IT IS NOT "MONSTERS THAT CANNOT DIE".  With Bg0015
+registered in ``field_mobs._SCENE_TABLE_MODULES``, the FIRST swing in scene
+14 raises out of ``dispatch`` and unwinds the listener thread.  Measured
+end-to-end this round (real login -> StartGame -> scene 14 -> one
+ActionVital, with the registration applied in-process):
 
-* ~~"a hit on a Bg0015 actor refuses with mob_combat.REFUSE_TARGET_NOT_IN_
-  LEDGER"~~ -- WITHDRAWN, MEASURED FALSE.  ``mob_combat
-  .attack_from_observed_action`` (mob_combat.py:1667-1680) loops the
-  ROSTER first and returns ``None`` when the target is not in it; only a
-  target that IS in the roster and NOT in the ledger reaches that refusal.
-  ``_sync_combat_scene_state`` derives roster AND ledger from the same
-  ``field_mobs.load_roster(folder)`` call, so at the one wired call site
-  that state is unconstructable.  What a player's swing in scene 14
-  actually produces today is the event
-  :data:`WIRED_ANSWER_FOR_A_TABLELESS_SCENE`, and
-  ``tests/test_scene_scoped_combat_wiring.py::test_an_addressed_tableless_
-  scene_answers_over_an_empty_roster`` already pins exactly that outcome for
-  exactly this class of scene.  The ledger is a free consequence of the
-  roster at that call site; what is missing is the ROSTER.
-* ~~"the CORE-REQUEST would ship 12 monsters that look hostile and cannot
-  be hit"~~ -- WITHDRAWN, UNDERSTATED.  Scene 14 is already open at login
-  and lane A's ``lane_hooks.scene_census_composer(14)`` is live and
-  ``production_allowed`` TODAY, shipping its whole roster of actors into a
-  real player's client.  So the true fact is larger than the first draft's:
-  EVERY actor standing in scene 14 right now is unhittable, and the hostile
-  splice changes 12 of their APPEARANCES, not their hittability.
+    runtime.py:4156  _dispatch_mob_combat: roster = self._sync_combat_scene_state()
+    runtime.py:4103  _sync_combat_scene_state: mob_ai_control.open_register(...)
+    mob_ai_control.py:403
+    MobAiControlError: ai_row_missing: placement 22 points at AI_COMBAT 301,
+    which is not in the mined rows: regenerate field_mob_ai_tables
 
-WHAT A PLAYER SEES BECAUSE OF THIS FILE, STATED HONESTLY AND FIRST.
-Nothing.  This module measures; it has no ``runtime.py`` call site (that
-file is chief's), composes no frame, and registers nothing.
+Nothing on that path catches it: ``_sync_combat_scene_state`` has no
+``try`` at all, and the call at 4156 sits ABOVE every ``except`` in
+``_dispatch_mob_combat`` (the first is at 4214).  ``MobAiControlError``
+subclasses ``ValueError``, so it would have been swallowed had the call sat
+a few dozen lines lower -- it does not.  All 12 Bg0015 rows want
+``AI_COMBAT`` ids the mined table does not carry, and placement 87
+additionally wants ``AI_WANDER 22``; see :func:`ai_rows_missing_for_scene14`.
+Clearing this needs a regenerated ``field_mob_ai_tables`` -- a miner run
+against bridge gamedata, which is not a code edit any lane can make from
+this tree.
 
-THE FOUR GATES, AND WHO OWNS EACH.  Making scene 14's monsters fightable is
-not "one registration".  Measured this round by actually performing the
-one-line registration on a scratch tree and running the whole suite (35
-failed / 6056 passed; 10 named tests across 5 files that are not this
-round's own), the gates are:
+WHY THIS FILE EXISTS AT ALL.  Earlier drafts of this round reported a
+"gate table" assembled from predicates that were already readable
+(``live_scenes()``, ``composer_scene_ids()``, ``ruling_for``).  Not one of
+them walked the path a swing actually takes, which is why the raise above --
+two lines below the ``load_roster`` call those drafts quoted -- was missed
+twice.  The procedure that found it, and its limits, are written down in
+:data:`ENUMERATION_PROCEDURE` rather than left as a lesson nobody can rerun.
 
-  1. ROSTER REGISTRATION -- ``field_mobs._SCENE_TABLE_MODULES`` must name
-     Bg0015 before ``load_roster``/``roster_for_scene_id`` answer anything
-     for scene 14.  Lane B's file; blocked from inside ``src/`` by gate 2.
-     Measured by :func:`roster_gate_open`.
-  2. APPROVED-IMPORTER GUARD -- the Bg0015 table module's own guard test
-     (deliberately not spelled out here: that guard's literal-string sweep
-     flags any file under ``src/`` that names the table module, and the
-     test's filename contains that name)
-     allows exactly ONE importer of Bg0015's table under ``src/`` and
-     excludes ``field_mobs.py`` BY NAME, by AST and by literal-string sweep
-     (so the ``importlib`` route is closed too).  That guard encodes
-     COO-DECISION 2026-08-26T12:46+07:00 as narrowed by COO-DECISION
-     2026-08-31T16:48+07:00, so widening it is a COO/owner scope decision,
-     not a lane edit.  Gate 1 cannot land while this stands.
-  3. DEATH RULING -- ``mob_death.ruling_for`` refuses all 12 Bg0015 rows
-     with ``target_outside_the_sanctioned_scope`` today, because
-     ``WIDENING_RULINGS`` carries owner letters for 916/bg0001/Bg0002/the
-     diag deer and none for Bg0015's seven templates.  Without a new owner
-     letter, registered Bg0015 monsters would take damage and never die.
-     An owner-only gate by construction.  Measured by
-     :func:`templates_without_a_death_ruling`.
-  4. SCENE RECOMPOSE -- ``mob_scene_recompose.composer_scene_ids()`` is
-     ``(1, 2)``; scene 14 has no composer, and that module's own test
-     (``test_every_scene_this_lane_ships_monsters_for_can_be_recomposed``)
-     says in its own words that a scene shipping monsters without one is
-     the defect.  Without it, the first swing in scene 14 would ship the
-     one-entry recompose frame RE-092 proved erases every other actor from
-     the client.  Lane B's own module: THIS is the gate this lane can build
-     outright.  Measured by :func:`recompose_gate_open`.
+WHAT A PLAYER SEES BECAUSE OF THIS FILE: nothing.  No ``runtime.py`` call
+site, no frame composed, nothing registered.
 
-WHAT THIS MODULE DELIBERATELY DOES NOT DO.  It does not register Bg0015,
-does not widen any guard, does not write a ruling, and does not compose
-anything.  It reports gate status from live data so a decision about
-sequencing is made on measured facts instead of on a remembered docstring
--- which is precisely how the first draft of this file went wrong.
+WHAT THIS FILE DOES NOT DO ANY MORE, AND WHY.  Earlier drafts shipped a
+``GATE_OWNERS`` table naming who owns each precondition.  WITHDRAWN: two
+successive drafts guessed ownership wrong -- once sending COO to widen a
+test allowlist that turns out to name nothing, once promising a composer
+this lane cannot write yet -- in a document whose whole purpose is to stop
+someone doing something destructive.  This file now reports measurements
+and marks inferences as inferences; who moves what is a question for
+chief/COO, asked in this round's letter, not answered here.
 
-NONCLAIM ABOUT THE COLLISION.  Registering Bg0015 would make its placement
-87 share wire identity ``0x2058`` with Bg0002's placement 87.  ~~"this is
-not a new class of risk -- bg0001/Bg0002 already collide at 0x2068/0x206a
-today"~~ -- WITHDRAWN, MEASURED FALSE: ``field_mobs
-.cross_scene_identity_collisions()`` returns ``()`` at HEAD (round 8ftmbx
-withdrew every bg0001 side; the emptiness is pinned by
-``tests/test_field_mobs.py::test_default_set_is_the_two_live_known_scenes_
-only`` and again in ``tests/test_mob_death.py``, whose message asks for a
-real collision pair the day one exists again).  The ``0x2068``/``0x206a``
-sentence lives in ``mob_combat.open_ledger_for_scene_id``'s docstring as
-HISTORY -- ``load_roster``'s own docstring carries the strikethrough
-correction -- and the first draft of this file read it as present tense.
-So the honest statement is the opposite of the first draft's: registering
-Bg0015 would create this tree's FIRST live cross-scene identity collision,
-against a property two tests currently assert is empty.  The collision
-itself is not novel as a FACT -- ``tests/test_field_mobs.py::test_all_
-three_known_tables_together_find_one_pairwise_collision`` (round ua236k)
-already pins placement 87, templates 34 vs 924, exactly one collision --
-only its consequences-if-registered are what this module adds.
+WHAT IS MEASURED, AND WHAT IS ONLY INFERRED
+-------------------------------------------
+MEASURED (each has a test that fails if it stops being true):
+  * the raise above, end to end, and its cause
+    (:func:`ai_rows_missing_for_scene14`, :func:`open_register_refusal_for_scene14`);
+  * ``field_mobs`` ships no Bg0015 roster today (:func:`roster_gate_open`);
+  * no Bg0015 template has a death ruling
+    (:func:`templates_without_a_death_ruling`);
+  * ``mob_scene_recompose`` has no scene-14 composer but DOES carry a dated
+    written acknowledgement of that hole, whose own words are that it
+    composes one in the same round the first roster row lands
+    (:func:`recompose_status`);
+  * the visual splice preserves all 81 of lane A's census identities and
+    rewrites exactly 12 entries -- run in this module's tests rather than
+    inherited from lane A's letter, which explicitly disclaims having
+    tested it;
+  * registering Bg0015 would create the tree's first live cross-scene
+    identity collision (:func:`live_cross_scene_collisions_today` is ``()``
+    today; :func:`bg0002_bg0015_identity_collisions` is ``(0x2058,)``).
+
+INFERRED, NOT EXECUTED -- treat as a lead, not a finding:
+  * ``_apply_mob_death_census_override`` appears only at ``runtime.py:7508``
+    (bg0002 branch) and ``runtime.py:7950`` (bg0001 branch), while scene 14
+    composes through ``lane_hooks.scene_census_composer`` at
+    ``runtime.py:7626``, which has no such step -- so a census rebuild in
+    scene 14 would LIKELY heal every wounded monster back to its ceiling,
+    the defect ``mob_census_hostility.hostile_override_for_scene_id``'s own
+    docstring names.  READ-ONLY INFERENCE: nothing in this round drove that
+    path, because the raise above happens first and ends the session.
+
+WITHDRAWN CLAIMS FROM EARLIER DRAFTS OF THIS ROUND, KEPT VISIBLE
+----------------------------------------------------------------
+* ~~"a hit refuses with mob_combat.REFUSE_TARGET_NOT_IN_LEDGER"~~ -- false;
+  ``attack_from_observed_action`` walks the roster first, so the wired call
+  site cannot build that state.  Today's answer is
+  :data:`WIRED_ANSWER_FOR_A_TABLELESS_SCENE`.
+* ~~"the approved-importer guard names field_mobs.py and encodes a COO
+  decision, so lane B cannot register at all"~~ -- false: that guard's CODE
+  is an allowlist holding one path; ``field_mobs.py`` appears only in its
+  DOCSTRING prose, excluded by omission exactly like every other file under
+  ``src/``.  What actually stands in the way of registration is this lane's
+  own pinned assertions plus the raise above.  Sending COO to move that
+  allowlist would have been sending them to move something that never
+  blocked it.
+* ~~"the scene-14 recompose composer is lane B's to build next round"~~ --
+  false: ``mob_scene_recompose``'s own text says it composes scene 14 "in
+  the same round its first roster row lands", so it is downstream of
+  registration, not an independent choice.
+* ~~"bg0001/Bg0002 already collide, so this is not a new class of risk"~~ --
+  false at HEAD; see :func:`live_cross_scene_collisions_today`.
 """
 
 from __future__ import annotations
 
 from typing import Any, Iterable
 
+from . import field_mob_ai_tables
 from . import field_mob_hostile_bg0015
 from . import field_mobs
+from . import mob_ai_control
 from . import mob_death
 from . import mob_scene_recompose
 
@@ -111,29 +112,38 @@ BG0002_SCENE_ID = 2
 SCENE14_SCENE_ID = 14
 BG0015_FOLDER = "Bg0015"
 
-# The event ``runtime.py`` appends for a swing at any actor in an addressed
-# scene this lane ships no table for -- measured, not assumed: combat
-# dispatch calls mob_combat.attack_from_observed_action, that function walks
-# the ROSTER and returns None when the target is not a row in it, and the
-# dispatch turns None into this string (runtime.py:4226).  The refusal the
-# first draft of this file named instead (REFUSE_TARGET_NOT_IN_LEDGER) needs
-# a target that is in the roster and absent from the ledger, which the one
-# wired call site cannot build: it fills both from one load_roster call.
+# The event runtime.py appends today for a swing in an addressed scene this
+# lane ships no table for.  NOTE WHAT THIS DOES AND DOES NOT IDENTIFY: any
+# integer target produces it in scene 14 (0xDEADBEEF as readily as 0x2017),
+# because the roster it is checked against is empty.  It pins "scene 14
+# resolves to folder Bg0015 over an empty roster", not anything about the
+# twelve identities specifically.
 WIRED_ANSWER_FOR_A_TABLELESS_SCENE = "mob_combat_target_not_a_field_mob_no_reply"
 
-GATE_ROSTER_REGISTRATION = "roster_registration_scene_table_modules"
-GATE_APPROVED_IMPORTER = "approved_importer_guard_widening"
-GATE_DEATH_RULING = "owner_widening_ruling_for_bg0015_templates"
-GATE_SCENE_RECOMPOSE = "scene_recompose_composer_for_scene_14"
-
-#: Gate -> who can move it.  Written here rather than only in a letter so a
-#: reader of the code finds the division of labour with the measurement.
-GATE_OWNERS = {
-    GATE_ROSTER_REGISTRATION: "LANE-B file, blocked by the guard gate below",
-    GATE_APPROVED_IMPORTER: "COO/owner (the guard encodes a COO decision)",
-    GATE_DEATH_RULING: "owner (WIDENING_RULINGS takes owner letters only)",
-    GATE_SCENE_RECOMPOSE: "LANE-B, buildable today",
-}
+#: How the raise in this module's headline was found, written down so the
+#: next round can rerun it instead of re-deriving it -- and so the honest
+#: limit of the finding is visible.  Steps 1-2 are what earlier drafts did;
+#: step 3 is what they skipped and what actually found it.
+ENUMERATION_PROCEDURE = (
+    "1. read the predicates a scene must satisfy (live_scenes, "
+    "composer_scene_ids, ruling_for) -- cheap, and finds only what someone "
+    "already thought to name; "
+    "2. apply the change on a scratch tree and run the suite -- finds "
+    "whatever the suite already pins, and nothing it does not; "
+    "3. APPLY THE CHANGE AND THEN DRIVE ONE REAL REQUEST END TO END through "
+    "the production dispatch (login -> StartGame -> scene -> ActionVital), "
+    "reading the traceback rather than the event list.  Step 3 is the only "
+    "one that found the ai_row_missing raise, because that raise happens in "
+    "a helper two lines below the call earlier drafts quoted and no test "
+    "drives it. "
+    "WHAT THIS PROCEDURE STILL DOES NOT PROVE: it walks ONE request (a "
+    "swing) to its FIRST failure, and a first failure hides every later "
+    "one.  Kill, loot, corpse and census-rebuild paths in scene 14 have "
+    "never been driven at all -- the session ends before reaching them.  "
+    "This list is a floor, not a total: nobody should budget from it as if "
+    "it were complete.  The honest statement is that the count is unknown "
+    "and at least this many."
+)
 
 
 class MobCombatBg0015GateError(ValueError):
@@ -141,29 +151,67 @@ class MobCombatBg0015GateError(ValueError):
 
 
 def roster_gate_open() -> bool:
-    """Does ``field_mobs`` ship a roster for Bg0015 today?  (Gate 1.)"""
+    """Does ``field_mobs`` ship a roster for Bg0015 today?  (No.)"""
     return BG0015_FOLDER in field_mobs.live_scenes()
 
 
 def scene14_roster_size_today() -> int:
-    """How many rows ``roster_for_scene_id(14)`` answers with today.
-
-    Zero while gate 1 is closed -- and zero rows is what makes every swing
-    in scene 14 answer :data:`WIRED_ANSWER_FOR_A_TABLELESS_SCENE`, because
-    ``attack_from_observed_action`` never finds the target in the roster it
-    was handed.  The ledger being empty as well is a consequence of the
-    same call, not a second cause.
-    """
+    """Rows ``roster_for_scene_id(14)`` answers with today -- zero, which is
+    why every swing there answers
+    :data:`WIRED_ANSWER_FOR_A_TABLELESS_SCENE` instead of resolving a
+    target."""
     return len(field_mobs.roster_for_scene_id(SCENE14_SCENE_ID))
+
+
+def ai_rows_missing_for_scene14() -> dict[str, tuple]:
+    """The AI table ids Bg0015's rows want and the mined table lacks.
+
+    THE CAUSE OF THE UNWIND IN THIS MODULE'S HEADLINE.
+    ``mob_ai_control.open_register`` -- which ``_sync_combat_scene_state``
+    calls on every scene change -- refuses a roster row whose ``ai_combat``
+    or ``ai_wander`` id is absent from ``field_mob_ai_tables``.  Reported as
+    both id sets plus the difference, so whoever regenerates the mined table
+    sees exactly what is short without rerunning this.
+    """
+    rows = field_mob_hostile_bg0015.scene14_hostile_roster()
+    # Both mined tables are dicts keyed by the id a roster row cites -- read
+    # the keys, never a positional row shape this module would be guessing.
+    mined_combat = set(field_mob_ai_tables.AI_COMBAT_ROWS)
+    mined_wander = set(field_mob_ai_tables.AI_WANDER_ROWS)
+    wanted_combat = {mob.ai_combat for mob in rows if mob.ai_combat}
+    wanted_wander = {mob.ai_wander for mob in rows if mob.ai_wander}
+    return {
+        "mined_combat": tuple(sorted(mined_combat)),
+        "wanted_combat": tuple(sorted(wanted_combat)),
+        "missing_combat": tuple(sorted(wanted_combat - mined_combat)),
+        "mined_wander": tuple(sorted(mined_wander)),
+        "wanted_wander": tuple(sorted(wanted_wander)),
+        "missing_wander": tuple(sorted(wanted_wander - mined_wander)),
+    }
+
+
+def open_register_refusal_for_scene14() -> str | None:
+    """The refusal reason ``mob_ai_control.open_register`` gives for
+    Bg0015's roster, or ``None`` if it accepts it.
+
+    The raise the headline traceback shows, reached here directly rather
+    than through a session: ``_sync_combat_scene_state`` hands the freshly
+    loaded roster to exactly this function, so a registered Bg0015 reaches
+    this line on the first scene change.
+    """
+    try:
+        mob_ai_control.open_register(
+            field_mob_hostile_bg0015.scene14_hostile_roster())
+    except mob_ai_control.MobAiControlError as error:
+        return error.reason
+    return None
 
 
 def templates_without_a_death_ruling() -> tuple[int, ...]:
     """Bg0015 template ids ``mob_death.ruling_for`` refuses, ascending.
-    (Gate 3.)
 
-    Calls the real predicate on the real rows and records which ones raise
-    ``MobDeathContractError`` -- never a hand-typed list, so an owner letter
-    landing for one template shortens this answer on its own.
+    Derived by calling the real predicate on the real rows, never a
+    hand-typed list, so one owner letter landing shortens this on its own.
     """
     refused = set()
     for mob in field_mob_hostile_bg0015.scene14_hostile_roster():
@@ -174,60 +222,56 @@ def templates_without_a_death_ruling() -> tuple[int, ...]:
     return tuple(sorted(refused))
 
 
-def death_ruling_gate_open() -> bool:
-    """True when every Bg0015 row has an owner letter to die under."""
-    return templates_without_a_death_ruling() == ()
+def recompose_status() -> dict[str, Any]:
+    """Where scene 14 stands with ``mob_scene_recompose`` -- BOTH halves.
 
-
-def recompose_gate_open() -> bool:
-    """Does ``mob_scene_recompose`` know how to recompose scene 14?
-    (Gate 4.)"""
-    return SCENE14_SCENE_ID in mob_scene_recompose.composer_scene_ids()
-
-
-def closed_gates() -> tuple[str, ...]:
-    """Every gate that is shut today, in the order they must be thought
-    about.  Gate 2 is a policy gate living in a test file, so it is
-    reported through the state it enforces (``field_mobs`` not importing
-    the table, which is gate 1 being shut) rather than by parsing a test.
+    An earlier draft read ``composer_scene_ids()`` alone and reported scene
+    14 as an unacknowledged hole.  It is not: that module carries a dated
+    written acknowledgement for scene 14 (round ``le2dox``) whose own words
+    are that it composes one "in the same round its first roster row
+    lands" -- downstream of registration, not an independent gate.
+    ``scene_is_accounted_for`` is the predicate that reads both halves, and
+    this function reports what it says rather than half of it.
     """
-    shut = []
-    if not roster_gate_open():
-        shut.append(GATE_ROSTER_REGISTRATION)
-        shut.append(GATE_APPROVED_IMPORTER)
-    if not death_ruling_gate_open():
-        shut.append(GATE_DEATH_RULING)
-    if not recompose_gate_open():
-        shut.append(GATE_SCENE_RECOMPOSE)
-    return tuple(shut)
+    return {
+        "composer_scene_ids": mob_scene_recompose.composer_scene_ids(),
+        "has_composer": (
+            SCENE14_SCENE_ID in mob_scene_recompose.composer_scene_ids()),
+        "acknowledged_without_composer": (
+            SCENE14_SCENE_ID
+            in mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER),
+        "accounted_for": mob_scene_recompose.scene_is_accounted_for(
+            SCENE14_SCENE_ID),
+    }
 
 
 def splice_identities(legacy: Any) -> tuple[int, ...]:
-    """The identities the VISUAL path actually splices, ascending.
-
-    Read off ``field_mob_hostile_bg0015.scene14_hostile_overrides(legacy)``
-    -- the real dict chief's future branch hands
-    ``mob_scene_recompose.splice_identity_override`` -- and not off the
-    roster the first draft of this file compared against itself.  Comparing
-    the roster to the roster proved nothing (pf-adversary: shifting 11 of
-    the 12 placement indices by +100 left that check green with 11
-    fabricated identities); an INDEPENDENT side has to come from outside
-    this lane's table, which is what :func:`splice_identities_missing_from`
-    takes as an argument.
-    """
+    """The identities the VISUAL path actually splices, ascending -- read
+    off ``field_mob_hostile_bg0015.scene14_hostile_overrides(legacy)``, the
+    real dict a future runtime branch would hand
+    ``mob_scene_recompose.splice_identity_override``."""
     return tuple(sorted(
         field_mob_hostile_bg0015.scene14_hostile_overrides(legacy)))
 
 
 def splice_identities_missing_from(
         external_identities: Iterable[int], legacy: Any) -> tuple[int, ...]:
-    """Which spliced identities are absent from an INDEPENDENTLY built set.
+    """Which spliced identities are absent from an EXTERNALLY supplied set.
 
-    ``external_identities`` is meant to be the actor identities lane A's own
-    census actually ships for scene 14 (a different module, a different
-    lane's placement data).  A splice identity missing from that set is a
-    body the client was never sent, so the splice would decorate nothing --
-    fail closed and name them rather than reporting a count that looks fine.
+    Fail closed and name them: a splice identity the census never ships
+    would decorate a body the client was never sent.  The independent side
+    is the caller's on purpose -- lane A's census
+    (``world_bg0015_identity._PLACEMENT_ROWS``) and this lane's table
+    (Bg0015's own ``HOSTILE_PLACEMENTS``) are separate runtime paths that do
+    not import each other, which is the only sense in which this
+    cross-check is independent.
+
+    WHAT IT CANNOT DO, SAID PLAINLY: it is NOT independent of the shared
+    ``0x2000 + placement + 1`` formula, and it cannot catch a small
+    placement shift -- lane A ships 81 of 91 placements, so a ``+1`` shift
+    lands on another real actor roughly nine times in ten.  The hand-typed
+    twelve-number pin in this module's tests is what catches that case.
+    Saying so is cheaper than pretending this function catches everything.
     """
     external = set()
     for identity in external_identities:
@@ -247,43 +291,32 @@ def splice_identities_missing_from(
 
 
 def owner_refused_placements_for_scene14() -> tuple[int, ...]:
-    """Owner-refused placements Bg0015 carries today.  Empty -- and that
-    emptiness is why two other numbers in this project happen to agree.
+    """Owner-refused placements Bg0015 carries today: none.
 
     ``field_mobs.load_roster`` drops ``OWNER_REFUSED_PLACEMENTS`` rows
-    (eight of Bg0002's today) while
-    ``field_mob_hostile_bg0015.scene14_hostile_roster`` does not filter at
-    all.  For Bg0015 the two therefore agree ONLY because the refusal list
-    has no Bg0015 entry: the agreement is a property of today's data, not
-    of the code.  The day an owner refuses a Bg0015 placement, a registered
-    roster and the splice dict would disagree silently -- said here, and
-    pinned by this module's own test, instead of discovered later.
+    (eight of Bg0002's) while ``scene14_hostile_roster`` does not filter at
+    all.  The two agree for Bg0015 only because the refusal list has no
+    Bg0015 entry -- a property of today's data, not of the code.
     """
-    refused = field_mobs.OWNER_REFUSED_PLACEMENTS.get(BG0015_FOLDER, ())
-    return tuple(sorted(refused))
+    return tuple(sorted(
+        field_mobs.OWNER_REFUSED_PLACEMENTS.get(BG0015_FOLDER, ())))
 
 
 def live_cross_scene_collisions_today() -> tuple[dict, ...]:
-    """What ``field_mobs.cross_scene_identity_collisions()`` reports for the
-    scenes that are actually live -- ``()`` at HEAD.
-
-    Measured here because the first draft of this module claimed the
-    opposite from a historical docstring sentence.  A non-empty answer means
-    this project has a live cross-scene collision again and the framing
-    below (Bg0015 would be the FIRST) has to be rewritten.
-    """
+    """``field_mobs.cross_scene_identity_collisions()`` for the live scenes
+    -- ``()`` at HEAD, which is why registering Bg0015 would create the
+    first one rather than join an accepted class."""
     return field_mobs.cross_scene_identity_collisions()
 
 
 def bg0002_bg0015_identity_collisions() -> tuple[int, ...]:
-    """Identities Bg0002's live roster and Bg0015's hostile roster share.
+    """Identities Bg0002's LIVE (owner-filtered) roster and Bg0015's hostile
+    roster share: ``(0x2058,)``, placement 87 on both sides.
 
-    Exactly ``(0x2058,)`` today (placement 87 on both sides), the same
-    survivor ``tests/test_field_mobs.py::test_all_three_known_tables_
-    together_find_one_pairwise_collision`` already pins from the raw
-    tables.  This function reads Bg0002 through the LIVE, owner-filtered
-    path instead (``roster_for_scene_id``), so the day an owner refusal
-    removes placement 87 from Bg0002 the two answers diverge on purpose.
+    The same survivor ``tests/test_field_mobs.py``'s three-table collision
+    test already pins from the RAW tables (round ua236k).  This reads the
+    Bg0002 side through the owner-filtered path instead, so the day a
+    refusal removes placement 87 the two answers diverge on purpose.
     """
     bg0002 = {
         mob.actor_identity
