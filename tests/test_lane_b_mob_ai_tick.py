@@ -147,16 +147,26 @@ class WiringLineTests(unittest.TestCase):
         self.assertIn("identity_lo", line)
         self.assertIn("lane_b_mob_ai_tick.maybe_tick", line)
 
-    def test_nothing_in_runtime_py_calls_maybe_tick_yet(self):
+    def test_runtime_py_now_calls_maybe_tick_per_coo_decision_0145(self):
+        # WAS test_nothing_in_runtime_py_calls_maybe_tick_yet (pinned
+        # NotIn), until COO-DECISION 20260901_0145 ordered lane B to paste
+        # LANE_B_MOB_AI_TICK_WIRING into runtime.py's dispatch() this round.
+        # Flipped rather than deleted -- the history is that this file was
+        # readiness-only from round iok5z1 until this round.
         runtime_source = (SRC_ROOT / "runtime.py").read_text(
             encoding="utf-8")
-        self.assertNotIn("lane_b_mob_ai_tick", runtime_source)
+        self.assertIn("lane_b_mob_ai_tick", runtime_source)
+        self.assertIn(
+            "lane_b_mob_ai_tick.maybe_tick(", runtime_source,
+            "the wiring must call maybe_tick(), not just import the module")
 
-    def test_this_module_is_the_only_importer_of_itself_in_src(self):
-        # Mirrors mob_ai_scheduler's own "who imports me" tripwire, pointed
-        # at this file: nothing else under src/ should reach into this
-        # wrapper directly (a second caller would be a second, undocumented
-        # call site this round did not review).
+    def test_this_module_and_runtime_py_are_the_only_importers_in_src(self):
+        # WAS test_this_module_is_the_only_importer_of_itself_in_src
+        # (asserted the importer list was empty). COO-DECISION 20260901_0145
+        # named runtime.py as the one call site this round wires -- a SECOND
+        # importer beyond that would still be a second, undocumented call
+        # site this round did not review, so the guard stays, just widened
+        # by exactly one named file.
         importers = []
         for path in SRC_ROOT.rglob("*.py"):
             if path.name == "lane_b_mob_ai_tick.py":
@@ -171,7 +181,7 @@ class WiringLineTests(unittest.TestCase):
                         alias.name for alias in node.names]
                 if any("lane_b_mob_ai_tick" in name for name in names):
                     importers.append(str(path.relative_to(SRC_ROOT)))
-        self.assertEqual(sorted(set(importers)), [])
+        self.assertEqual(sorted(set(importers)), ["runtime.py"])
 
 
 if __name__ == "__main__":
