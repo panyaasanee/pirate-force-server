@@ -412,16 +412,24 @@ class TestTheAnswer(unittest.TestCase):
         # sequence), the same single-module move.  Also wired AND its
         # scene's door opened in the same round that built it, same shape
         # as bg0007.
-        # 35 -> 36, 26 -> 27, 25 -> 26 on 2026-08-31 (LANE-A, this round,
-        # 68mm02): world_population_bg0011.py, the Bg0011 (Deep Sea Temple
-        # floor 2) census (ninth door of the same COO-DECISION
+        # 35 -> 36, 26 -> 27, 25 -> 26 on 2026-08-31 (LANE-A, round 68mm02):
+        # world_population_bg0011.py, the Bg0011 (Deep Sea Temple floor 2)
+        # census (ninth door of the same COO-DECISION 2026-08-30T14:41+07:00
+        # sequence), the same single-module move.  Also wired AND its
+        # scene's door opened in the same round that built it, same shape
+        # as bg0009 -- this is the elevated-risk row (the_two_interiors,
+        # shared only with scene 10).
+        # 36 -> 37, 27 -> 28, 26 -> 27 on 2026-09-01 (LANE-A, this round,
+        # yfbqmg): world_population_bg4001.py, the Bg4001 (Navy Training
+        # Camp) census (TENTH AND LAST door of the same COO-DECISION
         # 2026-08-30T14:41+07:00 sequence), the same single-module move.
         # Also wired AND its scene's door opened in the same round that
-        # built it, same shape as bg0009 -- this is the elevated-risk row
-        # (the_two_interiors, shared only with scene 10).
-        self.assertEqual(counts["src_actor_stream_call_sites"], 36)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 27)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 26)
+        # built it, same shape as bg0011 -- UNLIKE bg0011, NOT an
+        # elevated-risk row.  Every one of the ten doors round 12lyda
+        # surveyed is now open.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 37)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 28)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 27)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

@@ -115,20 +115,29 @@ VOODOO_ISLAND = 7
 # added, eighth of the ten doors, built+wired+opened in one round -- no
 # elevated landing-geometry flag on this row (checked, not assumed).
 DEATH_CITY_SEA = 9
-# ADDED this round (LANE-A, 68mm02): opened the same round this constant
-# was added, ninth of the ten doors, built+wired+opened in one round --
-# DOES carry an elevated landing-geometry flag (the_two_interiors), shared
-# only with scene 10 -- see GT-179.
+# ADDED round 68mm02 (LANE-A): opened the same round this constant was
+# added, ninth of the ten doors, built+wired+opened in one round -- DOES
+# carry an elevated landing-geometry flag (the_two_interiors), shared only
+# with scene 10 -- see GT-179.
 DEEP_SEA_TEMPLE_FLOOR2 = 11
+# ADDED this round (LANE-A, yfbqmg): opened the same round this constant
+# was added, TENTH AND LAST of the ten doors, built+wired+opened in one
+# round -- does NOT carry an elevated landing-geometry flag (checked, not
+# assumed) -- see GT-180.  With this constant, every one of the ten doors
+# round 12lyda surveyed is open at login.
+NAVY_TRAINING_CAMP = 130
 # Open at login and n_SAVE 0: the stage that proves the second condition is
 # doing work rather than decorating the sentence.
 STAGE_OPEN_BUT_NOT_A_HOME = 278
 # Pinned, shut at login: one of the ten marker scenes round ga91m5
-# addressed.  MOVED this round from scene 11 (Deep Sea Temple floor 2,
-# which opened this round -- see DEEP_SEA_TEMPLE_FLOOR2 above) to scene 130
-# (Navy Training Camp), the only door of the ten this lane has not yet
-# opened.
-SHUT_AT_LOGIN = 130
+# addressed.  MOVED this round (yfbqmg) from scene 130 (Navy Training Camp,
+# which opened this round -- see NAVY_TRAINING_CAMP above -- the TENTH AND
+# LAST of the original ten doors) to scene 17: PERMANENT rather than
+# another door this lane will eventually open (17 is the M2 sea-scene
+# family, out of this lane's current door-sequence scope entirely -- same
+# scene several sibling test files already use as a stable barred
+# example).
+SHUT_AT_LOGIN = 17
 
 
 def _legacy():
@@ -150,6 +159,38 @@ def _registry_with_door(work: Path, scene_id: int, allowed: bool):
         if row["n_id"] == scene_id:
             row["login_entry_allowed"] = bool(allowed)
     path = work / f"registry_{scene_id}_{'open' if allowed else 'shut'}.json"
+    path.write_text(
+        json.dumps(raw, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
+    return world_scene_travel.load_scene_registry(path), path
+
+
+def _registry_with_door_and_save(
+    work: Path, scene_id: int, allowed: bool, n_save: int,
+):
+    """A loaded registry whose ``scene_id`` row carries BOTH ``allowed`` and
+    ``n_save`` at once, in one temp file.
+
+    ADDED this round (yfbqmg): every registry row this file could
+    previously reuse as-is for ``SHUT_AT_LOGIN`` (n_SAVE already 1, door
+    already shut) belonged to the ten-doors set -- and with scene 130
+    (Navy Training Camp) opening this round, EVERY row the committed
+    registry carries with n_SAVE 1 is now also login_entry_allowed true (17
+    and 126, the only remaining shut rows, both carry n_SAVE 0).  So
+    SHUT_AT_LOGIN's own tests can no longer take "n_SAVE 1" as a fact of
+    the committed file for whichever scene they pick; this helper builds
+    that fact synthetically instead, the same way ``_registry_with_door``
+    and ``_registry_with_save_flag`` each build one half.
+    """
+    raw = json.loads(
+        world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii"))
+    for row in raw["destinations"]:
+        if row["n_id"] == scene_id:
+            row["login_entry_allowed"] = bool(allowed)
+            row["table_row"]["n_SAVE"] = n_save
+    path = work / (
+        f"registry_{scene_id}_{'open' if allowed else 'shut'}_"
+        f"nsave_{n_save}.json"
+    )
     path.write_text(
         json.dumps(raw, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return world_scene_travel.load_scene_registry(path), path
@@ -191,20 +232,23 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # same basis, also n_SAVE 1.
         # UPDATED round ir0lpw: scene 9 (DEATH_CITY_SEA) opened eighth,
         # same basis, also n_SAVE 1.
-        # UPDATED this round (68mm02): scene 11 (DEEP_SEA_TEMPLE_FLOOR2)
-        # opened ninth, same basis, also n_SAVE 1 -- the elevated-risk row
+        # UPDATED round 68mm02: scene 11 (DEEP_SEA_TEMPLE_FLOOR2) opened
+        # ninth, same basis, also n_SAVE 1 -- the elevated-risk row
         # (the_two_interiors, shared only with scene 10).
+        # UPDATED this round (yfbqmg): scene 130 (NAVY_TRAINING_CAMP) opened
+        # TENTH AND LAST, same basis, also n_SAVE 1, NOT elevated-risk.
         self.assertEqual(
             (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET, EVIL_PORT,
              OCEAN_WALLED_CITY, VOODOO_ISLAND, SILVER_HARBOUR,
-             DEATH_CITY_SEA, DEEP_SEA_TEMPLE, DEEP_SEA_TEMPLE_FLOOR2, VOLCANO),
+             DEATH_CITY_SEA, DEEP_SEA_TEMPLE, DEEP_SEA_TEMPLE_FLOOR2, VOLCANO,
+             NAVY_TRAINING_CAMP),
             wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
         for scene_id in (HOME, SCENE_2, SPICE_PARADISE, SLAVE_MARKET,
                           EVIL_PORT, OCEAN_WALLED_CITY, VOODOO_ISLAND,
                           SILVER_HARBOUR, DEATH_CITY_SEA, DEEP_SEA_TEMPLE,
-                          DEEP_SEA_TEMPLE_FLOOR2, VOLCANO):
+                          DEEP_SEA_TEMPLE_FLOOR2, VOLCANO, NAVY_TRAINING_CAMP):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -262,29 +306,51 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # one this test opens -- and SHUT_AT_LOGIN itself moved from scene
         # 9 to scene 11 (Deep Sea Temple floor 2, still shut) for the same
         # reason.
-        # UPDATED this round (68mm02): the base registry now also already
+        # UPDATED round 68mm02: the base registry now also already
         # admits scene 11 (DEEP_SEA_TEMPLE_FLOOR2), one more digit that is
         # not the one this test opens -- and SHUT_AT_LOGIN itself moved
         # from scene 11 to scene 130 (Navy Training Camp, still shut) for
         # the same reason.
+        # UPDATED this round (yfbqmg): the base registry now also already
+        # admits scene 130 (NAVY_TRAINING_CAMP), one more digit that is not
+        # the one this test opens -- every one of the original ten doors is
+        # now open, so SHUT_AT_LOGIN moved from scene 130 to scene 17 (a
+        # ship at sea, the M2 sea-scene family, permanently out of this
+        # lane's current door-sequence scope) for the same reason.
         with tempfile.TemporaryDirectory() as work:
-            opened, _ = _registry_with_door(
-                Path(work), SHUT_AT_LOGIN, allowed=True)
+            # SHUT_AT_LOGIN (17) carries n_SAVE 0 in the committed registry
+            # (unlike every earlier SHUT_AT_LOGIN choice, which always
+            # belonged to the ten-doors set and so already carried n_SAVE
+            # 1) -- ``_registry_with_door_and_save`` forces both flags at
+            # once so this test still proves the SAME thing (a door open
+            # alone is not enough to withhold admission if n_SAVE also
+            # reads 1).
+            opened, _ = _registry_with_door_and_save(
+                Path(work), SHUT_AT_LOGIN, allowed=True, n_save=1)
             line = wfa.console_line(opened)
-            # SHUT_AT_LOGIN is now 130, which sorts AFTER VOLCANO (14) --
-            # unlike scene 11's own former slot between DEEP_SEA_TEMPLE
-            # and VOLCANO.
+            # SHUT_AT_LOGIN is now 17, which sorts (ascending, per
+            # ``admitted_scene_ids``' own docstring) BEFORE
+            # NAVY_TRAINING_CAMP (130) -- unlike scene 130's own former
+            # slot right after VOLCANO (14) with nothing bigger already
+            # admitted.
             self.assertIn(
                 f"WORLD_FACTION_ADMISSION scenes=1,2,{SPICE_PARADISE},4,"
                 f"{EVIL_PORT},{OCEAN_WALLED_CITY},{VOODOO_ISLAND},"
                 f"{SILVER_HARBOUR},{DEATH_CITY_SEA},{DEEP_SEA_TEMPLE},"
-                f"{DEEP_SEA_TEMPLE_FLOOR2},14,{SHUT_AT_LOGIN}",
+                f"{DEEP_SEA_TEMPLE_FLOOR2},14,{SHUT_AT_LOGIN},"
+                f"{NAVY_TRAINING_CAMP}",
                 line)
+            # UPDATED this round (yfbqmg): SHUT_AT_LOGIN (17) sorts BEFORE
+            # NAVY_TRAINING_CAMP (130, the largest already-admitted id, the
+            # first round this has been true rather than SHUT_AT_LOGIN
+            # itself trailing everything) -- so the negative control below
+            # checks for the UN-opened line's own trailing shape (ending at
+            # 130, no 17) rather than a bare "...,14 " tail.
             self.assertNotIn(
                 f"scenes=1,2,{SPICE_PARADISE},4,{EVIL_PORT},"
                 f"{OCEAN_WALLED_CITY},{VOODOO_ISLAND},{SILVER_HARBOUR},"
                 f"{DEATH_CITY_SEA},{DEEP_SEA_TEMPLE},{DEEP_SEA_TEMPLE_FLOOR2},"
-                f"14 ", line)
+                f"14,{NAVY_TRAINING_CAMP} ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):
@@ -311,10 +377,20 @@ class TheTwoConditionsTests(unittest.TestCase):
             wfa.refusal_reason(STAGE_OPEN_BUT_NOT_A_HOME))
 
     def test_n_save_one_alone_does_not_admit_a_scene_shut_at_login(self):
-        # Scene 3 carries n_SAVE 1 already; only the door is shut.
+        # UPDATED this round (yfbqmg): unlike every earlier SHUT_AT_LOGIN
+        # choice (always one of the ten doors, so n_SAVE was already 1 on
+        # the committed registry), scene 17 carries n_SAVE 0 for real --
+        # every committed row with n_SAVE 1 is login_entry_allowed true now
+        # that all ten doors are open.  Built synthetically instead of
+        # read off the committed file, via the same
+        # ``_registry_with_door_and_save`` helper the two tests below use,
+        # so this still proves the same property: n_SAVE 1 alone (door
+        # still shut) does not admit.
+        bent, _ = _registry_with_door_and_save(
+            self.work, SHUT_AT_LOGIN, allowed=False, n_save=1)
         self.assertEqual(
-            1, world_scene_travel.destination(SHUT_AT_LOGIN).save_flag)
-        self.assertFalse(wfa.admits(SHUT_AT_LOGIN))
+            1, world_scene_travel.destination(SHUT_AT_LOGIN, bent).save_flag)
+        self.assertFalse(wfa.admits(SHUT_AT_LOGIN, bent))
 
     def test_shutting_the_volcano_door_takes_the_admission_back(self):
         shut, _ = _registry_with_door(self.work, VOLCANO, allowed=False)
@@ -326,8 +402,14 @@ class TheTwoConditionsTests(unittest.TestCase):
 
         If this fails, ``admits`` has grown a private list of scene ids and
         the registry has stopped being the gate.
+
+        SHUT_AT_LOGIN (17) carries n_SAVE 0 for real, so both flags are
+        forced via ``_registry_with_door_and_save`` -- see this class's own
+        ``test_n_save_one_alone_does_not_admit_a_scene_shut_at_login`` for
+        why a real committed row no longer serves this purpose.
         """
-        opened, _ = _registry_with_door(self.work, SHUT_AT_LOGIN, allowed=True)
+        opened, _ = _registry_with_door_and_save(
+            self.work, SHUT_AT_LOGIN, allowed=True, n_save=1)
         self.assertTrue(wfa.admits(SHUT_AT_LOGIN, opened))
         self.assertIn(SHUT_AT_LOGIN, wfa.admitted_scene_ids(opened))
 

@@ -118,6 +118,7 @@ SPICE_PARADISE_SCENE_ID = 3
 VOODOO_ISLAND_SCENE_ID = 7
 DEATH_CITY_SEA_SCENE_ID = 9
 DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID = 11
+NAVY_TRAINING_CAMP_SCENE_ID = 130
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
@@ -225,6 +226,20 @@ CENSUS_SOURCE = "bg0001_census"
 # (shared only with scene 10, already open on ``COO-DECISION
 # 20260831T10:42+07:00``'s own precedent) - see this round's own round file
 # for the reasoning, not repeated here.
+# WIDENED 2026-09-01 (round yfbqmg, LANE-A) with the THIRTEENTH and LAST
+# composer of the original ten: "bg4001_roster" is
+# ``world_population_bg4001.py``'s own name for itself, the tenth and
+# final door of the ten surveyed in round ``12lyda`` (42 native
+# placements, the only one still shut after scenes 4, 5, 6, 8, 9, 10, 11
+# and 3, 7 opened).  Same compressed build+wire+open-in-one-pass shape
+# rounds ``l03cgh``/``fx0007``/``p4wire``/``p7wm17``/``78zayw``/``ir0lpw``/
+# ``68mm02`` set for scenes 5, 6, 8, 3, 7, 9 and 11; see
+# ``scenarios/world_scene_registry_001.json``'s own
+# ``login_entry_allowed_because`` on this row for the D1/D2/D3 check.
+# UNLIKE scene 11's row, this row does NOT carry the elevated
+# ``the_two_interiors`` landing-geometry flag - see
+# ``world_bg4001_identity.py``'s own docstring for the measurement.  WITH
+# THIS ENTRY, EVERY ONE OF THE TEN DOORS ROUND ``12lyda`` SURVEYED IS OPEN.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
@@ -238,6 +253,7 @@ CENSUS_SOURCES = {
     SILVER_HARBOUR_SCENE_ID: "bg0008_roster",
     DEEP_SEA_TEMPLE_SCENE_ID: "bg0010_roster",
     DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID: "bg0011_roster",
+    NAVY_TRAINING_CAMP_SCENE_ID: "bg4001_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 

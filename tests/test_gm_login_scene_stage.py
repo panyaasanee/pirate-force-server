@@ -264,13 +264,15 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # Island) opened seventh, same queue, same compressed shape.
         # IT GREW AN EIGHTH TIME, ROUND ir0lpw.  Scene 9 (Death City Sea)
         # opened eighth, same queue, same compressed shape.
-        # IT GREW A NINTH TIME, THIS ROUND (68mm02).  Scene 11 (Deep Sea
-        # Temple floor 2) opened ninth, same queue, same compressed shape --
-        # the elevated-risk row (the_two_interiors, shared only with scene
-        # 10).  The only door of the original ten left (130) is UNCHANGED
-        # and this tuple otherwise still says so.
+        # IT GREW A NINTH TIME, ROUND 68mm02.  Scene 11 (Deep Sea Temple
+        # floor 2) opened ninth, same queue, same compressed shape -- the
+        # elevated-risk row (the_two_interiors, shared only with scene 10).
+        # IT GREW A TENTH AND LAST TIME, THIS ROUND (yfbqmg).  Scene 130
+        # (Navy Training Camp) opened tenth, same queue, same compressed
+        # shape, NOT elevated-risk.  Every one of the original ten doors is
+        # now open, so this tuple has nothing left to grow into.
         self.assertEqual(
-            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 278, 997),
+            (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 130, 278, 997),
             login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():

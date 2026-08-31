@@ -101,17 +101,18 @@ RULE_1_SCENES_ADDED_THIS_ROUND = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 # opened sixth, same basis, same compressed shape.  UPDATED round 78zayw:
 # scene 7 (Voodoo Island) opened seventh, same basis, same compressed
 # shape.  UPDATED round ir0lpw: scene 9 (Death City Sea) opened eighth,
-# same basis, same compressed shape.  UPDATED this round (68mm02): scene
-# 11 (Deep Sea Temple floor 2) opened ninth, same basis, same compressed
-# shape -- the elevated-risk row (the_two_interiors, shared only with
-# scene 10).  The one below is UNCHANGED and still carries
-# login_entry_allowed false -- used by every ADMISSION test in
-# ``TheDoorIsShutAndThisIsTheLoadBearingTest``, which would otherwise
-# assert something false of scenes 3/4/5/6/7/8/9/10/11 and fail for the
-# right reason.
+# same basis, same compressed shape.  UPDATED round 68mm02: scene 11 (Deep
+# Sea Temple floor 2) opened ninth, same basis, same compressed shape --
+# the elevated-risk row (the_two_interiors, shared only with scene 10).
+# UPDATED this round (yfbqmg): scene 130 (Navy Training Camp) opened
+# TENTH AND LAST, same basis, same compressed shape, NOT an elevated-risk
+# row.  RULE_1_SCENES_STILL_SHUT is now EMPTY -- every one of the ten
+# doors this file names is open at login.  Kept as a tuple (not deleted)
+# so every loop below that iterates it still runs, vacuously, rather than
+# needing to be rewritten scene-by-scene one more time.
 RULE_1_SCENES_STILL_SHUT = tuple(
     n_id for n_id in RULE_1_SCENES_ADDED_THIS_ROUND
-    if n_id not in (3, 4, 5, 6, 7, 8, 9, 10, 11))
+    if n_id not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 130))
 
 # The three marker scenes that were already pinned, each by its own ruling.
 MARKER_SCENES_ALREADY_PINNED = (1, 2, 14)
@@ -570,6 +571,40 @@ class TheDoorIsShutAndThisIsTheLoadBearingTest(unittest.TestCase):
         )
         self.assertEqual(result.destination.n_id, 11)
         self.assertEqual(result.position.scene_id, 11)
+
+    def test_the_tenth_and_last_scene_that_opened_is_no_longer_in_this_set(
+        self,
+    ):
+        """Scene 130's own half of the pair, ADDED this round (yfbqmg).
+
+        Same shape as the nine tests above, driven at scene 130 (Navy
+        Training Camp), the TENTH AND LAST of the ten doors this lane has
+        opened -- built, wired and opened in one round, same compressed
+        shape as scenes 5's, 6's, 8's, 3's, 7's, 9's and 11's.  UNLIKE
+        scene 11's row, this one does NOT carry the elevated
+        ``the_two_interiors`` landing-geometry flag (checked, not assumed,
+        in the module that built it: n_CANGLIDE 1, n_LIMIT_HEIGHT 0, not
+        the (0, 0) pair that flag names).  With this test green,
+        ``RULE_1_SCENES_STILL_SHUT`` is empty and every one of the ten
+        doors round ``12lyda`` surveyed is open at login.
+        """
+        self.assertNotIn(130, RULE_1_SCENES_STILL_SHUT)
+        self.assertEqual(RULE_1_SCENES_STILL_SHUT, ())
+        rows = _raw_rows()
+        self.assertIs(rows[130]["login_entry_allowed"], True)
+        self.assertIs(
+            world_scene_travel.destination(
+                130, self.registry).login_entry_allowed,
+            True)
+        self.assertTrue(login_scene_stage.login_entry_is_pinned(130))
+        self.assertIn(130, login_scene_stage.stageable_scene_ids())
+        result = world_scene_entry.resolve_entry(
+            self._stored_row(130),
+            registry=self.registry,
+            emit=lambda line: None,
+        )
+        self.assertEqual(result.destination.n_id, 130)
+        self.assertEqual(result.position.scene_id, 130)
 
     def test_a_scene_with_no_marker_and_no_ruling_is_refused_differently(self):
         # The control: rule 1 reached the marker scenes and NOTHING else, and

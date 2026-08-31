@@ -386,13 +386,14 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # round p4wire, fifth door, same shape; 3 joined it in round p7wm17,
         # sixth door, same shape; 7 joined it in round 78zayw, seventh door,
         # same shape; 9 joined it in round ir0lpw, eighth door, same shape;
-        # 11 joined it this round (68mm02), ninth door, same shape --
-        # elevated-risk row (the_two_interiors, shared only with scene 10).
-        # Scene 17, the id this test actually drives, is still barred and
-        # still refused either way.
+        # 11 joined it in round 68mm02, ninth door, same shape --
+        # elevated-risk row (the_two_interiors, shared only with scene 10);
+        # 130 joined it this round (yfbqmg), TENTH AND LAST door, same
+        # shape, NOT elevated-risk.  Scene 17, the id this test actually
+        # drives, is still barred and still refused either way.
         self.assertIn(
-            "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 278, "
-            "997)",
+            "stageable=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 126, 130, "
+            "278, 997)",
             console)
 
         # And the operator's file is untouched: refusing to ACT on an entry

@@ -397,6 +397,28 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "the arrival census; there is simply nothing in field_mobs for it "
         "to recompose against yet."
     ),
+    # ADDED ROUND yfbqmg (LANE-A), same shape as the scene 3/5/6/7/8/9/11
+    # entries above: scene 130 entered ``world_scene_travel.CENSUS_SOURCES``
+    # this round (built, wired AND opened in one round, the TENTH AND LAST
+    # of the original ten doors).  Verified rather than assumed:
+    # ``field_mobs.scene_for_scene_id(130)`` also returns ``None`` -- scene
+    # 130 is in neither of field_mobs' two tables either, so the identical
+    # reasoning applies verbatim.  This composer IS live the same round:
+    # scene 130's login_entry_allowed is true as of this commit, so a
+    # player CAN reach this scene's arrival census -- they still reach no
+    # combat roster and no strike, because none exists for this scene in
+    # field_mobs, the same fact the scene 3/5/6/7/8/9/11 entries record.
+    # UNLIKE scene 11, this is NOT an elevated-risk row -- see
+    # ``world_bg4001_identity.py``'s own docstring.
+    130: (
+        "Bg4001 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered and opened this round); "
+        "field_mobs names no scene 130 at all, so it has no combat roster "
+        "and no strike can reach a recompose.  This composer IS live "
+        "(scene 130's login_entry_allowed is true), so a player can reach "
+        "the arrival census; there is simply nothing in field_mobs for it "
+        "to recompose against yet."
+    ),
 }
 
 
