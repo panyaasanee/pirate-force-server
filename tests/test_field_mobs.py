@@ -849,17 +849,20 @@ class FieldMobTests(unittest.TestCase):
             # _SCENE_TABLE_MODULES, not called from runtime.py/app.py (grepped
             # for both, zero hits) -- wiring it into a live scene is layer 2/3,
             # a separate CORE-REQUEST this round does not send.
-            # ROUND 6cm6ry adds mob_combat_bg0015_gap.py: reads Bg0002's live
-            # roster (field_mobs.roster_for_scene_id) and Bg0015's hostile
-            # roster (through field_mob_hostile_bg0015, not a second raw
-            # import) to measure the combat-ledger gap the census-only
-            # CORE-REQUEST leaves open.  IT DISPATCHES NOTHING: no runtime.py/
-            # app.py call site, does not touch _SCENE_TABLE_MODULES -- see the
-            # module's own NONCLAIM.
+            # ROUND 6cm6ry adds mob_combat_bg0015_gates.py (~~mob_combat_
+            # bg0015_gap.py~~, renamed inside the round after pf-adversary
+            # measured that the missing thing is the ROSTER, not the
+            # ledger): reads Bg0002's live roster
+            # (field_mobs.roster_for_scene_id), live_scenes() and
+            # OWNER_REFUSED_PLACEMENTS to report which of the four gates
+            # between scene 14's already-shipping actors and combat are
+            # shut.  IT DISPATCHES NOTHING: no runtime.py/app.py call site,
+            # does not touch _SCENE_TABLE_MODULES -- see the module's own
+            # NONCLAIM.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",
-             "mob_combat.py", "mob_combat_bg0015_gap.py", "mob_death.py",
+             "mob_combat.py", "mob_combat_bg0015_gates.py", "mob_death.py",
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
