@@ -143,6 +143,17 @@ env:
   # queued runner can wait, and killing a PR whose gate is merely slow would be
   # this file destroying the work it exists to land.
   PF_STALE_HOURS: '6'
+  # How long a DRAFT specifically may sit before the reaper tries to un-stick
+  # it with its own token, separate from and much shorter than PF_STALE_HOURS.
+  # [KA1A-RECHECK 20260830_2151+07:00]: a lane round is under an hour, so a
+  # draft still open past this many minutes is either a dead round or the
+  # same agent-token 403 on un-drafting that pf_bridge already works around
+  # (pf_bridge/.github/workflows/merge-claude-pr.yml:105, same value, same
+  # reasoning: "recovers within the same hourly cycle").  This does NOT move
+  # the close bound below -- PF_STALE_HOURS is untouched, on purpose, because
+  # this repository's gate takes tens of minutes and a queued runner can
+  # wait; only the "try `gh pr ready`" attempt moves earlier.
+  PF_STALE_MINUTES: '45'
   # The job inside gate-windows.yml whose conclusion IS the gate verdict.  If
   # that job is ever renamed, this must be renamed with it, in the same commit.
   PF_GATE_JOB: 'gate'
@@ -623,7 +634,8 @@ jobs:
 
           NOW=$(date -u +%s)
           LIMIT=$(( PF_STALE_HOURS * 3600 ))
-          echo "reaping eligible claude/* pull requests older than ${PF_STALE_HOURS}h"
+          LIMIT2=$(( PF_STALE_MINUTES * 60 ))
+          echo "reaping eligible claude/* pull requests older than ${PF_STALE_HOURS}h (draft ready-attempt at ${PF_STALE_MINUTES}m)"
 
           OPEN=$(api "repos/${REPO}/pulls?state=open&per_page=100" | jq -r '.[].number')
           if [ -z "$OPEN" ]; then echo "no open pull requests"; exit 0; fi
@@ -651,6 +663,24 @@ jobs:
             AGE=$(( NOW - CSEC ))
             echo ""
             echo "--- #${PR} ${HEAD_REF} draft=${DRAFT} age=$(( AGE / 3600 ))h ---"
+
+            # Early un-stick attempt for a stale DRAFT, at PF_STALE_MINUTES
+            # rather than PF_STALE_HOURS -- see the env block above for why.
+            # This can fire on every schedule/workflow_run tick once a draft
+            # crosses 45 minutes; a successful `gh pr ready` is a no-op on
+            # later ticks because the PR is then non-draft and this branch is
+            # skipped.  Does not close anything and does not touch the
+            # PF_STALE_HOURS bound below.
+            READY_ATTEMPTED=""
+            if [ "$DRAFT" = "true" ] && [ "$AGE" -ge "$LIMIT2" ]; then
+              READY_ATTEMPTED=yes
+              if gh pr ready "$PR" --repo "$REPO" 2>&1 | sed 's/^/  ready> /'; then
+                echo "  stale draft (>${PF_STALE_MINUTES}m) -> marked ready; the next event runs decide normally"
+                continue
+              fi
+              echo "  could not mark ready at ${PF_STALE_MINUTES}m (token refused it too) - leaving for the ${PF_STALE_HOURS}h close bound"
+            fi
+
             [ "$AGE" -ge "$LIMIT" ] || { echo "  young enough - left alone"; continue; }
 
             # [MEASURED, 2026-08-30, pf_bridge#507, ka1-A]: a round can finish
@@ -683,7 +713,10 @@ jobs:
             # until then this is strictly no WORSE than the pre-patch
             # behavior (a reversible "try ready" ahead of an unconditional
             # close), which is why it ships anyway.
-            READY_ATTEMPTED=""
+            # READY_ATTEMPTED may already be "yes" from the PF_STALE_MINUTES
+            # attempt above; this is a final retry immediately before the
+            # close path below, in case the owner clicked "Ready for review"
+            # or a permissions fix landed between the 45m attempt and now.
             if [ "$DRAFT" = "true" ]; then
               READY_ATTEMPTED=yes
               if gh pr ready "$PR" --repo "$REPO" 2>&1 | sed 's/^/  ready> /'; then
