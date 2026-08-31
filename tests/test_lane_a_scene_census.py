@@ -86,6 +86,7 @@ from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
 from pirateforce_foundation import world_population_bg0005  # noqa: E402
 from pirateforce_foundation import world_population_bg0006  # noqa: E402
+from pirateforce_foundation import world_population_bg0008  # noqa: E402
 from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
@@ -134,6 +135,13 @@ EVIL_PORT_ROSTER_COUNT = 87
 # ``OceanWalledCityRegistrationTests`` below for the test that pins that fact.
 OCEAN_WALLED_CITY = 6
 OCEAN_WALLED_CITY_ROSTER_COUNT = 66
+# ADDED round p4wire (LANE-A): bg0008's own scene id and roster size, built,
+# wired AND OPENED in one round (COO-DECISION 20260830_1441's queue, fifth
+# door) -- same compressed shape rounds l03cgh/fx0007 used for scenes 5 and
+# 6 -- see ``SilverHarbourRegistrationTests`` below for the test that pins
+# that fact.
+SILVER_HARBOUR = 8
+SILVER_HARBOUR_ROSTER_COUNT = 69
 
 
 def _legacy():
@@ -1271,6 +1279,89 @@ class OceanWalledCityRegistrationTests(unittest.TestCase):
             self.assertEqual(
                 len(unshipped),
                 len(world_population_bg0006.unresolved_lines()))
+            for line in result.console_lines:
+                with self.subTest(line=line[:40]):
+                    line.encode("ascii")
+
+
+class SilverHarbourRegistrationTests(unittest.TestCase):
+    """Scene 8's own half of this round: built, wired AND OPENED, round p4wire.
+
+    ADDED round p4wire (LANE-A), same shape as ``OceanWalledCityRegistrationTests``
+    (round fx0007): build/wire/open all land in this one round -- see this
+    round's own round file for why (the existing generic
+    ``ComposerContractTests`` already assumed every wired scene in this lane
+    is open, since scenes 4/5/6/10/14 all were by the time this round
+    started).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(SILVER_HARBOUR))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+
+    def test_the_module_registered_a_composer_for_scene_8(self):
+        composer = lane_hooks.scene_census_composer(SILVER_HARBOUR)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_the_real_registry_now_composes_and_that_is_the_round(self):
+        """WHAT THE FILE ON MAIN DOES TODAY, STATED AS AN ASSERTION.
+
+        Same reasoning as ``OceanWalledCityRegistrationTests``'s own version
+        of this test: a silent revert of this boolean should be caught by a
+        red test, not discovered in an attended round that boots into a
+        refusal.
+        """
+        destination = world_scene_travel.destination(
+            SILVER_HARBOUR, world_scene_travel.load_scene_registry())
+        self.assertTrue(destination.login_entry_allowed)
+        result = lane_a._compose_for_scene(SILVER_HARBOUR)(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=SILVER_HARBOUR,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_count, SILVER_HARBOUR_ROSTER_COUNT)
+
+    def test_opened_in_a_temp_registry_it_composes_the_full_roster(self):
+        """The other half: the wiring itself works once a door opens.
+
+        Never against the repository's file (see the module above this
+        test file borrows its temp-registry pattern from) - this proves the
+        PLUMBING is sound, driven independently of what the real registry
+        file happens to say this round.
+        """
+        with tempfile.TemporaryDirectory() as work:
+            registry, _ = _registry_with_door_open(
+                Path(work), SILVER_HARBOUR)
+            result = lane_a._compose_for_scene(SILVER_HARBOUR)(
+                legacy=self.legacy,
+                anchor=self.anchor,
+                scene_id=SILVER_HARBOUR,
+                scene_entry_registry=registry,
+            )
+            self.assertIsNotNone(result)
+            self.assertEqual(
+                result.actor_count, SILVER_HARBOUR_ROSTER_COUNT)
+            self.assertTrue(
+                result.console_lines[0].startswith(
+                    "WORLD_POP_HANDOFF scene=8 "),
+                result.console_lines[0])
+            self.assertTrue(
+                any(line.startswith("WORLD_CENSUS_BG0008 ")
+                    for line in result.console_lines))
+            unshipped = [
+                line for line in result.console_lines
+                if line.startswith("BG0008_UNSHIPPED ")
+            ]
+            self.assertEqual(
+                len(unshipped),
+                len(world_population_bg0008.unresolved_lines()))
             for line in result.console_lines:
                 with self.subTest(line=line[:40]):
                     line.encode("ascii")

@@ -256,8 +256,10 @@ class OnlyScenesTheLoginPathCanEnterTests(_Case):
         # third, same queue, built+wired+opened in one round.
         # IT GREW A FOURTH TIME, ROUND fx0007.  Scene 6 (Ocean Walled City)
         # opened fourth, same queue, same compressed shape.
+        # IT GREW A FIFTH TIME, ROUND p4wire.  Scene 8 (Silver Harbour)
+        # opened fifth, same queue, same compressed shape.
         self.assertEqual(
-            (1, 2, 4, 5, 6, 10, 14, 278, 997),
+            (1, 2, 4, 5, 6, 8, 10, 14, 278, 997),
             login_scene_stage.stageable_scene_ids()
         )
         for scene_id in login_scene_stage.stageable_scene_ids():

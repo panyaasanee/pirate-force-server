@@ -73,7 +73,7 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 # door in the same queue.  Scene 5 joined it round l03cgh, third door,
 # built+wired+opened in one round.  Scene 6 joined it round fx0007, fourth
 # door, same shape.
-ADMISSIBLE_ON_DISK_TODAY = (1, 2, 4, 5, 6, 10, 14, 278, 997)
+ADMISSIBLE_ON_DISK_TODAY = (1, 2, 4, 5, 6, 8, 10, 14, 278, 997)
 # Named in the client's scene table (Spice Paradise) and pinned
 # `login_entry_allowed: false`, so the disk reading refuses it.
 BARRED_ON_DISK = 3

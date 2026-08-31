@@ -95,6 +95,10 @@ EVIL_PORT = 5
 # added, fourth of the ten doors, built+wired+opened in one round -- no
 # elevated landing-geometry flag on this row (checked, not assumed).
 OCEAN_WALLED_CITY = 6
+# ADDED round p4wire (LANE-A): opened the same round this constant was
+# added, fifth of the ten doors, built+wired+opened in one round -- no
+# elevated landing-geometry flag on this row (checked, not assumed).
+SILVER_HARBOUR = 8
 # ADDED round 3t75jw (LANE-A): opened the same round this constant was added,
 # second of the ten doors -- carries an elevated landing-geometry flag
 # (registry's own the_two_interiors) this file does not track; see GT-166.
@@ -158,14 +162,17 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # basis, also n_SAVE 1.
         # UPDATED round fx0007: scene 6 (OCEAN_WALLED_CITY) opened fourth,
         # same basis, also n_SAVE 1.
+        # UPDATED round p4wire: scene 8 (SILVER_HARBOUR) opened fifth, same
+        # basis, also n_SAVE 1.
         self.assertEqual(
             (HOME, SCENE_2, SLAVE_MARKET, EVIL_PORT, OCEAN_WALLED_CITY,
-             DEEP_SEA_TEMPLE, VOLCANO),
+             SILVER_HARBOUR, DEEP_SEA_TEMPLE, VOLCANO),
             wfa.admitted_scene_ids())
 
     def test_each_admitted_scene_says_yes_one_at_a_time(self):
         for scene_id in (HOME, SCENE_2, SLAVE_MARKET, EVIL_PORT,
-                          OCEAN_WALLED_CITY, DEEP_SEA_TEMPLE, VOLCANO):
+                          OCEAN_WALLED_CITY, SILVER_HARBOUR, DEEP_SEA_TEMPLE,
+                          VOLCANO):
             with self.subTest(scene_id=scene_id):
                 self.assertTrue(wfa.admits(scene_id))
 
@@ -207,17 +214,21 @@ class ThePredicateOnTheRealRegistryTests(unittest.TestCase):
         # UPDATED round fx0007: the base registry now also already admits
         # scene 6 (OCEAN_WALLED_CITY), one more digit that is not the one
         # this test opens.
+        # UPDATED round p4wire: the base registry now also already admits
+        # scene 8 (SILVER_HARBOUR), one more digit that is not the one this
+        # test opens.
         with tempfile.TemporaryDirectory() as work:
             opened, _ = _registry_with_door(
                 Path(work), SHUT_AT_LOGIN, allowed=True)
             line = wfa.console_line(opened)
             self.assertIn(
                 f"WORLD_FACTION_ADMISSION scenes=1,2,{SHUT_AT_LOGIN},4,"
-                f"{EVIL_PORT},{OCEAN_WALLED_CITY},{DEEP_SEA_TEMPLE},14",
+                f"{EVIL_PORT},{OCEAN_WALLED_CITY},{SILVER_HARBOUR},"
+                f"{DEEP_SEA_TEMPLE},14",
                 line)
             self.assertNotIn(
                 f"scenes=1,2,4,{EVIL_PORT},{OCEAN_WALLED_CITY},"
-                f"{DEEP_SEA_TEMPLE},14 ", line)
+                f"{SILVER_HARBOUR},{DEEP_SEA_TEMPLE},14 ", line)
 
 
 class TheTwoConditionsTests(unittest.TestCase):

@@ -386,7 +386,7 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # Scene 17, the id this test actually drives, is still barred and
         # still refused either way.
         self.assertIn(
-            "stageable=(1, 2, 4, 5, 6, 10, 14, 126, 278, 997)", console)
+            "stageable=(1, 2, 4, 5, 6, 8, 10, 14, 126, 278, 997)", console)
 
         # And the operator's file is untouched: refusing to ACT on an entry
         # is not licence to edit it.
