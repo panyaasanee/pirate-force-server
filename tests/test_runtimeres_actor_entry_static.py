@@ -389,9 +389,15 @@ class TestTheAnswer(unittest.TestCase):
         # sequence), the same single-module move.  Also wired AND its
         # scene's door opened in the same round that built it, same shape
         # as bg0006.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 31)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 22)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 21)
+        # 31 -> 32, 22 -> 23, 21 -> 22 on 2026-08-31 (LANE-A, this round):
+        # world_population_bg0003.py, the Bg0003 (Spice Paradise Island)
+        # census (sixth door of the same COO-DECISION 2026-08-30T14:41+07:00
+        # sequence), the same single-module move.  Also wired AND its
+        # scene's door opened in the same round that built it, same shape
+        # as bg0008.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 32)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 23)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 22)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

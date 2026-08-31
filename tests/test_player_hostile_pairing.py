@@ -99,10 +99,13 @@ class PlayerHostilePairingTests(unittest.TestCase):
             self.assertTrue(sent, f"identity {lo:#x}/{hi:#x}: {event}")
 
     def test_unaccepted_scene_fails_closed_to_untouched_production_bytes(self):
-        # Any scene the frozen serializer does not accept (not 1 or 2)
-        # must come back byte-identical to production, never a fabricated
-        # or half-composed frame.
-        character = _character(3, 0)
+        # Any scene ``world_faction_admission`` does not admit must come
+        # back byte-identical to production, never a fabricated or
+        # half-composed frame.  MOVED this round from scene 3 (Spice
+        # Paradise Island, which world_faction_admission now admits since
+        # its registry row opened this round) to scene 7 (Voodoo Island),
+        # still one of the four doors this lane has not yet opened.
+        character = _character(7, 0)
         pc, frame = self._production_start_game(character)
         out_pc, out_frame, sent, event = (
             php.compose_start_game_with_player_pairing(

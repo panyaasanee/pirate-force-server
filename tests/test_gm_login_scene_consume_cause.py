@@ -141,12 +141,15 @@ class CauseIsReachableTests(_Case):
         self.assertNotIn("stale", result.cause)
 
     def test_a_named_scene_that_is_simply_not_stageable_says_the_same(self):
-        # Scene 3 HAS a name in the 330-row catalog and is still not
+        # Scene 7 HAS a name in the 330-row catalog and is still not
         # admissible.  pf-adversary called this the ~99% typo and it was
-        # the case the inverted token sent to a pointless restart.
+        # the case the inverted token sent to a pointless restart.  MOVED
+        # this round from scene 3 (Spice Paradise Island, which opened this
+        # round) to scene 7 (Voodoo Island), still one of the four doors
+        # this lane has not yet opened.
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(
-            json.dumps({"gm_login_scene": {self.GM_ACCOUNT: 3}}),
+            json.dumps({"gm_login_scene": {self.GM_ACCOUNT: 7}}),
             encoding="utf-8",
         )
         self.assert_failed_with(self.consume(), C.CAUSE_SCENE_NOT_ADMISSIBLE)

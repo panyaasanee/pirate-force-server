@@ -259,9 +259,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 22,
-  "src_actor_stream_call_sites": 31,
-  "src_modules_building_actor_entries": 21,
+  "src_actor_entry_call_sites": 23,
+  "src_actor_stream_call_sites": 32,
+  "src_modules_building_actor_entries": 22,
   "src_modules_building_actor_entries_names": [
     "field_mobs.py",
     "hostile_hp_link_hypothesis.py",
@@ -278,6 +278,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "world_face_frame.py",
     "world_population.py",
     "world_population_bg0002.py",
+    "world_population_bg0003.py",
     "world_population_bg0004.py",
     "world_population_bg0005.py",
     "world_population_bg0006.py",
@@ -771,3 +772,35 @@ landing-geometry flag (`the_two_interiors`) scene 10's own row carries — check
 scene 6, this scene needed no THIRD unresolved-identity reason: every one of its 41 resolved identities
 is plain ASCII, checked directly rather than assumed from the absence of a drop reason naming it — see
 `world_bg0008_identity.py`'s own docstring.
+
+## NOTE — this round (2026-08-31, LANE-A): three live-mirror counts move for the Bg0003 census, built+wired+opened in one round
+
+Sixth door of the same `COO-DECISION 2026-08-30T14:41+07:00` sequence: of the five doors still shut
+after scenes 4, 5, 10, 6 and 8 opened, scene 3 (Bg0003, "Spice Paradise Island", 72 native placements)
+is the highest by native placement count. `world_population_bg0003.py`, the census half of that pair
+(`world_bg0003_identity.py` is the identity half and builds no actor entries itself), builds one entry
+and sends one carrier — the same single-module move `world_population_bg0008.py` made at round
+`p4wire`.
+
+`src_actor_entry_call_sites` moves **22 -> 23**, `src_actor_stream_call_sites` moves **31 -> 32**, and
+`src_modules_building_actor_entries` moves **21 -> 22** (the new name sorts in alphabetically between
+`world_population_bg0002.py` and `world_population_bg0004.py`). This is a NOTE rather than an erratum
+because no published sentence was wrong — the three moved numbers live in the `RUNTIMERES_COUNTS`
+block, a live mirror of a tool run that is expected to move when we write code; all three are re-pinned
+in the tool (`tools/pf_runtimeres_actor_entry_static.py`) and in the bridge-only test module
+(`tests/test_runtimeres_actor_entry_static.py`) in the same round, and the `guards` total stays **152**
+(three values re-pinned, no guard added or removed).
+
+**Wired AND opened, same round, the same compressed shape rounds `l03cgh`/`fx0007`/`p4wire` used for
+scenes 5, 6 and 8.** Registering `world_scene_travel.CENSUS_SOURCES`,
+`world_population_handoff.ROSTER_COMPOSERS`, and `lane_hooks/lane_a_scene_census.py`'s console reader,
+and flipping scene 3's registry row `login_entry_allowed: true`, all land in this same round, for the
+identical reason rounds `l03cgh`/`fx0007`/`p4wire` gave: the existing generic test
+(`tests/test_lane_a_scene_census.py::ComposerContractTests`) already assumed every scene this lane
+composes a census for is also open at login, since scenes 4, 5, 6, 8, 10 and 14 all were by the time
+this round started. See `scenarios/world_scene_registry_001.json`'s own `login_entry_allowed_because`
+on the scene-3 row for the D1/D2/D3 safety check this round ran, and this lane's own round file for the
+full account. Scene 3 does not carry the elevated landing-geometry flag (`the_two_interiors`) scenes 10
+and 11 carry — checked, not assumed. UNLIKE every sibling scene's crosswalk so far, nine of this
+scene's 41 resolved identities ship a multi-variant outfit and one of those nine lists NINE variants,
+the widest fan-out this lane has recorded — see `world_bg0003_identity.py`'s own docstring.
