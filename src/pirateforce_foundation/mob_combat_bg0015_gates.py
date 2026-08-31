@@ -1,7 +1,7 @@
 """LANE-B / BUILD-004+005: what registering Bg0015 would actually do,
 measured at HEAD by this lane, one measurement per function.
 
-THE HEADLINE, AND IT IS NOT "MONSTERS THAT CANNOT DIE".  With Bg0015
+~~THE HEADLINE, AND IT IS NOT "MONSTERS THAT CANNOT DIE".  With Bg0015
 registered in ``field_mobs._SCENE_TABLE_MODULES``, the FIRST swing in scene
 14 raises out of ``dispatch`` and unwinds the listener thread.  Measured
 end-to-end this round (real login -> StartGame -> scene 14 -> one
@@ -22,7 +22,23 @@ a few dozen lines lower -- it does not.  All 12 Bg0015 rows want
 additionally wants ``AI_WANDER 22``; see :func:`ai_rows_missing_for_scene14`.
 Clearing this needs a regenerated ``field_mob_ai_tables`` -- a miner run
 against bridge gamedata, which is not a code edit any lane can make from
-this tree.
+this tree.~~
+
+ROUND n8kq4r CLOSED THIS ONE GATE, AND ONLY THIS ONE.  ``tools/
+pf_mine_mob_ai_rows.py`` mines every scene roster this lane ships, and
+Bg0015's roster module simply was not in that union yet -- the AI ids
+above were never missing from the bridge's own committed tables, they were
+missing from what the tool had been asked to read.  Widening the union
+(same MOBS/AI_WANDER/AI_COMBAT digests, verified unchanged; nothing
+hand-typed) makes every one of Bg0015's AI_COMBAT/AI_WANDER ids resolve.
+``open_register_refusal_for_scene14()`` now returns ``None`` and
+``ai_rows_missing_for_scene14()`` now reports both ``missing_*`` sets
+empty -- see the test file for the exact before/after. THIS DOES NOT MOVE
+ANY OTHER GATE: Bg0015 is still absent from
+``field_mobs._SCENE_TABLE_MODULES`` (registration itself, still nobody's
+this round -- see below), no Bg0015 template has a death ruling (still
+owner-only), and scene 14 still has no recompose composer.  A player sees
+nothing different because of this file, exactly as before.
 
 WHY THIS FILE EXISTS AT ALL.  Earlier drafts of this round reported a
 "gate table" assembled from predicates that were already readable
@@ -47,8 +63,11 @@ chief/COO, asked in this round's letter, not answered here.
 WHAT IS MEASURED, AND WHAT IS ONLY INFERRED
 -------------------------------------------
 MEASURED (each has a test that fails if it stops being true):
-  * the raise above, end to end, and its cause
-    (:func:`ai_rows_missing_for_scene14`, :func:`open_register_refusal_for_scene14`);
+  * ~~the raise above, end to end, and its cause~~ -- round n8kq4r: the
+    mined AI table now carries every id Bg0015's rows cite, so this raise
+    no longer happens; :func:`ai_rows_missing_for_scene14` and
+    :func:`open_register_refusal_for_scene14` are still the functions that
+    prove it, they now prove the negative;
   * ``field_mobs`` ships no Bg0015 roster today (:func:`roster_gate_open`);
   * no Bg0015 template has a death ruling
     (:func:`templates_without_a_death_ruling`);
