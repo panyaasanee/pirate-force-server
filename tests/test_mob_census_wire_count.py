@@ -83,6 +83,48 @@ class _UncomparableFrameLegacy:
         return _UncomparableFrame()
 
 
+class _BaseExceptionLegacy:
+    """A legacy seam that raises a ``BaseException``, not an ``Exception``.
+
+    ``KeyboardInterrupt``/``SystemExit`` are not ``Exception`` subclasses in
+    Python, so ``except Exception`` never sees them.  This is the seam that
+    proves it: nothing in this module's own suite exercised it before this
+    test, even though the module docstring calls the distinction out by name
+    ("FAIL-CLOSED HERE MEANS NEVER RAISES AN Exception -- which is NARROWER
+    than never raises").
+    """
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def frame_pc(self, pc):
+        raise self._exc
+
+
+class _BaseExceptionEqFrame:
+    """A frame whose ``__eq__`` raises a ``BaseException``, not an
+    ``Exception``.  Exercises the comparison seam separately from the
+    ``frame_pc`` seam above -- the module's first draft caught this one and
+    missed the other (see the module docstring and
+    ``_UncomparableFrameLegacy`` above for the ``Exception``-raising twin)."""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def __eq__(self, other):
+        raise self._exc
+
+    __hash__ = None
+
+
+class _BaseExceptionEqFrameLegacy:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def frame_pc(self, pc):
+        return _BaseExceptionEqFrame(self._exc)
+
+
 class WireActorCountTests(unittest.TestCase):
     def setUp(self):
         self.legacy = _legacy()
@@ -271,6 +313,44 @@ class WireActorCountTests(unittest.TestCase):
                 self.assertTrue(line.isascii())
                 self.assertNotIn("\n", line)
                 self.assertIn("wire_actors=", line)
+
+    # ----- the promise is narrower than "never raises", on purpose --------
+
+    def test_a_base_exception_from_frame_pc_is_not_swallowed(self):
+        # KeyboardInterrupt/SystemExit are documented to escape uncaught:
+        # every caller is inside runtime.py's listener-thread dispatch, and
+        # swallowing a shutdown signal there is worse than an unmeasured
+        # console line. Correct today by reading the code (``except
+        # Exception``, not ``except BaseException``) -- this is the first
+        # executed proof of it.
+        for exc_type in (KeyboardInterrupt, SystemExit):
+            with self.subTest(exc=exc_type.__name__):
+                with self.assertRaises(exc_type):
+                    mob_census_wire_count.wire_actor_count(
+                        _BaseExceptionLegacy(exc_type()), self.pc, self.frame)
+
+    def test_a_base_exception_from_the_frame_comparison_is_not_swallowed(self):
+        # The comparison seam, not the frame_pc seam -- the one the module
+        # docstring says the first draft left outside its net for Exception
+        # (see _UncomparableFrameLegacy). A BaseException there must escape
+        # the same way, and nothing pinned that until this test.
+        for exc_type in (KeyboardInterrupt, SystemExit):
+            with self.subTest(exc=exc_type.__name__):
+                with self.assertRaises(exc_type):
+                    mob_census_wire_count.wire_actor_count(
+                        _BaseExceptionEqFrameLegacy(exc_type()),
+                        self.pc, self.frame)
+
+    def test_describe_census_recompose_does_not_swallow_a_base_exception(self):
+        # The console-line wrapper delegates straight to wire_actor_count
+        # with no try/except of its own -- confirmed here rather than
+        # assumed, since a future edit could add one without touching the
+        # function this suite exercises directly above.
+        with self.assertRaises(KeyboardInterrupt):
+            mob_census_wire_count.describe_census_recompose(
+                _BaseExceptionLegacy(KeyboardInterrupt()),
+                "MOB_COMBAT_BAR_CENSUS_RECOMPOSE", self.pc, self.frame,
+            )
 
     def test_the_module_is_flagless_production_code(self):
         self.assertTrue(mob_census_wire_count.production_allowed)
