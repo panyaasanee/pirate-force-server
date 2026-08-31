@@ -1,1 +1,1 @@
-{"sha":"be2b8229063485a9874a9551bb36163f4ce391f7","conclusion":"failure","event":"push","ref":"refs/heads/claude/tender-goldberg-3oo982","run_id":"33358520483","utc":"2026-08-31T04:59:21Z"}
+{"sha":"be2b8229063485a9874a9551bb36163f4ce391f7","conclusion":"failure","event":"pull_request","ref":"refs/pull/380/merge","run_id":"33358530130","utc":"2026-08-31T05:09:36Z"}
