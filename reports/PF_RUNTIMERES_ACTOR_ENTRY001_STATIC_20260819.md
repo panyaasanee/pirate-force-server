@@ -259,9 +259,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 26,
-  "src_actor_stream_call_sites": 35,
-  "src_modules_building_actor_entries": 25,
+  "src_actor_entry_call_sites": 27,
+  "src_actor_stream_call_sites": 36,
+  "src_modules_building_actor_entries": 26,
   "src_modules_building_actor_entries_names": [
     "field_mob_hostile_bg0015.py",
     "field_mobs.py",
@@ -287,6 +287,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "world_population_bg0008.py",
     "world_population_bg0009.py",
     "world_population_bg0010.py",
+    "world_population_bg0011.py",
     "world_population_bg0015.py"
   ],
   "src_modules_doing_both": 4,
@@ -893,3 +894,45 @@ placement-side count of distinct Mob-Set numbers (44) rather than disagreeing by
 `world_bg0009_identity.py`'s own DISCREPANCY paragraph for the full account, including the four CLINE
 keys (three of them carrying real, non-zero leaders that no placement in this scene ever points at) this
 scene's placements never touch.
+
+## NOTE -- this round (68mm02, 2026-08-31, LANE-A): three live-mirror counts move for the Bg0011 census, built+wired+opened in one round -- the elevated-risk row
+
+Ninth door of the same `COO-DECISION 2026-08-30T14:41+07:00` sequence: of the ten surveyed in round
+`ga91m5`, only scene 11 (Bg0011, "Deep Sea Temple floor 2", 56 native placements) and scene 130 (Navy
+Training Camp, 42) remained shut after scenes 4, 5, 10, 6, 8, 3, 7 and 9 opened; 56 is the higher of the
+two, so this round opens scene 11. `world_population_bg0011.py`, the census half of that pair
+(`world_bg0011_identity.py` is the identity half and builds no actor entries itself), builds one entry
+and sends one carrier -- the same single-module move `world_population_bg0009.py` made at round
+`ir0lpw`.
+
+`src_actor_entry_call_sites` moves **26 -> 27**, `src_actor_stream_call_sites` moves **35 -> 36**, and
+`src_modules_building_actor_entries` moves **25 -> 26** (the new name sorts in alphabetically between
+`world_population_bg0010.py` and `world_population_bg0015.py`). This is a NOTE rather than an erratum
+because no published sentence was wrong -- the three moved numbers live in the `RUNTIMERES_COUNTS`
+block, a live mirror of a tool run that is expected to move when we write code; all three are re-pinned
+in the tool (`tools/pf_runtimeres_actor_entry_static.py`) and in the bridge-only test module
+(`tests/test_runtimeres_actor_entry_static.py`) in the same round, and the `guards` total stays **152**
+(three values re-pinned, no guard added or removed).
+
+**Wired AND opened, same round, the same compressed shape rounds `l03cgh`/`fx0007`/`p4wire`/`p7wm17`/
+`78zayw`/`ir0lpw` used for scenes 5, 6, 8, 3, 7 and 9.** Registering `world_scene_travel.CENSUS_SOURCES`,
+`world_population_handoff.ROSTER_COMPOSERS`, and `lane_hooks/lane_a_scene_census.py`'s console reader,
+and flipping scene 11's registry row `login_entry_allowed: true`, all land in this same round, for the
+identical reason rounds `l03cgh`/`fx0007`/`p4wire`/`p7wm17`/`78zayw`/`ir0lpw` gave: the existing generic
+test (`tests/test_lane_a_scene_census.py::ComposerContractTests`) already assumed every scene this lane
+composes a census for is also open at login, since scenes 3, 4, 5, 6, 7, 8, 9, 10 and 14 all were by the
+time this round started. See `scenarios/world_scene_registry_001.json`'s own
+`login_entry_allowed_because` on the scene-11 row for the D1/D2/D3 safety check this round ran, and this
+lane's own round file for the full account. UNLIKE EVERY SCENE THIS LANE HAS OPENED SINCE SCENE 10, this
+scene DOES carry the elevated landing-geometry flag (`the_two_interiors`) -- shared only with scene 10,
+already open on `COO-DECISION 20260831T10:42+07:00`'s own precedent, which confirmed opening on this
+basis without waiting for an attended round to look first; this round applies the identical ruling to
+scene 11 rather than asking again. Its own marker-vs-placement gap (1107.764 units, INSIDE the placement
+extents) is narrower than scene 10's own 5174.7 units. Seven of this scene's 26 resolved identities ship
+a multi-variant outfit, all two-variant rows (same shape as scenes 7's eight and scene 9's eleven,
+unlike scene 3's nine-variant outlier) -- see `world_bg0011_identity.py`'s own docstring. Like scene 9,
+this scene's own registry `native_definition_count` (31) agrees with this round's own placement-side
+count of distinct Mob-Set numbers (31) rather than disagreeing by one -- see
+`world_bg0011_identity.py`'s own DISCREPANCY paragraph for the full account, including the one CLINE key
+(106, carrying a real leader that would have failed to resolve anyway on two separate axes) this scene's
+placements never touch.

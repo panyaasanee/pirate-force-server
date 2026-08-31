@@ -254,6 +254,7 @@ from . import world_population_bg0007
 from . import world_population_bg0008
 from . import world_population_bg0009
 from . import world_population_bg0010
+from . import world_population_bg0011
 from . import world_population_bg0015
 from .world_population import (
     COLLECTION_TAG,
@@ -540,6 +541,24 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg0009.dispatch_report,
         generation_type=world_population_bg0009.Bg0009PopulationGeneration,
         full_roster_count=world_population_bg0009.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND 68mm02 (2026-08-31, LANE-A), build+wire+open in one round
+    # for the ninth door (scene 11, Deep Sea Temple floor 2) - same shape as
+    # bg0009's entry above.  NOT covered by the LOGIN_OWNED_SOURCES
+    # exclusion below: scene 11 has no login-path populator today before
+    # this round (no runtime.py branch dedicated to it), so this entry is
+    # not composing over anything.  This is the elevated-risk row
+    # (``the_two_interiors``, shared only with scene 10) - see this round's
+    # own round file for the reasoning, not repeated here.
+    "bg0011_roster": _SceneComposer(
+        source="bg0011_roster",
+        build=world_population_bg0011.build_bg0011_population,
+        full_roster_count_source=world_population_bg0011.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg0011.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg0011.dispatch_report,
+        generation_type=world_population_bg0011.Bg0011PopulationGeneration,
+        full_roster_count=world_population_bg0011.DEFAULT_ACTOR_COUNT,
     ),
 }
 
