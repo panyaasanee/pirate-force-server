@@ -5670,3 +5670,26 @@ stay-path0-re172-decide-1-vs-2-only-if-negative.md`) บริโภคแล้
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2028_2uud3t_gt172_header_fix_re172_still_open.md`
 PR: `pf_bridge#628`, `pirate-force-server#410` (นี้)
+
+## รอบ `a10g3c` (2026-08-31T21:24+07:00) -- verify-only รอบที่ 9 ติดกัน, ไม่มีอะไรใหม่ให้บริโภคหรือแก้
+
+mailbox: ไม่มีใบ `ADDRESSEE: LANE-GM` ที่ยังไม่บริโภค (ทุกใบมี `.CONSUMED.txt` คู่แล้วจากรอบก่อน ๆ)
+`CLIENT_RE_QUEUE.md` `RE-172` ยัง `[OPEN -- assigned สาย GM]` ตรวจสดแล้ว ไม่มีผลใหม่ -- ตาม
+`COO-DECISION 1843` ยังห้ามเปิดใบใหม่จนกว่าจะมีผล หัวใบ `GT-*` ของสายนี้ทุกใบตรงจริงแล้ว ไม่มีอะไร
+stale ต้องแก้ (`GT-172` READY จากรอบก่อน, `GT-164` ปิดแล้ว)
+
+ตรวจทุกโมดูลในเขตของสายนี้อีกครั้งสด ๆ (ไม่เชื่อบันทึกรอบก่อน): `attr_wire.py` บล็อกที่ `RE-172` (COO
+สั่งห้ามเปิดใบใหม่), `say_wire.py` ล็อกโดย `COO-DECISION 20260829_0041` (grep หาใบใหม่กว่านั้นแล้วไม่พบ),
+`item`/`npc`/`spawn` ยัง capture territory จริง (`command_capture.py`+`lane_gm_run_command.py` wired
+พร้อมรับเฟรมอยู่แล้ว รอ attended จับเฟรมจริงเท่านั้น) `grep TODO/FIXME/XXX/HACK` สดใน `gm/*.py` = สอง
+รายการเดิมที่ไม่ใช่ debt จริง ไม่มีรายการใหม่
+
+**ไม่มีการแก้ `src/`/`tests/`/`scenarios/*.json` รอบนี้.** รอบก่อน (`2uud3t`) ไม่ใช่รอบว่างเปล่า (แก้หัว
+ใบ `GT-172` จริง) รอบนี้เป็นรอบว่างจริงรอบแรกหลังจากนั้น ไม่ผิดกฎ F แต่บันทึกไว้ชัด: ถ้ารอบถัดไปก็ว่าง
+อีก ต้องหยิบงานตามกฎ (ก)(ข)(ค)(ง) จริงจังกว่านี้
+
+เขียว: `python3 -m pytest tests/test_gm_*.py -q` -> **1150 passed, 523 subtests** เขียว(cloud sanity)
+ไม่เปลี่ยนจากก่อนรอบ (ไม่มีไฟล์เปลี่ยน)
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260831_2124_a10g3c_verify_only_9th_round_re172_still_open.md`
+PR: `pf_bridge#632`, `pirate-force-server#414` (นี้)
