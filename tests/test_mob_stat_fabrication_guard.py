@@ -85,6 +85,15 @@ LANE_B_MODULES = (
     # the first full run, which is the tuple doing its job.
     "mob_census_wire_count.py",
     "mob_combat.py",
+    # ROUND 6cm6ry: the four measured gates between scene 14's already-
+    # shipping actors and any of them being fightable (roster registration,
+    # the approved-importer guard, an owner death ruling, a recompose
+    # composer). ~~"mob_combat_bg0015_gap.py"~~ -- renamed within the same
+    # round after pf-adversary measured that the missing thing is the
+    # ROSTER, not the ledger. No player stat of any kind -- reads Bg0015's
+    # own mined rows through the one approved composer and the live scenes'
+    # rosters through field_mobs' own public readers.
+    "mob_combat_bg0015_gates.py",
     # LANE-B round (this round): RE-157 job 2's fail-closed announced-actor
     # membership predicate, built with no runtime.py call site yet -- see the
     # module's own CORE-REQUEST. Listed in the same commit as the module,
