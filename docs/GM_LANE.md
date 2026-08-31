@@ -5519,3 +5519,117 @@ verify-only ก่อนหน้า) พบและแก้ 1 ข้อ ก�
 - `pirate-force-server#398` (เดียวกัน + wake-gate commit ท้ายรอบ)
 
 — สาย GM รอบ `fftpji`
+
+## Round `rawblk` -- `gm/attr_wire.py`: the composer + cache, and the raw-block-source question this module does NOT claim to have answered
+
+`COO-DECISION 2026-08-31T16:50+07:00` (`pf_bridge/notes_to_chief/20260831_1650_COO-DECISION-attr-wire-
+unlock-condition-revised-name-all-24-fields-replaced-with-lossless-preserve.md`) relaxed the shelved
+`attr_wire.py` unlock condition from "name all 24 remaining fields" to "cover every NAMED field, preserve
+every unnamed one losslessly", and asked this lane to "design and prove the raw-block-per-connection
+mechanism ... before asking for a version-confirmation unlock" -- this round is that design-and-prove
+step, not a live-send unlock.
+
+### สิ่งที่สร้าง
+
+- `src/pirateforce_foundation/gm/attr_wire.py` -- new module: the 55-row `FIELDS` table (12 BasicAttr +
+  43 ActorAttr, re-derived in this lane's own zone from the owner's proven `reference_adhoc_probe`
+  session -- 266 commands, 2h20m, one connection, no crash), `encode_field`/`encode_block`/
+  `make_update_attr_frame` (pure composer, no send), `RawBlockCache` (per-connection memory, deliberately
+  source-agnostic), and `build_named_field_update` (the one entry point a future chat command should
+  call -- refuses unknown `x`, refuses `SENSITIVE_FIELDS` (x=30, an unadjudicated Codex-corpus semantic
+  note names this offset as a password-hash-adjacent field), refuses every `known=False` field, and
+  refuses outright if the cache was never seeded).
+- `tests/test_gm_attr_wire.py` -- 46 tests: field-table shape/mask-bit integrity, byte-exact composer
+  tests against a real loaded `legacy` module, `RawBlockCache` capture/merge/lossless-preserve behavior,
+  every refusal path, and every individually known field round-tripping through the real composer.
+- `UPDATE_ATTR_VITAL_VERSION_CONFIRMED: int | None = None` -- unchanged this round, same shape as
+  `teleport_wire`/`say_wire`'s own gates.
+
+### สิ่งที่ยังไม่ทำ, ตั้งใจ
+
+- **No chat command dispatches into this module.** `/lv` still parses in `gm/commands.py` (owner-original
+  command) but has no action function in `chat_command_action.py` -- wiring it is next round's job, once
+  the question below has an answer, not this round's.
+- **No DB persistence.** `COO-DECISION 0146` condition (b) (survive relog) is untouched -- `model.Character`
+  still carries no level/hp/stat columns at all (checked again this round, same finding as the `0330`
+  ASK-COO letter).
+- **No live send.** The gate stays `None`.
+
+### The open question this round surfaces, precisely (not solved, not guessed at)
+
+The probe's own docstring claims "a sparse delta would zero what it omits" (static read of the client's
+0x464F30 bulk-copy apply) -- if true, "preserve unknown fields losslessly" requires supplying their real
+current value on EVERY send, not merely omitting them. Searched before writing code (ค้นก่อนถอด):
+`model.Character` has nothing to read (identity/name/position/wire blobs only, no stats). `characters.
+actor_wire` (`migrations/001_initial.sql`) IS a real per-character byte-preserved BLOB, but it is
+`CreateActorDataEx` -- a different vital/codec from this module's `UpdateAttrVital` DBAttribute shape.
+Whether its embedded sub-structure shares this table's tag/offset layout is an open, answerable, STATIC
+question -- if yes, that BLOB is a ready-made raw-block source needing zero `runtime.py` changes; if no,
+there is no source at all today, and a `lane_hooks` point would be asking for data that provably does not
+exist yet (checked, and NOT opened this round for that reason). Routed to chief/RE:
+`CORE-REQUEST-GM-044` (`pf_bridge/notes_to_chief/`).
+
+### This round's provisional decision, tagged for COO
+
+`[สมมติของสาย GM - รอ COO ยืนยัน]` Until the question above is answered, `build_named_field_update`
+refuses to ever set a mask bit for any `known=False` field -- this bounds the module's claim to exactly
+what COO's revised wording named ("every field with a confirmed name"), and does not resolve whether the
+very first named-field send on a non-fresh character would still zero the unnamed fields once (documented
+risk, named again in the CORE-REQUEST letter, a COO/owner call).
+
+### pf-adversary
+
+**Agent tool ไม่มีในสภาพแวดล้อมนี้จริง** -- ตรวจด้วย `ToolSearch` (คำค้น "Agent subagent spawn Task
+pf-adversary" และ "select:ListAgents") แล้วไม่พบเครื่องมือสำหรับ spawn subagent ชนิดนี้เลย ตรงกับที่ทุก
+รอบก่อนหน้าของสายนี้พบเหมือนกัน ทำ **self-adversarial review แทน** อย่างจริงจังต่อ diff จริง พบและแก้ 1
+ข้อก่อน commit:
+
+- **field 37 (`wstr_164_guild`) transcription error** -- ตารางต้นทาง (`reference_adhoc_probe/
+  adhoc_attr_probe.py`) ติดป้ายแถวนี้ `[รู้]` (known) ชัดเจน แต่ร่างแรกของ `FIELDS` ในโมดูลนี้ใส่
+  `known=False` ผิดพลาด (สับสนกับแถวข้างเคียงที่เป็น `[รู้บางส่วน]`) -- ตรวจซ้ำทุกแถวทั้ง 55 รายการเทียบ
+  กับต้นฉบับทีละแถวแล้วพบมีจุดเดียว แก้เป็น `known=True` ตามต้นฉบับ
+
+ตรวจเพิ่มเติมที่ไม่พบข้อบกพร่อง: ลำดับการเช็ค `SENSITIVE_FIELDS` มาก่อน `known` ใน
+`build_named_field_update` (กันไม่ให้ future round เปิด `known=True` ให้ x=30 โดยไม่ได้ตั้งใจแล้วข้าม
+การเช็ค sensitive), `RawBlockCache.merged_with` ไม่ mutate `self._values` (มีเทสยืนยันแยก), และ
+`encode_block`'s paired-bit refusal ไม่มีทางถูกข้ามจาก `build_named_field_update` เพราะ x=39/40/41/42
+ทั้งสี่เป็น `known=False` ทั้งหมด (เข้าไม่ถึง `encode_block` ผ่านทางเข้านี้เลย)
+
+### เขียว
+
+`cd pirate-force-server && python3 -m pytest tests/test_gm_*.py -q`: **1150 passed, 511 subtests** เขียว
+(จาก 1104/509 ก่อนรอบ -- เพิ่ม 46 เทสใหม่ทั้งหมดใน `test_gm_attr_wire.py`, ศูนย์เทสเดิมถูกแก้)
+
+`python3 -m pytest tests/ -q` (ทั้ง repo): **5803 passed, 327 skipped, 10713 subtests** เขียว (จาก
+5754/327/10709 ก่อนรอบ -- ส่วนต่างตรงกับ 46 เทสใหม่ + ขยาย subtests เล็กน้อย ไม่มีไฟล์นอกเขตพัง)
+
+### nonclaim
+
+1. ไม่อ้างว่าปลดล็อกอะไร -- `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` ยังเป็น `None`, ไม่มีจุดเรียกใด (ไม่ใช่
+   แค่เทสของโมดูลเอง) ที่ส่งไบต์จริงได้
+2. ไม่อ้างว่าตอบคำถาม "omission = zero จริงไหม" ได้ -- เป็นแค่ static claim ของ probe เอง (v141 note
+   0x464F30) ไม่เคยมีการวัด client-observable กับค่าที่ไม่ใช่ศูนย์มาก่อนจริง ๆ (ทุกเซสชัน probe เริ่มจาก
+   ตัวละครสร้างใหม่)
+3. ไม่อ้างว่า `characters.actor_wire` มี/ไม่มี sub-structure ตรงกับ `FIELDS` -- คำถามเปิด ส่งให้ RE ผ่าน
+   `CORE-REQUEST-GM-044`
+4. ไม่อ้างว่า x=30 คือรหัสผ่านแน่นอน -- อ้างจาก corpus ที่ยังมีไฟล์ `CONFLICTS`/`UNRESOLVED_BUCKETS` เปิด
+   อยู่ (ยังไม่ adjudicate) แต่ปฏิเสธการเขียนอยู่ดีเพราะเป็นการเดาที่แพงถ้าผิด (fail-closed ฝั่งความ
+   ปลอดภัย ไม่ใช่ฝั่งความสมบูรณ์)
+5. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`, `scenarios/world_*.json`,
+   `scenarios/combat_*.json`, หรือ canonical DB เลยสักไบต์
+6. ไม่ให้สถานะ GM กับบัญชีที่ไม่อยู่ใน `gm_accounts.json` -- ไม่เกี่ยวข้องกับรอบนี้เลย ไม่มีจุดแตะ
+   allowlist ในโมดูลนี้
+7. ไม่ประกาศ milestone หรือ "attr_wire พร้อมใช้งาน" จากรอบนี้ -- นี่คือ groundwork หนึ่งขั้น ไม่ใช่ของที่
+   เทสได้
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ยังไม่มีอะไรที่ผู้เทสทำได้ต่างไปจากเมื่อวาน** -- ไม่มีคำสั่งแชทใหม่ ไม่มีการส่งไบต์จริง รอบนี้เป็น
+groundwork ล้วน (composer + cache + เทส) ตามที่ COO สั่งให้ "ออกแบบและพิสูจน์กลไกก่อน" ไม่ใช่รอบปลดล็อก
+
+### PR
+
+- `pf_bridge#617` (ล็อกรอบ)
+- `pirate-force-server#401` (โมดูลนี้ + เทส + wake-gate commit ท้ายรอบ)
+
+— สาย GM รอบ `rawblk`
