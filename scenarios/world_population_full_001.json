@@ -60,6 +60,13 @@
         91
       ],
       "note": "the superseded numbers stay here rather than being deleted - they are still correct for what they described: a census that shipped Mob-Set numbers as identities, which is the world the owner rejected on sight in GT-078. The 115 target is NOT rewritten to 108 anywhere in this file: 115 is still the source count and still what the console line reports the shortfall against."
+    },
+    {
+      "date": "2026-09-02",
+      "reason": "GT-192 read LV 1 off every actor on the owner's screen. The ordinary census never encoded a level at all: the frozen make_npc_attr (v141:1139-1195) has no level parameter and its BasicAttr mask never sets bit 0x0002. Scene 1 was the last live census source still sending nothing, and this round's own first draft wrongly reported that Port Royal had no mined level column - pf-adversary refuted that inside the round by joining all 105 resolved templates against the shipped CONSTDATA_TH__MOBS table.",
+      "change": "_entry() now composes through world_census_level.leveled_npc_attr, which splices BasicAttr bit 0x0002 and a u16 tag 0x12 level (object +0x5E, RE-117) in front of the HP pair, carrying world_port_royal_identity's newly mined MOBS.n_LEVEL_MIN. Every staircase rung below grew by exactly 3 bytes per actor at BOTH anchors (measured, at both anchors: 3 -> +9, 20 -> +60, 60 -> +180, 108 -> +324). Membership, order, counts, the source sha256 and the unshippable list are unchanged.",
+      "superseded_pc_frame_bytes_at_both_anchors": "identical at both pinned anchors before this round: 3 -> 550/563, 20 -> 3621/3634, 60 -> 10814/10827, 108 -> 20046/20060. Read out of the previous revision of this file rather than retyped from memory.",
+      "note": "The superseded numbers stay here rather than being deleted: they are still correct for what they described, a census that sent no level. n_LEVEL_MIN is the floor of each row's range - 53 of the 105 resolved templates have n_LEVEL_MAX above it, and nothing in this project has measured how the original server rolled inside that range, so the floor is what is sent."
     }
   ],
   "entry": {
@@ -133,8 +140,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 550,
-            "frame_bytes": 563,
+            "pc_bytes": 559,
+            "frame_bytes": 572,
             "indices": [
               30,
               91,
@@ -143,8 +150,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3621,
-            "frame_bytes": 3634,
+            "pc_bytes": 3681,
+            "frame_bytes": 3694,
             "indices": [
               30,
               91,
@@ -170,8 +177,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 10814,
-            "frame_bytes": 10827,
+            "pc_bytes": 10994,
+            "frame_bytes": 11007,
             "indices": [
               30,
               91,
@@ -237,8 +244,8 @@
           },
           {
             "actor_count": 108,
-            "pc_bytes": 20046,
-            "frame_bytes": 20060,
+            "pc_bytes": 20370,
+            "frame_bytes": 20384,
             "indices": [
               30,
               91,
@@ -360,8 +367,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 550,
-            "frame_bytes": 563,
+            "pc_bytes": 559,
+            "frame_bytes": 572,
             "indices": [
               30,
               91,
@@ -370,8 +377,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3621,
-            "frame_bytes": 3634,
+            "pc_bytes": 3681,
+            "frame_bytes": 3694,
             "indices": [
               30,
               91,
@@ -397,8 +404,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 10814,
-            "frame_bytes": 10827,
+            "pc_bytes": 10994,
+            "frame_bytes": 11007,
             "indices": [
               30,
               91,
@@ -464,8 +471,8 @@
           },
           {
             "actor_count": 108,
-            "pc_bytes": 20046,
-            "frame_bytes": 20060,
+            "pc_bytes": 20370,
+            "frame_bytes": 20384,
             "indices": [
               30,
               91,

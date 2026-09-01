@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_bg0010_identity as identity  # noqa: E402
+from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0010 as census  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -162,12 +163,16 @@ class Bg0010Census(unittest.TestCase):
         hostile_mask_bit = 0x0400
         for index in generation.placement_indices:
             placement = placements[index]
-            body = self.legacy.make_npc_attr(
-                placement.n_id, placement.actor_identity,
-                census.SCENE_N_ID, census.SCENE_SEQUENCE,
-                placement.visual_preset,
+            body = world_census_level.leveled_npc_attr(
+                self.legacy,
+                template_n_id=placement.n_id,
+                actor_identity=placement.actor_identity,
+                scene_id=census.SCENE_N_ID,
+                scene_sequence=census.SCENE_SEQUENCE,
+                visual_preset=placement.visual_preset,
                 current_hp=placement.max_hp, max_hp=placement.max_hp,
                 basic_name=placement.display_name,
+                level=placement.identity.level,
             )
             with self.subTest(placement=index):
                 self.assertIn(body, generation.pc)

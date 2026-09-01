@@ -367,9 +367,14 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     }
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
-    #     (82, 833, 'M070_000_002_N', 'Brin', 'Gold Shop'),
+    #     (82, 833, 'M070_000_002_N', 'Brin', 'Gold Shop', 105),
+    # WIDENED round `7ste68` (LANE-A): the row grew a sixth column, the mined
+    # MOBS.n_LEVEL_MIN this scene's census now puts on the wire.  The point of
+    # this pattern is unchanged -- "shop" may appear ONLY inside a data row's
+    # title field -- and the level is matched as a bare int so a row that grew
+    # anything else still goes red.
     IDENTITY_TABLE_ROW = re.compile(
-        r"^ {4}\(\d+, \d+, '[^']*', '[^']*', '[^']*'\),$"
+        r"^ {4}\(\d+, \d+, '[^']*', '[^']*', '[^']*', \d+\),$"
     )
 
     def test_the_identity_tables_shop_hits_are_all_npc_title_data(self):
@@ -392,8 +397,11 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         self.assertTrue(hits)
         for line in hits:
             self.assertRegex(line, self.IDENTITY_TABLE_ROW)
-            # ...and the word is in the TITLE field, the last of the five.
-            self.assertIn("shop", line.rsplit("', '", 1)[-1].lower())
+            # ...and the word is in the TITLE field -- now the last QUOTED
+            # field rather than the last field on the line, since the level
+            # column follows it.
+            title = line.rsplit("', '", 1)[-1].split("'", 1)[0]
+            self.assertIn("shop", title.lower())
 
     def test_no_foundation_module_implements_quest_or_shop_behavior(self):
         offenders = {}
