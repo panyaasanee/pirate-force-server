@@ -350,7 +350,26 @@ MOB_LOOT_WIRING = (
     "because the cell is one ledger with no scene term and every kill sends "
     "the whole live ledger.  This is a NEW call site this lane cannot add "
     "itself -- runtime.py owns the scene-sync path -- named here rather than "
-    "only in a letter, per this round's own CORE-REQUEST."
+    "only in a letter, per this round's own CORE-REQUEST.\n"
+    "  7. THE OTHER RUNTIMERES FRAMES, ADDED round ewm6ff.  app.py's "
+    "install_ground_heartbeat_preserve substitutes the PRESERVE body for ONE "
+    "caller (co_name == 'heartbeat_worker'), but COO-DECISION 20260901_0347 "
+    "wrote a wider rule: EVERY RuntimeRes sent while the ground still needs "
+    "preserving must carry a non-NULL pool.  v141's make_runtime_vitals -- "
+    "the composer behind every VitalData response this server sends -- ends "
+    "on an empty derived mask and never reaches that wrapper (re-derived from "
+    "the frozen file's own source by tests/test_mob_loot_preserve_runtime_"
+    "res.py, not taken from a capture).  The ask is ONE wrap in app.py, the "
+    "same shape install_ground_heartbeat_preserve already has: wrap "
+    "legacy.make_runtime_vitals so its (pc, frame) is passed through "
+    "mob_loot.preserve_ground_in_runtime_res_frame(legacy, pc) while the "
+    "session's DropLedgerCell holds live rows, and left alone otherwise.  "
+    "That function refuses by name rather than emitting when the pc is not "
+    "the shape it expects, so a wrap that is wired wrong fails loudly at the "
+    "first response instead of shipping bytes no client has accepted.  What "
+    "it CANNOT cover is make_runtime_remote_actors (derived mask 0x02 "
+    "already): carrying the actor list and the ground list in one frame is a "
+    "shape nobody has measured, and this lane refuses it rather than guess."
 )
 
 production_allowed = True
@@ -985,6 +1004,18 @@ REFUSE_LIFETIME_OUT_OF_RANGE = "lifetime_out_of_range"
 #: ROUND 0n9inw.  The clock handed to a cell is not callable, or does not return
 #: a finite real number.
 REFUSE_CLOCK_IS_NOT_A_CLOCK = "clock_is_not_a_clock"
+#: ROUND ewm6ff, the four refusals of :func:`preserve_ground_in_runtime_res`.
+#: They are separate names for the same reason expiry and someone-else's-pickup
+#: are: a call site that could not preserve the ground has to be able to say
+#: WHICH of these it hit, because three of them mean "this pc is not what you
+#: think it is" and the fourth means "this frame belongs to another lane".
+REFUSE_PC_IS_NOT_BYTES = "pc_is_not_bytes"
+REFUSE_PC_IS_NOT_A_RUNTIME_RES = "pc_is_not_a_runtime_res"
+REFUSE_PC_TAIL_IS_NOT_THE_DERIVED_MASK = "pc_tail_is_not_the_derived_mask"
+#: The derived mask already carries a bit -- today only 0x02, the remote-actor
+#: collection ``make_runtime_remote_actors`` sends.  Rewriting it would delete
+#: the actors to save the ground, so this refuses instead.
+REFUSE_DERIVED_MASK_IS_NOT_EMPTY = "derived_mask_is_not_empty"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1021,6 +1052,10 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_CLOCK_WENT_BACKWARDS,
     REFUSE_LIFETIME_OUT_OF_RANGE,
     REFUSE_CLOCK_IS_NOT_A_CLOCK,
+    REFUSE_PC_IS_NOT_BYTES,
+    REFUSE_PC_IS_NOT_A_RUNTIME_RES,
+    REFUSE_PC_TAIL_IS_NOT_THE_DERIVED_MASK,
+    REFUSE_DERIVED_MASK_IS_NOT_EMPTY,
 )
 
 
@@ -3209,6 +3244,173 @@ def preserve_ground_heartbeat_frame(legacy: Any) -> tuple[bytes, bytes]:
             REFUSE_COMPOSED_BYTES_OFF_PIN,
             "the framed body is not the pc that was composed")
     return pc, frame
+
+
+# ---------------------------------------------------------------------------
+# THE OTHER 13,934 FRAMES.  ka1-B's letter of 2026-09-01T22:10+07:00 (pf_bridge
+# notes_to_chief/20260901_2210_KA1B-TO-LANE-B-drop-lane-three-gaps-including-
+# distance-prune.md, point 2) measured 15,288 S2C GSCN_RunTimeProtocolRes
+# frames in the capture corpus and found the ground-list bit 0x08 ABSENT on
+# 14,536 of them -- 13,934 of those under outer mask 0x02, a shape that never
+# goes anywhere near ``make_runtime_res_empty_exact`` and therefore never
+# reaches the PRESERVE wrapper installed at ``app.py``'s line 133, which
+# substitutes only when the calling frame is ``heartbeat_worker`` itself.
+#
+# THAT LETTER IS A CAPTURE READING AND ITS OWN NONCLAIM SAYS THE CAPTURE PATH
+# DOES NOT PROVE WHICH SERVER PRODUCED IT.  So this lane did not take the
+# 13,934 on the letter's word: the same question was asked of OUR OWN SOURCE,
+# where the answer is not an inference at all.  ``current/pf_login_game_
+# server_v141.py``'s ``make_runtime_vitals`` (line 689) composes the RuntimeRes
+# that carries EVERY VitalData response this server sends, and its last
+# statement before framing is ``pc += u8tag(0x0B, 0)`` (line 710) with the
+# comment "RuntimeRes v4 has a second (derived-class) change mask after the
+# inherited VitalData collection".  Derived mask zero means bit 0x08 clear,
+# which is the same absent-ground-list condition COO-DECISION 20260901_0347
+# ruled against -- reached here from v141's own source rather than from a
+# corpus of unknown provenance.  ``tests/test_mob_loot_preserve_runtime_res.py``
+# re-derives the composer census from that file and goes red if a new one
+# appears.
+#
+# WHAT THIS IS NOT ALLOWED TO CLAIM.  NONCLAIM 18 of :data:`MOB_LOOT_PINS`
+# stands unchanged: whether a RuntimeRes carrying a DIFFERENT derived mask
+# clears, preserves or corrupts a live ground entry is UNMEASURED.  The
+# image reading this lane's PRESERVE half rests on (Codex, CODEX_URGENT_
+# 20260901_0324) says an absent 0x08 list means a NULL ``TerrainThingPool``
+# reaches the reconciler at 0x006AF970 and a NULL pool is read as "clear
+# everything"; that reading does not mention the inherited mask, so applying
+# it to a mask-0x02 frame is [ASSUMPTION OF LANE B - AWAITING COO], recorded
+# as such here and in the letter that ships with it, not asserted as measured.
+# What is NOT an assumption is the rule COO already wrote: "every RuntimeRes
+# sent while the ground still needs preserving must carry a non-NULL pool".
+# This function is what makes an existing composer's pc obey that rule.
+#
+# WHY A REWRITER AND NOT A NEW COMPOSER.  The frames in question are composed
+# by a FROZEN file (COO-DECISION 2026-08-29T03:45) whose bodies this lane may
+# not edit and does not want to re-implement: re-composing an ItemOperate or a
+# GM response here would fork a wire shape that is already pinned elsewhere
+# (``mob_pickup.DELTA_PC_PREFIX_PIN``) and put two authors on one frame. So
+# this takes a composed pc and rewrites the ONE record the ruling is about,
+# refusing anything whose tail is not exactly the derived-mask record v141
+# documents itself as appending last.
+# ---------------------------------------------------------------------------
+# The four refusal names this section raises are declared with every other
+# refusal in this module (see REFUSE_PC_IS_NOT_BYTES and its three neighbours),
+# not here, because MOB_LOOT_REFUSAL_REASONS is the register a call site reads
+# and a name that is not in it is a refusal nobody can count.
+#
+# The first ten bytes of every RuntimeRes v4 this server composes: message id,
+# zero id, version.  The ELEVENTH and TWELFTH bytes are the inherited change
+# mask record, whose VALUE varies by caller (0x00 from
+# ``make_runtime_res_empty_exact``, 0x02 from ``make_runtime_vitals``), so the
+# tag is pinned and the value deliberately is not.
+RUNTIME_RES_HEAD_PIN = DROP_ENVELOPE_PIN[:10]
+RUNTIME_RES_INHERITED_MASK_TAG = 0x0B
+# What v141 appends last, and what this function replaces it with.  Both are
+# re-derived from the legacy primitives on every call and compared with these
+# literals, so a moved serializer refuses here instead of shipping bytes no
+# client has accepted.
+RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN = bytes((0x0B, 0x00))
+RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN = bytes((0x0B, 0x08, 0x12, 0x00, 0x00))
+RUNTIME_RES_TAIL_GROWTH = (
+    len(RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN)
+    - len(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)
+)   # 3 bytes, the count record the PRESERVE shape adds
+
+
+def _preserve_derived_tail(legacy: Any) -> bytes:
+    """The PRESERVE tail, composed through the legacy tag primitives."""
+    tail = (
+        legacy.u8tag(ELEMENT_MASK_TAG, RUNTIME_DERIVED_BIT_GROUND_LIST)
+        + legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 0)
+    )
+    if tail != RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve derived-mask tail is not the pinned tail; the "
+            "legacy serializer moved under this lane and it refuses to emit")
+    return tail
+
+
+def preserve_ground_in_runtime_res(legacy: Any, pc: Any) -> bytes:
+    """Rewrite one composed RuntimeRes pc so it PRESERVES the ground.
+
+    Takes the ``pc`` half of any ``GSCN_RunTimeProtocolRes`` v4 whose derived
+    change mask is empty -- v141's ``make_runtime_vitals`` and
+    ``make_runtime_res_empty_exact`` both end that way -- and returns the same
+    bytes with the trailing ``0B 00`` replaced by the PRESERVE record: ground
+    list PRESENT (bit 0x08), count 0, no elements.  Everything in front of the
+    derived mask is copied through untouched, so a caller's own pinned body
+    (``mob_pickup.DELTA_PC_PREFIX_PIN``, a GM response, a vital collection)
+    keeps every byte it was reviewed with.
+
+    Fail-closed at every exit.  A pc that is not a RuntimeRes, does not end in
+    the derived-mask record v141 documents itself as appending last, or already
+    carries a non-empty derived mask (some other bit this lane must not drop)
+    is REFUSED BY NAME rather than passed through or silently patched: a caller
+    that cannot preserve the ground has to know it could not.
+    """
+    if not isinstance(pc, (bytes, bytearray)):
+        raise MobLootContractError(
+            REFUSE_PC_IS_NOT_BYTES,
+            "a RuntimeRes pc is bytes; got %r" % (type(pc).__name__,))
+    pc = bytes(pc)
+    head = len(RUNTIME_RES_HEAD_PIN)
+    # head, inherited-mask record, then at least the derived-mask record
+    minimum = head + 2 + len(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)
+    if len(pc) < minimum or pc[:head] != RUNTIME_RES_HEAD_PIN:
+        raise MobLootContractError(
+            REFUSE_PC_IS_NOT_A_RUNTIME_RES,
+            "the pc does not open with the pinned RuntimeRes v4 head")
+    if pc[head] != RUNTIME_RES_INHERITED_MASK_TAG:
+        raise MobLootContractError(
+            REFUSE_PC_IS_NOT_A_RUNTIME_RES,
+            "the byte after the RuntimeRes head is not the inherited "
+            "change-mask tag")
+    tail = pc[-len(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN):]
+    if tail[0] != ELEMENT_MASK_TAG:
+        raise MobLootContractError(
+            REFUSE_PC_TAIL_IS_NOT_THE_DERIVED_MASK,
+            "the pc does not end in a change-mask record, so the record this "
+            "would rewrite is not the derived mask")
+    if tail != RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN:
+        raise MobLootContractError(
+            REFUSE_DERIVED_MASK_IS_NOT_EMPTY,
+            "the derived change mask already carries bits (0x%02X); rewriting "
+            "it would drop a field this lane does not own" % (tail[1],))
+    body = pc[:len(pc) - len(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)]
+    out = body + _preserve_derived_tail(legacy)
+    if len(out) != len(pc) + RUNTIME_RES_TAIL_GROWTH:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the rewritten pc grew by %d bytes, not the %d the PRESERVE "
+            "record adds" % (len(out) - len(pc), RUNTIME_RES_TAIL_GROWTH))
+    if out[:len(body)] != body:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the rewrite did not copy the caller's body through unchanged")
+    return out
+
+
+def preserve_ground_in_runtime_res_frame(
+        legacy: Any, pc: Any) -> tuple[bytes, bytes]:
+    """``(pc, frame)`` for :func:`preserve_ground_in_runtime_res`.
+
+    Same return shape every v141 composer hands its caller, so a call site can
+    wrap one with the other without changing anything else.  The frame is
+    re-derived from the rewritten pc and checked against the same magic and
+    body pins the rest of this module uses.
+    """
+    rewritten = preserve_ground_in_runtime_res(legacy, pc)
+    frame = legacy.frame_pc(rewritten)
+    if frame[:len(DROP_FRAME_MAGIC_PIN)] != DROP_FRAME_MAGIC_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserved-RuntimeRes frame magic is not the pinned magic")
+    if frame[len(frame) - len(rewritten):] != rewritten:
+        raise MobLootContractError(
+            REFUSE_FRAME_ENCODER_DISAGREES,
+            "the framed body is not the pc that was rewritten")
+    return rewritten, frame
 
 
 def money_element(legacy: Any, money: Any) -> bytes:
