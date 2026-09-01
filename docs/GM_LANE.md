@@ -6647,3 +6647,176 @@ present next to the client) instead of an open-ended "still waiting on RE."
 รายละเอียดเต็ม:
 `pf_bridge/rounds/GM_20260901_2132_ku3jz6_re164-item3-closed-plus-gamemasterdll-flag.md`
 PR: `pf_bridge` #756 / `pirate-force-server` #510
+
+## Round `hw6dix` (2026-09-02T01:29+07:00) -- `/speed` writes the row: DB first, wire second (GM-B, `GT-193` condition (b))
+
+### What changed
+
+`_speed_action` in `gm/chat_command_action.py` went from "compose a wire frame only, touch no DB
+row" to **DB FIRST, WIRE SECOND**. It now calls LANE-DB's existing
+`store.write_typed_attributes_and_compose_sparse(character_id, {"speed_walk": value})` and composes
+the frame from THAT call's read-back, not from the text the GM typed.
+
+The premise of last round's letter to LANE-DB (asking them for an `identity_lo`/`identity_hi`-keyed
+overload) was wrong and is withdrawn: `model.Character` has always carried `id` as its first field,
+and `session.foundation.selected` IS that `Character` -- the same read site `_selected_speed_identity`
+already used. The translation is one line and it belongs in this lane, not in theirs. New read site:
+`_selected_speed_character_id` (positive `int` only; `bool` excluded by `type(...) is not int`, and
+`0`/`-1` refused because a rowid starts at 1, so those are a leaked sentinel).
+
+Two more pieces worth naming:
+
+* `_speed_store` is now **the one read site** for `session.foundation.lifecycle.store`, shared by the
+  run-copy-DB gate and by the write. Before this round the gate read the chain itself; leaving it
+  that way would have allowed the gate and the write to mean two different objects, which is a gate
+  in name only.
+* `SPEED_TYPED_COLUMN = persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)` -- resolved at
+  IMPORT time through LANE-DB's own table, never the literal `"speed_walk"` typed twice. If x=7 ever
+  loses its column this lane fails loudly at boot instead of refusing silently in front of a tester.
+
+Four new no-frame outcomes, all TYPE-name-only in the audit row (an exception message can embed the
+GM's typed text): `no_store`, `no_character_id`, `persist_refused_<ExcType>`,
+`persist_readback_unusable`. Pinned in `tests/test_gm_chat_command_action.py`'s event-name contract
+table, which enforces completeness, not just correctness.
+
+### The gate that matters
+
+🔴 The run-copy-DB gate (`_speed_db_is_canonical`) used to guard only a SEND. It now guards a
+**WRITE**, and it is the only thing standing between this lane and the project rule "never touch the
+canonical DB". It fires first and fails closed: a store path that cannot be read counts as canonical
+and refuses. `test_the_canonical_db_gate_fires_before_any_write` asserts `store.calls == []`, and
+`test_a_shut_version_gate_writes_nothing_either` asserts the same for the version gate -- withheld
+means no frame AND no row.
+
+It is still a FILENAME HEURISTIC, exactly as its own docstring has always said. This round made it
+load-bearing for more; it did not make it more accurate.
+
+### Why this is `GT-193` condition (b)
+
+`GT-193` (chief's entry, `PENDING interface`) waits on both (a) LANE-DB's sparse x=7 write path on
+`main` -- closed `20260901_2213` -- and (b) LANE-GM's `/speed` wiring that CALLS that function.
+Before this round step 6 of the entry ("Re-query the same persisted attribute row ... Diff
+field-by-field") would have produced an empty diff every time, and the entry would have graded a
+frame rather than a memory. The head is chief's to flip; letter
+`20260902_0129_LANE-GM-STATUS-speed-writes-the-row-gt193-condition-b-closed.md` asks for it.
+
+### Tests
+
+`SpeedPersistenceTests` (fake store) proves the order, the one-column write, the read-back-not-typed-
+text rule (the double reports 9.5 while the GM typed 5.0, and the test asserts both that the frame is
+9.5's and that it is NOT 5.0's), no-frame-on-store-refusal, and that neither gate lets a write
+through. `PersistenceIntegrationTests` runs the same command against a **real `SQLiteStore` on a real
+temp file** and reads the value back through a SECOND store opened on the same path -- the closest a
+headless test gets to "the GM logs in again tomorrow" -- plus the f32 rounding agreement for `400.1`
+and a refused `1e40` leaving the prior row untouched. It carries its own fd guard on the temp
+directory, because a leaked sqlite handle is what killed PR #495 on the Windows gate (`WinError 32`),
+a failure Linux never shows.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = 6622 passed, 327 skipped, 13796 subtests -- เขียว(cloud sanity).
+`tests/test_gm_*.py` = 1307 passed, 590 subtests -- เขียว(cloud sanity).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+พิมพ์ `/speed 800` แล้วขั้นที่ 6 ของ `GT-193` มีอะไรให้ diff จริง -- คอลัมน์ `speed_walk` ใน run-copy DB
+เปลี่ยน และเลขบนจอเป็นเลขเดียวกับที่แถวถือ เมื่อวานคำสั่งเดียวกันสร้างเฟรมแล้วลืมทันที
+
+### nonclaim
+
+1. Does not claim `GT-193` passed -- no client is in this round's evidence at all. Only the entry's
+   opening condition (b) closed.
+2. Does not claim GM-B is done. `NOW.md`'s own rule: code on `main` is not "เสร็จ"; only Panya ticks.
+3. The DB-first ORDERING is still `[สมมติของสาย GM - รอ COO ยืนยัน]`
+   (`20260902_0017_LANE-GM-ASK-COO-speed-db-first-ordering-change.md`, unanswered). It is live code
+   now rather than a proposal; if COO rules the other way the change is one function and
+   `SpeedPersistenceTests` goes red.
+4. Does not claim the run-copy-DB gate is a cryptographic guarantee -- it is a filename heuristic.
+5. Does not claim x=7 is speed proven on screen. `RE-194` runs in parallel and is not a blocker.
+6. Did not touch `runtime.py` / `app.py` / `current/pf_login_game_server_v141.py` / canonical DB /
+   `scenarios/world_*.json` / `scenarios/combat_*.json` / any LANE-DB file (their method is CALLED,
+   not edited).
+7. No GM status outside `gm_accounts.json`, no client self-elevation, no milestone declared.
+8. GM shortcut used: `/speed` is a GM command; a speed value obtained through it is not evidence that
+   a normal player's movement/attribute path works. It is a way to reach a testable state.
+9. No prior history deleted -- the docstring line that became false (`"writes no DB row"`) is struck
+   through, not removed.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260902_0129_hw6dix_speed-persistence-wired-db-first.md`
+PR: `pf_bridge` #777 / `pirate-force-server` #523
+
+### pf-adversary (round `hw6dix`, second pass) -- NOT APPROVED, six defects, all six fixed before the draft came off
+
+The subagent ran 20 minutes of real mutation testing in a separate worktree, sha256-compared its
+copies against the committed blobs (so it measured the shipped code, not a stale patch), and returned
+**Not approved**. Every finding was fixed in a follow-up commit on the same branch, before the PR left
+draft. None was deferred.
+
+* **D1 -- `/speed` had durable state and no `undo`.** `_make_action`'s own rule is "AN EFFECT THAT IS
+  ALREADY ON DISK HAS TO COME BACK OFF IT" when the outcome row cannot be written. Reproduced: an
+  `OSError` on the outcome append left the column at 777.0 while the console printed *"anything it had
+  in hand was dropped with it"* -- false. Fixed with `_speed_undo`, which reads the prior value BEFORE
+  the write and restores it through `write_typed_attributes` (never the compose variant -- an undo a
+  wire-side gate can refuse is not an undo), carried by every verdict from the write down. A column
+  that was NULL before cannot be restored (`write_typed_attributes` refuses `None` by design) and
+  reports `not_reverted` rather than lying. Control: removing the undo turns 4 tests red, including
+  one against a real `SQLiteStore`.
+* **D2 -- one word for two opposite durable states.** `refused_speed_<ExcType>` meant both "parse
+  failed, nothing stored" and "write committed, composer then failed", and the console printed
+  `no blocker recorded` for the dangerous one. Fixed with its own
+  `refused_speed_persist_compose_<ExcType>` and a prefix-matched blocker sentence
+  (`COMMITTED_ROW_BLOCKER_PREFIXES`) that says the row IS committed. The two pre-existing tests whose
+  meaning had silently changed are struck through with the reason and replaced.
+* **D3 -- 🔴 the canonical-DB gate authorized a WRITE to the canonical file.** The exact `==` was
+  case-sensitive, and `app.py:660` keeps the operator's `--db` string verbatim. Measured as allowing
+  `PirateForce.sqlite3`, `PIRATEFORCE.SQLITE3`, a trailing space, a trailing dot, `::$DATA`, and the
+  8.3 short name -- all the same file on Windows. Fixed by normalizing (stream suffix, trailing dots
+  and spaces, casefold), refusing any `~` short name outright (a string cannot resolve one), and
+  adding `os.path.samefile` against a sibling `pirateforce.sqlite3`, which sees through case, 8.3,
+  hard links and junctions. Fail-closed on every error. Controls: the old `==` turns 7 tests red;
+  dropping `samefile` as well turns 8 red, including a real hard link on a real file.
+* **D4 -- the ordering test could not see ordering.** Inserting a compose call ABOVE the write left
+  all 134 tests green. Replaced with a test that wraps the composer and records how many rows the
+  store had written each time it ran; a compose before the write shows up as a `0`. The same mutation
+  is now red.
+* **D5 -- `SPEED_TYPED_COLUMN`'s stated purpose had no control.** Hardcoding the literal survived
+  everything, because the guard compared the constant against itself -- and so did a first fix that
+  compared it against `column_for(7)`, which agrees today. Replaced with an AST guard that reads the
+  source and requires the binding to be a `column_for(...)` call, not a constant. `FakeStore` no
+  longer copies the literal it forbids. The docstring's "loud boot failure in this lane" is corrected:
+  `runtime.py:40` imports this module at module level, so it is the whole server refusing to start --
+  a deliberate trade, now stated as one.
+* **D6 -- three of the four new refusals are unreachable in production.** `no_store`,
+  `no_character_id` and `persist_readback_unusable` cannot occur against a real `SQLiteStore`; only
+  `persist_refused_TypedAttrError` can, and the integration test reaches it. The class docstring now
+  says which is which instead of implying all four are proven against production shapes.
+
+Also fixed from its two non-defect flags: `unittest.main()` sat mid-file above three classes, so
+`python3 tests/test_gm_speed_action.py` ran 29 of 59 tests and printed OK (pytest, and therefore the
+gate, was never fooled) -- moved to the end. And its worktree measured `6562 passed / 387 skipped`
+against this clone's `6638 / 327`: same total, 60 tests moved passed→skipped, none red, almost
+certainly the client-image/capture-corpus modules a sandbox lacks. Recorded rather than smoothed over;
+naming those 60 is next round's backlog.
+
+### The design question it said was unanswered, answered here
+
+**When the row is on disk and the frame is not, who owns the divergence?** Two cases, not one:
+
+1. **The audit row could not be written** -> revert. The house rule is "no effect this lane could not
+   record", and D1's undo is what makes it true. A NULL-before column cannot be restored and reports
+   `not_reverted` instead of claiming success.
+2. **The composer or the store failed after the commit** -> keep the row. The DB is the durable truth
+   and the value IS that character's speed; the client sees it at next login. But it must be
+   distinguishable in the trail, which is what D2's own outcome word and console sentence are for.
+
+**How a tester grading `GT-193` step 6 reads it:** a changed row with an unchanged screen, together
+with `refused_speed_persist_compose_*` or `refused_speed_persist_*` on the console, is NOT a FAIL of
+the entry -- it is the designed state; record it as a separate observation. The same divergence with
+NO such token is something nobody has measured; open a new entry for it. Case 2 is
+`[สมมติของสาย GM - รอ COO ยืนยัน]`; case 1 is the existing house rule.
+
+### เขียว (after the six fixes)
+
+`python3 -m pytest tests/ -q` = 6638 passed, 327 skipped, 13805 subtests -- เขียว(cloud sanity).
+The 6622/327 pinned earlier in this round's first entry was the pre-fix run; the difference is this
+round's own new tests, not a test that had been red.
