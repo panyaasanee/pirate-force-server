@@ -229,13 +229,29 @@ nobody boots the visible warp before the question is settled, and raised to
 COO in `notes_to_chief/20260828_18xx_LANE-GM-ASK-COO-*`.
 
 ALSO OPEN, same reason (recorded, not fixed here):
-* No coordinate range check.  `warp_executor` rejects NaN/Inf but accepts
+* ~~No coordinate range check.  `warp_executor` rejects NaN/Inf but accepts
   anything up to +/-3.4e38, so a decimal slip (`/warp 2 100000 200`) composes
   a real frame for a point this project elsewhere calls off the map --
   `world_scene_entry.py` refuses exactly that with `RELOCATED_OUTSIDE_GROUND`
   against a scene's `ground_extent`.  The fix is to reuse lane A's check by
   import (never to copy its logic here); it is not done this round, and the
-  version gate means nothing can reach a client before it is.
+  version gate means nothing can reach a client before it is.~~ DONE (round
+  `<see docs/GM_LANE.md changelog>`, `pf_bridge/notes_to_chief/20260901_2252_
+  LANE-A-REPLY-to-lane-gm-ground-check-api-ready.md` opened
+  `world_scene_entry.is_position_within_scene_ground`, imported by import as
+  asked, never copied). `warp_executor._refuse_if_outside_ground` now calls
+  it from both `make_warp_force_pos_frame_with_target` and
+  `make_warp_teleport_frame_with_target`, and refuses a `False` verdict --
+  except for a scene whose only spawn evidence is a PROVISIONAL-OWNER-DECREE
+  (scene 17 today), where the underlying check returns `False` for every
+  point and a hard gate would have silently revoked the one cross-scene
+  destination COO-DECISION 2026-08-31T14:41+07:00 already authorized; see
+  `_refuse_if_outside_ground`'s own docstring for why that carve-out is
+  read from `spawn_provenance`, not guessed.  STILL OPEN: any scene with NO
+  `ground_extent` at all (every scene in the registry today except 17 and
+  278, including scene 2 in the `/warp 2 100000 200` example above) has no
+  ground data to check against, so this fix protects only the scenes that
+  happen to carry it -- not a general bound on every scene.
 * `accounts.is_gm_account` re-reads and re-parses the allowlist JSON on every
   call, and this module is what first makes that read reachable on every chat
   line of every player.  Identity-first ordering means a non-GM still causes

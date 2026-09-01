@@ -366,13 +366,20 @@ class AuditFailureIsFailClosedTests(_Case):
         # a duplicate -- pf-adversary round `zkqaq1` found the withhold-clear
         # tuple only listed `WARP_ACTION_LABEL`, missing both cross-scene
         # labels, before this test and the no-coords one below were added.
+        # (-13270, 22794), not (1, 2): scene 278's real ground_extent
+        # (round `n05nxf`, LANE-GM's warp ground gate) now refuses (1, 2)
+        # at `warp_executor._refuse_if_outside_ground`, BEFORE
+        # `log_gm_command_outcome` is ever reached -- that would make this
+        # test pass without ever exercising the `OSError` it mocks. Moving
+        # to a point inside 278's ground lets composition succeed so the
+        # mocked audit-log failure is the thing that actually withholds it.
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
         with mock.patch.object(
             chat_command_action,
             "log_gm_command_outcome",
             side_effect=OSError("disk full"),
         ):
-            self.assertIsNone(self.act(session, "/warp 278 1 2"))
+            self.assertIsNone(self.act(session, "/warp 278 -13270 22794"))
         self.assertIsNone(getattr(session, "gm_last_warp_target", None))
 
     def test_the_withheld_no_coords_cross_scene_warp_leaves_no_parked_target(

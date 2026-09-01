@@ -300,12 +300,20 @@ class WarpTeleportCrossSceneTests(unittest.TestCase):
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def test_builds_the_exact_bytes_make_login_teleport_would(self):
-        command = parse_gm_command("warp 278 100 200")
+        # (-13270, 22794) replaces this test's original (100, 200) fixture
+        # (round `<ground-gate round>`): 278's own ground_extent (opened by
+        # LANE-A, `20260901_2252_LANE-A-REPLY-...`) makes (100, 200) a real
+        # off-map point now, and `_refuse_if_outside_ground` refuses it --
+        # this test is about exact byte-encoding, not about the ground gate
+        # (see WarpExecutorGroundGateTests for that), so it moves to a point
+        # this project's own registry proves is on 278's ground (near its
+        # spawn) rather than asserting around the new refusal.
+        command = parse_gm_command("warp 278 -13270 22794")
         pc, frame, _target = make_warp_teleport_frame_with_target(
             self.legacy, command, 30.0
         )
         expected_pc, expected_frame = self.legacy.make_login_teleport(
-            278, 0, 100.0, 200.0, 30.0
+            278, 0, -13270.0, 22794.0, 30.0
         )
         self.assertEqual(pc, expected_pc)
         self.assertEqual(frame, expected_frame)
@@ -329,15 +337,22 @@ class WarpTeleportCrossSceneTests(unittest.TestCase):
         self.assertEqual(target.scene_id, 17)
 
     def test_the_target_carries_the_wire_binary32_values_not_the_python_floats(self):
-        command = parse_gm_command("warp 278 11865.7 6147")
+        # (-13270.7, 22794) replaces this test's original (11865.7, 6147)
+        # fixture, same reason and same round as
+        # test_builds_the_exact_bytes_make_login_teleport_would above: 278's
+        # real ground_extent makes the old point off-map, and this test is
+        # about binary32 rounding, not about the ground gate. -13270.7 keeps
+        # the decimal (the whole point -- it must round differently in f32
+        # than in Python's float64) while staying inside 278's ground.
+        command = parse_gm_command("warp 278 -13270.7 22794")
         _, _, target = make_warp_teleport_frame_with_target(
             self.legacy, command, -3.25
         )
         self.assertIsInstance(target, WarpTarget)
-        expected_x = struct.unpack("<f", struct.pack("<f", 11865.7))[0]
+        expected_x = struct.unpack("<f", struct.pack("<f", -13270.7))[0]
         self.assertEqual(target.x, expected_x)
-        self.assertNotEqual(target.x, 11865.7)  # the whole point of the test
-        self.assertEqual(target.y, 6147.0)
+        self.assertNotEqual(target.x, -13270.7)  # the whole point of the test
+        self.assertEqual(target.y, 22794.0)
         self.assertEqual(target.z, -3.25)
         self.assertEqual(target.scene_id, 278)
 
@@ -454,6 +469,68 @@ class WarpTeleportFrameNoCoordsTests(unittest.TestCase):
     def test_refuses_an_unknown_scene_id(self):
         with self.assertRaises(WarpExecutorError):
             make_warp_teleport_frame_no_coords_with_target(self.legacy, 999999)
+
+
+class WarpExecutorGroundGateTests(unittest.TestCase):
+    """LANE-A-REPLY `20260901_2252` opened `world_scene_entry.
+    is_position_within_scene_ground` for this lane to import; these tests
+    prove `warp_executor._refuse_if_outside_ground` uses it correctly on
+    both frame builders, without regressing the one cross-scene destination
+    (scene 17) COO-DECISION 2026-08-31T14:41+07:00 already authorized.
+
+    Bounds used below (`world_scene_travel.destination(278)`, measured, not
+    invented): spawn (-13270.0576171875, 22794.2734375), ground_extent
+    (6195.029296875, 2209.421875) -- so x in [-19465.09, -7075.03], y in
+    [20584.85, 25003.70] is inside, and (0, 0) is far outside either axis.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_refuses_a_same_scene_warp_outside_scene_278s_ground_extent(self):
+        command = parse_gm_command("warp 278 0 0")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_force_pos_frame(self.legacy, 1, command, 278, 0.0)
+        self.assertIn("outside scene 278", str(ctx.exception))
+
+    def test_accepts_a_same_scene_warp_inside_scene_278s_ground_extent(self):
+        command = parse_gm_command("warp 278 -13270.0576171875 22794.2734375")
+        # Must not raise -- this is the same call shape the refusal test
+        # above uses, at a point this project's own registry proves is on
+        # the ground (278's spawn itself).
+        make_warp_force_pos_frame(self.legacy, 1, command, 278, 0.0)
+
+    def test_refuses_a_cross_scene_warp_outside_scene_278s_ground_extent(self):
+        command = parse_gm_command("warp 278 0 0")
+        with self.assertRaises(WarpExecutorError) as ctx:
+            make_warp_teleport_frame_with_target(self.legacy, command, 0.0)
+        self.assertIn("outside scene 278", str(ctx.exception))
+
+    def test_does_not_refuse_the_proven_scene_17_cross_scene_warp(self):
+        # Regression guard: scene 17's ONLY spawn evidence is a
+        # PROVISIONAL-OWNER-DECREE, so is_position_within_scene_ground(17,
+        # *, *) is False for every point, including this exact one --
+        # GT-106-R2 measured a real client receiving and rendering it, and
+        # WarpTeleportCrossSceneTests.
+        # test_scene_seq_is_always_the_shared_scene_sequence_constant above
+        # already pins the call succeeding. A hard ground gate must not
+        # start refusing it.
+        command = parse_gm_command("warp 17 834 -598")
+        # Must not raise.
+        make_warp_teleport_frame_with_target(self.legacy, command, 0.0)
+
+    def test_still_does_not_check_a_scene_with_no_ground_evidence_at_all(self):
+        # Scene 2 has ground_extent=None in today's registry -- the exact
+        # scene named in the original bug report (`/warp 2 100000 200`,
+        # pf_bridge/notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-...).
+        # This module still cannot protect against that specific report
+        # until scene 2 gains ground evidence -- documented as a STILL OPEN
+        # gap in gm/chat_command_action.py's docstring, not silently
+        # narrowed here.
+        command = parse_gm_command("warp 2 100000 200")
+        # Must not raise (scene_id == current_scene_id keeps the existing
+        # same-scene check happy; only the new ground gate is under test).
+        make_warp_force_pos_frame(self.legacy, 1, command, 2, 0.0)
 
 
 if __name__ == "__main__":
