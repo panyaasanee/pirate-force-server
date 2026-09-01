@@ -1050,6 +1050,17 @@ _EXPECTED_CHAT_PUSH = {
 # amending a tracked_versions list on an entry chief had already opened
 # (HYP-PF-040 / round tmizmk) -- never minting the entry itself. A
 # CORE-REQUEST asking chief to register this entry accompanies this round.
+# [REGISTERED, chief cloud round 5qs3y7 2026-09-01 (CORE-REQUEST reply to
+# pf_bridge/notes_to_chief/20260901_1844_LANE-A-CORE-REQUEST-re189-branch2-
+# built-branch3-needs-runtime-py-hyp041-ledger.md)]: the PROVENANCE NOTE
+# above is now historical -- HYP-PF-041 is a registered entry in
+# docs/HYPOTHESIS_LEDGER.json as of this round, and the annotation marker
+# immediately below binds this module to that entry both ways, the same
+# convention every other active entry in this file already uses.
+# PF-HYPOTHESIS-LEDGER: HYP-PF-041 active
+# LOGOUT-TEARDOWN-TIMER-VARIANT-001.  Registered in
+# docs/HYPOTHESIS_LEDGER.json; this annotation and that entry's source_refs
+# bind each other both ways.
 LOGOUT_CLOSE_DELAY_MS_VARIANT_0MS = 0
 LOGOUT_CLOSE_DELAY_MS_VARIANT_2000MS = 2000
 LOGOUT_CLOSE_DELAY_MS_VARIANT_10000MS = 10000
