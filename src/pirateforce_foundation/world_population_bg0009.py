@@ -64,6 +64,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import world_bg0009_identity as identity
+from . import world_census_level
 from . import world_population
 from .population import (
     FULL_MOVEMENT_MASK,
@@ -185,15 +186,28 @@ def _entry(legacy: Any, placement: identity.Bg0009Placement) -> bytes:
     across unrelated rows), so this reuses ``world_population.HEADINGS`` on
     the placement index exactly as every other scene does.
     """
-    npc_attr = legacy.make_npc_attr(
-        placement.n_id,
-        placement.actor_identity,
-        SCENE_N_ID,
-        SCENE_SEQUENCE,
-        placement.visual_preset,
+    # LEVEL (round `7ste68`).  The frozen ``make_npc_attr`` never set
+    # BasicAttr bit 0x0002, so every actor this scene sent drew the client's
+    # own default and ``GT-192`` read ``LV 1`` off the owner's screen for all
+    # of them.  ``world_census_level`` splices in this row's own mined
+    # ``MOBS.n_LEVEL_MIN`` at the one position the ascending mask order puts
+    # it (``RE-117``: bit 0x0002, u16 tag 0x12, object +0x5E) -- the same
+    # splice this project's hostile-monster encoder has shipped since that RE
+    # landed (``world_census_level``'s own docstring names that file and its
+    # lines; this comment deliberately does not, so the census path does not
+    # register as an importer of lane B's combat module), and it REFUSES
+    # rather than guesses if the frozen body's layout ever moves.
+    npc_attr = world_census_level.leveled_npc_attr(
+        legacy,
+        template_n_id=placement.n_id,
+        actor_identity=placement.actor_identity,
+        scene_id=SCENE_N_ID,
+        scene_sequence=SCENE_SEQUENCE,
+        visual_preset=placement.visual_preset,
         current_hp=placement.max_hp,
         max_hp=placement.max_hp,
         basic_name=placement.display_name,
+        level=placement.identity.level,
     )
     movement_attr = legacy.make_remote_movement_attr(
         placement.actor_identity,

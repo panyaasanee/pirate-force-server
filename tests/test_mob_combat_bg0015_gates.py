@@ -192,8 +192,17 @@ class Bg0015MeasurementTests(unittest.TestCase):
                 zip(generation.entry_bytes, spliced.entry_bytes)) if a != b
         ]
         self.assertEqual(len(changed), 12)
-        self.assertEqual(len(generation.frame), 14879)
-        self.assertEqual(len(spliced.frame), 15035)
+        # ROUND 7ste68 (LANE-A) moved both numbers by exactly the level
+        # splice, and they are re-pinned with the arithmetic rather than
+        # with whatever the run printed: the ordinary census now sets
+        # BasicAttr bit 0x0002 and carries a 3-byte level field per entry
+        # (world_census_level.LEVEL_SPLICE_BYTES), so
+        #   ~~14879~~ -> 14879 + 81 * 3 = 15122 (every census entry), and
+        #   ~~15035~~ -> 15035 + (81 - 12) * 3 = 15242 -- the 12 spliced-in
+        # hostile entries are unchanged, because field_mobs' hostile body
+        # has carried its own level since RE-117.
+        self.assertEqual(len(generation.frame), 14879 + 81 * 3)
+        self.assertEqual(len(spliced.frame), 15035 + (81 - 12) * 3)
 
     # ---- the cross-check, and what it cannot do ----------------------
 

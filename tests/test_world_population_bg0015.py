@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_bg0015_identity as identity  # noqa: E402
+from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0015 as census  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -175,17 +176,26 @@ class Bg0015Census(unittest.TestCase):
         hostile_mask_bit = 0x0400
         for index in generation.placement_indices:
             placement = placements[index]
-            body = self.legacy.make_npc_attr(
-                placement.n_id, placement.actor_identity,
-                census.SCENE_N_ID, census.SCENE_SEQUENCE,
-                placement.visual_preset,
+            body = world_census_level.leveled_npc_attr(
+                self.legacy,
+                template_n_id=placement.n_id,
+                actor_identity=placement.actor_identity,
+                scene_id=census.SCENE_N_ID,
+                scene_sequence=census.SCENE_SEQUENCE,
+                visual_preset=placement.visual_preset,
                 current_hp=placement.max_hp, max_hp=placement.max_hp,
                 basic_name=placement.display_name,
+                level=placement.identity.level,
             )
             with self.subTest(placement=index):
-                # The body this module built is byte-identical to a plain
-                # make_npc_attr call: no splice, no widened mask, nothing
-                # added between the encoder and the wire.
+                # The body this module built is byte-identical to the frozen
+                # make_npc_attr call widened by EXACTLY the level splice
+                # (round `7ste68`, bit 0x0002) -- nothing else added between
+                # the encoder and the wire, and the faction bit below still
+                # absent.  (Before that round this read "byte-identical to a
+                # plain make_npc_attr call: no splice"; the level field is
+                # the one thing that changed, and it is checked as its own
+                # equality above, not merely asserted here.)
                 self.assertIn(body, generation.pc)
                 self.assertNotIn(
                     self.legacy.u16tag(0x12, hostile_mask_bit)
@@ -193,6 +203,57 @@ class Bg0015Census(unittest.TestCase):
                     generation.pc)
         # And it is deterministic, which the old test did check.
         self.assertEqual(generation.pc, self._build().pc)
+
+    def test_every_entry_carries_its_mined_level_ON_THE_WIRE(self) -> None:
+        """GT-192's ``LV 1``, decided in the bytes rather than in the roster.
+
+        Read back OFF ``generation.pc`` -- the blob that goes to the client
+        -- and not off the composer's inputs: the whole point of the round
+        that added this (`7ste68`, Codex urgent 2026-09-01T23:40) is that
+        this scene's console line printed a level the wire never carried,
+        so a test that read the roster twice would have passed all along.
+
+        The NPCAttr body is located by the attr id that precedes it, not by
+        its head bytes: an actor entry, its NPCAttr and its MovementAttr all
+        open with the same tagged identity, so a head-only search would find
+        whichever came first.
+        """
+        generation = self._build()
+        placements = {p.placement_index: p
+                      for p in identity.shippable_placements()}
+        attr_tag = self.legacy.u16tag(0x12, census.NPC_ATTR_ID)
+        seen = set()
+        for index in generation.placement_indices:
+            placement = placements[index]
+            marker = (
+                attr_tag
+                + self.legacy.u8tag(0x0B, 1)
+                + self.legacy.qwordtag(0x32, placement.actor_identity)
+            )
+            with self.subTest(placement=index):
+                self.assertEqual(generation.pc.count(marker), 1)
+                at = generation.pc.index(marker) + len(attr_tag)
+                level = world_census_level.read_level(
+                    self.legacy, generation.pc[at:], placement.actor_identity)
+                self.assertEqual(level, placement.identity.level)
+                self.assertGreaterEqual(level, world_census_level.LEVEL_MIN)
+                seen.add(level)
+        # The field tracks the actor: one constant for the whole scene would
+        # satisfy every assertion above and still be the bug it replaced.
+        self.assertGreater(len(seen), 1)
+
+    def test_the_frozen_serializer_alone_still_sends_no_level(self) -> None:
+        """The defect itself, pinned so a revert cannot pass silently."""
+        placement = next(iter(identity.shippable_placements()))
+        frozen = self.legacy.make_npc_attr(
+            placement.n_id, placement.actor_identity,
+            census.SCENE_N_ID, census.SCENE_SEQUENCE,
+            placement.visual_preset,
+            current_hp=placement.max_hp, max_hp=placement.max_hp,
+            basic_name=placement.display_name,
+        )
+        self.assertIsNone(world_census_level.read_level(
+            self.legacy, frozen, placement.actor_identity))
 
     def test_a_full_roster_label_cannot_be_put_on_a_truncated_census(
         self,

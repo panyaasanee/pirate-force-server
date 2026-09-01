@@ -868,6 +868,15 @@ class FieldMobTests(unittest.TestCase):
             # entry added to mob_death.WIDENING_RULINGS (a test in its own
             # file proves that dict is unchanged after every function in
             # the module runs).
+            # ROUND 7ste68 adds world_census_level.py (LANE-A, the ordinary
+            # census level splice for GT-192's ``LV 1``): mentions
+            # ``field_mobs.hostile_npc_attr`` only in prose, to name where
+            # the splice it performs was proven and to say it is the same
+            # operation minus the faction half -- it does NOT import
+            # field_mobs, and nothing in field_mobs changed for it.  IT
+            # DISPATCHES NOTHING itself: its callers are the three ordinary
+            # scene composers (world_population_bg0006/0009/0015), which is
+            # a census path, not this module's combat path.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",
@@ -876,7 +885,8 @@ class FieldMobTests(unittest.TestCase):
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
-             "player_hostile_pairing.py", "runtime.py"],
+             "player_hostile_pairing.py", "runtime.py",
+             "world_census_level.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
             ROOT / "src/pirateforce_foundation/runtime.py"

@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import scene2_prison_exile_tables as tables
+from . import world_census_level
 from . import world_population
 from .population import (
     FULL_MOVEMENT_MASK,
@@ -180,15 +181,23 @@ def _entry(legacy: Any, placement: tables.Bg0002Placement) -> bytes:
     per-placement heading is later RE'd from the client, replace this call,
     not the encoder.
     """
-    npc_attr = legacy.make_npc_attr(
-        placement.n_id,
-        placement.actor_identity,
-        SCENE2_N_ID,
-        SCENE2_SEQUENCE,
-        placement.visual_preset,
+    # LEVEL (round `7ste68`).  ``placement.level`` is this scene's own mined
+    # ``MOBS.n_LEVEL_MIN`` -- the same column every sibling scene sends, and
+    # the one RE-173 corrected for placement 63 -- NOT ``level_max``: a row
+    # with a range is a range the original server rolls per spawn, and this
+    # module has no evidence about that roll, so it sends the mined floor
+    # rather than inventing the roll.
+    npc_attr = world_census_level.leveled_npc_attr(
+        legacy,
+        template_n_id=placement.n_id,
+        actor_identity=placement.actor_identity,
+        scene_id=SCENE2_N_ID,
+        scene_sequence=SCENE2_SEQUENCE,
+        visual_preset=placement.visual_preset,
         current_hp=placement.max_hp,
         max_hp=placement.max_hp,
         basic_name=placement.display_name,
+        level=placement.level,
     )
     movement_attr = legacy.make_remote_movement_attr(
         placement.actor_identity,
