@@ -60,6 +60,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sqlite3
 from datetime import datetime, timezone
@@ -98,6 +99,42 @@ FINGERPRINT_SUFFIXES = ("-wal",)
 
 #: Suffix a snapshot directory carries while it is being assembled.
 INCOMPLETE_SUFFIX = ".INCOMPLETE"
+
+#: Written INSIDE a published snapshot directory, once, after the migration
+#: the snapshot protected has actually run.  It is what ties a snapshot to the
+#: database that came OUT of that migration, and it exists because a snapshot
+#: alone cannot do that: it records the state going IN.
+#:
+#: pf-adversary, LANE-DB round `gfkvro`, defect 2 -- measured: with pre-state
+#: evidence only, one legitimate migration blesses EVERY later content of the
+#: file forever.  The reviewer ran a real migration, then hand-INSERTed a row,
+#: then hand-DELETEd every account, and a pre-state-only gate answered
+#: "explained, rotate" all three times, world wiped.  Recording the sha the
+#: migration produced closes that window: anything that touches the database
+#: afterwards no longer matches, and the gate falls back to UNEXPLAINED.
+#: A post-state note is named for the sha it records: ``POSTSTATE.<sha>.json``.
+#:
+#: pf-adversary, LANE-DB round `gfkvro`, second pass, R4 -- measured: a single
+#: fixed filename assumes one note per snapshot DIRECTORY, and
+#: ``_find_identical_snapshot`` deliberately hands the SAME directory back to
+#: many runs.  An operator who restored the pristine canonical file and re-ran
+#: the boot got the previous run's note, and the gate accused them of having
+#: changed the database afterwards -- permanently, because reuse also means no
+#: new snapshot is ever taken.  Naming the note for its own sha lets one
+#: directory carry a note per run, and makes the gate's lookup a direct one.
+POSTSTATE_PREFIX = "POSTSTATE."
+POSTSTATE_SUFFIX = ".json"
+
+#: The one post-state shape ``persistence_canon_gate`` accepts.
+POSTSTATE_KIND = "pf.lane_db.post_migration_state.v1"
+
+#: Stable codes for the reasons ``should_snapshot`` gives, so a reader of a
+#: manifest can branch on WHY a snapshot was taken without matching prose.
+REASON_PENDING_MIGRATIONS = "PENDING_MIGRATIONS"
+REASON_LEDGER_UNREADABLE = "LEDGER_UNREADABLE"
+REASON_LEDGER_REWRITE = "LEDGER_REWRITE"
+REASON_JOURNAL_MODE_REWRITE = "JOURNAL_MODE_REWRITE"
+REASON_UNKNOWN = "UNKNOWN"
 
 #: Seconds a read probe may block on a locked source before this module gives
 #: up.  Mirrors ``SQLiteStore.connect``'s own ``PRAGMA busy_timeout=5000`` so a
@@ -683,3 +720,165 @@ def snapshot_database(
             % (source, final, error)
         ) from error
     return final / source.name
+
+
+def immutable_connection(path: str | Path) -> sqlite3.Connection:
+    """Open a FINISHED snapshot without creating one byte beside it.
+
+    ``mode=ro`` is not enough for a file this module must not disturb: a
+    read-only connection to a WAL database still makes SQLite build a ``-shm``
+    index next to it, and ``_verify_snapshot`` deals with that by DELETING the
+    sidecars afterwards -- which is correct for a copy that has to be
+    self-contained, and is the one thing a reader of an existing backup must
+    never do (rule 3).  ``immutable=1`` tells SQLite the file cannot change, so
+    it neither recovers nor indexes and creates nothing; measured before use.
+
+    Only ever point this at a published snapshot.  A LIVE database can have a
+    hot ``-wal`` holding committed transactions, and ``immutable=1`` would read
+    straight past it and report a state that is not the database's.
+    """
+    return sqlite3.connect(Path(path).resolve().as_uri() + "?immutable=1", uri=True)
+
+
+def snapshot_ledger(snapshot: str | Path) -> set[int] | None:
+    """The versions recorded inside a snapshot, or ``None`` if unreadable.
+
+    Reads nothing but ``schema_migrations`` and writes nothing at all.
+    """
+    try:
+        db = immutable_connection(snapshot)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = db.execute("SELECT version FROM schema_migrations").fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        db.close()
+    try:
+        return {int(row[0]) for row in rows}
+    except (TypeError, ValueError):
+        return None
+
+
+def record_post_migration_state(
+    snapshot: str | Path, source: str | Path, applied: list[int] | None
+) -> Path | None:
+    """Write ``POSTSTATE.json`` beside a snapshot, once, and return its path.
+
+    Called after the migration the snapshot protected has run, by
+    ``SQLiteStore.migrate_with_backup`` -- the only place that knows both the
+    snapshot and the moment the migration finished.
+
+    THREE PROPERTIES, EACH ONE LOAD-BEARING:
+
+    * **It never raises.**  The migration has ALREADY happened by the time this
+      runs; turning a failure to write a note into an exception would abort a
+      boot whose database is fine.  A failure returns ``None`` instead, and the
+      gate downstream then answers UNEXPLAINED -- fail-closed, the safe
+      direction.
+    * **It never overwrites.**  Rule 3 of this module.  A reused snapshot
+      directory (``_find_identical_snapshot``) already carries the post-state
+      of the run that made it, and a second write would let a later boot
+      re-bless a file the first one never saw; the existing file wins and this
+      returns ``None``.
+    * **It records the sha of the LIVE database, hashed here, after migrating.**
+      Not a value passed in, not a value from a manifest.
+    """
+    directory = Path(snapshot).parent
+    live = Path(source)
+    try:
+        if not directory.is_dir() or not live.is_file():
+            return None
+        if hot_wal_bytes(live) != 0:
+            # The migration's own transactions are still outside the main file,
+            # so hashing it now would record a number that is not this
+            # database (see `hot_wal_bytes`).  Writing no note leaves the gate
+            # with no evidence, which is the fail-closed direction; writing a
+            # wrong one would be the false green pf-adversary measured.
+            return None
+        digest = _sha256_file(live)
+        target = directory / poststate_filename(digest)
+        payload = {
+            "kind": POSTSTATE_KIND,
+            "recorded_at_utc": datetime.now(timezone.utc).isoformat(
+                timespec="microseconds"
+            ),
+            "source_database": str(live.resolve()),
+            "post_migration_sha256": digest,
+            "post_migration_bytes": live.stat().st_size,
+            "versions_applied_by_this_run": (
+                None if applied is None else sorted(int(v) for v in applied)
+            ),
+        }
+        blob = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        # O_CREAT|O_EXCL, not "check then write": rule 3 of this module says
+        # nothing is ever overwritten, and a check followed by a rename is not
+        # that.  pf-adversary (round `gfkvro`, second pass, R5) measured two
+        # concurrent boots both passing an `exists()` check, both writing one
+        # shared temporary name and one silently replacing the other's note.
+        # Here the loser of the race gets FileExistsError and returns None,
+        # and there is no temporary file to leave behind.
+        handle = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        try:
+            os.write(handle, blob)
+        finally:
+            os.close(handle)
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        return None
+    return target
+
+
+def poststate_filename(sha256: str) -> str:
+    """The name of the note recording that a migration produced ``sha256``."""
+    return "%s%s%s" % (POSTSTATE_PREFIX, str(sha256).lower(), POSTSTATE_SUFFIX)
+
+
+def reason_code_for(reason: str) -> str:
+    """A stable code for one of ``should_snapshot``'s reason strings.
+
+    The reason is free text written for a human reading a manifest; a reader
+    that has to BRANCH on it needs something that does not move when the
+    wording is improved.  ``tests`` pin every branch of ``should_snapshot``
+    against this mapping, so changing a sentence without changing this
+    function goes red rather than silently reclassifying old snapshots.
+    """
+    text = str(reason).lower()
+    if text.startswith("pending migrations:"):
+        return REASON_PENDING_MIGRATIONS
+    if "ledger unreadable" in text:
+        return REASON_LEDGER_UNREADABLE
+    if "ledger itself is about" in text:
+        return REASON_LEDGER_REWRITE
+    if "rewrite its header in place" in text:
+        return REASON_JOURNAL_MODE_REWRITE
+    return REASON_UNKNOWN
+
+
+def hot_wal_bytes(db_path: str | Path) -> int:
+    """Bytes sitting in the write-ahead log beside a database.
+
+    !! THE SINGLE MOST IMPORTANT NUMBER FOR ANY READER THAT HASHES A DATABASE
+    FILE.  pf-adversary (round `gfkvro`, second pass, R1 and R2) measured both
+    directions of the mistake, against the first draft of
+    ``persistence_canon_gate``:
+
+    * a database whose every account row had been DELETED and committed, with
+      the delete still in the ``-wal``, hashed to the same main file the
+      migration had produced -- so the gate said EXPLAINED and told the caller
+      to rotate the canonical sha to it; and
+    * a real migration applied while a second connection was open never
+      reached the main file at all, so the gate said UNCHANGED (exit 0) about
+      a database that had just been migrated, and then UNEXPLAINED forever
+      once anything checkpointed.
+
+    A non-zero answer here means the FILE and the DATABASE are different
+    things at this moment, and nobody may hash the file and call it either.
+    """
+    wal = Path(db_path).with_name(Path(db_path).name + "-wal")
+    try:
+        return wal.stat().st_size if wal.exists() else 0
+    except OSError:
+        # Cannot tell -- and "cannot tell" must read like "there is one", the
+        # same fail-safe direction as every other unknown in this module.
+        return -1

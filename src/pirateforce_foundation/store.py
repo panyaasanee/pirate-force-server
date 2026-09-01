@@ -150,23 +150,38 @@ class SQLiteStore:
         that cannot protect the owner's only copy of the world must not go on
         to change its schema.
         """
-        from .persistence_backup import should_snapshot, snapshot_database, pending_versions
+        from .persistence_backup import (
+            should_snapshot,
+            snapshot_database,
+            pending_versions,
+            record_post_migration_state,
+        )
 
         take, reason = should_snapshot(self.path, self.migrations)
         snapshot = None
+        pending_at_snapshot = None
         if take:
             # Read the ledger ONCE more, here, and hand the same answer to the
             # manifest that this call is acting on -- reading it again inside
             # snapshot_database would let `reason` and `pending_versions`
             # describe two different moments in the same manifest.
+            pending_at_snapshot = pending_versions(self.path, self.migrations)
             snapshot = snapshot_database(
                 self.path,
                 backups_root,
                 label=label,
                 reason=reason,
-                pending=pending_versions(self.path, self.migrations),
+                pending=pending_at_snapshot,
             )
         self.migrate()
+        if snapshot is not None:
+            # The note that ties this snapshot to the database the migration
+            # PRODUCED, written only now that the migration has actually run.
+            # It never raises and never overwrites (see
+            # `persistence_backup.record_post_migration_state`), so the return
+            # value of this method is unchanged and no boot can fail because a
+            # note could not be written.
+            record_post_migration_state(snapshot, self.path, pending_at_snapshot)
         return snapshot
 
     def ensure_account(self, name: str) -> int:
