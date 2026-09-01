@@ -175,6 +175,35 @@ LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT = "chat_push_return_select"
 # annotation and that entry's source_refs bind each other both ways.
 LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH = "worldinfo_dialog_open_push"
 
+# RE-189 Job 2, branch 3 (CORE-REQUEST: pf_bridge/notes_to_chief/
+# 20260901_1844_LANE-A-CORE-REQUEST-re189-branch2-built-branch3-needs-
+# runtime-py-hyp041-ledger.md, section 3).  Branch 3 of the RE-189 matrix
+# is the ack-first reorder: swap the wire order of HYP-PF-028's two
+# already-pinned frames so the pinned LogoutVital ack
+# (``make_logout_ack_response``) goes out FIRST and the pinned
+# ReturnSelectServerVital (``make_return_select_server_response``) goes
+# out SECOND -- the reverse of ``LOGOUT_RESPONSE_POLICY_RETURN_SELECT_
+# FIRST`` above.  Lane A checked the real code before asking (the
+# "no-guessing" rule) and found ``runtime.py``'s existing dispatch
+# hardcodes the 0x709E-before-ack order inline with no parameter to
+# swap, so a new ``response_policy`` value with its own routing branch
+# is the only way to reach the reversed order without touching either
+# pinned composer -- neither composer changes, no new byte is invented,
+# only the calling order and which frame is sent first.  This round
+# (chief, option (a) of the CORE-REQUEST) adds ONLY this constant and
+# the sibling routing branch in ``runtime.py`` that reads it: no
+# scenario JSON, no allowlist profile, and no hypothesis_id are assigned
+# yet -- that is lane A's next-round work, the same two-step pattern
+# HYP-PF-040 used (chief wired an unreachable branch first; lane A added
+# the allowlisted profile + scenario file the following round, see the
+# module comment above HYP-PF-040 and ``test_logout_dialog_open_scenario
+# _wired.py``'s own docstring for that precedent).  Until a profile
+# exists in ``require_logout_hypothesis_scenario``'s allowlist, no real
+# boot can ever construct a scenario carrying this value, so the new
+# routing branch is provably unreachable from any default path, exactly
+# like that precedent was before its allowlist profile landed.
+LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER = "ack_first_reorder"
+
 # The trigger vital id, copied from the proven GT-006 chat-input decode --
 # never imported: an encoder does not import a neighbouring lane (the
 # HYP-PF-027 rule).  The tests pin this copy against the chat module's own
@@ -1021,6 +1050,17 @@ _EXPECTED_CHAT_PUSH = {
 # amending a tracked_versions list on an entry chief had already opened
 # (HYP-PF-040 / round tmizmk) -- never minting the entry itself. A
 # CORE-REQUEST asking chief to register this entry accompanies this round.
+# [REGISTERED, chief cloud round 5qs3y7 2026-09-01 (CORE-REQUEST reply to
+# pf_bridge/notes_to_chief/20260901_1844_LANE-A-CORE-REQUEST-re189-branch2-
+# built-branch3-needs-runtime-py-hyp041-ledger.md)]: the PROVENANCE NOTE
+# above is now historical -- HYP-PF-041 is a registered entry in
+# docs/HYPOTHESIS_LEDGER.json as of this round, and the annotation marker
+# immediately below binds this module to that entry both ways, the same
+# convention every other active entry in this file already uses.
+# PF-HYPOTHESIS-LEDGER: HYP-PF-041 active
+# LOGOUT-TEARDOWN-TIMER-VARIANT-001.  Registered in
+# docs/HYPOTHESIS_LEDGER.json; this annotation and that entry's source_refs
+# bind each other both ways.
 LOGOUT_CLOSE_DELAY_MS_VARIANT_0MS = 0
 LOGOUT_CLOSE_DELAY_MS_VARIANT_2000MS = 2000
 LOGOUT_CLOSE_DELAY_MS_VARIANT_10000MS = 10000
