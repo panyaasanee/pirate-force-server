@@ -125,6 +125,46 @@ class SQLiteStore:
                         db.execute("ROLLBACK")
                     raise
 
+    def migrate_with_backup(
+        self, *, backups_root=None, label: str = "premigration"
+    ):
+        """`migrate()`, but the database is copied first when the copy could
+        still matter -- returns the snapshot path, or `None` when no snapshot
+        was needed.
+
+        LANE-DB owns this method; `migrate()` above is deliberately NOT
+        touched, so every existing caller keeps the exact behaviour it has
+        today (LANE-DB charter, `pf_bridge/notes_to_chief/
+        20260901_1100_COO-DECISION-create-lane-db-persistence-charter.md`:
+        new methods in this file are allowed, changing an old one is not).
+        This is the method a boot path should call once chief wires it in;
+        the owner's rule it implements is `COO-DECISION 20260901_1112`
+        point 3.
+
+        The snapshot is taken BEFORE `migrate()` and any failure to take one
+        raises `persistence_backup.BackupError` WITHOUT migrating: a boot
+        that cannot protect the owner's only copy of the world must not go on
+        to change its schema.
+        """
+        from .persistence_backup import should_snapshot, snapshot_database, pending_versions
+
+        take, reason = should_snapshot(self.path, self.migrations)
+        snapshot = None
+        if take:
+            # Read the ledger ONCE more, here, and hand the same answer to the
+            # manifest that this call is acting on -- reading it again inside
+            # snapshot_database would let `reason` and `pending_versions`
+            # describe two different moments in the same manifest.
+            snapshot = snapshot_database(
+                self.path,
+                backups_root,
+                label=label,
+                reason=reason,
+                pending=pending_versions(self.path, self.migrations),
+            )
+        self.migrate()
+        return snapshot
+
     def ensure_account(self, name: str) -> int:
         with self.connect() as db:
             db.execute("INSERT OR IGNORE INTO accounts(login_name,created_at) VALUES (?,?)", (name, _now()))
