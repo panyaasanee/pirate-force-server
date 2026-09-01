@@ -5222,6 +5222,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # make both print 0 in the boot where they should
                         # report the real count (k882hm-D3).
                         reset = handoff.membership_reset
+                        # RE-157 job 2 / LANE-B letter 1838: same gap as
+                        # the travel-gate crossing site (this function's
+                        # other membership-reset call, above) -- an M2
+                        # (Columbus) crossing never touched mob-combat
+                        # announced membership either.  Cleared
+                        # unconditionally, mirroring
+                        # ``_gm_warp_resync_selected_scene``'s own
+                        # clear+generation-bump.
+                        self.mob_combat_announced_membership = None
+                        self.mob_combat_announced_membership_generation += 1
+                        self.events.append(
+                            "world_m2_crossing_mob_combat_membership_"
+                            f"cleared_{handoff.scene_id}"
+                        )
                         self.population_indices = reset.population_indices
                         self.population_refresh_anchor = (
                             reset.population_refresh_anchor
@@ -7621,6 +7635,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # a crossing is the k882hm-D3 shape (a field
                     # describing a census the client no longer holds).
                     reset = handoff.membership_reset
+                    # RE-157 job 2 / LANE-B letter 1838: mob-combat
+                    # announced membership is stamped only at login,
+                    # GM /warp, and the bg0001/bg0002/lane-composer
+                    # census points -- a normal (non-GM) travel-gate
+                    # crossing never touched it, so a player walking
+                    # into a new scene the ordinary way could keep the
+                    # OLD scene's membership and either false-reject
+                    # (fail closed, tolerable) or, worse, false-accept
+                    # if the new scene's id happened to already have a
+                    # membership from earlier this session.  Cleared
+                    # unconditionally on EVERY crossing (both branches
+                    # below), mirroring ``_gm_warp_resync_selected_scene``'s
+                    # own clear+generation-bump: a membership nobody can
+                    # answer for is a membership to drop.
+                    self.mob_combat_announced_membership = None
+                    self.mob_combat_announced_membership_generation += 1
+                    self.events.append(
+                        "world_travel_gate_crossing_mob_combat_membership_"
+                        f"cleared_{departure.arrival.scene_id}"
+                    )
                     home_census = (
                         handoff.kind
                         == world_population_handoff.KIND_CENSUS

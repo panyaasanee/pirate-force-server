@@ -1091,6 +1091,22 @@ REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES = "override_entry_not_int_bytes"
 # execution that omitting it silently heals every damaged-but-alive monster
 # back to ceiling HP on the wire -- refused by name instead of left silent.
 REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER = "census_frame_without_a_ledger"
+# CODEX_URGENT 2026-09-01T20:40+07:00 (P0-5 corpse/drop state scope), approved
+# for LANE-B by COO-DECISION 2026-09-01T21:48+07:00: the ONE-CORPSE LIMIT
+# named in hostile_census_frames' own docstring was real -- ``dead_timer`` is
+# a single scalar ``repopulation_entries`` used to apply to EVERY dead
+# register row, so composing one corpse's DYING frame re-armed every OTHER
+# already-dead corpse's timer back to "dying" on the same call.  Once a
+# widening ruling lets more than one identity be dead at once (it already
+# does -- see WIDENING_RULINGS above), that is a real regression, not the
+# hypothetical the docstring described it as.  ``transitioning`` is the fix:
+# the ONE ``(scene, actor_identity)`` row this call is actually about.  A
+# ``transitioning`` value that names a row the register does not carry as
+# dead is refused here, by name, rather than silently ignored -- a caller
+# that thinks it is composing identity X's death frame and is wrong about
+# that should not get a census that quietly used the old, unsafe scalar
+# behaviour for every row instead.
+REFUSE_TRANSITIONING_NOT_A_DEAD_ROW = "transitioning_not_a_dead_row"
 MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_VALUE_NOT_INT,
     REFUSE_VALUE_OUT_OF_RANGE,
@@ -1117,6 +1133,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_OVERRIDE_ENTRY_NOT_INT_BYTES,
     REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
     REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
+    REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -2105,6 +2122,7 @@ def repopulation_entries(
     faction: int = field_mobs.FIELD_MOB_FACTION,
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
+    transitioning: tuple[str, int] | None = None,
 ) -> list[bytes]:
     """Actor entries for a re-apply that must not resurrect anybody.
 
@@ -2124,6 +2142,32 @@ def repopulation_entries(
     no frame and no error anywhere - the client is simply told it is alive.
     A dead identity gets its corpse body here instead: same identity, HP 0,
     timer already on the dead side of the gate.
+
+    ``transitioning`` IS THE RE-ARM FIX, CODEX_URGENT 2026-09-01T20:40+07:00,
+    APPROVED BY COO-DECISION 2026-09-01T21:48+07:00.  ``dead_timer`` used to
+    be a single scalar applied to EVERY dead row this call composes -- correct
+    only while at most one identity could ever be dead at once, which is no
+    longer true (see ``WIDENING_RULINGS``).  Pass ``transitioning=(scene,
+    actor_identity)`` to name the ONE row this call is actually about: that
+    row alone gets ``dead_timer``; every OTHER dead row gets
+    :data:`DEAD_TIMER_SECONDS` regardless of what ``dead_timer`` is, because
+    an already-dead corpse's steady state is the floor, not whatever timer the
+    CURRENT transition happens to be composing.  ``transitioning=None`` (the
+    default) keeps the OLD scalar-to-everyone behaviour byte-for-byte, so
+    every existing single-corpse call site and test is unaffected -- with at
+    most one dead row in the register, "apply to everyone" and "apply to the
+    one row named" already agree.  A ``transitioning`` value is refused
+    (:data:`REFUSE_TRANSITIONING_NOT_A_DEAD_ROW`) unless it names a row that
+    is BOTH dead in the register AND a member of the roster THIS CALL
+    RECEIVED -- checking ``register.is_dead(...)`` alone is not enough,
+    because :class:`DeathRegister` persists dead rows across scene changes by
+    design (see the roster-membership check a few lines below this one): a
+    real dead row from a DIFFERENT scene's roster, never passed to this call
+    at all, would otherwise pass as if it were the row being composed here.
+    A caller that thinks it knows which corpse it is transitioning and is
+    wrong about that -- wrong identity, OR right identity in the wrong
+    scene/roster -- must not silently fall back to the old, unsafe "apply to
+    everyone" behaviour.
     """
     if type(roster) is not tuple:
         raise MobDeathContractError(
@@ -2162,8 +2206,51 @@ def repopulation_entries(
     # ignored here, consumed when THAT scene composes.  A record in one of
     # THIS roster's own scenes with no roster row is still the real drift
     # this check exists for, and still refuses by name.
+    #
+    # MOVED AHEAD OF THE ``transitioning`` CHECK BELOW, round pf-adversary
+    # (coordinator-relayed, this round): ``transitioning`` used to be
+    # validated against ``register.is_dead(...)`` alone, which is true of
+    # ANY scene the register has ever seen a kill in - the register persists
+    # dead rows across scene changes BY DESIGN (see the paragraph above).  A
+    # caller composing THIS roster's census with a ``transitioning`` value
+    # naming a real dead row from a DIFFERENT scene's roster (never passed to
+    # this call at all) walked straight through the old check - exactly the
+    # caller-mistake shape :data:`REFUSE_TRANSITIONING_NOT_A_DEAD_ROW`'s own
+    # docstring claims to catch, unrecognised.  ``roster_keys`` is what makes
+    # "is this row part of THIS call's roster" answerable at all, so the
+    # ``transitioning`` check now runs after it and requires BOTH: dead in
+    # the register, AND a member of the roster this call actually received.
     roster_keys = set((m.scene, m.actor_identity) for m in roster)
     roster_scenes = set(m.scene for m in roster)
+    if transitioning is not None:
+        if (
+            type(transitioning) is not tuple or len(transitioning) != 2
+            or type(transitioning[0]) is not str
+            or type(transitioning[1]) is not int
+            or type(transitioning[1]) is bool
+        ):
+            raise MobDeathContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "transitioning must be a (scene, actor_identity) tuple or "
+                "None, not %r" % (transitioning,))
+        if (
+            transitioning not in roster_keys
+            or not register.is_dead(transitioning[1], transitioning[0])
+        ):
+            raise MobDeathContractError(
+                REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
+                "transitioning names identity 0x%X in scene %r, which is "
+                "not a dead row of THE ROSTER THIS CALL RECEIVED - either "
+                "the register does not carry it as dead, or it is a real "
+                "dead row from a DIFFERENT scene's roster (the register "
+                "persists dead rows across scene changes by design, so "
+                "register.is_dead() alone is not enough here).  A caller "
+                "composing a specific corpse's frame must be right about "
+                "which corpse it is AND which roster it is composing, or "
+                "every other corpse's timer would fall back to the unsafe "
+                "pre-fix behaviour" % (
+                    transitioning[1], transitioning[0]),
+            )
     missing = tuple(
         record.actor_identity for record in register.records
         if record.scene in roster_scenes
@@ -2222,8 +2309,18 @@ def repopulation_entries(
                 "%d: the two were built from different rosters" % (
                     mob.actor_identity, row.max_hp, mob.max_hp),
             )
+        # THE RE-ARM FIX ITSELF.  With no ``transitioning`` named, every dead
+        # row still gets the scalar ``dead_timer`` (old behaviour, pinned by
+        # every existing single-corpse test).  With one named, only THAT row
+        # gets ``dead_timer``; every other corpse holds at
+        # :data:`DEAD_TIMER_SECONDS` -- its steady state -- instead of being
+        # re-armed to whatever timer the CURRENT transition is composing.
+        row_timer = dead_timer
+        if transitioning is not None and (
+            mob.scene, mob.actor_identity) != transitioning:
+            row_timer = DEAD_TIMER_SECONDS
         entries.append(death_actor_entry(
-            legacy, mob, death_timer=dead_timer, faction=faction,
+            legacy, mob, death_timer=row_timer, faction=faction,
             with_name=with_name))
     return entries
 
@@ -2318,8 +2415,14 @@ def full_roster_override(
     faction: int = field_mobs.FIELD_MOB_FACTION,
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
+    transitioning: tuple[str, int] | None = None,
 ) -> dict[int, bytes]:
     """Identity -> entry, for EVERY roster member, not just the ones that changed.
+
+    ``transitioning`` PASSES STRAIGHT THROUGH to
+    :func:`repopulation_entries` -- see that function's own docstring for the
+    CODEX_URGENT 2026-09-01T20:40+07:00 re-arm fix this exists to carry.
+    ``None`` (the default) is the old scalar-to-everyone behaviour, unchanged.
 
     THIS CLOSES THE GAP ``field_mobs.py`` DESCRIBES AS "never sent, never
     observed".  :func:`corpse_override` deliberately narrows its result to
@@ -2455,6 +2558,7 @@ def full_roster_override(
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
+        transitioning=transitioning,
     )
     return {mob.actor_identity: entry for mob, entry in zip(roster, entries)}
 
@@ -2546,8 +2650,14 @@ def hostile_census_frames(
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
     count_source: str = world_population.COUNT_SOURCE_CALLER,
+    transitioning: tuple[str, int] | None = None,
 ) -> tuple[bytes, bytes]:
     """A hit/death frame that carries the WHOLE census, not one actor.
+
+    ``transitioning`` PASSES STRAIGHT THROUGH to :func:`full_roster_override`
+    / :func:`repopulation_entries` -- see the latter's docstring for the
+    CODEX_URGENT 2026-09-01T20:40+07:00 re-arm fix.  ``None`` (the default)
+    keeps this function's old byte-for-byte behaviour.
 
     WHY THIS EXISTS.  ``mob_combat.bar_frames`` and this module's own
     ``death_frames`` each compose a NONEMPTY ONE-ENTRY
@@ -2628,22 +2738,24 @@ def hostile_census_frames(
     ``ledger=None`` - those functions' contracts already say that is a
     supported meaning; this one's does not.
 
-    ONE-CORPSE LIMIT, NAMED SO NOBODY WIDENS THE DEATH GATE WITHOUT SEEING
-    IT.  ``dead_timer`` is a SINGLE value applied to every register member
-    :func:`full_roster_override` marks dead - there is no per-identity
-    dying-vs-dead distinction in :class:`DeathRegister` itself, only in which
-    float this caller passes.  A caller composing the DYING frame for one
-    corpse with ``dead_timer=DYING_TIMER_SECONDS`` is safe ONLY because
-    ``SANCTIONING_RULING``/``SANCTIONED_FIRST_TARGET_IDENTITY`` currently
-    guarantee at most one dead identity ever exists in a register at once
-    (``kill`` refuses a second target with
-    :data:`REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE`).  The day that gate
-    widens to more than one killable identity, a caller composing one
-    corpse's dying frame this way would also reset every OTHER already-dead
-    corpse's timer back to "dying" on the wire - a real regression, not a
-    hypothetical one, and this function does not guard against it because it
-    has no way to know which register member the caller means to be
-    transitioning.
+    ~~ONE-CORPSE LIMIT, NAMED SO NOBODY WIDENS THE DEATH GATE WITHOUT SEEING
+    IT.~~ CLOSED, CODEX_URGENT 2026-09-01T20:40+07:00 / COO-DECISION
+    2026-09-01T21:48+07:00.  This paragraph used to say ``dead_timer`` was a
+    single value applied to every register member and that the day
+    ``SANCTIONING_RULING``/``SANCTIONED_FIRST_TARGET_IDENTITY`` stopped
+    guaranteeing at most one dead identity at a time, composing one corpse's
+    DYING frame would re-arm every OTHER already-dead corpse back to "dying"
+    on the wire.  That day already came - ``WIDENING_RULINGS`` above lets
+    several identities be dead at once - and Codex's audit proved the
+    regression by re-reading this exact call chain, not by re-deriving the
+    warning fresh.  ``transitioning=(scene, actor_identity)`` is the fix: name
+    the ONE row this call is about and every other dead row holds at
+    :data:`DEAD_TIMER_SECONDS` instead of following ``dead_timer``.  A caller
+    that still passes ``transitioning=None`` gets the OLD unsafe behaviour
+    unchanged - this is opt-in, not a silent behaviour change, because a
+    caller this module cannot see (``runtime.py``, the chief's file) has to
+    be the one that starts passing the identity it already knows it just
+    killed; see this round's ``CORE-REQUEST``.
     """
     if ledger is None:
         raise MobDeathContractError(
@@ -2663,6 +2775,7 @@ def hostile_census_frames(
     override = full_roster_override(
         legacy, roster, register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
+        transitioning=transitioning,
     )
     composed = world_population.apply_identity_override(
         legacy, generation, override)

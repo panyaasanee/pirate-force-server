@@ -340,7 +340,17 @@ MOB_LOOT_WIRING = (
     "cell.frames(legacy) "
     "and refresh_frames() remain EXPERIMENT TOOLS -- do not put either on a "
     "timer in runtime.py.  What reopens the question is a measurement of the "
-    "label's lifetime from real play, not a cheaper number."
+    "label's lifetime from real play, not a cheaper number.\n"
+    "  6. SCENE TRANSITION, ADDED round CODEX_URGENT 2026-09-01T20:40+07:00 / "
+    "COO-DECISION 2026-09-01T21:48+07:00 item 2: call "
+    "cell.reconcile_scene_transition() ONCE at the scene boundary, before the "
+    "first publish in the new scene -- same place the census-anchor / combat "
+    "/ AI reset already happens for a scene sync.  Without this, a drop still "
+    "standing in scene A rides along into scene B's first kill publication, "
+    "because the cell is one ledger with no scene term and every kill sends "
+    "the whole live ledger.  This is a NEW call site this lane cannot add "
+    "itself -- runtime.py owns the scene-sync path -- named here rather than "
+    "only in a letter, per this round's own CORE-REQUEST."
 )
 
 production_allowed = True
@@ -1917,6 +1927,67 @@ def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
     )
 
 
+def reconcile_scene_transition(ledger_now: DropLedger) -> tuple:
+    """Clear every LIVE drop off the ground.  A scene boundary, not a pickup.
+
+    CODEX_URGENT 2026-09-01T20:40+07:00 (P0-5 corpse/drop state scope),
+    approved for LANE-B by COO-DECISION 2026-09-01T21:48+07:00, item 2:
+    :class:`DropLedger` has NO scene term (see that class's own docstring for
+    why that is safe today only because ``kill_token`` counts up forever and
+    no live scene shares a colliding identity) and every kill sends the LIVE
+    ledger whole -- so a drop still standing in scene A rides along into the
+    next publication once the player is in scene B, which contradicts the
+    "cell of the scene" description ``runtime.py`` itself carries for where
+    this ledger lives.
+
+    THIS IS THE "RECONCILE THE CELL AT SCENE TRANSITION" HALF of Codex's two
+    bounded options (the other being a scene term on every key, which touches
+    ``GroundDrop``'s shape and every downstream consumer -- a wider change for
+    the same guarantee).  Called at a scene boundary, BEFORE the first
+    publish in the new scene, this returns a ledger with EVERY live row gone:
+    the next kill's publication in the new scene starts from an empty ground,
+    so nothing scene A left behind can ride along into it.
+
+    ``issued_through`` AND ``looted`` ARE CARRIED, NOT RESET -- same
+    discipline as :func:`take_drop`.  Drop keys are a monotonic high-water
+    mark this module never reuses (a client may still be holding an old key
+    under a stale object reference); the looted register is what keeps a
+    respawn-and-rekill of the SAME wire identity in a later scene from being
+    refused as a replay of the earlier one's kill, since ``kill_token`` only
+    ever increases.  Neither of those is a "what is on the ground" fact, so
+    neither is a scene fact either.
+
+    ``generation`` ADVANCES BY EXACTLY ONE, not by the count of rows removed:
+    this is one commit (a scene boundary), not N separate takes, and a
+    caller holding the OLD generation across this call gets the same stale
+    refusal :func:`commit_drops` already gives any caller whose read is out
+    of date.
+
+    NONCLAIM.  This does not know WHICH drops belong to which scene -- it has
+    no scene data to know that with -- so it clears the WHOLE ledger rather
+    than guessing.  A player who round-trips back to a scene they just left
+    does not find their own recent drop waiting; that is the conservative
+    side of an authenticity question CODEX_URGENT's own words leave OPEN
+    ("Exact lifetime, shared-world ownership ... still need to be labelled
+    RECONSTRUCTED/OPEN"), not a claim about what the original server did.
+    Whether a live scene transition should call this at all, and exactly
+    where, is ``runtime.py``'s call to make -- this lane's own file limits do
+    not reach there; see this round's ``CORE-REQUEST``.
+    """
+    if type(ledger_now) is not DropLedger:
+        raise MobLootContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "ledger must be a typed DropLedger")
+    removed = ledger_now.drops
+    if not removed:
+        return ledger_now, ()
+    return (
+        DropLedger(
+            (), ledger_now.generation + 1, ledger_now.issued_through,
+            ledger_now.looted),
+        removed,
+    )
+
+
 class DropLedgerCell:
     """THE OWNER OF THE LEDGER.  Every mutation happens here, under a lock.
 
@@ -2275,6 +2346,33 @@ class DropLedgerCell:
                     self._deadlines.pop(drop.drop_key, None)
             self._ledger = ledger
             return tuple(removed)
+
+    def reconcile_scene_transition(self) -> tuple:
+        """Clear every live row, under the lock.  See the module function of
+        the same name for why (CODEX_URGENT 2026-09-01T20:40+07:00 / COO-
+        DECISION 2026-09-01T21:48+07:00, item 2).
+
+        A DEDICATED CELL METHOD RATHER THAN A LOOP OF ``take`` CALLS AT THE
+        CALL SITE, same reasoning as every other mutation on this class: the
+        read, the clear and the deadline bookkeeping happen inside ONE lock
+        acquisition, so a kill landing in the middle of a scene-transition
+        reconcile cannot interleave with it and leave a half-cleared cell.
+        Also resets ``_newest_kill_first_key`` to ``None`` -- the newest
+        kill's rows are gone too, so the mark that used to protect them from
+        :meth:`prune_previous_kills` must go with them, or the NEXT scene's
+        first kill would be silently protected from a prune it never earned.
+
+        Returns the rows that were on the ground, oldest key first, so a
+        caller can log what a scene transition actually cleared.
+        """
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            self._ledger, removed = reconcile_scene_transition(self._ledger)
+            for drop in removed:
+                self._deadlines.pop(drop.drop_key, None)
+            self._newest_kill_first_key = None
+            return removed
 
     def frames(self, legacy: Any) -> tuple:
         """Re-emit every live row.  See :func:`refresh_frames` for the caveat."""

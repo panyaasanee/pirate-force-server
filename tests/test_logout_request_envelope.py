@@ -12,6 +12,7 @@ assumed):
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import sys
 import unittest
@@ -27,6 +28,7 @@ from pirateforce_foundation.logout_hypothesis import (  # noqa: E402
     LOGOUT_SUBCODE_CHARACTER_SELECT,
     LOGOUT_SUBCODE_EXIT_GAME,
     LOGOUT_VITAL_ID,
+    classify_logout_attempt,
 )
 from pirateforce_foundation.logout_request_envelope import (  # noqa: E402
     classify_logout_vital_request,
@@ -204,6 +206,72 @@ class LiveDispatchGapEvidenceTests(unittest.TestCase):
         self.assertEqual(
             parsed.nested_payload,
             LOGOUT_REQUEST_PAYLOADS[LOGOUT_SUBCODE_CHARACTER_SELECT],
+        )
+
+
+class DispatchGapFixedTests(unittest.TestCase):
+    """The receipt this CORE-REQUEST asked for: after chief applies option
+    (ก) from letter 2007 (``vital_count >= 1`` + prefix compare against
+    ``nested_payload``), ``classify_logout_attempt`` -- the exact function
+    ``runtime.py`` dispatches through, not a reimplementation -- must
+    recognize the real captured "exit game" click instead of rejecting it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+
+    def test_captured_exit_game_frame_now_classifies_exact_01(self):
+        parsed = self.legacy.parse_outer(CAPTURED_2026_09_01_EXIT_GAME)
+        self.assertEqual(
+            classify_logout_attempt(self.legacy, parsed), "exact_01"
+        )
+
+    def test_captured_character_select_frame_still_classifies_exact_03(self):
+        # Regression guard: the fix must not change the already-working
+        # single-vital case.
+        parsed = self.legacy.parse_outer(
+            CAPTURED_2026_09_01_CHARACTER_SELECT
+        )
+        self.assertEqual(
+            classify_logout_attempt(self.legacy, parsed), "exact_03"
+        )
+
+    def test_wrong_nested_id_still_rejected(self):
+        # Fail-closed guard: relaxing vital_count must not relax nested_id.
+        parsed = self.legacy.parse_outer(CAPTURED_2026_09_01_EXIT_GAME)
+        bad = replace(parsed, nested_id=parsed.nested_id + 1)
+        self.assertEqual(
+            classify_logout_attempt(self.legacy, bad), "wrong_envelope"
+        )
+
+    def test_short_nested_payload_still_rejected(self):
+        # A payload shorter than the 14-byte pin must not slice-match by
+        # accident (an empty/short prefix comparison must fail closed).
+        parsed = self.legacy.parse_outer(CAPTURED_2026_09_01_EXIT_GAME)
+        bad = replace(parsed, nested_payload=parsed.nested_payload[:5])
+        self.assertEqual(
+            classify_logout_attempt(self.legacy, bad), "wrong_payload"
+        )
+
+    def test_vital_count_1_with_trailing_junk_still_rejected(self):
+        # pf-adversary finding on the first draft of this fix: a frame that
+        # claims vital_count == 1 (no bundled vitals) but carries extra
+        # bytes after the pinned 14-byte payload anyway must NOT be
+        # accepted via prefix truncation -- nothing legitimate produces
+        # trailing bytes when only one vital is declared, so the
+        # vital_count == 1 case keeps the pre-fix exact-length comparison.
+        # Only vital_count >= 2 (the real bundled-vitals case) uses the
+        # prefix match.
+        pinned = LOGOUT_REQUEST_PCS[LOGOUT_SUBCODE_EXIT_GAME]
+        parsed = self.legacy.parse_outer(pinned)
+        self.assertEqual(parsed.vital_count, 1)
+        self.assertEqual(len(parsed.nested_payload), 14)
+        junked = replace(
+            parsed, nested_payload=parsed.nested_payload + b"\xff" * 50,
+        )
+        self.assertEqual(
+            classify_logout_attempt(self.legacy, junked), "wrong_payload"
         )
 
 

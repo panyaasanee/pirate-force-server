@@ -1691,6 +1691,119 @@ class MobLootTests(unittest.TestCase):
         for row in second:
             self.assertIsNotNone(cell.take(row.drop_key))
 
+    # -- CODEX_URGENT 2026-09-01T20:40+07:00 / COO-DECISION 2026-09-01T21:48
+    # +07:00, item 2: DropLedger has no scene term and every kill sends the
+    # live ledger whole, so a drop still on the ground in scene A rides along
+    # into scene B's first publication.  reconcile_scene_transition() is the
+    # bounded fix -- clear the whole ledger at the scene boundary, before the
+    # next publish, keeping issued_through/looted (never reused, never a
+    # scene fact) so a respawn-and-rekill later still cannot replay.
+
+    def test_reconcile_scene_transition_clears_every_live_row(self):
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        placed = cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        self.assertTrue(placed, "fixture needs a kill that actually drops")
+        self.assertEqual(len(cell.ledger.drops), len(placed))
+        removed = cell.reconcile_scene_transition()
+        self.assertEqual(
+            [row.drop_key for row in removed],
+            [row.drop_key for row in placed])
+        self.assertEqual(cell.ledger.drops, ())
+
+    def test_reconcile_scene_transition_carries_issued_through_and_looted(
+            self):
+        # A key must never be reused (a client may still hold it under a
+        # stale reference) and a kill token already spent must still refuse a
+        # replay in the NEXT scene -- neither of those is "what is on the
+        # ground", so neither resets with the ground.
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        before_issued = cell.ledger.issued_through
+        before_looted = cell.ledger.looted
+        self.assertTrue(before_looted)
+        cell.reconcile_scene_transition()
+        self.assertEqual(cell.ledger.issued_through, before_issued)
+        self.assertEqual(cell.ledger.looted, before_looted)
+
+    def test_reconcile_scene_transition_a_kill_next_door_carries_nothing_from_the_old_scene(
+            self):
+        # THE REGRESSION ITSELF, END TO END: scene A has a live drop, the
+        # player crosses to scene B, scene B's first kill publishes -- and
+        # that publication must not carry scene A's key or position.
+        cell = DropLedgerCell()
+        mob_a = self.roster[0]
+        record_a = DeathRecord(mob_a.actor_identity, KILLER, mob_a.max_hp)
+        drops_a = cell.loot_a_kill(
+            mob_a, record_a, roll_drops(mob_a, random.Random(3)),
+            kill_token=1)
+        self.assertTrue(drops_a)
+        keys_a = frozenset(row.drop_key for row in drops_a)
+        cell.reconcile_scene_transition()  # the scene boundary
+        mob_b = self.roster[1]
+        record_b = DeathRecord(mob_b.actor_identity, KILLER, mob_b.max_hp)
+        drops_b = cell.loot_a_kill(
+            mob_b, record_b, roll_drops(mob_b, random.Random(4)),
+            kill_token=2)
+        publication = cell.ledger.drops
+        self.assertFalse(keys_a & frozenset(row.drop_key for row in publication))
+        for row in publication:
+            self.assertNotEqual(row.mob_identity, mob_a.actor_identity)
+        if drops_b:
+            self.assertEqual(
+                frozenset(row.drop_key for row in publication),
+                frozenset(row.drop_key for row in drops_b))
+
+    def test_reconcile_scene_transition_on_an_empty_cell_is_a_no_op(self):
+        cell = DropLedgerCell()
+        before = cell.ledger
+        removed = cell.reconcile_scene_transition()
+        self.assertEqual(removed, ())
+        self.assertEqual(cell.ledger, before)
+
+    def test_reconcile_scene_transition_advances_generation_by_one(self):
+        cell = DropLedgerCell()
+        record = DeathRecord(self.mob.actor_identity, KILLER, self.mob.max_hp)
+        cell.loot_a_kill(
+            self.mob, record, roll_drops(self.mob, random.Random(3)),
+            kill_token=1)
+        before_generation = cell.ledger.generation
+        cell.reconcile_scene_transition()
+        self.assertEqual(cell.ledger.generation, before_generation + 1)
+
+    def test_reconcile_scene_transition_module_function_matches_the_cell(
+            self):
+        ledger = commit_drops(
+            DropLedger(), place_drops(
+                self.mob, DeathRecord(
+                    self.mob.actor_identity, KILLER, self.mob.max_hp),
+                roll_drops(self.mob, random.Random(3)), DROP_KEY_BASE),
+            base_generation=0, kill_token=1,
+            mob_identity=self.mob.actor_identity)
+        if not ledger.drops:
+            self.skipTest("this seed's roll dropped nothing")
+        cleared, removed = mob_loot.reconcile_scene_transition(ledger)
+        self.assertEqual(cleared.drops, ())
+        self.assertEqual(cleared.issued_through, ledger.issued_through)
+        self.assertEqual(cleared.looted, ledger.looted)
+        self.assertEqual(cleared.generation, ledger.generation + 1)
+        self.assertEqual(removed, ledger.drops)
+
+    def test_reconcile_scene_transition_refuses_a_non_ledger(self):
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.reconcile_scene_transition("not a ledger")
+        self.assertEqual(
+            caught.exception.args[0], mob_loot.REFUSE_TYPE_NOT_TYPED_RECORD)
+
+    def test_the_wiring_note_names_the_scene_transition_call_site(self):
+        note = mob_loot.MOB_LOOT_WIRING
+        self.assertIn("cell.reconcile_scene_transition()", note)
+
     def test_the_wiring_note_stopped_telling_the_caller_to_take_every_key(self):
         """P1 of this round's adversarial pass, held by a test.
 

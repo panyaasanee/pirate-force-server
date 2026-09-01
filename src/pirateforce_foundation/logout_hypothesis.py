@@ -293,8 +293,15 @@ CHAT_PUSH_TRIGGER_CLASSIFICATION = "ascii12"
 # row 73 carries, for ReturnSelectServerVital: getter_va 0x005E6960 installed
 # at reg_site_va 0x00BEE880, and handler_va 0x005F1190 -- an address that is
 # UNIQUE to this row across all 519 rows, so it is not one of the shared stubs
-# that table reuses elsewhere (contrast serializer_va 0x0043BB80, shared by the
-# whole Attr cohort).  "Zero direct rel32 callers" is therefore not evidence of
+# that table reuses elsewhere.  [CORRECTED 2026-09-01, ka1-B letter 2117 item
+# (1)]: an earlier draft of this comment contrasted serializer_va 0x0043BB80
+# as "shared by the whole Attr cohort" -- that is wrong.  0x0043BB80 is a
+# misread-slot artifact at vtable+0x18 on 45/519 rows (all with
+# old_slot_capabilities=NONE there, i.e. no read/write capability on that
+# slot at all); the real per-type serializers live at vtable+0x34 and are
+# distinct per class (ActorAttr 0x00466230, BasicAttr 0x004656F0, etc). The
+# conclusion below about handler_va 0x005F1190 being unique is unaffected.
+# "Zero direct rel32 callers" is therefore not evidence of
 # "no producer": indirect dispatch through the descriptor table is exactly what
 # the registry describes.
 #
@@ -1352,6 +1359,162 @@ _EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER = {
 }
 
 
+# RE-189 Job 2, branch 3 (LOGOUT-ACK-FIRST-REORDER-001): the allowlisted
+# profile + scenario file for LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER.
+# runtime.py's routing branch (see that constant's own comment above, and
+# the RE_189_BRANCH3_... action labels in runtime.py) was wired by chief
+# LAST round per CORE-REQUEST option (a) of pf_bridge/notes_to_chief/
+# 20260901_1844_LANE-A-CORE-REQUEST-re189-branch2-built-branch3-needs-
+# runtime-py-hyp041-ledger.md section 3: it composes the unchanged
+# HYP-PF-012 ack FIRST, then the unchanged HYP-PF-028 ReturnSelectServerVital
+# response SECOND -- the exact reverse send order of
+# LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST.  Neither composer changes and
+# no byte is invented; only the calling order and which frame goes out first
+# differ.  Until this round, no profile in require_logout_hypothesis_
+# scenario's allowlist could carry this response_policy, so the branch was
+# provably unreachable from any default boot
+# (tests/test_logout_ack_first_reorder_routing_wired.py, chief's own file,
+# proves this directly with test_scenario_carrying_the_new_policy_is_not_
+# yet_allowlisted -- read alongside this profile rather than superseded by
+# it, since that file also proves the wiring is CORRECT via an in-memory
+# probe scenario before any real profile existed). This entry is lane A's
+# next-round half of the same two-step pattern HYP-PF-040 and HYP-PF-041
+# both used: chief wires an unreachable routing branch first, lane A adds
+# the allowlisted profile + scenario file afterward.
+#
+# HYPOTHESIS ID -- THIS IS DELIBERATELY NOT HYP-PF-041.  HYP-PF-041
+# (LOGOUT-TEARDOWN-TIMER-VARIANT-001, registered in docs/HYPOTHESIS_LEDGER
+# .json, chief cloud round 5qs3y7) is RE-189 Job 2 BRANCH 2 -- a sibling
+# opened by the SAME CORE-REQUEST letter but a DIFFERENT hypothesis: its own
+# exact_value_or_transform names only the post-ack close_delay_ms sweep and
+# says nothing about frame order.  Reusing its id here would silently
+# misattribute this branch's frame-reorder claim to that entry's
+# already-registered, already-hash-pinned ledger text -- the opposite of
+# what a hypothesis id is for.  Repo-wide grep at the time this profile was
+# written (grep -rn "HYP-PF-04[0-9]" .) finds HYP-PF-040 and HYP-PF-041 both
+# claimed and HYP-PF-042 unused anywhere, so HYP-PF-042 is claimed here --
+# the same provisional-before-ledger-registration move HYP-PF-040 and
+# HYP-PF-041 both made in their own turn (see HYP-PF-041's own PROVENANCE
+# NOTE above for that precedent's exact wording).
+#
+# PROVENANCE NOTE: HYP-PF-042 is NOT YET a registered entry in
+# docs/HYPOTHESIS_LEDGER.json as of this round.  Per this project's own
+# established practice (every prior ledger-entry MINT visible in
+# verify_hypothesis_ledger.py's lineage comments was a chief-round action;
+# the sole lane-A exception amended an already-open entry, never minted one)
+# ledger registration itself is chief's write zone, so this round does not
+# hand-guess CANONICAL_CONTENT_SHA256.  A CORE-REQUEST asking chief to
+# register HYP-PF-042 (LOGOUT-ACK-FIRST-REORDER-001) accompanies this round.
+# DELIBERATELY NO "PF-HYPOTHESIS-LEDGER: HYP-PF-042 active" ANNOTATION LINE
+# HERE YET: tools/verify_hypothesis_ledger.py's verify_source_annotations
+# scans every .py under src/ and every .json under scenarios/ for that exact
+# marker and raises "unregistered emitter annotation" for any id absent from
+# its own EXPECTED_META table -- adding the marker before chief registers
+# the entry (and updates that table) would break the verifier for every lane,
+# not just this one.  The same restraint HYP-PF-041's own commit exercised
+# before its registration (see that entry's PROVENANCE NOTE and its later
+# [REGISTERED ...] follow-up, added in place rather than replacing the
+# original text, per the R166 amend-not-replace precedent).  Add the marker
+# only after docs/HYPOTHESIS_LEDGER.json carries this id.
+LOGOUT_ACK_FIRST_REORDER_CHECKPOINT = "LOGOUT-ACK-FIRST-REORDER-001"
+
+_PROFILE_ACK_FIRST_REORDER = LogoutHypothesisScenario(
+    "logout_hypothesis_ack_first_reorder_subcode01_03",
+    "HYP-PF-042",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS,
+    LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER,
+)
+
+# HYP-PF-042 exact allowlist: the unchanged PF-012 request/ack pins and the
+# unchanged PF-013 close lever (identical to _EXPECTED_RETURN_SELECT), plus
+# the unchanged PF-028 0x709E body -- no byte is invented under this
+# scenario either.  What is new relative to _EXPECTED_RETURN_SELECT is the
+# WIRE ORDER only: the ack is sent first and the 0x709E response second,
+# the reverse of "return_select_first".
+_EXPECTED_ACK_FIRST_REORDER = {
+    "schema": 1,
+    "id": _PROFILE_ACK_FIRST_REORDER.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_ACK_FIRST_REORDER.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "response_policy": LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER,
+        "wire_order": "ack_first_then_return_select_server_response",
+        "return_select_source": (
+            "client_serializer_0x5e69f0_field_layout_all_zero_no_client_"
+            "producer_values_default_zero"
+        ),
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+        "return_select_after_ack": {
+            "vital_id": RETURN_SELECT_SERVER_VITAL_ID,
+            "body_size": RETURN_SELECT_SERVER_BODY_SIZE,
+            "pc_size": RETURN_SELECT_SERVER_RESPONSE_PC_SIZE,
+            "pc_sha256": RETURN_SELECT_SERVER_RESPONSE_PC_SHA256,
+            "frame_size": RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE,
+            "frame_sha256": RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256,
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "send_the_pinned_ack_before_the_return_select_server_response_"
+        "reverse_of_return_select_first",
+        "compose_well_formed_return_select_server_vital_from_client_"
+        "serializer_field_layout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "return_select_server_field_values_and_string_semantics",
+        "client_consumes_0x709e_or_transitions_to_character_select",
+        "client_observable_exit_or_character_select_return",
+        "the_reordered_wire_shape_alone_changes_client_behavior_relative_"
+        "to_return_select_first",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+    ],
+}
+
+
 _EXPECTED_BY_ID = {
     _PROFILE_ECHO.scenario_id: (_EXPECTED_ECHO, _PROFILE_ECHO),
     _PROFILE_ACK_CLOSE.scenario_id: (_EXPECTED_ACK_CLOSE, _PROFILE_ACK_CLOSE),
@@ -1382,6 +1545,9 @@ _EXPECTED_BY_ID = {
     _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER.scenario_id: (
         _EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER,
         _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER,
+    ),
+    _PROFILE_ACK_FIRST_REORDER.scenario_id: (
+        _EXPECTED_ACK_FIRST_REORDER, _PROFILE_ACK_FIRST_REORDER,
     ),
 }
 
@@ -1421,6 +1587,7 @@ def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
         _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS,
         _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS,
         _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER,
+        _PROFILE_ACK_FIRST_REORDER,
     ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:
@@ -1449,18 +1616,52 @@ def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
 
 
 def classify_logout_attempt(legacy: Any, parsed: Any) -> str:
-    """Classify one 0x1B40-bearing parse against the exact captured forms."""
+    """Classify one 0x1B40-bearing parse against the exact captured forms.
+
+    [FIXED 2026-09-01, LANE-A CORE-REQUEST letter 2007]: a live capture of
+    the real "exit game" button showed the client wraps the LogoutVital
+    entry together with whatever other vitals are pending in the same
+    session (vital_count == 4, not 1) -- the byte-identical 34-byte pin
+    only ever covered the isolated single-vital case. vital_count is now a
+    floor, not an exact match, but the payload check stays branched on it
+    rather than uniformly relaxed:
+
+    - vital_count == 1 (no bundled vitals): nested_payload must equal the
+      pinned 14-byte payload EXACTLY, length included, same as before this
+      fix. Nothing legitimate produces trailing bytes after a lone vital's
+      own payload, so a frame that claims vital_count == 1 but carries
+      extra bytes anyway is still rejected as "wrong_payload" rather than
+      silently accepted via prefix truncation (pf-adversary review of the
+      first draft of this fix: a naive nested_payload[:14] compare applied
+      unconditionally would accept vital_count == 1 plus 50 bytes of
+      arbitrary junk as a valid click -- fail-open on malformed input this
+      module's own docstring promises to reject).
+    - vital_count >= 2 (real bundled-vitals case, the gap this fix closes):
+      only the LogoutVital entry's own 14-byte payload (verified
+      fixed-length, see LOGOUT_REQUEST_PAYLOADS) is compared as a PREFIX of
+      nested_payload, which also holds the trailing wrapped vitals' raw
+      bytes and is never itself hash/length-pinned.
+
+    Confirmed against the real current/pf_login_game_server_v141.py parser,
+    not just recomputed bytes: nested_payload[:14] exact-matches for both
+    subcodes on the real vital_count == 4 capture.
+    """
     if not (
         parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
         and parsed.outer_version == 0
         and parsed.outer_mask == 0x02
-        and parsed.vital_count == 1
+        and parsed.vital_count >= 1
         and parsed.nested_id == LOGOUT_VITAL_ID
         and parsed.nested_version == 0
     ):
         return "wrong_envelope"
     for subcode in LOGOUT_SUBCODES:
-        if parsed.nested_payload == LOGOUT_REQUEST_PAYLOADS[subcode]:
+        expected = LOGOUT_REQUEST_PAYLOADS[subcode]
+        if parsed.vital_count == 1:
+            matched = parsed.nested_payload == expected
+        else:
+            matched = parsed.nested_payload[:14] == expected
+        if matched:
             return f"exact_{subcode:02d}"
     return "wrong_payload"
 
