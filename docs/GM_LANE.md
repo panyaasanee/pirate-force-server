@@ -6310,3 +6310,61 @@ does not make GM-A pass" (4) `git diff --stat` ยืนยันแตะแค
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1225_sched-20260901_census-latch-chain-test-p2-narrowed.md`
 PR: `pf_bridge` #703 / `pirate-force-server` #468
+
+## Round `r2jfjm` (2026-09-01T15:19+07:00) -- P-2 RGB question closed, second color path found (faction/pink), no code change
+
+Consumed `notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md` (Codex static RE,
+answering the RE-191 ticket this lane opened round `h6rsgl`). Result: exact RGBA proven via
+DATA+IMAGE cross-reference for `fontstyle_id` 61/62/63:
+
+| FontStyleID | FontColor RGBA | คำบรรยาย |
+|---:|---|---|
+| 61 | (255,100,100,255) | แดง/แดงอมชมพู (fighting) |
+| 62 | (255,159,113,255) | ส้ม/แซลมอน (normal) |
+| 63 | (179,179,179,255) | เทา (candidate: dead) |
+
+This matches the owner's stated rule (normal=orange, fighting=red, dead=gray, never pink) and
+none of the three IDs is pink -- closes the exact question `COO-DECISION 20260901_1241` ordered
+answered. **Does not close P-2 as a whole**: the RE-191 letter itself says this proves the DATA
+palette and the conditional static IMAGE path only, not that any live actor reaches
+`fontstyle_id=63` for "dead" specifically, and warns against hardcoding a style ID -- the client
+selects it from identity/relationship/death path.
+
+**New this round (no prior GM round cross-referenced this):** searched outside this lane's write
+zone (read-only) and found `src/pirateforce_foundation/npc_hostile_hypothesis.py:11-30`
+(GT-032, attended PASS, not this lane's module) documents a **second, separate** color mechanism
+-- a faction/relation comparator (`0x4A1D50`, BasicAttr bit `0x0400` at `+0x68`) that a real
+client has rendered as **"pink/red name"** for one measured faction pairing (player faction 1 vs
+NPC faction 6). That result is the literal thing the owner's P-2 rule forbids. Filed
+`CORE-REQUEST-GM-048` to chief asking which mechanism (FontStyleID selector vs faction
+comparator) P-2 should bind to, and for a faction-pairing block-list if it's the latter, before
+any lane writes color code against either path.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` = **1229 passed, 547 subtests passed** เขียว(cloud
+sanity) -- unchanged from the previous round's baseline; no `gm/` source touched this round.
+
+### pf-adversary
+
+**ไม่เรียก** -- ไม่มีการแก้ `src/`/`scenarios/`/`tests/` รอบนี้ (เฉพาะจดหมาย/round notes/docs)
+ตามบรรทัดฐานรอบ `dgyakk`/`bmedw1`/`kv02mn`/`t2qkn3`
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- รอบนี้เป็นการบริโภคจดหมาย + ค้นข้ามเขต (อ่านอย่างเดียว) + เปิดใบขอเท่านั้น ไม่มีการแก้
+wire/behavior ใด ๆ
+
+### nonclaim
+
+1. ไม่อ้างว่า faction comparator กับ FontStyleID selector เป็นกลไกเดียวกัน -- ตั้งข้อสังเกตให้ chief
+   ตัดสิน
+2. ไม่อ้างว่า RE-191 ปิด P-2 ทั้งใบ -- ปิดเฉพาะคำถาม RGB
+3. ไม่แตะ `npc_hostile_hypothesis.py`/`runtime.py`/`app.py`/`pf_login_game_server_v141.py`/
+   canonical DB/`scenarios/world_*.json`/`scenarios/combat_*.json` -- อ่านอย่างเดียว นอกเขตเขียน
+4. ไม่เขียนโค้ดสีมอนสเตอร์ใด ๆ รอบนี้ -- ยังไม่รู้ว่าเป็นกลไกไหน เขียนตอนนี้ = การเดา
+5. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone
+6. ไม่ลบประวัติเดิมใด ๆ
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1519_r2jfjm_p2-rgb-closed-faction-pink-crossref.md`
+PR: `pf_bridge` #723 / `pirate-force-server` #483

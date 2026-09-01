@@ -782,6 +782,103 @@ class SQLiteStore:
                 raise RuntimeError("occupied-merge post-state validation failed")
             return after
 
+    def read_typed_attributes(self, character_id: int) -> dict[str, int | float]:
+        """Every typed attribute column of this character that HAS a value.
+
+        LANE-DB owns this method (charter `COO-DECISION 20260901_1100`: new
+        methods here are allowed, changing an old one is not); no existing
+        method is touched by it.
+
+        A column that is NULL is OMITTED from the result -- it is never
+        rendered as `0`.  That omission is load-bearing rather than tidy:
+        `persistence_attr_compose` refuses to compose an attribute block for
+        a server-owned field it was handed no value for, so an unseeded
+        column arrives there as absent and the owner's "never guess zero"
+        rule (`COO-DECISION 20260901_1059`) holds without anything else
+        having to remember it.  A caller can therefore treat `column in
+        result` as "the database really knows this one".
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, matching `get_character`.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        projection = ",".join(columns)
+        with self.connect() as db:
+            row = db.execute(
+                f"SELECT {projection} FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+        return {c: row[c] for c in columns if row[c] is not None}
+
+    def write_typed_attributes(
+        self, character_id: int, values: dict[str, int | float]
+    ) -> dict[str, int | float]:
+        """Validate, then store, typed attribute columns for one character.
+
+        LANE-DB owns this method; no existing method is touched by it.
+
+        Every value goes through `persistence_typed_attrs.validate` FIRST, so
+        a value that could not survive the wire encoder (a bool, a float in an
+        integer field, a number outside the field's wire range, `None`) is
+        refused before any SQL runs, with the column named.  The column's own
+        SQL CHECK in `migrations/006_character_typed_attribute_columns.sql` is
+        the second line of the same defence, for a writer that does not come
+        through here.
+
+        Returns the character's full typed-attribute state after the write
+        (the same shape `read_typed_attributes` returns), so a caller does not
+        have to guess whether the row it just wrote also has other values.
+        That read-back happens INSIDE this method's own transaction, on the
+        same connection.  An adversary pass measured what the obvious shape --
+        commit, then call `read_typed_attributes` -- does under concurrency:
+        another writer soft-deleting the character in that window made this
+        method COMMIT the write and then raise `KeyError` (a caller catching
+        `KeyError` would report "no such character" while the row on disk had
+        changed), and another writer's value came back as "the state after
+        this write".  Neither is possible while the read is under the same
+        lock as the write.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a value
+        this schema may not hold.  Nothing is written when anything is refused.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+
+        checked = typed_attrs.validate_all(values)
+        assignments = ",".join(f"{column}=?" for column in checked)
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            # `deleted_at IS NULL` is repeated here on purpose.  The guard
+            # above is the error message; this predicate is what makes the
+            # write itself impossible on a soft-deleted row, so removing
+            # either one alone cannot land a write where the API says it
+            # cannot -- an adversary pass deleted the guard and every test
+            # stayed green while the UPDATE landed.
+            written = db.execute(
+                f"UPDATE characters SET {assignments},updated_at=? "
+                "WHERE id=? AND deleted_at IS NULL",
+                (*checked.values(), _now(), character_id),
+            ).rowcount
+            if written != 1:
+                raise KeyError(character_id)
+            after = db.execute(
+                f"SELECT {','.join(columns)} FROM characters WHERE id=?",
+                (character_id,),
+            ).fetchone()
+        return {c: after[c] for c in columns if after[c] is not None}
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
