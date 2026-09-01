@@ -116,9 +116,22 @@ what this lane CAN send.  Whether a model appears is therefore still open,
 is still GT-045/GT-132's question, and this round does not close it.  It is
 production code -- no scenario id, no CLI flag, ``test_only`` unchanged at
 False -- gated only by the module-level :data:`DROP_MODEL_TYPE_FIELD_
-ENABLED`, and it is NOT (yet) reached by :func:`drop_frames`, the function
-``runtime.py`` actually calls; see that function's own docstring for why,
-and this round's CORE-REQUEST for the one-line swap that would change it.
+ENABLED`, and ~~it is NOT (yet) reached by :func:`drop_frames`, the
+function ``runtime.py`` actually calls; see that function's own docstring
+for why, and this round's CORE-REQUEST for the one-line swap that would
+change it~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP (pf-adversary caught
+this citing a call site ``runtime.py`` had already stopped using two days
+earlier).  The real chain, unchanged by this correction and confirmed by
+grep against ``runtime.py`` at the time of writing: ``runtime.py:4921-4922``
+calls ``mob_drop_presence.sustain_a_kill(self.mob_loot_cell, legacy,
+drops)`` unconditionally on every server-computed mob death
+(CORE-REQUEST 2246, COO-DECISION 2026-08-29T23:42, proven live by
+``tests/test_mob_drop_presence_wiring.py``), which calls
+:func:`refresh_frames` (this file), which -- as of THIS round, not a
+pending swap -- calls :func:`drop_frames_with_model_type`, not
+:func:`drop_frames`.  So the mask-0x16 element IS reached by the production
+dispatch path today; see :func:`refresh_frames`'s own docstring and
+NONCLAIM 23 for the one-line rollback if that turns out to be wrong.
 
 PROVENANCE OF EVERY CLAIM THE CODE MAKES
 ----------------------------------------
@@ -537,30 +550,47 @@ DROP_REFRESH_MS = 80
 MAX_DROPS_PER_KILL = 16
 
 # ---------------------------------------------------------------------------
-# ROUND KA1B-DROPMODEL -- n_DROPMODEL_TYPE, SHIPPED BUT NOT (YET) THE PROVEN
-# CALL SITE'S DEFAULT.  [ASSUMPTION OF LANE B - awaiting COO confirmation]
+# ROUND KA1B-DROPMODEL -- n_DROPMODEL_TYPE, SHIPPED BUT ~~NOT (YET) THE
+# PROVEN CALL SITE'S DEFAULT~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP,
+# 2026-09-01, PF-ADVERSARY: it is now the proven call site's default; see
+# below.  [ASSUMPTION OF LANE B - awaiting COO confirmation]
 # Following NONCLAIM 22's own precedent -- additive, reversible, so ship it
 # unflagged and let an attended run falsify it cheaply -- this flag is True
 # by default and gates :func:`drop_frames_with_model_type` (and the
 # mask-0x16 composers under it), which is production code: no scenario id,
 # no dispatch kwarg, no CLI switch, ``test_only`` for this module is still
-# False.  It does NOT gate :func:`drop_frames` itself.  :data:`MOB_LOOT_
-# WIRING` and NONCLAIM 1 both name ``drop_frames`` as the literal call site
-# ``runtime.py`` already invokes unconditionally on every server-computed
-# mob death, and that function's ONE-drop output is pinned byte-for-byte not
-# only by this file's own tests but by tests/test_ground_drop_multi_drop_
-# emission_shape.py and tests/test_mob_drop_presence*.py -- files this
-# round's task scope does not authorize touching.  Making ``drop_frames``
-# itself pick the wide mask would silently break every one of those pins,
-# which is exactly the "weaken the existing proven mask-0x12 path" this
-# module's own rule forbids.  So the wide path ships as its OWN
-# always-callable function instead, reachable with NO FLAG the way this
-# whole module is, and the one-line ask that would make it the live call
-# site's default is this round's CORE-REQUEST, not a change made here to
-# runtime.py, which this lane may not edit.
-# Rollback if the assumption is wrong: leave this False, or simply never
-# take the CORE-REQUEST swap -- drop_frames, the function actually wired
-# today, does not read this flag at all.
+# False.  It does NOT gate :func:`drop_frames` itself -- that function is
+# UNCHANGED and still composes only the proven mask-0x12 shape, forever, for
+# whatever still calls it directly (this file's own tests, and any future
+# caller that wants the narrow shape by name).
+# ~~:data:`MOB_LOOT_WIRING` and NONCLAIM 1 both name ``drop_frames`` as the
+# literal call site ``runtime.py`` already invokes unconditionally on every
+# server-computed mob death ... Making ``drop_frames`` itself pick the wide
+# mask would silently break every one of those pins ... So the wide path
+# ships as its OWN always-callable function instead ... and the one-line ask
+# that would make it the live call site's default is this round's
+# CORE-REQUEST, not a change made here to runtime.py, which this lane may
+# not edit~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP: the premise was
+# wrong.  ``runtime.py`` does not call ``drop_frames`` at all (it has not
+# since CORE-REQUEST 2246 / COO-DECISION 2026-08-29T23:42 rewired it through
+# ``mob_drop_presence.sustain_a_kill`` -> :func:`refresh_frames`,
+# ``runtime.py:4921-4922``, proven by tests/test_mob_drop_presence_wiring.py)
+# -- and :func:`refresh_frames` lives IN THIS FILE, so making the wide mask
+# ITS default needed no CORE-REQUEST and no edit outside this lane's own
+# module.  This round did exactly that: :func:`refresh_frames` now calls
+# :func:`drop_frames_with_model_type`.  The pins this paragraph worried
+# about (test_ground_drop_multi_drop_emission_shape.py,
+# test_mob_drop_presence*.py) all pin ``drop_frames`` directly, which this
+# change never touches; the one test that pinned ``refresh_frames``'s own
+# output byte-for-byte (tests/test_mob_loot.py,
+# test_refreshing_re_emits_the_live_ledger_in_key_order) was updated in the
+# same commit as this comment to expect the wide shape, since that is this
+# round's deliberate, understood behaviour change.
+# Rollback if the assumption is wrong: leave this False -- when it is False,
+# :func:`drop_frames_with_model_type` returns :func:`drop_frames`'s own
+# output verbatim, so :func:`refresh_frames` (and therefore
+# ``runtime.py``'s live dispatch) goes straight back to the exact narrow
+# bytes GT-045 measured, with no other code change.
 DROP_MODEL_TYPE_FIELD_ENABLED = True
 
 # [MEASURED, GT-045 CLOSED-ANSWERED, four attended rounds 2026-08-25]
@@ -856,7 +886,7 @@ MOB_LOOT_NONCLAIMS = (
     "whether a byte the decompiled shape reserves is present, not what the "
     "client does with it.  [ASSUMPTION OF LANE B - awaiting COO "
     "confirmation]  It is production code with no CLI flag, gated by "
-    "DROP_MODEL_TYPE_FIELD_ENABLED (True), but is NOT wired into "
+    "DROP_MODEL_TYPE_FIELD_ENABLED (True), but ~~is NOT wired into "
     "drop_frames -- the function runtime.py actually calls -- because that "
     "function's ONE-drop output is pinned byte-for-byte in test files this "
     "round did not touch (test_ground_drop_multi_drop_emission_shape.py, "
@@ -864,7 +894,26 @@ MOB_LOOT_NONCLAIMS = (
     "site's default is this round's CORE-REQUEST.  Rollback if the "
     "assumption is wrong: leave DROP_MODEL_TYPE_FIELD_ENABLED False, or "
     "simply never take the CORE-REQUEST swap -- drop_frames itself never "
-    "reads this flag.",
+    "reads this flag~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP, "
+    "2026-09-01, PF-ADVERSARY: it named the wrong call site.  "
+    "``runtime.py`` never called ``drop_frames`` directly; it has called "
+    "``mob_drop_presence.sustain_a_kill`` since CORE-REQUEST 2246 "
+    "(COO-DECISION 2026-08-29T23:42, ``runtime.py:4921-4922``, proven by "
+    "tests/test_mob_drop_presence_wiring.py), which calls "
+    "``mob_loot.refresh_frames``, which lives in THIS FILE, not in "
+    "runtime.py/app.py/pf_login_game_server_v141.py -- so no CORE-REQUEST "
+    "was needed to reach it.  This round changed refresh_frames's body to "
+    "call drop_frames_with_model_type instead of drop_frames, so the wide "
+    "mask IS now what the production dispatch path sends by default, on "
+    "every kill.  drop_frames itself is untouched and still composes only "
+    "the proven mask-0x12 shape byte-for-byte (its own GT-045 pins did not "
+    "move); it is refresh_frames, not drop_frames, that changed callee.  "
+    "[ASSUMPTION OF LANE B - awaiting COO confirmation]  Rollback if the "
+    "assumption is wrong: set DROP_MODEL_TYPE_FIELD_ENABLED = False -- "
+    "drop_frames_with_model_type reads that flag and, when it is False, "
+    "returns drop_frames's own output verbatim, no other code change, so "
+    "refresh_frames goes back to sending exactly the narrow bytes GT-045 "
+    "measured.",
 )
 
 # ---------------------------------------------------------------------------
@@ -2659,9 +2708,14 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
     three things this change does NOT claim.
 
     The return type is unchanged on purpose -- a tuple of ``(pc, frame)``
-    pairs -- so the call site in ``runtime.py:4292``, which is chief's file
-    and not this lane's to edit, keeps working unread: it iterates, and now
-    it iterates once.
+    pairs -- so ~~the call site in ``runtime.py:4292``, which is chief's
+    file and not this lane's to edit, keeps working unread: it iterates,
+    and now it iterates once~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP,
+    2026-09-01, PF-ADVERSARY: ``runtime.py:4292`` is unrelated
+    ``mob_combat_membership`` code as of this round, and this function is
+    no longer what ``runtime.py`` calls at all (see below).  Any caller of
+    THIS function still gets that iterate-once contract unread; it simply
+    is not the one on the live dispatch path any more.
 
     ROUND KA1B-DROPMODEL, DELIBERATELY UNCHANGED HERE.  A sibling,
     :func:`drop_frames_with_model_type`, composes the mask-0x16 element
@@ -2671,11 +2725,24 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
     shape: the ONE-drop bytes below are GT-045's own measured 44/54, pinned
     not only in this file's tests but in tests/test_ground_drop_multi_
     drop_emission_shape.py and tests/test_mob_drop_presence*.py, none of
-    which this round touched.  Making this function pick the wide mask
-    would break every one of those pins silently.  The one-line swap that
-    would make the wide mask THIS function's default (which is what would
-    make it runtime.py's default, since that file calls this name) is this
-    round's CORE-REQUEST, not a change made unilaterally here.
+    which this round touched -- and none of which calls THIS function
+    (``drop_frames``) any differently than before; this function's own
+    output is untouched by this round.
+    ~~The one-line swap that would make the wide mask THIS function's
+    default (which is what would make it runtime.py's default, since that
+    file calls this name) is this round's CORE-REQUEST, not a change made
+    unilaterally here~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP,
+    2026-09-01, PF-ADVERSARY: the premise -- that ``runtime.py`` calls THIS
+    function -- was already wrong when it was written (CORE-REQUEST 2246 /
+    COO-DECISION 2026-08-29T23:42 had rewired ``runtime.py`` through
+    ``mob_drop_presence.sustain_a_kill`` -> :func:`refresh_frames` two days
+    earlier).  :func:`refresh_frames` lives in this same file, so making
+    IT default to the wide mask needed no CORE-REQUEST; this round did
+    that (see :func:`refresh_frames`).  Nothing about ``drop_frames``
+    itself changed: it is still called directly by this file's tests, by
+    :func:`drop_frames_with_model_type` when :data:`DROP_MODEL_TYPE_FIELD_
+    ENABLED` is False, and by nothing else, and it still composes only the
+    proven mask-0x12 shape, byte for byte, forever.
     """
     rows = tuple(drops)
     if not rows:
@@ -2774,9 +2841,15 @@ def drop_frames_with_model_type(legacy: Any, drops: Any) -> tuple:
     coordinates and the model-type value against
     ``field_drop_tables.ITEMS[item_id][3]``.
 
-    NOT WIRED INTO ``runtime.py``.  See :func:`drop_frames`'s own docstring
-    for why, and this round's CORE-REQUEST for the one-line swap that would
-    change that.
+    ~~NOT WIRED INTO ``runtime.py``.  See :func:`drop_frames`'s own
+    docstring for why, and this round's CORE-REQUEST for the one-line swap
+    that would change that~~ IS STRUCK, ROUND KA1B-DROPMODEL FOLLOW-UP,
+    2026-09-01, PF-ADVERSARY: as of this round it IS reached from
+    ``runtime.py`` -- indirectly, the way every function in this module is
+    -- via ``mob_drop_presence.sustain_a_kill`` -> :func:`refresh_frames`,
+    which now calls THIS function instead of :func:`drop_frames`.  See
+    :func:`refresh_frames`'s own docstring and NONCLAIM 23 for the chain
+    and the rollback.
 
     :data:`DROP_MODEL_TYPE_FIELD_ENABLED` IS READ HERE, not only documented:
     a caller who flips it to False gets exactly :func:`drop_frames`'s own
@@ -2874,11 +2947,40 @@ def refresh_frames(legacy: Any, ledger: Any) -> tuple:
     a cadence rule -- until the label's lifetime is measured from real play.
     ON A TIMER is the refused part.  Once per kill, carrying the live
     ledger, is a different proposal and is written up as WIRING step 4b.
+
+    WIRING STEP 4b WAS TAKEN: since CORE-REQUEST 2246 (COO-DECISION
+    2026-08-29T23:42), ``runtime.py:4921-4922`` calls
+    ``mob_drop_presence.sustain_a_kill`` unconditionally on every
+    server-computed mob death, and that function calls THIS one once per
+    kill (never on a timer -- the refused part above is unaffected).  That
+    is proven by ``tests/test_mob_drop_presence_wiring.py``.  So this
+    function is not only "may be called by hand" any more: it is the real
+    production dispatch path's composer.
+
+    ROUND KA1B-DROPMODEL FOLLOW-UP, 2026-09-01.  [ASSUMPTION OF LANE B -
+    awaiting COO confirmation]  Because this function is that composer AND
+    it lives in this file (not in ``runtime.py``/``app.py``/
+    ``pf_login_game_server_v141.py``, the only files this lane may not
+    edit), this round changed its body to call
+    :func:`drop_frames_with_model_type` instead of :func:`drop_frames`.
+    :func:`drop_frames_with_model_type` still reads
+    :data:`DROP_MODEL_TYPE_FIELD_ENABLED` itself (True by default), so this
+    function does not duplicate that flag check -- it simply defers to it.
+    The practical effect: every real kill's production announcement is now
+    the WIDE mask-0x16 element (mask-0x12 plus [DERIVED, not yet
+    client-measured] ``n_DROPMODEL_TYPE``), not the narrow mask-0x12 shape
+    GT-045 measured.  NONE OF THIS IS MEASURED CLIENT-SIDE -- see NONCLAIM
+    23 for the full chain and citations.  Rollback if the assumption is
+    wrong: set :data:`DROP_MODEL_TYPE_FIELD_ENABLED` = False --
+    :func:`drop_frames_with_model_type` then returns :func:`drop_frames`'s
+    own output verbatim, so this function (and the production dispatch
+    path behind it) goes straight back to the exact narrow bytes GT-045
+    measured, with no other code change.
     """
     if type(ledger) is not DropLedger:
         raise MobLootContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "ledger must be a typed DropLedger")
-    return drop_frames(legacy, ledger.drops)
+    return drop_frames_with_model_type(legacy, ledger.drops)
 
 
 # ---------------------------------------------------------------------------
@@ -3177,8 +3279,12 @@ def drops_console_line(mob: Any, drops: Any) -> str:
 
     Same shape as ``world_population.census_console_line`` and
     ``mob_death.describe_roster_override_coverage``: a pure function a
-    wiring pass can ``print()`` at the ``mob_loot.drop_frames`` call site in
-    ``runtime.py``, so this lane -- unlike its siblings -- becomes visible to
+    wiring pass can ``print()`` at ~~the ``mob_loot.drop_frames`` call site
+    in ``runtime.py``~~ CORRECTED, ROUND KA1B-DROPMODEL FOLLOW-UP,
+    2026-09-01: the mob-death dispatch site in ``runtime.py``
+    (``runtime.py:4923``, beside ``mob_drop_presence.sustain_a_kill``,
+    which is what actually calls into this module today -- see NONCLAIM
+    23), so this lane -- unlike its siblings -- becomes visible to
     a "WIRED v2" console grep instead of being provably-wired-but-silent.
 
     ``MOB_LOOT_DROPS_CENSUS`` is the token.  ``mob.display_name`` is escaped

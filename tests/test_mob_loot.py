@@ -1293,10 +1293,19 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(caught.exception.args[0], "composed_bytes_off_pin")
 
     def test_refreshing_re_emits_the_live_ledger_in_key_order(self):
+        """ROUND KA1B-DROPMODEL FOLLOW-UP, 2026-09-01: this pin used to
+        compare against ``drop_frames`` (the narrow mask-0x12 shape).
+        ``refresh_frames`` now calls ``drop_frames_with_model_type`` (see
+        NONCLAIM 23 and the function's own docstring) -- a deliberate,
+        understood behaviour change to THIS function, not to ``drop_frames``
+        itself, which stays pinned to the narrow shape byte-for-byte
+        elsewhere in this file and is never touched by this edit."""
         _roll, _record, drops = self._one_kill()
         ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
         refreshed = refresh_frames(self.legacy, ledger)
-        self.assertEqual(refreshed, drop_frames(self.legacy, ledger.drops))
+        self.assertEqual(
+            refreshed, drop_frames_with_model_type(self.legacy, ledger.drops))
+        self.assertNotEqual(refreshed, drop_frames(self.legacy, ledger.drops))
         with self.assertRaises(MobLootContractError) as caught:
             refresh_frames(self.legacy, drops)
         self.assertEqual(caught.exception.args[0], "type_not_typed_record")

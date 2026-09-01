@@ -391,6 +391,12 @@ class CostTests(PresenceTestBase):
     """
 
     def test_the_generation_grows_by_about_one_element_per_row(self):
+        """ROUND KA1B-DROPMODEL FOLLOW-UP, 2026-09-01: the per-row cost was
+        pinned at 26-29 bytes, which was ``DROP_ELEMENT_SIZE`` (27, the
+        narrow mask-0x12 element).  ``sustain_a_kill`` now composes through
+        ``refresh_frames`` -> ``drop_frames_with_model_type`` (NONCLAIM 23),
+        so each row costs ``DROP_ELEMENT_SIZE_WITH_MODEL_TYPE`` (30) instead
+        -- a deliberate, understood shape change, not a drift."""
         sizes = []
         for index in range(len(self.dropping)):
             self.kill(index)
@@ -402,23 +408,37 @@ class CostTests(PresenceTestBase):
         self.assertGreaterEqual(len(sizes), 2, "need two widths to measure")
         (rows_a, bytes_a), (rows_z, bytes_z) = sizes[0], sizes[-1]
         slope = (bytes_z - bytes_a) / (rows_z - rows_a)
-        self.assertGreater(slope, 26.0)
-        self.assertLess(slope, 29.0)
-    def test_a_one_row_ground_still_costs_the_exact_54_bytes_of_gt045(self):
-        """Widening the shape must not cost the narrow case one byte.
+        self.assertEqual(mob_loot.DROP_ELEMENT_SIZE_WITH_MODEL_TYPE, 30)
+        self.assertGreater(slope, 29.0)
+        self.assertLess(slope, 32.0)
 
-        The 54-byte one-element frame is the only ground message a real client
-        has ever been measured taking (GT-045), so it is the case this round
-        is least entitled to change.  Built by taking rows back off the ground
-        rather than by hunting a one-drop seed: a test that depends on a drop
-        table's contents goes red when somebody edits the table.
+    def test_a_one_row_ground_now_costs_the_exact_57_bytes_of_the_wide_shape(self):
+        """ROUND KA1B-DROPMODEL FOLLOW-UP, 2026-09-01, RENAMED AND UPDATED.
+
+        ~~test_a_one_row_ground_still_costs_the_exact_54_bytes_of_gt045~~ IS
+        STRUCK: it pinned ``sustain_a_kill``'s (i.e. ``refresh_frames``'s)
+        own composed output at the narrow 54-byte GT-045 shape.  That is now
+        the WRONG pin for this call chain -- ``refresh_frames`` deliberately
+        calls ``drop_frames_with_model_type`` as of this round (NONCLAIM
+        23), so the real production path's one-row cost is the wide 57-byte
+        frame (``DROP_FRAME_SIZE_WITH_MODEL_TYPE``), not GT-045's 54.
+        GT-045's own 54-byte shape stays pinned byte-for-byte, forever,
+        against ``mob_loot.drop_frames`` directly (untouched by this round)
+        in tests/test_mob_loot.py and tests/test_ground_drop_multi_drop_
+        emission_shape.py -- this test pins the OTHER function, not that
+        one.  Built by taking rows back off the ground rather than by
+        hunting a one-drop seed: a test that depends on a drop table's
+        contents goes red when somebody edits the table.
         """
         drops = self.kill()
         for drop in drops[1:]:
             self.cell.take(drop.drop_key)
         step = sustain_a_kill(self.cell, self.legacy, ())
         self.assertEqual(step.live, 1)
-        self.assertEqual(sum(len(f) for _pc, f in step.frames), 54)
+        self.assertEqual(
+            sum(len(f) for _pc, f in step.frames),
+            mob_loot.DROP_FRAME_SIZE_WITH_MODEL_TYPE)
+        self.assertEqual(mob_loot.DROP_FRAME_SIZE_WITH_MODEL_TYPE, 57)
 
     def test_one_kill_is_always_one_frame_however_wide_the_ground_is(self):
         for index in range(len(self.dropping)):
