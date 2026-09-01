@@ -38,12 +38,25 @@ from pirateforce_foundation import mob_death_bg0015_ruling_proposal as proposal
 
 class FullRosterTemplateIdsTests(unittest.TestCase):
 
-    def test_matches_the_gates_modules_own_refused_measurement(self):
-        # Two independent readers of the same roster must agree, or one of
-        # them is wrong -- neither is a literal the other one copied.
+    def test_matched_the_gates_modules_own_refused_measurement_before_any_ruling(
+            self):
+        # ~~the two are the same tuple~~ WITHDRAWN round n3wqrt-successor:
+        # they were the same tuple only because zero of the seven had a
+        # ruling yet, which made "every candidate" and "every refused
+        # candidate" coincide by accident of timing, not by definition.
+        # COO-RULING-20260901-1046 (mob_death.py) now rules six, so the two
+        # readers correctly diverge -- this function still names the FULL
+        # candidate set, gates.templates_without_a_death_ruling() now names
+        # a strict subset of it (just Carlos). What is still true, and is
+        # what this test now proves: the candidates a ruling COULD cover
+        # and the candidates STILL refused always differ by exactly the
+        # templates some ruling actually covers -- no candidate appears or
+        # vanishes on either side unaccounted for.
+        full = frozenset(proposal.full_roster_template_ids())
+        refused = frozenset(gates.templates_without_a_death_ruling())
+        self.assertTrue(refused <= full)
         self.assertEqual(
-            proposal.full_roster_template_ids(),
-            gates.templates_without_a_death_ruling())
+            full - refused, frozenset(proposal.option_b_roster_minus_carlos()))
 
     def test_is_exactly_the_seven_templates_named_in_the_COO_letter(self):
         self.assertEqual(
@@ -145,23 +158,38 @@ class TemplateOutfitFailsClosedTests(unittest.TestCase):
 
 class OverlapsWithRegisteredRulingsTests(unittest.TestCase):
 
-    def test_is_empty_at_head(self):
-        self.assertEqual(proposal.overlaps_with_registered_rulings(), frozenset())
+    def test_is_the_six_option_b_covers_now(self):
+        # ~~is empty at HEAD~~ WITHDRAWN round n3wqrt-successor:
+        # COO-RULING-20260901-1046 (mob_death.py) now covers exactly
+        # option_b_roster_minus_carlos()'s six ids, so the intersection with
+        # Bg0015's seven candidates is that same six, not empty.
+        self.assertEqual(
+            proposal.overlaps_with_registered_rulings(),
+            frozenset(proposal.option_b_roster_minus_carlos()))
 
     def test_is_measured_against_the_real_dict_not_a_copy(self):
         # Corrupt a candidate id into a fake registered ruling and confirm
         # the function notices -- proves it reads mob_death.WIDENING_RULINGS
-        # live rather than a value cached at import time.
+        # live rather than a value cached at import time.  345 is a real
+        # option-B id already covered by COO-RULING-20260901-1046, so it is
+        # a poor choice for "the fake ruling changed the answer" -- 924
+        # (Carlos) is the one candidate no registered ruling covers today,
+        # so adding a fake ruling for it is the only choice that proves the
+        # function re-reads the live dict rather than a cached baseline.
         fake_name = "TEST-ONLY-fake-ruling-does-not-authorise-anything"
         self.assertNotIn(fake_name, mob_death.WIDENING_RULINGS)
-        mob_death.WIDENING_RULINGS[fake_name] = frozenset({343})
+        baseline = proposal.overlaps_with_registered_rulings()
+        self.assertNotIn(924, baseline)
+        mob_death.WIDENING_RULINGS[fake_name] = frozenset({924})
         try:
             self.assertEqual(
-                proposal.overlaps_with_registered_rulings(), frozenset({343}))
+                proposal.overlaps_with_registered_rulings(),
+                baseline | frozenset({924}))
         finally:
             del mob_death.WIDENING_RULINGS[fake_name]
-        # And it is really gone again afterwards.
-        self.assertEqual(proposal.overlaps_with_registered_rulings(), frozenset())
+        # And it is really back to baseline afterwards.
+        self.assertEqual(
+            proposal.overlaps_with_registered_rulings(), baseline)
 
 
 class OptionsTests(unittest.TestCase):
@@ -195,6 +223,58 @@ class OptionsTests(unittest.TestCase):
         self.assertTrue(c <= b <= a)
 
 
+class RegisteredRulingMatchesOptionBTests(unittest.TestCase):
+    """The COO answered this module's own three options with OPTION B
+    (notes_to_chief/20260901_1046_COO-DECISION-...); this class proves the
+    ruling ``mob_death.py`` now carries is that answer, re-derived from the
+    same roster this module reads rather than trusted as two hand-typed
+    literals agreeing by luck -- the discipline every other ruling in
+    ``mob_death.WIDENING_RULINGS`` is already held to
+    (``test_the_bg0002_ruling_covers_exactly_the_real_bg0002_rosters_
+    templates`` in ``tests/test_mob_death.py`` is the sibling of this one)."""
+
+    RULING_NAME = "COO-RULING-20260901-1046"
+
+    def test_ruling_is_registered(self):
+        self.assertIn(self.RULING_NAME, mob_death.WIDENING_RULINGS)
+
+    def test_covered_templates_equal_option_b_exactly(self):
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[self.RULING_NAME],
+            frozenset(proposal.option_b_roster_minus_carlos()))
+
+    def test_carlos_is_not_a_member(self):
+        self.assertNotIn(
+            proposal.CARLOS_TEMPLATE_ID,
+            mob_death.WIDENING_RULINGS[self.RULING_NAME])
+
+    def test_ruling_is_tied_to_bg0015s_own_scene(self):
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[self.RULING_NAME],
+            field_mob_tables_bg0015.SCENE)
+
+    def test_ruling_for_answers_this_name_for_all_six_real_rows(self):
+        carlos = proposal.CARLOS_TEMPLATE_ID
+        six = frozenset(proposal.option_b_roster_minus_carlos())
+        seen_templates = set()
+        for mob in field_mob_hostile_bg0015.scene14_hostile_roster():
+            if mob.template_id == carlos:
+                continue
+            self.assertIn(
+                mob.template_id, six,
+                "a Bg0015 row outside option B's six ids and outside "
+                "Carlos exists -- the roster changed under this test")
+            self.assertEqual(mob_death.ruling_for(mob), self.RULING_NAME)
+            seen_templates.add(mob.template_id)
+        self.assertEqual(seen_templates, six)
+
+    def test_registering_bg0015_gate_1_is_untouched_by_this_ruling(self):
+        # The COO letter's own words: registering a ruling and opening
+        # gate 1 (field_mobs._SCENE_TABLE_MODULES) are two separate
+        # matters. Confirm the second one really did not move.
+        self.assertFalse(gates.roster_gate_open())
+
+
 class DoesNotRegisterAnythingTests(unittest.TestCase):
     """Acceptance criterion this round: importing/calling this module must
     not move the gate it is only allowed to measure."""
@@ -216,10 +296,19 @@ class DoesNotRegisterAnythingTests(unittest.TestCase):
         }
         self.assertEqual(before, after)
 
-    def test_the_gate_studied_is_still_exactly_as_closed_as_before(self):
+    def test_the_gate_this_module_studies_is_unmoved_by_this_module(self):
+        # Renamed from "...is_still_exactly_as_closed_as_before" (round
+        # n3wqrt-successor): the gate DID move, but not because of this
+        # module -- mob_death.py registering COO-RULING-20260901-1046 moved
+        # it, and this test's job is only to confirm THIS FILE (pure
+        # derivation, asserted unmoved above) is not what did it. Pinned to
+        # today's real answer, six ruled and Carlos refused, re-derived
+        # rather than the pre-ruling seven this test used to hand-copy.
+        self.assertEqual(gates.templates_without_a_death_ruling(), (924,))
         self.assertEqual(
-            gates.templates_without_a_death_ruling(),
-            (343, 345, 348, 350, 353, 355, 924))
+            frozenset(proposal.full_roster_template_ids())
+            - frozenset(gates.templates_without_a_death_ruling()),
+            frozenset(proposal.option_b_roster_minus_carlos()))
 
 
 if __name__ == "__main__":

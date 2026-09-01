@@ -69,8 +69,11 @@ MEASURED (each has a test that fails if it stops being true):
     :func:`open_register_refusal_for_scene14` are still the functions that
     prove it, they now prove the negative;
   * ``field_mobs`` ships no Bg0015 roster today (:func:`roster_gate_open`);
-  * no Bg0015 template has a death ruling
-    (:func:`templates_without_a_death_ruling`);
+  * ~~no Bg0015 template has a death ruling~~ IS STRUCK, round
+    n3wqrt-successor: ``COO-RULING-20260901-1046`` now covers six of the
+    seven (only Carlos, 924, is still refused) -- this does NOT open the
+    roster gate above, it is a separate matter the COO's own letter names
+    as such (:func:`templates_without_a_death_ruling`);
   * ``mob_scene_recompose`` has no scene-14 composer but DOES carry a dated
     written acknowledgement of that hole, whose own words are that it
     composes one in the same round the first roster row lands
