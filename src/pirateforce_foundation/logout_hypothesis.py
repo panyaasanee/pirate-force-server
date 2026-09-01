@@ -155,6 +155,26 @@ LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST = "return_select_server_first"
 # answer it (named no-reply event), so the session asks exactly one question.
 LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT = "chat_push_return_select"
 
+# HYP_PF_040 (LOGOUT-DIALOG-OPEN-001, branch 6 of RE-189's Job 2): the
+# unsolicited return-select push AT DIALOG-OPEN TIME instead of in reply to
+# LogoutVital.  RE-189 (pf_bridge/notes_to_chief/consumed/20260901_1008_
+# RE-189-RESULT-PLUS18-LOCAL-UI-AND-SERVER-BRANCH-MATRIX.md) found that
+# every existing logout response profile above answers the LogoutVital
+# REQUEST itself, which per R40 only ever arrives AFTER the client has
+# already built its local logout-confirmation dialog -- too late to
+# influence the one client-side field (SystemSetting_LogoutConfirm+0x18)
+# every profile above is trying to flip. This policy instead keys off the
+# full-form GetWorldInfoVital (0x3D4B) that HYP-PF-016 already correlated
+# 7/7 with dialog-open across two captured sessions, and pushes the same
+# byte-identical pinned HYP-PF-028 ReturnSelectServerVital (0x709E) at that
+# moment, unsolicited, ahead of any LogoutVital -- see
+# logout_dialog_open_hypothesis.py for the dispatch function this policy
+# routes to and the full nonclaim list it inherits from RE-189.
+# PF-HYPOTHESIS-LEDGER: HYP-PF-040 active
+# LOGOUT-DIALOG-OPEN-001.  Registered in docs/HYPOTHESIS_LEDGER.json; this
+# annotation and that entry's source_refs bind each other both ways.
+LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH = "worldinfo_dialog_open_push"
+
 # The trigger vital id, copied from the proven GT-006 chat-input decode --
 # never imported: an encoder does not import a neighbouring lane (the
 # HYP-PF-027 rule).  The tests pin this copy against the chat module's own
