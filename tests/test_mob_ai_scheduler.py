@@ -20,6 +20,24 @@ module's own NONCLAIMS: nothing calls this today, and this test fails the
 day that stops being true without the docstring being updated to match --
 the same AST check ``test_mob_ai_control.py`` runs for its own module,
 pointed at this one.
+
+[STALE, name mismatch][MEASURED, round bgwgso, 2026-09-01T16:39+07:00]: the
+test this paragraph names does not exist under that name -- it is
+``test_the_scheduler_has_exactly_the_one_ready_importer`` (renamed in round
+``iok5z1``, see that test's own inline comment below, when
+``lane_hooks/lane_b_mob_ai_tick.py`` became a real importer and "zero
+importers" stopped being the honest assertion).  That rename already
+happened; only this module docstring's cross-reference to the old name was
+left behind.  A second, deeper drift the rename note did not cover: as of
+round p05wire (COO-DECISION 20260901_0145), ``mob_ai_scheduler.tick_session``
+is called in production every relevant frame -- via the wrapper, not a
+direct ``runtime.py`` import, so ``test_the_scheduler_has_exactly_the_one_
+ready_importer``'s importer-set assertion (``["lane_hooks/lane_b_mob_ai_
+tick.py"]``, ``runtime.py`` NOT in the list) is still correct today and
+needs no change -- but "nothing calls this today" in this paragraph's own
+first line, and this module's own docstring, are stale.  See
+``src/pirateforce_foundation/mob_ai_scheduler.py``'s matching
+``[STALE][MEASURED]`` blocks for the wiring detail.
 """
 
 import ast
@@ -203,6 +221,17 @@ class WiringLineTests(unittest.TestCase):
         self.assertIs(mob_ai_scheduler.production_allowed, True)
 
     def test_the_wiring_line_names_runtime_py_and_stays_unwired_today(self):
+        # [STALE name, still-correct assertions][MEASURED, round bgwgso,
+        # 2026-09-01T16:39+07:00]: this test's own name says "stays unwired
+        # today" -- as of round p05wire that is no longer true in the
+        # functional sense (runtime.py's dispatch DOES reach tick_session in
+        # production now, through lane_hooks.lane_b_mob_ai_tick.maybe_tick;
+        # see mob_ai_scheduler.py's own [STALE][MEASURED] blocks).  What this
+        # test actually checks -- that MOB_AI_SCHEDULER_WIRING's text still
+        # names "runtime.py" and "mob_ai_scheduler.tick_session" -- remains
+        # true and is left as-is; renaming the test itself is a judgment
+        # call for a round with time to also confirm no other file quotes
+        # this name, so it is flagged here rather than done silently.
         line = mob_ai_scheduler.MOB_AI_SCHEDULER_WIRING
         self.assertIn("runtime.py", line)
         self.assertIn("mob_ai_scheduler.tick_session", line)
