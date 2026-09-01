@@ -256,9 +256,10 @@ SANCTIONING_RULING = "PANYA-RULINGS-FOUR 2026-08-25 18:15 +07:00 section 3"
 
 # A ruling that widens the scope past SANCTIONED_FIRST_TARGET_IDENTITY names
 # ONE identity, not "whatever a caller passes this string for" - but a caller
-# that hardcodes the ruling's own name at a SINGLE call site (exactly what
-# runtime.py:3925 does: one ``mob_death.kill(...)`` call reached by every
-# roster identity that dies) cannot tell, from the string alone, which mob
+# that hardcodes the ruling's own name at a SINGLE call site (what
+# runtime.py's roster kill site USED TO do, before round j0u64p: one
+# ``mob_death.kill(...)`` call reached by every roster identity that dies,
+# passing one literal) could not tell, from the string alone, which mob
 # the ruling actually named.  pf-adversary (round 67jejl) proved the gap:
 # the literal one-line wiring COO-DECISION 20260827_0955's own text asks for
 # would authorise a kill on any of the OTHER twelve roster identities that
@@ -671,14 +672,18 @@ def ruling_for(mob: FieldMob) -> str | None:
     AND THE SCOPE OF THAT SENTENCE, WHICH A READER WILL OTHERWISE OVERSTATE
     (pf-adversary, this round).  "Them" is this function's own answers and
     ``PIN_WIDENING_RULING`` -- NOT the letter a kill on the live server is
-    recorded under.  This function has NO production caller today:
-    ``runtime.py``'s roster kill site passes the bg0001 literal, which this
-    function disagrees with on every shipped row (it answers the 09:55
-    letter; the call site passes the 13:50 one).  So the harm COO's letter
-    names was not reachable in production before this round, and this round
-    does not make it reachable -- it makes the RULE right for the day chief's
-    one line lands.  ``test_the_literal_the_call_site_hardcodes_is_the_wrong
-    _letter`` is what keeps that disagreement visible.
+    recorded under.  At the time this docstring was first written, this
+    function had NO production caller: ``runtime.py``'s roster kill site
+    passed the bg0001 literal, which this function disagreed with on every
+    shipped row (it answers the 09:55 letter; the call site passed the 13:50
+    one).  Per COO-DECISION 2026-08-29T08:48+07:00 item 3, the roster kill
+    site now calls ``widened=mob_death.ruling_for(mob)`` directly
+    (``runtime.py``, the ``else`` branch that reaches ``mob_death.kill()``) --
+    so the disagreement this paragraph describes is history, not the current
+    wiring.  ``test_the_literal_the_call_site_hardcodes_is_the_wrong_letter``
+    (``tests/test_mob_death_wired_widening.py``) still measures the OLD
+    literal on purpose, as the before-picture that shows why the derived
+    lookup was needed -- it is not evidence the old literal is still wired.
     """
     _require_mob(mob)
     if (
@@ -711,13 +716,17 @@ def describe_widening_coverage() -> tuple[str, ...]:
     without noticing (round szdkgs made four dummies unkillable and the suite
     stayed green).  So the uncovered rows are named, by scene and identity.
 
-    THIS FUNCTION ONLY RETURNS THE LINES.  Nothing in ``src/`` prints them
-    yet -- printing happens in ``runtime.py``, which is not this lane's file
-    (pf-adversary, this round: the first draft's docstring claimed they WERE
-    printed, which was false and is the exact defect class this lane was
-    burned by last round).  The one line that makes this observable is named
-    in the round's letter to chief, beside ``runtime.py:6402``'s existing
-    ``print(mob_death.describe_roster_override_coverage(...))``.
+    THIS FUNCTION ONLY RETURNS THE LINES; printing happens in ``runtime.py``,
+    which is not this lane's file (pf-adversary, this round: the first
+    draft's docstring claimed they WERE printed, which was false and is the
+    exact defect class this lane was burned by last round).  At the time
+    that first draft was corrected, nothing in ``src/`` printed these lines
+    yet.  It is wired now: ``runtime.py`` prints each line from this
+    function's return value in a ``for`` loop right after it prints
+    ``mob_death.describe_roster_override_coverage(...)``, at the world-census
+    boot gate, per LANE-B letter 20260829_0744 point 3 (COO-DECISION
+    2026-08-29T08:48+07:00 item 3) -- see the comment naming that letter at
+    the call site.
     """
     lines = []
     for scene in field_mobs.live_scenes():
