@@ -25,6 +25,23 @@ now "no allowlisted scenario profile exists yet to construct a real wired
 state instance with this policy", not "runtime.py doesn't call this
 function yet". A real end-to-end ``runtime.py`` dispatch test is still
 deferred, now to the round that adds the sixth allowlist profile.
+
+[STALE as of this round (LANE-A)] [MEASURED, by grep/read-back]: that
+sixth allowlist profile now exists --
+``logout_hypothesis._PROFILE_DIALOG_OPEN`` / ``_EXPECTED_DIALOG_OPEN``,
+carrying ``LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH`` -- alongside
+a real scenario file (``scenarios/logout_hypothesis_dialog_open_push.json``)
+``load_logout_hypothesis_scenario`` accepts. The real end-to-end
+``runtime.py`` dispatch test this paragraph deferred is no longer deferred:
+see ``tests/test_logout_dialog_open_scenario_wired.py``, which drives the
+wired branch through the real ``make_state_class``/``_dispatch_with_lanes``
+chain (not a throwaway worktree experiment this time) with the flag
+patched True inside two of its own tests, plus a default-flag-False test
+proving the branch stays byte-identical to no scenario at all until that
+flag is flipped for real. This file's own direct-call tests below are
+unchanged and still valid -- the pure dispatch function's own guard ladder
+is exercised the same way regardless of how the caller constructs the
+scenario around it.
 """
 from __future__ import annotations
 

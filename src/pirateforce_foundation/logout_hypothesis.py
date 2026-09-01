@@ -744,6 +744,139 @@ _EXPECTED_RETURN_SELECT = {
     ],
 }
 
+# HYP-PF-040 (LOGOUT-DIALOG-OPEN-001): the second half of the entry whose
+# single required emitter annotation for this file already lives on the
+# ``LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH`` constant above (the
+# ledger verifier allows exactly one "active" annotation per file per
+# hypothesis id). This is the sixth allowlisted profile the ledger's own
+# "accepted_ceiling" and runtime.py's routing branch (see
+# logout_dialog_open_hypothesis.py) already named as missing; adding it
+# here is what finally makes
+# LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH constructible through
+# load_logout_hypothesis_scenario / the existing --logout-hypothesis-scenario
+# CLI flag app.py already wires generically -- no app.py/runtime.py edit is
+# needed for that part; both already dispatch on whatever scenario object
+# this loader returns. The LogoutVital side of this profile (post_ack_action,
+# ack pins) is the unchanged HYP-PF-013 ack-then-close shape: branch 6 only
+# changes WHEN the 0x709E push happens (unsolicited, on the dialog-open
+# 0x3D4B full-form frame, ahead of any LogoutVital); it does not change what
+# happens if/when the client still sends LogoutVital afterward.
+_PROFILE_DIALOG_OPEN = LogoutHypothesisScenario(
+    "logout_hypothesis_dialog_open_push_subcode01_03",
+    "HYP-PF-040",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS,
+    LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH,
+)
+
+# HYP-PF-040 exact allowlist: the unchanged PF-012 request/ack pins and the
+# unchanged PF-013 close lever for the LogoutVital side, plus the unchanged
+# PF-028 0x709E body for the new unsolicited push -- no byte is invented
+# under this scenario either. What is new is the DELIVERY POLICY only: the
+# push rides the full-form GetWorldInfoVital (0x3D4B) trigger instead of a
+# LogoutVital request pairing, one-shot per session, and is handled entirely
+# by dispatch_logout_dialog_open_hypothesis (logout_dialog_open_hypothesis.py)
+# -- this module's own composer/classifier are reused unchanged, not
+# reimplemented, per the HYP-PF-027 rule.
+_EXPECTED_DIALOG_OPEN = {
+    "schema": 1,
+    "id": _PROFILE_DIALOG_OPEN.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_DIALOG_OPEN.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "response_policy": LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH,
+        "dialog_open_trigger": (
+            "full_form_getworldinfo_vital_0x3d4b_correlated_7_of_7_with_"
+            "client_local_logout_dialog_open_across_two_captured_sessions"
+        ),
+        "dialog_open_push_source": (
+            "client_serializer_0x5e69f0_field_layout_all_zero_no_client_"
+            "producer_values_default_zero_unchanged_from_hyp_pf_028"
+        ),
+        "dialog_open_push_policy": "unsolicited_one_shot_ahead_of_any_logoutvital",
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+        "worldinfo_full": {
+            "pc_size": 268,
+            "payload_size": WORLDINFO_FULL_PAYLOAD_SIZE,
+            "vital_count": WORLDINFO_FULL_VITAL_COUNT,
+            "probe_payload_sha256": {
+                "capture_gt002": WORLDINFO_PROBE_PAYLOAD_SHA256[
+                    "capture_gt002"
+                ],
+                "capture_item_move_hyp001": WORLDINFO_PROBE_PAYLOAD_SHA256[
+                    "capture_item_move_hyp001"
+                ],
+            },
+        },
+    },
+    "composed_responses": {
+        "dialog_open_push": {
+            "vital_id": RETURN_SELECT_SERVER_VITAL_ID,
+            "body_size": RETURN_SELECT_SERVER_BODY_SIZE,
+            "pc_size": RETURN_SELECT_SERVER_RESPONSE_PC_SIZE,
+            "pc_sha256": RETURN_SELECT_SERVER_RESPONSE_PC_SHA256,
+            "frame_size": RETURN_SELECT_SERVER_RESPONSE_FRAME_SIZE,
+            "frame_sha256": RETURN_SELECT_SERVER_RESPONSE_FRAME_SHA256,
+        },
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+        "worldinfo_storage": "connection_memory_only_no_table_no_write_path",
+    },
+    "capabilities": [
+        "push_the_pinned_return_select_server_vital_unsolicited_on_the_"
+        "dialog_open_full_form_getworldinfo_trigger",
+        "refuse_a_second_dialog_open_push_on_the_same_session_by_name",
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "return_select_server_field_values_and_string_semantics",
+        "client_consumes_0x709e_or_transitions_to_character_select",
+        "client_observable_exit_or_character_select_return",
+        "dialog_is_open_at_the_exact_instant_the_push_is_queued",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+    ],
+}
+
 # PF-HYPOTHESIS-LEDGER: HYP-PF-031 active
 _PROFILE_CHAT_PUSH = LogoutHypothesisScenario(
     "logout_hypothesis_chat_push_return_select",
@@ -845,6 +978,9 @@ _EXPECTED_BY_ID = {
     _PROFILE_CHAT_PUSH.scenario_id: (
         _EXPECTED_CHAT_PUSH, _PROFILE_CHAT_PUSH,
     ),
+    _PROFILE_DIALOG_OPEN.scenario_id: (
+        _EXPECTED_DIALOG_OPEN, _PROFILE_DIALOG_OPEN,
+    ),
 }
 
 
@@ -878,7 +1014,7 @@ def load_logout_hypothesis_scenario(path: str | Path) -> LogoutHypothesisScenari
 def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
     if type(value) is not LogoutHypothesisScenario or value not in (
         _PROFILE_ECHO, _PROFILE_ACK_CLOSE, _PROFILE_WORLDINFO_FIRST,
-        _PROFILE_RETURN_SELECT, _PROFILE_CHAT_PUSH,
+        _PROFILE_RETURN_SELECT, _PROFILE_CHAT_PUSH, _PROFILE_DIALOG_OPEN,
     ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:

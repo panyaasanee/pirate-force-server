@@ -740,7 +740,28 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # reachable from a real boot) confirming no rx_frames double-count and
 # correct one-shot/storage behavior. No entry added or removed, count stays
 # 48, no index shift, no status/kind/checkpoint/production_allowed moves.)
-CANONICAL_CONTENT_SHA256 = "7D19B77C51A979872F90904766CCC3C97FACE17103784A300999F1EF1446C065"
+#
+# ---- lineage: tmizmk pin D4847590.. ----
+# -> D4847590.. (2026-09-01 LANE-A round tmizmk: HYP-PF-040 gains
+# LOGOUT-DIALOG-OPEN-002 in expiry.tracked_versions (three of five slots now
+# remain) and AMENDED (not replaced) scope/provenance/accepted_ceiling/
+# evidence_gap/expiry.decision paragraphs recording that this round built the
+# sixth allowlisted LogoutHypothesisScenario profile (logout_hypothesis.
+# _PROFILE_DIALOG_OPEN / _EXPECTED_DIALOG_OPEN) and its scenario file
+# (scenarios/logout_hypothesis_dialog_open_push.json) the previous version's
+# own accepted_ceiling named as the remaining blocker -- the existing,
+# unmodified --logout-hypothesis-scenario CLI flag can now construct a real
+# state carrying this policy for the first time, exercised end-to-end by a
+# new committed test (tests/test_logout_dialog_open_scenario_wired.py, added
+# to evidence_refs alongside the new scenario file) with the module flag
+# patched True inside two of its own tests only.
+# logout_dialog_open_hypothesis.production_allowed stays False on main and
+# this round did not request or run an attended GT-184/GT-186 pass, so the
+# entry's own stop_rule ("do not flip ... before an attended GT-184/GT-186
+# pass") still controls and is unchanged. No entry added or removed, count
+# stays 48, no index shift, no status/kind/checkpoint/production_allowed/
+# stop_rule/falsification moves.)
+CANONICAL_CONTENT_SHA256 = "D4847590A47F80C9FFCD3A6E018EE55B6D60AD2C98FD405CC8603EA6E5AD9359"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
