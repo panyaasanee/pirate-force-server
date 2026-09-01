@@ -44,6 +44,16 @@ know the HP of.  So:
   per-column CHECK can catch.  [สมมติของสาย DB] this rule is about PLAYER
   characters, which are the only rows in ``characters``; nothing here claims a
   mob or an NPC may not have a zero maximum somewhere else in this repository.
+* ``level = 0`` is refused as a stored state, for the same reason and by
+  ``COO-DECISION 20260902_0443`` point 4.  ``006``'s CHECK allows it
+  (``BETWEEN 0 AND 65535``), nothing in this repository writes ``level`` at
+  all today, and the only level this server has ever sent is ``1``
+  (``player_wire.PLAYER_LOGIN_LEVEL``) -- so a stored zero here is not a
+  low-level character, it is a number nobody adjudicated, and it is again
+  exactly the shape a guessed-zero seed leaves behind.
+  ``migrations/007_character_vitals_seed.sql`` already declines to complete
+  such a row; this makes the read path say so instead of leaving the
+  migration as the only thing that knows.
 * ``hp_current > hp_max`` is refused.  Two per-column CHECKs cannot express a
   relation between two columns, so SQLite cannot catch this and something has
   to.
@@ -53,8 +63,17 @@ know the HP of.  So:
 
 ## WHAT IT DOES NOT DO
 
-* **It does not seed.**  Nothing in this file writes a value into a column
-  that had none.  Whether anything ELSE has seeded them is not asserted here
+* **It does not seed, and it now SUPPLIES a seed -- those are two different
+  sentences, and the difference is the whole of
+  ``COO-DECISION 20260902_0443``.**
+  Nothing in this file writes anything to any database: no ``INSERT``, no
+  ``UPDATE``, no connection.  What ``new_character_vitals()`` below adds is a
+  VALUE, returned to a caller in another lane's file; whether a row ever
+  carries it is decided at chief's plug in ``SQLiteStore.create_character``,
+  not here.  A reader who takes "does not seed" to mean "this lane has no
+  opinion about what a new character holds" would now be wrong, which is why
+  this bullet was rewritten rather than left standing.
+  Whether anything ELSE has seeded them is not asserted here
   and is not knowable from this file: it is a question about a database, and
   ``census_sql`` / ``SQLiteStore.vitals_seeding_census`` ask it there.
   Seeding is a write on live rows and therefore a migration, and that
@@ -146,6 +165,7 @@ REASON_NOT_SEEDED = "vital_column_not_seeded"
 REASON_HP_PAIR_INCOMPLETE = "hp_pair_incomplete"
 REASON_HP_ABOVE_MAX = "hp_current_above_hp_max"
 REASON_HP_MAX_ZERO = "hp_max_zero_is_never_alive"
+REASON_LEVEL_ZERO = "level_zero_was_never_adjudicated"
 
 
 def _verify_binding() -> None:
@@ -379,6 +399,21 @@ def _consistency_gaps(present: Mapping[str, int]) -> tuple[VitalGap, ...]:
     not-seeded gaps before these run.
     """
     gaps: list[VitalGap] = []
+    level = present.get(LEVEL_COLUMN)
+    if level is not None and level == 0:
+        # COO-DECISION 20260902_0443 point 4.  Written BEFORE the HP-pair
+        # rules on purpose: those return early on an incomplete pair, and a
+        # row at `level = 0` with half an HP pair would otherwise be reported
+        # as "the pair is incomplete" and nothing else -- the level would be
+        # invisible until somebody fixed the HP, which is the moment it stops
+        # being catchable.
+        gaps.append(VitalGap(
+            LEVEL_COLUMN, REASON_LEVEL_ZERO,
+            "no adjudicated value in this repository is 0: the one number "
+            "this server sends is level 1 (player_wire.PLAYER_LOGIN_LEVEL), "
+            "so a stored 0 is a value nobody decided; 006's CHECK allows it "
+            "(BETWEEN 0 AND 65535) and nothing else refuses it",
+        ))
     hp_current = present.get(HP_CURRENT_COLUMN)
     hp_max = present.get(HP_MAX_COLUMN)
     if (hp_current is None) != (hp_max is None):
@@ -510,6 +545,62 @@ def apply_damage(hp_current: int, hp_max: int, amount: int) -> DamageOutcome:
         died=after == 0 and before > 0,
         was_already_zero=before == 0,
     )
+
+
+#: What a character that has never been alive is born holding.
+#:
+#: ``COO-DECISION 20260902_0443`` chose route (KHO) over route (KO): these
+#: three numbers are WRITTEN INTO THE ROW at ``create_character`` time, and
+#: are NOT
+#: a ``DEFAULT`` in the schema.  The decision's reason, in its own words: the
+#: source of these numbers is ``player_wire``, not the schema; a DEFAULT would
+#: need a table rebuild (SQLite cannot add one to a column that exists) and
+#: would bury an OPEN number in a place nobody reads, so that the day an RE
+#: finds the original game's real value, the fix would be a second rebuild
+#: instead of one line here.
+#:
+#: TRANSCRIBED from player_wire hardcode -- original game default OPEN.  The
+#: same label ``migrations/007_character_vitals_seed.sql`` carries, meaning
+#: the same limit: these are the numbers this server ALREADY sends every
+#: client at every login, and NOT a claim about what the original game seeds.
+#: The three values are deliberately the same objects 007 wrote, so that a
+#: character created after the plug lands is indistinguishable from one 007
+#: seeded -- ``tests/test_persistence_vitals.py`` re-derives both sides
+#: (007's SQL and ``player_wire``'s source) rather than comparing this
+#: constant with itself.
+NEW_CHARACTER_LEVEL = 1
+NEW_CHARACTER_HP = 100
+
+
+def new_character_vitals() -> dict[str, int]:
+    """The three column values to INSERT for a character being created.
+
+    Returned as ``{column name: value}`` so that the call site -- chief's, in
+    ``SQLiteStore.create_character`` (``COO-DECISION 20260902_0443`` point 1
+    puts that plug outside this lane) -- names its columns from this module
+    rather than spelling three column names of its own that a later rename
+    would not reach.  ``006``'s header pre-announces exactly such a rename for
+    another column of the same table, so that is not a hypothetical.
+
+    A FRESH DICT EVERY CALL, never a shared mapping: a caller that mutates
+    what it got back must not be able to change what the next character is
+    born holding.
+
+    The values are checked on the way out, through the same door every other
+    number in this module goes through -- ``validate`` per column and then
+    ``resolve(...).require()``.  It cannot fail as written; the point is that
+    if a later edit makes it fail, it fails HERE, at the moment of creation,
+    instead of writing a row that ``read_character_vitals`` will refuse for
+    the rest of that character's life.  It is also what keeps the new
+    ``level = 0`` rule above and this function from ever disagreeing.
+    """
+    values = {
+        LEVEL_COLUMN: NEW_CHARACTER_LEVEL,
+        HP_CURRENT_COLUMN: NEW_CHARACTER_HP,
+        HP_MAX_COLUMN: NEW_CHARACTER_HP,
+    }
+    resolve(values).require()
+    return values
 
 
 def census_sql() -> str:

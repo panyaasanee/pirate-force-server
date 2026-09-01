@@ -124,6 +124,18 @@ class _MigratedWorkspace(unittest.TestCase):
                 account_id, name, name.lower(),
                 "fingerprint-007-%s" % name.lower(), _build_wire, home,
             )
+            # THE PREMISE OF THIS WHOLE FILE, STATED INSTEAD OF INHERITED.
+            # Every test here asks what 007 does to a row that HOLDS NOTHING,
+            # and until now that premise came free, from the fact that
+            # `create_character` names no vital column in its INSERT.
+            # `COO-DECISION 20260902_0443` route (KHO) ends that: chief's plug
+            # writes `new_character_vitals()` at creation, in a PR that is not
+            # this one.  Measured with the plug applied locally: TEN tests in
+            # this file went red, none of them about creation -- they were
+            # about a fixture that had quietly stopped being unseeded.  So the
+            # rows are unseeded here, explicitly, and this file keeps grading
+            # 007 either side of that landing.
+            self._set(character.id, level=None, hp_current=None, hp_max=None)
             ids.append(character.id)
         return ids
 
@@ -680,38 +692,142 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
     one.  Closing it needs either a `DEFAULT` on the three columns (a table
     rebuild, since SQLite cannot add a default to an existing column) or a
     write at character creation -- both of them decisions, not edits.  Raised
-    to COO the same round this landed.
+    to COO the same round this landed, and ANSWERED:
+    `COO-DECISION 20260902_0443` chose the write at creation (route KHO) and
+    forbade the DEFAULT (route KO), put the value in this lane's
+    `persistence_vitals.new_character_vitals()`, and put the PLUG that calls
+    it -- three more columns in `create_character`'s INSERT -- with chief.
 
-    These tests exist so that the day it IS closed, they go red and say so.
+    So these tests were rewritten from "they go red the day it is closed" to
+    TWO-STATE, and that is the correction rather than a refinement.  A test
+    that goes red on somebody else's correct landing is a trap laid across
+    another lane's path: chief's plug is expected, adjudicated, and lands in a
+    different PR from this file, so main would go red for a change that is
+    right.  What must never pass is a THIRD state -- a character born holding
+    something that is neither nothing nor exactly what 007 wrote -- and that
+    is what is graded below.  `plug_has_landed()` reports which of the two
+    states this checkout is in, and the assertions differ accordingly.
     """
 
-    def test_a_character_created_after_007_has_no_vitals_at_all(self):
-        store = SQLiteStore(self.path, MIGRATIONS)
-        store.migrate()
-        account_id = store.ensure_account("after-007")
-        character = store.create_character(
+    def _new_character(self, store):
+        account_id = store.ensure_account("after-007-%d" % id(store))
+        return store.create_character(
             account_id, "Newborn", "newborn", "fingerprint-newborn",
             _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
-        stored = store.read_typed_attributes(character.id)
-        for column in SEEDED:
-            self.assertNotIn(column, stored, column)
-        with self.assertRaises(vitals.VitalsError):
-            store.read_character_vitals(character.id).require()
 
-    def test_on_a_fresh_install_the_census_reads_zero_after_a_successful_007(self):
+    def _plug_has_landed(self, stored):
+        """True once `create_character` writes the vitals, from BEHAVIOUR.
+
+        Deliberately not from reading `store.py`'s INSERT: the question is
+        what ends up in the row, and a source scan answers a different one --
+        it would say "landed" for a plug that names the columns and binds the
+        wrong values, which is the one failure worth catching here.  A row
+        that holds SOME of the three is neither state and is refused outright:
+        it is exactly the half-written shape 007 went to lengths to avoid.
+        """
+        present = [column for column in SEEDED if column in stored]
+        self.assertIn(
+            len(present), (0, 3),
+            "a character was born holding %r -- a partial vitals row, which "
+            "is neither the pre-plug state nor the post-plug one" % (present,))
+        return len(present) == 3
+
+    def test_a_character_born_after_007_holds_nothing_or_the_seed(self):
+        """Either state is correct; a third one is not.
+
+        BEFORE chief's plug: three NULLs, and `require()` refuses -- 007
+        seeded a cohort and this character was not in it.
+        AFTER it: exactly `new_character_vitals()`, which is exactly what 007
+        wrote, so the two cohorts are indistinguishable.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        character = self._new_character(store)
+        stored = store.read_typed_attributes(character.id)
+        if not self._plug_has_landed(stored):
+            with self.assertRaises(vitals.VitalsError):
+                store.read_character_vitals(character.id).require()
+            return
+        born = vitals.new_character_vitals()
+        self.assertEqual({c: stored[c] for c in SEEDED}, born)
+        self.assertEqual(born, SEEDED)
+        self.assertEqual(
+            store.read_character_vitals(character.id).require().hp_current,
+            SEEDED["hp_current"])
+
+    def test_the_values_a_newborn_would_get_are_the_ones_007_wrote(self):
+        """The claim that makes the post-plug branch above safe, checked on
+        its own so that it is graded even in a checkout where the plug has
+        not landed and that branch never runs.
+
+        `SEEDED` is this file's independent transcription of the migration
+        (`MigrationShapeTests` grades it against the SQL text, and
+        `WireEqualityTests` against the login frame's bytes), so comparing
+        `new_character_vitals()` with it ties the birth values to both.
+        """
+        self.assertEqual(vitals.new_character_vitals(), SEEDED)
+
+    def test_on_a_fresh_install_the_census_matches_what_creation_writes(self):
         """The sentence a round file must never write about a fresh install:
-        "007 applied, every character seeded"."""
+        "007 applied, every character seeded".  On a fresh install 007 runs
+        over an empty table and seeds nothing at all -- so the census after it
+        counts what CREATION wrote, and nothing that the migration did.
+        """
         store = SQLiteStore(self.path, MIGRATIONS)
         self.assertIsNone(store.migrate_with_backup(
             backups_root=self.root / "backups"))
         account_id = store.ensure_account("fresh")
-        store.create_character(
+        character = store.create_character(
             account_id, "Fresh", "fresh", "fingerprint-fresh", _build_wire,
             Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        landed = self._plug_has_landed(
+            store.read_typed_attributes(character.id))
         census = store.vitals_seeding_census()
         self.assertEqual(census["characters_any"], 1)
         for column in SEEDED:
-            self.assertEqual(census["%s_seeded_any" % column], 0, column)
+            self.assertEqual(
+                census["%s_seeded_any" % column], 1 if landed else 0, column)
+
+    def test_the_post_plug_branch_is_exercised_today_by_simulating_it(self):
+        """The two-state tests above run their PRE-plug branch in this
+        checkout, which leaves the post-plug branch ungraded until somebody
+        else's PR lands -- and an ungraded branch is where a wrong assertion
+        hides.  So the plug is simulated here, on a test database, through
+        this lane's own `write_typed_attributes`: a character born, then given
+        exactly `new_character_vitals()`.
+
+        This does NOT claim chief's plug exists or works; it claims that IF a
+        row ends up holding these values, `_plug_has_landed` says so, the
+        census counts it, and the read path accepts it.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        character = self._new_character(store)
+        born = vitals.new_character_vitals()
+        stored = store.read_typed_attributes(character.id)
+        if not self._plug_has_landed(stored):
+            store.write_typed_attributes(character.id, born)
+        stored = store.read_typed_attributes(character.id)
+        self.assertTrue(self._plug_has_landed(stored))
+        self.assertEqual({c: stored[c] for c in SEEDED}, born)
+        self.assertEqual(
+            store.read_character_vitals(character.id).require().hp_current,
+            SEEDED["hp_current"])
+        census = store.vitals_seeding_census()
+        for column in SEEDED:
+            self.assertEqual(census["%s_seeded_any" % column], 1, column)
+
+    def test_a_partial_vitals_row_is_refused_by_the_two_state_check(self):
+        """`_plug_has_landed` is the gate the two-state tests trust, so the
+        third state it exists to reject is exercised rather than assumed: a
+        row holding one of the three passes neither branch.
+        """
+        with self.assertRaises(AssertionError) as caught:
+            self._plug_has_landed({"level": 1})
+        self.assertIn("partial vitals row", str(caught.exception))
+        self.assertFalse(self._plug_has_landed({}))
+        self.assertTrue(self._plug_has_landed(
+            {"level": 1, "hp_current": 100, "hp_max": 100}))
 
     def test_the_migration_header_states_this_limitation(self):
         """A limitation a reader has to run a test to discover is not stated.

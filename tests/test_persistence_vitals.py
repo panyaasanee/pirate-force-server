@@ -61,6 +61,28 @@ def _build_wire(selector):
     return b"wire", b"avatar", 0x30000001 + selector, 0
 
 
+def _unseed(path, character_id):
+    """Put a freshly created character back into the UNSEEDED state.
+
+    `COO-DECISION 20260902_0443` route (KHO) has chief's plug write
+    `new_character_vitals()` into the row at `create_character` time, from a
+    PR that is not this one.  Several fixtures below need a row that holds
+    NOTHING -- that is what they are about -- and until that plug lands they
+    got it for free, because `create_character`'s INSERT names no vital
+    column.  Measured with the plug applied locally: five tests in this file
+    went red, none of them about creation.
+
+    So the unseeded state is now BUILT rather than assumed, and these tests
+    grade the same thing either side of chief's landing.  It is a raw UPDATE
+    on a test database, never on a real one, which is the only place this
+    lane's rules allow one.
+    """
+    with raw(path) as db:
+        db.execute(
+            "UPDATE characters SET level=NULL, hp_current=NULL, hp_max=NULL "
+            "WHERE id=?", (character_id,))
+
+
 @contextlib.contextmanager
 def raw(path):
     """A raw sqlite connection that is COMMITTED **and CLOSED**.
@@ -252,6 +274,53 @@ class ResolveTests(unittest.TestCase):
             [vitals.REASON_HP_MAX_ZERO],
         )
 
+    def test_a_zero_level_is_refused(self):
+        """COO-DECISION 20260902_0443 point 4.
+
+        This is the rule 007 already applied to itself -- it declines to
+        complete a `level = 0` row -- moved into the read path so that the
+        migration is no longer the only thing in the repository that knows
+        the number is not adjudicated.
+        """
+        resolution = vitals.resolve(
+            {"level": 0, "hp_current": 100, "hp_max": 100})
+        self.assertEqual(
+            [gap.reason for gap in resolution.gaps],
+            [vitals.REASON_LEVEL_ZERO],
+        )
+        with self.assertRaises(vitals.VitalsError) as caught:
+            resolution.require()
+        self.assertIn("level", str(caught.exception))
+
+    def test_a_zero_level_is_named_even_with_a_half_written_pair(self):
+        """The ordering defect the rule was written around.
+
+        `_consistency_gaps` returns EARLY on an incomplete HP pair.  Put the
+        level rule after that early return and a row at `level = 0` with one
+        HP end missing reports the pair and nothing else -- so the level
+        becomes visible only once somebody fixes the HP, which is the exact
+        moment it stops being catchable.  Both reasons must be present.
+        """
+        reasons = {
+            gap.reason
+            for gap in vitals.resolve({"level": 0, "hp_current": 100}).gaps
+        }
+        self.assertIn(vitals.REASON_LEVEL_ZERO, reasons)
+        self.assertIn(vitals.REASON_HP_PAIR_INCOMPLETE, reasons)
+
+    def test_level_one_is_not_refused(self):
+        """The control: the rule refuses zero, not every small level."""
+        self.assertEqual(
+            vitals.resolve(
+                {"level": 1, "hp_current": 100, "hp_max": 100}).gaps, ())
+
+    def test_a_zero_level_does_not_leak_into_damage_arithmetic(self):
+        """`apply_damage` takes two HP numbers and no level, so the new rule
+        must not start firing there -- a hit on a valid HP pair is not the
+        place to discover a level nobody passed in."""
+        outcome = vitals.apply_damage(100, 100, 10)
+        self.assertEqual(outcome.hp_after, 90)
+
     def test_a_hand_built_resolution_raises_a_vitals_error_not_a_keyerror(self):
         # `VitalsResolution` is public and can be built with an empty
         # `present` and no gaps.  A `pf-adversary` pass did that and got
@@ -346,6 +415,106 @@ class ApplyDamageTests(unittest.TestCase):
             vitals.apply_damage(0, 0, 1)
 
 
+class NewCharacterVitalsTests(unittest.TestCase):
+    """`new_character_vitals()` -- COO-DECISION 20260902_0443 route (KHO).
+
+    The decision is about WHERE the three numbers for an unborn character
+    live: written into the row at creation (route KHO) rather than as a
+    schema `DEFAULT` (route KO, forbidden).  This lane owns the function; the
+    plug that calls it in `SQLiteStore.create_character` is chief's, by the
+    same decision's point 1.  So what is graded here is the VALUE and its
+    provenance, not a database -- there is nothing of this lane's on any live
+    path yet, and `SeedsACohortNotADatabaseTests` in the 007 file is where
+    that stays honest.
+    """
+
+    def test_it_answers_the_three_vital_columns_and_nothing_else(self):
+        self.assertEqual(
+            sorted(vitals.new_character_vitals()),
+            sorted(vitals.VITAL_COLUMNS),
+        )
+
+    def test_the_values_are_the_ones_007_wrote(self):
+        """Re-derived from 007's SQL, not compared against a constant.
+
+        The point of the decision is that a character created tomorrow is
+        indistinguishable from one 007 seeded this morning.  A test that
+        asserted `{"level": 1, ...}` would pass on the day somebody changed
+        one of them and left 007 alone -- and the drift would show up as two
+        cohorts of characters with different birth values, which is the one
+        thing this function exists to prevent.
+        """
+        sql = (MIGRATIONS / "007_character_vitals_seed.sql").read_text(
+            encoding="utf-8")
+        body = "\n".join(
+            line for line in sql.splitlines()
+            if not line.lstrip().startswith("--")
+        )
+        from_migration = {}
+        for statement in body.split(";"):
+            statement = " ".join(statement.split())
+            if " SET " not in statement:
+                continue
+            assignments = statement.split(" SET ", 1)[1].split(" WHERE ", 1)[0]
+            for column, value in re.findall(
+                    r"(\w+)\s*=\s*(\d+)", assignments):
+                self.assertIn(column, vitals.VITAL_COLUMNS, statement)
+                self.assertNotIn(column, from_migration, statement)
+                from_migration[column] = int(value)
+        self.assertEqual(len(from_migration), 3, from_migration)
+        self.assertEqual(vitals.new_character_vitals(), from_migration)
+
+    def test_the_values_are_still_what_player_wire_sends(self):
+        """The provenance the TRANSCRIBED label claims, checked against the
+        source rather than against this module's own comment."""
+        from pirateforce_foundation import player_wire
+        source = Path(player_wire.__file__).read_text(encoding="utf-8")
+        start = source.index("def _make_actor_attr_with_name_and_class")
+        body = source[start:source.index("\ndef ", start + 1)]
+        self.assertIn("legacy.u16tag(0x12, level)", body)
+        self.assertEqual(body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        born = vitals.new_character_vitals()
+        self.assertEqual(
+            born[vitals.LEVEL_COLUMN], player_wire.PLAYER_LOGIN_LEVEL)
+        self.assertEqual(born[vitals.HP_CURRENT_COLUMN], 100)
+        self.assertEqual(born[vitals.HP_MAX_COLUMN], 100)
+
+    def test_what_it_returns_is_a_state_the_read_path_accepts(self):
+        """A birth value the lane's own door refuses would produce characters
+        that can never be composed for -- worse than the NULLs it replaces,
+        because a NULL is at least reported as a named gap."""
+        resolution = vitals.resolve(vitals.new_character_vitals())
+        self.assertEqual(resolution.gaps, ())
+        born = resolution.require()
+        self.assertTrue(born.alive)
+        self.assertEqual(born.hp_current, born.hp_max)
+
+    def test_mutating_the_answer_does_not_change_the_next_one(self):
+        """It hands back a fresh dict, not a shared module-level mapping: a
+        caller that pops a key out of it must not change what the character
+        after that one is born holding."""
+        first = vitals.new_character_vitals()
+        first[vitals.HP_CURRENT_COLUMN] = 1
+        del first[vitals.LEVEL_COLUMN]
+        self.assertEqual(vitals.new_character_vitals(),
+                         {vitals.LEVEL_COLUMN: 1,
+                          vitals.HP_CURRENT_COLUMN: 100,
+                          vitals.HP_MAX_COLUMN: 100})
+
+    def test_it_refuses_rather_than_returns_if_a_later_edit_breaks_it(self):
+        """The self-check is not decoration.  Route (KHO) means these numbers
+        reach a live INSERT; if an edit ever makes them inconsistent, that has
+        to fail at creation rather than write a row every later read refuses.
+        """
+        with mock.patch.object(vitals, "NEW_CHARACTER_LEVEL", 0):
+            with self.assertRaises(vitals.VitalsError):
+                vitals.new_character_vitals()
+        with mock.patch.object(vitals, "NEW_CHARACTER_HP", 0):
+            with self.assertRaises(vitals.VitalsError):
+                vitals.new_character_vitals()
+        self.assertEqual(vitals.new_character_vitals()[vitals.LEVEL_COLUMN], 1)
+
+
 class SeedingCensusTests(unittest.TestCase):
     """"Is anything seeded" is asked of the DATABASE, and could not be asked
     of the migration text.
@@ -370,6 +539,7 @@ class SeedingCensusTests(unittest.TestCase):
             self.account_id, "CensusChar", "censuschar",
             "fingerprint-census", _build_wire, self.home,
         )
+        _unseed(self.path, self.character.id)
 
     def test_the_repository_as_it_stands_has_seeded_nothing(self):
         census = self.store.vitals_seeding_census()
@@ -426,10 +596,11 @@ class SeedingCensusTests(unittest.TestCase):
             self.character.id, {"level": 9, "hp_current": 50, "hp_max": 50})
         sid = self.store.open_session(self.account_id)
         self.store.soft_delete_character(sid, self.character.selector)
-        self.store.create_character(
+        fresh = self.store.create_character(
             self.account_id, "FreshChar", "freshchar", "fingerprint-fresh",
             _build_wire, self.home,
         )
+        _unseed(self.path, fresh.id)
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_live"], 1)
         self.assertEqual(census["characters_any"], 2)
@@ -573,6 +744,7 @@ class StoreVitalsTests(unittest.TestCase):
             self.account_id, "VitalsChar", "vitalschar",
             "fingerprint-vitals", _build_wire, self.home,
         )
+        _unseed(self.path, self.character.id)
         self.store.select_character(self.sid, self.character.selector)
 
     def _hp_on_disk(self):
