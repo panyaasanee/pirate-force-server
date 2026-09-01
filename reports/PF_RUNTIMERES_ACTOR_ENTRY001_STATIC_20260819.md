@@ -312,7 +312,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 25,
+  "src_vital_stream_call_sites": 26,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -982,3 +982,19 @@ points at, one more real-and-unreached, and one carrying a literal-zero leader) 
 never touch. This scene's own declared `n_SCENE_LV` also reads 0, an anomaly named rather than corrected
 -- see `world_bg4001_identity.py`'s own DECLARED LEVEL paragraph. WITH THIS SCENE, EVERY ONE OF THE TEN
 DOORS ROUND `ga91m5`/`12lyda` SURVEYED IS NOW OPEN AT LOGIN.
+
+## Round `ewm6ff` (LANE-B), 2026-09-02
+
+`src_vital_stream_call_sites` moves **25 -> 26**. The twenty-sixth site is
+`mob_loot.preserve_ground_in_runtime_res_vitals`, which DRIVES
+`make_runtime_vitals` and compares its output byte for byte against this
+lane's own re-derivation of the same body. That comparison is the whole
+mechanism: it is what lets the function say where the RuntimeRes derived
+change mask sits without reading the last two bytes of a buffer, which
+pf-adversary measured to be unsound in the same round (a `u32tag(0x14, v)`
+for v in [720896, 786431] ends in `0B 00`, and so does a real login-path
+`make_runtime_vital` pc).
+
+No other census key moves: the function composes no actor entry, and the
+prose in `MOB_LOOT_WIRING` that names the composer is deliberately spelled
+without an argument list so a call-site regex does not count it.

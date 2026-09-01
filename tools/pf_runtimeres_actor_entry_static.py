@@ -1206,8 +1206,13 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # (CORE-REQUEST-025, the empty-vector tracepath fallback).  Counted on a cloud
 # clone of 336857c and by the bridge full-pytest run of 2026-08-28, which
 # agree.
-guard(SRC_VITAL_STREAM_SITES == 25,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 25 call sites")
+# 25 -> 26 in round ewm6ff (LANE-B): mob_loot.preserve_ground_in_runtime_res_
+# vitals DRIVES the composer and compares its output against this lane's own
+# re-derivation of the same body, which is how it can say where the derived
+# change mask sits without reading the end of a buffer.  That call is a real
+# call site and is counted here as one.
+guard(SRC_VITAL_STREAM_SITES == 26,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 26 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",
