@@ -108,20 +108,40 @@ class GapReportTests(unittest.TestCase):
         self.assertEqual(len(gaps), 33)
 
     def test_a_missing_typed_value_is_a_named_gap_not_a_zero(self):
+        # The point of this test survived migration 006 unchanged, and only
+        # the reason code moved: a field the caller did not supply is a NAMED
+        # gap, never a zero.  Before 006 the reason was "no column"; now the
+        # column exists and is NULL, and the gap says "no value was supplied".
         supplied = dict(ALL_SERVER_OWNED)
         del supplied[7]
         gaps = {g.x: g for g in compose.block_gaps(supplied)}
         self.assertIn(7, gaps)
-        self.assertEqual(gaps[7].reason, compose.REASON_NO_COLUMN)
+        self.assertEqual(gaps[7].reason, compose.REASON_NO_TYPED_VALUE)
 
-    def test_the_speed_field_reports_the_column_this_lane_owes(self):
+    def test_the_speed_field_reports_the_column_this_lane_built(self):
         gap = {g.x: g for g in compose.block_gaps({})}[7]
-        self.assertEqual(gap.reason, compose.REASON_NO_COLUMN)
+        self.assertEqual(gap.reason, compose.REASON_NO_TYPED_VALUE)
         self.assertIn("characters.speed_walk", gap.detail)
 
-    def test_the_only_built_column_today_is_the_name(self):
+    def test_no_field_reports_a_missing_column_any_more(self):
+        # migration 006 emptied this whole reason class.  If a future round
+        # adds a server-owned field without its column, this goes red.
+        reasons = {g.reason for g in compose.block_gaps({})}
+        self.assertNotIn(compose.REASON_NO_COLUMN, reasons)
+
+    def test_every_server_owned_column_is_built_and_none_is_populated(self):
         report = compose.unlock_report()
-        self.assertEqual(report["server_owned_columns_built"], [1])
+        self.assertEqual(
+            report["server_owned_columns_built"],
+            sorted(compose.SERVER_OWNED_FIELDS),
+        )
+        self.assertEqual(len(report["server_owned_columns_built"]), 22)
+        # Built is not populated: 006 adds columns and writes no row, so every
+        # server-owned field still blocks, and the block still cannot compose.
+        self.assertEqual(
+            report["by_reason"][compose.REASON_NO_TYPED_VALUE],
+            sorted(compose.SERVER_OWNED_FIELDS),
+        )
         self.assertEqual(report["blocked_fields"], 55)
         self.assertEqual(report["total_fields"], 55)
 

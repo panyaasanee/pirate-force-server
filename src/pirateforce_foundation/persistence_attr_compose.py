@@ -144,9 +144,13 @@ as its own reason code rather than hiding it behind the missing columns.
   generation ids appear inside that one directory.  ``CORPUS_IMAGE_SHA256``
   below pins the client image the copied rows claim to describe, which is the
   part that matters for a value; it does NOT pin the generation.
-* The 21 column names in ``SERVER_OWNED_FIELDS`` are this lane's own proposal
-  for M4, not established schema.  Only ``name`` exists today.
-  [สมมติของสาย DB - รอ M4]
+* The 21 column names in ``SERVER_OWNED_FIELDS`` were this lane's own proposal
+  for M4; ``migrations/006_character_typed_attribute_columns.sql`` builds them,
+  so they are schema now.  What they are NOT is populated: 006 adds columns and
+  writes no row, so every one of them reads NULL until something seeds it, and
+  a NULL column is absent at this gate rather than zero.  The NAME
+  ``speed_walk`` still encodes an unproven identification of BasicAttr+0x54.
+  [สมมติของสาย DB - รอ RE]
 """
 from __future__ import annotations
 
@@ -267,35 +271,44 @@ CLIENT_CONSTRUCTION_DEFAULTS: dict[int, ClientConstructionDefault] = {
 }
 
 # -- Fields whose truth is a column in this server's database ----------------
-# `characters.name` is the only one that exists today (migrations/001).  The
-# other twenty are M4 and are listed here with the column names this lane will
-# create, so a refusal can say WHICH column is missing rather than "unknown".
-# x=7 (walk speed) is the first one this lane is ordered to build
+# All twenty-two columns exist as of `migrations/006_character_typed_attribute
+# _columns.sql`: `characters.name` since 001_initial.sql, the other twenty-one
+# added by 006 (nullable, no defaults, no backfill).  `column_exists` is still
+# a hand-written flag and still not trusted: `SchemaPinTests` builds a database
+# from `migrations/` and compares `PRAGMA table_info(characters)` against it,
+# so a future column added here without a migration -- or a migration whose
+# column is renamed -- goes red rather than turning into a false reason in a
+# letter.  `persistence_typed_attrs` is the runtime side of the same list.
+# x=7 (walk speed) is the first one this lane was ordered to build
 # (COO-ORDER 20260901_1101); its seed at character creation is the client's own
-# proven 400.0 above -- a value with provenance, not a server invention.
+# proven 400.0 above -- a value with provenance, not a server invention -- and
+# that seed is NOT written yet: seeding is a write on live rows and waits for a
+# boot path that calls `SQLiteStore.migrate_with_backup` (CORE-REQUEST-DB-001).
+# A built column is therefore NOT a supplied value: with nothing seeded, every
+# one of these fields still gaps, now as `server_owned_value_not_supplied`.
 _SERVER_OWNED_ROWS = (
     (1, "name", True, False),
-    (7, "speed_walk", False, True),
-    (2, "level", False, False),
-    (3, "hp_current", False, False),
-    (4, "hp_max", False, False),
-    (5, "mp_current", False, False),
-    (6, "mp_max", False, False),
-    (13, "class_id", False, False),
-    (16, "skill_points", False, False),
-    (17, "unspent_points", False, False),
-    (18, "stat_str", False, False),
-    (19, "stat_con", False, False),
-    (20, "stat_dex", False, False),
-    (21, "stat_int", False, False),
-    (22, "stat_per", False, False),
-    (23, "experience", False, False),
-    (24, "cash", False, False),
-    (31, "bonus_str", False, False),
-    (32, "bonus_con", False, False),
-    (33, "bonus_dex", False, False),
-    (34, "bonus_int", False, False),
-    (35, "bonus_per", False, False),
+    (7, "speed_walk", True, True),
+    (2, "level", True, False),
+    (3, "hp_current", True, False),
+    (4, "hp_max", True, False),
+    (5, "mp_current", True, False),
+    (6, "mp_max", True, False),
+    (13, "class_id", True, False),
+    (16, "skill_points", True, False),
+    (17, "unspent_points", True, False),
+    (18, "stat_str", True, False),
+    (19, "stat_con", True, False),
+    (20, "stat_dex", True, False),
+    (21, "stat_int", True, False),
+    (22, "stat_per", True, False),
+    (23, "experience", True, False),
+    (24, "cash", True, False),
+    (31, "bonus_str", True, False),
+    (32, "bonus_con", True, False),
+    (33, "bonus_dex", True, False),
+    (34, "bonus_int", True, False),
+    (35, "bonus_per", True, False),
 )
 SERVER_OWNED_FIELDS: dict[int, ServerOwnedField] = {
     row[0]: ServerOwnedField(*row) for row in _SERVER_OWNED_ROWS
