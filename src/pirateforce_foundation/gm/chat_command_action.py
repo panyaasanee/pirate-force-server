@@ -468,6 +468,27 @@ GMPROBE_ACTION_LABEL = "LANE_GM_CHAT_GMPROBE_STATE_VITAL"
 # speed-sparse-x7-runtime-send-point.md`).
 SPEED_ACTION_LABEL = "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL"
 
+# The label a REFUSAL's on-screen sentence goes out under, and it is a
+# separate label on purpose -- COO-DECISION 2026-09-02T03:45+07:00
+# (`pf_bridge/notes_to_chief/20260902_0345_COO-DECISION-speed-refusal-
+# localtalk-via-say-wire-12-ascii.md`) ordered the refusal to reach the
+# screen, and nothing else about `/speed` changed with it.
+#
+# !! A NOTICE IS NOT THE COMMAND'S FRAME, and that distinction is load-
+# bearing in two places downstream (`_make_action`'s `sent=` argument and
+# its `_arm_queued_confirm` call).  LANE-GM's letter `pf_bridge/notes_to_
+# chief/20260902_0419_LANE-GM-REPLY-CHIEF-speed-notice-two-decisions.md`
+# measured what happens if the two are conflated: `_announce_console_
+# outcome` opens with `if sent: return`, so returning a notice action from
+# a refusal path would DELETE the `GM_CHAT_NO_BYTES_SENT ... why=refused_
+# speed_* character_id=<rowid>` line that PR #527 landed for COO-DECISION
+# `0147`'s half (b) -- closing the on-screen half by reopening the
+# server-log half, with no test in the repo catching it (the tests that pin
+# that line stand on `action is None`).  Hence `_Verdict.is_notice` below.
+# It also MUST NOT contain `TELEPORT`, for the same `runtime.py` reason
+# spelled out above this line.
+SPEED_DENIED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE"
+
 # The `characters` column LANE-DB's persistence entry point is keyed by for
 # this one field, resolved THROUGH their own table rather than spelled here
 # as the literal `"speed_walk"`.  Two reasons, both measured rather than
@@ -598,6 +619,18 @@ WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
 # cross scenes, so the cross-scene half stages the SCENE and nothing else).
 # That was invisible everywhere except the ndjson `outcome` word.
 STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
+
+# The token that answers "did the sentence really leave the server?".
+#
+# pf-adversary (round `aa9ajr`) asked the one question this change had not
+# answered: with `queued` deliberately not armed for a notice and the console
+# saying `GM_CHAT_NO_BYTES_SENT`, "the GM saw nothing" and "the notice was
+# composed, then dropped" looked identical in every artifact.  For `GT-193`
+# step 9 that distinction IS the result, so it gets its own line, printed only
+# when the notice is really being returned to the serve loop.  It sits BESIDE
+# the no-bytes line rather than replacing it: both statements are true at once
+# -- the COMMAND put nothing on the wire, and a sentence about that went out.
+NOTICE_CONSOLE_TOKEN = "GM_CHAT_NOTICE_SENT"
 
 # What each no-bytes outcome is waiting on, as fixed sentences this lane
 # wrote -- never a string built from anything a client typed.  Keyed on the
@@ -790,6 +823,15 @@ EVENT_SPEED_WITHHELD_NO_VERSION = (
 EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
+# The on-screen notice for a refused `/speed` (COO-DECISION `0345`).  Two
+# events, because "the sentence went out" and "the sentence could not even be
+# built" are different facts and a refusal that silently loses its notice is
+# exactly the silence that decision exists to end.  The compose failure is
+# NAMED BY EXCEPTION TYPE ONLY, same discipline as every other refusal here.
+EVENT_SPEED_DENIED_NOTICE_COMPOSED = "gm_chat_action_speed_denied_notice_composed"
+EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX = (
+    "gm_chat_action_speed_denied_notice_failed_"
+)
 
 # The PERSISTENCE half of `/speed`, added the round LANE-DB's
 # `store.write_typed_attributes_and_compose_sparse` was measured live on
@@ -850,6 +892,16 @@ EVENT_OUTCOME_LOG_FAILED_PREFIX = "gm_chat_action_outcome_log_failed_"
 EVENT_OUTCOME_NO_RECORD_ID = "gm_chat_action_outcome_no_record_id"
 EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD = (
     "gm_chat_action_outcome_not_audited_action_withheld"
+)
+# The same branch, for a REFUSAL NOTICE rather than a command frame, and it
+# needs its own name for two reasons pf-adversary (round `aa9ajr`, D4)
+# measured: `..._action_withheld` is documented and asserted elsewhere as "a
+# composed COMMAND frame was withheld", and without a second name the boot
+# where the audit log cannot be written -- the boot where a human most needs
+# to be told something -- goes silent on screen again with nothing in the
+# trail saying the sentence was dropped rather than never built.
+EVENT_OUTCOME_NOT_AUDITED_NOTICE_DROPPED = (
+    "gm_chat_action_outcome_not_audited_notice_dropped"
 )
 # The withheld warp's parked destination could not be dropped (a session that
 # swallows the write).  Named because the alternative is chief's position
@@ -1146,6 +1198,19 @@ class _Verdict:
     # printer has early returns (`DESTINATION_SHAPED_REASONS`, a `None`
     # stderr, a stream that raises) that the outcome word cannot see.
     line_printed: bool = False
+    # True when `action` is an ON-SCREEN NOTICE about a command that did NOT
+    # run, rather than the command's own frame.  Reported by the handler, not
+    # inferred from the label, for the reason the `SPEED_DENIED_NOTICE_ACTION_
+    # LABEL` comment gives: two call sites downstream ask "did the command go
+    # out?" and both of them would answer "yes" for a sentence that says the
+    # opposite.  A notice therefore:
+    #   * does not suppress the `GM_CHAT_NO_BYTES_SENT` console line
+    #     (`_announce_console_outcome`'s `sent` argument), and
+    #   * does not arm CORE-REQUEST-GM-040's `queued` confirmation, because a
+    #     `queued` row means "this command's frame reached runtime" and an
+    #     audit reader cannot tell such a pair from a command that really ran
+    #     (LANE-GM's letter `20260902_0419`, question 1).
+    is_notice: bool = False
 
 
 def _note(session: object, event: str) -> None:
@@ -1522,7 +1587,21 @@ def _make_action(
             ):
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
-            _note(session, EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD)
+            # TWO NAMES, because two different things reach this line now.
+            # A refusal NOTICE dropped here is not "a composed command frame
+            # was withheld" -- that phrase is documented and asserted
+            # elsewhere with the narrower meaning -- and it is the case a
+            # reader most needs named: on this boot the screen goes silent
+            # again (pf-adversary, round `aa9ajr`, D4).  ~~"A withheld or
+            # refused command has nothing left to withhold; it just carries
+            # the note."~~ struck three lines above: since the refusal
+            # notice, a refused command CAN have something to withhold.
+            _note(
+                session,
+                EVENT_OUTCOME_NOT_AUDITED_NOTICE_DROPPED
+                if verdict.is_notice
+                else EVENT_OUTCOME_NOT_AUDITED_ACTION_WITHHELD,
+            )
             # Dropped, not returned -- and the console is told below, on the
             # same call site every other shape uses.  An early `return None`
             # here is how the first version of this round grew two
@@ -1537,7 +1616,20 @@ def _make_action(
         command,
         verdict,
         audited=audited,
-        sent=action is not None,
+        # Read AFTER the audit-failure branch above, which can set `action`
+        # to None: "a notice went out" has to mean the same thing the return
+        # value means, or the console gains a line for bytes nobody sent.
+        notice_sent=action is not None and verdict.is_notice,
+        # `sent` MEANS "THE COMMAND'S OWN FRAME WENT OUT", not "some bytes
+        # did".  `_announce_console_outcome` opens with `if sent: return`, so
+        # counting an on-screen refusal notice here would delete the
+        # `GM_CHAT_NO_BYTES_SENT ... why=... character_id=<rowid>` line that
+        # is half (b) of COO-DECISION `0147` -- measured and reported by
+        # LANE-GM before this change existed (`pf_bridge/notes_to_chief/
+        # 20260902_0419_LANE-GM-REPLY-CHIEF-speed-notice-two-decisions.md`),
+        # who also noted that no test in the repo would have caught it
+        # because the tests that pin that line stand on `action is None`.
+        sent=action is not None and not verdict.is_notice,
         reverted=reverted,
     )
     # CORE-REQUEST-GM-040.  LAST, and only for an action we are really
@@ -1549,7 +1641,18 @@ def _make_action(
     # state `EVENT_QUEUED_CONFIRM_OVERWROTE_PENDING` exists to report as an
     # anomaly.  Arming here means "armed" and "returned" are the same
     # decision, taken once.
-    if action is not None:
+    #
+    # AND NOT FOR A NOTICE.  `log_gm_command_queued` writes the `queued` row
+    # that closes this command's `issued` row, and that row means "this
+    # COMMAND's frame reached runtime".  A notice frame says the command did
+    # NOT run, so pairing `issued`+`queued` around it would produce an audit
+    # trail an executed command's is indistinguishable from -- the exact
+    # failure CORE-REQUEST-GM-032 item 1 was opened to fix.  If a trace of
+    # "the notice went out" is ever wanted, it is a NEW row or token, never
+    # `queued` carrying two meanings (LANE-GM, letter `20260902_0419`,
+    # question 1; the file is chief's this round, so the shape is his call
+    # and this is it).
+    if action is not None and not verdict.is_notice:
         _arm_queued_confirm(
             session, action, command, token, outcome.record_id, log_path
         )
@@ -2518,6 +2621,42 @@ def _print_staged_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
+def _print_notice_sent(
+    session: object, token: str, command_name: object,
+) -> None:
+    """Say that a refusal NOTICE went to the client for this command.
+
+    Same shape as the other way-out printers in this module, and for the same
+    measured reasons rather than for symmetry:
+
+    * NOTHING TYPED IS EVER PRINTED.  Two fields, both lane-authored: the
+      command NAME, rendered only when it is one of `commands.COMMAND_NAMES`,
+      and the notice text, which is this lane's own frozen constant.
+      `session.token` is the process-wide `--token` (see
+      `_print_no_bytes_way_out`), so it names a process, not a person.
+    * A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  A stderr that is `None` or that
+      raises must cost this line and nothing else -- the notice has already
+      been composed and is about to be returned.
+    * STDERR, not stdout: a JSON artifact from a headless replay tool must
+      not gain a stray line (`lane_hooks/__init__.py`'s own incident).
+    """
+    if command_name not in COMMAND_NAMES:
+        return
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        print(
+            f"{NOTICE_CONSOLE_TOKEN} account={token!r} command={command_name}"
+            f" notice={say_wire.SPEED_DENIED_NOTICE_TEXT!r}",
+            file=sys.stderr,
+        )
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(
+            session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}"
+        )
+
+
 def _announce_console_outcome(
     session: object,
     token: str,
@@ -2527,6 +2666,7 @@ def _announce_console_outcome(
     audited: bool,
     sent: bool,
     reverted: bool | None = None,
+    notice_sent: bool = False,
 ) -> None:
     """The ONE place this route decides what the console is told, and when.
 
@@ -2553,6 +2693,13 @@ def _announce_console_outcome(
     changes the word this function prints.  Passed in rather than re-derived
     because only `_make_action` ever sees the undo's answer.
     """
+    if notice_sent:
+        # BEFORE every early return below, and never instead of one of them.
+        # The command still put nothing on the wire -- that is what the rest
+        # of this function says -- but a sentence about the refusal did go
+        # out, and `GT-193` step 9 grades exactly that. Printing it here
+        # keeps the "ONE place the console is told" property intact.
+        _print_notice_sent(session, token, getattr(command, "name", None))
     if sent:
         return
     if verdict.audit_outcome in STAGED_OUTCOMES and audited:
@@ -3056,6 +3203,50 @@ def _speed_db_is_the_canonical_file_on_disk(session: object) -> bool:
         return True
 
 
+def _speed_denied(
+    session: object,
+    legacy: object,
+    outcome: str,
+    undo: object | None = None,
+) -> _Verdict:
+    """One refused `/speed`, with the on-screen sentence attached when it can
+    be built -- COO-DECISION `0345`, path 1.
+
+    THE REFUSAL IS THE PRODUCT, THE SENTENCE IS THE COURTESY.  This function
+    can only ever ADD an action to a verdict that was going to be
+    `_Verdict(None, outcome, undo)`; the outcome word, the `undo` and the
+    event already noted by the caller are passed through untouched.  A notice
+    that cannot be composed is NAMED and dropped, never raised: an on-screen
+    courtesy must not turn a named refusal into
+    `gm_chat_action_unexpected_<Type>` on the listener thread, which is this
+    module's own standing rule for diagnostics (`_note_npc_recompose_
+    diagnostic`, `A DIAGNOSTIC MAY NEVER ALTER DISPATCH`).
+
+    `audit_outcome` deliberately keeps the `refused_*`/`withheld_*` word even
+    though bytes now go out.  LANE-GM's letter `20260902_0419` (question 2)
+    settled why: the `outcome` column answers "did the command have its
+    effect?", not "did any byte leave", and a `/speed` the DB refused was
+    refused whether or not the GM was told about it.
+    """
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, say_wire.SPEED_DENIED_NOTICE_TEXT
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        return _Verdict(None, outcome, undo)
+    _note(session, EVENT_SPEED_DENIED_NOTICE_COMPOSED)
+    return _Verdict(
+        (SPEED_DENIED_NOTICE_ACTION_LABEL, pc, frame, 0.0),
+        outcome,
+        undo,
+        is_notice=True,
+    )
+
+
 def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     """One authorized `/speed <value>` -> a sparse `UpdateAttrVital` action.
 
@@ -3155,12 +3346,12 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         # The more fundamental gate: refuse before either read below, so a
         # wrong-DB refusal never depends on a character being selected.
         _note(session, EVENT_SPEED_WITHHELD_CANONICAL_DB)
-        return _Verdict(None, OUTCOME_SPEED_WITHHELD_CANONICAL_DB)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_WITHHELD_CANONICAL_DB)
 
     identity_lo, identity_hi = _selected_speed_identity(session)
     if identity_lo is None or identity_hi is None:
         _note(session, EVENT_SPEED_NO_SELECTED_CHARACTER)
-        return _Verdict(None, OUTCOME_SPEED_NO_SELECTED_CHARACTER)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_NO_SELECTED_CHARACTER)
 
     version = speed_wire.shared_vital_version_confirmed()
     if version is None:
@@ -3169,7 +3360,7 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         # own still-shut gates.  GT-101 measured what an unproven
         # vital_version does to a real client: modal error, socket closed.
         _note(session, EVENT_SPEED_WITHHELD_NO_VERSION)
-        return _Verdict(None, OUTCOME_SPEED_WITHHELD_NO_VERSION)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_WITHHELD_NO_VERSION)
 
     try:
         value = speed_wire.parse_speed_value(command.args[0])
@@ -3177,8 +3368,10 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         # Type name only: an exception message can embed the GM's typed
         # text, same reasoning as every other refusal in this module.
         _note(session, f"{EVENT_SPEED_REFUSED_PREFIX}{type(error).__name__}")
-        return _Verdict(
-            None, f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}"
+        return _speed_denied(
+            session,
+            legacy,
+            f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}",
         )
 
     # ---- DB FIRST ----------------------------------------------------
@@ -3192,12 +3385,12 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         # anyway": that is precisely the screen-disagrees-with-the-row case
         # this ordering exists to make impossible.
         _note(session, EVENT_SPEED_NO_STORE)
-        return _Verdict(None, OUTCOME_SPEED_NO_STORE)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_NO_STORE)
 
     character_id = _selected_speed_character_id(session)
     if character_id is None:
         _note(session, EVENT_SPEED_NO_CHARACTER_ID)
-        return _Verdict(None, OUTCOME_SPEED_NO_CHARACTER_ID)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_NO_CHARACTER_ID)
 
     # Built BEFORE the write, because it has to remember what was there
     # first.  Carried by every verdict from here down, including the
@@ -3216,8 +3409,9 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             session,
             f"{EVENT_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
         )
-        return _Verdict(
-            None,
+        return _speed_denied(
+            session,
+            legacy,
             f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
             undo,
         )
@@ -3231,8 +3425,8 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     stored = sparse.get(speed_wire.SPEED_FIELD_X) if isinstance(sparse, dict) else None
     if isinstance(stored, bool) or not isinstance(stored, (int, float)):
         _note(session, EVENT_SPEED_PERSIST_READBACK_UNUSABLE)
-        return _Verdict(
-            None, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE, undo
+        return _speed_denied(
+            session, legacy, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE, undo
         )
 
     try:
@@ -3248,8 +3442,9 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             f"{EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
             f"{type(error).__name__}",
         )
-        return _Verdict(
-            None,
+        return _speed_denied(
+            session,
+            legacy,
             f"{OUTCOME_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
             f"{type(error).__name__}",
             undo,

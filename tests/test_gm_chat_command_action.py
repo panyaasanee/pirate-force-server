@@ -1309,6 +1309,25 @@ class EventNameContractTests(_Case):
         "EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX": (
             "gm_chat_action_speed_persist_compose_refused_"
         ),
+        # The on-screen half of a refusal (COO-DECISION 2026-09-02T03:45
+        # +07:00, `pf_bridge/notes_to_chief/20260902_0345_COO-DECISION-speed-
+        # refusal-localtalk-via-say-wire-12-ascii.md`).  TWO names, because
+        # "the sentence went out" and "the sentence could not be built" are
+        # different facts and the second one must never be silent -- silence
+        # is what that decision exists to end.
+        "EVENT_SPEED_DENIED_NOTICE_COMPOSED": (
+            "gm_chat_action_speed_denied_notice_composed"
+        ),
+        "EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_speed_denied_notice_failed_"
+        ),
+        # The audit-failure branch, for a notice rather than a command frame.
+        # Its own name because the older one is asserted elsewhere with the
+        # narrower meaning, and because this is the boot where the screen goes
+        # silent again and the trail has to say so.
+        "EVENT_OUTCOME_NOT_AUDITED_NOTICE_DROPPED": (
+            "gm_chat_action_outcome_not_audited_notice_dropped"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1326,6 +1345,12 @@ class EventNameContractTests(_Case):
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
         "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
         "SPEED_ACTION_LABEL": "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL",
+        # A REFUSAL's on-screen sentence, never the command's own frame --
+        # see the label's comment in the module for the two call sites that
+        # must keep telling the two apart.
+        "SPEED_DENIED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE"
+        ),
     }
 
     # The live hook route's names, pinned here as text for the disjointness
