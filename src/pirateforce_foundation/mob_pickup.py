@@ -607,8 +607,11 @@ MOB_PICKUP_NONCLAIMS = (
     "Seed a cell from store.backpack_issued_through (the column MINUS ONE, "
     "which is this lane's INCLUSIVE convention); the derived fallback stays "
     "for callers who have no store, and is still a fallback, not a policy.",
-    "15. [OPEN RISK, NOT MEASURED - flagged, not fixed, this round "
-    "(`37ts2b`)] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
+    "15. [MEASURED BY EXECUTION (round `bdcmkf`, tests/test_mob_pickup.py::"
+    "test_nothing_binds_the_claim_identity_to_the_bagcells_own_character), "
+    "not fixed; the OPEN RISK / flagged-this-round wording is from round "
+    "`37ts2b` and is stale -- this claim has since been run, not merely "
+    "read] NOTHING HERE BINDS bag_cell TO THE CLAIMANT IN THE REQUEST "
     "IT IS PASSED AGAINST.  dispatch_pickup_request (and BagCell.commit_pickup "
     "underneath it) checks that bag_cell is a typed BagCell -- it does not "
     "check that the bag_cell handed in is the one the connection carrying "

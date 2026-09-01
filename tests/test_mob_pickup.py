@@ -785,6 +785,28 @@ class MobPickupTests(unittest.TestCase):
         self.assertEqual(
             self._refusal(BagCell, INITIAL_BACKPACK, 0), "value_out_of_range")
 
+    def test_nothing_binds_the_claim_identity_to_the_bagcells_own_character(self):
+        """NONCLAIM 15, measured by execution (round `bdcmkf`).
+
+        ``BagCell`` is opened for ``CHARACTER`` (77).  The claim it is handed
+        is killed by, and claimed as, ``STRANGER`` (a different identity,
+        0x750060) -- ``resolve_claim`` only checks the claim's identity
+        against the DROP's ``killer_identity``, and nothing downstream checks
+        it against the CELL's own ``character_id``.  Before this test ran,
+        NONCLAIM 15 called this "not measured"; this is what running it looks
+        like: the pickup is granted, the row is written under character 77,
+        and the identity carried alongside it is STRANGER's -- with no
+        refusal anywhere in this module naming the mismatch.  This does not
+        fix the gap (NONCLAIM 15 itself says the fix, if any, is
+        ``runtime.py``'s or a COO design call, not this module's); it turns
+        an unmeasured claim into a measured one.
+        """
+        ground = a_cell(a_drop(killer=STRANGER))
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            ground, a_claim(identity=STRANGER))
+        self.assertEqual(outcome.row_write.character_id, CHARACTER)
+        self.assertEqual(outcome.row_write.claimant_identity, STRANGER)
+
     def test_a_full_bag_does_not_eat_the_drop(self):
         """THE ORDERING TEST.  Everything that refuses, refuses before the take.
 
