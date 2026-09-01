@@ -13,11 +13,19 @@ guard named in the module's own docstring: a register full of rows that did
 not change phase must not flood stdout on every TargetPos a moving player
 sends.
 
-``test_nothing_in_runtime_py_calls_maybe_tick_yet`` is this round's own
+~~``test_nothing_in_runtime_py_calls_maybe_tick_yet`` is this round's own
 honest half, the same discipline test_mob_ai_scheduler.py's sibling test
 already uses: nothing calls this today, and this test fails the day that
 stops being true without the module docstring's "WHAT THE PLAYER WILL SEE
-DIFFERENTLY" section being updated to match.
+DIFFERENTLY" section being updated to match.~~
+[STALE as of round `p05wire`, 2026-09-01, COO-DECISION 20260901_0145]
+[MEASURED, by reading this file itself]: that day arrived in round
+`p05wire`.  The negative test above was flipped (not deleted) to
+``test_runtime_py_now_calls_maybe_tick_per_coo_decision_0145``, and the
+module docstring's "WHAT THE PLAYER WILL SEE DIFFERENTLY" section was
+updated to match in round `3w2mfu` (this correction) -- the promise this
+paragraph made to itself, kept one round later than the code that
+triggered it.
 """
 from __future__ import annotations
 

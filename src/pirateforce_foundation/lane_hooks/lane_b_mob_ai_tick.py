@@ -26,15 +26,31 @@ composer), so a future runtime.py call site only ever needs this file's
 bare name and its one function.
 
 WHAT THE PLAYER WILL SEE DIFFERENTLY BECAUSE OF THIS FILE, STATED PLAINLY:
-nothing today.  Nothing under ``src/pirateforce_foundation/runtime.py``
+~~nothing today.  Nothing under ``src/pirateforce_foundation/runtime.py``
 calls :func:`maybe_tick` yet (pinned by
 ``tests/test_lane_b_mob_ai_tick.py::test_nothing_in_runtime_py_calls_
-maybe_tick_yet``) -- this file is readiness, not a wire change.  Once
-called, it STILL composes no frame (``mob_ai_scheduler``'s own NONCLAIMS,
-unchanged by this wrapper): it only lets the AI register start recording
-proactive phase/threat truth instead of staying permanently idle between
+maybe_tick_yet``) -- this file is readiness, not a wire change.~~
+[STALE as of round `p05wire`, 2026-09-01, COO-DECISION 20260901_0145]
+[MEASURED, by reading ``runtime.py``'s own ``dispatch()`` and this file's
+own test]: the call site now exists.  ``runtime.py:dispatch()`` imports this
+module and calls :func:`maybe_tick` on every inbound ``TARGET_POS_VITAL``
+once a session already has a remembered target position
+(``self.last_target_pos``), a selected character, a live
+``mob_ai_register``, a live ``mob_combat_ledger``, and this module's own
+``production_allowed`` gate reads True -- the exact
+``LANE_B_MOB_AI_TICK_WIRING`` block below, pasted verbatim.  All six guard
+conditions are ``and``-ed together in ``dispatch()``; this paragraph names
+all six so a reader does not have to open ``runtime.py`` to know which
+sessions are excluded.  The test that used to pin the negative
+(``test_nothing_in_runtime_py_calls_maybe_tick_yet``) was flipped, not
+deleted, to ``test_runtime_py_now_calls_maybe_tick_per_coo_decision_0145``
+in the same round.  Still true, and the reason this section does not claim
+more than that: called, it STILL composes no frame (``mob_ai_scheduler``'s
+own NONCLAIMS, unchanged by this wrapper) -- it only lets the AI register
+start recording proactive phase/threat truth (visible on the server console
+as ``LANE_B_MOB_AI_TICK`` lines) instead of staying permanently idle between
 hits.  Door B (turning an intent into bytes a client renders) is a
-separate, larger decision this file does not make either.
+separate, larger decision this file still does not make.
 
 THE CALL SITE THIS FILE NAMES, MEASURED RATHER THAN GUESSED.  256rvs left
 ``mob_ai_scheduler.MOB_AI_SCHEDULER_WIRING`` deliberately vague about two
