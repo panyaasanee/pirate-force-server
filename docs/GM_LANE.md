@@ -6428,3 +6428,65 @@ new wire, no new chat command for an attended tester to try.
 รายละเอียดเต็ม:
 `pf_bridge/rounds/GM_20260901_1629_zkqaq1_adversary-finds-fixes-withheld-warp-clear-bug.md`
 PR: `pf_bridge` #729 / `pirate-force-server` #488
+
+## Round `nqba17` (2026-09-01T17:28+07:00) -- `/speed` sparse x=7 chat command parser + composer, GM-B first half
+
+Consumed COO-ORDER `20260901_1641` (GM-B, Panya's live session override 2026-09-01T16:39+07:00:
+"ส่งให้พอใช้งานได้ก่อน อย่ารอ RE") and the CODEX color-handoff addendum (`CODEX_URGENT_20260901_1646`,
+P-2 -- no code change, still routed through chief/COO's normal queue per that letter's own words;
+P-2 status unchanged from last round, still waiting on `RE-195`).
+
+Added `speed <value>` to `gm/commands.py`'s grammar (parses/audits through the existing
+`gm/chat_command.py` pipeline unchanged -- `/speed 5.0` now authorizes, decodes, parses and logs
+exactly like `/lv 10` does today). Built `gm/speed_wire.py::compose_sparse_speed_update`: a SPARSE
+`UpdateAttrVital` (0x309A) composer that sets ONLY the BasicAttr mask bit for field x=7 (offset
++0x54, f32 -- `attr_wire.FIELDS[6]`, still `known=False` there and left that way), never any of the
+other 54 fields, and never through `attr_wire.build_named_field_update` (which would refuse x=7 on
+its `known` gate) or `RawBlockCache` (a sparse send has nothing to merge). LANE-DB's independent
+reply (`notes_to_chief/20260901_1201`) cross-references the client-side codex table
+(`reference_codex_attr/PF_ATTR_FIELD_SEMANTICS.tsv:53`) naming the same bit/offset/tag/kind row
+`FightAttr_run_speed_formula_input`, `PROVEN_EXACT` on both structural and semantic status -- two
+independently-derived sources agree, which is why this door is named "speed" rather than left
+`basic_f32_54`, though neither source is a client-observable measurement.
+
+NOT wired into `gm/chat_command_action.py` this round: `speed` falls into the existing no-wire-path
+branch, same as `npc`/`item`/`lv`/`spawn` today -- parsed and audited, no action composed. Two
+reasons, both load-bearing and neither lifted by COO-ORDER `1641` (which approved WHICH fields the
+sparse door touches, not the send safety gate below): (1)
+`attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` is still `None` -- `UpdateAttrVital`'s vital_version
+byte has never been measured against a real client, sparse or full, and `GT-101` already showed
+what an unproven version does (modal error, connection halted); (2) no call site in this lane's
+zone can read a connection's `identity_lo`/`identity_hi` today. Opened `CORE-REQUEST-GM-049` to
+chief naming both blockers and the exact call this lane asks `runtime.py` to make once they clear.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = all green (baseline 6350 + this round's 14 new tests in
+`tests/test_gm_speed_wire.py`, plus grammar cases added to `tests/test_gm_commands.py` and one
+exercise-table row in `tests/test_gm_standalone_map_is_not_chat_writable.py`). Two suite-wide
+contract tests caught real omissions during this round and were fixed before commit: the pinned
+`COMMAND_USAGE` order tuple in `tests/test_gm_chat_command_parse_way_out.py` (a literal tuple, not
+derived from the source table) needed `speed` appended, and the standalone-map exercise table
+needed a `speed` row for the "every parsed command has an exercise" check.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี (บนจอ)** -- `/speed <value>` now parses and audits (an attended tester can see the
+`issued` row in the ndjson log and the `gm_chat_action_no_wire_path_speed` event), but no bytes
+reach any client yet. That half needs `CORE-REQUEST-GM-049`'s two blockers cleared first.
+
+### nonclaim
+
+1. ไม่อ้างว่า x=7 คือ speed ที่พิสูจน์บนจอจริงแล้ว -- การอ้างอิงข้ามแหล่ง (probe table + codex) เห็น
+   ตรงกันเท่านั้น [สมมติของสาย GM - รอ RE-193/GT ผลจริง]
+2. ไม่อ้างว่า `attr_wire.FIELDS[6].known` ถูกแก้เป็น `True` -- ยังเป็น `False`, มีเทสยืนยัน
+3. ไม่อ้างว่า `/speed` ส่งอะไรออกไปได้วันนี้ -- อยู่ใน no-wire-path branch เดียวกับ `npc`/`item`/
+   `lv`/`spawn`
+4. ไม่อ้างว่า P-2 (สีมอนสเตอร์) ขยับ -- consumed เท่านั้น ไม่มีโค้ดสีเขียนรอบนี้
+5. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`
+6. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone
+7. ไม่ลบประวัติเดิมใด ๆ
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1728_nqba17_speed-sparse-x7-chat-command-parser.md`
+PR: `pf_bridge` #735 / `pirate-force-server` #493

@@ -154,6 +154,7 @@ COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     "spawn": ("/spawn 1001",),
     "say": ("/say hello",),
     "gmprobe": ("/gmprobe baseline-all-zero",),
+    "speed": ("/speed 5.0",),
 }
 
 # Lines that are not valid commands at all, run through the same door: a
