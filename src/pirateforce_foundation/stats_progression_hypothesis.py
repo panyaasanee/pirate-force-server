@@ -304,6 +304,25 @@ ACTOR_ATTR_FIELDS = _ordered((
     # have had on the wire since NAME-002, 0x01000800, whose only two bits are
     # cash 0x00000800 (report-pinned) and this one, emitted in that order after
     # the cash qword.  Recorded as a derivation, not as a report pin.
+    #
+    # THE REPORT'S NAME FOR THIS FIELD IS WRONG, AND SO IS THE SYMBOL BELOW.
+    # Round ewm6ff, assigned to this lane by chief (pf_bridge notes_to_chief/
+    # 20260902_0205_CHIEF-TO-LANE-B-0x164-stale-label-and-item-codec-assigned.
+    # md, item 1, from ka1-B): ActorAttr bit 0x01000000 @ +0x164 is the GUILD
+    # label (LABEL_GUILD), not the character-name field.  gm/attr_wire.py:253
+    # calls the same field ``wstr_164_guild``, and player_wire.py:80-90 records
+    # the same correction as a BUG the real login path had inherited from the
+    # V1-V141 author (PANYA-DECISION 20260828_0125 row x1/x37).  The real
+    # character-name field is BasicAttr bit 0x0001 @ +0x28.
+    #
+    # The SYMBOL is left as ``character_name`` deliberately, not overlooked:
+    # it is a dict key read by this module's refusal names, its probe configs
+    # and its tests, and chief's ask was explicitly "do not change behaviour".
+    # Renaming the key is a separate, wider change; the label is corrected here
+    # so no reader takes this row as evidence that +0x164 carries a character
+    # name.  NONCLAIM, carried from ka1-B's letter: this is an IMAGE-layer
+    # finding about NameBoard_Player only, and Codex's ``server_safe = YES``
+    # means "safe to send", NOT "the original server ever sent it".
     AttrField("character_name", "actor", 0x01000000, 0x164, WSTRING_TAG,
               "wstring",
               "derived: player_wire mask 0x01000800 minus report-pinned cash"),
