@@ -15,6 +15,24 @@ never one that starts anything -- which is the concrete shape of the
 owner's "monsters do not move" complaint, read off the code rather than off
 a screen.
 
+[STALE as of round p05wire, 2026-08-31T~19:11 UTC (COO-DECISION
+20260901_0145)][MEASURED, round bgwgso, 2026-09-01T16:39+07:00] "no caller
+anywhere in this tree runs it in production" and "only damage_step/
+death_step, never tick_step" are both false again: ``runtime.py``'s
+``dispatch()`` now calls ``lane_hooks.lane_b_mob_ai_tick.maybe_tick`` on
+every ``TARGET_POS_VITAL`` frame once ``mob_ai_register``/
+``mob_combat_ledger``/``foundation.selected`` are all set (guard read at
+``runtime.py:5196-5202``, commit ``5ac93b31``), and ``maybe_tick`` is a thin
+wrapper whose only body is a call into THIS module's own
+:func:`tick_session` (``lane_hooks/lane_b_mob_ai_tick.py:181``), which in
+turn is what calls ``mob_ai_control.tick_step`` per row (see this file's own
+:func:`tick_session` below).  Every one of ``lane_b_mob_ai_tick``,
+``mob_ai_scheduler`` and ``mob_ai_control`` has ``production_allowed =
+True`` (grepped all three at HEAD, round bgwgso), so this is the live,
+flagless path, not a scenario-gated probe.  ``tick_step`` is proactive-only
+in the sense this paragraph describes; that part of the analysis still
+holds -- only the "no caller" claim is what changed.
+
 WHAT THIS MODULE ADDS, AND ONLY THIS.  A caller.  One deterministic pass, one
 player, over every mob row a SESSION already tracks in its own
 ``mob_ai_control.MobAiRegister`` -- because every register in this codebase
@@ -41,6 +59,11 @@ existed; this module is built to that shape on purpose, not by accident:
   whatever the driver calls it at.  (Today: nothing calls it.  See
   CORE-REQUEST below for the smallest true next step, which this module does
   NOT take.)
+  [STALE as of round p05wire][MEASURED, round bgwgso] "nothing calls it" is
+  now false -- the cadence today is "once per TARGET_POS_VITAL frame a moving
+  player already sends", via ``lane_hooks.lane_b_mob_ai_tick.maybe_tick``
+  (see the paragraph above).  Still not a wall clock or a new timer -- that
+  part of the sentence still holds.
 * THE STOP RULE is that the loop is bounded by the register's own row count
   -- a per-session roster this project has never shipped larger than
   seventeen rows (Bg0002's ``PREDICATE_CENSUS``) -- and nothing here re-reads
@@ -69,6 +92,18 @@ the AI register starts recording proactive threat/phase truth
 (``MobAiState.phase``, ``.threat``, ``.target_identity``) instead of staying
 permanently idle between hits, which is the prerequisite Door B needs and did
 not have before this round.
+
+[STALE as of round p05wire][MEASURED, round bgwgso] "nothing today" and "The
+call site is in runtime.py and that file belongs to the chief" (future
+tense, as if unwritten) are both stale: the call site was added by the chief
+in round p05wire (commit ``5ac93b31``, via the
+``lane_hooks.lane_b_mob_ai_tick`` wrapper this module's own header names in
+its first line).  It is called on every relevant dispatch now, so the
+"moment a caller DOES call this" described above is not hypothetical --
+it already happened, and the internal-only effect it describes
+(``MobAiState.phase``/``.threat``/``.target_identity`` now update on live
+traffic) is the current, measured behavior, still with zero bytes on the
+wire (Door B remains closed; unchanged).
 
 NONCLAIMS
 ---------
@@ -248,6 +283,20 @@ def tick_session(
 # runtime.py's own last_target_pos references), and naming the wrong one
 # would cost the chief more than naming none.  See CORE-REQUEST in this
 # round's letter for the question this line does not answer.
+#
+# [STALE as of round p05wire, COO-DECISION 20260901_0145][MEASURED, round
+# bgwgso, 2026-09-01T16:39+07:00] this ask is fulfilled, not open: the chief
+# wired the TARGET_POS_VITAL dispatch point (runtime.py:5196-5210, commit
+# 5ac93b31) to lane_hooks.lane_b_mob_ai_tick.maybe_tick, which is exactly
+# this string's own call shape (same four positional args this string names,
+# read from self.mob_ai_register/self.mob_combat_ledger/self.foundation.
+# selected/self.last_target_pos, with the result stored back onto
+# self.mob_ai_register) -- just reached through the option-(b) wrapper this
+# module's own header already named at the top of the file, rather than as a
+# direct import.  The string below is left verbatim (not the literal diff
+# that landed) because it is still an accurate description of the SHAPE of
+# what runtime.py now does, and tests/test_mob_ai_scheduler.py pins its two
+# substrings; do not delete them.
 MOB_AI_SCHEDULER_WIRING = (
     "runtime.py: call mob_ai_scheduler.tick_session(self.mob_ai_register, "
     "self.mob_combat_ledger, <this connection's own player identity>, "

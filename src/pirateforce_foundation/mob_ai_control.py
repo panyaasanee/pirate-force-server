@@ -296,7 +296,16 @@ MOB_AI_CONTROL_NONCLAIMS = (
     "tick loop (mob_ai_control.tick_step) and reconcile() -- the wiring "
     "line says the tick loop needs no timer today (Door B unsent) and "
     "reconcile() has nothing to reach because this class never rebuilds "
-    "the roster after opening it once per session.",
+    "the roster after opening it once per session. "
+    "[STALE as of round p05wire, COO-DECISION 20260901_0145][MEASURED, "
+    "round bgwgso, 2026-09-01T16:39+07:00]: tick_step is no longer "
+    "undispatched -- runtime.py's TARGET_POS_VITAL dispatch "
+    "(runtime.py:5196-5210) now calls "
+    "lane_hooks.lane_b_mob_ai_tick.maybe_tick -> "
+    "mob_ai_scheduler.tick_session -> mob_ai_control.tick_step/commit_step "
+    "per row, once per relevant frame a moving player already sends -- see "
+    "mob_ai_scheduler.py's own header for the full chain. reconcile() is "
+    "still genuinely undispatched; that half of this sentence still holds.",
     "2. No frame is composed or sent here, so no claim is made about "
     "anything a player can see.",
     "3. n_AGGRO being a radius and n_OFFESIVE being an unprovoked-acquire "
