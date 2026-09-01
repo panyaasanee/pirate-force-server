@@ -6079,3 +6079,59 @@ not exercise yesterday.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0617_vsopwk_gmui1-hypothesis-stub-plus-mailbox.md`
 PR: `pf_bridge` #673 / `pirate-force-server` #446
+
+## Round `h6rsgl` (2026-09-01T09:2x+07:00) -- P-2 monster name color: static research, no proven "dead" fontstyle found, no code change
+
+No source change in this repo this round. Companion PR to `pf_bridge#685`, which holds the full
+writeup. Summary: per `PANYA-ORDER 20260901_0215` / chief's `FROM_CHIEF_R278` broadcast, P-2
+(monster name-tag color: normal=orange, fighting=red, dead=gray, never pink) is assigned to
+LANE-GM. Ran a static/headless research pass (`pf-static-re` subagent, no client image available
+in this environment) over `PF_ATTR_NAME_COLOR_SELECTOR.tsv` and related committed tables.
+
+Result: the table's `typed_CNetNPC` lane only has 2 proven fontstyle ids (61/62, fighting/not),
+no third row for "dead." The closest candidate (`fontstyle_id=63`) comes from an
+`untyped_dynamic_controller` row whose own `nonclaim` explicitly says "FontStyleID 63 is not
+equivalent to dead" -- the CNetNPC-vtable call path for the underlying death predicate
+(`0x0043BD70`) is not yet proven, only a shared cross-family predicate is. `RE-109` (closed) has
+`BUILD_IMPACT: NONE` for this table -- hard-coding a color guess from any id in it would directly
+violate that. So this lane did not write any color-selection code this round.
+
+Proposed a narrow, static-only follow-up RE ticket (typed-downcast proof for the
+`0x0043BD70` predicate through `CNetNPC`'s vtable, then RGB read for fontstyle 63 via
+`UILabel_FontStyleID_parser_setter`) in a letter to chief -- reuses existing pins, does not
+reopen `RE-067`/`RE-109`, does not touch `RE-155`'s own (unrelated, fighting-color) open scope.
+
+pf-adversary (real spawned subagent, not self-review) caught a real self-contradiction in the
+first draft of that letter -- it both said `RE-155` "is not about dead=gray" and then treated
+`RE-155`'s attended-capture blocker as the only remaining path for the dead=gray gap, which
+would have escalated a false dilemma to chief/COO. Fixed before commit: the proposed RE ticket
+is purely static/IMAGE-layer and is unaffected by the owner's freeze on attended monster-hit
+tests regardless of how that freeze question resolves for `RE-155` itself.
+
+`GM-B` (`/speed`, `GT-183`): unchanged, still correctly blocked -- `gm/attr_wire.py`'s path-1-vs-
+path-2 raw-block-source question is still routed to the owner (letter `2327`, unanswered as of
+this round); not re-litigated, no new letter opened about it this round since nothing new arrived.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` = 1206 passed, 547 subtests passed เขียว(cloud sanity),
+confirmed before and unaffected by this round (no code changed).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- research/letter round only, no wire change, no new chat command.
+
+### nonclaim
+
+1. Does not claim fontstyle 63 means "dead" -- the source table itself disclaims this.
+2. Does not write any name-color code -- would violate `RE-109`'s `BUILD_IMPACT: NONE`.
+3. Does not decide whether observation-only attended capture is exempt from the owner's
+   monster-hit-ticket freeze -- routed to COO, tagged as this lane's own provisional read
+   (currently: still forbidden) pending an answer.
+4. Did not touch `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`/`gm/attr_wire.py`.
+5. Did not give GM status to any account outside `gm_accounts.json`; no milestone declared.
+6. Did not delete any history.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0921_h6rsgl_p2-color-static-research-fontstyle63-gap.md`
+PR: `pf_bridge` #685 / `pirate-force-server` #456
