@@ -12,10 +12,12 @@ import csv
 import hashlib
 import re
 import sqlite3
+import struct
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -33,6 +35,14 @@ MODULE_PATH = ROOT / "src" / "pirateforce_foundation" / "persistence_attr_compos
 
 # sha256 over the 28 copied construction defaults (x|value|writer_va|name).
 # Moved only together with the corpus cross-check that re-derives them.
+# sha256 over the module docstring paragraph that states what this round does
+# NOT know about fields whose mask bit is clear.  A digest rather than a
+# substring: an adversary pass inverted the paragraph's meaning while keeping
+# every string the earlier grep looked for.
+PINNED_OPEN_QUESTION_DIGEST = (
+    "973b0ccee22ff383619882b8360ff1ef877eceb3bf238f01ebd8c4fa400be391"
+)
+
 PINNED_DEFAULT_TABLE_DIGEST = (
     "17e573bbe056826da54853e17b44a3ab8996dd935f9554ed9ccbb091567f79ef"
 )
@@ -189,7 +199,10 @@ class ComposeRefusalTests(unittest.TestCase):
                     self.fail(f"setdefault() at line {node.lineno}")
         # `|` and `or` are legitimate over sets in the partition check, so the
         # stricter rule applies where values are actually produced.
-        producers = {"_value_for", "compose_full_block", "block_gaps"}
+        producers = {
+            "_value_for", "compose_full_block", "block_gaps",
+            "compose_sparse_block", "sparse_block_gaps",
+        }
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef) or node.name not in producers:
                 continue
@@ -536,6 +549,345 @@ def _render(cell: str, kind: str):
     if re.fullmatch(r"0x[0-9A-Fa-f]+", cell):
         return int(cell, 16)
     return int(cell)
+
+
+class SparsePathTests(unittest.TestCase):
+    """The one narrow send COO opened, and the four ways it stays narrow.
+
+    `COO-ORDER 20260901_1640` approves a block that sets the mask bit of x=7
+    and nothing else; `20260901_1641` forbids LANE-GM the full block on the
+    same path.  A permission is only worth what refuses to widen, so every
+    test here is written against the widening, not against the happy path.
+    """
+
+    def test_the_permission_is_exactly_one_field_and_it_is_speed(self):
+        self.assertEqual(compose.SPARSE_APPROVED_FIELDS, frozenset({7}))
+        self.assertEqual(compose.SERVER_OWNED_FIELDS[7].column, "speed_walk")
+        self.assertEqual(compose.source_of(7), compose.SERVER_OWNED)
+
+    def test_the_approved_field_composes_and_carries_only_itself(self):
+        block = compose.compose_sparse_block({7: 620.0})
+        self.assertEqual(block, {7: 620.0})
+
+    def test_every_approved_field_is_server_owned_so_no_default_can_leak(self):
+        """The permission names fields; `_value_for` decides values.
+
+        If a future round widened `SPARSE_APPROVED_FIELDS` to a field whose
+        source is a CLIENT_DEFAULT, the sparse path would become the one door
+        through which an unadjudicated construction default reaches a live
+        character.  It cannot: `_value_for` refuses those too.  This test
+        pins the property for whatever the set contains, not for today's 7.
+        """
+        for x in compose.SPARSE_APPROVED_FIELDS:
+            self.assertEqual(compose.source_of(x), compose.SERVER_OWNED, f"x={x}")
+
+    def test_a_field_that_is_not_approved_is_refused_even_with_a_real_column(self):
+        # level: server-owned, column built by 006, a perfectly good value --
+        # and still not on this path.
+        with self.assertRaises(compose.AttrComposeError) as raised:
+            compose.compose_sparse_block({2: 40})
+        self.assertIn(compose.REASON_NOT_SPARSE_APPROVED, str(raised.exception))
+
+    def test_the_approved_field_cannot_smuggle_a_second_field_in_with_it(self):
+        with self.assertRaises(compose.AttrComposeError) as raised:
+            compose.compose_sparse_block({7: 620.0, 3: 100})
+        self.assertIn("x=3", str(raised.exception))
+        self.assertNotIn("x=7(", str(raised.exception))
+
+    def test_the_sensitive_field_is_refused_by_the_permission_set(self):
+        """And it is the PERMISSION that refuses it, not the sensitive gate.
+
+        An earlier version of this test asserted only `assertRaises` and was
+        false green: x=30 never reaches `_value_for` at all, so the test
+        passed for a reason that had nothing to do with SENSITIVE_FIELDS and
+        would have kept passing with that frozenset emptied.  An adversary
+        pass measured that.  The reason is asserted now, and the SENSITIVE
+        gate is proven separately below, where it can actually fire.
+        """
+        gaps = compose.sparse_block_gaps({30: b""})
+        self.assertEqual([g.reason for g in gaps],
+                         [compose.REASON_NOT_SPARSE_APPROVED])
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_sparse_block({30: b""})
+
+    def test_an_unsourced_field_is_refused_by_the_permission_set(self):
+        gaps = compose.sparse_block_gaps({14: 0})
+        self.assertEqual([g.reason for g in gaps],
+                         [compose.REASON_NOT_SPARSE_APPROVED])
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_sparse_block({14: 0})
+
+
+class SparseSecondLayerTests(unittest.TestCase):
+    """What guards the sparse path on the day COO widens the permission.
+
+    Every defence `compose_sparse_block` advertises after the permission check
+    -- `_value_for`'s REFUSED/UNSOURCED branches, `column_for`'s per-field
+    lookup -- is UNREACHABLE while `SPARSE_APPROVED_FIELDS` has one element in
+    it, so a test suite that only calls the real function can never see them
+    fire.  An adversary pass proved it: deleting `_value_for` from the compose
+    body left the whole suite green.
+
+    So the permission set is widened HERE, under `mock.patch`, and the second
+    layer is made to fire.  The round that widens it for real is then not the
+    first round those branches have ever executed.  Nothing in these tests
+    changes what the shipped module permits: the patch is undone by the time
+    each test returns, and `test_the_permission_is_exactly_one_field_and_it_is
+    _speed` above is what pins the shipped value.
+    """
+
+    def _widened(self, *xs):
+        return mock.patch.object(
+            compose, "SPARSE_APPROVED_FIELDS", frozenset(xs)
+        )
+
+    def test_the_sensitive_field_is_refused_by_the_value_producer_itself(self):
+        with self._widened(7, 30):
+            self.assertEqual(compose.sparse_block_gaps({30: b""}), ())
+            with self.assertRaises(compose.AttrComposeError) as raised:
+                compose.compose_sparse_block({30: b""})
+        self.assertIn("SENSITIVE_FIELDS", str(raised.exception))
+
+    def test_an_unsourced_field_is_refused_by_the_value_producer_itself(self):
+        with self._widened(7, 14):
+            self.assertEqual(compose.sparse_block_gaps({14: 0}), ())
+            with self.assertRaises(compose.AttrComposeError) as raised:
+                compose.compose_sparse_block({14: 0})
+        self.assertIn("no proven source", str(raised.exception))
+
+    def test_a_client_default_field_is_refused_by_the_value_producer_itself(self):
+        with self._widened(7, 9):  # x=9 has a proven construction default
+            with self.assertRaises(compose.AttrComposeError) as raised:
+                compose.compose_sparse_block({9: 3})
+        self.assertIn("not adjudicated safe to re-send", str(raised.exception))
+
+    def test_the_refusal_is_an_attrcomposeerror_not_a_column_lookup_error(self):
+        """The order of the two calls in the compose body is load-bearing.
+
+        Written as `validate(column_for(x), _value_for(x, ...))` the code read
+        correctly and behaved differently: python evaluates the arguments left
+        to right, so x=30 died inside `column_for` with a `TypedAttrError`
+        about a missing column -- which a caller catching `AttrComposeError`
+        (as `store.write_typed_attributes_and_compose_sparse` documents) does
+        not catch at all.  Measured by an adversary pass, fixed, pinned here.
+        """
+        from pirateforce_foundation.persistence_typed_attrs import TypedAttrError
+
+        with self._widened(7, 30):
+            with self.assertRaises(compose.AttrComposeError):
+                compose.compose_sparse_block({30: b""})
+            try:
+                compose.compose_sparse_block({30: b""})
+            except TypedAttrError:  # pragma: no cover - the regression itself
+                self.fail("the column lookup ran before the value producer")
+            except compose.AttrComposeError:
+                pass
+
+    def test_a_second_approved_field_would_compose_alongside_the_first(self):
+        """The mechanism does work for two fields -- that is the point.
+
+        `level` is server-owned with a built column, so a COO order naming it
+        would produce a two-field block.  Pinned so that the refusals above
+        are known to come from the SOURCE of each field, not from the sparse
+        path being unable to carry more than one thing.
+        """
+        with self._widened(7, 2):
+            self.assertEqual(
+                compose.compose_sparse_block({7: 620.0, 2: 40}),
+                {2: 40, 7: 620.0},
+            )
+
+
+class SparsePermissionIntegrityTests(unittest.TestCase):
+    """`_verify_sparse_permission`: a widened set that is not safe fails loudly.
+
+    Measured before this check existed: `frozenset({7, 99})` imported cleanly
+    and raised a bare `KeyError: 99` out of `sparse_block_gaps` on first call.
+    """
+
+    def _check(self, *xs):
+        with mock.patch.object(
+            compose, "SPARSE_APPROVED_FIELDS", frozenset(xs)
+        ):
+            compose._verify_sparse_permission()
+
+    def test_the_shipped_permission_passes_its_own_check(self):
+        compose._verify_sparse_permission()  # not patched: the real one
+
+    def test_an_x_that_is_not_a_field_is_refused_at_import_time(self):
+        with self.assertRaises(compose.AttrComposeError):
+            self._check(7, 99)
+
+    def test_a_field_that_is_not_server_owned_is_refused_at_import_time(self):
+        for x in (30, 14, 9):  # refused, unsourced, client-default
+            with self.subTest(x=x):
+                with self.assertRaises(compose.AttrComposeError):
+                    self._check(7, x)
+
+    def test_a_server_owned_field_with_no_column_would_be_refused(self):
+        """Every column is built today, so the branch is reached by mutating
+        the row rather than by finding a field that has no column."""
+        rows = dict(compose.SERVER_OWNED_FIELDS)
+        rows[7] = compose.ServerOwnedField(7, "speed_walk", False, True)
+        with mock.patch.object(compose, "SERVER_OWNED_FIELDS", rows):
+            with self.assertRaises(compose.AttrComposeError):
+                compose._verify_sparse_permission()
+
+
+class SparsePathTestsContinued(unittest.TestCase):
+
+    def test_an_x_that_is_not_a_field_at_all_is_named_not_ignored(self):
+        gaps = compose.sparse_block_gaps({999: 1})
+        self.assertEqual([g.reason for g in gaps], [compose.REASON_NOT_A_FIELD])
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_sparse_block({999: 1})
+
+    def test_a_key_that_is_not_an_int_is_refused_even_when_it_equals_seven(self):
+        """`7.0 == 7` and hashes the same, so every membership test in this
+        module said yes and the block came back keyed by a float.
+
+        Measured by an adversary pass.  No wire defect followed -- the right
+        bit was still set -- which is what makes it worth a guard: it was
+        wrong in a way nothing would have reported when it started to matter.
+        """
+        for key in (7.0, complex(7, 0), True, "7", None):
+            with self.subTest(key=key):
+                with self.assertRaises(compose.AttrComposeError):
+                    compose.compose_sparse_block({key: 620.0})
+
+    def test_mixed_key_types_are_named_rather_than_crashing_the_sort(self):
+        """`sorted()` over `{7: ..., "a": ...}` raises `TypeError`, and this
+        function's contract is that it NAMES every refusal."""
+        gaps = compose.sparse_block_gaps({7: 620.0, "a": 1})
+        self.assertEqual([g.reason for g in gaps], [compose.REASON_NOT_A_FIELD])
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_sparse_block({7: 620.0, "a": 1})
+
+    def test_an_empty_sparse_block_is_a_refusal_not_a_success(self):
+        """A body with both masks zero is not a smaller send.
+
+        `gm/attr_wire.encode_block` builds it happily
+        (`tests/test_gm_attr_wire.py::test_empty_values_still_carries_identity
+        _and_zero_masks`), so the refusal has to live here.
+        """
+        gaps = compose.sparse_block_gaps({})
+        self.assertEqual([(g.x, g.reason) for g in gaps],
+                         [(7, compose.REASON_NO_TYPED_VALUE)])
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_sparse_block({})
+
+    def test_a_value_that_could_not_survive_the_wire_is_refused_here(self):
+        """Not at emit time, in front of a live client.
+
+        `_value_for` returns whatever the caller supplied -- that is its whole
+        job -- so a direct caller of the sparse path (LANE-GM's chat command
+        parses a player-typed string) is the layer that needs the shape check.
+        """
+        from pirateforce_foundation.persistence_typed_attrs import TypedAttrError
+        # NOT in this list: -1.0.  The column accepts it (the f32 range is the
+        # whole f32 range) and whether a negative walk speed is meaningful is a
+        # game rule nobody has ruled on -- inventing that refusal here would be
+        # this lane picking a number, which is the thing it may not do.
+        for bad in ("fast", None, True, float("nan"), float("inf"), 1e300):
+            with self.subTest(bad=bad):
+                with self.assertRaises((TypedAttrError, compose.AttrComposeError)):
+                    compose.compose_sparse_block({7: bad})
+
+    def test_the_value_is_rounded_to_what_the_column_and_the_wire_agree_on(self):
+        block = compose.compose_sparse_block({7: 400.1})
+        self.assertEqual(block[7], struct.unpack("<f", struct.pack("<f", 400.1))[0])
+        self.assertNotEqual(block[7], 400.1)
+
+    def test_the_composed_block_sets_one_mask_bit_and_it_is_x7s(self):
+        """Measured through the real encoder, with a stub for the tag helpers.
+
+        The masks `encode_block` returns are plain ints computed from
+        `FIELDS`, so this measures the emission itself; the stub only stands
+        in for the byte-level tag writers, which this lane has no business
+        pinning (and whose real implementation is v141, which this lane may
+        not use as a criterion).
+        """
+        from pirateforce_foundation.gm.attr_wire import encode_block
+
+        class _StubLegacy:
+            def u8tag(self, tag, value):
+                return bytes([tag, value & 0xFF])
+
+            def u16tag(self, tag, value):
+                return bytes([tag]) + struct.pack("<H", value & 0xFFFF)
+
+            def u32tag(self, tag, value):
+                return bytes([tag]) + struct.pack("<I", value & 0xFFFFFFFF)
+
+            def qwordtag(self, tag, value):
+                return bytes([tag]) + struct.pack("<Q", value & ((1 << 64) - 1))
+
+        block = compose.compose_sparse_block({7: 620.0})
+        _body, basic_mask, actor_mask = encode_block(_StubLegacy(), 1, 0, block)
+        self.assertEqual(basic_mask, BY_X[7][2])
+        self.assertEqual(basic_mask, 0x0040)
+        self.assertEqual(actor_mask, 0)
+
+    def test_the_full_block_path_is_not_relaxed_by_any_of_this(self):
+        """The sparse door does not open the wide one."""
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_full_block({7: 620.0})
+        self.assertEqual(len(compose.block_gaps({7: 620.0})), 54)
+
+
+class SparsePermissionProvenanceTests(unittest.TestCase):
+    """The set is a relayed order; the module has to say whose."""
+
+    def test_the_module_cites_the_order_that_opened_this_path(self):
+        text = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn("COO-ORDER 20260901_1640", text)
+        self.assertIn("20260901_1641", text)
+
+    def test_the_open_question_paragraph_is_pinned_word_for_word(self):
+        """The claim this round must NOT make, pinned as a DIGEST.
+
+        The first version of this test asserted that the strings
+        `"0x00464F30"` and `"รอผลเทส attended"` appeared somewhere in the
+        module.  An adversary pass rewrote the paragraph to say the exact
+        OPPOSITE -- "omitted fields provably survive untouched" -- kept both
+        strings, and the test stayed green.  A substring is not a claim.
+
+        So the whole paragraph is hashed.  Any edit to it goes red, and the
+        round that edits it has to move this digest deliberately and say why
+        in its round file -- which is the only enforcement a prose claim can
+        actually have.  What this does NOT do: stop the same claim being made
+        somewhere else in the file, or anywhere else in the repository.
+        """
+        text = MODULE_PATH.read_text(encoding="utf-8")
+        start = "* What the CLIENT does with a field whose mask bit is clear"
+        end = "[สมมติของสาย DB - รอผลเทส attended]"
+        self.assertIn(start, text, "the open-question paragraph is gone")
+        i = text.index(start)
+        j = text.index(end, i) + len(end)
+        digest = hashlib.sha256(text[i:j].encode("utf-8")).hexdigest()
+        self.assertEqual(digest, PINNED_OPEN_QUESTION_DIGEST)
+        # and the correction an adversary pass forced into it stays visible:
+        # this repository has a client-observable observation on the same bit
+        self.assertIn("FUNCTIONAL_COVERAGE.json", text[i:j])
+        self.assertIn("WALK INTO A RUN", text[i:j])
+
+    def test_the_repository_evidence_the_paragraph_cites_is_really_there(self):
+        """A citation this lane can check, checked.
+
+        The paragraph now leans on two files in THIS repository rather than
+        only on the absence of a corpus row.  If either moves, the paragraph
+        becomes a claim about nothing -- which is how a caveat quietly turns
+        into decoration.
+        """
+        coverage = ROOT / "docs" / "FUNCTIONAL_COVERAGE.json"
+        gait = ROOT / "tests" / "test_npc_gait_wire.py"
+        self.assertTrue(coverage.is_file(), coverage)
+        self.assertTrue(gait.is_file(), gait)
+        self.assertIn("npc_locomotion_presentation",
+                      coverage.read_text(encoding="utf-8"))
+        head = gait.read_text(encoding="utf-8")[:2000]
+        self.assertIn("run", head)
+        self.assertIn("bootstrap", head)
 
 
 if __name__ == "__main__":  # pragma: no cover
