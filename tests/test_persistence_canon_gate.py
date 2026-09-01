@@ -16,7 +16,7 @@ approved-backuperror-handling.md` point 4 approved the three-verdict answer
 (`UNCHANGED` / `EXPLAINED_BY_MIGRATION` / `UNEXPLAINED`), and
 `20260901_1515_LANE-DB-REQUEST-chief-staged-canon-gate-spec-and-backuperror-
 wrapper.md` section (b.1) is the caller contract this file grades: exit `0`,
-exit `20` plus a `NEW_SHA=` line to rotate to, exit `13` to abort, anything
+exit `75` plus a `NEW_SHA=` line to rotate to, exit `13` to abort, anything
 else also to abort.
 
 THE DATABASES HERE ARE REAL.  Every database is built by the real
@@ -47,6 +47,7 @@ authorised.
 import contextlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -284,7 +285,7 @@ class ExplainedByMigrationTests(CanonGateTestCase):
             db, later, before, after = self._migrated(tmp)
             verdict = gate.evaluate(db, later, before)
             self.assertEqual(verdict.result, gate.RESULT_EXPLAINED, verdict.reasons)
-            self.assertEqual(verdict.exit_code, 20)
+            self.assertEqual(verdict.exit_code, gate.EXIT_EXPLAINED)
             self.assertEqual(verdict.new_sha, after)
             self.assertIsNotNone(verdict.snapshot)
             self.assertTrue(Path(verdict.snapshot).is_file())
@@ -645,7 +646,7 @@ class ManifestsAreDataNotInstructionsTests(CanonGateTestCase):
 
         Here the escaping name points at a BYTE-IDENTICAL copy of the real
         snapshot, so every later check succeeds and only the path rule can
-        refuse.  Measured: with the rule removed this returns exit 20 --
+        refuse.  Measured: with the rule removed this returns the EXPLAINED
         authorising a rotation on the strength of a "backup" the manifest
         placed outside the directory that vouches for it.
         """
@@ -664,7 +665,7 @@ class ManifestsAreDataNotInstructionsTests(CanonGateTestCase):
             self.assertIsNone(snapshot, "a name that escapes its directory was accepted")
             verdict = gate.evaluate(db, later, before)
         self.assertEqual(verdict.result, gate.RESULT_UNEXPLAINED, verdict.reasons)
-        self.assertNotEqual(verdict.exit_code, 20)
+        self.assertNotEqual(verdict.exit_code, gate.EXIT_EXPLAINED)
 
     def test_a_manifest_that_is_valid_json_but_not_an_object_is_refused(self):
         """`json.loads` succeeds on `[]` and on `"x"`.  Without the type
@@ -739,7 +740,7 @@ class TheSnapshotMustBelongToTheChangeUnderJudgementTests(CanonGateTestCase):
     snapshot naming the pin exist" and never asked whether that snapshot had
     anything to do with the change it was blessing.
 
-    A false `EXPLAINED` is the worst thing this module can produce -- exit 20
+    A false `EXPLAINED` is the worst thing this module can produce -- exit 75
     authorises throwing away the last written record of what the owner's only
     copy of the world used to be.
     """
@@ -774,7 +775,7 @@ class TheSnapshotMustBelongToTheChangeUnderJudgementTests(CanonGateTestCase):
 
     def test_rows_deleted_after_the_migration_are_not_explained_by_it(self):
         """D1, MEASURED ON THE FIRST VERSION: 200 accounts deleted after a
-        correct migration still produced `EXPLAINED_BY_MIGRATION exit 20`,
+        correct migration still produced `EXPLAINED_BY_MIGRATION`,
         with a REASON line asserting the change was explained by a migration
         that had nothing to do with it.
 
@@ -789,7 +790,9 @@ class TheSnapshotMustBelongToTheChangeUnderJudgementTests(CanonGateTestCase):
         """
         with self._workspace() as tmp:
             db, later, before, after = self._migrated(tmp)
-            self.assertEqual(gate.evaluate(db, later, before).exit_code, 20)
+            self.assertEqual(
+                gate.evaluate(db, later, before).exit_code, gate.EXIT_EXPLAINED
+            )
 
             # A second boot applies a second migration.  Its own snapshot is
             # then removed -- exactly the state a pruned or hand-cleaned
@@ -1032,7 +1035,9 @@ class CommandLineTests(CanonGateTestCase):
             explained = self._run(
                 "--db", db, "--migrations", later, "--expect-sha", before.upper()
             )
-            self.assertEqual(explained.returncode, 20, explained.stderr)
+            self.assertEqual(
+                explained.returncode, gate.EXIT_EXPLAINED, explained.stderr
+            )
             self.assertIn(b"RESULT=EXPLAINED_BY_MIGRATION", explained.stdout)
             self.assertIn(
                 ("NEW_SHA=%s" % after.upper()).encode("ascii"), explained.stdout
@@ -1056,7 +1061,7 @@ class CommandLineTests(CanonGateTestCase):
 
     def test_an_unexpected_failure_never_reports_as_unchanged(self):
         """The spec's last row: any other exit code means ABORT.  That is
-        only safe if a module that breaks cannot land on 0 or 20."""
+        only safe if a module that breaks cannot land on 0 or 75."""
         with mock.patch.object(gate, "evaluate", side_effect=RuntimeError("boom")):
             code = gate.main(
                 ["--db", "x", "--migrations", "y", "--expect-sha", "c" * 64]
@@ -1072,7 +1077,21 @@ class ExitCodesMatchTheCallerContractTests(unittest.TestCase):
         lets a job that has NOT been rewired yet behave correctly if it ever
         reaches this module."""
         self.assertEqual(gate.EXIT_UNEXPLAINED, 13)
-        self.assertEqual(gate.EXIT_EXPLAINED, 20)
+        # 20 was WITHDRAWN, and the withdrawal is the point of this line.
+        # `pf_bridge/staged/*.ps1` already spends 20 on the opposite meaning:
+        # `TEMPLATE_teardown_generic.ps1:520-521` says "THIS ROUND IS
+        # DEGRADED, NOT GREEN (exit 20)" and `072_gt001_boot.ps1:72` says
+        # "ABORT: no server PID".  A caller branching on 20 would read
+        # "rotate the pin and carry on" out of a script announcing a ruined
+        # round.  75 was measured free across every spelling those scripts
+        # use -- `exit N`, `-Code N`, `::Exit(N)`, `SetShouldExit(N)`.
+        self.assertEqual(gate.EXIT_EXPLAINED, 75)
+        self.assertNotIn(
+            gate.EXIT_EXPLAINED,
+            (0, 1, 2, 13, 20, 70),
+            "the EXPLAINED code must not collide with a code that already "
+            "means something else to this module or to the bridge",
+        )
         self.assertEqual(gate.EXIT_UNCHANGED, 0)
         self.assertNotIn(
             gate.EXIT_MODULE_ERROR,
@@ -1082,3 +1101,103 @@ class ExitCodesMatchTheCallerContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheExplainedExitCodeDoesNotCollideWithTheBridgeTests(unittest.TestCase):
+    """20 was WITHDRAWN this round and 75 put in its place, measured against
+    the bridge rather than chosen.
+
+    `pf_bridge/staged/` is outside this lane's write zone and is not in this
+    repository at all, so the measurement is pinned here as data and the live
+    re-derivation is an extra layer that runs only when the sibling repository
+    happens to be checked out beside this one.
+
+    !! pf-adversary (round `p716q5`, D6) measured the FIRST version of this
+    class and it was hollow: it asserted `BRIDGE_USES_75_AT == ()` against the
+    literal `()` defined six lines above -- a constant equal to itself, which
+    can never fire on drift -- and the live branch degraded to
+    `assertTrue(("a","b"))`.  Both reports were byte-identical with and without
+    the sibling present, which is a skip with no name and no `-rs` line.  What
+    follows grades the actual strings and, when the sibling IS there, compares
+    the live scan to the pin rather than to itself.
+    """
+
+    #: Measured 2026-09-01 over all `pf_bridge/staged/*.ps1`, across every
+    #: spelling those scripts use: `exit N`, `-Code N`, `::Exit(N)`,
+    #: `SetShouldExit(N)`.  file:line, and what the script means by it.
+    BRIDGE_USES_20_AT = {
+        "072_gt001_boot.ps1:72": "ABORT: no server PID",
+        "TEMPLATE_teardown_generic.ps1:520": "DEGRADED, NOT GREEN (banner)",
+        "TEMPLATE_teardown_generic.ps1:521": "DEGRADED, NOT GREEN (exit)",
+    }
+    BRIDGE_STAGED_FILES = 36
+
+    EXIT_SPELLINGS = re.compile(
+        r"(?:\bexit\s+|-Code\s+|::Exit\(|SetShouldExit\()(\d+)", re.IGNORECASE
+    )
+
+    def test_the_explained_code_is_seventy_five(self):
+        self.assertEqual(gate.EXIT_EXPLAINED, 75)
+
+    def test_no_two_outcomes_of_this_module_share_a_code(self):
+        codes = [
+            gate.EXIT_UNCHANGED,
+            gate.EXIT_EXPLAINED,
+            gate.EXIT_UNEXPLAINED,
+            gate.EXIT_MODULE_ERROR,
+        ]
+        self.assertEqual(len(codes), len(set(codes)))
+
+    def test_the_explained_code_avoids_every_number_the_bridge_spends(self):
+        """The point of the change, stated as the assertion it actually is:
+        the EXPLAINED code must not be one of the numbers measured in use."""
+        spent = {20}
+        self.assertNotIn(gate.EXIT_EXPLAINED, spent)
+        self.assertNotIn(gate.EXIT_EXPLAINED, (0, 1, 2, 13, 70))
+
+    def test_the_contract_text_the_caller_reads_says_seventy_five(self):
+        """pf-adversary D5: the module exited 75 while `--help` still told a
+        ps1 author to rotate on 20.  A machine-readable contract that
+        contradicts the code is worse than no contract."""
+        # argparse re-wraps the description, so compare on collapsed
+        # whitespace rather than on the exact line breaks of one terminal
+        # width -- the first draft of this assertion failed on the wrap.
+        rendered = " ".join(gate._parser().format_help().split())
+        self.assertIn("75 EXPLAINED_BY_MIGRATION", rendered)
+        self.assertNotIn("20 EXPLAINED_BY_MIGRATION", rendered)
+        source = Path(gate.__file__).read_text(encoding="utf-8")
+        for stale in (
+            "``NEW_SHA=`` appears on exit 20",
+            "PRINTED ON EXIT 20",
+            "the caller does that, and only on 20",
+        ):
+            self.assertNotIn(stale, source, "stale exit-20 contract text: %s" % stale)
+
+    def test_the_live_bridge_still_agrees_when_it_is_checked_out(self):
+        """An extra layer over the pin, never a skip -- and it now compares
+        the live scan to the PIN, so a bridge that starts spending 75, or
+        stops spending 20, goes red instead of passing silently."""
+        staged = Path(__file__).resolve().parents[2] / "pf_bridge" / "staged"
+        if not staged.is_dir():
+            # The pin above IS the test on this machine, and it is graded --
+            # not merely present.
+            self.assertEqual(len(self.BRIDGE_USES_20_AT), 3)
+            self.assertTrue(
+                all(":" in where for where in self.BRIDGE_USES_20_AT),
+                "every pinned site must name a file and a line",
+            )
+            return
+        found = {}
+        scripts = sorted(staged.glob("*.ps1"))
+        for script in scripts:
+            text = script.read_text(encoding="utf-8", errors="replace")
+            for match in self.EXIT_SPELLINGS.finditer(text):
+                where = "%s:%d" % (script.name, text[: match.start()].count("\n") + 1)
+                found.setdefault(int(match.group(1)), set()).add(where)
+        self.assertEqual(len(scripts), self.BRIDGE_STAGED_FILES)
+        self.assertNotIn(
+            75, found, "75 is no longer free in the bridge: %s" % (found.get(75),)
+        )
+        self.assertEqual(
+            found.get(20), set(self.BRIDGE_USES_20_AT), "the 20 sites moved"
+        )
