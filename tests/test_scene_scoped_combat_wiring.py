@@ -49,6 +49,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import world_scene_folder  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
@@ -232,6 +233,19 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
         )
 
     def _attack(self, state, target_identity):
+        # RE-157 job 2 harness note: seed the announced-actor membership
+        # the new mob_combat_membership guard requires, for whatever scene
+        # the character CURRENTLY stands in -- see the identical note in
+        # tests/test_mob_combat_dispatch.py.  Read fresh on every call, so
+        # a mid-test scene move (this file's own subject) is followed
+        # correctly rather than pinned to the scene at setup time.
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                (target_identity,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             actions = state.dispatch(self.legacy.parse_outer(
@@ -723,9 +737,40 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
         MUTATION-PROOF (measured): drop ``ledger=self.mob_combat_ledger``
         from the Bg0002 override call and the wounded-entry assertion
         goes red (the census ships the ceiling again).
+
+        RE-157 job 2 ADDENDUM (MOB-COMBAT-001 announced-actor guard): the
+        exact vector this test's own foreign-outer-id trick uses -- a
+        nested ActionVital reaching combat dispatch while the census guard
+        (outer-id gated) never runs -- is now refused outright the FIRST
+        time it is tried, before any announcement exists, proven first
+        below.  The rest of this test's own property (a wound that landed
+        THROUGH THE ANNOUNCED PATH before the arrival census ships is not
+        resurrected by it) still needs the same forced ordering the
+        docstring above describes, so the announcement is seeded by hand
+        for the second attempt, standing in for a census this test does
+        not otherwise need to drive.
         """
         state = self._state_at_scene2("ssc_bg0002_wound_before_census")
         target = self.bg0002_mob.actor_identity
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            refused_actions = state.dispatch(self.legacy.parse_outer(
+                self._action_vital_pc(target, outer_id=0x1234)
+            ))
+        self.assertEqual(refused_actions, [])
+        self.assertIn(
+            "mob_combat_target_not_announced_no_reply", state.events,
+        )
+        self.assertEqual(
+            state.mob_combat_ledger.balance_of(target).current_hp,
+            self.bg0002_mob.max_hp,
+        )
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id, (target,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             actions = state.dispatch(self.legacy.parse_outer(

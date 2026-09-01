@@ -36,6 +36,7 @@ from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_aggro  # noqa: E402
 from pirateforce_foundation import mob_ai_control  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
@@ -147,6 +148,16 @@ class MobAiControlDispatchTests(unittest.TestCase):
         )
 
     def _attack(self, state, target_identity, **kwargs):
+        # RE-157 job 2 harness note: seed the announced-actor membership
+        # the new mob_combat_membership guard requires -- see the
+        # identical note in tests/test_mob_combat_dispatch.py.
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                (target_identity,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         return state.dispatch(self.legacy.parse_outer(
             self._action_vital_pc(target_identity, **kwargs)
         ))

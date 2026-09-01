@@ -46,6 +46,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -142,12 +143,26 @@ class MobCombatCadenceWiringTests(unittest.TestCase):
         )
 
     def _attack(self, state, target=None):
+        target_identity = self.target if target is None else target
+        # RE-157 job 2 harness note: seed the announced-actor membership
+        # the new mob_combat_membership guard requires -- this file is
+        # about cadence timing, not census composition, so the
+        # announcement is seeded directly rather than by driving a real
+        # census dispatch (which test_mob_combat_census_wiring.py already
+        # owns proving).  A no-op for ``self.non_mob_target`` (the
+        # miss-click regression test): the guard only fires once the
+        # STATIC roster already says the target is a field mob.
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                (target_identity,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             actions = state.dispatch(self.legacy.parse_outer(
-                self._action_vital_pc(
-                    self.target if target is None else target
-                )
+                self._action_vital_pc(target_identity)
             ))
         return actions, buffer.getvalue()
 
