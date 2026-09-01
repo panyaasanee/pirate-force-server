@@ -274,8 +274,17 @@ def _require_position(value: object, label: str) -> Position:
     return value
 
 
-def _within_ground(target: SceneDestination, stored: Position) -> bool:
-    """Whether this scene has ground evidence that reaches the stored XY.
+def _ground_evidence(target: SceneDestination, x: float, y: float) -> bool | None:
+    """The ground-evidence verdict for one XY against one destination's pin.
+
+    ``None`` MEANS "THIS SCENE HAS NO GROUND EVIDENCE AT ALL", NOT "OUTSIDE".
+    Collapsing those two into the same ``False`` is exactly what
+    ``_within_ground`` has always done for its own caller (which never
+    needed the distinction - a kept-row test only cares "yes or no, treat as
+    outside"), but a caller with nothing else to go on, such as a GM warp
+    target that has never resolved a ``SceneEntry``, needs to be able to
+    tell "definitely outside ground" apart from "we don't know" - see
+    ``is_position_within_scene_ground``.
 
     Z is deliberately not tested.  The only z evidence any scene here has is
     the placement z of its own mobs, which says where a developer put an NPC
@@ -288,15 +297,19 @@ def _within_ground(target: SceneDestination, stored: Position) -> bool:
     radius test is centred on ``target.spawn`` and is safe to be generous
     around ONLY because a normal spawn is itself a measured point already
     inside the real ground. A decreed spawn carries no such guarantee -- it
-    was never derived from the ground data at all, so a stored row merely
+    was never derived from the ground data at all, so a position merely
     numerically close to it is not evidence of anything. Refusing here
     forces every arrival at such a destination through the pinned-spawn
     branch instead, so it always lands on exactly the decreed point rather
-    than on some nearby row nobody measured either.
+    than on some nearby row nobody measured either.  Note this scene MAY
+    still carry real ground_extent evidence (scene 17 does, both at once) -
+    the decree only disqualifies the radius test centred on ITS spawn, so
+    the answer here is ``False`` (evidence exists, this point is not shown
+    to be inside it), not ``None`` (no evidence at all).
     """
     extent = target.ground_extent
     if extent is None:
-        return False
+        return None
     if (
         target.spawn_provenance is not None
         and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
@@ -305,9 +318,73 @@ def _within_ground(target: SceneDestination, stored: Position) -> bool:
     spawn_x, spawn_y, _spawn_z = target.spawn
     extent_x, extent_y = extent
     return (
-        abs(stored.x - spawn_x) <= extent_x
-        and abs(stored.y - spawn_y) <= extent_y
+        abs(x - spawn_x) <= extent_x
+        and abs(y - spawn_y) <= extent_y
     )
+
+
+def _within_ground(target: SceneDestination, stored: Position) -> bool:
+    """Whether this scene has ground evidence that reaches the stored XY.
+
+    Delegates to ``_ground_evidence`` - the shared core - and collapses its
+    three-valued answer back to two, because this caller (the kept-row
+    branch of ``resolve_entry``) has only ever needed "keep the row" or
+    "don't"; "we have no evidence either way" and "we checked and it's
+    outside" both mean "don't" here.  See ``_ground_evidence`` for the rules
+    (PROVISIONAL-OWNER-DECREE, z not tested) and
+    ``is_position_within_scene_ground`` for the public wrapper that keeps
+    the third value instead of discarding it.
+    """
+    return _ground_evidence(target, stored.x, stored.y) is True
+
+
+def is_position_within_scene_ground(
+    scene_id: int,
+    x: float,
+    y: float,
+    *,
+    registry: SceneRegistry | None = None,
+) -> bool | None:
+    """Public ground check for one XY inside one scene - no resolved row
+    required.
+
+    Built for a caller that has a scene id and a candidate XY but no
+    ``SceneEntry`` to resolve first - e.g. a GM ``/warp`` target that has not
+    landed anywhere yet (LANE-GM's request, round egee8l: `/warp` composes
+    real teleport frames for an off-ground point today because nothing it
+    calls exposes this check publicly - see
+    ``notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-needs-a-public-ground-check.md``).
+    Wraps the exact same rule ``resolve_entry`` uses to decide whether a
+    stored row survives a login (``_ground_evidence``, shared with
+    ``_within_ground``) rather than a second, looser radius test - a caller
+    importing this gets the PROVISIONAL-OWNER-DECREE carve-out for free
+    instead of having to know it exists.
+
+    THREE ANSWERS, NOT TWO.  ``True`` - this XY is inside the ground this
+    scene has evidence for.  ``False`` - this scene HAS ground evidence and
+    this XY is outside it (or the only spawn evidence it has is a
+    PROVISIONAL-OWNER-DECREE, which never counts).  ``None`` - this scene
+    has no ground evidence at all (including: the scene id is not pinned in
+    the registry, or is not a value the scene field can carry) - a caller
+    that treats ``None`` as "assume False" gets today's ``_within_ground``
+    behaviour back; a caller that wants to tell "definitely outside" apart
+    from "we don't know" can now do that instead.
+
+    ``registry`` follows ``resolve_entry``'s own convention: pass one loaded
+    once at startup, or leave it ``None`` to load and fully re-validate the
+    pin file on every call.
+    """
+    if type(scene_id) is not int:
+        raise ValueError("scene_id must be an int")
+    if type(x) not in (int, float) or type(y) not in (int, float):
+        raise ValueError("x and y must be numbers")
+    try:
+        target = world_scene_travel.destination(scene_id, registry)
+    except (KeyError, ValueError):
+        # Not pinned, or not a value the scene field can carry - either way
+        # this tree has no ground evidence to check against.
+        return None
+    return _ground_evidence(target, float(x), float(y))
 
 
 def _teleport_from(target: SceneDestination, position: Position) -> tuple[

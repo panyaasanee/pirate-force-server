@@ -45,6 +45,7 @@ from pirateforce_foundation.world_scene_entry import (
     SceneEntry,
     SceneEntryRefused,
     entry_report,
+    is_position_within_scene_ground,
     relocation_console_line,
     resolve_entry,
     return_ticket,
@@ -716,6 +717,108 @@ class ProvisionalDecreeTests(unittest.TestCase):
         resolve_entry(STANDING_ON_THE_STAGE, emit=sink)
         self.assertFalse(
             any(line.startswith("SCENE_ENTRY ") for line in sink.lines)
+        )
+
+
+class PublicGroundCheckTests(unittest.TestCase):
+    """``is_position_within_scene_ground`` - the wrapper LANE-GM asked for
+    (round egee8l) so ``gm/warp_executor.py`` can bound-check a ``/warp``
+    target without resolving a ``SceneEntry`` first and without copying
+    ``_within_ground``'s logic.  See
+    ``pf_bridge/notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-needs-a-public-ground-check.md``.
+    """
+
+    def test_a_position_clearly_inside_ground_extent_is_true(self):
+        stage = world_scene_travel.destination(TEST_STAGE_SCENE_ID)
+        spawn_x, spawn_y, _spawn_z = stage.spawn
+        self.assertIs(
+            is_position_within_scene_ground(
+                TEST_STAGE_SCENE_ID, spawn_x, spawn_y),
+            True,
+        )
+
+    def test_a_position_clearly_outside_ground_extent_is_false(self):
+        stage = world_scene_travel.destination(TEST_STAGE_SCENE_ID)
+        spawn_x, spawn_y, _spawn_z = stage.spawn
+        extent_x, extent_y = stage.ground_extent
+        self.assertIs(
+            is_position_within_scene_ground(
+                TEST_STAGE_SCENE_ID,
+                spawn_x + extent_x + 1000.0,
+                spawn_y + extent_y + 1000.0,
+            ),
+            False,
+        )
+
+    def test_a_decreed_spawn_with_no_real_ground_block_is_none_not_true(self):
+        # Synthetic: no scene in the shipped registry actually carries a
+        # PROVISIONAL-OWNER-DECREE spawn with NO ground block today (scene
+        # 17 carries both at once) - patched here so the "no evidence at
+        # all" branch is exercised even at the exact decreed point, where a
+        # naive reader might expect True.
+        registry = registry_with({17: {"ground": None}})
+        sea = world_scene_travel.destination(17, registry)
+        self.assertIsNone(sea.ground_extent)
+        self.assertTrue(
+            sea.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE"))
+        self.assertIsNone(
+            is_position_within_scene_ground(
+                17, *sea.spawn[:2], registry=registry)
+        )
+
+    def test_a_scene_id_that_does_not_exist_at_all_is_none(self):
+        self.assertIsNone(is_position_within_scene_ground(65000, 0.0, 0.0))
+        self.assertIsNone(is_position_within_scene_ground(0, 0.0, 0.0))
+        self.assertIsNone(is_position_within_scene_ground(-1, 0.0, 0.0))
+
+    def test_scene_17_the_decree_and_ground_block_coexistence_case(self):
+        # Scene 17 (Bg1001) carries BOTH a real ground block (extent_x
+        # 1815.93, extent_y 2395.25) AND a PROVISIONAL-OWNER-DECREE spawn at
+        # (0,0,0) - the exact combination pf-adversary (round e0daaa) found
+        # broke a naive radius test.  Ground evidence EXISTS here (unlike
+        # the synthetic case above), so neither point may answer None: the
+        # decree rule forces False regardless of distance from the decreed
+        # point, at the spawn itself and well outside the real block alike.
+        sea = world_scene_travel.destination(17)
+        self.assertIsNotNone(sea.ground_extent)
+        self.assertTrue(
+            sea.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE"))
+        spawn_x, spawn_y, _spawn_z = sea.spawn
+        self.assertIs(
+            is_position_within_scene_ground(17, spawn_x, spawn_y), False)
+        self.assertIs(
+            is_position_within_scene_ground(17, 10000.0, 10000.0), False)
+
+    def test_scene_id_must_be_an_int(self):
+        with self.assertRaises(ValueError):
+            is_position_within_scene_ground("1", 0.0, 0.0)
+
+    def test_x_and_y_must_be_numbers(self):
+        with self.assertRaises(ValueError):
+            is_position_within_scene_ground(1, "0", 0.0)
+        with self.assertRaises(ValueError):
+            is_position_within_scene_ground(1, 0.0, None)
+
+    def test_agrees_with_the_kept_row_branch_of_resolve_entry(self):
+        # The two must not drift: the public wrapper is the same rule
+        # resolve_entry's kept-row branch uses, not a second one.
+        entry = resolve_entry(STANDING_ON_THE_STAGE, emit=Sink())
+        self.assertFalse(entry.relocated)
+        self.assertIs(
+            is_position_within_scene_ground(
+                TEST_STAGE_SCENE_ID,
+                STANDING_ON_THE_STAGE.x, STANDING_ON_THE_STAGE.y,
+            ),
+            True,
+        )
+        relocated = resolve_entry(PORT_ROYAL_XYZ_IN_THE_STAGE, emit=Sink())
+        self.assertTrue(relocated.relocated)
+        self.assertIs(
+            is_position_within_scene_ground(
+                TEST_STAGE_SCENE_ID,
+                PORT_ROYAL_XYZ_IN_THE_STAGE.x, PORT_ROYAL_XYZ_IN_THE_STAGE.y,
+            ),
+            False,
         )
 
 
