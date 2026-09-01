@@ -988,6 +988,330 @@ _EXPECTED_CHAT_PUSH = {
     ],
 }
 
+# HYP-PF-041 (LOGOUT-TEARDOWN-TIMER-VARIANT-001, RE-189 branch 2 of Job 2):
+# does the post-ack close DELAY itself matter to the real client, independent
+# of the ack+close shape GT-008 already falsified at the one pinned value
+# (250 ms)?  GT-008's attended negative measured only that one point on the
+# timeline ("the real client never detects the clean server-side socket
+# close at all -- no transition, no error dialog, no disconnect handling for
+# 40+ s"); it did not sweep the delay, so whether an immediate close, a much
+# longer wait, or never closing at all changes that outcome is still
+# unmeasured.  This entry varies exactly one lever the HYP-PF-013 shape
+# already introduced (close_delay_ms) and invents no new response byte: the
+# ack pins are the unchanged HYP-PF-012 composition reused verbatim (per the
+# HYP-PF-027 rule -- an encoder is not reimplemented for a parameter sweep),
+# reused identically to how _PROFILE_ACK_CLOSE reuses them.  Four points are
+# swept: 0 ms (close scheduled the instant the ack is queued), 2000 ms and
+# 10000 ms (the delay itself is the only thing that can plausibly matter,
+# since GT-008 already showed the client does not react to any close it was
+# given time to notice), and "never" (post_ack_action stays
+# LOGOUT_POST_ACK_ACTION_NONE -- structurally identical to the unmodified
+# HYP-PF-012 echo shape, kept as a distinct scenario purely so its own
+# hypothesis_id and evidence trail are tracked separately from HYP-PF-012's).
+# PROVENANCE NOTE: HYP-PF-041 is not yet a registered entry in
+# docs/HYPOTHESIS_LEDGER.json.  Repo-wide grep at the time this profile was
+# written found no prior use of "HYP-PF-041" or "HYP_PF_041" anywhere (the
+# highest registered id is HYP-PF-040), so the number is claimed here the
+# same way HYP-PF-040 was provisionally named in code ahead of its own
+# ledger entry -- but unlike that case, ledger registration itself
+# (docs/HYPOTHESIS_LEDGER.json's canonical-hash-pinned entries) is chief's
+# write zone per this project's own established practice: every prior
+# ledger-entry edit visible in verify_hypothesis_ledger.py's lineage comments
+# was made by a chief round, with the sole exception of a LANE-A round
+# amending a tracked_versions list on an entry chief had already opened
+# (HYP-PF-040 / round tmizmk) -- never minting the entry itself. A
+# CORE-REQUEST asking chief to register this entry accompanies this round.
+LOGOUT_CLOSE_DELAY_MS_VARIANT_0MS = 0
+LOGOUT_CLOSE_DELAY_MS_VARIANT_2000MS = 2000
+LOGOUT_CLOSE_DELAY_MS_VARIANT_10000MS = 10000
+
+_PROFILE_TEARDOWN_TIMER_VARIANT_0MS = LogoutHypothesisScenario(
+    "logout_hypothesis_teardown_timer_variant_0ms_subcode01_03",
+    "HYP-PF-041",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS_VARIANT_0MS,
+    LOGOUT_RESPONSE_POLICY_ACK_ONLY,
+)
+
+_PROFILE_TEARDOWN_TIMER_VARIANT_2000MS = LogoutHypothesisScenario(
+    "logout_hypothesis_teardown_timer_variant_2000ms_subcode01_03",
+    "HYP-PF-041",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS_VARIANT_2000MS,
+    LOGOUT_RESPONSE_POLICY_ACK_ONLY,
+)
+
+_PROFILE_TEARDOWN_TIMER_VARIANT_10000MS = LogoutHypothesisScenario(
+    "logout_hypothesis_teardown_timer_variant_10000ms_subcode01_03",
+    "HYP-PF-041",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_CLOSE_DELAY_MS_VARIANT_10000MS,
+    LOGOUT_RESPONSE_POLICY_ACK_ONLY,
+)
+
+_PROFILE_TEARDOWN_TIMER_VARIANT_NEVER = LogoutHypothesisScenario(
+    "logout_hypothesis_teardown_timer_variant_never_subcode01_03",
+    "HYP-PF-041",
+    LOGOUT_REQUEST_PC_SHA256[1],
+    LOGOUT_REQUEST_PC_SHA256[3],
+    LOGOUT_ACK_PC_SHA256[1],
+    LOGOUT_ACK_PC_SHA256[3],
+    LOGOUT_ACK_FRAME_SHA256[1],
+    LOGOUT_ACK_FRAME_SHA256[3],
+    LOGOUT_POST_ACK_ACTION_NONE,
+    0,
+    LOGOUT_RESPONSE_POLICY_ACK_ONLY,
+)
+
+
+# Each allowlist below is written by hand, independently of the profile
+# construction above, on purpose: the whole point of load_logout_hypothesis_
+# scenario's _exact_equal check is that the expectation is a second,
+# separately-authored source, not a derivation FROM the profile object it
+# is supposed to be checking (round njkvcc's real pf-adversary finding on
+# this same file was exactly a "verifier" that silently shared its
+# assumption with the thing it verified -- this file does not repeat that
+# shape here).
+_EXPECTED_TEARDOWN_TIMER_VARIANT_0MS = {
+    "schema": 1,
+    "id": _PROFILE_TEARDOWN_TIMER_VARIANT_0MS.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_TEARDOWN_TIMER_VARIANT_0MS.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS_VARIANT_0MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+        "the_delay_value_itself_changes_client_behavior",
+    ],
+}
+
+_EXPECTED_TEARDOWN_TIMER_VARIANT_2000MS = {
+    "schema": 1,
+    "id": _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS_VARIANT_2000MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+        "the_delay_value_itself_changes_client_behavior",
+    ],
+}
+
+_EXPECTED_TEARDOWN_TIMER_VARIANT_10000MS = {
+    "schema": 1,
+    "id": _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+        "post_ack_action": LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+        "close_delay_ms": LOGOUT_CLOSE_DELAY_MS_VARIANT_10000MS,
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+        "server_initiated_clean_socket_close_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+        "the_delay_value_itself_changes_client_behavior",
+    ],
+}
+
+_EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER = {
+    "schema": 1,
+    "id": _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER.scenario_id,
+    "test_only": True,
+    "production_allowed": False,
+    "hypothesis_id": _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER.hypothesis_id,
+    "entry": {
+        "flow": "full_writable_character",
+        "required_sequence": "selected_and_runtime_ready",
+        "post_ack_policy": "dispatch_silent_until_socket_close",
+    },
+    "requests": {
+        "subcode01": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 34,
+            "pc_sha256": LOGOUT_REQUEST_PC_SHA256[3],
+        },
+    },
+    "composed_responses": {
+        "subcode01": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[1],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[1],
+        },
+        "subcode03": {
+            "pc_size": 36,
+            "pc_sha256": LOGOUT_ACK_PC_SHA256[3],
+            "frame_size": 46,
+            "frame_sha256": LOGOUT_ACK_FRAME_SHA256[3],
+        },
+    },
+    "persisted_post_state": {
+        "sessions_closed_at": "written_before_ack_bytes_are_queued",
+        "position_rewrite": "none",
+    },
+    "capabilities": [
+        "acknowledge_exact_captured_logout_requests_after_clean_close",
+        "silence_connection_after_acknowledged_logout",
+    ],
+    "nonclaims": [
+        "original_server_response_policy",
+        "client_observable_exit_or_character_select_return",
+        "logout_outside_runtime_ready_sequence",
+        "subcodes_other_than_01_and_03",
+        "production_baseline_behavior",
+        "the_delay_value_itself_changes_client_behavior",
+    ],
+}
+
+
 _EXPECTED_BY_ID = {
     _PROFILE_ECHO.scenario_id: (_EXPECTED_ECHO, _PROFILE_ECHO),
     _PROFILE_ACK_CLOSE.scenario_id: (_EXPECTED_ACK_CLOSE, _PROFILE_ACK_CLOSE),
@@ -1002,6 +1326,22 @@ _EXPECTED_BY_ID = {
     ),
     _PROFILE_DIALOG_OPEN.scenario_id: (
         _EXPECTED_DIALOG_OPEN, _PROFILE_DIALOG_OPEN,
+    ),
+    _PROFILE_TEARDOWN_TIMER_VARIANT_0MS.scenario_id: (
+        _EXPECTED_TEARDOWN_TIMER_VARIANT_0MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_0MS,
+    ),
+    _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS.scenario_id: (
+        _EXPECTED_TEARDOWN_TIMER_VARIANT_2000MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS,
+    ),
+    _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS.scenario_id: (
+        _EXPECTED_TEARDOWN_TIMER_VARIANT_10000MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS,
+    ),
+    _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER.scenario_id: (
+        _EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER,
     ),
 }
 
@@ -1037,6 +1377,10 @@ def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
     if type(value) is not LogoutHypothesisScenario or value not in (
         _PROFILE_ECHO, _PROFILE_ACK_CLOSE, _PROFILE_WORLDINFO_FIRST,
         _PROFILE_RETURN_SELECT, _PROFILE_CHAT_PUSH, _PROFILE_DIALOG_OPEN,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_0MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_2000MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_10000MS,
+        _PROFILE_TEARDOWN_TIMER_VARIANT_NEVER,
     ):
         raise ValueError("logout hypothesis scenario object exceeds the allowlist")
     for subcode in LOGOUT_SUBCODES:
