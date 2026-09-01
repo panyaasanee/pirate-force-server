@@ -9,20 +9,22 @@ what nothing pinned until this file is the CALL SITE, which lives in
   (1) ``transitioning=(scene, actor_identity)`` on BOTH census recomposes of
       the death path.  Without it, ``dead_timer`` is one scalar applied to
       every dead row the census carries -- so composing THIS kill's DYING
-      frame (20s) re-armed every OTHER already-dead corpse's timer and stood
-      its death animation back up.  The one-corpse limit was never a client
-      limit; it was this argument being absent.
+      frame (20s) put that timer into EVERY other already-dead corpse's
+      census entry.  WHAT IS MEASURED HERE IS THE BYTES: whether a real
+      client re-plays a death animation off the old timer is
+      client-observable and is not proven anywhere in this file (GT-199).
 
-  (2) ``mob_loot.DropLedgerCell.reconcile_scene_transition()`` at the scene
-      boundary in ``_sync_combat_scene_state``.  ``DropLedger`` has no scene
-      term and every kill re-announces the whole live ledger, so a drop left
-      standing in the scene the player just left rode along into the next
-      scene's first kill publication.
+  (2) WITHDRAWN BEFORE PUSH, round clw1zb/R297.  A second wiring point
+      (``reconcile_scene_transition()`` at the scene boundary) was built and
+      tested here and then taken back out after pf-adversary review -- the
+      COO item approves the other bounded option, there is no removal
+      publisher for a row the server forgets, and it fired at login for
+      characters not stored in the boot roster's scene.  The reasons are at
+      the call site in ``runtime.py``; the question is with the COO.
 
 Everything below is driven through the REAL dispatcher (login -> StartGame ->
 TargetPos -> ActionVital), not by asserting that a keyword was passed: the
-timers are read out of the composed census bytes, and the ground is read out
-of the session's own live drop cell.
+timers are read out of the composed census bytes.
 
 NOT PROVEN HERE, unchanged from every other file in this family: whether a
 real attack input produces this exact ActionVital shape, and whether a real
@@ -31,17 +33,15 @@ two ways ``tests/test_scene_scoped_combat_wiring.py`` synthesizes it, and for
 the same reason -- what is under test is the DISPATCH's answer, not any travel
 lane.
 
-NONCLAIM carried forward from ``mob_loot.reconcile_scene_transition``: clearing
-the WHOLE ledger at a boundary is the conservative side of an authenticity
-question CODEX_URGENT itself leaves OPEN, not a claim about what the original
-server did with a drop when a player walked away from it.
+NONCLAIM: nothing here says anything about what the ORIGINAL server did with
+a corpse or a drop.  CODEX_URGENT 2026-09-01T20:40+07:00 leaves the lifetime
+and ownership rules RECONSTRUCTED/OPEN and this file does not close them.
 """
 from __future__ import annotations
 
 import contextlib
 import dataclasses
 import io
-import random
 import sys
 import tempfile
 import unittest
@@ -55,7 +55,6 @@ from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
-from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
@@ -78,26 +77,6 @@ def _legacy():
     if not hasattr(_legacy, "cached"):
         _legacy.cached = load_legacy(LEGACY_PATH)
     return _legacy.cached
-
-
-def _seed_that_drops(mob):
-    """The first ``random.Random`` seed whose FIRST roll drops something.
-
-    The runtime calls ``mob_loot.roll_drops(mob, self.mob_loot_rng)`` exactly
-    once per kill, so seeding the session's own generator with this value
-    reproduces this roll byte for byte.  Searched rather than hardcoded: a
-    literal seed is a number this file would be asserting about the drop
-    tables, and the tables are the client's, not ours.
-    """
-    for seed in range(500):
-        roll = mob_loot.roll_drops(mob, random.Random(seed))
-        if roll.items or roll.money:
-            return seed
-    raise AssertionError(
-        "no seed in 500 makes mob 0x%X drop anything: the fixture this file "
-        "needs (a drop actually standing on the ground) cannot be built"
-        % mob.actor_identity
-    )
 
 
 class CorpseRearmAndDropSceneReconcileTests(unittest.TestCase):
@@ -451,110 +430,19 @@ class CorpseRearmAndDropSceneReconcileTests(unittest.TestCase):
             "transition is about",
         )
 
-    # ----- (2) the ground at a scene boundary ------------------------------
-
-    def _kill_with_a_drop(self, state, mob):
-        """Kill ``mob`` through dispatch with the session's own RNG seeded so
-        the roll actually drops something.  Returns the live ground rows."""
-        state.mob_loot_rng = random.Random(_seed_that_drops(mob))
-        self._kill(state, mob.actor_identity)
-        drops = state.mob_loot_cell.ledger.drops
-        self.assertTrue(
-            drops,
-            "fixture failure: the seeded roll left nothing on the ground, so "
-            "there is no drop for a scene change to clear",
-        )
-        return drops
-
-    def test_a_drop_left_in_one_scene_is_gone_after_a_scene_change(self):
-        """P-1's half of this round: the ground does not follow the player.
-
-        Kill a Bg0002 mob so a real drop stands on the ground there, then walk
-        to bg0001 and swing.  The scene sync clears the cell ONCE, says how
-        many rows it took, and the next kill in the new scene publishes an
-        empty ground instead of re-announcing the other scene's loot.
-
-        MUTATION-PROOF (measured): remove the
-        ``reconcile_scene_transition()`` call from
-        ``_sync_combat_scene_state`` and the emptied-ledger assertion goes
-        red with the Bg0002 drop still standing.
-        """
-        state = self._state_at_scene2("drop_scene_change")
-        self._arrive(state)
-        victim = self.bg0002_roster[0]
-        drops = self._kill_with_a_drop(state, victim)
-        before = len(self._reconcile_events(state))
-
-        self._move_to_scene(state, 1)
-        self._attack(state, CONTROL_TARGET)
-
-        self.assertEqual(state.mob_combat_scene_folder, "bg0001")
-        self.assertEqual(
-            state.mob_loot_cell.ledger.drops, (),
-            "a drop from the scene the player left is still on the ground",
-        )
-        new_events = self._reconcile_events(state)[before:]
-        self.assertEqual(
-            new_events, [RECONCILE_EVENT_PREFIX + str(len(drops))],
-            "the boundary must reconcile exactly once and say how many rows "
-            "it cleared: %r" % (state.events,),
-        )
-
-    def test_the_cleared_ground_does_not_reappear_in_the_new_scenes_kill(
-        self,
-    ):
-        """The player-visible half: what the NEXT kill actually publishes.
-
-        Every kill re-announces the whole live ledger (shape 4b), which is
-        exactly why an un-reconciled cell leaked: the first kill in the new
-        scene would have re-sent the old scene's drop keys.  bg0001's mobs
-        carry no drop tables, so the first kill after the walk home publishes
-        an empty ground -- and that is the observable difference.
-        """
-        state = self._state_at_scene2("drop_no_reappear")
-        self._arrive(state)
-        stale = self._kill_with_a_drop(state, self.bg0002_roster[0])
-        stale_keys = tuple(drop.drop_key for drop in stale)
-
-        self._move_to_scene(state, 1)
-        # The combat ledger is re-opened lazily, at attack time: this first
-        # ordinary swing is what crosses the boundary and syncs bg0001's rows
-        # in.  The kill that publishes the ground comes after it.
-        self._attack(state, CONTROL_TARGET)
-        actions = self._kill(state, CONTROL_TARGET)
-
-        self.assertEqual(state.mob_loot_cell.ledger.drops, ())
-        for _label, pc, *_rest in actions:
-            for key in stale_keys:
-                self.assertNotIn(
-                    self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, key), pc,
-                    "the new scene's kill re-announced drop key 0x%X from "
-                    "the scene the player left" % key,
-                )
-
-    def test_an_in_scene_dispatch_does_not_reconcile_the_ground(self):
-        """The other half, and the one a careless wiring gets wrong: a swing
-        in the SAME scene must leave the ground alone.
-
-        The reconcile lives inside ``if folder != self.mob_combat_scene_
-        folder:``.  Hoisted one level out, it would fire on every ActionVital
-        and delete a drop the player was walking towards -- so this drives a
-        second, in-scene attack and pins BOTH the untouched ground and the
-        absent event.
-        """
-        state = self._state_at_scene2("drop_same_scene")
-        self._arrive(state)
-        drops = self._kill_with_a_drop(state, self.bg0002_roster[0])
-        before = len(self._reconcile_events(state))
-        folder_before = state.mob_combat_scene_folder
-
-        # A second, ordinary swing in the same scene at a different mob.
-        self._attack(state, self.bg0002_roster[1].actor_identity)
-
-        self.assertEqual(state.mob_combat_scene_folder, folder_before)
-        self.assertEqual(len(self._reconcile_events(state)), before)
-        self.assertEqual(state.mob_loot_cell.ledger.drops, drops)
-
+    # ----- (2) the ground at a scene boundary: WITHDRAWN --------------------
+    #
+    # This file used to carry three tests for a second wiring point in
+    # runtime._sync_combat_scene_state (call the drop cell's
+    # reconcile_scene_transition() at a folder change).  Both the wiring and
+    # its tests were withdrawn before push, round clw1zb/R297, after
+    # pf-adversary review: COO-DECISION 2026-09-01T21:48+07:00 item 2 names
+    # the OTHER bounded option (bind drop ownership to scene/generation),
+    # there is no TerrainThing removal publisher so the cleared row becomes
+    # unreachable rather than removed, and the call also fired at LOGIN for
+    # any character whose stored scene is not the boot roster's.  The reasons
+    # are written out in full at the call site in runtime.py, and the
+    # question is with the COO.  Do not re-add the tests without the wiring.
 
 if __name__ == "__main__":
     unittest.main()
