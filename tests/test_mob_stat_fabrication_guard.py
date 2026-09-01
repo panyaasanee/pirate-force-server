@@ -100,6 +100,13 @@ LANE_B_MODULES = (
     # same reason every other comment on this tuple already gives.
     "mob_combat_membership.py",
     "mob_death.py",
+    # ROUND vzhc6s: the death-ruling PROPOSAL module for Bg0015's 7 unruled
+    # templates (COO-DECISION 2026-09-01T08:47+07:00 item (b)) -- pure
+    # derivation from the mined roster, no player stat of any kind, and no
+    # write access to mob_death.WIDENING_RULINGS at all. Listed in the same
+    # commit as the module, same reason every other entry on this tuple
+    # gives.
+    "mob_death_bg0015_ruling_proposal.py",
     # ROUND jop8ph: whether a combat ledger may be consulted while composing
     # a given scene's census -- the build half of the scene-bound ledger
     # admission decision.  Listed in the same commit as the module, because
