@@ -1756,12 +1756,20 @@ class MobLootTests(unittest.TestCase):
         neither id that DID travel is in this table at all.  Green for the
         wrong reason, and it hid the fact worth stating: the label evidence is
         about the PIPE, and every id this lane can send is new to the client.
+
+        The 43 below is len(field_drop_tables.ITEMS), the PRODUCTION EMIT
+        UNIVERSE (field_drop_tables.py:149-193) -- a different count from the
+        externally-specified 43-ID AUDIT SET Codex's GDL-IMG-017 checkpoint
+        finding names for the client-side ground-drop asset-decode chain.
+        The two currently share a number by coincidence; do not read one for
+        the other, and do not change this literal without re-deriving
+        len(field_drop_tables.ITEMS) first.
         """
         travelled = set(mob_loot.IDS_ON_THE_WIRE_GT045_V3) | set(
             mob_loot.IDS_ON_THE_WIRE_ROUND_1104)
         self.assertEqual(travelled & set(field_drop_tables.ITEMS), set())
         self.assertIn(
-            "NOT ONE OF THE 63 IDS THIS LANE CAN EMIT",
+            "NOT ONE OF THE 43 IDS THIS LANE CAN EMIT",
             " ".join(MOB_LOOT_NONCLAIMS))
         self.assertTrue(
             any(row[3] != 0 for row in field_drop_tables.ITEMS.values()),
