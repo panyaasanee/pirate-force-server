@@ -1,13 +1,30 @@
 """Direct-call tests for the branch-6 dialog-open push (RE-189 Job 2, #6).
 
-This module is UNWIRED on ``main`` -- nothing in ``runtime.py`` imports or
+~~This module is UNWIRED on ``main`` -- nothing in ``runtime.py`` imports or
 calls ``dispatch_logout_dialog_open_hypothesis`` yet (see the module's own
-docstring, "WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY"). These tests drive
-the pure dispatch function directly with a minimal duck-typed connection
-double, the same "responder's own logic, independent of the still-missing
-runtime.py wiring" split ``test_lane_a_choose_npc_scene1.py`` uses for its
-own still-unwired module. A real end-to-end ``runtime.py`` dispatch test is
-deferred to the round the CORE-REQUEST wiring lands.
+docstring, "WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY").~~ STALE as of
+``pirate-force-server`` main ``4ff782b`` (round `liq4ri`, PR #476): the
+CORE-REQUEST wiring landed -- ``runtime.py`` now imports and calls
+``dispatch_logout_dialog_open_hypothesis`` from a top-level ``nested_id``
+routing branch (``runtime.py:5541-5559``). A fresh pf-adversary read this
+round (LANE-A round `qw9tz4`) drove that wired branch through the real
+``make_state_class``/``_dispatch_with_lanes`` chain in an isolated worktree
+(not committed here) and confirmed no ``rx_frames`` double-count and a
+correctly-enforced one-shot latch -- but that was a throwaway experiment,
+not a committed test, and its allowlist bypass (there is still no
+``LogoutHypothesisScenario`` profile carrying
+``LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH`` -- see the open
+CORE-REQUEST asking ``logout_hypothesis.py``'s owner for a sixth profile)
+cannot ship in a committed test without also shipping a test-only allowlist
+override. **What remains true and still applies below**: these tests still
+drive the pure dispatch function directly with a minimal duck-typed
+connection double, the same "responder's own logic, independent of the
+still-missing runtime.py wiring" split ``test_lane_a_choose_npc_scene1.py``
+uses for its own still-unwired module -- but the reason for that split is
+now "no allowlisted scenario profile exists yet to construct a real wired
+state instance with this policy", not "runtime.py doesn't call this
+function yet". A real end-to-end ``runtime.py`` dispatch test is still
+deferred, now to the round that adds the sixth allowlist profile.
 """
 from __future__ import annotations
 
