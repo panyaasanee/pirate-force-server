@@ -1440,11 +1440,16 @@ _EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER = {
 # EXPECTED_IDS and EXPECTED_META, and CANONICAL_CONTENT_SHA256 was recomputed by
 # the tool's own recipe rather than by hand.  The restraint described above was
 # correct and is now discharged: the annotation line below is added in the SAME
-# commit as the table row, because verify_source_annotations() fails in both
-# directions -- an annotation with no EXPECTED_META row raises "unregistered
-# emitter annotation", and a declared .py source_ref with no annotation raises
-# "declared emitter is missing adjacent annotation".  Neither half may land
-# alone.  Requested by LANE-A round 4h2nzu in pf_bridge/notes_to_chief/
+# commit as the table row, because the verifier rejects either half landing
+# alone.  A declared .py source_ref with no annotation raises "declared emitter
+# is missing adjacent annotation" (exact, confirmed by mutation).  Dropping the
+# EXPECTED_META row does NOT reach verify_source_annotations at all -- the
+# id-set check fires first and the tool exits with "unknown hypothesis id:
+# HYP-PF-042"; an earlier draft of this comment quoted "unregistered emitter
+# annotation" for that case, which is really the message for a different
+# mutation (an annotation naming an id no table knows).  The substantive claim
+# is unchanged: neither half may land alone, confirmed in both directions.
+# Requested by LANE-A round 4h2nzu in pf_bridge/notes_to_chief/
 # 20260901_2252_LANE-A-CORE-REQUEST-026-register-hyp-pf-042-ledger.md; chief's
 # id ruling (HYP-PF-042 is correctly its own id, not HYP-PF-041) is in
 # 20260902_0215_CHIEF-REPLY-hyp-pf-042-registration-queued-next-pr.md.
