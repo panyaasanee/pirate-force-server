@@ -339,6 +339,34 @@ def _keys(drops: Any) -> frozenset:
     return frozenset(keys)
 
 
+def _current_frame_cap() -> int:
+    """The trim ceiling that matches whatever ``refresh_frames`` will do.
+
+    pf-adversary (this round): this module trimmed against
+    ``mob_loot.DROP_MAX_ELEMENTS_PER_FRAME`` -- the OLD narrow-shape cap --
+    even after ``refresh_frames`` started calling
+    ``mob_loot.drop_frames_with_model_type``, whose real ceiling is the
+    SMALLER ``DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE`` (each wide
+    element costs 3 more bytes).  A ledger in the gap between the two caps
+    then passed this guard unchanged, got handed whole to
+    ``refresh_frames``, and ``drop_frames_with_model_type`` raised
+    ``generation_too_wide_to_frame`` -- turning a graceful trim into a full
+    refusal, zero frames, for that kill.
+
+    The fix is not a hardcoded constant swap: it is reading the SAME flag
+    ``drop_frames_with_model_type`` reads
+    (:data:`mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED`) and picking the cap
+    that composer will actually enforce.  This keeps the trim guard correct
+    under either state of the flag, including the documented one-line
+    rollback -- a rollback that flips the flag but leaves this guard using
+    the wide cap would recreate the same bug in the opposite direction
+    (over-trimming when the narrow shape has more room).
+    """
+    if mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED:
+        return mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
+    return mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+
+
 def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
     """The one call a kill's dispatch makes after the death schedule.
 
@@ -375,15 +403,16 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
 
     mine = _keys(drops)
     trimmed = 0
-    if len(live) > mob_loot.DROP_MAX_ELEMENTS_PER_FRAME:
+    cap = _current_frame_cap()
+    if len(live) > cap:
         # A generation that omits a live key erases that key on the client
         # (RE-130).  So when the ground cannot fit in one frame, the rows that
         # will not travel are removed from the CELL as well -- a client and a
         # server that disagree about what is on the ground is a worse failure
         # than a lost drop, and this way the loss has a name and a count.
-        # Unreachable on today's numbers (16 drops per kill, 120 s, a 2426
-        # element cap) and kept because "unreachable" is a property of the
-        # numbers, not of the code.
+        # Unreachable on today's numbers (16 drops per kill, 120 s, a cap in
+        # the low thousands either way) and kept because "unreachable" is a
+        # property of the numbers, not of the code.
         #
         # ROW BY ROW, NOT ``prune_issued_before``, and pf-adversary (round
         # m0vp7m, S5) is why: that method refuses ``prune_would_take_the_
@@ -394,7 +423,17 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         # ``frames=()``, so the whole kill sent nothing.  An untested defence
         # that does not defend.  ``take`` carries no such guard and removes
         # precisely the rows that will not travel.
-        keep = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        #
+        # ``cap`` is :func:`_current_frame_cap`, NOT a hardcoded constant --
+        # pf-adversary (this round) is why: this used to read
+        # ``mob_loot.DROP_MAX_ELEMENTS_PER_FRAME`` even after
+        # ``refresh_frames`` (below) started calling
+        # ``drop_frames_with_model_type``, whose real ceiling is the smaller
+        # ``DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE``.  A ledger between
+        # the two caps passed this guard unchanged and then blew up inside
+        # ``refresh_frames`` -- a full refusal where a graceful trim was the
+        # whole point of this branch.
+        keep = cap
         dropped = live[:-keep] if keep else live
         live = live[-keep:] if keep else ()
         try:
