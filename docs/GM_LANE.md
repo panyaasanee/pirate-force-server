@@ -7158,3 +7158,99 @@ guessed-size subobject into client-owned memory, while its documented escape hat
 exactly the state the source itself calls "strictly worse than the dead button we already have".
 Both are unfixed here: `patches/` is not this lane's declared write zone and this clone has no
 Windows SDK to compile-check a change. Letter to chief carries the findings and the patch shape.
+
+## Round `ha492g` (2026-09-02T06:2x+07:00) -- the `/speed` refusals, verified from the bytes by this lane, then hardened by pf-adversary against its own first draft
+
+### Why a second test file for something already tested
+
+COO-DECISION `20260902_0346` gave this lane one instruction for the first round after chief's notice
+PR reached `main`: confirm that ALL NINE refusal paths of letter `0311` ship `SPEED DENIED` --
+"เทสของคุณเอง ไม่รับคำพูดใคร" (your own test, taking nobody's word for it). chief's
+`tests/test_gm_speed_denied_notice.py` is a good file and this is not a review of it; the order was
+to verify the claim from a DIFFERENT footing, because a proof that shares the claim's assumptions
+cannot contradict it.
+
+Chief's PR is on `main`: merge `d2d61ff`, code commit `35f1eeb`, `main` tip `98d2767` at the start of
+this round.
+
+### What landed
+
+`tests/test_gm_speed_denied_nine_paths.py` -- 23 tests, 24 subtests, no source change anywhere.
+
+Three things make it an independent check rather than a copy:
+
+1. **Its own byte parser.** `_decode_local_talk_notice` writes the layout out as literals -- channel
+   id at `pc[16:18]` little-endian, the nested vital's `u8tag(0x0B, version)` at `pc[18:20]`, payload
+   at `pc[20:-2]`, each string a `0x48` tag + a 4-byte little-endian BYTE length + UTF-16LE -- and
+   imports nothing from `channel_message_hypothesis`. A day where the project's encoder and its own
+   decoder drift TOGETHER is the one failure an encode/decode round-trip cannot see, and it is red
+   here. Both fields outside the payload are read from the bytes: the channel id (the assertion
+   pf-adversary's channel-swap mutant walked straight through in round `aa9ajr` when it was made
+   against the constant the test passed in) and the vital_version byte RE-132 pinned and GT-101
+   measured as fatal to a real client.
+2. **The paths are proven distinct.** Every path runs through the real
+   `make_gm_chat_command_action` with the real `legacy`, and is identified by the word it wrote to
+   the audit ndjson ON DISK, not by `session.events` in memory. The words are then asserted to be
+   nine DIFFERENT words, matched against letter `0311`'s list AND re-derived from the module's own
+   `OUTCOME_*` constants (the letter lives in `pf_bridge`, which is not this repository).
+3. **The parser is shown to be a parser.** Bodies of 1, 10, 12 and 40 characters, composed through
+   `legacy.make_runtime_vitals` from a payload the test file encodes itself, decode back exactly --
+   so the offsets are not constants tuned to one 12-character frame.
+
+Two guards chief's file does not carry, plus what a refusal costs:
+
+* `test_every_path_prints_both_console_lines` -- `GM_CHAT_NO_BYTES_SENT` (half (b) of COO-DECISION
+  `0147`, the line this lane warned in letter `0419` would disappear) AND `GM_CHAT_NOTICE_SENT`
+  (`GT-193` step 9's own token) on ALL NINE paths, not the one a regression test happened to pick.
+* `NoRefusalMayGoOutSilentTests` -- an `ast` pass over BOTH places a `/speed` verdict is built:
+  every `return` in `_speed_action` (a bare `return` and a `raise` included) and the dispatcher
+  branch that calls it, whose sibling `else` already builds a `_Verdict(None, ...)` of its own.
+* `WhatARefusalStillCostsTests` -- paths 8 and 9 say DENIED while the row already holds the new
+  value. Pinned, not fixed: it predates the notice and is a property of when `_speed_undo` fires.
+
+### pf-adversary found four HIGH defects in the first draft of this file
+
+Run against the draft (15 tests), every finding reproduced as a mutant. All four are fixed above and
+re-killed in a throwaway `git worktree`, never in the live tree:
+
+| finding | what stayed green in the draft | fix |
+|---|---|---|
+| D1 | the canonical-DB gate moved BELOW the write: screen DENIED, ndjson `withheld_speed_canonical_db`, and 400.0 in the canonical row | every pre-write path asserts the store was never called |
+| D2 | a stray `state/pirateforce.sqlite3` in the process CWD -- `app.py`'s own default -- collapsed EIGHT drivers onto path 1, per-path tests still green | store paths are absolute, inside the test's own temp dir |
+| D3 | a tenth refusal written as a bare `return`: no notice, no audit row, no console line | the AST guard rejects a valueless `return` and any `raise` |
+| D4 | a tenth refusal built in the DISPATCHER branch, one `def` above what the guard read | the dispatcher branch is asserted to be one call and nothing else |
+| D5 (med) | `vital_version` flipped to 1 -- outside the payload, so no round-trip sees it | the parser reads `pc[18:20]` and asserts the tag and the version |
+| D6 (med) | renaming the drivers made the console test pass with ZERO subtests | `drivers()` derives 1..9 and raises on any other numbering |
+| D8 (low) | `NINE_PATHS` cited a letter that is not in this repo | every word re-derived from `OUTCOME_*` constants |
+| D9 (low) | `GT-193`'s own `GM_CHAT_NOTICE_SENT` token was never asserted | asserted on every path |
+
+### Measured: the mutants that had to die (all in a `git worktree`, live tree untouched)
+
+| mutant | result |
+|---|---|
+| `SPEED_DENIED_NOTICE_TEXT` -> `"SPEED DENIE"` (11 chars) | 23 red |
+| composer switched to `GM_GLOBAL_CHANNEL_ID` (`0x9F2C`, the LOCKED channel) | 22 red |
+| `vital_version` 0 -> 1 in the shared codec | 22 red |
+| path 5 back to `return _Verdict(None, ...)` (silent) | 7 red |
+| canonical-DB gate moved below the write (D1) | 1 red |
+| bare `return` as a tenth path inside `_speed_action` (D3) | 1 red |
+| `raise` inside `_speed_action` | 1 red |
+| a silent verdict in the dispatcher's speed branch (D4) | 1 red |
+| the nine drivers renamed (D6) | 4 red |
+| stray `state/pirateforce.sqlite3` in the CWD (D2) | 23 GREEN -- the point: the file no longer depends on it |
+
+### What this does NOT say
+
+Every byte here is composed in-process and asserted in-process. **Nobody has seen `SPEED DENIED` on
+a screen.** `GT-193` step 9 is the only thing that can say that. What is asserted is the action this
+module RETURNS; `runtime.py`'s send site is one layer above and is not exercised.
+
+**Eight of the nine are reachable from a chat line; the ninth is not.** `commands._require_number`
+and `speed_wire.parse_speed_value` apply the same `float()` + `math.isfinite` rule, so no typed value
+can pass the grammar and fail the composer: path 4 is a backstop reached here only under
+`mock.patch`. And the refusal a GM will actually meet -- `/speed fast` -- is refused ABOVE all nine
+at `parse_gm_command` and is **still silent on screen** (chief asked COO in `0545`).
+
+**The nine are nine returns of one function, not every refusal of the command.** The dispatcher guard
+closes the one other site that exists today; a refusal invented at a third site is still outside what
+any test in either file can see. That question went to COO in this round's letter.
