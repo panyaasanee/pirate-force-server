@@ -4188,6 +4188,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     roster, epoch=0,
                 )
                 self.mob_combat_scene_folder = folder
+                # CORE-REQUEST (LANE-B letter 20260901_2255), approved by
+                # COO-DECISION 2026-09-01T21:48+07:00, answering
+                # CODEX_URGENT 2026-09-01T20:40+07:00 P0-5: clear the ground
+                # ONCE at the scene boundary, here, before anything in the
+                # new scene publishes.  mob_loot.DropLedger has no scene term
+                # and every kill re-announces the WHOLE live ledger, so a
+                # drop still standing in the scene the player just left rode
+                # along into the next scene's first kill publication.  Placed
+                # with the ledger/AI re-open above because this is the same
+                # boundary and the same "the old scene's rows are gone"
+                # sentence -- deaths deliberately survive it (see this
+                # method's own docstring), drops deliberately do not.
+                #
+                # self.mob_loot_cell is set unconditionally in __init__ and
+                # the loot call site in _dispatch_mob_combat already reads it
+                # without a guard, so it is read the same way here rather
+                # than inventing an optional-attribute shape this class does
+                # not use for it.
+                #
+                # NONCLAIM: clearing the WHOLE ledger is the conservative
+                # side of an OPEN authenticity question, not a claim about
+                # the original server.  The cell has no scene data, so it
+                # cannot know which rows belonged to which scene; a player
+                # who round-trips straight back does not find their own
+                # recent drop waiting.  mob_loot.reconcile_scene_transition's
+                # own docstring records the same NONCLAIM, and
+                # CODEX_URGENT's words leave the real lifetime and ownership
+                # rules RECONSTRUCTED/OPEN.
+                removed = self.mob_loot_cell.reconcile_scene_transition()
+                self.events.append(
+                    f"mob_loot_scene_reconcile_cleared_{len(removed)}"
+                )
             return roster
 
         def _dispatch_mob_combat(self, parsed):
@@ -4740,6 +4772,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             if anchor_record.scene_id
                             == world_population.SCENE_ID else ()
                         )
+                        # CORE-REQUEST (LANE-B letter 20260901_2255),
+                        # approved by COO-DECISION 2026-09-01T21:48+07:00,
+                        # answering CODEX_URGENT 2026-09-01T20:40+07:00 P0-5:
+                        # name the ONE corpse this recompose is about.
+                        # ``dead_timer`` used to be a single scalar applied to
+                        # EVERY dead row the census composed -- correct only
+                        # while at most one identity could be dead at once --
+                        # so composing THIS kill's DYING frame re-armed every
+                        # OTHER already-dead corpse's timer to 20s and stood
+                        # its death animation back up.  With the row named,
+                        # only it follows ``dead_timer``; every other corpse
+                        # holds mob_death.DEAD_TIMER_SECONDS, its steady state.
+                        #
+                        # SAFE AT THIS CALL SITE, checked rather than assumed
+                        # (mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW wants
+                        # the row to be dead in the register AND a member of
+                        # the roster THIS call receives): ``mob`` above is
+                        # ``next(m for m in roster ...)``, mob_death.kill
+                        # builds the record as DeathRecord(mob.actor_identity,
+                        # ..., mob.scene), and self.mob_death_register is the
+                        # POST-commit register a few lines up -- so the pair
+                        # below is by construction a row of THIS roster that
+                        # the register carries as dead.  ``roster`` is the same
+                        # object both calls receive.
+                        death_transitioning = (
+                            death_step.record.scene,
+                            death_step.record.actor_identity,
+                        )
                         recompose_dying = (
                             mob_scene_recompose.recompose_frames(
                                 legacy, anchor_record,
@@ -4748,6 +4808,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 roster=roster,
                                 dead_timer=mob_death.DYING_TIMER_SECONDS,
                                 objects=death_objects,
+                                transitioning=death_transitioning,
                             )
                         )
                         recompose_dead = (
@@ -4757,6 +4818,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 ledger=self.mob_combat_ledger,
                                 roster=roster,
                                 objects=death_objects,
+                                transitioning=death_transitioning,
                             )
                         )
                         # Point (3) of the wiring ask: the module's line
