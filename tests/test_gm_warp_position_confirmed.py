@@ -1162,6 +1162,87 @@ class GmWarpCensusLatchClearTests(GmWarpPositionTargetTests):
             )
         )
 
+    def test_a_long_chain_of_cross_scene_warps_clears_the_latch_every_hop(
+        self,
+    ):
+        """PANYA-DECISION 20260901_1215 -- GM-A's real acceptance test is a
+        CHAIN, not one warp.
+
+        Every test above this one in the class proves the latch clears on
+        A cross-scene resync, in isolation, one hop at a time. That is not
+        the scenario the owner actually ran and rejected GM-A over: GT-182
+        session 2 (``pf_bridge/notes_to_chief/20260901_1035_KA1A-ROOTCAUSE-
+        *``) warped 5, 6, 7, 8, 9, 10, 11, 14, then back to 1 -- eight
+        cross-scene hops in one login, ten warp frames total -- and only
+        the FIRST of the whole chain got a census. Nothing in this test
+        module before this method ever arms a SECOND warp after the first
+        one has already re-latched (i.e. after a census actually shipped
+        for the destination scene and set ``world_census_sent`` again), so
+        nothing here would have caught a regression where the fix only
+        holds for hop one and silently stops working from hop two onward --
+        which is exactly the shape of bug PANYA-DECISION 20260901_1215
+        reports GT-182 hit before this round's fix landed (commit
+        ``67fe6fe``, already on ``main`` when this test was added -- this
+        test is a coverage gap closure, not a new fix).
+
+        Models each hop the way production actually re-latches between
+        warps: after landing in a destination scene, its own census ships
+        and sets ``world_census_sent``/``world_census_refused`` again
+        before the NEXT ``/warp`` is even typed -- so setting both True
+        immediately before arming each subsequent hop is not an arbitrary
+        test fixture, it is what the previous hop's own (simulated) census
+        dispatch would have already done.
+        """
+        state = self._login_and_start("gmwarp_censuslatch05")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        chain = [departure_scene + offset for offset in (1, 2, 3, 4, 5, 6, 7)]
+        chain.append(departure_scene)  # last hop: back to the start scene
+
+        for hop_index, destination_scene in enumerate(chain):
+            # Simulate the PREVIOUS scene's census having already shipped
+            # (or refused) and re-armed the once-per-login latch -- the
+            # state every hop after the first genuinely starts from in
+            # production, not just the state right after login.
+            state.world_census_sent = True
+            state.world_census_refused = True
+
+            target = WarpTarget(
+                destination_scene, x + 100.0 * hop_index, y, z,
+            )
+            self._arm_and_return(state, target)
+
+            self.assertFalse(
+                state.world_census_sent,
+                f"hop {hop_index} to scene {destination_scene}: "
+                "world_census_sent was not cleared",
+            )
+            self.assertFalse(
+                state.world_census_refused,
+                f"hop {hop_index} to scene {destination_scene}: "
+                "world_census_refused was not cleared",
+            )
+            self.assertEqual(
+                state.foundation.selected.position.scene_id,
+                destination_scene,
+            )
+
+        # Every hop that actually changed scene fired its own latch-clear
+        # token -- the chain revisits the departure scene as its LAST hop,
+        # so the departure scene's token appears twice (once for a real
+        # departure->...->departure hop, matching the owner's own "back to
+        # 1" leg of the GT-182 session).
+        clear_events = [
+            event for event in state.events
+            if event.startswith("gm_warp_cross_scene_census_latch_cleared_")
+        ]
+        self.assertEqual(len(clear_events), len(chain))
+        for destination_scene in chain:
+            self.assertIn(
+                f"gm_warp_cross_scene_census_latch_cleared_{destination_scene}",
+                clear_events,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
