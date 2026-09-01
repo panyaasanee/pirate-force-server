@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_bg0008_identity as identity  # noqa: E402
+from pirateforce_foundation import world_census_gait  # noqa: E402
 from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0008 as census  # noqa: E402
@@ -171,7 +172,7 @@ class Bg0008Census(unittest.TestCase):
         hostile_mask_bit = 0x0400
         for index in generation.placement_indices:
             placement = placements[index]
-            body = world_census_level.leveled_npc_attr(
+            body = world_census_gait.census_npc_attr(
                 self.legacy,
                 template_n_id=placement.n_id,
                 actor_identity=placement.actor_identity,

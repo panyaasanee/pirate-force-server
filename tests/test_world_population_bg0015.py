@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_bg0015_identity as identity  # noqa: E402
+from pirateforce_foundation import world_census_gait  # noqa: E402
 from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0015 as census  # noqa: E402
@@ -176,7 +177,7 @@ class Bg0015Census(unittest.TestCase):
         hostile_mask_bit = 0x0400
         for index in generation.placement_indices:
             placement = placements[index]
-            body = world_census_level.leveled_npc_attr(
+            body = world_census_gait.census_npc_attr(
                 self.legacy,
                 template_n_id=placement.n_id,
                 actor_identity=placement.actor_identity,
@@ -190,9 +191,11 @@ class Bg0015Census(unittest.TestCase):
             with self.subTest(placement=index):
                 # The body this module built is byte-identical to the frozen
                 # make_npc_attr call widened by EXACTLY the level splice
-                # (round `7ste68`, bit 0x0002) -- nothing else added between
-                # the encoder and the wire, and the faction bit below still
-                # absent.  (Before that round this read "byte-identical to a
+                # (round `7ste68`, bit 0x0002) and the mined walk speed
+                # (round `2p4n3h`, bit 0x0040, the field the client's
+                # icon-board setter checks before it will call that board)
+                # -- nothing else added between the encoder and the wire, and
+                # the faction bit below still absent.  (Before that round this read "byte-identical to a
                 # plain make_npc_attr call: no splice"; the level field is
                 # the one thing that changed, and it is checked as its own
                 # equality above, not merely asserted here.)

@@ -209,8 +209,20 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # frame moved by 87 * 3 + 1.  These two are checked here because both
         # are measured for THIS scene, whose pc (15109) is still 1275 bytes
         # short of the boundary.
-        self.assertEqual(len(generation.frame), 14879 + 81 * 3)
-        self.assertEqual(len(spliced.frame), 15035 + (81 - 12) * 3)
+        # ROUND `2p4n3h` (LANE-A): both numbers moved AGAIN, by the mined
+        # MOBS.n_SPEED_WALK the ordinary census now also sends (BasicAttr bit
+        # 0x0040, a tag byte plus an f32 = 5 bytes per entry), so
+        #   ~~15122~~ -> 15122 + 81 * 5 = 15527 (every census entry), and
+        #   ~~15242~~ -> 15242 + (81 - 12) * 5 = 15587 -- the 12 spliced-in
+        # hostile entries are unchanged again, because field_mobs' hostile
+        # body has carried this field since COO-DECISION 2026-08-28T01:46.
+        # The same 12-entry exemption holding for two different fields in two
+        # different rounds is the control that says the split is real.
+        # The boundary caveat above still applies to the frame and still does
+        # not bite for THIS scene: its pc is 15527, which is short of 16384.
+        self.assertEqual(len(generation.frame), 14879 + 81 * 3 + 81 * 5)
+        self.assertEqual(
+            len(spliced.frame), 15035 + (81 - 12) * 3 + (81 - 12) * 5)
 
     # ---- the cross-check, and what it cannot do ----------------------
 

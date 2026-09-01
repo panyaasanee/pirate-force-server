@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import world_bg0004_identity as identity
+from . import world_census_gait
 from . import world_census_level
 from . import world_population
 from .population import (
@@ -194,7 +195,17 @@ def _entry(legacy: Any, placement: identity.Bg0004Placement) -> bytes:
     # lines; this comment deliberately does not, so the census path does not
     # register as an importer of lane B's combat module), and it REFUSES
     # rather than guesses if the frozen body's layout ever moves.
-    npc_attr = world_census_level.leveled_npc_attr(
+    # WALK SPEED / ICON-BOARD GATE (round `2p4n3h`, LANE-A).  Every row of
+    # Codex's selector table for the icon board over an NPC's head carries
+    # the same skip clause: the CNetNPC setter never calls that board at all
+    # "when +0x70 mask 0x40 is clear".  ``+0x70`` is BasicAttr's
+    # field-presence mask and ``0x0040`` is its walk-speed bit
+    # (MOBS.n_SPEED_WALK, f32 at +0x54), and no ordinary census body has ever
+    # set it, so the selector was never even evaluated for a townsperson.
+    # ``world_census_gait`` sends this row's own mined ``n_SPEED_WALK`` and
+    # explains the rest; this call site claims nothing about what the board
+    # then draws, which is the client's and is what ``GT-202`` looks at.
+    npc_attr = world_census_gait.census_npc_attr(
         legacy,
         template_n_id=placement.n_id,
         actor_identity=placement.actor_identity,

@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import scene2_prison_exile_tables as tables
+from . import world_census_gait
 from . import world_census_level
 from . import world_population
 from .population import (
@@ -187,7 +188,17 @@ def _entry(legacy: Any, placement: tables.Bg0002Placement) -> bytes:
     # with a range is a range the original server rolls per spawn, and this
     # module has no evidence about that roll, so it sends the mined floor
     # rather than inventing the roll.
-    npc_attr = world_census_level.leveled_npc_attr(
+    # WALK SPEED / ICON-BOARD GATE (round `2p4n3h`, LANE-A).  Every row of
+    # Codex's selector table for the icon board over an NPC's head carries
+    # the same skip clause: the CNetNPC setter never calls that board at all
+    # "when +0x70 mask 0x40 is clear".  ``+0x70`` is BasicAttr's
+    # field-presence mask and ``0x0040`` is its walk-speed bit
+    # (MOBS.n_SPEED_WALK, f32 at +0x54), and no ordinary census body has ever
+    # set it, so the selector was never even evaluated for a townsperson.
+    # ``world_census_gait`` sends this row's own mined ``n_SPEED_WALK`` and
+    # explains the rest; this call site claims nothing about what the board
+    # then draws, which is the client's and is what ``GT-202`` looks at.
+    npc_attr = world_census_gait.census_npc_attr(
         legacy,
         template_n_id=placement.n_id,
         actor_identity=placement.actor_identity,
@@ -198,6 +209,13 @@ def _entry(legacy: Any, placement: tables.Bg0002Placement) -> bytes:
         max_hp=placement.max_hp,
         basic_name=placement.display_name,
         level=placement.level,
+        # This scene mined ``n_SPEED_WALK`` per placement long before the
+        # gait crosswalk existed, so it passes its own column rather than
+        # letting the crosswalk answer for it.  The two are held to each
+        # other in ``tests/test_world_census_gait.py``: all 40 of this
+        # scene's ids agree, and a future disagreement goes red here instead
+        # of one table silently winning.
+        walk_speed=placement.speed_walk,
     )
     movement_attr = legacy.make_remote_movement_attr(
         placement.actor_identity,

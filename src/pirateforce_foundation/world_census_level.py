@@ -251,6 +251,7 @@ def leveled_npc_attr(
     max_hp: int,
     basic_name: str,
     level: int,
+    movement_speed: float | None = None,
 ) -> bytes:
     """One census actor's NPCAttr body, with its mined level on the wire.
 
@@ -260,6 +261,16 @@ def leveled_npc_attr(
     +0x78" and takes the REAL ``MOBS.n_ID``, never the Mob-Set number, and a
     positional call site is exactly how ``GT-078`` put Mob-Set numbers on the
     owner's screen.
+
+    ``movement_speed`` (round `2p4n3h`, LANE-A) is handed straight to the
+    frozen helper, which sets BasicAttr bit 0x0040 and writes the f32 at
+    +0x54 AFTER the current/max HP pair.  The level splice below goes in
+    FRONT of that pair, so the two fields never contend for a position and
+    this function's own layout check is unaffected by the parameter -- the
+    HP-pair anchor it verifies is the same bytes either way.  ``None``
+    keeps the pre-`2p4n3h` body byte-for-byte, which is what the callers
+    that are not census composers still want.  See ``world_census_gait``
+    for where the value comes from and what it gates.
     """
     baseline = legacy.make_npc_attr(
         template_n_id,
@@ -270,6 +281,7 @@ def leveled_npc_attr(
         current_hp=current_hp,
         max_hp=max_hp,
         basic_name=basic_name,
+        movement_speed=movement_speed,
     )
     return with_level(
         legacy, baseline,

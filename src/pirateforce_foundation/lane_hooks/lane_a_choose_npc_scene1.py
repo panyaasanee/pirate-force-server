@@ -108,6 +108,7 @@ from __future__ import annotations
 from typing import Any
 
 from .. import lane_hooks
+from .. import world_census_gait
 from .. import world_population
 from .. import world_port_royal_identity as identity
 from .lane_a_scene_census import scene_is_open_to_players
@@ -219,10 +220,27 @@ def respond(
                 legacy.V117_P30_EXACT_HP if is_monster
                 else world_population.DEFAULT_HP
             )
-            npc_attr_bytes = legacy.make_npc_attr(
-                resolved.mobs_n_id, placement.actor_identity, scene_id, 0,
-                resolved.outfit, current_hp=hp, max_hp=hp,
+            # EVERY GENERATION (round `2p4n3h`, LANE-A).  This hook
+            # recomposes the WHOLE roster on a click, so a plain
+            # ``legacy.make_npc_attr`` body here re-sends every actor
+            # WITHOUT the level round `7ste68` added and without the
+            # walk-speed field bit `0x0040` -- the shape the gait
+            # coverage row's own accepted rule calls out (a value
+            # present only in the bootstrap generation is what turned
+            # an observed walk into a run).  Composed through the same
+            # census helper the arrival census uses, so the two
+            # generations agree byte for byte.
+            npc_attr_bytes = world_census_gait.census_npc_attr(
+                legacy,
+                template_n_id=resolved.mobs_n_id,
+                actor_identity=placement.actor_identity,
+                scene_id=scene_id,
+                scene_sequence=0,
+                visual_preset=resolved.outfit,
+                current_hp=hp,
+                max_hp=hp,
                 basic_name=resolved.name,
+                level=resolved.level,
             )
             attrs = [(legacy.NPC_ATTR, npc_attr_bytes)]
             if idx == selected_idx:

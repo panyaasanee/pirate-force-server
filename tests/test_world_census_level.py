@@ -420,7 +420,19 @@ class CensusLevelSplice(unittest.TestCase):
             with self.subTest(source=source):
                 body = (ROOT / "src/pirateforce_foundation"
                         / ("%s.py" % module_name)).read_text(encoding="utf-8")
-                wired = "world_census_level.leveled_npc_attr" in body
+                # WIDENED round `2p4n3h` (LANE-A): the composers now call
+                # ``world_census_gait.census_npc_attr``, a keyword-only
+                # wrapper that adds the mined walk speed and then calls
+                # ``leveled_npc_attr`` with the same level argument.  Either
+                # spelling counts as wired -- what this guard is about is
+                # that a live source sends A LEVEL, not which of the two
+                # helpers it goes through -- and the ``level=`` argument is
+                # required either way, so a composer that dropped the level
+                # while keeping the gait call still fails to build.
+                wired = (
+                    "world_census_level.leveled_npc_attr" in body
+                    or "world_census_gait.census_npc_attr" in body
+                )
                 excused = source in CENSUS_SOURCES_WITHOUT_A_MINED_LEVEL
                 self.assertTrue(
                     wired or excused,

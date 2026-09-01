@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation import world_census_gait  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_port_royal_identity as identity  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
@@ -221,13 +222,27 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
         )
         self.assertIsNotNone(answer)
         placement = self.placements[monster_idx]
-        monster_body = legacy.make_npc_attr(
-            identity.resolve(placement.template_id).mobs_n_id,
-            placement.actor_identity, PORT_ROYAL, 0,
-            identity.resolve(placement.template_id).outfit,
+        resolved = identity.resolve(placement.template_id)
+        # ROUND `2p4n3h` (LANE-A): rebuilt through the census helper rather
+        # than the frozen one.  This responder recomposes the WHOLE roster on
+        # a click, and until this round it did so with a plain
+        # ``make_npc_attr`` -- which silently reverted BOTH the level round
+        # `7ste68` added and (once the census had it) the walk speed, for
+        # every actor on screen, the moment anyone was clicked.  The HP
+        # override this test is about is unchanged; what changed is that the
+        # body it is compared against is now the same body the arrival census
+        # sends, which is the point of the test.
+        monster_body = world_census_gait.census_npc_attr(
+            legacy,
+            template_n_id=resolved.mobs_n_id,
+            actor_identity=placement.actor_identity,
+            scene_id=PORT_ROYAL,
+            scene_sequence=0,
+            visual_preset=resolved.outfit,
             current_hp=legacy.V117_P30_EXACT_HP,
             max_hp=legacy.V117_P30_EXACT_HP,
-            basic_name=identity.resolve(placement.template_id).name,
+            basic_name=resolved.name,
+            level=resolved.level,
         )
         self.assertIn(monster_body, answer.pc)
 
