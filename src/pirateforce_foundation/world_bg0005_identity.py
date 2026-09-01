@@ -72,8 +72,25 @@ and a reader comparing the two tables deserves the real numbers rather than a
 silently repeated citation.  [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION
 IF THIS MATTERS] that this gap is measurement-drift (different counting
 convention in the round that first built ``SCENE_LEVEL_CONTROL``) rather than
-a table-drift signal; opened to lane C rather than blocking this round (see
-handback letter, ticket RE-XXX placeholder).
+a table-drift signal; opened to lane C as ``RE-170``.
+
+RE-170 FOLLOW-UP (round ``rdhel6`` 2026-09-01): tried to close RE-170's own
+pass criterion 1 ("identify the counting method behind the original 68.0 /
+35.0 pair via git blame or a round file") and could NOT - this repo's git
+history is not one continuous line back to the round that first wrote
+``SCENE_LEVEL_CONTROL``.  ``git blame`` on that line stops at
+``73c20fb`` (2026-08-31), and ``git rev-list --max-parents=0 --all`` shows
+EIGHT separate root (parentless) commits in this repo, meaning the history
+was assembled from disconnected snapshots at least that many times; nothing
+before those boundaries is walkable from here.  A citation search of every
+``pf_bridge/rounds/A_*`` file that mentions BG0005 or a number matching
+35/68 (``uajlve``, ``02k3w5``, ``6p22bu``) found none that document the
+counting method either - the ``35.0``/``68.0`` pair predates every round
+record this project still has.  So criterion 1 is unanswerable from this
+project's own sources, not merely unanswered; criterion 3 of RE-170's own
+"ห้าม" section (no git-blame citation -> no edit) therefore still applies
+and the numbers above are UNCHANGED by this follow-up.  Recorded rather than
+silenced, same as the gap itself.
 
 CONTROL 3 - NO SELF-MAPPING, WEAK, SAME CAVEAT AS THE OTHER THREE SCENES.  0
 of the 59 resolved rows have ``mobs_n_id == template_id``: keys are <= 105
