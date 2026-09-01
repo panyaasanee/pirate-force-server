@@ -6930,3 +6930,132 @@ produced total silence, which reads exactly like dead wiring.
 5. The identity fields name a ROW, not a person and not a connection.
 6. GM shortcut used: `/speed` is a GM command; a readable refusal line is not evidence that the
    ordinary player attribute path works.
+
+## Round `ibxaf0` (2026-09-02T04:2x+07:00) -- GM-A measured one layer below the latch: a census really ships on every hop
+
+### What this round did NOT touch, and why that is the headline
+
+`COO-DECISION 20260902_0346` (item "ใครทำอะไรต่อ") tells this lane, in as many words, not to touch
+`gm/say_wire.py` or `gm/chat_command_action.py` for the on-screen half of `/speed` this round -- chief
+holds both files under `COO-DECISION 0345`. So this round changed **no source file at all**, in this
+lane's zone or anywhere else. It added one test file and two letters.
+
+### The gap that was actually open
+
+`NOW.md` records the owner's own criterion for GM-A: warp across SEVERAL maps in a row and find the
+NPCs on EVERY map. `tests/test_gm_warp_position_confirmed.py`'s KA1A class pins the fix that makes
+that possible (each cross-scene hop clears the once-per-login census latch) but stops there: it
+asserts flags and event tokens and never dispatches another frame afterwards, and its chain hops to
+`departure_scene + 1 .. + 7`, scene ids produced by arithmetic rather than taken from the registry.
+Between "latch cleared" and "a frame with bodies in it" sit five more gates, every one of which fails
+closed and silently: the arrival anchor (`runtime.py:7945-7967`), a registered composer
+(`:8184-8194`), the composer's own `login_entry_allowed` admission (declined arm at `:8339`),
+composition itself (`:8326`), and scene 1's walk-before-census disjunct.
+
+### Measured, headless, on the real dispatcher, flagless boot
+
+`tests/test_gm_warp_chain_census_shipped.py`, 10 tests. Twelve consecutive cross-scene warps in ONE
+login (eleven registry scenes plus one revisit -- the chain is read from the composer registry, not
+written down, and guarded against shrinking below eight), each followed by one ordinary runtime poll:
+
+| destination | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 14 | 130 | 3 again |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| actors on the arrival census | 62 | 109 | 87 | 66 | 56 | 69 | 57 | 94 | 51 | 81 | 41 | 62 |
+
+Then the whole reachable world, asked of the production gate rather than listed: bare `/warp <scene>`
+reaches exactly 13 scene ids today (`1, 2, 3-11, 14, 130`), and **12 of the 13 ship an arrival census
+with a non-zero actor count**, scene 2 included (97, from the runtime's own bg0002 arm, which a chain
+built from the lane registry alone would never have touched). Scene 1 is the one exception and is
+asserted AS an exception.
+
+And the way a tester actually plays: land, walk, then type the next `/warp`. That leaves the
+departure map's coordinates in `last_target_pos`, which the arrival census reads before it falls back
+to the destination's spawn -- so the walking chain asserts BOTH the queued buffer and the stamped
+`census_anchor_record` belong to the destination and its own spawn. That is GT-172's F-1 arriving
+through a different door.
+
+### pf-adversary: NOT APPROVED on the first pass, ten defects, all ten answered before un-drafting
+
+The subagent ran mutation experiments in its own worktree and came back with the finding that mattered
+most: **the first version of this file asserted labels, not bytes**. A census label's actor count is an
+integer the LANE hands the runtime -- `runtime.py:8270-8272` coerces it and the runtime's own comment
+there calls it untrusted -- so two mutants that ARE the bug being hunted stayed green:
+
+* blank `lane_pc`/`lane_frame` at `:8270-8271` -> every hop ships `..._SCENE7_INITIAL_56` with an empty
+  buffer behind it. That is the empty map GT-182 reported, and the first version said 9 passed;
+* cache hop one's bytes and replay them for every later hop -> scene 130's arrival ships scene 3's dock
+  NPCs under scene 130's label. Also 9 passed.
+
+Every assertion now goes through the queued buffer: the count is read back off the wire with
+`world_population_handoff.wire_count_of`, and the buffer is compared byte for byte against a census
+composed independently for that scene at that scene's own spawn.
+
+Two more findings were corrections to what this lane had WRITTEN, not to the code:
+
+* the walking-chain docstring claimed a stale anchor "puts the bodies where the player is not". The
+  subagent measured it: same actor count, same buffer length, same multiset of bytes -- only the ORDER
+  actors are listed in changes, which `runtime.py:8237-8248` says in as many words. The claim is now
+  the narrow one it can support, and the sentence that overstated it is gone rather than softened;
+* the "whole reachable world" test visited scene 1 FIRST, and the session boots in scene 1 -- so the
+  warp was a same-scene no-op that returned before the resync ran (`runtime.py:5660`). Scene 1's
+  silence was being "proved" by a session that had never warped anywhere. It is visited LAST now,
+  arrived at from another map, with `gm_warp_selected_scene_resynced_1` asserted so it cannot go
+  vacuous again. The published "12 of the 13" was re-measured after that fix, not carried over.
+
+The rest: once-per-scene latching is asserted (a second poll must ship nothing), scene 2's own label
+spelling is pinned (renaming it to the home census's spelling is the "dock NPCs into Prison Exile
+Island" mix-up), `world_census_refused` gets its own test, and every helper that reads the registry has
+a minimum-size guard so a shrunken registry cannot leave a test asserting nothing.
+
+### Mutation control (separate worktree, deleted; live tree clean)
+
+Measured on the 10-test file that is being merged, not on the draft the subagent reviewed:
+
+| mutant | before this pass | after |
+|---|---|---|
+| neither latch field cleared on a hop (the pre-`67fe6fe` behaviour) | 5 red | **6 red** |
+| only `world_census_sent = False` removed | 5 red | **5 red** |
+| only `world_census_refused = False` removed | **0 red** | **1 red** |
+| `last_target_pos = None` removed (stale anchor) | 1 red | **1 red** |
+| `lane_pc`/`lane_frame` blanked: label says 56, wire is empty | **0 red** | **5 red** |
+| hop one's bytes replayed for every later hop | **0 red** | **4 red** |
+| composed around the previous map's anchor, stamp still correct | **0 red** | **4 red** |
+| the lane census never latches `world_census_sent` | **0 red** | **1 red** |
+| scene 2's label renamed to the home census's spelling | **0 red** | **1 red** |
+
+The `last_target_pos` row is still the whole reason the walking-chain test exists: every other test in
+this file warps from a standing start, so none of them can see a stale anchor.
+
+### The two asterisks GT-192 needs before the owner runs it (letter to COO, `0425`)
+
+1. A warp BACK to scene 1 mid-session stays empty until the character moves one step. That disjunct
+   is held shut ON PURPOSE (`KA1A-AMENDMENT 20260901_1120`) and this lane did not touch it -- but the
+   owner's criterion says "every map", so without one line in the ticket she will read a deliberate
+   gate as GM-A failing again and burn an attended round. Pinned as its own test, which goes red the
+   day the disjunct opens.
+2. The ticket should name a closed list of maps to warp to. Outside those 13 ids a bare `/warp` is
+   REFUSED by name, not silently empty -- but a tester picking numbers off the 330-scene catalog
+   cannot know that from the ticket as written.
+
+Both are chief's to apply: `GT-192`'s head is his ticket, not this lane's.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+Read one test run and know, before booting a client, which maps a chained `/warp` session will show
+NPCs on and which one will not. Yesterday the only answer to "does hop eight work?" was the attended
+round itself.
+
+### nonclaim
+
+1. **Wire layer only.** Census actions are composed and queued; no client is in this round's
+   evidence. Nothing here may be read as "the NPCs were seen".
+2. Does not claim GM-A passes, does not close it, does not announce a milestone. Only Panya ticks.
+3. GM shortcut used: `/warp` is a GM command, used to reach each map. Reaching a map with GM is not
+   evidence that ordinary travel to it works.
+4. Does not claim scene 1's silence is a defect -- it is a gate this project chose, recorded here so
+   nobody claims "every map" without the asterisk.
+5. No source file changed this round: `runtime.py`, `app.py`, `pf_login_game_server_v141.py`, the
+   canonical DB, `scenarios/world_*.json`, `scenarios/combat_*.json`, LANE-DB's files and other
+   lanes' queue headers are all untouched, and so are `gm/say_wire.py` and
+   `gm/chat_command_action.py` (chief holds those this round).
+6. No history deleted.
