@@ -40,7 +40,10 @@ attribute block still cannot compose.  ``TheGateStillRefusesTests`` asserts
 that refusal rather than hiding it, and ``BootSnapshotProtects006Tests``
 asserts the protection that arriving wiring is supposed to give this file.
 """
+import ast
+import gc
 import json
+import os
 import re
 import shutil
 import struct
@@ -879,7 +882,181 @@ class TheGateStillRefusesTests(unittest.TestCase):
         )
 
 
-class SparseSendPathTests(unittest.TestCase):
+def _is_sqlite_connect(node):
+    """`sqlite3.connect(...)` as an AST call, not as a run of characters.
+
+    Matching source text is what made the first version of this guard false
+    green: a comment, a docstring, or a line break in the wrong place all
+    changed the answer.  The parser does not care where the newlines are.
+    """
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "connect"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "sqlite3"
+    )
+
+
+def _own_nodes(function):
+    """Every node belonging to `function` itself, nested functions excluded."""
+    for child in ast.iter_child_nodes(function):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        yield child
+        yield from _own_nodes(child)
+
+
+def bare_with_connect_sites(source):
+    """`with sqlite3.connect(...) as db:` -- the line that closed PR #495.
+
+    `sqlite3`'s context manager commits or rolls back and leaves the
+    connection OPEN.  `with contextlib.closing(sqlite3.connect(...))` is the
+    correct spelling of the same idea and is NOT reported: the call directly
+    under `with` is `closing`, not `connect`.
+    """
+    return sorted(
+        item.context_expr.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.With, ast.AsyncWith))
+        for item in node.items
+        if _is_sqlite_connect(item.context_expr)
+    )
+
+
+def unclosed_connect_sites(source):
+    """`db = sqlite3.connect(...)` whose handle is neither closed nor handed on.
+
+    Within the method that opened it, one of two things must be true:
+    `db.close()` is CALLED (an `ast.Call`, so a comment or a docstring
+    mentioning it proves nothing), or the connection object ITSELF is
+    returned (`return db`, or `return store, db` -- the caller inherits the
+    duty; `_at_005_with_a_character` returns exactly that pair, and
+    `test_a_hot_wal_is_carried_into_the_snapshot` closes it).
+    `return db.execute(...)` returns a cursor or a row and is NOT handing the
+    handle on; that shape is the most likely way for this defect to come
+    back, so it is reported.
+    """
+    tree = ast.parse(source)
+    offenders = []
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = list(_own_nodes(function))
+        opened = {
+            target.id: node.lineno
+            for node in body
+            if isinstance(node, ast.Assign) and _is_sqlite_connect(node.value)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for name, lineno in opened.items():
+            closed = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "close"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == name
+                for node in body
+            )
+            handed_on = any(
+                isinstance(node, ast.Return)
+                and any(
+                    isinstance(returned, ast.Name) and returned.id == name
+                    for returned in (
+                        node.value.elts
+                        if isinstance(node.value, (ast.Tuple, ast.List))
+                        else [node.value]
+                    )
+                )
+                for node in body
+            )
+            if not (closed or handed_on):
+                offenders.append(lineno)
+    inside_a_function = {
+        id(node)
+        for function in ast.walk(tree)
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in ast.walk(function)
+    }
+    offenders += [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and _is_sqlite_connect(node.value)
+        and id(node) not in inside_a_function
+    ]
+    return sorted(offenders)
+
+
+def open_handles_under(directory):
+    """Paths inside `directory` this process still has open, or `None` where
+    that cannot be asked (no `/proc`, i.e. not Linux).
+
+    `None` is not "clean" and callers must not read it as clean.  On Windows
+    the question does not need asking: the operating system enforces the same
+    rule by refusing the unlink, which is how this defect reached the gate in
+    the first place.
+    """
+    if not os.path.isdir("/proc/self/fd"):
+        return None
+    root = os.path.realpath(directory)
+    held = set()
+    for fd in os.listdir("/proc/self/fd"):
+        try:
+            target = os.readlink(os.path.join("/proc/self/fd", fd))
+        except OSError:
+            continue
+        if target.startswith(root + os.sep):
+            held.add(target)
+    return sorted(held)
+
+
+class NoHandleOutlivesItsTempDirMixin:
+    """Fail a test that leaves a handle open on its own temp directory.
+
+    THIS IS THE GUARD THAT MATTERS, and the round that wrote it first got
+    this wrong.  `with sqlite3.connect(path) as db:` commits and leaves the
+    connection open; on POSIX `TemporaryDirectory.cleanup` then unlinks a file
+    that is still open and says nothing, while on Windows the same handle
+    makes cleanup raise
+    `PermissionError: [WinError 32] ... being used by another process`.  That
+    is how PR #495 died: gate `pytest_subset exit=1`, `1 failed / 5471
+    passed`, the workflow closed the pull request, and a round of this lane
+    was spent on a defect that lives entirely in this test file.
+
+    An earlier version of this guard was source-only, justified by a sentence
+    copied from `tests/test_store_acquired_item_insert.py` -- that a
+    cleanup-time assertion was tried on Linux and could not see the leak
+    because the object was collected first.  An adversary pass measured that
+    premise in THIS file and it does not hold here: the three fds
+    (`state.sqlite3`, `-wal`, `-shm`) are still open at the cleanup boundary
+    and a ten-line assertion sees all three.  The conclusion was inherited
+    instead of re-measured, and it cost a working guard.
+
+    Registered in `setUp` AFTER the temp directory's own cleanup so that LIFO
+    ordering runs this first -- checking after the directory is gone would
+    check nothing.
+    """
+
+    def guard_the_temp_dir(self, temporary_directory):
+        self.addCleanup(self._assert_no_handle_survives, temporary_directory.name)
+
+    def _assert_no_handle_survives(self, name):
+        held = open_handles_under(name)
+        if held is None:  # not Linux: the OS enforces this itself, loudly
+            return
+        self.assertEqual(
+            held,
+            [],
+            "a handle on the temp directory outlives this test.  On Windows "
+            "TemporaryDirectory.cleanup raises WinError 32 here and the gate "
+            "goes red.  `with sqlite3.connect(...)` does not close; use "
+            "`db = sqlite3.connect(...)` with `try: ... finally: db.close()`.",
+        )
+
+
+class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
     """`store.write_typed_attributes_and_compose_sparse`: the DB is written
     first and the block is a view of what landed -- never the other way round.
 
@@ -899,6 +1076,10 @@ class SparseSendPathTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        # AFTER the line above on purpose: cleanups run LIFO, so this one runs
+        # BEFORE the directory is removed.  Registered the other way round it
+        # would inspect a directory that no longer exists and pass always.
+        self.guard_the_temp_dir(self.tmp)
         self.path = Path(self.tmp.name) / "state.sqlite3"
         self.store = SQLiteStore(self.path, MIGRATIONS)
         self.store.migrate()
@@ -1012,21 +1193,28 @@ class SparseSendPathTests(unittest.TestCase):
         the UPDATE has already landed on the soft-deleted row, so the row is
         read raw.
         """
-        with sqlite3.connect(self.path) as db:
+        db = sqlite3.connect(self.path)
+        try:
             db.execute(
                 "UPDATE characters SET deleted_at=? WHERE id=?",
                 ("2026-09-01T00:00:00Z", self.character.id),
             )
+            db.commit()
+        finally:
+            db.close()
         with self.assertRaises(KeyError):
             self.store.write_typed_attributes_and_compose_sparse(
                 self.character.id, {"speed_walk": 300.0}
             )
-        with sqlite3.connect(self.path) as db:
+        db = sqlite3.connect(self.path)
+        try:
             db.row_factory = sqlite3.Row
             row = db.execute(
                 "SELECT speed_walk FROM characters WHERE id=?",
                 (self.character.id,),
             ).fetchone()
+        finally:
+            db.close()
         self.assertIsNone(row["speed_walk"])
 
     def test_an_empty_write_is_refused_before_it_becomes_an_empty_block(self):
@@ -1050,6 +1238,162 @@ class SparseSendPathTests(unittest.TestCase):
             compose.compose_sparse_block(typed.typed_values_for_compose(stored)),
             {7: 777.0},
         )
+
+
+class NoLeakedSqliteHandleTests(unittest.TestCase):
+    """The source pins, kept as a second line behind the runtime guard above.
+
+    They earn their place only because they name the defect at the line that
+    causes it rather than at the test that trips over it, and because they
+    read the whole file rather than only the classes that happen to run a
+    temp directory.  They are NOT the primary defence and must not be relied
+    on as one: an adversary pass drove four separate mutants past an earlier,
+    line-matching version of them while all three stayed green.  Both
+    predicates now work on the parse tree, and every test below CALLS the
+    predicate rather than restating it -- the earlier `test_the_guard_can_fail`
+    re-implemented the match inline, so neutering the real matcher left it
+    green.
+    """
+
+    def _source(self):
+        return Path(__file__).read_text(encoding="utf-8")
+
+    def test_no_connection_in_this_file_is_opened_by_a_bare_with(self):
+        self.assertEqual(bare_with_connect_sites(self._source()), [])
+
+    def test_every_connect_in_this_file_is_closed_or_handed_to_its_caller(self):
+        self.assertEqual(unclosed_connect_sites(self._source()), [])
+
+    def test_the_bare_with_pin_fires_on_the_line_that_closed_pr_495(self):
+        shipped = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    with sqlite3.connect(self.path) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(shipped), [3])
+
+    def test_the_bare_with_pin_fires_when_the_with_is_parenthesised(self):
+        """Adversary mutant B3: the same defect with a line break in it.  A
+        line-matching pin missed this entirely -- the line holding `with` has
+        no `connect` on it and the line holding `connect` does not start with
+        `with`.
+        """
+        wrapped = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    with (\n"
+            "        sqlite3.connect(self.path)\n"
+            "    ) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(wrapped), [4])
+
+    def test_closing_is_correct_code_and_is_not_reported(self):
+        """The complement of the pin above: a guard that reports correct code
+        teaches people to delete the guard.
+        """
+        correct = (
+            "import contextlib, sqlite3\n"
+            "def t(self):\n"
+            "    with contextlib.closing(sqlite3.connect(self.path)) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(correct), [])
+
+    def test_returning_a_row_is_not_handing_the_handle_on(self):
+        """Adversary mutant B1, ranked its most likely regression shape: pull
+        the read-back into a helper that returns the ROW.  A substring test
+        for "a return line mentioning db" credits this as handing the handle
+        to a caller.  It hands over a `sqlite3.Row`; the connection leaks.
+        """
+        mutant = (
+            "import sqlite3\n"
+            "def _raw_speed(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    db.row_factory = sqlite3.Row\n"
+            "    return db.execute('SELECT speed_walk').fetchone()\n"
+        )
+        self.assertEqual(unclosed_connect_sites(mutant), [3])
+
+    def test_returning_the_connection_itself_is_handing_the_handle_on(self):
+        """`_at_005_with_a_character` really does this: it opens `holder` to
+        keep a WAL file hot across a migration and returns it, and
+        `test_a_hot_wal_is_carried_into_the_snapshot` closes it.  Reporting
+        that would be a false red on correct code.
+        """
+        handed_on = (
+            "import sqlite3\n"
+            "def _open(self):\n"
+            "    holder = sqlite3.connect(self.path)\n"
+            "    holder.execute('PRAGMA journal_mode=WAL')\n"
+            "    return holder\n"
+        )
+        self.assertEqual(unclosed_connect_sites(handed_on), [])
+
+    def test_a_comment_promising_a_close_is_not_a_close(self):
+        """Adversary mutant B2.  The earlier pin scanned raw lines, so a
+        comment saying `db.close()` satisfied it.
+        """
+        mutant = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    # db.close() happens when the temp dir goes away\n"
+            "    db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(unclosed_connect_sites(mutant), [3])
+
+    def test_a_close_in_a_finally_satisfies_the_pin(self):
+        correct = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    try:\n"
+            "        db.execute('SELECT 1')\n"
+            "    finally:\n"
+            "        db.close()\n"
+        )
+        self.assertEqual(unclosed_connect_sites(correct), [])
+
+    def test_a_module_level_connection_is_reported(self):
+        mutant = "import sqlite3\ndb = sqlite3.connect('x')\n"
+        self.assertEqual(unclosed_connect_sites(mutant), [2])
+
+    def test_the_runtime_guard_sees_a_handle_that_outlives_its_frame(self):
+        """The premise the source-only version got wrong, measured here rather
+        than inherited from another file's conclusion.  If this ever starts
+        skipping on Linux, the runtime guard has stopped guarding.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "probe.sqlite3"
+        sqlite3.connect(path).close()
+        if open_handles_under(directory.name) is None:
+            self.skipTest("no /proc/self/fd: the OS enforces this rule itself")
+        self.assertEqual(open_handles_under(directory.name), [])
+
+        # The leaking form is built from a STRING on purpose.  Written
+        # literally it would be a real offender in this file and the two
+        # source pins above would report it -- correctly.  Exempting it would
+        # put a hole in the pins for the sake of the test that checks them,
+        # so the defect is data here and the pins stay absolute.
+        namespace = {"sqlite3": sqlite3, "path": path}
+        exec(  # noqa: S102 - the string is a literal three lines above
+            "def leaks():\n"
+            "    with sqlite3.connect(path) as db:\n"
+            "        db.execute('SELECT 1')\n",
+            namespace,
+        )
+        namespace["leaks"]()
+        self.assertEqual(
+            open_handles_under(directory.name),
+            [str(path)],
+            "the `with` form no longer outlives its frame on this "
+            "interpreter -- re-measure before trusting the runtime guard",
+        )
+        gc.collect()
+        self.assertEqual(open_handles_under(directory.name), [])
 
 
 if __name__ == "__main__":  # pragma: no cover
