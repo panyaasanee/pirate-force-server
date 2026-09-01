@@ -879,6 +879,75 @@ class SQLiteStore:
             ).fetchone()
         return {c: after[c] for c in columns if after[c] is not None}
 
+    def write_typed_attributes_and_compose_sparse(
+        self, character_id: int, values: dict[str, int | float]
+    ) -> dict[int, object]:
+        """Persist typed columns, then hand back the SPARSE `{x: value}` for
+        exactly the columns this call wrote -- ready for
+        `gm/attr_wire.encode_block`.
+
+        LANE-DB owns this method; no existing method is touched by it.  It is
+        the entry point on the PERSISTENCE side for `/speed`
+        (`COO-ORDER 20260901_1640` / `20260901_1641`), and it exists so that
+        the four steps in between -- validate, write, read back, compose --
+        cannot be assembled in the wrong order at the call site.
+
+        IT IS NOT THE WIRE-SIDE ENTRY POINT, AND THE TWO DISAGREE.
+        `gm/attr_wire.build_named_field_update` calls itself "the one entry
+        point a future chat-command action should call", and it REFUSES x=7
+        (`FIELDS` marks it `known=False`) and composes a merged FULL block --
+        which is what `COO-ORDER 20260901_1641` forbids on this path.  So a
+        caller of this method must hand the returned dict to `encode_block` /
+        `make_update_attr_frame` directly, routing around that lane's policy
+        gate.  That is deliberate, and the cost is worth stating: on this
+        path `compose_sparse_block` is the ONLY thing between a caller and
+        `SENSITIVE_FIELDS`.  An adversary pass found this collision; neither
+        file said it before.
+
+        DB FIRST, WIRE SECOND, on purpose: the value is validated and stored
+        before any block exists, so a refused value never reaches a frame and
+        a caller cannot show the player a speed the database never accepted.
+        The composed value is taken from the row read back inside
+        `write_typed_attributes`' own transaction rather than from the
+        caller's dict -- but be honest about what that buys: no input has yet
+        been found for which the two differ (SQLite round-trips a python float
+        exactly and `as_f32` is idempotent), so the read-back is a structural
+        choice, NOT a measured safety property.  An adversary pass replaced it
+        with the caller's own dict and every test stayed green.
+
+        WHICH DATABASE THIS WRITES TO IS NOT ENFORCED HERE.
+        `COO-ORDER 20260901_1641` allows this path only against the attended
+        round's run-copy and forbids pointing it at the canonical database.
+        This method writes to whatever file its `SQLiteStore` was built
+        against and cannot see which one that is, so that constraint lives at
+        the call site and in the boot job -- it is not carried by this code,
+        and no green test here means it was honoured.
+
+        ONLY the columns named in `values` end up in the block.  The write
+        returns the character's whole typed-attribute state (level, hp, ...
+        whatever else that row already has), and composing THAT would quietly
+        turn a one-field send into a multi-field one -- which is exactly what
+        `COO-ORDER 20260901_1641` forbids on this path.  So the projection is
+        `values`' own keys, and the sparse gate refuses anything outside
+        `SPARSE_APPROVED_FIELDS` (x=7 today) on top of that.
+
+        Raises `KeyError` for a character that does not exist or is
+        soft-deleted, `persistence_typed_attrs.TypedAttrError` for a value the
+        schema may not hold, and
+        `persistence_attr_compose.AttrComposeError` for a field this path is
+        not allowed to send.  Note the ordering: a refusal from the compose
+        gate happens AFTER the write has committed, because the write is the
+        durable truth and the block is a view of it -- a column this server
+        owns is not made wrong by the fact that one send path may not carry
+        it.  A caller must not read the exception as "nothing was stored".
+        """
+        from . import persistence_typed_attrs as typed_attrs
+        from .persistence_attr_compose import compose_sparse_block
+
+        stored = self.write_typed_attributes(character_id, values)
+        written = {column: stored[column] for column in values}
+        return compose_sparse_block(typed_attrs.typed_values_for_compose(written))
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
