@@ -952,6 +952,153 @@ class SQLiteStore:
         written = {column: stored[column] for column in values}
         return compose_sparse_block(typed_attrs.typed_values_for_compose(written))
 
+    def write_speed_by_identity_with_reason(
+        self, identity_lo: object, identity_hi: object, speed: object
+    ) -> tuple[dict[int, object] | None, str]:
+        """`/speed`, remembered: find the character by identity, store the
+        speed, hand back the block built from the row that landed -- and NAME
+        the refusal when there is one.
+
+        LANE-DB owns this method; no existing method is touched by it.
+
+        WHY A REASON AT ALL, when `LANE-GM`'s letter
+        (`20260902_0017_LANE-GM-TO-LANE-DB-request-speed-persistence-
+        method.md`) asked for `dict | None`.  `COO-DECISION 20260902_0147`
+        landed after that letter and made a SILENT db refusal a banned
+        outcome: the GM must be answered in chat with `speed refused: db
+        <reason>`, and a bare `None` carries no `<reason>`.  So the requested
+        signature is kept exactly as asked -- `write_speed_by_identity` below
+        is it, byte for byte -- and this method is the same answer with the
+        token.  Every token is in `persistence_speed_identity.REASONS`, they
+        are fixed strings, and none of them embeds the GM's typed text (the
+        rule `gm/chat_command_action` already applies to its own refusals,
+        for the same reason: this string reaches a chat window).
+
+        WHY THE IDENTITY IS TRANSLATED HERE.  `gm/` holds `identity_lo`/
+        `identity_hi` off `session.foundation.selected` and no row id at all;
+        the letter asked this side to own the lookup so `gm/` never
+        reverse-engineers this schema.  The lookup is
+        `WHERE identity_lo=? AND identity_hi=? AND deleted_at IS NULL`, which
+        `migrations/004_character_soft_delete_reuse.sql:51`
+        (`characters_active_identity`) makes match AT MOST ONE row -- that
+        partial unique index is the whole reason this method may return a
+        single answer rather than a list.  A soft-deleted character holding
+        the same identity is `no_such_character`, not a target.
+
+        ONE TRANSACTION, `BEGIN IMMEDIATE`, and that is load-bearing rather
+        than tidy.  Lookup, write and read-back are under one lock, so the
+        window where another connection soft-deletes this character (or
+        creates a NEW one reusing the identity that 004 explicitly allows to
+        be reused) cannot land between the lookup and the write.  Split
+        across two transactions the same code can write to a row it no longer
+        identifies.
+
+        DB FIRST, WIRE SECOND (`COO-DECISION 20260902_0147` point 1): the
+        value passes `persistence_speed_identity.gate_value` -- which is
+        `compose_sparse_block`, so both `persistence_typed_attrs.validate` and
+        the `SPARSE_APPROVED_FIELDS` permission -- BEFORE any transaction
+        opens.  A refused value therefore never reaches SQLite, and a refusal
+        answer can never mean "committed, then reported as refused".  The
+        block the caller RECEIVES is composed from the row read back inside
+        this transaction, and if that row does not hold what was written the
+        transaction is ROLLED BACK and the caller is told
+        (`readback_disagrees`): showing a player a speed this method could
+        not verify is the lie that decision forbids.
+
+        WHAT IT DOES NOT CONVERT INTO A REASON, stated rather than
+        discovered.  Only REFUSALS become tokens.  An operational failure --
+        `sqlite3.OperationalError` for a locked or missing database, a disk
+        error -- still RAISES, because "the database is unavailable" reported
+        as `no_such_character` would send a GM hunting a character that is
+        sitting right there.  A caller that must never see an exception
+        should wrap this call; that choice is stated in the reply letter to
+        LANE-GM rather than made silently here.
+
+        WHICH DATABASE THIS WRITES TO IS NOT ENFORCED HERE.  Same limit as
+        `write_typed_attributes_and_compose_sparse`:
+        `COO-ORDER 20260901_1641` allows this path against an attended
+        round's run-copy and forbids the canonical database, and
+        `gm/chat_command_action._speed_db_is_canonical` is the gate for it.
+        This method writes to whatever file its `SQLiteStore` was built
+        against and cannot see which one that is.
+        """
+        from . import persistence_speed_identity as speed_id
+
+        if not speed_id.identity_is_usable(identity_lo, identity_hi):
+            # Before any SQL on purpose: SQLite compares `7.0` EQUAL to `7`,
+            # so a float identity would match a real row and write to it.
+            return None, speed_id.REASON_IDENTITY_NOT_AN_INT
+        value = speed_id.gate_value(speed)
+        if value is None:
+            return None, speed_id.REASON_VALUE_REFUSED
+        # `column` is interpolated into SQL below.  It is not caller input:
+        # it comes from `persistence_typed_attrs.COLUMN_FOR_X`, whose every
+        # name is matched against `^[a-z][a-z0-9_]*$` when that table is
+        # built, and it is pinned to `speed_walk` by this lane's tests.
+        column = speed_id.speed_column()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters "
+                "WHERE identity_lo=? AND identity_hi=? AND deleted_at IS NULL",
+                (identity_lo, identity_hi),
+            ).fetchone()
+            if row is None:
+                db.rollback()
+                return None, speed_id.REASON_NO_SUCH_CHARACTER
+            character_id = int(row["id"])
+            try:
+                written = db.execute(
+                    f"UPDATE characters SET {column}=?,updated_at=? "
+                    "WHERE id=? AND deleted_at IS NULL",
+                    (value, _now(), character_id),
+                ).rowcount
+            except sqlite3.IntegrityError:
+                # The column's own CHECK in `migrations/006_...sql` fired --
+                # the second line of defence behind `gate_value`.  Reachable
+                # only if the two ever disagree, which a test pins; it is
+                # answered rather than raised so the GM sees WHICH gate said
+                # no.
+                db.rollback()
+                return None, speed_id.REASON_SCHEMA_REFUSED
+            if written != 1:
+                db.rollback()
+                return None, speed_id.REASON_NO_SUCH_CHARACTER
+            after = db.execute(
+                f"SELECT {column} FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            stored = None if after is None else after[column]
+            block = (
+                None if stored is None
+                else speed_id.block_from_stored({column: stored})
+            )
+            if stored != value or block is None:
+                # ROLLED BACK, not reported as done: a block the caller could
+                # not be given is a write the caller must not be told about.
+                db.rollback()
+                return None, speed_id.REASON_READBACK_DISAGREES
+        return block, speed_id.REASON_OK
+
+    def write_speed_by_identity(
+        self, identity_lo: object, identity_hi: object, speed: object
+    ) -> dict[int, object] | None:
+        """The signature `LANE-GM` asked for in `20260902_0017`, unchanged.
+
+        `{7: <float>}` taken from the row read back after the write, or
+        `None` when the identity names no live character or the value was
+        refused.  Nothing here raises for either of those two; see
+        `write_speed_by_identity_with_reason` -- which this delegates to
+        whole, so the two can never drift -- for the refusal TOKEN that
+        `COO-DECISION 20260902_0147` requires a caller to put on the GM's
+        screen, and for the operational failures that still raise.
+        """
+        block, _reason = self.write_speed_by_identity_with_reason(
+            identity_lo, identity_hi, speed
+        )
+        return block
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
