@@ -1261,6 +1261,33 @@ def bar_frames(
     still correct for ITS documented shape (one entry), it is the SHAPE that
     is now known-dangerous on the unflagged path, not this function's
     arithmetic or encoding.
+
+    [UPDATE, round ``fbql13``, 2026-09-01T14:36+07:00] [MEASURED, by
+    call-site reading]: the paragraph above still describes the shape
+    correctly but the ``runtime.py`` caller has grown one more layer since it
+    was written, and a first draft of this UPDATE overstated what that layer
+    changed - an adversarial review of round ``fbql13`` caught it, so this is
+    the corrected version.  As of ``pirate-force-server`` round ``y9s0xo``
+    (2026-08-29, ``mob_scene_recompose.py``), ``runtime.py``'s combat-hit
+    branch (its own ``CORE-REQUEST-008`` / ``CORE-REQUEST 20260829_2055``
+    comments, near the ``len(step.frames) > 1`` arm) no longer calls
+    ``mob_death.hostile_census_frames`` directly - it calls
+    ``mob_scene_recompose.recompose_frames``, which is SCENE-DISPATCHED and
+    adds a composer for scene 2.  But for scene 1 that new layer is NOT a
+    replacement: it delegates to ``diag_multi_object_wiring.
+    hostile_census_frames``, and that function's own first branch (``if not
+    objects:``) calls ``mob_death.hostile_census_frames`` straight through
+    with the same arguments whenever no diagnostic objects are active - which
+    is every account's default (``self.diag_multi_objects`` starts at ``()``
+    in ``runtime.py`` and only a diagnostic activation populates it).  So
+    ``mob_death.hostile_census_frames`` is still the function that composes
+    the wire bytes for an ordinary scene-1 hit today; it is reached one call
+    deeper than this paragraph's original pointer said, not superseded by
+    it.  A reader tracing today's production path from ``runtime.py`` should
+    start at ``mob_scene_recompose.recompose_frames``, but should not expect
+    ``mob_death.hostile_census_frames`` to be dead code - it is the terminal
+    executor for the common case and is bypassed only when a diagnostic
+    activation supplies its own objects.
     """
     if type(mob) is not FieldMob:
         raise MobCombatContractError(
