@@ -293,8 +293,15 @@ CHAT_PUSH_TRIGGER_CLASSIFICATION = "ascii12"
 # row 73 carries, for ReturnSelectServerVital: getter_va 0x005E6960 installed
 # at reg_site_va 0x00BEE880, and handler_va 0x005F1190 -- an address that is
 # UNIQUE to this row across all 519 rows, so it is not one of the shared stubs
-# that table reuses elsewhere (contrast serializer_va 0x0043BB80, shared by the
-# whole Attr cohort).  "Zero direct rel32 callers" is therefore not evidence of
+# that table reuses elsewhere.  [CORRECTED 2026-09-01, ka1-B letter 2117 item
+# (1)]: an earlier draft of this comment contrasted serializer_va 0x0043BB80
+# as "shared by the whole Attr cohort" -- that is wrong.  0x0043BB80 is a
+# misread-slot artifact at vtable+0x18 on 45/519 rows (all with
+# old_slot_capabilities=NONE there, i.e. no read/write capability on that
+# slot at all); the real per-type serializers live at vtable+0x34 and are
+# distinct per class (ActorAttr 0x00466230, BasicAttr 0x004656F0, etc). The
+# conclusion below about handler_va 0x005F1190 being unique is unaffected.
+# "Zero direct rel32 callers" is therefore not evidence of
 # "no producer": indirect dispatch through the descriptor table is exactly what
 # the registry describes.
 #
@@ -1609,18 +1616,52 @@ def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
 
 
 def classify_logout_attempt(legacy: Any, parsed: Any) -> str:
-    """Classify one 0x1B40-bearing parse against the exact captured forms."""
+    """Classify one 0x1B40-bearing parse against the exact captured forms.
+
+    [FIXED 2026-09-01, LANE-A CORE-REQUEST letter 2007]: a live capture of
+    the real "exit game" button showed the client wraps the LogoutVital
+    entry together with whatever other vitals are pending in the same
+    session (vital_count == 4, not 1) -- the byte-identical 34-byte pin
+    only ever covered the isolated single-vital case. vital_count is now a
+    floor, not an exact match, but the payload check stays branched on it
+    rather than uniformly relaxed:
+
+    - vital_count == 1 (no bundled vitals): nested_payload must equal the
+      pinned 14-byte payload EXACTLY, length included, same as before this
+      fix. Nothing legitimate produces trailing bytes after a lone vital's
+      own payload, so a frame that claims vital_count == 1 but carries
+      extra bytes anyway is still rejected as "wrong_payload" rather than
+      silently accepted via prefix truncation (pf-adversary review of the
+      first draft of this fix: a naive nested_payload[:14] compare applied
+      unconditionally would accept vital_count == 1 plus 50 bytes of
+      arbitrary junk as a valid click -- fail-open on malformed input this
+      module's own docstring promises to reject).
+    - vital_count >= 2 (real bundled-vitals case, the gap this fix closes):
+      only the LogoutVital entry's own 14-byte payload (verified
+      fixed-length, see LOGOUT_REQUEST_PAYLOADS) is compared as a PREFIX of
+      nested_payload, which also holds the trailing wrapped vitals' raw
+      bytes and is never itself hash/length-pinned.
+
+    Confirmed against the real current/pf_login_game_server_v141.py parser,
+    not just recomputed bytes: nested_payload[:14] exact-matches for both
+    subcodes on the real vital_count == 4 capture.
+    """
     if not (
         parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
         and parsed.outer_version == 0
         and parsed.outer_mask == 0x02
-        and parsed.vital_count == 1
+        and parsed.vital_count >= 1
         and parsed.nested_id == LOGOUT_VITAL_ID
         and parsed.nested_version == 0
     ):
         return "wrong_envelope"
     for subcode in LOGOUT_SUBCODES:
-        if parsed.nested_payload == LOGOUT_REQUEST_PAYLOADS[subcode]:
+        expected = LOGOUT_REQUEST_PAYLOADS[subcode]
+        if parsed.vital_count == 1:
+            matched = parsed.nested_payload == expected
+        else:
+            matched = parsed.nested_payload[:14] == expected
+        if matched:
             return f"exact_{subcode:02d}"
     return "wrong_payload"
 
