@@ -399,6 +399,29 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # which scene's MOBS row the body's stats were mined from.
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
     "diag-mountain-deer-template-27": frozenset({27}),
+    # COO-DECISION 2026-09-01T10:46+07:00 (notes_to_chief/20260901_1046_
+    # COO-DECISION-bg0015-death-ruling-option-b-six-templates-carlos-held-
+    # out.md), answering LANE-B-PROPOSAL 2026-09-01T09:51+07:00 (round
+    # vzhc6s, mob_death_bg0015_ruling_proposal.py): OPTION B of that
+    # proposal's three -- six of Bg0015's seven candidate templates, the
+    # ones the same three-step methodology bg0001/Bg0002 already used
+    # (steps 1-3 of that module's own docstring) generalises to cleanly.
+    # Template 924 ("Carlos") is DELIBERATELY EXCLUDED, not omitted by
+    # oversight: it is the one row two earlier letters already flagged as
+    # an open content question (pf_bridge/notes_to_chief/20260829_0739_
+    # LANE-A-STATUS-... item 4, and this lane's own scene_identity_rule.py
+    # docstring point 8: "It may well be a real boss; nobody has looked."),
+    # and this ruling does not answer that question -- see
+    # mob_death_bg0015_ruling_proposal.option_b_roster_minus_carlos's own
+    # docstring for why Mountain Deer's carve-out is not a precedent here.
+    # The six ids below are exactly that function's answer, re-derived from
+    # Bg0015's own mined roster in tests/test_mob_death_bg0015_ruling_
+    # proposal.py rather than hand-copied a second time.
+    # REGISTERING THIS ENTRY DOES NOT OPEN GATE 1: the letter's own words
+    # are that registering a ruling and registering Bg0015 into
+    # field_mobs._SCENE_TABLE_MODULES are "two separate matters" -- that
+    # gate (COO-DECISION 2026-09-01T08:47+07:00 item (c)) stays locked.
+    "COO-RULING-20260901-1046": frozenset({343, 345, 348, 350, 353, 355}),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -463,6 +486,23 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     "widen-death-scope-bg0002": field_mob_tables_bg0002.SCENE,
     "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
     "diag-mountain-deer-template-27": field_mob_tables.SCENE,
+    # Tied to Bg0015 -- a bg0001/Bg0002 mob sharing one of these six
+    # template ids by coincidence (none do at HEAD) would be refused here,
+    # the same reverse-direction hazard every other entry in this dict
+    # already guards against.
+    #
+    # THE LITERAL "Bg0015" IS WRITTEN OUT, NOT IMPORTED, ON PURPOSE: this
+    # scene's own raw table module has exactly one approved importer under
+    # ``src/`` (``field_mob_hostile_bg0015.py``, COO-DECISION
+    # 2026-08-31T16:48+07:00's "layer 1" unlock), enforced by an
+    # AST+literal sweep this module deliberately stays off the allowlist
+    # of.  Cross-checked instead of merely typed and hoped: every row
+    # ``field_mob_hostile_bg0015.scene14_hostile_roster()`` returns already
+    # carries this exact string as its ``.scene`` (threaded through from
+    # the raw table by ``field_mobs._parse_hostile_placements``, the
+    # approved path), and ``tests/test_mob_death_bg0015_ruling_proposal.py``
+    # asserts ``ruling_for()`` accepts those real rows under this exact key.
+    "COO-RULING-20260901-1046": "Bg0015",
 }
 
 
