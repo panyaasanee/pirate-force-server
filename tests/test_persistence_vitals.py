@@ -729,11 +729,43 @@ class StoreVitalsTests(unittest.TestCase):
 class NothingIsWiredTests(unittest.TestCase):
     """The honest half: this round changed nothing anybody can see."""
 
+    #: The files that MAY name these methods: the two modules that define
+    #: them, and this lane's own tests for them.  **FULL REPOSITORY-RELATIVE
+    #: PATHS, and the match is on the whole path, not on the basename.**
+    #:
+    #: A `pf-adversary` pass broke the basename spelling of this list twice in
+    #: a row and it is worth writing down what it did, because the hole is not
+    #: obvious: with `path.name in ALLOWED`, a new file at
+    #: `src/pirateforce_foundation/gm/store.py` whose body is
+    #: `store.apply_hp_damage(character_id, amount)` -- a real GM-side wiring,
+    #: in `src/`, on a live path -- walks straight past this scan, because its
+    #: BASENAME is `store.py`.  Same for `tools/persistence_vitals.py`.  Both
+    #: were built and both left this test green.  `src/pirateforce_foundation/
+    #: gm/` is a directory another lane writes in every round, so that is not
+    #: a hypothetical filename.
+    #:
+    #: A file joins this tuple only together with the round file that says why.
+    ALLOWED_TO_NAME_THEM = (
+        "src/pirateforce_foundation/store.py",
+        "src/pirateforce_foundation/persistence_vitals.py",
+        "tests/test_persistence_vitals.py",
+        # LANE-DB round 4m48tf: `migrations/007_character_vitals_seed.sql`
+        # is graded through `read_character_vitals` and
+        # `vitals_seeding_census` (COO-DECISION 20260902_0250 conditions 1
+        # and 2 require exactly that), so this lane's own test file for it
+        # names them.  A test exercising the method is not a wiring.
+        "tests/test_persistence_vitals_seed_007.py",
+    )
+
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
         # Scans every python tree in the repository, not just `src/`: a
         # `pf-adversary` pass pointed out that the first version looked only
         # at `src/` while `tools/`, `scenarios/`, `current/` and `tests/` can
         # all call a store method too.
+        self.assertIn(
+            str(Path(__file__).resolve().relative_to(ROOT)).replace("\\", "/"),
+            self.ALLOWED_TO_NAME_THEM,
+        )
         callers = []
         trees = [ROOT / "src", ROOT / "tools", ROOT / "scenarios",
                  ROOT / "current", ROOT / "tests", ROOT / "drafts",
@@ -742,8 +774,8 @@ class NothingIsWiredTests(unittest.TestCase):
             if not tree.exists():
                 continue
             for path in tree.rglob("*.py"):
-                if path.name in ("store.py", "persistence_vitals.py",
-                                 Path(__file__).name):
+                relative = str(path.relative_to(ROOT)).replace("\\", "/")
+                if relative in self.ALLOWED_TO_NAME_THEM:
                     continue
                 text = path.read_text(encoding="utf-8", errors="replace")
                 if re.search(
@@ -757,6 +789,54 @@ class NothingIsWiredTests(unittest.TestCase):
             "'wired to nothing', are out of date and must be rewritten."
             % (callers,),
         )
+
+    def test_every_allowed_file_exists_and_really_names_them(self):
+        """The allowlist cannot rot into a licence.  An entry that no longer
+        matches a file, or matches one that does not mention these methods at
+        all, is a hole someone can drop a real caller into.
+
+        Every entry is resolved as ONE exact path.  The first version of this
+        test used `ROOT.rglob(name)` and `any(...)` over the matches, which
+        made it useless against the defect it was written for: the real
+        `src/pirateforce_foundation/store.py` satisfied the `any()` for a
+        decoy `store.py` anywhere else in the tree.  `any()` over a set that
+        the attacker can add to is not a check.
+        """
+        for relative in self.ALLOWED_TO_NAME_THEM:
+            path = ROOT / relative
+            self.assertTrue(path.is_file(), relative)
+            self.assertTrue(
+                re.search(
+                    r"\b(apply_hp_damage|read_character_vitals|"
+                    r"vitals_seeding_census)\b",
+                    path.read_text(encoding="utf-8", errors="replace")),
+                "%s is excused from the scan but names none of the methods; "
+                "it is a hole, not an exception" % relative,
+            )
+
+    def test_a_decoy_basename_in_another_lane_s_directory_is_still_caught(self):
+        """The measured defect, kept as a test rather than as a comment.
+
+        A file named `store.py` under `src/pirateforce_foundation/gm/` -- a
+        directory another lane writes in every round -- calling
+        `apply_hp_damage` is a real wiring of this lane's method on a live
+        path.  Under a basename allowlist it was invisible.  This asserts the
+        scan's matching rule directly, so the hole cannot come back through a
+        later "simplification" of the loop above.
+        """
+        decoys = (
+            "src/pirateforce_foundation/gm/store.py",
+            "tools/persistence_vitals.py",
+            "tests/gm/test_persistence_vitals.py",
+        )
+        for decoy in decoys:
+            self.assertNotIn(decoy, self.ALLOWED_TO_NAME_THEM, decoy)
+            self.assertTrue(
+                any(decoy.endswith("/" + Path(allowed).name)
+                    for allowed in self.ALLOWED_TO_NAME_THEM),
+                "%s no longer shares a basename with any allowed entry, so it "
+                "no longer tests anything" % decoy,
+            )
 
 
 class BeginImmediateHoldsTheWriteLockTests(unittest.TestCase):

@@ -963,11 +963,18 @@ class SQLiteStore:
         every rule or a named list of what is missing -- never a zero standing
         in for a column nobody has written yet.
 
-        After `006` all three columns are NULL on every existing character, so
-        today this returns a resolution with three `vital_column_not_seeded`
-        gaps and `complete` False for every character in the database.  That
-        is the correct answer, not a failure: seeding waits on a value COO has
-        not adjudicated (see `persistence_vitals`' docstring).
+        WHAT THIS RETURNS TODAY changed with `migrations/007_character_vitals_
+        seed.sql` (`COO-DECISION 20260902_0250`), and the sentence that used to
+        be here -- "all three columns are NULL on every existing character" --
+        is no longer true, so it is replaced rather than left to rot.  After
+        `007` a character that EXISTED when the migration ran resolves
+        complete, at `level 1, hp 100/100`.  A character created AFTER it does
+        not: `create_character` writes none of the three, `006` set no
+        DEFAULT, and the ledger stops `007` running twice, so this still
+        returns three `vital_column_not_seeded` gaps for every character born
+        after the migration -- including every character on a fresh install.
+        Both answers are correct; which one a caller gets depends on when the
+        row was made, and that gap is with COO.
 
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, matching `get_character` and `read_typed_attributes`.
@@ -1048,8 +1055,11 @@ class SQLiteStore:
         Treating an absent `hp_current` as `0` would make the first hit on
         every unseeded character kill it -- the owner's banned guessed zero
         (`COO-DECISION 20260901_1059`) arriving as a death rather than as a
-        wire field.  So on today's database, where nothing is seeded, this
-        method refuses for every character, loudly, by design.
+        wire field.  Before `migrations/007_character_vitals_seed.sql` that
+        meant this method refused for every character on every database.  It
+        now succeeds for a character that existed when `007` ran and still
+        refuses -- loudly, by design -- for one created afterwards, since
+        nothing seeds those (see `read_character_vitals` above).
 
         The read and the write are ONE transaction on ONE connection
         (`BEGIN IMMEDIATE`).  That line is NOT decoration and the cost of
