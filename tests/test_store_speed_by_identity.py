@@ -2,7 +2,7 @@
 can actually address it.
 
 WHAT THIS FILE IS THE EVIDENCE FOR.  `/speed` on `main` today composes a
-frame and writes nothing (`NOW.md` GM-B: the speed column is on `main` but the value does not
+frame and writes nothing (`pf_bridge/NOW.md` GM-B: the speed column is on `main` but the value does not
 persist), because `gm/` holds `identity_lo`/`identity_hi` off
 `session.foundation.selected` and holds no `characters.id` at all, while the
 only write path this lane had --
@@ -35,6 +35,7 @@ means `COO-ORDER 20260901_1641`'s canonical-database ban was honoured; that
 gate lives in `gm/chat_command_action._speed_db_is_canonical`.
 """
 import ast
+import contextlib
 import math
 import os
 import sqlite3
@@ -43,6 +44,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -65,6 +67,26 @@ IDENTITY_HI = 0
 
 def _build_wire(selector):
     return b"wire", b"avatar", 0x20000001 + selector, 0
+
+
+#: Captured at IMPORT time, before any patch.  Read off `SQLiteStore.connect`
+#: inside the helper instead, it resolves to the PATCH while the patch is
+#: active and recurses until the stack dies -- measured.
+_REAL_CONNECT = contextlib.contextmanager(SQLiteStore.connect.__wrapped__)
+
+
+@contextlib.contextmanager
+def _connect_impatient(self):
+    """`SQLiteStore.connect` with the busy timeout turned down to nothing.
+
+    `connect()` sets `PRAGMA busy_timeout=5000` and belongs to chief's half
+    of `store.py`, so this lane does not change it -- but a test that waits
+    five real seconds to prove a lock is answered is a test nobody runs
+    twice.  Everything else about the connection is the real thing.
+    """
+    with _REAL_CONNECT(self) as db:
+        db.execute("PRAGMA busy_timeout=0")
+        yield db
 
 
 def open_handles_under(directory):
@@ -202,8 +224,9 @@ class ConstantsPinTests(unittest.TestCase):
         self.assertEqual(len(assigned), 1)
         value = assigned[0].value
         self.assertIsInstance(value, ast.Constant, ast.unparse(value))
+        # `assertNotIsInstance(..., bool)` was here and was unreachable
+        # after the equality above (`True != 7`).  Measured, removed.
         self.assertEqual(value.value, 7)
-        self.assertNotIsInstance(value.value, bool)
 
     def test_refusals_are_the_reasons_minus_ok(self):
         self.assertEqual(speed_id.REFUSALS, speed_id.REASONS - {speed_id.REASON_OK})
@@ -223,10 +246,9 @@ class ConstantsPinTests(unittest.TestCase):
             if isinstance(node, ast.Attribute) and node.attr.startswith("REASON_")
         }
         self.assertTrue(used, "no reason token is referenced in store.py at all")
-        declared = {
-            name for name in dir(speed_id)
-            if name.startswith("REASON_") and name != "REASONS"
-        }
+        # `and name != "REASONS"` was here and was a no-op:
+        # `"REASONS".startswith("REASON_")` is False.  Measured, removed.
+        declared = {n for n in dir(speed_id) if n.startswith("REASON_")}
         self.assertEqual(used - declared, set())
         for name in used:
             self.assertIn(getattr(speed_id, name), speed_id.REASONS)
@@ -276,6 +298,18 @@ class GateValueTests(unittest.TestCase):
     def test_a_row_with_no_speed_column_is_absence_not_zero(self):
         self.assertIsNone(speed_id.block_from_stored({}))
         self.assertIsNone(speed_id.block_from_stored({"level": 3}))
+
+    def test_a_row_holding_something_unstorable_composes_nothing(self):
+        """This function is importable and a caller can hand it a row it read
+        itself, so its refusal arm is reachable -- reached here rather than
+        left to be argued about (an adversary line census found it never
+        executed).
+        """
+        for junk in ("fast", float("nan"), float("inf"), 1e39, True, None):
+            with self.subTest(junk=repr(junk)):
+                self.assertIsNone(
+                    speed_id.block_from_stored({speed_id.speed_column(): junk})
+                )
 
     def test_a_row_with_a_speed_composes_the_one_field_block(self):
         self.assertEqual(
@@ -365,23 +399,78 @@ class WriteSpeedByIdentityTests(StoreOnATempDatabase):
             {"level": 12, speed_id.speed_column(): 333.0},
         )
 
-    def test_the_short_method_returns_exactly_the_block_of_the_long_one(self):
-        """They cannot drift: one delegates to the other.  Pinned anyway --
-        a future 'optimisation' that reimplements the short one is the shape
-        this catches.
+    def test_the_short_method_agrees_with_the_long_one_on_every_input(self):
+        """The two are run SIDE BY SIDE on two identical databases.
+
+        The first version of this test called only the short method and
+        checked three literals, while its docstring claimed it caught a
+        reimplementation.  An adversary pass replaced the delegating body
+        with a hand-rolled one that dropped the read-back, dropped
+        `deleted_at IS NULL` from its UPDATE and built the block from the
+        caller's own value -- and this file reported `46 passed`.  A test
+        that names a mutant it does not catch is worse than no test.
+
+        So: two stores, same migrations, same fixture, same inputs, and BOTH
+        answers compared -- the returned block AND the row it left behind.
         """
-        block = self.store.write_speed_by_identity(
-            IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 500.0
+        other_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(other_tmp.cleanup)
+        other_path = Path(other_tmp.name) / "state.sqlite3"
+        other = SQLiteStore(other_path, MIGRATIONS)
+        other.migrate()
+        other_account = other.ensure_account("speed-by-identity")
+        twin = other.create_character(
+            other_account, "SpeedByIdentity", "speedbyidentity",
+            "fingerprint-speed-by-identity", _build_wire, self.home,
         )
-        self.assertEqual(block, {7: 500.0})
-        self.assertIsNone(
-            self.store.write_speed_by_identity(999999, IDENTITY_HI, 500.0)
+        cases = (
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 500.0),
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 400.1),
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 0.0),
+            (999999, IDENTITY_HI, 500.0),
+            (IDENTITY_LO_FOR_SELECTOR_0, 1, 500.0),
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, "fast"),
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, float("nan")),
+            (IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 1e-300),
+            (float(IDENTITY_LO_FOR_SELECTOR_0), IDENTITY_HI, 500.0),
+            (2 ** 63, IDENTITY_HI, 500.0),
+            (True, False, 500.0),
         )
-        self.assertIsNone(
-            self.store.write_speed_by_identity(
-                IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, "fast"
-            )
-        )
+        for lo, hi, speed in cases:
+            with self.subTest(lo=repr(lo), hi=repr(hi), speed=repr(speed)):
+                short = self.store.write_speed_by_identity(lo, hi, speed)
+                long, _reason = other.write_speed_by_identity_with_reason(
+                    lo, hi, speed
+                )
+                self.assertEqual(short, long)
+                # and the two databases were left in the same state
+                self.assertEqual(
+                    self.store.read_typed_attributes(self.character.id),
+                    other.read_typed_attributes(twin.id),
+                )
+
+    def test_the_short_method_is_a_delegation_and_nothing_else(self):
+        """Read off the SOURCE, because the behavioural test above can only
+        compare what a reimplementation CHOSE to get right.
+
+        The body must be exactly: call the reason-carrying method, return its
+        block.  Any SQL, any second answer, any extra branch is a second
+        implementation of the guarantees this file measures only once.
+        """
+        tree = ast.parse(STORE_SOURCE.read_text(encoding="utf-8"))
+        func = next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == "write_speed_by_identity")
+        body = [n for n in func.body
+                if not (isinstance(n, ast.Expr)
+                        and isinstance(n.value, ast.Constant)
+                        and isinstance(n.value.value, str))]
+        code = ast.unparse(ast.Module(body=body, type_ignores=[]))
+        self.assertEqual(len(body), 2, code)
+        self.assertIn("self.write_speed_by_identity_with_reason", code)
+        for forbidden in ("SELECT", "UPDATE", "connect", "REASON_", "if "):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, code)
 
 
 class NothingIsWrittenWhenItIsRefusedTests(StoreOnATempDatabase):
@@ -400,6 +489,10 @@ class NothingIsWrittenWhenItIsRefusedTests(StoreOnATempDatabase):
         block, reason = self.write(400.0, lo=0x7FFFFFFF)
         self.assertIsNone(block)
         self.assertEqual(reason, speed_id.REASON_NO_SUCH_CHARACTER)
+        # Same honesty as the CHECK arm: this measures that nothing landed,
+        # not that `db.rollback()` is why.  On this path nothing had been
+        # written to undo, so removing the call keeps every test green
+        # (measured).  It is kept as intent, and declared unmeasured.
         self.assertNothingLanded(before)
 
     def test_the_right_lo_with_the_wrong_hi_is_not_a_match(self):
@@ -516,7 +609,14 @@ class TheTwoLinesBehindTheGateTests(StoreOnATempDatabase):
             speed_id.gate_value = original
         self.assertIsNone(block)
         self.assertEqual(reason, speed_id.REASON_SCHEMA_REFUSED)
-        self.assertEqual(self.raw_row(), before, "the refused write rolled back")
+        # WHAT THIS MEASURES: nothing landed.  NOT that `db.rollback()` is
+        # what stopped it -- an adversary pass removed that call and this
+        # stayed green, because SQLite's default `ON CONFLICT ABORT` had
+        # already undone the statement.  The `rollback()` in that arm is
+        # unmeasured defence for a future edit that writes before the CHECK
+        # fires, and it is declared as such in the round file rather than
+        # asserted here.
+        self.assertEqual(self.raw_row(), before, "nothing landed")
 
     def test_a_value_sqlite_turns_into_null_is_caught_by_the_read_back(self):
         """`float('nan')` binds to SQLite as NULL, which the column's
@@ -534,7 +634,7 @@ class TheTwoLinesBehindTheGateTests(StoreOnATempDatabase):
             speed_id.gate_value = original
         self.assertIsNone(block)
         self.assertEqual(reason, speed_id.REASON_READBACK_DISAGREES)
-        self.assertEqual(self.raw_row(), before, "the refused write rolled back")
+        self.assertEqual(self.raw_row(), before, "nothing landed")
 
     def test_a_block_that_cannot_be_composed_rolls_the_write_back(self):
         """The other half of the same guard: the row landed, but no block can
@@ -554,6 +654,150 @@ class TheTwoLinesBehindTheGateTests(StoreOnATempDatabase):
         self.assertEqual(reason, speed_id.REASON_READBACK_DISAGREES)
         self.assertEqual(self.raw_row(), before, "the write really rolled back")
         self.assertIsNone(self.stored_speed())
+
+
+class AnIdentitySqliteCannotBindTests(StoreOnATempDatabase):
+    """An `int` too wide for SQLite is refused HERE, not by the driver.
+
+    Measured by an adversary pass against the first draft, which checked the
+    TYPE of an identity and not its RANGE: `2**63` walked through the gate,
+    through `BEGIN IMMEDIATE`, and died on the parameter bind with
+    `OverflowError: Python int too large to convert to SQLite INTEGER`.
+    Nothing was written -- and the caller got an exception that is not a
+    token, is documented nowhere, is caught nowhere, and reaches a GM's
+    screen as the silence `COO-DECISION 20260902_0147` bans.
+    """
+
+    def test_an_int_wider_than_sqlite_is_a_token_not_an_overflow(self):
+        for lo, hi in ((2 ** 63, IDENTITY_HI), (2 ** 64, IDENTITY_HI),
+                       (-(2 ** 63) - 1, IDENTITY_HI),
+                       (IDENTITY_LO_FOR_SELECTOR_0, 2 ** 70)):
+            with self.subTest(lo=lo, hi=hi):
+                before = self.raw_row()
+                block, reason = self.write(400.0, lo=lo, hi=hi)
+                self.assertIsNone(block)
+                self.assertEqual(reason, speed_id.REASON_IDENTITY_NOT_AN_INT)
+                self.assertEqual(self.raw_row(), before)
+
+    def test_the_widest_bindable_int_is_still_usable(self):
+        """The boundary is not moved inward: these are legal identities that
+        simply match no row, and must NOT be reported as a type problem.
+        """
+        for half in (speed_id.SQLITE_INTEGER_MAX, speed_id.SQLITE_INTEGER_MIN):
+            with self.subTest(half=half):
+                self.assertTrue(speed_id.identity_is_usable(half, 0))
+                block, reason = self.write(400.0, lo=half)
+                self.assertIsNone(block)
+                self.assertEqual(reason, speed_id.REASON_NO_SUCH_CHARACTER)
+
+
+class WhenTheDatabaseItselfIsTheProblemTests(StoreOnATempDatabase):
+    """`db_unavailable`: an operational failure is ANSWERED, with its own name.
+
+    Neither an exception (which skips `_log_outcome` at
+    `gm/chat_command_action.py:1284` and answers the GM with nothing) nor a
+    value refusal (which blames the number the GM typed).  Both of those were
+    measured on the real caller by an adversary pass; this class is the
+    third option existing.
+    """
+
+    def test_a_database_that_cannot_be_opened_is_named_not_raised(self):
+        missing = SQLiteStore(
+            Path(self.tmp.name) / "no" / "such" / "state.sqlite3", MIGRATIONS
+        )
+        block, reason = missing.write_speed_by_identity_with_reason(
+            IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 400.0
+        )
+        self.assertIsNone(block)
+        self.assertEqual(reason, speed_id.REASON_DB_UNAVAILABLE)
+
+    def test_a_database_with_no_characters_table_is_named_not_raised(self):
+        """An un-migrated file: `no such table` is an `OperationalError` too,
+        and it must not surface as `no_such_character` -- the row is not
+        missing, the SCHEMA is.
+        """
+        empty = Path(self.tmp.name) / "empty.sqlite3"
+        db = sqlite3.connect(empty)
+        try:
+            db.execute("CREATE TABLE unrelated(x)")
+            db.commit()
+        finally:
+            db.close()
+        store = SQLiteStore(empty, MIGRATIONS)
+        block, reason = store.write_speed_by_identity_with_reason(
+            IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI, 400.0
+        )
+        self.assertIsNone(block)
+        self.assertEqual(reason, speed_id.REASON_DB_UNAVAILABLE)
+
+    def test_a_locked_database_is_named_not_raised(self):
+        """Another connection holds the write lock for longer than the busy
+        timeout.  Measured rather than reasoned about -- and it is also what
+        makes the five-second stall in the method's docstring a fact.
+        """
+        holder = sqlite3.connect(self.path)
+        try:
+            holder.execute("PRAGMA busy_timeout=0")
+            holder.execute("BEGIN IMMEDIATE")
+            holder.execute(
+                "UPDATE characters SET updated_at=? WHERE id=?",
+                ("held", self.character.id),
+            )
+            with mock.patch.object(SQLiteStore, "connect", _connect_impatient):
+                block, reason = self.write(400.0)
+        finally:
+            holder.rollback()
+            holder.close()
+        self.assertIsNone(block)
+        self.assertEqual(reason, speed_id.REASON_DB_UNAVAILABLE)
+        # the holder's transaction was rolled back, so nothing of ours landed
+        self.assertIsNone(self.stored_speed())
+
+
+class ThePremisesThisMethodStandsOnTests(StoreOnATempDatabase):
+    """The docstring cites two facts about the schema.  Cited is not pinned.
+
+    An adversary pass measured that `characters_active_identity` was named in
+    exactly two places -- migration 004 and a docstring -- with no test
+    asserting it exists on the database this method actually opens.  The code
+    uses `.fetchone()` with no `LIMIT` and no count check, so if that index
+    were ever absent the method would silently pick an arbitrary row.
+    """
+
+    def test_the_partial_unique_index_on_a_live_identity_really_exists(self):
+        db = sqlite3.connect(self.path)
+        try:
+            db.row_factory = sqlite3.Row
+            indexes = {r["name"]: dict(r)
+                       for r in db.execute("PRAGMA index_list(characters)")}
+            self.assertIn("characters_active_identity", indexes)
+            self.assertEqual(indexes["characters_active_identity"]["unique"], 1)
+            self.assertEqual(indexes["characters_active_identity"]["partial"], 1)
+            columns = [r[2] for r in
+                       db.execute("PRAGMA index_info(characters_active_identity)")]
+        finally:
+            db.close()
+        self.assertEqual(columns, ["identity_lo", "identity_hi"])
+
+    def test_two_live_characters_cannot_share_an_identity(self):
+        """The property the index is cited FOR, measured end to end rather
+        than inferred from the index's flags.
+        """
+        db = sqlite3.connect(self.path)
+        try:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "INSERT INTO characters(account_id,selector,name,name_key,"
+                    "create_fingerprint,actor_wire,avatar_wire,identity_lo,"
+                    "identity_hi,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (self.account_id, 9, "Clone", "clone", "fp-clone",
+                     b"w", b"a", IDENTITY_LO_FOR_SELECTOR_0, IDENTITY_HI,
+                     "now", "now"),
+                )
+        finally:
+            db.rollback()
+            db.close()
 
 
 class SoftDeleteAndIdentityReuseTests(StoreOnATempDatabase):
@@ -698,15 +942,62 @@ class TheWriteIsOneTransactionTests(unittest.TestCase):
         self.assertIn("deleted_at IS NULL", inside)
 
     def test_the_lookup_and_the_update_both_exclude_deleted_rows(self):
-        """Two predicates, not one.  Removing EITHER alone must be visible:
-        the guard is the error message, the predicate is what makes the write
-        impossible.  Same reasoning as `write_typed_attributes`, where an
+        """Two predicates, and BOTH are load-bearing.
+
+        The guard is the error message, the predicate is what makes the write
+        impossible -- same reasoning as `write_typed_attributes`, where an
         adversary pass landed a write on a soft-deleted row by deleting the
         guard while every test stayed green.
+
+        This asserted THREE until an adversary pass measured the third: the
+        read-back's copy of the predicate was inert (the row is locked by
+        this transaction, its `deleted_at` cannot move), so removing it
+        changed no behaviour and only this count went red.  A hardcoded count
+        that fires for a change with no behaviour behind it is a trap for the
+        next round, so the decoration was deleted and the number follows the
+        two that mean something.
         """
-        self.assertEqual(self.code.count("deleted_at IS NULL"), 3,
-                         "the lookup, the UPDATE and the read-back each "
-                         "carry it; a count of 2 means one was dropped")
+        self.assertEqual(self.code.count("deleted_at IS NULL"), 2,
+                         "the lookup and the UPDATE each carry it; a count "
+                         "of 1 means one was dropped")
+
+    def test_only_an_operational_error_becomes_db_unavailable(self):
+        """The catch must not be widened to `sqlite3.Error`.
+
+        Measured by an adversary pass: that one-word edit turns a locked
+        database into `schema_refused` -- an operational failure laundered
+        into a refusal of the value the GM typed, in the method whose whole
+        purpose is that a refusal is never mislabelled.  Nothing else in this
+        file pins the class, so this is the pin.
+        """
+        handlers = [n for n in ast.walk(self.func)
+                    if isinstance(n, ast.ExceptHandler)]
+        caught = {ast.unparse(h.type) for h in handlers if h.type is not None}
+        self.assertEqual(caught, {"sqlite3.IntegrityError",
+                                  "sqlite3.OperationalError"})
+
+    def test_the_connect_call_is_inside_the_operational_error_guard(self):
+        """`unable to open database file` is raised by the CONNECT, not by a
+        statement -- so a guard that starts after it would miss the case it
+        names.
+        """
+        guard = next(n for n in ast.walk(self.func)
+                     if isinstance(n, ast.Try)
+                     and any(h.type is not None
+                             and ast.unparse(h.type) == "sqlite3.OperationalError"
+                             for h in n.handlers))
+        self.assertIn("self.connect()",
+                      ast.unparse(ast.Module(body=guard.body, type_ignores=[])))
+
+    def test_there_is_no_unreachable_second_no_such_character_return(self):
+        """A `rowcount != 1` branch cannot fire after the lookup found the
+        row by id inside the same IMMEDIATE transaction, and an adversary
+        line census proved it never executed.  It is gone; this keeps it
+        gone, because a token that can be returned from a place it can never
+        be returned from is a lie about what the method handles.
+        """
+        self.assertEqual(self.code.count("REASON_NO_SUCH_CHARACTER"), 1)
+        self.assertNotIn("rowcount", self.code)
 
     def test_nothing_in_it_inserts_or_deletes(self):
         text = self.code.upper()
@@ -721,10 +1012,17 @@ class TheWriteIsOneTransactionTests(unittest.TestCase):
         bad value must appear BEFORE the `with` block starts.
         """
         block = self._with_blocks()[0]
+        # `self.body`, NOT `self.func.body`: the docstring is stripped from
+        # the former.  An adversary pass measured that this test graded
+        # PROSE -- the docstring contains the words "gate_value", so that
+        # assertion could not fail while the sentence stood.  The same
+        # hollow shape this class was written to prevent, inside this class,
+        # three tests after the comment explaining it.
         head = ast.unparse(ast.Module(
-            body=[n for n in self.func.body if n.lineno < block.lineno],
+            body=[n for n in self.body if n.lineno < block.lineno],
             type_ignores=[],
         ))
+        self.assertNotIn("COO-DECISION", head, "the docstring leaked back in")
         self.assertIn("REASON_IDENTITY_NOT_AN_INT", head)
         self.assertIn("REASON_VALUE_REFUSED", head)
         self.assertIn("gate_value", head)
@@ -742,6 +1040,31 @@ class AsciiOnlyTests(unittest.TestCase):
         ):
             with self.subTest(path=path.name):
                 path.read_bytes().decode("ascii")
+
+    def test_the_two_methods_this_lane_added_to_store_py_are_ascii(self):
+        """`store.py` is the third file this round ships and the one that
+        gained 147 lines of prose, and the guard above did not cover it --
+        found by an adversary pass.
+
+        Scoped to THIS LANE'S TWO METHODS rather than the whole file on
+        purpose: `store.py` is shared, `persistence_typed_attrs.py` in the
+        same package legitimately contains Thai, and the repository's own
+        cp874 tripwire (`tools_bridge/pf_gate_preflight.py`) is what covers
+        the file globally.  A whole-file ASCII assertion here would go red on
+        another lane's legitimate edit, which is a trap, not a guard.
+        """
+        source = STORE_SOURCE.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        lines = source.splitlines(keepends=True)
+        found = 0
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.FunctionDef)
+                    and node.name.startswith("write_speed_by_identity")):
+                found += 1
+                segment = "".join(lines[node.lineno - 1:node.end_lineno])
+                with self.subTest(method=node.name):
+                    segment.encode("ascii")
+        self.assertEqual(found, 2, "both methods must be found and checked")
 
 
 if __name__ == "__main__":

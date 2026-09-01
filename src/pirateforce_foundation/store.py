@@ -1005,14 +1005,30 @@ class SQLiteStore:
         (`readback_disagrees`): showing a player a speed this method could
         not verify is the lie that decision forbids.
 
-        WHAT IT DOES NOT CONVERT INTO A REASON, stated rather than
-        discovered.  Only REFUSALS become tokens.  An operational failure --
-        `sqlite3.OperationalError` for a locked or missing database, a disk
-        error -- still RAISES, because "the database is unavailable" reported
-        as `no_such_character` would send a GM hunting a character that is
-        sitting right there.  A caller that must never see an exception
-        should wrap this call; that choice is stated in the reply letter to
-        LANE-GM rather than made silently here.
+        AN OPERATIONAL FAILURE IS ITS OWN ANSWER, not an exception and not a
+        value refusal.  `sqlite3.OperationalError` -- locked past the busy
+        timeout, file missing or unopenable, disk error -- returns
+        `db_unavailable`.  The first draft of this method RAISED it, arguing
+        that answering `no_such_character` for a locked database would put a
+        lie on the GM's screen.  That much was true; the false step was
+        treating "raise" as the only alternative to a lie.  An adversary pass
+        measured both placements available to the caller: `_speed_action` is
+        dispatched at `gm/chat_command_action.py:1264` inside NO `try`, so a
+        propagated exception skips `_log_outcome` (`:1284`) and answers the
+        GM with NOTHING -- the silence `COO-DECISION 20260902_0147` bans --
+        while its existing `except Exception` (`:2578`) renders it as
+        `refused: speed_OperationalError`, an operational failure named as a
+        refusal of the value the GM typed.  A distinct token loses neither.
+
+        WHAT IS STILL NOT SOLVED HERE, said out loud: `connect()` sets
+        `PRAGMA busy_timeout=5000`, and this method does not change it
+        because `connect()` belongs to chief's half of this file.  So a
+        contended write BLOCKS FOR FIVE SECONDS before returning
+        `db_unavailable` -- measured at 5.01s by that same adversary pass.
+        A chat command that stalls the server for five seconds is a bad
+        outcome even with a good answer at the end of it; picking a shorter
+        number is not this lane's call to make alone, and it is raised in
+        the round file rather than invented here.
 
         WHICH DATABASE THIS WRITES TO IS NOT ENFORCED HERE.  Same limit as
         `write_typed_attributes_and_compose_sparse`:
@@ -1036,50 +1052,75 @@ class SQLiteStore:
         # name is matched against `^[a-z][a-z0-9_]*$` when that table is
         # built, and it is pinned to `speed_walk` by this lane's tests.
         column = speed_id.speed_column()
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT id FROM characters "
-                "WHERE identity_lo=? AND identity_hi=? AND deleted_at IS NULL",
-                (identity_lo, identity_hi),
-            ).fetchone()
-            if row is None:
-                db.rollback()
-                return None, speed_id.REASON_NO_SUCH_CHARACTER
-            character_id = int(row["id"])
-            try:
-                written = db.execute(
-                    f"UPDATE characters SET {column}=?,updated_at=? "
-                    "WHERE id=? AND deleted_at IS NULL",
-                    (value, _now(), character_id),
-                ).rowcount
-            except sqlite3.IntegrityError:
-                # The column's own CHECK in `migrations/006_...sql` fired --
-                # the second line of defence behind `gate_value`.  Reachable
-                # only if the two ever disagree, which a test pins; it is
-                # answered rather than raised so the GM sees WHICH gate said
-                # no.
-                db.rollback()
-                return None, speed_id.REASON_SCHEMA_REFUSED
-            if written != 1:
-                db.rollback()
-                return None, speed_id.REASON_NO_SUCH_CHARACTER
-            after = db.execute(
-                f"SELECT {column} FROM characters "
-                "WHERE id=? AND deleted_at IS NULL",
-                (character_id,),
-            ).fetchone()
-            stored = None if after is None else after[column]
-            block = (
-                None if stored is None
-                else speed_id.block_from_stored({column: stored})
-            )
-            if stored != value or block is None:
-                # ROLLED BACK, not reported as done: a block the caller could
-                # not be given is a write the caller must not be told about.
-                db.rollback()
-                return None, speed_id.REASON_READBACK_DISAGREES
-        return block, speed_id.REASON_OK
+        try:
+            with self.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute(
+                    "SELECT id FROM characters "
+                    "WHERE identity_lo=? AND identity_hi=? "
+                    "AND deleted_at IS NULL",
+                    (identity_lo, identity_hi),
+                ).fetchone()
+                if row is None:
+                    db.rollback()
+                    return None, speed_id.REASON_NO_SUCH_CHARACTER
+                character_id = int(row["id"])
+                try:
+                    db.execute(
+                        f"UPDATE characters SET {column}=?,updated_at=? "
+                        "WHERE id=? AND deleted_at IS NULL",
+                        (value, _now(), character_id),
+                    )
+                except sqlite3.IntegrityError:
+                    # The column's own CHECK in `migrations/006_...sql`
+                    # fired -- the second line of defence behind
+                    # `gate_value`.  Reachable only if this repository's
+                    # range table and that file ever disagree; answered
+                    # rather than raised so the GM sees WHICH gate said no.
+                    db.rollback()
+                    return None, speed_id.REASON_SCHEMA_REFUSED
+                # NO `rowcount != 1` BRANCH, and its absence is deliberate.
+                # An adversary pass ran a line census: that branch never
+                # executed once in the whole test module, and it cannot --
+                # the `SELECT` above found this id under the same predicate
+                # inside this same IMMEDIATE transaction, so the `UPDATE`
+                # either affects one row or raises.  Deleting the branch
+                # entirely left every test green, which is the definition of
+                # scar tissue: a second, unreachable `no_such_character`
+                # return that made the method look like it handled a case it
+                # cannot reach.  The read-back below is the real guard.
+                after = db.execute(
+                    f"SELECT {column} FROM characters WHERE id=?",
+                    (character_id,),
+                ).fetchone()
+                # `deleted_at IS NULL` is NOT repeated on this read-back.
+                # The same census showed the predicate here was inert: the
+                # row is locked by this transaction and its `deleted_at`
+                # cannot have moved, so removing it changed no behaviour and
+                # only a hardcoded occurrence count went red.  A predicate
+                # that only a counting test can miss is decoration.
+                stored = after[column]
+                block = (
+                    None if stored is None
+                    else speed_id.block_from_stored({column: stored})
+                )
+                if stored != value or block is None:
+                    # ROLLED BACK, not reported as done: a block the caller
+                    # could not be given is a write the caller must not be
+                    # told about.
+                    db.rollback()
+                    return None, speed_id.REASON_READBACK_DISAGREES
+            return block, speed_id.REASON_OK
+        except sqlite3.OperationalError:
+            # Around the WHOLE block, `self.connect()` included: "unable to
+            # open database file" is raised by the connect, and "database is
+            # locked" by the first statement that wants the write lock.
+            # Deliberately NOT `sqlite3.Error`: widening it by that one word
+            # was an adversary mutant that turned a locked database into
+            # `schema_refused`, laundering an operational failure into a
+            # refusal of the GM's value in the very method whose purpose is
+            # that a refusal is never mislabelled.  A test pins the width.
+            return None, speed_id.REASON_DB_UNAVAILABLE
 
     def write_speed_by_identity(
         self, identity_lo: object, identity_hi: object, speed: object

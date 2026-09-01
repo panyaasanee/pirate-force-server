@@ -79,6 +79,25 @@ REASON_VALUE_REFUSED = "value_refused"
 #: columns.sql` ever disagree, which a test pins -- kept because "the second
 #: line of defence fired" must be visible rather than fatal.
 REASON_SCHEMA_REFUSED = "schema_refused"
+#: The database could not be reached or could not be worked on at all --
+#: locked past the busy timeout, the file missing or unopenable, a disk error.
+#: THIS IS NOT A REFUSAL OF THE VALUE and must not be shown as one.
+#:
+#: It exists because an adversary pass demolished the reasoning that left it
+#: out.  The first draft of this module RAISED `sqlite3.OperationalError`,
+#: arguing that answering `no_such_character` for a locked database would put
+#: a lie on the GM's screen.  That much is true; the false step was treating
+#: "raise" as the only alternative.  Measured on the caller this lane is
+#: writing for: `_speed_action` is dispatched at
+#: `gm/chat_command_action.py:1264` inside NO `try`, so a propagated
+#: `OperationalError` skips `_log_outcome` (`:1284`, the deliberate single
+#: audit write point) and answers the GM with NOTHING -- the silence
+#: `COO-DECISION 20260902_0147` bans -- while the only other placement
+#: available inside `_speed_action` (its existing `except Exception` at
+#: `:2578`) renders it as `refused: speed_OperationalError`, an operational
+#: failure named as a refusal of the value the GM typed.  Both placements
+#: lose.  A distinct token loses neither.
+REASON_DB_UNAVAILABLE = "db_unavailable"
 #: The row read back inside the write's own transaction does not hold what was
 #: written.  Nothing rolls this into `REASON_OK`: the transaction is rolled
 #: back and the caller is told, because a caller that shows the player a speed
@@ -94,6 +113,7 @@ REASONS: frozenset[str] = frozenset({
     REASON_IDENTITY_NOT_AN_INT,
     REASON_VALUE_REFUSED,
     REASON_SCHEMA_REFUSED,
+    REASON_DB_UNAVAILABLE,
     REASON_READBACK_DISAGREES,
 })
 
@@ -116,15 +136,38 @@ def speed_column() -> str:
     return column_for(SPEED_FIELD_X)
 
 
+#: The widest integer SQLite can hold: its INTEGER is a SIGNED 64-bit value.
+#: Binding anything outside this raises `OverflowError` from the driver
+#: BEFORE any row is touched.
+SQLITE_INTEGER_MIN = -(2 ** 63)
+SQLITE_INTEGER_MAX = 2 ** 63 - 1
+
+
 def identity_is_usable(identity_lo: object, identity_hi: object) -> bool:
-    """Both halves are real `int`s -- `bool` excluded.
+    """Both halves are real `int`s SQLite can actually bind.
 
     `type(...) is not int` rather than `isinstance`: `type(True) is bool`, so
     this rejects `True` for free and matches
     `gm/chat_command_action._selected_speed_identity` character for
     character, which is where these two values come from.
+
+    THE RANGE CHECK IS NOT DECORATION.  An adversary pass measured what the
+    first draft -- which checked the TYPE only -- did with `2**63`: the value
+    sailed through this gate, through `BEGIN IMMEDIATE`, and died on the
+    parameter bind with `OverflowError: Python int too large to convert to
+    SQLite INTEGER`.  Nothing was written, which was the easy half; the hard
+    half is that the caller got an exception that is not a token, is not
+    documented, is caught nowhere, and reaches the GM's screen as silence --
+    while the comment two functions up claims an unusable identity is
+    "answered rather than raised because it must not be able to reach
+    SQLite".  It reached SQLite.  Now it does not.
     """
-    return type(identity_lo) is int and type(identity_hi) is int
+    if type(identity_lo) is not int or type(identity_hi) is not int:
+        return False
+    return all(
+        SQLITE_INTEGER_MIN <= half <= SQLITE_INTEGER_MAX
+        for half in (identity_lo, identity_hi)
+    )
 
 
 def gate_value(speed: object) -> float | None:
@@ -155,10 +198,7 @@ def gate_value(speed: object) -> float | None:
         composed = compose_sparse_block({SPEED_FIELD_X: speed})
     except (AttrComposeError, TypedAttrError):
         return None
-    value = composed[SPEED_FIELD_X]
-    if not isinstance(value, float):  # pragma: no cover - f32 always floats
-        return None
-    return value
+    return composed[SPEED_FIELD_X]
 
 
 def block_from_stored(stored: Mapping[str, object]) -> dict[int, object] | None:
@@ -171,9 +211,8 @@ def block_from_stored(stored: Mapping[str, object]) -> dict[int, object] | None:
     (`tests/test_npc_gait_wire.py`), and inventing one is the owner's banned
     guessed zero (`COO-DECISION 20260901_1059`).
     """
-    from .persistence_attr_compose import AttrComposeError
+    from .persistence_attr_compose import AttrComposeError, compose_sparse_block
     from .persistence_typed_attrs import TypedAttrError, typed_values_for_compose
-    from .persistence_attr_compose import compose_sparse_block
 
     column = speed_column()
     if column not in stored:
@@ -182,5 +221,9 @@ def block_from_stored(stored: Mapping[str, object]) -> dict[int, object] | None:
         return compose_sparse_block(
             typed_values_for_compose({column: stored[column]})
         )
-    except (AttrComposeError, TypedAttrError):  # pragma: no cover - gated above
+    except (AttrComposeError, TypedAttrError):
+        # Reachable: the store pre-guards `stored is None`, but this function
+        # is importable and a caller can hand it a row it read itself.  A
+        # test calls it directly with an unstorable value rather than leaving
+        # this arm to be argued about.
         return None
