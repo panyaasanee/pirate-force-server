@@ -7059,3 +7059,102 @@ round itself.
    lanes' queue headers are all untouched, and so are `gm/say_wire.py` and
    `gm/chat_command_action.py` (chief holds those this round).
 6. No history deleted.
+
+## Round `lmqf69` (2026-09-02T05:2x+07:00) -- P-3: the four look-alike failures become four different verdicts, before the game boots
+
+### The gap this round closed
+
+P-3 has produced exactly one observation since RE-104 opened on 2026-08-27: the GM button is visible
+and the click is silent. RE-164 finished the job of listing what can produce that one observation,
+and the list is the problem -- four unrelated failures are indistinguishable from the player's chair:
+`GameMaster.dll` absent [GM-IMG-001]; present but the export decorated so `GetProcAddress` returns
+NULL [GM-IMG-001/002]; loaded and resolvable but slot `+0x04` hands back an empty key so the
+dispatcher returns before the factory [GM-IMG-003/006]; or everything above fine and the gate is
+somewhere else entirely [RE-104, RE-118, RE-126].
+
+`patches/gm_plugin/build_vs2008.bat` already checks the export name and the CRT imports -- of a
+FRESH BUILD, on a machine with `dumpbin`, by reading dumpbin's human text with `findstr` word
+boundaries. It cannot look at the DLL that is actually **installed** beside the client (build copy
+and installed copy are two files, and only one of them is the one the game loads), it cannot run
+without the VC toolchain, and it cannot run in this repository's test suite.
+
+### What landed
+
+`src/pirateforce_foundation/gm/plugin_image_check.py` -- a stdlib-only PE32 reader that parses the
+export directory, the import descriptor table and the resource directory itself, so
+`_CreateGameMaster`, `CreateGameMaster@0` and `?CreateGameMaster@@YAPAXXZ` are told apart from
+`CreateGameMaster` by structure, not by regex. One verdict per file: `missing` / `no_such_dir` /
+`unreadable` / `not_pe` / `wrong_machine` / `not_a_dll` / `no_exports` / `export_decorated` /
+`export_forwarded` / `export_missing` / `manifest_missing` / `image_ok`, each with a sha256 and a
+one-line reason, as grep-able cp874-safe console tokens (`GM_PLUGIN_IMAGE ...`). EVERY blocking
+problem is printed, not only the first: one attended session cannot afford to discover them one
+rebuild at a time. It also compares the built copy against the installed copy and **fails** (exit 1)
+when they differ, because a rebuild whose flag never reached the compiler produces byte-identical
+output and the tester then re-tests yesterday's binary.
+
+CLI, one line on the bridge before the game boots (there is no installed package -- `PYTHONPATH=src`
+is required, and paths with spaces must be quoted):
+
+    PYTHONPATH=src python -m pirateforce_foundation.gm.plugin_image_check \
+        --dll  <path>/GameMaster.dll --client-dir "<client install>"
+
+`tests/test_gm_plugin_image_check.py` -- 44 tests on synthetic PE32 images assembled field by field
+(this clone has no client image, no DLL, no VC toolchain; a test that needed a real DLL could only
+skip here, which this lane has already lost a round to).
+
+### pf-adversary rejected revision 1, and the reason is the interesting part
+
+Twelve defects on this module alone. Five mattered:
+
+1. **The suite could not fail.** Six independent parser mutations -- `span = raw_size`,
+   `span = virtual_size`, `sections[:1]`, deleting the ordinal-only guard, deleting the
+   `NumberOfRvaAndSizes` bound, deleting the no-import-directory early return -- all passed 30/30,
+   because every fixture had ONE section, `VirtualSize == SizeOfRawData`, and 16 data directories.
+   The fixture builder now emits three sections with the export directory in the SECOND one, one
+   section whose VirtualSize is smaller than its raw size and one whose VirtualSize is larger, and
+   the directory count (with the optional-header size that follows from it) is a parameter. Measured
+   after the fix: 9 mutants tried, 9 killed.
+2. **A mistyped path manufactured the finding.** `C:\Pirate Force\Client` unquoted on cmd.exe
+   arrives as `C:\Pirate`, and revision 1 answered that with "the RE-164 operational note is
+   confirmed for this machine". A directory that does not exist now has its own verdict
+   (`no_such_dir`) whose text says it means nothing about the client install.
+3. **The tool died mid-report on the bridge console.** Export names were decoded with
+   `errors="replace"`; U+FFFD has no cp874 mapping, so a corrupt or packed DLL raised
+   `UnicodeEncodeError` inside `print()` after two lines -- no verdict, no sha256. Now
+   `errors="backslashreplace"`, with a test that plants a high byte in an export name.
+4. **`crt_missing` was a red light for a DLL that works.** Revision 2 of the plug-in allocates from
+   the CLIENT's CRT (it walks the client's import table), so a `/MT` build is not wrong. Demoted to
+   an advisory.
+5. **`image_ok` covered two ways to fail anyway.** A forwarded export is byte-identical to a real one
+   in the name table (now read through `AddressOfNameOrdinals` + `AddressOfFunctions` and reported as
+   `export_forwarded`), and a `/MD` build with no embedded RT_MANIFEST is refused by the side-by-side
+   loader with 14001 -- the plug-in README's own triage row -- which `build_vs2008.bat` cannot catch
+   because it never calls `mt.exe`. Now `manifest_missing`.
+
+Cross-validated against real MSVC-built PE images found on this machine (32-bit and 64-bit
+launchers): machine, PE32/PE32+, DLL flag, section walk with mixed VirtualSize/SizeOfRawData, import
+names and RT_MANIFEST all read correctly. **The repo has no real PE fixture** -- the export-directory
+path is exercised by synthetic bytes only. That is a real gap and the round file records it.
+
+### Evidence tier -- the line that must travel with every quote of this module
+
+`image_ok` means "none of the file-level failure modes this module can see is present in these
+bytes". It is NOT evidence that the GM window opens. The client-observable half of P-3 still needs a
+person at the screen, and still needs the GT ticket asked for in
+`notes_to_chief/20260901_2225_LANE-GM-DELIVERY-*`.
+
+The claim "GameMaster.dll is missing from the owner's install" remains, per RE-164 and this lane's
+own 21:32 letter, an UNPINNED OPERATIONAL observation. This module does not settle it; it gives
+whoever stands in front of that install a one-line way to settle it, with a sha256 attached.
+
+### The other seven findings are in the plug-in source, and two are HIGH
+
+`pf-adversary` also re-reviewed `patches/gm_plugin/GameMaster.cpp` (the review this lane promised
+last round). `DllMain` still resolves the wstring constructor with
+`GetModuleHandleW(L"msvcp90.dll")` -- the exact side-by-side base-name ambiguity `FindClientCrt()`
+was written to remove, and worse in consequence (a `_Container_proxy` allocated on one MSVCP90
+instance's heap and freed by the other). And `PF_GM_SLOT0_TOUCH_PLUS4` defaults to writing a
+guessed-size subobject into client-owned memory, while its documented escape hatch (`=0`) produces
+exactly the state the source itself calls "strictly worse than the dead button we already have".
+Both are unfixed here: `patches/` is not this lane's declared write zone and this clone has no
+Windows SDK to compile-check a change. Letter to chief carries the findings and the patch shape.
