@@ -6577,3 +6577,73 @@ no new chat command, no server or game client boot.
 รายละเอียดเต็ม:
 `pf_bridge/rounds/GM_20260901_2028_egee8l_first-real-adversarial-pass-plus-two-letters.md`
 PR: `pf_bridge` #751 / `pirate-force-server` #506
+
+## Round `ku3jz6` (2026-09-01T21:32+07:00) -- RE-164 item #3 closed static, item #1 write-site found, GameMaster.dll flagged for P-3
+
+No code change in this repo this round -- the work is entirely `pf_bridge` static-RE and mailbox
+(`CLIENT_RE_QUEUE.md` RE-164 update + a result letter). Logged here per this file's own convention of
+recording every LANE-GM round, not because anything under `src/pirateforce_foundation/gm/` changed.
+
+`RE-164`'s two still-open sub-questions (item #1: write-site of global `[0x01032EC4]`; item #3:
+current-UI object-key crosswalk past the predicate RE-118 stopped at) had been labeled
+STATIC-ON-BRIDGE since round `1q7nxu` -- needs live disassembly this cloud session does not have.
+Called the `pf-static-re` agent (available for the second time in this project's history, after round
+`egee8l`) to search committed artifacts again before accepting that label for another round. It found
+`notes_to_chief/reference_codex_attr/PF_GM_PLUGIN_GATE.tsv`/`.md` in `pf_bridge`, synced into that repo
+at 19:54+07 today (commit `a0909b1`) -- after an earlier round (`20260901_0626`) had checked for these
+exact three files and found them absent. Every citation the agent made was independently re-verified
+by reading the actual files (`grep`/`sed`), not trusted from the agent's report alone.
+
+Item #3 closes statically: the full chain (`GameMaster.dll` load -> fallback object on failure ->
+click reads a vtable slot that returns `NULL` in the fallback case -> the same empty-key predicate
+RE-118 stopped at -> factory requires an exact key match -> `GMUI_BASIC` is a child/tab lookup *after*
+panel creation, not the value the slot must return) is proven IMAGE fact end to end, all rows
+`PROVEN_EXACT`/`PROVEN_EXACT_CONDITIONAL` with VA + sha256 evidence spans. Item #1 gets a genuine new
+write-site (`0x0044CB7D`, end of the `CMyActor` constructor, corroborated independently in two other
+committed tables from unrelated investigations) but not full closure -- it identifies the global as
+the local-player-actor singleton rather than a session object, but no clear/dtor site was found, so
+the cardinality-across-relogin question this ticket actually asked stays open and genuinely
+STATIC-ON-BRIDGE.
+
+The more important part of this round is not a static fact at all: `PF_GM_PLUGIN_GATE.md` itself
+carries an "UNPINNED OPERATIONAL INVENTORY -- NOT IMAGE/DATA EVIDENCE" line stating the bridge
+machine's inventory did not find `GameMaster.dll` next to the client at generation time. If still
+true, that is a complete, mechanical explanation for the "button visible, click does nothing" symptom
+this lane has chased since `RE-104` (six days) -- every gate `RE-104`/`RE-118`/`RE-126`/`RE-164`#2/#4
+already proved correct sits *downstream* of a plugin that never loaded. This is flagged to chief/COO/
+the owner as something requiring an actual look at the client install; this lane has no client image
+and cannot confirm it itself.
+
+### pf-adversary
+
+Not called this round -- no code or new-hypothesis content, only cross-referenced static facts each
+independently re-verified by hand against the committed files. `AGENTS.md`'s "call pf-adversary before
+every commit when the Agent tool is available" rule is about content changes; recording that fact
+plainly here rather than silently skipping it.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี (บนจอ)** -- static-RE and mailbox only; no wire, no chat command, no server or client boot.
+What changed is that P-3 now has one concrete, checkable root-cause hypothesis (is `GameMaster.dll`
+present next to the client) instead of an open-ended "still waiting on RE."
+
+### nonclaim
+
+1. Does not claim `GameMaster.dll` is actually missing from the current test environment -- the
+   source artifact itself flags its inventory as possibly stale, not IMAGE/DATA evidence.
+2. Does not claim `GMUI_1` is the value the original DLL actually returned -- it is the artifact's own
+   `[RECONSTRUCTED POLICY -- PROPOSED]`.
+3. Does not claim `RE-164` is fully closed -- item #1's cardinality/clear-site question is still open
+   and genuinely needs on-bridge disassembly.
+4. Does not claim the panel will open once the DLL question is resolved -- a new `GT-164` variant must
+   confirm the client-observable layer.
+5. No GM shortcut used to skip any step this round -- no game/server boot at all.
+6. No GM status granted outside `gm_accounts.json`, no milestone declared.
+7. Did not touch `runtime.py`/`app.py`/`current/pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`.
+8. No prior history deleted -- `CLIENT_RE_QUEUE.md` edits strike through outdated text instead of
+   removing it.
+
+รายละเอียดเต็ม:
+`pf_bridge/rounds/GM_20260901_2132_ku3jz6_re164-item3-closed-plus-gamemasterdll-flag.md`
+PR: `pf_bridge` #756 / `pirate-force-server` #510
