@@ -3159,6 +3159,32 @@ def pin_document(legacy: Any) -> dict:
         base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE
         for start, end in DROP_ELEMENT_COORD_SPANS:
             masked_pair[base + start:base + end] = b"\x00" * (end - start)
+    # THE WIDE (mask-0x16) SHAPE, sampled through the SAME two real functions
+    # (single-element, two-element) the narrow block above uses -- not typed,
+    # for the same "goes stale loudly instead of quietly" reason.  Added
+    # round KA1B-DROPMODEL FOLLOW-UP pf-adversary LOW finding: refresh_frames
+    # (the real per-kill composer) has defaulted to THIS shape since this same
+    # round, but the structured "wire" block above still only described the
+    # narrow one -- a reader trusting structure over the free-text notes
+    # (NONCLAIM 23) would get the machine-checked fields wrong.  Called
+    # directly through the "_with_model_type" primitives, not through
+    # ``drop_frames_with_model_type``/``refresh_frames``, so this document
+    # describes the wide shape regardless of :data:`DROP_MODEL_TYPE_FIELD_
+    # ENABLED`'s current value -- the flag's value is recorded separately,
+    # below, as ``is_the_default_production_shape``.
+    sample_pc_wm = drop_pc_with_model_type(legacy, sample)
+    sample_frame_wm = legacy.frame_pc(sample_pc_wm)
+    masked_wm = bytearray(sample_pc_wm)
+    for start, end in DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE:
+        masked_wm[DROP_ENVELOPE_SIZE + start:DROP_ENVELOPE_SIZE + end] = (
+            b"\x00" * (end - start))
+    pair_pc_wm = drop_collection_pc_with_model_type(legacy, sample_pair)
+    pair_frame_wm = legacy.frame_pc(pair_pc_wm)
+    masked_pair_wm = bytearray(pair_pc_wm)
+    for index in range(len(sample_pair)):
+        base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE_WITH_MODEL_TYPE
+        for start, end in DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE:
+            masked_pair_wm[base + start:base + end] = b"\x00" * (end - start)
     return {
         "schema": 1,
         "id": PIN_ID,
@@ -3186,6 +3212,28 @@ def pin_document(legacy: Any) -> dict:
             "two_element_frame_size": len(pair_frame),
             "two_element_masked_pc_sha256": (
                 hashlib.sha256(bytes(masked_pair)).hexdigest().upper()),
+        },
+        "wire_with_model_type": {
+            "envelope_pin_hex": DROP_ENVELOPE_PIN.hex().upper(),
+            "frame_header_pin_hex": DROP_FRAME_HEADER_PIN.hex().upper(),
+            "runtime_derived_bit": RUNTIME_DERIVED_BIT_GROUND_LIST,
+            "element_mask": ELEMENT_MASK_WITH_MODEL_TYPE,
+            "element_field_order": list(ELEMENT_FIELD_ORDER_WITH_MODEL_TYPE),
+            "elements_per_generation": "every drop of that kill (RE-130)",
+            "generations_per_kill": 1,
+            "element_size": DROP_ELEMENT_SIZE_WITH_MODEL_TYPE,
+            "max_elements_per_frame": DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE,
+            "pc_size": DROP_PC_SIZE_WITH_MODEL_TYPE,
+            "frame_size": DROP_FRAME_SIZE_WITH_MODEL_TYPE,
+            "masked_pc_sha256": (
+                hashlib.sha256(bytes(masked_wm)).hexdigest().upper()),
+            "sample_frame_size": len(sample_frame_wm),
+            "two_element_pc_size": len(pair_pc_wm),
+            "two_element_frame_size": len(pair_frame_wm),
+            "two_element_masked_pc_sha256": (
+                hashlib.sha256(bytes(masked_pair_wm)).hexdigest().upper()),
+            "is_the_default_production_shape": DROP_MODEL_TYPE_FIELD_ENABLED,
+            "not_yet_client_measured": True,
         },
         "lane_constants": {
             "drop_key_base": DROP_KEY_BASE,

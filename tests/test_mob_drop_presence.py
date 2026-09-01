@@ -354,19 +354,30 @@ class TrimTests(PresenceTestBase):
         do not travel must not stay live in the cell -- otherwise the server
         would hold a row the client has been told to forget, and a click on it
         could never arrive.  Unreachable on today's numbers (16 drops per kill,
-        a 2426-element cap); the cap is patched here rather than waited for.
+        a low-thousands cap either way); the cap is patched here rather than
+        waited for.
+
+        BOTH caps are patched, not only ``DROP_MAX_ELEMENTS_PER_FRAME``: the
+        trim guard now reads whichever one ``mob_loot.DROP_MODEL_TYPE_FIELD_
+        ENABLED`` (True by default) makes ``refresh_frames`` actually enforce
+        -- see the pf-adversary trim-cap-mismatch fix in ``mob_drop_
+        presence._current_frame_cap`` -- so a test that only patched the OLD
+        narrow constant would silently stop exercising this branch at all.
         """
         for index in range(3):
             self.kill(index)
         before = len(self.cell.ledger.drops)
         self.assertGreaterEqual(before, 3)
 
-        original = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        original_narrow = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        original_wide = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
         mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = 2
+        mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE = 2
         try:
             step = sustain_a_kill(self.cell, self.legacy, ())
         finally:
-            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = original
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = original_narrow
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE = original_wide
 
         self.assertEqual(step.state, STATE_TRIMMED_TO_FIT)
         self.assertEqual(step.live, 2)
@@ -380,6 +391,69 @@ class TrimTests(PresenceTestBase):
         self.assertEqual(
             sorted(row.drop_key for row in step.rows),
             sorted(drop.drop_key for drop in self.cell.ledger.drops))
+
+    def _ledger_of(self, count):
+        """``count`` synthetic rows, sorted, all real (a known item id).
+
+        Built directly rather than through ``count`` real kills -- 2200 rolls
+        through ``loot_a_kill`` would make this test slow and would still only
+        be exercising the same ``GroundDrop``/``DropLedger`` construction this
+        does directly.
+        """
+        rows = tuple(
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + index, 2200201, 1, 0.0, 0.0, 0.0,
+                0x201F, KILLER)
+            for index in range(count))
+        return mob_loot.DropLedger(
+            rows, generation=1, issued_through=mob_loot.DROP_KEY_BASE + count)
+
+    def test_S7_a_ledger_between_the_two_caps_trims_instead_of_refusing(self):
+        """pf-adversary (round 4d2b5105 fix): the trim guard used to compare
+        against the OLD narrow-shape cap (``DROP_MAX_ELEMENTS_PER_FRAME``,
+        2426) even though ``refresh_frames`` now composes the WIDE shape,
+        whose real ceiling (``DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE``,
+        2183) is smaller.  A ledger sized in the gap between the two (2200,
+        the exact number pf-adversary reproduced with) used to pass this
+        guard untouched, get handed whole to ``refresh_frames``, and raise
+        ``generation_too_wide_to_frame`` inside ``drop_frames_with_model_
+        type`` -- ``sustain_a_kill`` caught that and returned a full refusal,
+        zero frames, instead of the graceful trim this branch exists for.
+        """
+        narrow_cap = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        wide_cap = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
+        count = 2200
+        self.assertTrue(wide_cap < count <= narrow_cap,
+                         "the test's own numbers must sit in the gap")
+        ledger = self._ledger_of(count)
+
+        # Flag at its shipped default (True): refresh_frames composes the
+        # WIDE shape, so the wide cap is what must gate the trim.
+        self.assertTrue(mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED)
+        cell = mob_loot.DropLedgerCell(ledger=ledger, clock=self.clock)
+        step = sustain_a_kill(cell, self.legacy, ())
+        self.assertFalse(step.refused, step.detail)
+        self.assertEqual(step.state, STATE_TRIMMED_TO_FIT)
+        self.assertEqual(step.live, wide_cap)
+        self.assertEqual(step.trimmed, count - wide_cap)
+        self.assertTrue(step.frames)
+
+        # Flag flipped off (the documented one-line rollback): refresh_frames
+        # falls back to the narrow shape, whose cap is bigger than this
+        # ledger, so the SAME ledger now needs no trim at all.  This is what
+        # proves the guard reads the flag rather than being hardcoded to
+        # either constant.
+        mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED = False
+        try:
+            cell = mob_loot.DropLedgerCell(ledger=ledger, clock=self.clock)
+            step = sustain_a_kill(cell, self.legacy, ())
+        finally:
+            mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED = True
+        self.assertFalse(step.refused, step.detail)
+        self.assertEqual(step.state, STATE_SUSTAINED)
+        self.assertEqual(step.live, count)
+        self.assertEqual(step.trimmed, 0)
+        self.assertTrue(step.frames)
 
 
 class CostTests(PresenceTestBase):
@@ -759,12 +833,20 @@ class AdversaryMutantTests(PresenceTestBase):
         self.assertGreaterEqual(len(drops), 2, "this test needs one wide kill")
         self.assertEqual(live_before, len(drops))
 
-        original = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        # BOTH caps are patched -- see TrimTests.test_rows_that_cannot_
+        # travel_are_removed_from_the_cell_too's docstring for why patching
+        # only the narrow constant no longer exercises this branch now that
+        # the guard reads whichever cap DROP_MODEL_TYPE_FIELD_ENABLED (True
+        # by default) makes refresh_frames actually enforce.
+        original_narrow = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        original_wide = mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
         mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = 1
+        mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE = 1
         try:
             step = sustain_a_kill(self.cell, self.legacy, drops)
         finally:
-            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = original
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME = original_narrow
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE = original_wide
 
         self.assertFalse(step.refused, step.detail)
         self.assertEqual(step.state, STATE_TRIMMED_TO_FIT)
