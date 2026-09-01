@@ -190,7 +190,29 @@ CHAT_PUSH_TRIGGER_CLASSIFICATION = "ascii12"
 #   field1  object +0x14  wire tag 0x08  u8            -> 08 <v>
 #   field2  object +0x18  wire tag 0x32  8-byte scalar  -> 32 <8 bytes>
 #   field3  object +0x20  wire tag 0x44  std::string    -> 44 <u32 len><data>
-# EVERY TAG BYTE (0x08 / 0x32 / 0x44) IS READ FROM THE CLIENT'S OWN SERIALIZER;
+# [STALE][MEASURED] round 292 (2026-09-01, corrected same round after
+# pf-adversary re-review of the first draft): field3's tag byte 0x44 is
+# UNCONFIRMED against ReturnSelectServerVital's own serializer -- NOT
+# confirmed false either way. pf_bridge/external/PF_SERIALIZER_FIELDS.tsv
+# records field 3 of ReturnSelectServerVital (rows 1125/1128) as
+# UNTAGGED_STRING8_LEN32LE, which looks like "no tag byte" -- but the same
+# TSV gives the IDENTICAL label to DeleteActorVital's own string field
+# (rows 462/466), whose 0x44 tag GT-018 independently confirmed is real.
+# GT-055 already established why: this label describes the scope of the
+# string-writing HELPER call only: a tag byte can be written by a separate
+# instruction just before the helper is called, outside the span the label
+# covers (exactly the DeleteActorVital case). So the TSV proves neither
+# "field3 has no tag" nor "field3's tag is 0x44" -- both are open until
+# someone finds (or fails to find) a tag-write instruction immediately
+# before `string_wire_call@0x005E6A2B`, the way rows 1123/1124 show for
+# field1/field2's STACK@+0x14/+0x18 writes. The ORIGINAL sentence below
+# ("EVERY TAG BYTE ... IS READ FROM THE CLIENT'S OWN SERIALIZER") overclaims
+# field3 was measured the same way field1/field2 were -- it was not. See
+# RE-196 (CLIENT_RE_QUEUE.md) for the open question, and
+# notes_to_chief/20260901_1737_LANE-A-CORE-REQUEST-logout-tag-byte-overclaim-found-by-real-adversary.md
+# for how this was first caught.
+# FIELD1/FIELD2's TAG BYTES (0x08 / 0x32) ARE READ FROM THE CLIENT'S OWN
+# SERIALIZER; FIELD3's TAG BYTE (0x44) IS NOT -- SEE [STALE][MEASURED] ABOVE.
 # nothing structural is invented.  No producer in the client sets these fields
 # to any non-zero content, so the field VALUES default to zero and the string
 # is empty -- an explicit nonclaim, the same honest default agent D applied.
@@ -1022,6 +1044,9 @@ def require_logout_hypothesis_scenario(value: Any) -> LogoutHypothesisScenario:
         if digest != LOGOUT_REQUEST_PC_SHA256[subcode]:
             raise RuntimeError("logout hypothesis request fixture drift")
     if (
+        # [STALE][MEASURED] round 292: byte 11's 0x44 is this module's own
+        # fixture value, not an independent second source -- see the field3
+        # tag note above the module docstring's wire-body comment (RE-196).
         len(RETURN_SELECT_SERVER_BODY) != RETURN_SELECT_SERVER_BODY_SIZE
         or RETURN_SELECT_SERVER_BODY[0] != 0x08
         or RETURN_SELECT_SERVER_BODY[2] != 0x32
