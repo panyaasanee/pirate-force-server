@@ -1,11 +1,14 @@
 """LANE-B / round j0u64p: one kill site, the right letter for every scene.
 
 WHAT THIS FILE IS ABOUT.  ``runtime.py``'s ROSTER kill site -- the
-``mob_death.kill()`` call in the ``else`` branch at ~4168, which every field
-monster dies through -- hardcodes ONE ruling string, bg0001's.  The server
-ships a second scene, so that literal is the wrong letter for 17 of the 21
-monsters it ships, and the day a third scene lands it is the wrong letter
-again.  ``mob_death.ruling_for(mob)`` answers what a literal cannot.
+``mob_death.kill()`` call in the ``else`` branch, which every field monster
+dies through -- USED TO hardcode ONE ruling string, bg0001's.  The server
+ships a second scene, so that literal was the wrong letter for 17 of the 21
+monsters it shipped, and the day a third scene landed it would have been the
+wrong letter again.  ``mob_death.ruling_for(mob)`` answers what a literal
+cannot -- and per COO-DECISION 2026-08-29T08:48+07:00 item 3, it is what the
+call site passes today (see ``RUNTIME_CALL_SITE_LITERAL`` below for the
+literal it replaced).
 
 There is a SECOND kill site (the diagnostic branch, through
 ``diag_multi_object_wiring.death_dispatch``), which carries its own ruling on
@@ -56,8 +59,10 @@ from pirateforce_foundation.mob_death import (
 PERFORMER = 0x750059
 LETHAL = Combatant(level=1000, ability_str=100000, ability_con=0)
 
-# The value runtime.py's kill site passes TODAY, quoted so the measurement
-# below is against the real call site and not a convenient stand-in.
+# The value runtime.py's kill site passed BEFORE round j0u64p wired
+# mob_death.ruling_for(mob) in its place (COO-DECISION 2026-08-29T08:48+07:00
+# item 3) -- quoted here, not re-derived, so the tests below measure this
+# exact historical literal and not a convenient stand-in.
 RUNTIME_CALL_SITE_LITERAL = "COO-RULING-20260827-1350 widen-death-scope-bg0001"
 
 
