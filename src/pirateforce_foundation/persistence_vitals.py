@@ -533,6 +533,27 @@ def census_sql() -> str:
     would see, ``*_seeded_any`` for every row on disk.  They differ exactly
     when a seeded character has been deleted, and a reader who quotes only
     one of them can at least see the other next to it.
+
+    ``hp_pair_mixed_any`` / ``hp_pair_mixed_live`` count the rows holding
+    exactly ONE of ``hp_current`` and ``hp_max``.  They are here because
+    ``migrations/007_character_vitals_seed.sql`` deliberately does NOT seed
+    such a row -- inventing the missing half of a pair somebody else wrote is
+    the guess this lane refuses, and with a stored ``hp_max`` below the seed
+    it would build a row ``_consistency_gaps`` then refuses as
+    ``REASON_HP_ABOVE_MAX``.  A row 007 skips has to be COUNTABLE, or "007
+    ran and this character still cannot be hit" has no number behind it.
+    Zero on the database this repository has today: nothing writes half a
+    pair yet.  ``level`` needs no such count -- it stands alone.
+
+    ``vitals_incomplete_any`` / ``vitals_incomplete_live`` are the count that
+    answers the question a reader of the other keys will actually ask: HOW
+    MANY CHARACTERS STILL CANNOT BE HIT.  A ``pf-adversary`` pass named the
+    hole they close: after ``007`` the owner's database will report
+    ``hp_pair_mixed_live: 0``, which reads as "007 reached everyone" while
+    every character CREATED after ``007`` is still three gaps (``store.
+    create_character`` does not name these columns).  That number was
+    derivable from the others and named by none of them, which is the same as
+    absent.
     """
     parts = ["COUNT(*) AS characters_any",
              "SUM(deleted_at IS NULL) AS characters_live"]
@@ -542,4 +563,15 @@ def census_sql() -> str:
             f"SUM({column} IS NOT NULL AND deleted_at IS NULL) "
             f"AS {column}_seeded_live"
         )
+    mixed = f"(({HP_CURRENT_COLUMN} IS NULL) <> ({HP_MAX_COLUMN} IS NULL))"
+    parts.append(f"SUM({mixed}) AS hp_pair_mixed_any")
+    parts.append(
+        f"SUM({mixed} AND deleted_at IS NULL) AS hp_pair_mixed_live"
+    )
+    incomplete = "(" + " OR ".join(
+        f"{column} IS NULL" for column in VITAL_COLUMNS) + ")"
+    parts.append(f"SUM({incomplete}) AS vitals_incomplete_any")
+    parts.append(
+        f"SUM({incomplete} AND deleted_at IS NULL) AS vitals_incomplete_live"
+    )
     return "SELECT " + ",".join(parts) + " FROM characters"

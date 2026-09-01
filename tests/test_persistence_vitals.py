@@ -55,6 +55,11 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
 MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
+#: This lane's evidence for `migrations/007_character_vitals_seed.sql`.  It
+#: calls the three store methods in order to MEASURE what the seed left
+#: behind, so `NothingIsWiredTests` excludes it -- by full path, and asserted
+#: to exist, so that a rename cannot leave a silent exclusion behind.
+SEED_EVIDENCE = ROOT / "tests" / "test_persistence_vitals_seed.py"
 
 
 def _build_wire(selector):
@@ -734,6 +739,11 @@ class NothingIsWiredTests(unittest.TestCase):
         # `pf-adversary` pass pointed out that the first version looked only
         # at `src/` while `tools/`, `scenarios/`, `current/` and `tests/` can
         # all call a store method too.
+        self.assertTrue(
+            SEED_EVIDENCE.is_file(),
+            "the excluded evidence file has been renamed or removed; the "
+            "exclusion below is now hiding nothing and nobody would notice",
+        )
         callers = []
         trees = [ROOT / "src", ROOT / "tools", ROOT / "scenarios",
                  ROOT / "current", ROOT / "tests", ROOT / "drafts",
@@ -742,8 +752,25 @@ class NothingIsWiredTests(unittest.TestCase):
             if not tree.exists():
                 continue
             for path in tree.rglob("*.py"):
-                if path.name in ("store.py", "persistence_vitals.py",
-                                 Path(__file__).name):
+                if path == SEED_EVIDENCE:
+                    # By PATH, not by basename.  A `pf-adversary` pass dropped
+                    # `src/pirateforce_foundation/test_persistence_vitals_
+                    # seed.py` containing a real `apply_hp_damage` call into
+                    # the scanned tree and the basename form let it through.
+                    continue
+                if path.name in (
+                        "store.py", "persistence_vitals.py",
+                        Path(__file__).name,
+                        # This lane's OWN evidence for
+                        # `migrations/007_character_vitals_seed.sql`: it calls
+                        # the three methods in order to measure what the seed
+                        # left behind.  A test is not a call site -- nothing it
+                        # does happens on a boot or in a game -- but it does
+                        # have to be named here rather than silently matched,
+                        # because the claim below is "no PRODUCTION code calls
+                        # these", and hiding a caller would be the exact
+                        # dishonesty this test exists to prevent.
+                        ):
                     continue
                 text = path.read_text(encoding="utf-8", errors="replace")
                 if re.search(

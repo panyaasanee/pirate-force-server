@@ -302,11 +302,15 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            # 6 = migrations/006_character_typed_attribute_columns.sql
-            # (LANE-DB).  This pin moves with EVERY new migration file;
-            # see the letter 20260901_1416_LANE-DB-REQUEST-chief-two-
-            # migration-count-pins-outside-this-lane.md.
-            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3, 4, 5, 6])
+            # 7 = migrations/007_character_vitals_seed.sql (LANE-DB,
+            # COO-DECISION 20260902_0250).  This pin moves with EVERY new
+            # migration file; see the letter 20260901_1416_LANE-DB-REQUEST-
+            # chief-two-migration-count-pins-outside-this-lane.md and
+            # 20260901_1459_CHIEF-REPLY-... point 2 (chief does not object to
+            # this lane moving the number) and point 3 (the dynamic pin chief
+            # deferred, which would end this edit for good).
+            self.assertEqual([int(row[0]) for row in versions],
+                             [1, 2, 3, 4, 5, 6, 7])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"

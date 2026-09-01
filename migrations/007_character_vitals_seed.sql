@@ -1,0 +1,108 @@
+-- 007_character_vitals_seed.sql
+-- LANE-DB / M4.
+-- TRANSCRIBED from player_wire hardcode -- original game default OPEN
+--
+-- That header line is the one `COO-DECISION 20260902_0250` point 3 requires
+-- verbatim, and it is the honest description of every number below: each one
+-- is copied out of a literal this server already puts on the wire for every
+-- character on every login, not out of the client and not out of a guess.
+-- The day RE finds the game's real starting values and they differ from
+-- these, the instruction is a NEW migration -- this file must never be edited
+-- afterwards, because its checksum is in `schema_migrations` on the owner's
+-- canonical database and an edit would turn every later boot into
+-- "migration checksum mismatch" (`store.py:117`).
+--
+-- WHAT IT WRITES, AND WHERE EACH NUMBER COMES FROM
+--
+--   level       = 1     `player_wire.py:22`  PLAYER_LOGIN_LEVEL = 1, passed
+--                       as the default of `make_actor_attr_with_name_and_class`
+--                       (`:220`) and encoded at `:203` as u16tag(0x12, level).
+--   hp_current  = 100   `player_wire.py:204` legacy.u32tag(0x14, 100), inline.
+--   hp_max      = 100   `player_wire.py:205` legacy.u32tag(0x14, 100), inline.
+--
+-- `tests/test_persistence_vitals_seed.py` does not take those three numbers on
+-- trust: it builds the real login frame through the shipped
+-- `make_actor_attr_with_name_and_class`, finds the slice this migration's
+-- three columns are supposed to serve, and compares it BYTE FOR BYTE with the
+-- same slice re-encoded from the values this file leaves in the database
+-- (COO-DECISION 20260902_0250 point 1).  If anyone changes either side, that
+-- test goes red rather than this comment going stale.
+--
+-- WHY A SEED IS ALLOWED HERE AT ALL.  The owner's standing rule
+-- (`COO-DECISION 20260901_1059`) is that an unknown field must never be
+-- guessed to be zero.  These three are not unknown and are not zero: they are
+-- a transcription of the values this server already sends.  `COO-DECISION
+-- 20260902_0250` adjudicated exactly that and approved (a).  Without them
+-- `persistence_vitals` refuses every character -- an unseeded `hp_current` is
+-- a NAMED GAP, never a zero -- so nothing can be hit and nothing can die, and
+-- M4 stays shut.
+--
+-- WHY IT TOUCHES ROWS, AND WHAT PROTECTS THEM.  This is the first migration
+-- of this lane that writes into existing rows.  `COO-DECISION 20260901_1112`
+-- point 3 requires that such a migration lands with an automatic pre-apply
+-- copy of the .db file.  That mechanism is `SQLiteStore.migrate_with_backup`
+-- (`store.py:132`), it is already on both boot call sites (`app.py:786` and
+-- `app.py:789`), and `should_snapshot` (`persistence_backup.py:297,312`)
+-- returns True for a pending version, so a boot copies the database before
+-- this file runs.  `tests/test_persistence_vitals_seed.py::
+-- BootSnapshotProtects007Tests` proves that on the real `migrations/`
+-- directory rather than on a probe file.
+--
+-- WHAT IT REFUSES TO TOUCH, AND WHY THAT IS NOT TIMIDITY
+--
+-- 1. A column that already holds a value is never overwritten.  Every
+--    statement carries `IS NULL`.  That is the COO's wording ("แถวที่มีค่าแล้ว
+--    ห้ามแตะ") and it is also what makes this file safe to meet a database
+--    somebody has already played on.
+-- 2. The HP PAIR IS SEEDED AS A PAIR, and this is the one place this file
+--    reads the decision more narrowly than a literal per-column IS NULL would.
+--    `store.write_typed_attributes` can write `hp_current` without `hp_max`,
+--    so a HALF-WRITTEN pair is reachable state.  Seeding the missing half of
+--    such a row would invent a partner for a number this server did not
+--    choose, and THAT is the whole reason -- it holds for both halves.  A
+--    `pf-adversary` pass was right that the second reason below covers only
+--    one of the two shapes, so it is named as the extra cost of one of them
+--    rather than as the argument: with `hp_max = 50` already stored, a
+--    per-column seed of `hp_current = 100` is also `REASON_HP_ABOVE_MAX`
+--    (`persistence_vitals.py:_consistency_gaps`), a broken character created
+--    BY a repair.  The mirror shape (`hp_current = 30`, no maximum) would
+--    produce a row the rules accept -- `30/100` -- and is refused anyway,
+--    because a maximum this server was never told is not this file's to
+--    invent.  So a mixed pair is left exactly as found and counted:
+--    `SQLiteStore.vitals_seeding_census` reports `hp_pair_mixed_any` /
+--    `_live` so those rows are visible as a number rather than silent.
+--    On the database this repository can see today the two readings are the
+--    same set of rows: nothing writes these columns yet, so every pair is
+--    (NULL, NULL).
+-- 3. Soft-deleted rows ARE seeded, deliberately.  `004_character_soft_delete_
+--    reuse.sql` keeps them forever and they can come back; a row that returns
+--    unseeded would be a character that cannot be hit, and the seed is the
+--    same three numbers for every row anyway.
+--
+-- WHAT THIS FILE DOES NOT DO.  It does not seed a character CREATED AFTER it
+-- runs: `store.create_character` (`store.py:232`) names its columns and these
+-- three are not among them, and 006 built the columns without a DEFAULT.  So
+-- after this migration the OLD characters are seeded and a NEW one is still
+-- three named gaps.  That is a real hole, it is measured in this round's
+-- report rather than left to be discovered, and closing it means either a
+-- table rebuild that gives the columns defaults or a change inside
+-- `create_character` -- one needs the owner's approval for another row-
+-- touching migration, the other is a behaviour change to an existing method
+-- that this lane's charter forbids.  Both are asked in
+-- `pf_bridge/notes_to_chief/20260902_0420_LANE-DB-ASK-COO-new-characters-are-
+-- still-unseeded-after-007.md`; neither is decided here.
+--
+-- It also does not touch `speed_walk`.  `COO-DECISION 20260901_1447` point 2
+-- left that value unadjudicated (two candidate numbers, and the column name
+-- itself still encodes an unproven identification), and `20260902_0250`
+-- approved these three columns only.
+
+UPDATE characters
+   SET level = 1
+ WHERE level IS NULL;
+
+UPDATE characters
+   SET hp_current = 100,
+       hp_max = 100
+ WHERE hp_current IS NULL
+   AND hp_max IS NULL;

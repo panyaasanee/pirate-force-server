@@ -29,16 +29,30 @@ how much they matter:
    SQL runs, and refused again by the column's own SQL CHECK for a writer that
    does not come through this API.
 
-WHAT THIS FILE DOES NOT PROVE.  Nothing here is client-observable.  No frame
-is composed, nothing is sent, and no call site anywhere calls either new store
-method -- ``/speed`` still cannot be typed into the game.  Nothing seeds these
-columns either: after 006 every one of them is NULL on every existing
-character, which is deliberate (seeding is a write on live rows, and what it
-waits for is now a value nobody has adjudicated -- ``COO-DECISION 20260901_
-1447`` point 2 -- not the backup-on-boot wiring, which landed), so a full
-attribute block still cannot compose.  ``TheGateStillRefusesTests`` asserts
-that refusal rather than hiding it, and ``BootSnapshotProtects006Tests``
-asserts the protection that arriving wiring is supposed to give this file.
+WHAT THIS FILE DOES NOT PROVE.  Nothing here is client-observable: no frame is
+composed here and nothing is sent from here.
+
+THAT SENTENCE USED TO GO ON, and what it went on to say has been FALSE since
+LANE-GM landed ``/speed``: it claimed "no call site anywhere calls either new
+store method -- ``/speed`` still cannot be typed into the game".  Production
+calls both today -- ``gm/chat_command_action.py:2885-2886`` (``_speed_undo``)
+reads and writes them, ``:3189`` goes through
+``write_typed_attributes_and_compose_sparse``, and the path is reachable from
+``runtime.py:6048`` -- so a GM who types ``/speed`` writes ``speed_walk`` into
+a real row.  A ``pf-adversary`` pass found this lane retyping the dead sentence
+into a file it was editing in the very round its own report said the opposite,
+which is how a stale claim outlives the thing it described.  What is still
+true, and all that is claimed here: nothing composes a LOGIN attribute block
+out of these columns, and no census in this file was taken after a ``/speed``.  006 ITSELF seeds
+nothing, which is what this file measures and what it goes on measuring: its
+tests now cut the migrations directory at version 006 rather than at "every
+name but 006", because ``migrations/007_character_vitals_seed.sql`` (approved
+by ``COO-DECISION 20260902_0250``) does seed three of these columns and the
+old cut put it in the "up to 005" directory.  Eighteen of the twenty-one are
+still NULL after 007, so a FULL attribute block still cannot compose;
+``TheGateStillRefusesTests`` asserts that refusal rather than hiding it, and
+``BootSnapshotProtects006Tests`` asserts the protection that arriving wiring
+is supposed to give this file.
 """
 import ast
 import gc
@@ -311,6 +325,21 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn(7, gaps, "the gate itself cannot see a None; this is why")
 
 
+def _slice_migrations(root, name, highest):
+    """Copy migrations 001..`highest` into `root`/`name` and return the path.
+
+    A directory whose contents are decided by VERSION cannot be broken by a
+    later migration file appearing in `migrations/`; a directory decided by
+    "every name but this one" can, and was.
+    """
+    target = Path(root) / name
+    target.mkdir()
+    for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= highest:
+            shutil.copy2(path, target / path.name)
+    return target
+
+
 class MigrationIsNonDestructiveTests(unittest.TestCase):
     """Run 001..005, put real rows in, THEN run 006, and compare everything."""
 
@@ -318,12 +347,17 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.older = self.root / "migrations_upto_005"
-        self.older.mkdir()
-        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if path.name != MIGRATION_006.name:
-                shutil.copy2(path, self.older / path.name)
+        # Two SLICES of the real directory, cut by version number rather than
+        # by name.  The first version of this cut said "every file except
+        # 006", which stopped being the same thing the moment
+        # `007_character_vitals_seed.sql` existed: 007 landed in the "up to
+        # 005" directory and `migrate()` died on `no such column: level`.
+        self.older = self._slice("migrations_upto_005", 5)
+        self.upto006 = self._slice("migrations_upto_006", 6)
         self.path = self.root / "state.sqlite3"
+
+    def _slice(self, name, highest):
+        return _slice_migrations(self.root, name, highest)
 
     def _dump(self, table):
         db = sqlite3.connect(self.path)
@@ -349,7 +383,7 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
         for column in COLUMNS_BEFORE_006:
             self.assertIn(column, before["characters"][0])
 
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        SQLiteStore(self.path, self.upto006).migrate()
 
         after = {t: self._dump(t) for t in before}
         for table in ("character_positions", "character_backpacks"):
@@ -412,13 +446,18 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.older = self.root / "migrations_upto_005"
-        self.older.mkdir()
-        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if path.name != MIGRATION_006.name:
-                shutil.copy2(path, self.older / path.name)
+        # Two SLICES of the real directory, cut by version number rather than
+        # by name.  The first version of this cut said "every file except
+        # 006", which stopped being the same thing the moment
+        # `007_character_vitals_seed.sql` existed: 007 landed in the "up to
+        # 005" directory and `migrate()` died on `no such column: level`.
+        self.older = self._slice("migrations_upto_005", 5)
+        self.upto006 = self._slice("migrations_upto_006", 6)
         self.path = self.root / "state" / "pirateforce.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _slice(self, name, highest):
+        return _slice_migrations(self.root, name, highest)
 
     def _at_005_with_a_character(self, keep_wal_hot=False):
         """A database at schema 005 with one real character in it.
@@ -487,12 +526,12 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         from pirateforce_foundation import persistence_backup
 
         self._at_005_with_a_character()
-        take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
+        take, reason = persistence_backup.should_snapshot(self.path, self.upto006)
         self.assertTrue(take, reason)
-        self.assertEqual([6], persistence_backup.pending_versions(self.path, MIGRATIONS))
+        self.assertEqual([6], persistence_backup.pending_versions(self.path, self.upto006))
         self.assertIn("006", reason)
 
-        snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+        snapshot = SQLiteStore(self.path, self.upto006).migrate_with_backup(
             backups_root=self.root / "backups"
         )
         self.assertIsNotNone(snapshot, "006 was applied with no snapshot taken")
@@ -535,7 +574,7 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
                 self.path.with_name(self.path.name + "-wal").exists(),
                 "this test is only worth anything with a hot -wal; there is none",
             )
-            snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+            snapshot = SQLiteStore(self.path, self.upto006).migrate_with_backup(
                 backups_root=self.root / "backups"
             )
         finally:
@@ -598,7 +637,7 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         test_the_scene_load_branch_is_the_one_deliberate_exception`), not a
         regression, and not this lane's to change.
 
-        🔴 If this test goes red, do NOT edit `app.py` from this lane: write
+        DO NOT edit `app.py` from this lane if this test goes red: write
         the chief a letter (`charter COO-DECISION 20260901_1100` gives him
         `app.py`; this lane's standing request is
         `pf_bridge/notes_to_chief/20260901_1515_LANE-DB-REQUEST-chief-staged-
