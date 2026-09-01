@@ -28,12 +28,16 @@ class SQLiteStore:
     @contextmanager
     def connect(self):
         db = sqlite3.connect(self.path)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        db.execute("PRAGMA busy_timeout=5000")
-        db.execute("PRAGMA synchronous=FULL")
-        if self.path != ":memory:":
-            db.execute("PRAGMA journal_mode=WAL")
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            db.execute("PRAGMA busy_timeout=5000")
+            db.execute("PRAGMA synchronous=FULL")
+            if self.path != ":memory:":
+                db.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            db.close()
+            raise
         try:
             yield db
             db.commit()

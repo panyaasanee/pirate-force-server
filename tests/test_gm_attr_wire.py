@@ -2,11 +2,16 @@
 and the RawBlockCache fail-closed/lossless-preserve properties.
 
 NONCLAIM (read before extending this file): nothing here sends a byte to a
-real client, and nothing here claims `UPDATE_ATTR_VITAL_VERSION_CONFIRMED`
-is anything but `None`. These tests exercise byte construction only -- see
-attr_wire.py's module docstring "STATUS THIS ROUND" for the full picture,
-including the still-open raw-block-source question this module does not
-claim to have answered.
+real client.  `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` is no longer
+unconditionally `None` -- `VersionGateTests` pins the SCOPED exception
+(`COO-DECISION 20260901_1847`, `/speed` sparse x=7 only) that flipped it to
+`0` -- but that flip is not this module's own three-point unlock answering
+itself: the full-block door (`build_named_field_update`) is not gated on
+this constant at all (see `make_update_attr_frame`'s own docstring) and
+condition (b) below is still open.  These tests exercise byte construction
+only -- see attr_wire.py's module docstring "STATUS THIS ROUND" for the
+full picture, including the still-open raw-block-source question this
+module does not claim to have answered.
 """
 from __future__ import annotations
 
@@ -377,8 +382,38 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
 
 
 class VersionGateTests(unittest.TestCase):
-    def test_the_shipped_constant_is_still_none_so_no_bytes_can_go_out(self):
-        self.assertIsNone(UPDATE_ATTR_VITAL_VERSION_CONFIRMED)
+    def test_the_shipped_constant_is_zero_by_a_scoped_speed_exception(self):
+        # Flipped None -> 0 by `COO-DECISION 2026-09-01T18:47+07:00`
+        # (pf_bridge/notes_to_chief/20260901_1847_COO-DECISION-gm049-vital-
+        # version-gate-scoped-exception-c.md), SCOPED to the `/speed` sparse
+        # x=7 send site only -- see this constant's own comment in
+        # attr_wire.py for the full reasoning (a convergence across two
+        # independently-measured RE-105/RE-129 vitals, not a copy of
+        # either). If this fails without that letter's reasoning landing in
+        # attr_wire.py's own comment, someone flipped the general gate
+        # instead of the scoped one -- read the comment before touching this
+        # assertion.
+        self.assertEqual(UPDATE_ATTR_VITAL_VERSION_CONFIRMED, 0)
+
+    def test_the_full_block_door_does_not_read_this_constant_at_all(self):
+        # The flip above does NOT by itself open `build_named_field_update`
+        # (the full-block door `attr_wire.py`'s own "STATUS THIS ROUND"
+        # three-point unlock still gates): `make_update_attr_frame`'s own
+        # docstring says it is "not gated on
+        # UPDATE_ATTR_VITAL_VERSION_CONFIRMED", and this constant becoming
+        # non-None changes nothing about condition (b) (lossless
+        # unnamed-field preservation), which is still open.  A composer that
+        # started reading this constant to decide whether to compose would
+        # make the scoped exception a silent general one.
+        cache = RawBlockCache()
+        cache.capture_initial({})
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        level_x = BY_NAME["level"][0]
+        # Still composes freely regardless of the gate value -- this door was
+        # never gated on it, and still is not.
+        pc, frame = build_named_field_update(legacy, cache, 1, 0, level_x, 5)
+        self.assertGreater(len(pc), 0)
+        self.assertGreater(len(frame), 0)
 
 
 if __name__ == "__main__":

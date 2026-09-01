@@ -1,10 +1,15 @@
 """gm/speed_wire.py: the sparse (x=7-only) `/speed` composer.
 
 NONCLAIM (read before extending this file): nothing here sends a byte to a
-real client, and nothing here claims `attr_wire.UPDATE_ATTR_VITAL_VERSION_
-CONFIRMED` is anything but `None`. These tests exercise byte construction
-only, and confirm the composer touches field x=7 and NOTHING else -- see
-speed_wire.py's module docstring for the full scope statement.
+real client.  `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` is no longer
+unconditionally `None` -- `ScopeTests` pins the scoped exception
+(`COO-DECISION 20260901_1847`) that flipped it to `0` for this door only --
+but this module still never reads that value to decide whether to compose
+(module docstring point 1); the gate lives at `chat_command_action.
+_speed_action`, the one call site allowed to reach a real socket. These
+tests exercise byte construction only, and confirm the composer touches
+field x=7 and NOTHING else -- see speed_wire.py's module docstring for the
+full scope statement.
 """
 from __future__ import annotations
 
@@ -56,10 +61,18 @@ class ScopeTests(unittest.TestCase):
             attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
         )
 
-    def test_shared_vital_version_confirmed_is_none_today(self):
-        # The load-bearing safety fact this module's docstring point 1
-        # states: nothing sends until this is proven, sparse or not.
-        self.assertIsNone(shared_vital_version_confirmed())
+    def test_shared_vital_version_confirmed_is_zero_by_scoped_exception(self):
+        # `COO-DECISION 2026-09-01T18:47+07:00` (pf_bridge/notes_to_chief/
+        # 20260901_1847_COO-DECISION-gm049-vital-version-gate-scoped-
+        # exception-c.md) flipped `attr_wire.UPDATE_ATTR_VITAL_VERSION_
+        # CONFIRMED` None -> 0, SCOPED to exactly this door -- see that
+        # constant's own comment in attr_wire.py for the reasoning (a
+        # convergence across two independently-measured RE-105/RE-129
+        # vitals, not a byte lifted from either). This module still never
+        # gates ITSELF on the value (module docstring point 1) -- the gate
+        # lives at the one call site allowed to reach a real socket
+        # (`chat_command_action._speed_action`).
+        self.assertEqual(shared_vital_version_confirmed(), 0)
 
 
 class ParseSpeedValueTests(unittest.TestCase):
