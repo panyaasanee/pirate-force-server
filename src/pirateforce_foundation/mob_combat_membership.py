@@ -77,6 +77,50 @@ needs to be added) -- that is exactly the state RE-157 says only
 supply, so the exact wiring is chief's call.  This module supplies the
 predicate and its contract only, pinned by
 ``tests/test_mob_combat_membership.py``.
+
+[STALE as of commit ``798507ee``, "WIP round 57alcd: RE-157 job2 mob-combat
+membership guard", 2026-09-01 (see ``pf_bridge/notes_to_chief/
+20260901_1747_CHIEF-TO-LANE-B-re157-job2-wired-scene-transition-gap-your-
+call.md`` and companion round record ``pf_bridge/rounds/
+R291_57alcd_re157-job2-wired-gt193-opened-corerequest-re189-mailbox-
+triage.md``)] [MEASURED, by call-site reading, round `s6y4h5`
+2026-09-01]: both headline claims above are now false. ``runtime.py`` DOES
+call ``admits()`` (grep ``mob_combat_announced_membership,`` /
+``if target_is_field_mob and not mob_combat_membership.admits(`` at
+``runtime.py:4247-4256``, immediately after ``target_is_field_mob`` and
+before the cadence branch this module's own CORE-REQUEST asked for) and
+DOES call ``build_membership()`` to stamp the record at three census-commit
+sites (``runtime.py:7941-7947`` bg0002, ``:8204-8209`` lane-composer,
+``:8556-8565`` bg0001), plus an unconditional clear+generation-bump in
+``_gm_warp_resync_selected_scene`` (``:5537-5538``).  So "Nothing yet" /
+"no call site in runtime.py" is stale, and the CORE-REQUEST recipe above is
+LANDED, not pending: chief did wire the exact predicate and generation
+compare this docstring asked for.
+
+What is NOT yet closed, found while re-reading the four call sites above
+against runtime.py's two OTHER scene-entry paths: the travel-gate crossing
+(``world_travel_gate.py`` via ``runtime.py:7499``'s
+``world_population_handoff.handoff_on_crossing`` call, ``reset =
+handoff.membership_reset`` at ``:7579``) and the M2 crossing
+(``world_m2_crossing_handoff.py`` via ``runtime.py:5141``'s
+``crossing_handoff`` call, ``reset = handoff.membership_reset`` at
+``:5180``) each reset ``population_indices`` /
+``population_refresh_anchor`` / ``world_census_indices`` from that same
+``reset`` object but do NOT clear or bump
+``mob_combat_announced_membership`` / ``_generation`` -- unlike the GM
+``/warp`` path, which does both at ``:5537-5538``.  A player who reaches a
+field-mob scene through either of these two ordinary-travel paths (not GM
+warp, not a fresh login) can therefore carry a stale membership record
+stamped for a DIFFERENT scene id into the new scene; ``admits()`` still
+fails closed on that mismatch (refuses combat) until the new scene's own
+bg0001/bg0002/lane-composer stamp fires, so this is a false-reject risk,
+not a false-accept one, and RE-157's own nonclaim about reachability is
+unaffected -- but it means ordinary travel can silently block real combat
+in a freshly-entered scene until the next census commit re-stamps it. Both
+sites are inside ``runtime.py``, so this module cannot fix it; see this
+round's ``CORE-REQUEST`` to chief for the two-line unconditional-clear fix
+at each site, mirrored on the ``_gm_warp_resync_selected_scene`` pattern
+already on the wire.
 """
 from __future__ import annotations
 

@@ -761,7 +761,43 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # pass") still controls and is unchanged. No entry added or removed, count
 # stays 48, no index shift, no status/kind/checkpoint/production_allowed/
 # stop_rule/falsification moves.)
-CANONICAL_CONTENT_SHA256 = "D4847590A47F80C9FFCD3A6E018EE55B6D60AD2C98FD405CC8603EA6E5AD9359"
+#
+# ---- lineage: chief cloud round (2026-09-01, RE-189 branch2/branch3 +
+# HYP-PF-041 CORE-REQUEST reply) pin D47A9994.. ----
+# -> D47A9994.. (2026-09-01, chief cloud round: ONE ENTRY ADDED, HYP-PF-041
+# LOGOUT-TEARDOWN-TIMER-VARIANT-001, appended at the end so every earlier
+# index stays stable; count 48 -> 49.  Registers LANE-A's already-built,
+# already-adversary-reviewed RE-189 Job 2 branch 2 (round ztl2u5, commit
+# 97e8219b): four separately hash-pinned, separately allowlisted
+# LogoutHypothesisScenario profiles that sweep the HYP-PF-013 post-ack
+# close_delay_ms lever to 0/2000/10000 ms and to "never close" (post_ack_
+# action back to LOGOUT_POST_ACK_ACTION_NONE), reusing the unchanged
+# HYP-PF-012 ack pins verbatim -- no new response byte anywhere in this
+# entry.  LANE-A's own letter (pf_bridge/notes_to_chief/20260901_1844_
+# LANE-A-CORE-REQUEST-re189-branch2-built-branch3-needs-runtime-py-hyp041-
+# ledger.md) explicitly did not touch this ledger and asked chief to
+# register it, per this project's own practice that new-entry minting is a
+# chief-round action.  One .py source_ref (logout_hypothesis.py) carries
+# the active_claim_marker; that file's own inline "PF-HYPOTHESIS-LEDGER:
+# HYP-PF-041 active" annotation comment was added in the same commit as
+# this ledger entry (it did not exist in LANE-A's own commit, which
+# deliberately left it out pending registration -- see that file's own
+# PROVENANCE NOTE, now amended in place with a dated [REGISTERED ...]
+# follow-up rather than deleted, per the R166 amend-not-replace precedent).
+# No runtime.py change was made or is claimed: both close_delay_ms and
+# post_ack_action were already generic before this round, so this entry
+# carries exactly one source_ref.  Same round also wired RE-189 Job 2
+# branch 3 (LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER, a new runtime.py
+# routing branch reordering the two pinned HYP-PF-028 composers to ack-
+# first) per the same CORE-REQUEST's section 3, but that branch has no
+# allowlisted profile yet and is therefore NOT registered as a ledger
+# entry this round -- it is provably unreachable from any default boot,
+# the same pre-registration state HYP-PF-040's routing branch was in
+# before its own profile landed, and is left for a future LANE-A round to
+# register once a real scenario/profile exists, matching that precedent
+# exactly.  No other entry added, removed or reordered; no earlier
+# status/kind/checkpoint/production_allowed touched.)
+CANONICAL_CONTENT_SHA256 = "D47A999430BF43716C885E2D774B149377E9BFEDD6AE09242CCF7D6D5E829960"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -1025,6 +1061,14 @@ EXPECTED_IDS = (
     # 2026-09-01, wiring a LANE-A CORE-REQUEST) is likewise appended at the
     # end to keep every earlier entry index stable.
     "HYP-PF-040",
+    # HYP-PF-041 (LOGOUT-TEARDOWN-TIMER-VARIANT-001: LANE-A round ztl2u5,
+    # cloud, 2026-09-01, the RE-189 Job 2 branch 2 post-ack close-delay
+    # sweep behind four separately allowlisted scenario files; registered
+    # same-day by chief cloud round per LANE-A's CORE-REQUEST, pf_bridge/
+    # notes_to_chief/20260901_1844_LANE-A-CORE-REQUEST-re189-branch2-built-
+    # branch3-needs-runtime-py-hyp041-ledger.md) is likewise appended at the
+    # end to keep every earlier entry index stable.
+    "HYP-PF-041",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -1104,6 +1148,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-040": (
         "protocol_hypothesis", "LOGOUT-DIALOG-OPEN-001", "active",
+    ),
+    "HYP-PF-041": (
+        "protocol_hypothesis", "LOGOUT-TEARDOWN-TIMER-VARIANT-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "id": "logout_hypothesis_teardown_timer_variant_2000ms_subcode01_03",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-041",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+    "post_ack_action": "close_socket",
+    "close_delay_ms": 2000
+  },
+  "requests": {
+    "subcode01": {
+      "pc_size": 34,
+      "pc_sha256": "EF3B19F34A5FA55698617A16254BA5F722AC0BE44AF12170E1352CD206408973"
+    },
+    "subcode03": {
+      "pc_size": 34,
+      "pc_sha256": "EC5B53DCC49C034A9B716F893F4315104146B4220E9551C0101F1F699BB0FAA0"
+    }
+  },
+  "composed_responses": {
+    "subcode01": {
+      "pc_size": 36,
+      "pc_sha256": "9E4FA00E408910204C91DE264ED9274ECF7A3C7E8C37C75199F090AB7DE23C67",
+      "frame_size": 46,
+      "frame_sha256": "9B417B5F0EF05B1096FA000C7FC154DF952EF817232115DA077253BDC27A3D0A"
+    },
+    "subcode03": {
+      "pc_size": 36,
+      "pc_sha256": "FC8B9E2CC2BD590458F1EAAFCE712D283538D525F136AD0F9838B108395F6DC6",
+      "frame_size": 46,
+      "frame_sha256": "AB172DFFCBC1195F086A848018FC4797D53945B6B2854D651D37B3740F4E6696"
+    }
+  },
+  "persisted_post_state": {
+    "sessions_closed_at": "written_before_ack_bytes_are_queued",
+    "position_rewrite": "none"
+  },
+  "capabilities": [
+    "acknowledge_exact_captured_logout_requests_after_clean_close",
+    "silence_connection_after_acknowledged_logout",
+    "server_initiated_clean_socket_close_after_acknowledged_logout"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "client_observable_exit_or_character_select_return",
+    "logout_outside_runtime_ready_sequence",
+    "subcodes_other_than_01_and_03",
+    "production_baseline_behavior",
+    "the_delay_value_itself_changes_client_behavior"
+  ]
+}
