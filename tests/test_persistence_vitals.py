@@ -35,6 +35,7 @@ It is wire/DB evidence only, and it has never run against the owner's
 canonical database.
 """
 import ast
+import contextlib
 import re
 import sqlite3
 import sys
@@ -58,6 +59,31 @@ MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
 
 def _build_wire(selector):
     return b"wire", b"avatar", 0x30000001 + selector, 0
+
+
+@contextlib.contextmanager
+def raw(path):
+    """A raw sqlite connection that is COMMITTED **and CLOSED**.
+
+    `with sqlite3.connect(...) as db:` commits on exit and does NOT close --
+    a python API wart that costs nothing on Linux, where an open file can
+    still be unlinked, and fails the whole suite on Windows.  Measured, not
+    guessed: this file's first version used the bare form and the Windows gate
+    went red on three tests with
+
+        PermissionError: [WinError 32] The process cannot access the file
+        because it is being used by another process: ...\\state.sqlite3
+
+    raised from `TemporaryDirectory` cleanup, while every test passed on the
+    machine it was written on.  Every raw connection in this file goes through
+    here so that cannot come back.
+    """
+    db = sqlite3.connect(path)
+    try:
+        yield db
+        db.commit()
+    finally:
+        db.close()
 
 
 class BindingTests(unittest.TestCase):
@@ -122,6 +148,33 @@ class NoGuessedZeroInTheSourceTests(unittest.TestCase):
             "persistence_vitals.py calls .get(key, default) at lines %r: a "
             "default here is the guessed zero the owner banned, and for an HP "
             "column it is a guessed DEATH" % (offenders,),
+        )
+
+    def test_this_test_file_never_opens_a_connection_it_does_not_close(self):
+        # The Windows gate's own regression, as a rule with teeth.  A bare
+        # `with sqlite3.connect(p) as db:` commits and does NOT close, which
+        # is invisible on Linux and takes the gate red on Windows when
+        # TemporaryDirectory cannot unlink the still-open file.  Parsed, so a
+        # mention in a docstring does not trip it.
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        offenders = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.With):
+                continue
+            for item in node.items:
+                call = item.context_expr
+                if (isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "connect"
+                        and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "sqlite3"):
+                    offenders.append(node.lineno)
+        self.assertEqual(
+            [], offenders,
+            "line(s) %r use `with sqlite3.connect(...)`, which commits but "
+            "never closes: use the `raw()` helper in this file instead, or "
+            "the Windows gate goes red on TemporaryDirectory cleanup"
+            % (offenders,),
         )
 
     def test_the_module_never_returns_a_bare_zero_for_a_missing_column(self):
@@ -330,7 +383,7 @@ class SeedingCensusTests(unittest.TestCase):
     def test_a_default_on_add_column_seeds_every_row_and_is_counted(self):
         # The shape 006's own header invites ("a rename is a later, cheap
         # migration") and the shape the text parser could not see at all.
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             db.execute(
                 "ALTER TABLE characters RENAME COLUMN hp_current "
                 "TO hp_current_old")
@@ -384,7 +437,7 @@ class SeedingCensusTests(unittest.TestCase):
         self.assertEqual(census["level_seeded_any"], 1)
 
     def test_the_census_names_the_drift_instead_of_raising_a_raw_sqlite_error(self):
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             db.execute(
                 "ALTER TABLE characters RENAME COLUMN hp_max TO hp_ceiling")
         with self.assertRaises(vitals.SchemaDriftError) as caught:
@@ -412,7 +465,7 @@ class SchemaDriftTests(unittest.TestCase):
             self.account_id, "DriftChar", "driftchar", "fingerprint-drift",
             _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             db.execute(
                 "ALTER TABLE characters RENAME COLUMN hp_current TO hp_cur")
 
@@ -451,7 +504,7 @@ class SchemaDriftTests(unittest.TestCase):
                     "fingerprint-" + column, _build_wire,
                     Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
                 )
-                with sqlite3.connect(path) as db:
+                with raw(path) as db:
                     db.execute(
                         "ALTER TABLE characters RENAME COLUMN %s TO %s_moved"
                         % (column, column))
@@ -479,7 +532,7 @@ class SchemaDriftTests(unittest.TestCase):
         )
         store.write_typed_attributes(
             character.id, {"level": 1, "hp_current": 80, "hp_max": 100})
-        with sqlite3.connect(path) as db:
+        with raw(path) as db:
             db.execute("ALTER TABLE characters RENAME TO characters_real")
             db.execute(
                 "CREATE VIEW characters AS SELECT * FROM characters_real")
@@ -523,7 +576,7 @@ class StoreVitalsTests(unittest.TestCase):
         self.store.select_character(self.sid, self.character.selector)
 
     def _hp_on_disk(self):
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             return db.execute(
                 "SELECT hp_current,hp_max,level FROM characters WHERE id=?",
                 (self.character.id,),
@@ -581,7 +634,7 @@ class StoreVitalsTests(unittest.TestCase):
     def test_hitting_the_corpse_again_changes_nothing_on_disk(self):
         self._seed(hp_current=1, hp_max=120)
         self.store.apply_hp_damage(self.character.id, 1)
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             stamp = db.execute(
                 "SELECT updated_at FROM characters WHERE id=?",
                 (self.character.id,),
@@ -589,7 +642,7 @@ class StoreVitalsTests(unittest.TestCase):
         outcome = self.store.apply_hp_damage(self.character.id, 99)
         self.assertTrue(outcome.was_already_zero)
         self.assertFalse(outcome.died)
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             after = db.execute(
                 "SELECT updated_at FROM characters WHERE id=?",
                 (self.character.id,),
@@ -775,7 +828,7 @@ class BeginImmediateHoldsTheWriteLockTests(unittest.TestCase):
         )
         self.assertIn("locked", seen.get("error", ""))
         self.assertEqual(outcome.hp_after, 90)
-        with sqlite3.connect(self.path) as db:
+        with raw(self.path) as db:
             self.assertEqual(
                 db.execute("SELECT hp_current FROM characters WHERE id=?",
                            (self.character.id,)).fetchone()[0],
