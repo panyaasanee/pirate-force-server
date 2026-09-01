@@ -1400,4 +1400,27 @@ else:
 #     could resend unchanged.  Keeping the previous full-census frame per
 #     scene and resending it is the shape this lane would build if the chief
 #     wants it; it needs session state this lane does not own.
+#
+# (4) transitioning=, ADDED round CODEX_URGENT 2026-09-01T20:40+07:00 / COO-
+#     DECISION 2026-09-01T21:48+07:00 (mob_death's own corpse re-arm fix --
+#     see mob_death.repopulation_entries' own docstring for the regression
+#     this closes).  For the TWO DEATH-FRAME calls only -- the dying-frame
+#     recompose and the dead-frame recompose that follow a kill, NOT the
+#     bar-frame call the example in (2) above shows, which composes on a HIT
+#     and is not the "apply dead_timer to every dead row" case this guards --
+#     pass ``transitioning=(death_step.record.scene,
+#     death_step.record.actor_identity)`` on BOTH calls.  ``death_step`` is
+#     already in scope one dispatch above where item (2)'s wiring lives (the
+#     same value ``mob_death.describe_death(death_step)`` prints from).
+#     Naming the row that is actually transitioning keeps every OTHER
+#     already-dead corpse's timer at ``mob_death.DEAD_TIMER_SECONDS`` instead
+#     of following ``dead_timer`` -- without this, composing the DYING frame
+#     for one kill re-arms every OTHER already-dead corpse in the SAME
+#     roster back to a positive (dying) timer on the wire.
+#     ``transitioning=None`` (the default, what item (2)'s own example above
+#     still shows -- deliberately left unchanged, since that example is the
+#     BAR-frame shape) is byte-for-byte the OLD scalar-to-everyone
+#     behaviour, correct only while at most one identity could ever be dead
+#     at once -- which bg0001's own roster (four real Training Iron Man
+#     placements, one ruling) already contradicts.
 '''

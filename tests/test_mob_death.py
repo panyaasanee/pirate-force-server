@@ -863,23 +863,103 @@ class MobDeathTests(unittest.TestCase):
             caught.exception.reason,
             mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW)
 
-    def test_transitioning_reaches_hostile_census_frames_without_raising(self):
+    def test_transitioning_naming_a_dead_row_from_a_foreign_scenes_roster_is_refused(
+            self):
+        # PF-ADVERSARY'S EXACT REPRO (coordinator-relayed, this round).  A
+        # ``transitioning`` value can name a row that IS dead in the
+        # register -- ``DeathRegister`` persists dead rows across scene
+        # changes BY DESIGN -- while still being a row from a DIFFERENT
+        # scene's roster than the one this call actually received.  Before
+        # this fix, ``register.is_dead(...)`` alone said yes and the whole
+        # point of the refusal (catch a caller that is wrong about which
+        # corpse it means) walked straight through: a real bg0001 kill and a
+        # real Bg0002 kill in ONE register, then composing the bg0001
+        # roster's DYING frame while naming the Bg0002 row as
+        # ``transitioning`` did not raise, and every dead row in the bg0001
+        # roster being composed -- including the real bg0001 corpse -- fell
+        # back to DEAD_TIMER_SECONDS instead of the caller's DYING_TIMER_
+        # SECONDS.  The fix requires membership in THIS call's own
+        # ``roster``, not just registry-wide deadness.
+        bg0001_mob = self.mob
+        bg0002_mob = self.bg0002_roster[0]
+        self.assertNotEqual(bg0001_mob.scene, bg0002_mob.scene)
+        struck_bg0001 = strike(
+            self.legacy, None, open_ledger(), None, bg0001_mob, PERFORMER,
+            LETHAL)
+        step_bg0001 = kill(
+            self.legacy, bg0001_mob, struck_bg0001.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
+        register = mob_death.commit_death(DeathRegister(), step_bg0001)
+        step_bg0002 = self.killing_outcome_solo(bg0002_mob)
+        death_bg0002 = kill(
+            self.legacy, bg0002_mob, step_bg0002.outcome, register,
+            widened=WIDENED_BG0002_RULING)
+        register = mob_death.commit_death(register, death_bg0002)
+        # the register really does carry the Bg0002 row as dead -- the old,
+        # insufficient check would have accepted it right here.
+        self.assertTrue(
+            register.is_dead(bg0002_mob.actor_identity, bg0002_mob.scene))
+        # ...but it is not a member of the bg0001 roster this call receives.
+        self.assertNotIn(
+            (bg0002_mob.scene, bg0002_mob.actor_identity),
+            set((m.scene, m.actor_identity) for m in self.roster))
+        with self.assertRaises(MobDeathContractError) as caught:
+            full_roster_override(
+                self.legacy, self.roster, register,
+                ledger=struck_bg0001.ledger, dead_timer=DYING_TIMER_SECONDS,
+                transitioning=(bg0002_mob.scene, bg0002_mob.actor_identity))
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW)
+        # and the real bg0001 corpse did NOT silently fall back to
+        # DEAD_TIMER_SECONDS: the call raised instead of returning anything
+        # for ANY identity, which is the whole fix -- the adversary's repro
+        # was exactly that ``override[bg0001_mob.actor_identity]`` used to
+        # come back at the wrong (floor) timer with no exception at all.
+
+    def test_transitioning_reaches_hostile_census_frames_with_correct_per_row_wire_bytes(
+            self):
         # End-to-end through the wider function, mirroring the production
         # call shape (runtime.py's two hostile_census_frames calls, DYING
         # then DEAD) -- this is the function CORE-REQUEST asks the chief to
         # pass transitioning= into.
+        #
+        # STRENGTHENED, pf-adversary (coordinator-relayed): the first draft
+        # of this test only checked ``len(frame) > 0``, which would stay
+        # green even if the composed bytes carried the WRONG timer on every
+        # row.  This now recomposes the same inputs independently (build_
+        # world_population + full_roster_override + apply_identity_override,
+        # the same three calls hostile_census_frames itself makes) and
+        # compares the full composed pc/frame byte for byte -- so a mutant
+        # that drops ``transitioning`` on the way through, or applies it to
+        # the wrong row, fails HERE rather than only at the full_roster_
+        # override layer already covered above.
         mob_a, mob_b, ledger, register = self.two_real_corpses()
         anchor = (0.0, 0.0, 0.0)
-        dying_pc, dying_frame = hostile_census_frames(
-            self.legacy, anchor, len(self.roster), self.roster, register,
-            ledger=ledger, dead_timer=DYING_TIMER_SECONDS,
-            transitioning=(mob_b.scene, mob_b.actor_identity))
-        dead_pc, dead_frame = hostile_census_frames(
-            self.legacy, anchor, len(self.roster), self.roster, register,
-            ledger=ledger,
-            transitioning=(mob_b.scene, mob_b.actor_identity))
-        self.assertGreater(len(dying_frame), 0)
-        self.assertGreater(len(dead_frame), 0)
+        actor_count = len(self.roster)
+        transitioning = (mob_b.scene, mob_b.actor_identity)
+        plain = world_population.build_world_population(
+            self.legacy, anchor, actor_count, scene_id=mob_death.SCENE_ID,
+        )
+        for dead_timer_kwargs in (
+                {"dead_timer": DYING_TIMER_SECONDS}, {}):
+            pc, frame = hostile_census_frames(
+                self.legacy, anchor, actor_count, self.roster, register,
+                ledger=ledger, transitioning=transitioning,
+                **dead_timer_kwargs)
+            expected_override = full_roster_override(
+                self.legacy, self.roster, register, ledger=ledger,
+                transitioning=transitioning, **dead_timer_kwargs)
+            expected = world_population.apply_identity_override(
+                self.legacy, plain, expected_override)
+            self.assertEqual(pc, expected.pc)
+            self.assertEqual(frame, expected.frame)
+            # and mob_a (the row NOT named by transitioning) really is at
+            # the floor in both compositions, never following dead_timer
+            self.assertEqual(
+                expected_override[mob_a.actor_identity],
+                mob_death.death_actor_entry(
+                    self.legacy, mob_a, death_timer=DEAD_TIMER_SECONDS))
 
     # -- GT-084 console-coverage helper ------------------------------------
 

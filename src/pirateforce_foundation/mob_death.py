@@ -2156,11 +2156,18 @@ def repopulation_entries(
     default) keeps the OLD scalar-to-everyone behaviour byte-for-byte, so
     every existing single-corpse call site and test is unaffected -- with at
     most one dead row in the register, "apply to everyone" and "apply to the
-    one row named" already agree.  A ``transitioning`` value that names a row
-    the register does not carry as dead is refused
-    (:data:`REFUSE_TRANSITIONING_NOT_A_DEAD_ROW`): a caller that thinks it
-    knows which corpse it is transitioning and is wrong about that must not
-    silently fall back to the old, unsafe "apply to everyone" behaviour.
+    one row named" already agree.  A ``transitioning`` value is refused
+    (:data:`REFUSE_TRANSITIONING_NOT_A_DEAD_ROW`) unless it names a row that
+    is BOTH dead in the register AND a member of the roster THIS CALL
+    RECEIVED -- checking ``register.is_dead(...)`` alone is not enough,
+    because :class:`DeathRegister` persists dead rows across scene changes by
+    design (see the roster-membership check a few lines below this one): a
+    real dead row from a DIFFERENT scene's roster, never passed to this call
+    at all, would otherwise pass as if it were the row being composed here.
+    A caller that thinks it knows which corpse it is transitioning and is
+    wrong about that -- wrong identity, OR right identity in the wrong
+    scene/roster -- must not silently fall back to the old, unsafe "apply to
+    everyone" behaviour.
     """
     if type(roster) is not tuple:
         raise MobDeathContractError(
@@ -2173,27 +2180,6 @@ def repopulation_entries(
         raise MobDeathContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD,
             "ledger must be a typed mob_combat.CombatLedger or None")
-    if transitioning is not None:
-        if (
-            type(transitioning) is not tuple or len(transitioning) != 2
-            or type(transitioning[0]) is not str
-            or type(transitioning[1]) is not int
-            or type(transitioning[1]) is bool
-        ):
-            raise MobDeathContractError(
-                REFUSE_TYPE_NOT_TYPED_RECORD,
-                "transitioning must be a (scene, actor_identity) tuple or "
-                "None, not %r" % (transitioning,))
-        if not register.is_dead(transitioning[1], transitioning[0]):
-            raise MobDeathContractError(
-                REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
-                "transitioning names identity 0x%X in scene %r, which the "
-                "register does not carry as dead - a caller composing a "
-                "specific corpse's frame must be right about which corpse it "
-                "is, or every other corpse's timer would fall back to the "
-                "unsafe pre-fix behaviour" % (
-                    transitioning[1], transitioning[0]),
-            )
     # EVERY DEAD IDENTITY MUST HAVE A ROW HERE.  Hand this the LIVING roster -
     # which live_roster(), exported from this same module, is exactly what a
     # caller reaches for when the sentence is "build the census from the
@@ -2220,8 +2206,51 @@ def repopulation_entries(
     # ignored here, consumed when THAT scene composes.  A record in one of
     # THIS roster's own scenes with no roster row is still the real drift
     # this check exists for, and still refuses by name.
+    #
+    # MOVED AHEAD OF THE ``transitioning`` CHECK BELOW, round pf-adversary
+    # (coordinator-relayed, this round): ``transitioning`` used to be
+    # validated against ``register.is_dead(...)`` alone, which is true of
+    # ANY scene the register has ever seen a kill in - the register persists
+    # dead rows across scene changes BY DESIGN (see the paragraph above).  A
+    # caller composing THIS roster's census with a ``transitioning`` value
+    # naming a real dead row from a DIFFERENT scene's roster (never passed to
+    # this call at all) walked straight through the old check - exactly the
+    # caller-mistake shape :data:`REFUSE_TRANSITIONING_NOT_A_DEAD_ROW`'s own
+    # docstring claims to catch, unrecognised.  ``roster_keys`` is what makes
+    # "is this row part of THIS call's roster" answerable at all, so the
+    # ``transitioning`` check now runs after it and requires BOTH: dead in
+    # the register, AND a member of the roster this call actually received.
     roster_keys = set((m.scene, m.actor_identity) for m in roster)
     roster_scenes = set(m.scene for m in roster)
+    if transitioning is not None:
+        if (
+            type(transitioning) is not tuple or len(transitioning) != 2
+            or type(transitioning[0]) is not str
+            or type(transitioning[1]) is not int
+            or type(transitioning[1]) is bool
+        ):
+            raise MobDeathContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "transitioning must be a (scene, actor_identity) tuple or "
+                "None, not %r" % (transitioning,))
+        if (
+            transitioning not in roster_keys
+            or not register.is_dead(transitioning[1], transitioning[0])
+        ):
+            raise MobDeathContractError(
+                REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
+                "transitioning names identity 0x%X in scene %r, which is "
+                "not a dead row of THE ROSTER THIS CALL RECEIVED - either "
+                "the register does not carry it as dead, or it is a real "
+                "dead row from a DIFFERENT scene's roster (the register "
+                "persists dead rows across scene changes by design, so "
+                "register.is_dead() alone is not enough here).  A caller "
+                "composing a specific corpse's frame must be right about "
+                "which corpse it is AND which roster it is composing, or "
+                "every other corpse's timer would fall back to the unsafe "
+                "pre-fix behaviour" % (
+                    transitioning[1], transitioning[0]),
+            )
     missing = tuple(
         record.actor_identity for record in register.records
         if record.scene in roster_scenes
