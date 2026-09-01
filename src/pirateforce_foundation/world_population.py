@@ -166,6 +166,7 @@ from .population import (
     load_port_royal_placements,
 )
 from . import world_scene_numbering
+from . import world_census_level
 from . import world_port_royal_identity
 
 
@@ -665,14 +666,27 @@ def _entry(legacy: Any, placement: SceneActorPlacement) -> bytes:
     actor_identity = placement.actor_identity
     is_monster = placement.placement_index == SHIPPED_MONSTER_INDEX
     hp = legacy.V117_P30_EXACT_HP if is_monster else DEFAULT_HP
-    npc_attr = legacy.make_npc_attr(
-        identity.mobs_n_id,
-        actor_identity,
-        SCENE_ID,
-        SCENE_SEQUENCE,
-        identity.outfit,
+    # LEVEL (round `7ste68`).  The frozen ``make_npc_attr`` never set BasicAttr
+    # bit 0x0002, so every actor this scene sent drew the client's own default
+    # and ``GT-192`` read ``LV 1`` off the owner's screen.  ``world_census_
+    # level`` splices in this row's own mined ``MOBS.n_LEVEL_MIN`` at the one
+    # position the ascending mask order puts it (``RE-117``: bit 0x0002, u16
+    # tag 0x12, object +0x5E) and refuses rather than guesses if the frozen
+    # body's layout moves.  The column arrived in the same round: the round's
+    # first draft skipped this scene believing it had none, and pf-adversary
+    # showed the join was there all along (see ``world_port_royal_identity``'s
+    # own table comment).  This scene is the one the owner logs into first, so
+    # leaving it behind the other twelve would have read as "still broken".
+    npc_attr = world_census_level.leveled_npc_attr(
+        legacy,
+        template_n_id=identity.mobs_n_id,
+        actor_identity=actor_identity,
+        scene_id=SCENE_ID,
+        scene_sequence=SCENE_SEQUENCE,
+        visual_preset=identity.outfit,
         current_hp=hp,
         max_hp=hp,
+        level=identity.level,
         # AMENDMENT 2026-08-26 (LANE-A, post-GT-078 OWNER-REJECTED / identity).
         # The frozen PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS row already carries a
         # per-placement source_name (it always has - see the 7-tuple shape in

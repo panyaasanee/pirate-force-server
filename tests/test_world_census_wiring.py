@@ -193,11 +193,30 @@ GROUND_LOOT_SCENARIO = (
 #
 # The key is still the rung that was ASKED for.  115 is a request; 108 is what
 # assembled and what the label, the header and the console line all say.
+# AMENDMENT round `7ste68` (LANE-A): every digest below moved AGAIN, by the
+# same shape as the RE-117 amendment above and for the same field.  That
+# amendment gave the mined level to lane B's hostile bodies only; this round
+# gives it to the ORDINARY census, so all 108 assembled bg0001 entries now
+# carry BasicAttr bit 0x0002 and a 3-byte u16 level (world_census_level, from
+# world_port_royal_identity's newly mined n_LEVEL_MIN column).  That is the
+# round's deliverable, not a regression: before it, scene 1 -- the scene the
+# owner logs into first -- was the last live census source still drawing LV 1.
+# Re-derived from the real dispatcher at PIN_ANCHOR, not hand-typed, same as
+# every prior amendment.  The pre-this-round digests are kept as history:
+#
+#   3:   pc=66CD1E228AEAD7F6B19C3DD954AD4BCA7356AC29102CCDFDBDA98E32B7924264
+#        frame=27310785595327DEDB2010C57928932E898DFEC8940410429411553A69C69BAB
+#   20:  pc=6ABF98DEC5A6215A2E35E23F7F07F1EB5C2F98CC22AA96EFC027C6F5ACA3B7E1
+#        frame=46E6E2C7C607D2C425B414A6F03E92C6CECD6A7998D4C16D011886F3CC50199D
+#   60:  pc=F7C2D26613EA0A6FC98EBAE47E870C255063D0060FAC27A6D99C40F4D96A16F2
+#        frame=D0931EA657DC9B007B2331DD6169D092C5CC37977D886E9D26FBF473503C4B35
+#   115: pc=D21FD174A2F9740B194F7D71E8ECEBDEACF654BBE2874C65A3B1471356E96637
+#        frame=14A45111DF96CFB6F8FCAB157A2C4EFDA3CCB439DE9DBF0FC69EFC930F6594AA
 CENSUS_WIRE_SHA256 = {
-    3: ("66CD1E228AEAD7F6B19C3DD954AD4BCA7356AC29102CCDFDBDA98E32B7924264",
-        "27310785595327DEDB2010C57928932E898DFEC8940410429411553A69C69BAB"),
-    20: ("6ABF98DEC5A6215A2E35E23F7F07F1EB5C2F98CC22AA96EFC027C6F5ACA3B7E1",
-         "46E6E2C7C607D2C425B414A6F03E92C6CECD6A7998D4C16D011886F3CC50199D"),
+    3: ("D7165F7628BBA4E1A276852142D8653396E0FB4CCDA7C6B439E3D44CF2734DC3",
+        "1CBDFA20E1F836802588BE421BBC3130B76889709F9A8ECCD6CE4FF7E5C0C041"),
+    20: ("49D53CB25BA16449B0ACD830263693609DBA33E0DDE4C47F92E252329A1073D3",
+         "AFCB41374A5FF1E7E5F702A489D96135AFEBFE40D08D104C6045064DF57476C8"),
     # AMENDMENT round szdkgs (LANE-B): the two rungs large enough to include
     # placements 103/105/107/109 moved, and THAT MOVEMENT IS THE ROUND'S
     # DELIVERABLE, not a regression: those four now ship n_ID 916 "Training
@@ -228,10 +247,10 @@ CENSUS_WIRE_SHA256 = {
     #        frame=42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165
     # ~~115: pc=1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E
     #        frame=FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7~~
-    60: ("F7C2D26613EA0A6FC98EBAE47E870C255063D0060FAC27A6D99C40F4D96A16F2",
-         "D0931EA657DC9B007B2331DD6169D092C5CC37977D886E9D26FBF473503C4B35"),
-    115: ("D21FD174A2F9740B194F7D71E8ECEBDEACF654BBE2874C65A3B1471356E96637",
-          "14A45111DF96CFB6F8FCAB157A2C4EFDA3CCB439DE9DBF0FC69EFC930F6594AA"),
+    60: ("9796D50B2940A23C3461BDF9FF432B93E20B2552B7B1DA248CB5B1A8B86D610A",
+         "AEBDEA37F01499EE63CF625771361AF7427026D10602FD03966D69140023735C"),
+    115: ("4ADD9F3A186CEABC27ADB69132C130C75C1926ADDA1162AB7347753FD23CA582",
+          "EB8437B0D705087C8142BDA3B979B767492F038841E8EB0DDC6831586A903AF0"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -568,8 +587,13 @@ class WorldCensusWiringTests(unittest.TestCase):
         # 30 was still overridden with a monster body.  ROUND 8ftmbx: 556/569
         # -- eleven bytes less, which is the monster splice this rung stopped
         # carrying when placement 30 was withdrawn.
-        self.assertEqual(len(census[0][1]), 556)
-        self.assertEqual(len(census[0][2]), 569)
+        # ROUND `7ste68` (LANE-A): 556/569 -> +9 = 3 members * 3 bytes, the
+        # mined level this rung's three ordinary census bodies now carry
+        # (BasicAttr bit 0x0002).  None of the three is roster-overridden any
+        # more (see 8ftmbx above), so all three moved, which is the arithmetic
+        # written out rather than a number copied off the run.
+        self.assertEqual(len(census[0][1]), 556 + 3 * 3)
+        self.assertEqual(len(census[0][2]), 569 + 3 * 3)
 
     def test_the_census_is_one_shot_per_session(self):
         """The pc/frame byte counts below are RE-DERIVED, not hand-typed.
@@ -629,8 +653,15 @@ class WorldCensusWiringTests(unittest.TestCase):
         # (name + faction splice + level + speed + HP pair) and go out as the
         # townspeople the census resolves them to.  This number is still the
         # cheapest proof that the identity change reaches the wire.
+        # ~~(20098, 20112)~~ round `7ste68` (LANE-A): +312 = 104 * 3.  The
+        # ordinary census now sends the mined level too (BasicAttr bit 0x0002,
+        # 3 bytes), so 104 of the 108 assembled entries grew by exactly that;
+        # the 4 still overridden with a hostile body were already carrying it
+        # from RE-117 and did not move.  Written as the arithmetic rather than
+        # as whatever the run printed, and asserted against the builder's own
+        # numbers above, which is what makes this the cheap proof it claims.
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20098, 20112))
+                          (20098 + 104 * 3, 20112 + 104 * 3))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed

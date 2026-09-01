@@ -201,6 +201,14 @@ class Bg0015MeasurementTests(unittest.TestCase):
         #   ~~15035~~ -> 15035 + (81 - 12) * 3 = 15242 -- the 12 spliced-in
         # hostile entries are unchanged, because field_mobs' hostile body
         # has carried its own level since RE-117.
+        # NOT A GENERAL RULE, and pf-adversary caught the first draft of this
+        # comment stating it as one: a FRAME is pc plus snappy's own header,
+        # whose length varint widens at 16384 bytes, so +3 per actor holds for
+        # the frame only while the pc stays on one side of that boundary.
+        # bg0005's pc crossed it this very round (16192 -> 16453) and its
+        # frame moved by 87 * 3 + 1.  These two are checked here because both
+        # are measured for THIS scene, whose pc (15109) is still 1275 bytes
+        # short of the boundary.
         self.assertEqual(len(generation.frame), 14879 + 81 * 3)
         self.assertEqual(len(spliced.frame), 15035 + (81 - 12) * 3)
 

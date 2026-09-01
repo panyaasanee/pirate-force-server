@@ -178,7 +178,12 @@ class WorldPopulationTests(unittest.TestCase):
         # Pinned so a future encoder change is caught here too, not only in
         # scenarios/world_population_full_001.json.  Was (564, 577) while rung
         # 3 was (P0, P30, P91) carrying the frozen table's own names.
-        self.assertEqual((rung.pc_bytes, rung.frame_bytes), (550, 563))
+        # ROUND `7ste68` (LANE-A): 550/563 -> +9 = 3 members * 3 bytes, the
+        # mined level every ordinary census body now carries (BasicAttr bit
+        # 0x0002, world_census_level).  Written as the arithmetic, not as the
+        # number the run printed.
+        self.assertEqual((rung.pc_bytes, rung.frame_bytes),
+                         (550 + 3 * 3, 563 + 3 * 3))
 
     def test_the_control_rungs_first_two_members_are_anchor_invariant(self) -> None:
         """Was ``test_the_control_rung_is_anchor_invariant``.
