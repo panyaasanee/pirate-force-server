@@ -282,8 +282,11 @@ CLIENT_CONSTRUCTION_DEFAULTS: dict[int, ClientConstructionDefault] = {
 # x=7 (walk speed) is the first one this lane was ordered to build
 # (COO-ORDER 20260901_1101); its seed at character creation is the client's own
 # proven 400.0 above -- a value with provenance, not a server invention -- and
-# that seed is NOT written yet: seeding is a write on live rows and waits for a
-# boot path that calls `SQLiteStore.migrate_with_backup` (CORE-REQUEST-DB-001).
+# that seed is NOT written yet.  It no longer waits on the snapshot mechanism
+# (`app.py:784`/`:787` call `SQLiteStore.migrate_with_backup`; CORE-REQUEST-DB
+# -001 is answered on main).  It waits on the NUMBER: `COO-DECISION
+# 20260901_1447` point 2 forbids seeding this column with 400.0 or with the
+# 150.0 proven on the wire for NPCs until an RE says which a player uses.
 # A built column is therefore NOT a supplied value: with nothing seeded, every
 # one of these fields still gaps, now as `server_owned_value_not_supplied`.
 _SERVER_OWNED_ROWS = (

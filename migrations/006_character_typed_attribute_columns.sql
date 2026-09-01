@@ -18,15 +18,35 @@
 -- (COO-DECISION 20260901_1112 point 3) is that a migration which touches
 -- existing rows -- backfill, UPDATE, table rebuild -- must land together with
 -- an automatic pre-apply snapshot of the .db file.  `SQLiteStore.
--- migrate_with_backup` (store.py) is that mechanism and it is merged, but as
--- of this file NO boot path calls it yet (CORE-REQUEST-DB-001 to chief is
--- still open), so on the owner's canonical database this migration runs
--- through the unprotected `migrate()`.  This file is therefore restricted, on
--- purpose, to `ALTER TABLE ... ADD COLUMN`: no UPDATE, no DELETE, no INSERT,
--- no DROP, no rebuild.  Existing character rows are not read and not
--- rewritten; every existing column keeps its exact bytes.  A migration that
--- seeds or backfills any of these columns is a LATER file and must wait for
--- the boot path to call `migrate_with_backup`, with no exception.
+-- migrate_with_backup` (store.py) is that mechanism, and CORE-REQUEST-DB-001
+-- is now ANSWERED: `app.py:784` and `app.py:787` -- both boot call sites, the
+-- hypothesis-enabled branch and the plain one -- call it (wired on main by
+-- LANE-E round liq4ri, commit 579a6bb4).  So on those two boot shapes this
+-- file is preceded by an automatic snapshot rather than running through the
+-- unprotected `migrate()`.
+--
+-- NOT all three, and the third is named rather than left out: `app.py` also
+-- has a `scene_load` path (scene_load set, no hypothesis) that does not
+-- migrate AT ALL, which is chief's deliberate design and is pinned by his own
+-- test (`tests/test_startup_stale_lease_recovery.py::
+-- test_the_scene_load_branch_is_the_one_deliberate_exception`).  A boot that
+-- never migrates never applies this file either, so it is not a hole in the
+-- snapshot -- but "every boot snapshots" would be the wrong sentence and this
+-- is the right one.
+--
+-- That removes the ONLY reason this file was allowed to exist as ADD COLUMN
+-- and nothing else, so the restriction is restated on the reason that still
+-- holds: a backfill needs a VALUE, and no value here has been adjudicated.
+-- COO-DECISION 20260901_1447 point 2 forbids seeding `speed_walk` with either
+-- candidate number (150.0 proven on the wire for NPCs, 400.0 the client's
+-- construction default) until an RE answers which one a player object uses --
+-- "both numbers are equally a guess without it".  The same is true, untested,
+-- of the other twenty.  This file is therefore still restricted, on purpose,
+-- to `ALTER TABLE ... ADD COLUMN`: no UPDATE, no DELETE, no INSERT, no DROP,
+-- no rebuild.  Existing character rows are not read and not rewritten; every
+-- existing column keeps its exact bytes.  A migration that seeds or backfills
+-- any of these columns is a LATER file and now waits on an adjudicated value,
+-- not on a mechanism.
 --
 -- WHY EVERY COLUMN IS NULLABLE WITH NO DEFAULT.  This is the owner's
 -- "never send a block whose unknown field was guessed to be zero" rule
@@ -68,11 +88,23 @@
 -- checksum ledger makes this file immutable and `migrate()` refuses to boot a
 -- server older than the schema ("database schema is newer than this server",
 -- store.py).  So rolling the server back past this commit on a database that
--- has already applied 006 means the server will not start, and there is no
--- snapshot to go back to until CORE-REQUEST-DB-001 is answered.  Measured,
--- not feared: `persistence_backup.should_snapshot` votes True for the first
--- time in this repository's history on this very file ("pending migrations:
--- 006"), and nothing calls it on boot to act on that vote.
+-- has already applied 006 means the server will not start.  What HAS changed
+-- since this paragraph was first written is the recovery: measured, not
+-- feared, `persistence_backup.should_snapshot` votes True on this very file
+-- ("pending migrations: 006"), and as of `app.py:784`/`:787` a boot now acts
+-- on that vote, so a copy of the pre-006 database exists to go back to.
+--   [CORRECTED - LANE-DB round ekt2kv] an earlier draft of this paragraph
+--   said 006 is "the first file in this repository's history" to make that
+--   function vote True.  That is not measured and is probably false:
+--   `should_snapshot` also votes True for `journal_mode_rewrite_pending` and
+--   `ledger_rewrite_pending` (persistence_backup.py:300-310), and the second
+--   of those exists precisely because the owner's canonical database predates
+--   the ledger's `checksum` column -- so on THAT database it would have voted
+--   True at 005 as well, for a different reason.  What is true and is all
+--   that this paragraph needs: 006 is the first MIGRATION FILE to do it.  Going back is still a manual
+-- act by the owner (restore the snapshot, then run the older server); nothing
+-- in this repository rolls a schema backwards on its own, and nothing here
+-- claims it does.
 --
 -- NAMING NOTE, said out loud rather than buried.  x=7 is called `speed_walk`
 -- here because that is the field `COO-ORDER 20260901_1101` ordered this lane

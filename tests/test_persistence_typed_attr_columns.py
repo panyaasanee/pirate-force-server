@@ -14,10 +14,12 @@ how much they matter:
    by statement (nothing but ``ALTER TABLE ... ADD COLUMN``), and then run for
    real against a database that already holds a character, a position and a
    backpack -- every pre-existing value is compared byte for byte afterwards.
-   This matters because no boot path calls ``SQLiteStore.migrate_with_backup``
-   yet (``CORE-REQUEST-DB-001``, open), so on the owner's canonical database
-   this file's migration runs unprotected.  "It only adds columns" is the
-   whole safety argument, so it is the thing measured hardest here.
+   A boot now snapshots first (``app.py:784``/``:787`` call
+   ``SQLiteStore.migrate_with_backup``; ``CORE-REQUEST-DB-001`` answered), so
+   this is no longer the LAST line of defence it was when first written -- but
+   a snapshot is a way to undo damage, not a reason to do it, and "it only
+   adds columns" is still the whole safety argument of this file, so it is
+   still the thing measured hardest here.
 2. **An unset column is absent, not zero.**  The owner's rule
    (``COO-DECISION 20260901_1059``) is that a guessed zero must never reach a
    block.  A read that turned NULL into ``0`` would defeat
@@ -31,10 +33,14 @@ WHAT THIS FILE DOES NOT PROVE.  Nothing here is client-observable.  No frame
 is composed, nothing is sent, and no call site anywhere calls either new store
 method -- ``/speed`` still cannot be typed into the game.  Nothing seeds these
 columns either: after 006 every one of them is NULL on every existing
-character, which is deliberate (seeding is a write on live rows and waits for
-the backup-on-boot wiring), so a full attribute block still cannot compose.
-The last test in this file asserts that refusal rather than hiding it.
+character, which is deliberate (seeding is a write on live rows, and what it
+waits for is now a value nobody has adjudicated -- ``COO-DECISION 20260901_
+1447`` point 2 -- not the backup-on-boot wiring, which landed), so a full
+attribute block still cannot compose.  ``TheGateStillRefusesTests`` asserts
+that refusal rather than hiding it, and ``BootSnapshotProtects006Tests``
+asserts the protection that arriving wiring is supposed to give this file.
 """
+import json
 import re
 import shutil
 import struct
@@ -95,8 +101,10 @@ class MigrationShapeTests(unittest.TestCase):
     def test_the_migration_contains_no_row_touching_verb(self):
         """The owner's rule 1112 point 3 in one assertion.
 
-        A backfill, an UPDATE or a table rebuild in this file would need the
-        pre-apply snapshot that no boot path takes yet.  Checked over the
+        A backfill, an UPDATE or a table rebuild in this file would need a
+        value nobody has adjudicated (``COO-DECISION 20260901_1447`` point 2);
+        the pre-apply snapshot such a file ALSO needs now exists on the boot
+        path, which is asserted separately below.  Checked over the
         statements rather than the raw text so the explanatory comment above
         (which names UPDATE and DROP in prose) cannot make this test pass or
         fail for the wrong reason.
@@ -370,6 +378,257 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
             db.close()
 
 
+class BootSnapshotProtects006Tests(unittest.TestCase):
+    """006 is irreversible, so the thing that makes it survivable is the copy a
+    boot takes before applying it.  That copy is taken by code in a file this
+    lane may not write (`app.py`, chief's), which is exactly why it is pinned
+    here: if a later edit puts the plain `migrate()` back at a boot call site,
+    the owner's canonical database meets an irreversible migration with no way
+    back, and nothing in this repository would have said so.
+
+    `tests/test_persistence_premigration_backup.py` already proves the backup
+    MECHANISM against a synthetic probe migration.  What is proved here is the
+    other half: that the mechanism fires for THIS file, on the real
+    `migrations/` directory, and that what it leaves behind restores a
+    character committed into a HOT write-ahead log -- the state a boot really
+    finds, and the one a plain file copy loses.
+
+    WHAT THESE THREE DO NOT PROVE, so nobody reads more into them: that a
+    snapshot exists before the pin below ever goes red.  006 is checksum
+    -locked once applied, so if `app.py` regressed on a boot BEFORE anyone ran
+    this suite, the copy for that boot was never taken and no test here can
+    make it exist afterwards.  The pin shortens that window; it does not close
+    it.  Raised to COO in `20260901_1520_LANE-DB-REPORT-coo-...md`.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.older = self.root / "migrations_upto_005"
+        self.older.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if path.name != MIGRATION_006.name:
+                shutil.copy2(path, self.older / path.name)
+        self.path = self.root / "state" / "pirateforce.sqlite3"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _at_005_with_a_character(self, keep_wal_hot=False):
+        """A database at schema 005 with one real character in it.
+
+        With `keep_wal_hot`, the character is committed through a connection
+        that is left OPEN and returned to the caller, so SQLite cannot
+        checkpoint the row out of `-wal` into the database file.  That is the
+        state a snapshot has to survive, and the state a naive file copy
+        loses; without it a copy that drops the WAL still looks correct.
+        """
+        store = SQLiteStore(self.path, self.older)
+        store.migrate()
+        if not keep_wal_hot:
+            account_id = store.ensure_account("boot-snapshot-006")
+            store.create_character(
+                account_id, "SnapshotOne", "snapshotone",
+                "fingerprint-boot-snapshot-006", _build_wire,
+                Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
+            )
+            return store
+
+        holder = sqlite3.connect(str(self.path))
+        holder.execute("PRAGMA journal_mode=WAL")
+        holder.execute("PRAGMA foreign_keys=ON")
+        holder.execute(
+            "INSERT INTO accounts(login_name,created_at) VALUES (?,?)",
+            ("boot-snapshot-006", "2026-09-01T15:00:00Z"),
+        )
+        account_id = int(holder.execute(
+            "SELECT id FROM accounts WHERE login_name=?",
+            ("boot-snapshot-006",),
+        ).fetchone()[0])
+        actor, avatar, identity, _ = _build_wire(1)
+        holder.execute(
+            "INSERT INTO characters(account_id,selector,name,actor_wire,"
+            "avatar_wire,identity_lo,identity_hi,created_at,updated_at,"
+            "name_key,create_fingerprint) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (account_id, 1, "SnapshotOne", actor, avatar, identity, 0,
+             "2026-09-01T15:00:00Z", "2026-09-01T15:00:00Z", "snapshotone",
+             "fingerprint-boot-snapshot-006"),
+        )
+        holder.commit()
+        return store, holder
+
+    @staticmethod
+    def _columns(path, table="characters"):
+        db = sqlite3.connect(str(path))
+        try:
+            return {r[1] for r in db.execute(f"PRAGMA table_info({table})")}
+        finally:
+            db.close()
+
+    @staticmethod
+    def _versions(path):
+        db = sqlite3.connect(str(path))
+        try:
+            return {int(r[0]) for r in db.execute("SELECT version FROM schema_migrations")}
+        finally:
+            db.close()
+
+    def test_a_005_database_meeting_006_is_copied_first_and_the_copy_predates_it(self):
+        """The owner's rule 1112 point 3, measured on this lane's own file
+        rather than on a probe: the database that exists today (005, with a
+        character in it) meets 006 and is copied before a column is added."""
+        from pirateforce_foundation import persistence_backup
+
+        self._at_005_with_a_character()
+        take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
+        self.assertTrue(take, reason)
+        self.assertEqual([6], persistence_backup.pending_versions(self.path, MIGRATIONS))
+        self.assertIn("006", reason)
+
+        snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+            backups_root=self.root / "backups"
+        )
+        self.assertIsNotNone(snapshot, "006 was applied with no snapshot taken")
+        self.assertTrue(Path(snapshot).exists())
+
+        # The live database moved to 006 ...
+        self.assertIn(6, self._versions(self.path))
+        self.assertTrue(set(typed.TYPED_COLUMNS) <= self._columns(self.path))
+        # ... and the copy is the state from BEFORE it, character and all.
+        self.assertNotIn(6, self._versions(snapshot))
+        self.assertEqual(set(), set(typed.TYPED_COLUMNS) & self._columns(snapshot))
+        db = sqlite3.connect(str(snapshot))
+        try:
+            names = [r[0] for r in db.execute(
+                "SELECT name FROM characters WHERE deleted_at IS NULL")]
+        finally:
+            db.close()
+        self.assertEqual(["SnapshotOne"], names)
+
+    def test_restoring_the_snapshot_puts_the_database_back_before_006(self):
+        """A copy nobody can boot from is not a backup.
+
+        The character is committed through a connection that is STILL OPEN
+        when the snapshot is taken, so the row lives in a hot `-wal` rather
+        than in the database file.  That is the state a boot actually finds
+        (a stopped or killed server leaves one), and it is what separates a
+        real backup from `shutil.copyfile`: an adversary pass replaced
+        `persistence_backup._copy_consistent`'s online-backup call with a
+        plain file copy and the first version of this test -- which let every
+        connection close and checkpoint first -- stayed green through it.
+
+        The restore follows the manifest's own `restore_hint` (move the live
+        sidecars ASIDE, do not delete them; the snapshot file is
+        self-contained) rather than a procedure invented here, and reads the
+        hint out of `MANIFEST.json` to check the two steps it still describes.
+        """
+        store, holder = self._at_005_with_a_character(keep_wal_hot=True)
+        try:
+            self.assertTrue(
+                self.path.with_name(self.path.name + "-wal").exists(),
+                "this test is only worth anything with a hot -wal; there is none",
+            )
+            snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+                backups_root=self.root / "backups"
+            )
+        finally:
+            holder.close()
+
+        manifest = json.loads(
+            (Path(snapshot).parent / "MANIFEST.json").read_text(encoding="utf-8")
+        )
+        hint = manifest["restore_hint"]
+        self.assertIn("renaming", hint)
+        self.assertIn("do not delete them", hint)
+
+        # A server built before 006 refuses the migrated database on purpose.
+        with self.assertRaises(Exception) as refused:
+            SQLiteStore(self.path, self.older).migrate()
+        self.assertIn("newer than this server", str(refused.exception))
+
+        # Step (1) of the hint: move the live sidecars aside, do NOT delete.
+        for suffix in ("-wal", "-shm"):
+            sidecar = self.path.with_name(self.path.name + suffix)
+            if sidecar.exists():
+                sidecar.rename(sidecar.with_name(sidecar.name + ".movedaside"))
+        # Step (2): the snapshot FILE alone goes over the live database.
+        shutil.copy2(snapshot, self.path)
+
+        # ... and now the older server boots, with the character still there.
+        restored = SQLiteStore(self.path, self.older)
+        restored.migrate()
+        self.assertNotIn(6, self._versions(self.path))
+        with restored.connect() as db:
+            names = [r[0] for r in db.execute(
+                "SELECT name FROM characters WHERE deleted_at IS NULL")]
+        self.assertEqual(
+            ["SnapshotOne"], names,
+            "the snapshot lost a transaction that was committed into the "
+            "write-ahead log -- a file copy, not a consistent backup",
+        )
+
+    def test_every_boot_call_site_in_app_py_still_takes_the_snapshot(self):
+        """The pin.  `app.py` is chief's file and this lane cannot write it, so
+        the only thing this lane can do about a regression there is see it.
+
+        Scanned over the WHOLE MODULE, not just `main()`.  The first version
+        of this test walked `main()` only, and an adversary pass measured the
+        hole: move the plain branch's call (`app.py:787` -- the owner's own
+        canonical boot, the one with no hypothesis flags) into a module-level
+        `def _boot_migrate(store): store.migrate()`, and the pin stayed green
+        because `migrate_with_backup` was still visible at `:784` in the
+        hypothesis-only branch.  A pin that a one-line extraction walks around
+        protects nothing.  Module scope has no such hole: wherever in this
+        file the bare `migrate()` ends up, it is seen.
+
+        Parsed with `ast`, not grepped, so a mention of `migrate()` in a
+        comment or a docstring can neither create nor hide a failure.
+
+        WHAT THIS DOES NOT PIN, said out loud: that every boot SHAPE takes a
+        snapshot.  `app.py` has a third path -- `scene_load` set with no
+        hypothesis -- that migrates not at all, which is chief's deliberate
+        design (`tests/test_startup_stale_lease_recovery.py::
+        test_the_scene_load_branch_is_the_one_deliberate_exception`), not a
+        regression, and not this lane's to change.
+
+        🔴 If this test goes red, do NOT edit `app.py` from this lane: write
+        the chief a letter (`charter COO-DECISION 20260901_1100` gives him
+        `app.py`; this lane's standing request is
+        `pf_bridge/notes_to_chief/20260901_1515_LANE-DB-REQUEST-chief-staged-
+        canon-gate-spec-and-backuperror-wrapper.md`).  The one thing that
+        could change that instruction is an explicit COO order handing this
+        lane the file; `COO-DECISION 20260901_1447` point 6 reads like one
+        ("LANE-DB เป็นผู้ทำ (ไฟล์ของสายตัวเอง)") but names a file the charter
+        assigns to chief, so this lane treated it as a mistake and asked
+        rather than edited.  If COO confirms the override, change this
+        instruction in the same commit that first edits `app.py`.
+        """
+        import ast
+
+        app_py = ROOT / "src" / "pirateforce_foundation" / "app.py"
+        tree = ast.parse(app_py.read_text(encoding="utf-8"))
+        called = [
+            node.func.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("migrate", "migrate_with_backup")
+        ]
+        self.assertEqual(
+            [], [name for name in called if name == "migrate"],
+            "app.py calls the unprotected migrate(): an irreversible "
+            "migration would apply to the owner's canonical database with no "
+            "pre-apply snapshot (owner's rule, COO-DECISION 20260901_1112 "
+            "point 3).  Write chief a letter; do not edit app.py from here.",
+        )
+        self.assertGreaterEqual(
+            called.count("migrate_with_backup"), 2,
+            "app.py used to call migrate_with_backup at BOTH boot call sites "
+            "(:784 hypothesis-enabled, :787 plain -- the owner's canonical "
+            "boot is the plain one).  Fewer than two means a call site was "
+            "removed or moved; this pin has to move with it, not be dropped.",
+        )
+
+
 class StoreRoundTripTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -482,16 +741,38 @@ class StoreRoundTripTests(unittest.TestCase):
         self.assertEqual(after, {"level": 4})
 
     def test_the_update_itself_refuses_a_soft_deleted_row(self):
-        # Belt and braces, measured separately from the guard above it: the
-        # UPDATE carries `deleted_at IS NULL` too, so neither one alone can be
-        # removed and still let a write land where the API says it cannot.
-        sql = Path(
-            ROOT / "src" / "pirateforce_foundation" / "store.py"
-        ).read_text(encoding="utf-8")
-        body = sql[sql.index("def write_typed_attributes"):]
-        body = body[:body.index("def _character")]
-        self.assertIn("WHERE id=? AND deleted_at IS NULL", body)
-        self.assertIn("rowcount", body)
+        """The UPDATE carries `deleted_at IS NULL` of its own, so removing the
+        SELECT guard alone cannot land a write where the API says it cannot.
+
+        Read off the statements SQLite ACTUALLY EXECUTED, via a trace
+        callback, not off `store.py`'s source.  The first version of this test
+        did `assertIn("WHERE id=? AND deleted_at IS NULL", body)` over the
+        method's source text -- and an adversary pass measured that the exact
+        same string is supplied by the SELECT guard eleven lines above, so
+        deleting the predicate from the UPDATE ONLY left the whole suite green
+        (6285 passed).  A token that fires on a line other than the one it
+        claims to guard is not a test.  This version cannot: the SELECT and
+        the UPDATE arrive as separate strings and each is checked on its own.
+        """
+        statements = []
+        real_connect = sqlite3.connect
+
+        def tracing_connect(*args, **kwargs):
+            db = real_connect(*args, **kwargs)
+            db.set_trace_callback(statements.append)
+            return db
+
+        with mock.patch("pirateforce_foundation.store.sqlite3.connect",
+                        tracing_connect):
+            self.store.write_typed_attributes(self.character.id, {"level": 9})
+
+        updates = [s for s in statements if s.lstrip().startswith("UPDATE characters SET")]
+        self.assertEqual(1, len(updates), statements)
+        self.assertIn("deleted_at IS NULL", updates[0])
+        selects = [s for s in statements
+                   if s.lstrip().startswith("SELECT id FROM characters")]
+        self.assertEqual(1, len(selects), statements)
+        self.assertIn("deleted_at IS NULL", selects[0])
 
     def test_the_write_moves_updated_at(self):
         before = self._raw_value("updated_at")

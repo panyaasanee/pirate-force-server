@@ -28,8 +28,12 @@ WHAT IT DOES NOT DO.
   Seeding walk speed from the client's proven construction default (400.0,
   written at ``0x00464AF2``, see ``persistence_attr_compose.
   CLIENT_CONSTRUCTION_DEFAULTS``) is a real and wanted step, and it is a data
-  write on live rows, so it waits for a boot path that calls
-  ``SQLiteStore.migrate_with_backup`` (``CORE-REQUEST-DB-001``, open).
+  write on live rows.  The snapshot that a live write needs now exists on the
+  boot path (``app.py:784``/``:787`` call ``SQLiteStore.migrate_with_backup``;
+  ``CORE-REQUEST-DB-001`` answered on main by LANE-E round liq4ri), so what
+  seeding waits on is no longer a mechanism but a NUMBER: ``COO-DECISION
+  20260901_1447`` point 2 forbids seeding ``speed_walk`` with either candidate
+  until an RE says which one a player object uses.
 * It does not know whether ``speed_walk`` really is the PLAYER's walk speed.
   The column serves BasicAttr+0x54 (x=7).  ``gm/attr_wire.py:173`` calls it
   ``basic_f32_54``, ``known=False``, and the Codex corpus scopes its row to
