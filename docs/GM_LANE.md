@@ -6227,3 +6227,86 @@ sanity), unchanged (no code edit this round).
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1119_p4cndg_ui-a-correction-p2-still-waiting-gm-b-to-lane-db.md`
 PR: `pf_bridge` #695 / `pirate-force-server` #464
+
+## Round `sched-20260901` -- 2026-09-01T12:25+07:00
+
+`NOW.md` existed on `origin/main` this round (it did not exist at session start; it landed via
+the Windows-bridge sync mid-round, per `PANYA-DECISION 20260901_1215`'s own finding that the
+file was write-only until that fix). Read it as the first act after merging `origin/main`, per
+its own file-first rule.
+
+**GM-A -- confirmed still open, not claiming otherwise.** `PANYA-DECISION 20260901_1215` rejects
+`GM-A` from `NOW.md`'s "รอ Panya ติ๊ก" list: her real acceptance test is a CHAIN of cross-scene
+warps (GT-182 session 2: 5,6,7,8,9,10,11,14, back to 1 -- eight hops) each landing on a normal
+NPC roster, not one warp. The census-latch fix that closes the root cause
+(`KA1A-ROOTCAUSE 20260901_1035`, commit `67fe6fe`) is already on `main`, merged before this round
+started -- this lane did not write it. What THIS round adds: `tests/test_gm_warp_position_
+confirmed.py::GmWarpCensusLatchClearTests::test_a_long_chain_of_cross_scene_warps_clears_the_
+latch_every_hop`, an 8-hop chain test modeling the owner's actual GT-182 sequence, since every
+existing test in the module proved the latch clears on ONE cross-scene resync in isolation and
+none simulated a SECOND hop after the previous scene's census had already re-armed the latch --
+exactly the shape of gap that would let a "only holds for hop one" regression through unnoticed.
+Manually confirmed with a temporary revert of the two `= False` lines in
+`_gm_warp_resync_selected_scene` that the new test fails without the fix (`AssertionError: True
+is not false`) and passes with it restored -- the test has teeth, not just green paint. This
+closes a coverage gap; it does not make GM-A pass. Only Panya's own attended retest can do that
+(`NOW.md`'s own rule: "เสร็จ" ติ๊กได้โดย Panya คนเดียว).
+
+**P-2 (monster color) -- Codex checkpoint narrows the open question, doesn't close it.**
+`CODEX_CHECKPOINT_20260901_1135_COLOR-DROP-GM-STATIC-UNLOCK.md` (landed on `main` this round,
+same sync as `NOW.md`) proves the exact gap this lane's `h6rsgl`-round RE proposal asked for:
+`fontstyle_id=63`'s death-branch predicate (`0x0043BD70`) is now closed as reachable through
+`CNetNPC`'s own same-actor chain (manager registry -> tick/selector receiver -> `actor+0x254`
+controller -> style store), not the untyped/unproved lane `RE-109` had flagged. `MCG-IMG-025..033`
+moved to `PROVEN_EXACT` (conditional static path). Still open, per the checkpoint's own words:
+runtime control-flow/distance/registry-retention gates and, critically, the actual RGB that
+`fontstyle_id=63` renders as (still unconfirmed against 61/62's known control colors) -- the exact
+follow-up this lane already proposed in `h6rsgl` (`UILabel_FontStyleID_parser_setter`,
+`0x00AA488F`). No `gm/` code changes for P-2 this round: writing a color value now would still be
+guessing the one fact that remains open. Sent an updated STATUS letter to chief narrowing the RE
+ask to that one fact and flagging this is the third round waiting on an RE-lane assignment.
+
+**P-3 (GM button) -- unchanged.** `NOW.md` and the Codex checkpoint both confirm the state this
+lane already absorbed into the stub at round `gm-20260901_1013`: `PF_GM_PLUGIN_GATE.tsv` static
+contract closed, but `GMUI_1`/panel/`GMUI_BASIC`/clean-shutdown still need DLL/build-output
+evidence nobody has. Nothing new to act on.
+
+**GM-B -- confirmed still with LANE-DB**, unchanged since `p4cndg`. `NOW.md` line "ยังไม่มีสายรับ"
+matches (COO moved ownership, no lane has started work yet) -- not a contradiction of this lane's
+own handoff.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` = **1229 passed, 547 subtests passed** เขียว(cloud
+sanity) -- 1229 vs the previous round's 1228 baseline is exactly the one new chain test added
+this round; nothing else moved.
+
+### pf-adversary
+
+**ไม่ได้รันจริง** -- ไม่มีเครื่องมือ spawn subagent (`Agent`/`Task`, `subagent_type: pf-adversary`)
+ใน session นี้รอบนี้ (ตรวจด้วย `ToolSearch` แล้ว ไม่พบ, เหมือนรอบ `gm-20260901_1013`) ทำ manual
+self-review แทน: (1) มิวเทชันเทส -- ปิด fix สองบรรทัดชั่วคราวใน `runtime.py` แล้วรัน test ใหม่ ล้ม
+จริง (`AssertionError: True is not false`) เอากลับคืนแล้วรันทั้งชุดผ่าน 1229 ยืนยันว่าเทสจับบั๊กได้
+จริงไม่ใช่ green ปลอม (2) ตรวจ docstring ของเทสใหม่ทุกบรรทัดเทียบกับโค้ด/จดหมายต้นทางจริง ไม่มี claim
+เกินสิ่งที่วัดได้ (3) ตรวจว่าไม่ได้อ้างว่า GM-A ผ่านแล้ว -- เขียนชัดว่า "closes a coverage gap; it
+does not make GM-A pass" (4) `git diff --stat` ยืนยันแตะแค่ไฟล์เทสไฟล์เดียว ไม่มีการแก้ `src/`
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี (บนจอ)** -- รอบนี้ไม่มีการแก้ wire/behavior ใด ๆ เป็นการเพิ่มเทสยืนยันของที่ merge แล้ว
+เท่านั้น การพิสูจน์บนจอว่า GM-A ผ่านเกณฑ์จริงต้องรอ Panya เทสซ้ำเอง (ตามที่ `NOW.md`/`PANYA-DECISION
+1215` สั่งไว้ตรง ๆ)
+
+### nonclaim
+
+1. ไม่อ้างว่า GM-A ผ่านแล้ว -- ยังรอ Panya เทสซ้ำ ตามที่ `PANYA-DECISION 20260901_1215` สั่งไว้ตรง ๆ
+2. ไม่อ้างว่ารู้ RGB จริงของ `fontstyle_id=63` -- ยังไม่พิสูจน์ ตามที่ checkpoint เองเขียนไว้
+3. ไม่เขียนโค้ดสีมอนสเตอร์ใด ๆ รอบนี้ -- จะเป็นการเดา ขัดกับ `RE-109` `BUILD_IMPACT: NONE`
+4. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`/`gm/attr_wire.py`/`gm/chat_command.py`
+5. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone
+6. ไม่ใช้ GM เพื่อข้ามขั้นตอนใด ๆ รอบนี้ -- ไม่มีการ boot เกม/เซิร์ฟเวอร์เลย
+7. ไม่ลบประวัติเดิมใด ๆ
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1225_sched-20260901_census-latch-chain-test-p2-narrowed.md`
+PR: `pf_bridge` #703 / `pirate-force-server` #468
