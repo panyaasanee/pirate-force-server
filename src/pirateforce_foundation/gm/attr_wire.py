@@ -144,14 +144,56 @@ UPDATE_ATTR_VITAL_ID = 0x309A
 DB_ATTRIBUTE_IDENTITY_BIT = 1
 ACTOR_ATTR_EXTRA_GROUP_VALUE = 1
 
-# !! THIS LANE'S SEND GATE FOR 0x309A.  `None` means: no `UpdateAttrVital`
-# frame this module composes may reach a real socket.  Deliberately not
-# flipped this round -- see module docstring "STATUS THIS ROUND".  Shaped
-# like `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` /
+# !! THIS LANE'S SEND GATE FOR 0x309A.  `None` meant: no `UpdateAttrVital`
+# frame this module composes may reach a real socket.  Shaped like
+# `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` /
 # `say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED`: an `int` once a real
 # vital_version byte is proven AND the raw-block-source question above is
 # closed AND COO says the flip is allowed -- three conditions, not one.
-UPDATE_ATTR_VITAL_VERSION_CONFIRMED: int | None = None
+#
+# !! FLIPPED 0 BY A SCOPED, TEMPORARY EXCEPTION -- NOT BY THE THREE-POINT
+# UNLOCK ABOVE, WHICH IS STILL SHUT.  `COO-DECISION 2026-09-01T18:47+07:00`
+# (`pf_bridge/notes_to_chief/20260901_1847_COO-DECISION-gm049-vital-version-
+# gate-scoped-exception-c.md`) approved exception (ค) for exactly ONE send
+# site: the `/speed` sparse x=7 door (`gm/speed_wire.py`'s
+# `compose_sparse_speed_update`, reached from
+# `chat_command_action._speed_action`). It is NOT a general unblock of this
+# module -- the letter says so in as many words ("ไม่ใช่บรรทัดฐานทั่วไปของ
+# โมดูล"): conditions (a)/(b)/(c) of the module docstring's "STATUS THIS
+# ROUND" three-point unlock still stand for the full-block door and every
+# other opcode, unchanged by this line. (b) in particular (lossless
+# unnamed-field preservation) is still open, and no chat command dispatches
+# into `build_named_field_update` this round -- this flip does not change
+# that, because that door does not read this constant to decide anything
+# (see `make_update_attr_frame`'s own docstring: "not gated on
+# UPDATE_ATTR_VITAL_VERSION_CONFIRMED").
+#
+# WHY 0, SPECIFICALLY.  The COO-DECISION forbids lifting the byte from
+# either `teleport_wire`/`say_wire` alone, since 0x309A is a different
+# opcode from both of theirs (0x0E80 / 0x9F2C) and a single borrowed value
+# would be a guess dressed as a citation. What this line rests on instead is
+# a CONVERGENCE across two independently-measured vitals in the same "GM
+# wire" family, not a copy of either:
+#   * `gm/state_wire.py`'s `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED = 0`,
+#     RE-105-pinned: the 0x5A19 prototype constructor stores its version
+#     byte as a literal 0 (`mov`), and the generic VitalData reader does an
+#     exact-equality compare against it.
+#   * `gm/teleport_wire.py`'s `FORCE_POS_VITAL_VERSION_CONFIRMED = 0`,
+#     RE-129-pinned by the SAME static method (ForcePos's own prototype
+#     constructor: `xor ecx,ecx` / `mov byte ptr [eax+0x10],cl`) against the
+#     SAME generic reader.
+# Two vitals, two independent RE tickets, one shared generic-reader
+# mechanism, one answer both times: 0. Nothing here claims that pattern
+# proves 0x309A's own byte -- it has never been measured, and RE-105/RE-129
+# also measured a THIRD vital (TeleportVital) landing on 4, not 0, so "the
+# generic reader always sees 0" is not a rule this line invokes. What
+# justifies accepting the risk for this one narrow door is COO-DECISION
+# 1847's own reasoning: the failure mode a wrong version byte produces
+# (client rejects the frame, reconnect, re-login -- GT-101) is bounded and
+# reversible, not silent data corruption, and a real measurement of THIS
+# byte is tracked separately and in parallel (a new RE ticket, per the same
+# COO-DECISION item 3) rather than being blocked on it.
+UPDATE_ATTR_VITAL_VERSION_CONFIRMED: int | None = 0
 
 # x, block, mask_bit, offset, tag, kind, name, known, note
 #
