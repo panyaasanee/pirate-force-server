@@ -6820,3 +6820,113 @@ NO such token is something nobody has measured; open a new entry for it. Case 2 
 `python3 -m pytest tests/ -q` = 6638 passed, 327 skipped, 13805 subtests -- เขียว(cloud sanity).
 The 6622/327 pinned earlier in this round's first entry was the pre-fix run; the difference is this
 round's own new tests, not a test that had been red.
+
+## Round `c637o1` (2026-09-02T02:5x+07:00) -- the refusal line names the row, and three more refusals stopped vanishing
+
+`COO-DECISION 2026-09-02T01:47+07:00` confirmed DB-before-wire for `/speed` (so that ordering is no
+longer `[สมมติของสาย GM]`) and attached a condition: a refusal may not be SILENT. It asks for two
+things per refusal -- an immediate chat line the GM reads at the client, and one server-side log line
+carrying IDENTITY and the reason. This round delivered the second, widened it after `pf-adversary`
+measured it half-done, and asked COO about the first. **`pf-adversary` returned NOT APPROVED on the
+first draft with six defects; all six are fixed below, in the same branch, before draft was lifted.**
+
+### What changed in `gm/chat_command_action.py`
+
+1. **`_identity_fields`** -- one builder for `character_id=<rowid|none> identity=<lo>:<hi>|none`, used
+   by both printers that carry them. `account=` is not identity: `session.token` is the process-wide
+   `--token`, one string shared by every connection.
+2. **`GM_CHAT_DROPPED_BEFORE_DISPATCH`** -- a THIRD console token, and `_print_server_drop_way_out`
+   behind it, for a well-formed command from an allowlisted GM that the SERVER dropped before
+   dispatch: rate limiter, audit-log quota, unwritable audit log. Its reason set lives in
+   `chat_command.SERVER_SIDE_DROP_REFUSALS`, beside the constants, exactly as
+   `TYPED_COMMAND_REFUSAL_PREFIXES` does for the typo half.
+3. **`WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT`** -- a second why-word for the audit failure, chosen when
+   the undo ran and did NOT revert.
+
+### The six defects, and the control that proves each fix
+
+* **D1 -- "every refusal reaches this line" was false; 5 of 25 were silent.** Measured through the
+  real route: 25 rapid `/speed 400` printed 20 route lines and **nothing at all** for the five the
+  rate limiter dropped -- neither `GM_CHAT_NO_BYTES_SENT` (no handler ran) nor
+  `GM_CHAT_COMMAND_REFUSED` (not a typing mistake). From an attended chair that is
+  indistinguishable from "the route was never wired", which is the state COO named as forbidden.
+  Fixed by item 2 above. Control: removing the call kills 3 tests. **Still silent, deliberately, and
+  now said in the source rather than a round file: a non-GM's chat, a GM's ordinary conversation, an
+  unreadable allowlist, a malformed frame** -- all decided above the `is_gm` check. So "no GM command
+  vanishes quietly any more" is STILL FALSE; what is true is that no command from an allowlisted GM
+  that parsed (or was command-shaped and throttled) vanishes quietly.
+* **D2 -- 2 of 9 new tests were green with the whole feature deleted.** The guard named for the
+  account-token mutant was defeated by `identity='GM_ONE'` -- one quote character -- and the
+  "cannot forge a second line" test attempted no forgery. Fixed: assertions now extract the FIELD
+  VALUE and compare it, a real forgery goes through the only door these fields have (a `.selected`
+  whose `id`/`identity_lo` are text), and a new `test_two_rows_in_one_process_get_two_different_lines`
+  kills the hardcode and stale-cache mutants that previously survived 199 of 200 tests.
+* **D3 -- "the only proven server->client text route is `say_wire`" was refuted by this repo's own
+  ledger.** `docs/FUNCTIONAL_COVERAGE.json`'s `chat_input_echo_hypothesis` is `runtime_pass` on
+  attended GT-009: the real client RENDERED echoed text over `0xAC52`, through the same shared
+  serializer `say_wire` imports, while `0x9F2C` has never been seen on a screen. Corrected in the
+  docstring (struck, not deleted) and in the letter, which now puts FOUR options to COO -- the fourth
+  being `PROMOTE-153`, the open chief-owned ticket for landing chat echo on a default boot. Neither
+  route is usable from this zone today, so the conclusion did not change; the reason did.
+* **D4 -- new harm: the line named a row and lied about it.** A first-ever `/speed` on a NULL
+  `speed_walk` commits 400.0, loses the audit write, runs an undo that has nothing to restore, and
+  printed `blocked_on='...anything it had in hand was dropped with it'` -- next to `character_id=`
+  naming the row that was still at 400.0. Fixed by item 3. Control: collapsing the two words back
+  into one turns `test_an_unrevertable_row_is_reported_as_still_in_place` red.
+* **D5 -- the fields are per-CHARACTER, not per-connection.** `store.select_character` has no
+  exclusivity check, every connection shares the process `--token`, and `identity_hi` is `0` for
+  every character this server creates. The claim is now "WHICH ROW", not "WHO", in the code, the
+  tests and the letter -- and the round file no longer cites a multi-connection `GT-193` run this
+  strictly-serial server cannot host.
+* **D6 -- the line's own contract file had zero coverage.** `tests/test_gm_chat_no_bytes_line.py`
+  gained `TheIdentityFieldsOnEveryCommandTests` and `TheServerSideDropLineTests`; its `FakeSelected`
+  now carries identity fields, so the six other commands that share this line are pinned too.
+* **D7 (suspicion, not a live defect) -- the two fields were the only ones bypassing
+  `console_safe`/`_one_line`.** Now sanitised like every other field, with the reason stated: being
+  the only unsanitised fields is a discipline hole, not a proof of safety.
+
+### Mutation controls, re-measured after the fixes
+
+| mutant | tests killed (before -> after) |
+|---|---|
+| delete both identity fields | 5 -> **18** |
+| account token in their place (quoted) | **0** -> **18** |
+| both fields hardcoded to the suite's own values | 1 -> **12** |
+| `identity=` lo/hi swapped | 4 -> **14** |
+| never print the server-drop line | n/a -> **3** |
+| D4 collapsed back to one why-word | n/a -> **1** |
+
+### Measured, not assumed: where the three states separate
+
+* **typo** -- `/speed not-a-number`, `inf`, `nan`, `1e400` are refused by `parse_gm_command` UPSTREAM
+  of `_speed_action` and print `GM_CHAT_COMMAND_REFUSED ... usage='speed <value>'`. Consequence:
+  `_speed_action`'s own `refused_speed_<ExcType>` branch is NOT reachable through the real route, and
+  is defence in depth against a hand-built `GmCommand`.
+* **server drop** -- `GM_CHAT_DROPPED_BEFORE_DISPATCH ... why=rate_limited character_id=.. identity=..`
+* **DB refused** -- `GM_CHAT_NO_BYTES_SENT ... why=refused_speed_persist_* character_id=.. identity=..`
+* **frame sent** -- `LANE_GM_CHAT_ACTION speed route=action`, and no refusal line at all.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = **6663 passed, 327 skipped, 13821 subtests** -- เขียว(cloud sanity).
+`tools_bridge/pf_gate_preflight.py --repo <server>` = **PREFLIGHT PASS** (cp874 + no new skips), per
+`COO-DECISION 20260902_0148` item 2.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+Two things. Grep one console line and know WHICH character row a refused `/speed` was about --
+yesterday every refusal line said `account='GM_ONE'`, the process-wide `--token`, identical on every
+line. And see a line at all when the rate limiter eats a command: yesterday `/speed` typed too fast
+produced total silence, which reads exactly like dead wiring.
+
+### nonclaim
+
+1. Nothing here is client-observable. This is the server host's stderr. A GM at a real client still
+   sees nothing when `/speed` refuses -- that is the half the letter to COO is about.
+2. Does not claim `GT-193` passes or that GM-B closes. No client is in this round's evidence.
+3. Does not claim silence is eliminated -- four refusal classes above the `is_gm` check stay silent
+   on purpose, and the source says so.
+4. Does not flip either text-route gate and does not build a second composition route.
+5. The identity fields name a ROW, not a person and not a connection.
+6. GM shortcut used: `/speed` is a GM command; a readable refusal line is not evidence that the
+   ordinary player attribute path works.

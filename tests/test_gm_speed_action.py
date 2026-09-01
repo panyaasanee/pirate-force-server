@@ -26,6 +26,8 @@ move-authority interaction) with the differences that shape actually has:
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
 import json
 import os
 import struct
@@ -1103,6 +1105,446 @@ class UndoIntegrationTests(PersistenceIntegrationTests):
             action = self.act(self.session, "/speed 777.0")
         self.assertIsNone(action)
         self.assertEqual(self.reopened_speed_walk(), 100.0)
+
+
+
+class _StoreThatReturnsNone(FakeStore):
+    """LANE-DB's entry point answering `None` instead of a sparse mapping.
+
+    `COO-DECISION 2026-09-02T01:47+07:00` names this case by hand -- "DB
+    khuen None" -- as one of the three the wiring must be tested against
+    (parse failure / DB returns None / success).  `FakeStore` cannot express
+    it: its `readback` attribute is read as "use this mapping instead of the
+    default", so setting it to `None` selects the DEFAULT rather than the
+    answer under test.  A subclass is the honest way to say it, and it keeps
+    the write itself real -- the row IS updated before the `None` comes
+    back, which is exactly why the refusal below must not be read as
+    "nothing was stored".
+    """
+
+    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+        self.calls.append((character_id, dict(values)))
+        self.stored.update(values)
+        return None
+
+
+class TheRefusalNamesThisConnectionTests(_Case):
+    """Every `/speed` refusal writes ONE server line carrying identity.
+
+    THE DECISION THIS FILE PINS.  `COO-DECISION 2026-09-02T01:47+07:00`
+    (`pf_bridge/notes_to_chief/20260902_0147_COO-DECISION-speed-db-first-
+    then-wire-refusal-must-be-visible.md`) confirmed DB-before-wire and
+    attached a condition to it: a refusal may not be SILENT.  It asks for
+    two things, and this lane could deliver exactly one of them this round:
+
+      * DELIVERED, and pinned here -- "log fang server one line carrying
+        identity and the reason".  The reason half already existed
+        (`why=` + `blocked_on=`, round `tvbiqc`); the identity half did not.
+        `account=` is NOT identity: `chat_command_action`'s own docstrings
+        record that `session.token` is the process-wide `--token`, one
+        string shared by every connection, so a line carrying only it cannot
+        answer "whose row".
+      * NOT DELIVERED -- the chat line the GM reads at the client.  TWO
+        server->client text routes exist, not one (pf-adversary D3 corrected
+        this class's first draft, which claimed `say_wire` was the only one):
+        `0x9F2C` GMGlobal, whose gate `COO-DECISION 2026-08-29T00:41+07:00`
+        holds shut on three conditions this round cannot clear, and `0xAC52`
+        Channel_LocalTalkMessage, whose echo IS attended-proven to render
+        (`docs/FUNCTIONAL_COVERAGE.json`, `chat_input_echo_hypothesis` =
+        `runtime_pass`, GT-009) but sits behind a `production_allowed: False`
+        scenario, was proven at exactly one message length, and is closed to
+        this zone by `test_gm_say_gate_lock.py::NoSecondCompositionRouteTests`
+        anyway.  `SayVersionGateTests` and that lock file are what would
+        (correctly) go red if this lane flipped either to satisfy the newer
+        decision, so it asked instead:
+        `pf_bridge/notes_to_chief/20260902_0229_LANE-GM-ASK-COO-speed-
+        refusal-on-screen-needs-the-say-gate.md`.
+
+    NONCLAIM: nothing here is client-observable.  Every assertion below
+    reads the SERVER HOST'S stderr.  A GM at a real client still sees
+    nothing when `/speed` refuses, and this file does not claim otherwise --
+    that is precisely the half the letter above is about.
+    """
+
+    # A row id and an identity pair no other test in this file uses, so a
+    # printer that hardcoded either (or reprinted the account token in their
+    # place) cannot pass by coincidence.
+    CHARACTER_ID = 4242
+    IDENTITY_LO = 0xAABBCCDD
+    IDENTITY_HI = 0x11223344
+
+    def selected(self, **kwargs):
+        kwargs.setdefault("identity_lo", self.IDENTITY_LO)
+        kwargs.setdefault("identity_hi", self.IDENTITY_HI)
+        kwargs.setdefault("character_id", self.CHARACTER_ID)
+        return FakeSelected(**kwargs)
+
+    def say(self, session, text):
+        """One typed line through the real route; returns (action, stderr)."""
+        err = io.StringIO()
+        out = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            action = self.act(session, text)
+        self.assertEqual(out.getvalue(), "", "no GM console line may reach stdout")
+        return action, err.getvalue()
+
+    def the_one_line(self, stderr):
+        said = [
+            line
+            for line in stderr.splitlines()
+            if line.startswith(chat_command_action.WITHHELD_CONSOLE_TOKEN)
+        ]
+        self.assertEqual(len(said), 1, stderr)
+        return said[0]
+
+    def expected_fields(self):
+        return (
+            f"character_id={self.CHARACTER_ID}",
+            f"identity={self.IDENTITY_LO}:{self.IDENTITY_HI}",
+        )
+
+    def test_the_canonical_db_refusal_names_the_connection(self):
+        # Reached BEFORE `_speed_action` reads identity for itself -- the
+        # gate deliberately runs first so a wrong-DB refusal never depends
+        # on a character being selected.  The line still has to carry the
+        # identity, which is why the printer reads it rather than being
+        # handed whatever the handler happened to have in hand.
+        session = FakeSession(
+            selected=self.selected(), db_path="state/pirateforce.sqlite3"
+        )
+        action, err = self.say(session, "/speed 400")
+        self.assertIsNone(action)
+        line = self.the_one_line(err)
+        self.assertIn("why=withheld_speed_canonical_db ", line)
+        for field in self.expected_fields():
+            self.assertIn(field, line)
+
+    def test_a_typo_is_told_apart_by_its_own_token_not_by_an_identity(self):
+        """The FIRST of COO's three states, and it does NOT come this way.
+
+        Measured this round, not assumed: `/speed not-a-number`, `/speed
+        inf`, `/speed nan` and `/speed 1e400` are all refused by
+        `parse_gm_command` UPSTREAM of `_speed_action`, so they print
+        `GM_CHAT_COMMAND_REFUSED ... usage='speed <value>'` and never reach
+        the no-bytes line at all.  Two consequences, both worth pinning:
+
+          * the tester CAN already separate "typo" from "DB refused" -- the
+            two states carry different console tokens, which is a stronger
+            separation than two identical tokens with different fields; and
+          * `_speed_action`'s own `refused_speed_<ExcType>` branch (the one
+            that would carry an identity) is therefore NOT reachable through
+            the real route today.  It is defence in depth against a
+            hand-built `GmCommand`, the same honesty
+            `SpeedCoverageHonestyTests` states for the other unreachable
+            refusals in this file -- and the reason the letter to COO says
+            the identity half is delivered for the DB states, not for the
+            typo state.
+        """
+        for typed in ("/speed not-a-number", "/speed inf", "/speed 1e400"):
+            with self.subTest(typed=typed):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                session = FakeSession(selected=self.selected())
+                action, err = self.say(session, typed)
+                self.assertIsNone(action)
+                self.assertEqual(
+                    [
+                        line
+                        for line in err.splitlines()
+                        if line.startswith(
+                            chat_command_action.WITHHELD_CONSOLE_TOKEN
+                        )
+                    ],
+                    [],
+                )
+                self.assertIn("GM_CHAT_COMMAND_REFUSED", err)
+                self.assertIn("usage='speed <value>'", err)
+                # The founding rule of every console line in this module.
+                self.assertNotIn("not-a-number", err)
+
+    def test_a_shut_version_gate_names_the_connection(self):
+        session = FakeSession(selected=self.selected())
+        with self.close_the_version_gate():
+            action, err = self.say(session, "/speed 400")
+        self.assertIsNone(action)
+        line = self.the_one_line(err)
+        self.assertIn("why=withheld_update_attr_vital_version ", line)
+        for field in self.expected_fields():
+            self.assertIn(field, line)
+
+    def test_a_store_that_refuses_names_the_connection(self):
+        session = FakeSession(selected=self.selected())
+        session.foundation.lifecycle.store.raises = RuntimeError("column locked")
+        action, err = self.say(session, "/speed 400")
+        self.assertIsNone(action)
+        line = self.the_one_line(err)
+        self.assertIn("why=refused_speed_persist_RuntimeError", line)
+        for field in self.expected_fields():
+            self.assertIn(field, line)
+        # D2's distinction, re-asserted from the console's chair: the
+        # sentence for a post-write refusal must not read as "nothing was
+        # stored".
+        self.assertIn("do NOT read this as", line)
+
+    def test_a_store_that_answers_none_refuses_and_names_the_connection(self):
+        # COO's own third case, spelled by hand in the decision.
+        session = FakeSession(selected=self.selected())
+        session.foundation.lifecycle.store = _StoreThatReturnsNone(
+            DEFAULT_RUN_COPY_DB_PATH
+        )
+        action, err = self.say(session, "/speed 400")
+        self.assertIsNone(action, "a None answer may not paint a screen")
+        line = self.the_one_line(err)
+        self.assertIn("why=refused_speed_persist_readback_unusable", line)
+        for field in self.expected_fields():
+            self.assertIn(field, line)
+
+    def test_a_connection_with_nothing_selected_says_none_not_a_guess(self):
+        session = FakeSession(selected=None)
+        action, err = self.say(session, "/speed 400")
+        self.assertIsNone(action)
+        line = self.the_one_line(err)
+        self.assertIn("character_id=none", line)
+        self.assertIn("identity=none", line)
+        # `none` is not a gap here -- it is the state the outcome word on the
+        # same line is naming.
+        self.assertIn("why=refused_speed_no_selected_character ", line)
+
+    def field(self, line, name):
+        """The VALUE of one `name=value` field, whitespace-delimited.
+
+        Reading the value rather than substring-matching the whole line is
+        what makes the assertions below mutation-proof.  pf-adversary (round
+        `c637o1`, D2) defeated the first version of the account test --
+        `assertNotIn("identity=GM_ONE")` -- by printing `identity='GM_ONE'`,
+        one quote character, and the guard named for that exact mutant went
+        green.  An equality check on the extracted value cannot be dressed.
+        """
+        marker = f" {name}="
+        self.assertIn(marker, line)
+        return line.split(marker, 1)[1].split(" ", 1)[0]
+
+    def test_the_account_field_is_not_reused_as_the_identity(self):
+        # The mutant this test exists for: a printer that satisfies "carries
+        # identity" by printing the account token in those fields.  The token
+        # is the process-wide `--token`; it answers "which server", never
+        # "which row".  Asserted by VALUE EQUALITY, so no amount of quoting,
+        # padding or bracketing lets the token through.
+        session = FakeSession(
+            token=self.GM_ACCOUNT,
+            selected=self.selected(),
+            db_path="state/pirateforce.sqlite3",
+        )
+        _, err = self.say(session, "/speed 400")
+        line = self.the_one_line(err)
+        self.assertIn(f"account='{self.GM_ACCOUNT}'", line)
+        self.assertEqual(self.field(line, "character_id"), str(self.CHARACTER_ID))
+        self.assertEqual(
+            self.field(line, "identity"),
+            f"{self.IDENTITY_LO}:{self.IDENTITY_HI}",
+        )
+
+    def test_two_rows_in_one_process_get_two_different_lines(self):
+        """The mutant that survived 199 of 200 tests until this existed.
+
+        pf-adversary (D2) hardcoded both fields to this class's own
+        `4242` / `2864434397:287454020` and to a process-wide stale cache,
+        and each mutant killed exactly ONE test -- and only by accident of
+        class ordering.  Nothing anywhere asserted that the fields FOLLOW the
+        session the printer was handed.
+
+        NONCLAIM, and it is why this test says "rows" and not "connections":
+        this does NOT prove the fields identify a connection.  They do not.
+        Two connections that selected the same character print identical
+        fields, `identity_hi` is `0` for every character this server creates,
+        and the server is strictly serial anyway
+        (`pf_bridge/FINDINGS_R18_SERVER_IS_STRICTLY_SERIAL.md`).  What is
+        proven here is the whole of what the round claims: the line names
+        WHICH ROW, and a second row in the same process gets its own answer.
+        """
+        first = FakeSession(
+            selected=self.selected(), db_path="state/pirateforce.sqlite3"
+        )
+        _, first_err = self.say(first, "/speed 400")
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        second = FakeSession(
+            selected=FakeSelected(
+                identity_lo=11, identity_hi=22, character_id=33
+            ),
+            db_path="state/pirateforce.sqlite3",
+        )
+        _, second_err = self.say(second, "/speed 400")
+
+        first_line = self.the_one_line(first_err)
+        second_line = self.the_one_line(second_err)
+        self.assertEqual(
+            self.field(first_line, "character_id"), str(self.CHARACTER_ID)
+        )
+        self.assertEqual(self.field(second_line, "character_id"), "33")
+        self.assertEqual(
+            self.field(first_line, "identity"),
+            f"{self.IDENTITY_LO}:{self.IDENTITY_HI}",
+        )
+        # Asymmetric on purpose: a printer that swapped lo and hi would read
+        # `22:11` here and `11:22` is what the character carries.
+        self.assertEqual(self.field(second_line, "identity"), "11:22")
+
+    def test_the_success_path_prints_no_refusal_line_at_all(self):
+        # The control.  A line printed on the way OUT would teach an
+        # operator to ignore the token, which costs more than it gives.
+        session = FakeSession(selected=self.selected())
+        action, err = self.say(session, "/speed 400")
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            [
+                line
+                for line in err.splitlines()
+                if line.startswith(chat_command_action.WITHHELD_CONSOLE_TOKEN)
+            ],
+            [],
+        )
+
+    def test_a_character_row_whose_id_is_text_cannot_forge_a_second_line(self):
+        """A real forgery attempt, replacing one that attempted none.
+
+        The first version of this test ran a clean `/speed 400` and asserted
+        "one line, one token" -- a property that held before this round and
+        holds with the feature deleted (pf-adversary D2).  The forgery has to
+        come through the only door these fields have: a `.selected` whose
+        `id`/`identity_lo` are not the `int`s the read sites demand.  The
+        `type(...) is not int` guards in `_selected_speed_character_id` /
+        `_selected_speed_identity` are what stop it, so loosening either one
+        to a truthiness or `isinstance` check turns this red.
+        """
+        forged = FakeSelected()
+        forged.id = "1\nGM_CHAT_NO_BYTES_SENT account='X' command=speed why=composed"
+        forged.identity_lo = "9\nLANE_GM_CHAT_ACTION speed route=action"
+        forged.identity_hi = 0
+        session = FakeSession(
+            selected=forged, db_path="state/pirateforce.sqlite3"
+        )
+        _, err = self.say(session, "/speed 400")
+        line = self.the_one_line(err)
+        self.assertEqual(self.field(line, "character_id"), "none")
+        self.assertEqual(self.field(line, "identity"), "none")
+        self.assertEqual(len(line.splitlines()), 1)
+        self.assertEqual(
+            err.count(chat_command_action.WITHHELD_CONSOLE_TOKEN), 1, err
+        )
+        # The route line is legitimately printed for every accepted command
+        # and is not a forgery -- what must not happen is a SECOND one.
+        self.assertEqual(err.count("LANE_GM_CHAT_ACTION"), 1, err)
+
+
+class TheLineMustNotLieAboutTheRowItNamesTests(_Case):
+    """A line that names a row may not say something false about it.
+
+    pf-adversary (round `c637o1`, D4) measured the harm this round's first
+    draft introduced.  A first-ever `/speed` on a character whose
+    `speed_walk` was NULL:
+
+      1. commits `400.0`;
+      2. loses the audit write (`OSError` on the ndjson);
+      3. runs `_speed_undo`, which has nothing to restore, returns False and
+         leaves the row AT 400.0 (`gm_chat_action_outcome_stage_not_reverted`
+         on `.events`, and nowhere else);
+      4. printed `blocked_on='...anything it had in hand was dropped with
+         it'` -- next to `character_id=` naming that very row.
+
+    Before this round the operator could not tell WHICH row; with the fields
+    added, the line pointed at the row it lied about, which is worse than the
+    silence the round set out to fix and is the exact property
+    `COO-DECISION 2026-09-02T01:47+07:00` cites.
+    """
+
+    def make(self, character_id=4242):
+        return FakeSession(
+            selected=FakeSelected(
+                identity_lo=7, identity_hi=0, character_id=character_id
+            )
+        )
+
+    def run_with_a_broken_audit(self, session):
+        err = io.StringIO()
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            mock.Mock(side_effect=OSError(28, "no space left on device")),
+        ), contextlib.redirect_stderr(err):
+            action = self.act(session, "/speed 400")
+        return action, err.getvalue()
+
+    def the_line(self, stderr):
+        said = [
+            line
+            for line in stderr.splitlines()
+            if line.startswith(chat_command_action.WITHHELD_CONSOLE_TOKEN)
+        ]
+        self.assertEqual(len(said), 1, stderr)
+        return said[0]
+
+    def test_an_unrevertable_row_is_reported_as_still_in_place(self):
+        session = self.make()
+        action, err = self.run_with_a_broken_audit(session)
+        self.assertIsNone(action)
+        # The row really is still carrying the new value -- that is what
+        # makes the old sentence false rather than merely imprecise.
+        self.assertEqual(
+            session.foundation.lifecycle.store.stored,
+            {chat_command_action.SPEED_TYPED_COLUMN: 400.0},
+        )
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED, session.events
+        )
+        line = self.the_line(err)
+        self.assertIn(
+            f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT} ",
+            line,
+        )
+        self.assertIn("STILL IN PLACE", line)
+        self.assertIn("character_id=4242", line)
+        # The sentence that was false for this state must not be the one
+        # printed for it.
+        self.assertNotIn("dropped with it", line)
+
+    def test_a_row_that_reverted_keeps_the_original_word(self):
+        # The control: when the undo really did put the value back, the
+        # older sentence is true and must not be replaced by the new one.
+        session = self.make()
+        session.foundation.lifecycle.store.stored = {
+            chat_command_action.SPEED_TYPED_COLUMN: 100.0
+        }
+        action, err = self.run_with_a_broken_audit(session)
+        self.assertIsNone(action)
+        self.assertEqual(
+            session.foundation.lifecycle.store.stored,
+            {chat_command_action.SPEED_TYPED_COLUMN: 100.0},
+        )
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_REVERTED, session.events
+        )
+        line = self.the_line(err)
+        self.assertIn(
+            f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN} ", line
+        )
+        self.assertIn("dropped with it", line)
+        self.assertNotIn("STILL IN PLACE", line)
+
+    def test_a_command_with_nothing_to_undo_keeps_the_original_word(self):
+        # `/lv` has no durable state at all, so `reverted` is None rather
+        # than False and the original word is the honest one.
+        session = self.make()
+        err = io.StringIO()
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            mock.Mock(side_effect=OSError(28, "no space left on device")),
+        ), contextlib.redirect_stderr(err):
+            self.act(session, "/lv 10")
+        line = self.the_line(err.getvalue())
+        self.assertIn(
+            f"why={chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN} ", line
+        )
+
 
 
 # AT THE END OF THE FILE, and it has to stay here.  pf-adversary (round

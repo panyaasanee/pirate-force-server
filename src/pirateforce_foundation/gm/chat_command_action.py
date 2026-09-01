@@ -306,6 +306,10 @@ from . import (
     warp_executor,
 )
 from .chat_command import (
+    REFUSAL_LOG_QUOTA_EXCEEDED,
+    REFUSAL_LOG_WRITE_FAILED_PREFIX,
+    REFUSAL_RATE_LIMITED,
+    SERVER_SIDE_DROP_REFUSALS,
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
 )
@@ -511,6 +515,25 @@ WARP_REFUSED_CONSOLE_TOKEN = "GM_CHAT_WARP_REFUSED"
 # this one means "that is not a command this lane knows how to read" and
 # answers with a usage line.  An operator greps for one question at a time.
 COMMAND_REFUSED_CONSOLE_TOKEN = "GM_CHAT_COMMAND_REFUSED"
+# THE THIRD REFUSAL TOKEN, and the reason it is a third one rather than a
+# reuse of either neighbour.  `COMMAND_REFUSED` means "you typed it wrong,
+# here is the grammar"; `NO_BYTES_SENT` means "an ACCEPTED command reached a
+# handler and the handler sent nothing".  Neither is true of a command that
+# was well formed, came from an allowlisted GM, and was dropped by the SERVER
+# ITSELF before dispatch ever saw it -- the rate limiter, the audit-log quota,
+# an unwritable audit log.  Printing those under either neighbour's token
+# would teach an operator grepping that token a false meaning for it, which
+# costs more than a third word to learn.
+#
+# WHY IT EXISTS AT ALL: `COO-DECISION 2026-09-02T01:47+07:00` ruled that a
+# refused GM command may not be SILENT.  pf-adversary (round `c637o1`)
+# measured that the round's first draft closed that only for the refusals
+# `_speed_action` itself produces -- 25 rapid `/speed 400` frames printed 20
+# route lines and then NOTHING for the five the limiter dropped, which is
+# exactly "the route was never wired" as seen from an attended chair.  The
+# limiter's ceiling (`dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW`) is
+# reachable by hand in a real session, so this was not a theoretical hole.
+DROPPED_CONSOLE_TOKEN = "GM_CHAT_DROPPED_BEFORE_DISPATCH"
 
 # Printed to stderr, once, when a command this lane ACCEPTED put no bytes on
 # the wire and no other line said so.
@@ -617,6 +640,19 @@ NO_BLOCKER_RECORDED = "no blocker recorded"
 # printed the wrong word and the right word sat in unreachable code.
 # One call site now, after the audit, for every shape.
 WHY_AUDIT_ROW_NOT_WRITTEN = "audit_row_not_written"
+# THE SAME AUDIT FAILURE, WITH THE DURABLE EFFECT STILL IN PLACE.  Measured
+# by pf-adversary (round `c637o1`, D4): a first-ever `/speed` on a character
+# whose `speed_walk` was NULL commits 400.0, then loses the audit write, then
+# runs `_speed_undo` -- which has nothing to restore, reports False, and
+# leaves the row AT 400.0.  With one word for both states the console printed
+# `blocked_on='...anything it had in hand was dropped with it'` while the row
+# it had just named (`character_id=`) held the new value.  Naming a row and
+# lying about it in the same line is worse than the silence this round set
+# out to fix, and it is the exact property `COO-DECISION 0147` cites
+# (its founding principle: the screen may not lie about the real state).
+# The revert-succeeded case keeps the original word
+# and the original sentence; only the not-reverted case gets this one.
+WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT = "audit_row_not_written_effect_kept"
 
 # Width bound for the hint half of a console line, held at the PRINTER.
 # TWO suppliers now (pf-adversary D11 -- this comment said "the one supplier"
@@ -1019,6 +1055,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
         "the outcome row could not be appended, so this command's audit"
         " trail is broken; anything it had in hand was dropped with it"
     ),
+    WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT: (
+        "the outcome row could not be appended AND the revert failed, so the"
+        " durable change named by character_id above is STILL IN PLACE --"
+        " read the row, do not assume it was rolled back"
+    ),
     # The five server-side stage faults (pf-adversary D4).  Keyed by the
     # audit word `_stage_action` writes, built from the reason constants
     # rather than spelled as literals so a rename upstream is a red test
@@ -1050,6 +1091,31 @@ f"{login_scene_stage.REASON_WRITE_FAILED}": (
 ),
 }
 NO_BYTES_BLOCKERS = MappingProxyType(_NO_BYTES_BLOCKERS_SOURCE)
+
+# The sentence for each SERVER-SIDE DROP (`chat_command.SERVER_SIDE_DROP_
+# REFUSALS`).  Same shape and same rules as the mapping above: lane-authored
+# text only, one ASCII line each, never built from what was typed.  Matched by
+# PREFIX because the log-write member carries an exception TYPE name.
+SERVER_DROP_BLOCKERS = (
+    (
+        REFUSAL_RATE_LIMITED,
+        "this GM account hit the per-account command ceiling; the command was"
+        " dropped whole, nothing was written and nothing was sent -- wait out"
+        " the window and retype it",
+    ),
+    (
+        REFUSAL_LOG_QUOTA_EXCEEDED,
+        "the GM command audit log is at its size quota, and this lane refuses"
+        " to run a command it cannot record -- rotate or move"
+        " capture/gm_command_log.ndjson",
+    ),
+    (
+        REFUSAL_LOG_WRITE_FAILED_PREFIX,
+        "the GM command audit log could not be written (disk full, read-only,"
+        " or the directory is gone), and this lane refuses to run a command"
+        " it cannot record",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -1300,6 +1366,11 @@ def _make_action(
     if outcome.command is None:
         _note(session, f"{EVENT_REFUSED_PREFIX}{outcome.refusal_reason}")
         _print_command_refusal_way_out(session, token, outcome)
+        # The two printers are mutually exclusive by their own reason sets
+        # (`TYPED_COMMAND_REFUSAL_PREFIXES` vs `SERVER_SIDE_DROP_REFUSALS`),
+        # so a refusal gets one line or none, never two -- asserted by
+        # `tests/test_gm_chat_no_bytes_line.py`, not left to reading.
+        _print_server_drop_way_out(session, token, outcome)
         return None
 
     command = outcome.command
@@ -1384,6 +1455,10 @@ def _make_action(
     audited = _log_outcome(
         session, token, command, outcome.record_id, verdict.audit_outcome, log_path
     )
+    # `None` = there was nothing to undo, which is not the same answer as
+    # "the undo ran and failed" -- see `_announce_console_outcome`'s own
+    # paragraph and `WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT`.
+    reverted: bool | None = None
     if not audited:
         # AN EFFECT THAT IS ALREADY ON DISK HAS TO COME BACK OFF IT.  Until
         # the cross-scene warp, every branch above could be "withheld" for
@@ -1457,7 +1532,13 @@ def _make_action(
     # purpose: `why` has to be the word the ndjson actually carries, and
     # until this line runs nobody knows whether the row landed.
     _announce_console_outcome(
-        session, token, command, verdict, audited=audited, sent=action is not None
+        session,
+        token,
+        command,
+        verdict,
+        audited=audited,
+        sent=action is not None,
+        reverted=reverted,
     )
     # CORE-REQUEST-GM-040.  LAST, and only for an action we are really
     # returning.  Arming earlier would pair a callback with an object one of
@@ -1872,6 +1953,61 @@ def _one_line(text: str) -> str:
     return text.replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _identity_fields(session: object, stream: object) -> str:
+    """`character_id=<n|none> identity=<lo>:<hi>|none` for a console line.
+
+    ONE BUILDER FOR EVERY LINE THAT CARRIES THEM, so the two printers that
+    answer `COO-DECISION 2026-09-02T01:47+07:00`'s identity requirement
+    cannot drift into two spellings of the same fact.
+
+    WHY THE READ HAPPENS HERE RATHER THAN BEING PASSED IN, corrected by
+    pf-adversary (round `c637o1`): the first version of this comment argued
+    that a caller-supplied identity "could disagree with the one the handler
+    wrote against", which has the argument backwards -- passing a value down
+    cannot disagree with itself, and re-reading is the only one of the two
+    that could.  The real reason is narrower and still good: one of the two
+    call sites (`_print_server_drop_way_out`) runs for refusals produced
+    BEFORE any handler ran, so there is no handler value to be handed, and a
+    single builder that always reads is simpler than one that sometimes
+    does.  The read is safe to repeat because this server is strictly serial
+    (`pf_bridge/FINDINGS_R18_SERVER_IS_STRICTLY_SERIAL.md`) and neither
+    `close` nor `checkpoint` clears or renumbers `.selected`.
+
+    WHAT THESE FIELDS ARE, AND WHAT THEY ARE NOT -- stated because the first
+    draft of this round oversold them and pf-adversary (D5) measured the
+    gap.  They name the CHARACTER ROW this connection has selected: the row
+    `/speed` writes and the row a `GT-193` grader diffs.  They do NOT
+    identify a connection.  Two connections that selected the same character
+    print byte-identical fields (`store.select_character` has no exclusivity
+    check, and every connection shares the process-wide `--token`), and
+    `identity_hi` is `0` for every character this server has ever created
+    (`lifecycle.py`), so `identity=<lo>:0` is a restatement of
+    `account_id`+`selector`.  The claim this supports is "WHICH ROW", not
+    "WHO".
+
+    SANITISED LIKE EVERY OTHER FIELD ON THE LINE.  Both values are
+    lane-authored `int`s today (`type(...) is not int` excludes `bool`,
+    `str`, and int subclasses at both read sites), so `console_safe`/
+    `_one_line` cannot currently change them -- they are applied anyway
+    because pf-adversary (D7) is right that being the only unsanitised
+    fields on a line is a discipline hole, not a proof of safety, and
+    because a `str()` of a huge int is the one shape that could raise
+    INSIDE a printer whose whole contract is that it never does.
+    """
+    character_id = _selected_speed_character_id(session)
+    identity_lo, identity_hi = _selected_speed_identity(session)
+    identity = (
+        "none"
+        if identity_lo is None or identity_hi is None
+        else f"{identity_lo}:{identity_hi}"
+    )
+    rendered_id = "none" if character_id is None else str(character_id)
+    return (
+        f"character_id={console_safe(_one_line(rendered_id), stream)} "
+        f"identity={console_safe(_one_line(identity), stream)}"
+    )
+
+
 def _print_command_refusal_way_out(
     session: object,
     token: str,
@@ -1955,6 +2091,84 @@ def _print_command_refusal_way_out(
             f"account='{console_safe(_one_line(token), stream)}' "
             f"reason={reason} "
             f"usage='{console_safe(_one_line(described), stream)}'",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _print_server_drop_way_out(
+    session: object,
+    token: str,
+    outcome: object,
+) -> None:
+    """Say that the SERVER dropped a well-formed GM command, and why.
+
+    THE THIRD WAY OUT, and the gap it closes was measured, not guessed.
+    pf-adversary (round `c637o1`, D1) ran 25 rapid `/speed 400` frames
+    through the real route: 20 printed `LANE_GM_CHAT_ACTION`, and the five
+    the limiter dropped printed NOTHING AT ALL -- not this module's
+    `GM_CHAT_NO_BYTES_SENT` (they never reached a handler) and not
+    `GM_CHAT_COMMAND_REFUSED` (they were not typing mistakes, so
+    `TYPED_COMMAND_REFUSAL_PREFIXES` correctly declines them).  From an
+    attended chair that is indistinguishable from "the route was never
+    wired", which is the state `COO-DECISION 2026-09-02T01:47+07:00` names
+    as forbidden rather than merely unwanted.
+
+    WHICH REFUSALS, and the list is NOT kept here:
+    `chat_command.SERVER_SIDE_DROP_REFUSALS` owns it, beside the constants
+    themselves, exactly as `TYPED_COMMAND_REFUSAL_PREFIXES` does for the
+    typo half -- so a refusal added to that module cannot inherit "no way
+    out" by default.  Every member of that tuple is returned BELOW the
+    `is_gm` check, which is what makes printing it safe: this lane still
+    never says a word about a non-GM's chat, about a GM's ordinary
+    conversation, about an unreadable allowlist, or about a malformed frame.
+    That tuple's own comment lists those four and says plainly that they
+    remain silent.
+
+    IT NEVER PRINTS WHAT WAS TYPED -- the property both sibling printers
+    spend their docstrings on, and the reason this one prints no command
+    NAME either: two of the three members are returned before
+    `parse_gm_command` has run, so there is no lane-authored name to render
+    and the only string in reach would be the GM's own text.  The `why=`
+    word answers the operator's question without it.
+
+    IT CARRIES THE CONNECTION'S IDENTITY for the same reason
+    `_print_no_bytes_way_out` does -- see that function's own paragraph on
+    why `account=` is not identity.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- held exactly as the two sibling
+    printers hold it: the refusal is already decided and the caller returns
+    None whatever happens here; everything that can raise is inside the
+    guard; a `None` stderr returns rather than letting `print` fall back to
+    STDOUT; a console that cannot be written is NAMED on the event trail.
+    """
+    reason = getattr(outcome, "refusal_reason", None)
+    if not isinstance(reason, str):
+        return
+    if not reason.startswith(SERVER_SIDE_DROP_REFUSALS):
+        return
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        blocker = next(
+            (
+                sentence
+                for prefix, sentence in SERVER_DROP_BLOCKERS
+                if reason.startswith(prefix)
+            ),
+            NO_BLOCKER_RECORDED,
+        )
+        if len(blocker) > MAX_CONSOLE_HINT_LENGTH:
+            blocker = blocker[:MAX_CONSOLE_HINT_LENGTH] + "..."
+        print(
+            f"{DROPPED_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"why={console_safe(_one_line(reason), stream)} "
+            f"blocked_on='{console_safe(_one_line(blocker), stream)}' "
+            f"{_identity_fields(session, stream)}",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
@@ -2132,6 +2346,70 @@ def _print_no_bytes_way_out(
     "regardless of source" everywhere in this lane, so the name is checked
     here rather than trusted from the parser.
 
+    IT CARRIES THE CONNECTION'S OWN IDENTITY, AND `account=` IS NOT THAT.
+    `COO-DECISION 2026-09-02T01:47+07:00` (`pf_bridge/notes_to_chief/
+    20260902_0147_COO-DECISION-speed-db-first-then-wire-refusal-must-be-
+    visible.md`) requires, for every `/speed` refusal, "log fang server one
+    line carrying identity and the reason".  The reason half has been here
+    since round `tvbiqc` (`why=` plus `blocked_on=`); the identity half was
+    NOT, and `account=` does not supply it -- this same docstring already
+    records that `session.token` is the process-wide `--token` CLI value,
+    one string shared by every connection, which is exactly why it may not
+    be read as "who did this".  So two more fields are appended, read off
+    the connection's own selected character through the read sites
+    `_speed_action` itself uses (`_selected_speed_character_id`,
+    `_selected_speed_identity` -- both defensive, neither raises, both
+    answer `None` for a session with nothing selected yet):
+
+      * `character_id=` -- the `characters` rowid the `/speed` write names,
+        i.e. the row an attended tester diffs in step 6 of `GT-193`; and
+      * `identity=<lo>:<hi>` -- the pair the composed frame addresses, so a
+        console line can be matched against a captured frame.
+
+    `none` for either one is a real answer, not a gap: it is the state the
+    `refused_speed_no_selected_character` / `refused_speed_no_character_id`
+    outcomes on the same line are naming.  The fields are lane-authored ints
+    rendered as ints, so the "never prints what was typed" property above is
+    untouched -- there is no path from the GM's typed text into either.
+
+    WHAT THIS LINE STILL DOES NOT DO, said here rather than in a round file
+    nobody greps: it is the SERVER HOST'S stderr, not the GM's screen.  The
+    other half of that same COO decision -- an immediate chat line the GM
+    reads at the client -- is NOT delivered by this function and is not
+    delivered anywhere in this lane's zone.  ~~"The only proven
+    server->client text route this lane has is
+    `say_wire.make_say_broadcast_frame`."~~  STRUCK: pf-adversary (round
+    `c637o1`, D3) refuted it from this repository's own ledger.
+    `docs/FUNCTIONAL_COVERAGE.json`'s `chat_input_echo_hypothesis` row is
+    `runtime_pass` on attended GT-009 -- the real client RENDERED echoed
+    text in its chat window, over `0xAC52 Channel_LocalTalkMessageVital`,
+    through the same shared serializer `say_wire` imports -- while `0x9F2C`
+    GMGlobal has never been seen on a screen at all.  Two routes exist and
+    the better-evidenced one is not the one this lane owns.
+
+    NEITHER IS USABLE FROM HERE TODAY, which is why the conclusion did not
+    change even though the reason did:
+
+      * `0x9F2C` -- its gate `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` is
+        held shut by `COO-DECISION 2026-08-29T00:41+07:00` on three
+        conditions this round cannot clear (the per-connection identity fix
+        in `runtime.py`, a COO word on the flip, and a client-observable
+        render).  That constant's comment ends "only a NEW COO-DECISION
+        lifts it".
+      * `0xAC52` -- the echo lane is behind a scenario opt-in with
+        `production_allowed: False`, GT-009 proved the render at exactly one
+        message length (12 printable ASCII; a 5-character message stayed
+        silent), it echoes the CLIENT's own frame rather than server-composed
+        text, and `tests/test_gm_say_gate_lock.py::NoSecondCompositionRoute
+        Tests` forbids any file in this zone except `say_wire.py` from
+        calling that codec.  `PROMOTE-153` (open, chief's) is the ticket that
+        would land it on a default boot.
+
+    So this lane asked instead of building either -- `pf_bridge/
+    notes_to_chief/20260902_0229_LANE-GM-ASK-COO-speed-refusal-on-screen-
+    needs-the-say-gate.md`, which now puts FOUR options to COO rather than
+    the three the first draft could see.
+
     A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- held exactly as the two
     printers above hold it: everything that can raise is inside the guard,
     the guard catches `Exception` (a closed stream raises `ValueError`, an
@@ -2175,7 +2453,8 @@ def _print_no_bytes_way_out(
             f"{WITHHELD_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command={name} why={console_safe(_one_line(str(why)), stream)} "
-            f"blocked_on='{console_safe(_one_line(blocker), stream)}'",
+            f"blocked_on='{console_safe(_one_line(blocker), stream)}' "
+            f"{_identity_fields(session, stream)}",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
@@ -2247,6 +2526,7 @@ def _announce_console_outcome(
     *,
     audited: bool,
     sent: bool,
+    reverted: bool | None = None,
 ) -> None:
     """The ONE place this route decides what the console is told, and when.
 
@@ -2263,6 +2543,15 @@ def _announce_console_outcome(
     their way says nothing here -- `route=action` and the serve loop's own
     label are that command's record.  Keyed on the caller's variable rather
     than on `verdict.action` for exactly that reason.
+
+    `reverted` is the caller's answer to the SECOND question the audit
+    failure raises: did the undo actually put the durable change back?
+    `None` means there was nothing to undo (the common case: no handler
+    below this one parked or wrote anything).  `False` is the case
+    pf-adversary D4 measured -- the row is still carrying the new value
+    while the line names that very row -- and it is the only one that
+    changes the word this function prints.  Passed in rather than re-derived
+    because only `_make_action` ever sees the undo's answer.
     """
     if sent:
         return
@@ -2272,11 +2561,17 @@ def _announce_console_outcome(
     if verdict.line_printed:
         # A handler already said it, in a vocabulary built for that refusal.
         return
+    if audited:
+        why = verdict.audit_outcome
+    elif reverted is False:
+        why = WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT
+    else:
+        why = WHY_AUDIT_ROW_NOT_WRITTEN
     _print_no_bytes_way_out(
         session,
         token,
         getattr(command, "name", None),
-        verdict.audit_outcome if audited else WHY_AUDIT_ROW_NOT_WRITTEN,
+        why,
     )
 
 

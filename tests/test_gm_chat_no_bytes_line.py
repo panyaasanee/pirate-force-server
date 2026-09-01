@@ -52,6 +52,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.gm import chat_command  # noqa: E402
+from pirateforce_foundation.gm import chat_command as gm_commands_chat  # noqa: E402
 from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import commands as gm_commands  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
@@ -91,9 +92,15 @@ class FakePosition:
 
 
 class FakeSelected:
-    def __init__(self, position=None):
+    # `identity_lo`/`identity_hi` are NOT decoration.  Before round `c637o1`
+    # this double carried only `.id`, so every no-bytes line in this file
+    # rendered `identity=none` and the file could not have noticed if the
+    # field had been dropped, swapped or hardcoded (pf-adversary D6).
+    def __init__(self, position=None, character_id=77, identity_lo=5, identity_hi=9):
         self.position = position
-        self.id = 77
+        self.id = character_id
+        self.identity_lo = identity_lo
+        self.identity_hi = identity_hi
 
 
 class FakeFoundation:
@@ -228,6 +235,187 @@ class TheSixSilentCommandsTests(_Case):
         self.assertEqual(
             len(self.lines(err, chat_command_action.CONSOLE_TOKEN)), 1, err
         )
+
+
+class TheIdentityFieldsOnEveryCommandTests(_Case):
+    """The two fields `COO-DECISION 0147` asked for, on the SHARED line.
+
+    THE GAP THIS CLOSES (pf-adversary round `c637o1`, D6).  Round `c637o1`
+    added `character_id=` and `identity=` to `_print_no_bytes_way_out` and
+    tested them only through `/speed`, in another file.  This line is shared
+    by six other commands; deleting both fields killed ZERO tests here, in
+    the file that owns the line's format.  The fields are pinned here now,
+    for every command that reaches the line, not only for the one whose COO
+    decision paid for them.
+
+    NONCLAIM, carried from the speed file so it cannot be read off only
+    there: these fields name WHICH CHARACTER ROW this connection selected.
+    They do not identify a connection -- two connections holding the same
+    character render identical fields, and `identity_hi` is `0` for every
+    character this server creates.
+    """
+
+    def field(self, line, name):
+        marker = f" {name}="
+        self.assertIn(marker, line)
+        return line.split(marker, 1)[1].split(" ", 1)[0]
+
+    def test_every_one_of_the_six_carries_the_row_it_was_typed_on(self):
+        for typed, name, _why in TheSixSilentCommandsTests.CASES:
+            with self.subTest(typed=typed):
+                gm_dispatch.reset_rate_limit_state_for_tests()
+                session = FakeSession(position=FakePosition())
+                session.foundation.selected = FakeSelected(
+                    position=FakePosition(), character_id=101,
+                    identity_lo=202, identity_hi=303,
+                )
+                with self.close_the_version_gate():
+                    _, err = self.act(typed, session=session)
+                said = self.lines(err, TOKEN)
+                self.assertEqual(len(said), 1, err)
+                self.assertEqual(self.field(said[0], "character_id"), "101")
+                # Asymmetric, so a swapped pair reads `303:202` and fails.
+                self.assertEqual(self.field(said[0], "identity"), "202:303")
+
+    def test_a_connection_with_nothing_selected_says_none_on_this_line_too(self):
+        session = FakeSession()
+        session.foundation.selected = None
+        _, err = self.act("/lv 10", session=session)
+        said = self.lines(err, TOKEN)
+        self.assertEqual(len(said), 1, err)
+        self.assertEqual(self.field(said[0], "character_id"), "none")
+        self.assertEqual(self.field(said[0], "identity"), "none")
+
+    def test_the_account_token_is_not_reused_as_either_field(self):
+        # Value equality, not substring absence: `identity='GM_ONE'` defeated
+        # the substring form with one quote character (pf-adversary D2).
+        session = FakeSession(position=FakePosition())
+        session.foundation.selected = FakeSelected(
+            position=FakePosition(), character_id=101,
+            identity_lo=202, identity_hi=303,
+        )
+        _, err = self.act("/lv 10", session=session)
+        line = self.lines(err, TOKEN)[0]
+        self.assertIn(f"account='{self.GM_ACCOUNT}'", line)
+        self.assertEqual(self.field(line, "character_id"), "101")
+        self.assertEqual(self.field(line, "identity"), "202:303")
+
+    def test_the_staged_line_does_not_grow_them(self):
+        # The staged warp is the one accepted command that sends nothing and
+        # is not a disappointment; its line answers a different question
+        # (which scene, what to do next) and must not drift into carrying
+        # this one's fields by copy-paste.  `/warp 278` is the input
+        # `TheStagedWarpTests` already proves reaches the staged printer, so
+        # this assertion cannot go vacuous if that behaviour changes.
+        action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        staged = self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN)
+        self.assertEqual(len(staged), 1, err)
+        self.assertNotIn("identity=", staged[0])
+        self.assertNotIn("character_id=", staged[0])
+
+
+class TheServerSideDropLineTests(_Case):
+    """A well-formed GM command the SERVER dropped says so (D1).
+
+    pf-adversary measured the hole this closes: 25 rapid `/speed 400` frames
+    printed 20 route lines and then NOTHING for the five the limiter
+    dropped -- not `GM_CHAT_NO_BYTES_SENT` (no handler ran) and not
+    `GM_CHAT_COMMAND_REFUSED` (not a typing mistake).  `COO-DECISION
+    2026-09-02T01:47+07:00` names that silence as the forbidden outcome.
+
+    WHAT IS STILL SILENT, pinned here on purpose so no later reader takes
+    this class as "nothing vanishes any more": a non-GM's chat, a GM's
+    ordinary conversation, an unreadable allowlist and a malformed frame.
+    Every one of those is decided ABOVE the `is_gm` check and this lane must
+    not learn to speak about them.
+    """
+
+    DROPPED = chat_command_action.DROPPED_CONSOLE_TOKEN
+
+    def test_the_rate_limiter_no_longer_eats_a_command_in_silence(self):
+        seen = []
+        for _ in range(gm_dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW + 3):
+            _, err = self.act("/lv 10")
+            seen.append(err)
+        dropped = [e for e in seen if self.lines(e, self.DROPPED)]
+        self.assertEqual(len(dropped), 3, "".join(seen))
+        line = self.lines(dropped[0], self.DROPPED)[0]
+        self.assertIn("why=rate_limited ", line)
+        self.assertIn("blocked_on='", line)
+        self.assertNotIn(chat_command_action.NO_BLOCKER_RECORDED, line)
+        # Same identity contract as the sibling line.
+        self.assertIn("character_id=77", line)
+        self.assertIn("identity=5:9", line)
+
+    def test_a_dropped_command_gets_exactly_one_line_not_two(self):
+        # The two refusal printers are keyed on disjoint reason sets; a
+        # refusal that earned one of them must never earn the other.
+        for _ in range(gm_dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW):
+            self.act("/lv 10")
+        _, err = self.act("/lv 10")
+        self.assertEqual(len(self.lines(err, self.DROPPED)), 1, err)
+        self.assertEqual(
+            len(self.lines(err, chat_command_action.COMMAND_REFUSED_CONSOLE_TOKEN)),
+            0,
+            err,
+        )
+        self.assertEqual(len(self.lines(err, TOKEN)), 0, err)
+
+    def test_a_typo_still_gets_the_typo_line_and_not_this_one(self):
+        _, err = self.act("/warp island")
+        self.assertEqual(len(self.lines(err, self.DROPPED)), 0, err)
+        self.assertEqual(
+            len(self.lines(err, chat_command_action.COMMAND_REFUSED_CONSOLE_TOKEN)),
+            1,
+            err,
+        )
+
+    def test_a_non_gm_account_is_still_completely_silent(self):
+        # The founding rule, re-checked against the printer added this round:
+        # this lane never says a word about a non-GM's chat.
+        session = self.session(token="DECKHAND")
+        _, err = self.act("/lv 10", session=session)
+        self.assertEqual(err, "", err)
+
+    def test_an_ordinary_sentence_from_a_gm_is_still_silent(self):
+        _, err = self.act("just talking to a friend here")
+        self.assertEqual(self.lines(err, self.DROPPED), [], err)
+
+    def test_an_unwritable_audit_log_says_so_instead_of_vanishing(self):
+        # `log_path` points at a directory that cannot be created, so
+        # `log_gm_command` raises OSError below the is_gm check.
+        blocker = self.tmp / "not_a_dir"
+        blocker.write_text("", encoding="utf-8")
+        _, err = self.act("/lv 10", log_path=str(blocker / "sub" / "log.ndjson"))
+        line = self.lines(err, self.DROPPED)
+        self.assertEqual(len(line), 1, err)
+        self.assertIn("why=command_log_write_failed_", line[0])
+        self.assertIn("cannot record", line[0])
+
+    def test_every_drop_blocker_is_one_ascii_line_within_the_cap(self):
+        for prefix, sentence in chat_command_action.SERVER_DROP_BLOCKERS:
+            with self.subTest(prefix=prefix):
+                self.assertEqual(sentence, sentence.strip())
+                self.assertNotIn("\n", sentence)
+                sentence.encode("ascii")
+                self.assertLessEqual(
+                    len(sentence), chat_command_action.MAX_CONSOLE_HINT_LENGTH
+                )
+
+    def test_every_server_side_drop_reason_has_a_sentence(self):
+        # The completeness half: a reason added to the tuple in
+        # `chat_command.py` without a sentence here would print
+        # `no blocker recorded` for exactly the state an operator most needs
+        # explained.
+        for reason in gm_commands_chat.SERVER_SIDE_DROP_REFUSALS:
+            with self.subTest(reason=reason):
+                self.assertTrue(
+                    any(
+                        reason.startswith(prefix)
+                        for prefix, _ in chat_command_action.SERVER_DROP_BLOCKERS
+                    )
+                )
 
 
 class ItNeverPrintsWhatWasTypedTests(_Case):
