@@ -41,6 +41,27 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 SCENARIO_PATH = ROOT / "scenarios" / "logout_hypothesis_ack_echo.json"
 
 
+def _hex_join(*lines: str) -> bytes:
+    return bytes.fromhex("".join(line.replace(" ", "") for line in lines))
+
+
+# Verbatim from notes_to_chief/20260901_1930_KA1A-CAPTURE-*.md, capture
+# gt192_20260901_184254, frame #1402 (119 bytes, subcode 1 "exit game"):
+# same fixture as tests/test_logout_request_envelope.py's
+# CAPTURED_2026_09_01_EXIT_GAME, kept as an independent literal here so this
+# module's fixtures do not depend on that file's internals.
+CAPTURED_2026_09_01_EXIT_GAME_WITH_WRAPPED_VITALS = _hex_join(
+    "12 6F 6E 14 00 00 00 00 08 00 0B 02 12 04 00 12",
+    "40 1B 0B 00 08 01 08 00 14 00 00 00 00 14 00 00",
+    "00 00 12 B4 1E 0B 00 2A 27 E3 D8 C2 2A 54 19 97",
+    "46 2A DF 29 F5 C5 2A 00 80 F3 43 0F 01 00 12 B4",
+    "1E 0B 00 2A 8B 70 FA C2 2A A1 90 96 46 2A 4B 95",
+    "FC C5 2A 00 00 F2 43 0F 01 00 12 90 2A 0B 00 2A",
+    "34 80 96 46 2A 86 79 FD C5 2A 00 00 F2 43 2A 9F",
+    "5C DC 3F 0B 01 0B 00",
+)
+
+
 class LogoutHypothesisRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -168,6 +189,31 @@ class LogoutHypothesisRuntimeTests(unittest.TestCase):
         )
         self.assertIsNone(self._session_closed_at(session_id))
         self.assertFalse(state.logout_acknowledged)
+
+    def test_real_capture_with_wrapped_vitals_now_dispatches(self):
+        # GT-194 RECHECK item 3: the real 2026-09-01 ~19:30 owner capture of
+        # the "exit game" button (notes_to_chief/20260901_1930_KA1A-CAPTURE-
+        # *.md, frame #1402) is 119 bytes, not the 34-byte isolated pin --
+        # the client had three other vitals pending in the same envelope
+        # (vital_count=4). Before the CORE-REQUEST 2007 fix this frame hit
+        # classify_logout_attempt's hard `vital_count == 1` check and
+        # dispatched to "wrong_envelope" with no reply at all. This drives
+        # the exact same frame through the real state machine (not just
+        # classify_logout_attempt in isolation) and checks the event log the
+        # way an attended-test operator would grep the console/capture log.
+        frame = CAPTURED_2026_09_01_EXIT_GAME_WITH_WRAPPED_VITALS
+        self.assertEqual(len(frame), 119)
+        state, _character = self._state("logout-real-capture")
+        session_id = state.foundation.session_id
+        self.assertIsNone(self._session_closed_at(session_id))
+        actions = state.dispatch(self.legacy.parse_outer(frame))
+        self.assertNotIn(
+            "logout_hypothesis_wrong_envelope_no_reply", state.events,
+        )
+        self.assertEqual(
+            actions[0][0], "HYP_PF_012_LOGOUT_SUBCODE01_ACK_AFTER_CLEAN_CLOSE",
+        )
+        self.assertIsNotNone(self._session_closed_at(session_id))
 
     def test_wrong_sequence_fails_closed(self):
         state, _character = self._state("logout-seq", ready=False)

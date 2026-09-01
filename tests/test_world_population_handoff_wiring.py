@@ -52,6 +52,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation import world_travel_gate  # noqa: E402
@@ -212,6 +213,45 @@ class CrossingHandoffWiringTests(unittest.TestCase):
             state.world_census_identity_resolved,
             "the face-frame gate may not correct clicks against a "
             "membership the client no longer holds",
+        )
+
+    def test_a_crossing_clears_mob_combat_announced_membership_too(self):
+        """RE-157 job 2 / LANE-B letter 1838 (CORE-REQUEST): an ordinary
+        travel-gate crossing never used to touch
+        ``mob_combat_announced_membership`` at all -- only login, GM /warp,
+        and the bg0001/bg0002/lane-composer census points did -- so a
+        player who walked into a new scene through this gate (not a GM
+        /warp) could keep the OLD scene's combat membership, matching
+        ``_gm_warp_resync_selected_scene``'s own drop+bump reasoning for
+        exactly the same reason: a membership nobody can answer for is a
+        membership to drop.
+        """
+        state = self._state("chw_combat_membership")
+        departure_scene = 1
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                departure_scene, (0x2058,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
+        generation_before = state.mob_combat_announced_membership_generation
+
+        self._cross_out(state)
+
+        self.assertIsNone(state.mob_combat_announced_membership)
+        self.assertGreater(
+            state.mob_combat_announced_membership_generation,
+            generation_before,
+        )
+        self.assertTrue(
+            any(
+                event.startswith(
+                    "world_travel_gate_crossing_mob_combat_membership_"
+                    "cleared_"
+                )
+                for event in state.events
+            ),
+            state.events,
         )
 
     def test_the_return_census_queues_after_the_teleport_and_reapplies(self):
