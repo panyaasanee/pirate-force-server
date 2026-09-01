@@ -769,6 +769,47 @@ jobs:
                 "If gate runs are missing rather than slow, the fault is upstream of this pull request - Actions disabled, out of minutes, or a workflow that never triggered - and closing pull requests will not fix it.")"
             fi
 
+            # [PANYA-DECISION 20260901_0920+07:00, via ka1-A] item 3, applied to
+            # both repos: a truly dead round is completely silent, so measure
+            # that instead of guessing from age alone.  A commit on this exact
+            # head within the last ~30 minutes means a round is still actively
+            # working even though the age/verdict checks above say close it --
+            # do not discard live work.  Only guards the age-based "assume
+            # dead" close path here; a hard `mergeable=false`/red-gate close
+            # elsewhere in this file is a fact, not a guess, and is not gated
+            # on this.
+            # [pf-adversary, this round]: BOUNDED, same as every other "leave
+            # open" skip in this file (see the invariant comment at the top,
+            # and `decide`'s own head-moved skip).  Past
+            # LIVENESS_ABSOLUTE_LIMIT the reprieve stops applying no matter
+            # what keeps touching the branch, so a stuck retry loop or an
+            # orphaned watchdog on a dead round's own branch cannot hold the
+            # lock forever by refreshing itself faster than the 30-minute
+            # liveness window.
+            LIVENESS_WINDOW_SEC=1800
+            LIVENESS_ABSOLUTE_LIMIT=$(( LIMIT * 2 ))
+            if [ "$AGE" -lt "$LIVENESS_ABSOLUTE_LIMIT" ]; then
+              # The commits/ lookup must never be able to kill this whole
+              # tick under `set -e` on a transient API failure: `|| true` on
+              # `api` itself is not enough because `jq` still runs on
+              # whatever (possibly empty) stdout it left, and pipefail would
+              # then still fail the assignment.  Guard the entire command
+              # substitution instead, same fail-safe direction as the CSEC3
+              # parse fallback below (a lookup failure here must fall through
+              # to "no liveness signal", not abort the loop).
+              LATEST_COMMIT_DATE=$(api "repos/${REPO}/commits/${HEAD_SHA}" 2>/dev/null | jq -r '.commit.committer.date // empty' 2>/dev/null) || LATEST_COMMIT_DATE=""
+              if [ -n "$LATEST_COMMIT_DATE" ]; then
+                CSEC3=$(date -u -d "$LATEST_COMMIT_DATE" +%s 2>/dev/null || echo 0)
+                SINCE_PUSH=$(( NOW - CSEC3 ))
+                if [ "$CSEC3" -ne 0 ] && [ "$SINCE_PUSH" -ge 0 ] && [ "$SINCE_PUSH" -lt "$LIVENESS_WINDOW_SEC" ]; then
+                  echo "::warning::#${PR} left open - head ${HEAD_SHA} committed $(( SINCE_PUSH / 60 ))m ago (<30m) - round looks alive, not reaping yet (absolute bound $(( LIVENESS_ABSOLUTE_LIMIT / 3600 ))h)"
+                  continue
+                fi
+              fi
+            else
+              echo "  past the liveness reprieve's own absolute bound ($(( LIVENESS_ABSOLUTE_LIMIT / 3600 ))h) - closing regardless of recent activity"
+            fi
+
             gh pr comment "$PR" --repo "$REPO" --body "$REASON" || \
               echo "::warning::could not comment on #${PR} - closing it anyway"
             if gh pr close "$PR" --repo "$REPO"; then
