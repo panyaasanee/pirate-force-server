@@ -323,6 +323,21 @@ ACTOR_ATTR_FIELDS = _ordered((
     # name.  NONCLAIM, carried from ka1-B's letter: this is an IMAGE-layer
     # finding about NameBoard_Player only, and Codex's ``server_safe = YES``
     # means "safe to send", NOT "the original server ever sent it".
+    #
+    # AND THIS MODULE REALLY DOES PUT A CHARACTER NAME IN THE GUILD SLOT.
+    # ``stats_progression_baseline_fields`` (:939, and the step builders at
+    # :1164 and :2529) feed ``actor.character_name`` -- the actor's own name,
+    # not a fixed probe token -- into the field above, so the encoded wstring
+    # at +0x164 is whatever character the caller built.  chief's assigning
+    # letter (pf_bridge notes_to_chief/20260902_0205_..., item 1) made this the
+    # ONE conditional: if the slot is fed a real character name, REPORT BEFORE
+    # changing behaviour.  Behaviour is therefore NOT changed here, and the
+    # report is pf_bridge notes_to_chief/20260902_0322_LANE-B-REPORT-0x164-
+    # guild-slot-is-fed-a-real-character-name.md.  Measured by pf-adversary,
+    # round ewm6ff (D7), after this lane's own first pass wrongly read the
+    # ``STATS_PROBE_CHARACTER_NAME`` default as the value that reaches the
+    # field.  This module is scenario-gated, so no production login composes
+    # it -- that bounds the exposure, it does not close the question.
     AttrField("character_name", "actor", 0x01000000, 0x164, WSTRING_TAG,
               "wstring",
               "derived: player_wire mask 0x01000800 minus report-pinned cash"),
