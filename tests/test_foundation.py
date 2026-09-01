@@ -302,7 +302,11 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3, 4, 5])
+            # 6 = migrations/006_character_typed_attribute_columns.sql
+            # (LANE-DB).  This pin moves with EVERY new migration file;
+            # see the letter 20260901_1416_LANE-DB-REQUEST-chief-two-
+            # migration-count-pins-outside-this-lane.md.
+            self.assertEqual([int(row[0]) for row in versions], [1, 2, 3, 4, 5, 6])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"
