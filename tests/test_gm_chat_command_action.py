@@ -1261,6 +1261,18 @@ class EventNameContractTests(_Case):
         # `None`-until-proven gate the way `warp`/`say`'s constants are).
         "EVENT_GMPROBE_UNKNOWN_VARIANT": "gm_chat_action_gmprobe_unknown_variant",
         "EVENT_GMPROBE_REFUSED_PREFIX": "gm_chat_action_gmprobe_refused_",
+        # CORE-REQUEST-GM-049: `/speed <value>`, wired this round behind a
+        # SCOPED exception to `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED`
+        # (COO-DECISION 20260901_1847) -- see `_speed_action`'s own
+        # docstring.
+        "EVENT_SPEED_WITHHELD_NO_VERSION": (
+            "gm_chat_action_speed_withheld_no_confirmed_update_attr_"
+            "vital_version"
+        ),
+        "EVENT_SPEED_NO_SELECTED_CHARACTER": (
+            "gm_chat_action_speed_no_selected_character"
+        ),
+        "EVENT_SPEED_REFUSED_PREFIX": "gm_chat_action_speed_refused_",
     }
 
     # Action labels are the same kind of interface as the event names, and a
@@ -1277,6 +1289,7 @@ class EventNameContractTests(_Case):
         ),
         "SAY_ACTION_LABEL": "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE",
         "GMPROBE_ACTION_LABEL": "LANE_GM_CHAT_GMPROBE_STATE_VITAL",
+        "SPEED_ACTION_LABEL": "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL",
     }
 
     # The live hook route's names, pinned here as text for the disjointness

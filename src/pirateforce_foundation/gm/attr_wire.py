@@ -1,11 +1,17 @@
 """Groundwork for GM `/lv` (and future `/item`/`/npc`/`/spawn`-adjacent stat
 commands) -> a real `UpdateAttrVital` (0x309A) frame.
 
-STATUS THIS ROUND: composer + per-connection cache only.  NOTHING in this
-module sends a byte to a real client yet (`UPDATE_ATTR_VITAL_VERSION_CONFIRMED`
-below is `None`), and no chat command dispatches into it
-(`gm/chat_command_action.py` does not import this module this round).  That
-is deliberate, per `COO-DECISION 2026-08-31T16:50+07:00`
+STATUS AS OF R294 (`happy-dirac-69cabr`/`focused-turing-69cabr`, 2026-09-01):
+this module's own three-point unlock (a/b/c below) is UNCHANGED and the
+full-block door (`build_named_field_update`) still refuses every field and
+still cannot be reached -- `gm/chat_command_action.py` does not import
+`build_named_field_update` and no chat command dispatches into it.  What DID
+change: `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` (below) is no longer
+unconditionally `None` -- see that constant's own comment for the SCOPED,
+temporary exception (`/speed` sparse x=7 only, via `gm/speed_wire.py`, not
+this module's named-field API) and why it does not reopen this door.  The
+rest of this docstring's history is unchanged, per `COO-DECISION
+2026-08-31T16:50+07:00`
 (`pf_bridge/notes_to_chief/20260831_1650_COO-DECISION-attr-wire-unlock-
 condition-revised-name-all-24-fields-replaced-with-lossless-preserve.md`):
 this round's job is to "design and prove the raw-block-per-connection

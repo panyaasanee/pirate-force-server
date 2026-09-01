@@ -284,6 +284,7 @@ from . import (
     login_scene_stage,
     npc_switch_catalog,
     say_wire,
+    speed_wire,
     teleport_wire,
     warp_executor,
 )
@@ -431,6 +432,20 @@ SAY_ACTION_LABEL = "LANE_GM_CHAT_SAY_GM_GLOBAL_MESSAGE"
 # move-authority grace window `runtime.py`'s `_move_authority_note_server_
 # moves` keys on that substring.
 GMPROBE_ACTION_LABEL = "LANE_GM_CHAT_GMPROBE_STATE_VITAL"
+
+# The action label for a GM `/speed <value>` (CORE-REQUEST-GM-049): a sparse
+# `UpdateAttrVital` (0x309A) send that sets ONLY the x=7 mask bit
+# (`gm/speed_wire.py`).
+#
+# !! MUST NOT CONTAIN `TELEPORT`, same reason as `SAY_ACTION_LABEL`/
+# `GMPROBE_ACTION_LABEL` above: `runtime.py`'s `_move_authority_note_server_
+# moves` reopens the move-authority grace window on that exact substring,
+# and `/speed` repositions nobody -- it changes one attribute field, not a
+# position.  The CORE-REQUEST letter that asked chief to wire this branch
+# says so in the same sentence it names the label
+# (`pf_bridge/notes_to_chief/20260901_1728_LANE-GM-CORE-REQUEST-GM-049-
+# speed-sparse-x7-runtime-send-point.md`).
+SPEED_ACTION_LABEL = "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL"
 
 # Console token printed on the production path whenever an authorized GM
 # command is handled.  `lane_hooks` prints `LANE_HOOK_FIRED` for the route
@@ -688,6 +703,19 @@ EVENT_SAY_WITHHELD_NO_VERSION = (
 # warp prefix; this one now has none either.
 EVENT_SAY_VERSION_CODEC_MISMATCH = "gm_chat_action_say_version_codec_mismatch"
 EVENT_SAY_REFUSED_PREFIX = "gm_chat_action_say_refused_"
+
+# CORE-REQUEST-GM-049's `/speed <value>`.  Same naming convention as the
+# `say` events immediately above -- `withheld` for the version gate,
+# `refused_<ExcType>` for a composer failure -- and one more of this
+# command's own: `no_selected_character`, for the read `_speed_action` needs
+# that `say` never did (`identity_lo`/`identity_hi` off the connection's own
+# selected character; `say` reads no character at all).
+EVENT_SPEED_WITHHELD_NO_VERSION = (
+    "gm_chat_action_speed_withheld_no_confirmed_update_attr_vital_version"
+)
+EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
+EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
+
 # CORE-REQUEST-GM-043's `/gmprobe <variant_id>`.  No withheld-by-version-gate
 # event exists for this command -- see `_gmprobe_action`'s own docstring for
 # why: `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` was pinned outright by
@@ -786,6 +814,14 @@ OUTCOME_WARP_NO_POSITION = f"{OUTCOME_REFUSED_PREFIX}warp_no_current_position"
 OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
     f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
 )
+# CORE-REQUEST-GM-049's `/speed`.  See the matching `EVENT_SPEED_*` pair
+# above for the naming rationale.
+OUTCOME_SPEED_WITHHELD_NO_VERSION = (
+    f"{OUTCOME_WITHHELD_PREFIX}update_attr_vital_version"
+)
+OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
+    f"{OUTCOME_REFUSED_PREFIX}speed_no_selected_character"
+)
 # The one named refusal `/gmprobe` can write that is not an exception TYPE
 # suffix: the typed `variant_id` matched no row in
 # `bt_gm_probe.VARIANTS_BY_ID`.  A GM typo, not this lane's error -- and not
@@ -837,6 +873,14 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
         "the confirmed vital_version is not the codec's; composing"
         " would build a frame the client cannot read"
+    ),
+    OUTCOME_SPEED_WITHHELD_NO_VERSION: (
+        "no confirmed UpdateAttrVital version for the /speed sparse door;"
+        " see attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED's own comment"
+    ),
+    OUTCOME_SPEED_NO_SELECTED_CHARACTER: (
+        "this connection has no selected character to read identity_lo/hi"
+        " from"
     ),
     WHY_AUDIT_ROW_NOT_WRITTEN: (
         "the outcome row could not be appended, so this command's audit"
@@ -1185,6 +1229,8 @@ def _make_action(
         verdict = _say_action(session, command, legacy)
     elif command.name == "gmprobe":
         verdict = _gmprobe_action(session, command, legacy)
+    elif command.name == "speed":
+        verdict = _speed_action(session, command, legacy)
     else:
         # Parsed and audited, but this lane has no proven server->client
         # wire for it yet.  Named, not silent: "nothing happened" and "we
@@ -2315,6 +2361,109 @@ def _gmprobe_action(session: object, command: object, legacy: object) -> _Verdic
         )
 
     return _Verdict((GMPROBE_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
+
+
+def _selected_speed_identity(session: object) -> tuple[int | None, int | None]:
+    """`identity_lo`/`identity_hi` off the connection's own selected character.
+
+    Reads `session.foundation.selected` the exact same way
+    `_current_position` reads it for `.position` -- CORE-REQUEST-GM-049's
+    letter named this as the one field `gm/` had no read site for yet, even
+    though `model.Character` (`id, account_id, selector, name, actor_wire,
+    avatar_wire, identity_lo, identity_hi, position`) has carried it all
+    along.  `(None, None)` for "no character selected on this connection" or
+    for a value this module cannot trust as an `int` (a test double, a
+    half-built session); never raises.  `bool` is excluded for free by the
+    `type(...) is not int` check -- `type(True) is bool`, not `int`.
+    """
+    selected = getattr(getattr(session, "foundation", None), "selected", None)
+    if selected is None:
+        return None, None
+    identity_lo = getattr(selected, "identity_lo", None)
+    identity_hi = getattr(selected, "identity_hi", None)
+    if type(identity_lo) is not int or type(identity_hi) is not int:
+        return None, None
+    return identity_lo, identity_hi
+
+
+def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
+    """One authorized `/speed <value>` -> a sparse `UpdateAttrVital` action.
+
+    CORE-REQUEST-GM-049 (`pf_bridge/notes_to_chief/20260901_1728_LANE-GM-
+    CORE-REQUEST-GM-049-speed-sparse-x7-runtime-send-point.md`): composes
+    through `gm.speed_wire.compose_sparse_speed_update`, the ONE frame that
+    module exists to build -- x=7 (BasicAttr +0x54, f32) alone, never any of
+    the other 54 fields `attr_wire.FIELDS` describes, never a merge with any
+    prior block.  No new wire logic lives here, the same seam
+    `_warp_action`/`_say_action`/`_gmprobe_action` use for their own
+    composers.
+
+    !! WHAT THIS SENDS AND TO WHOM, same property `_say_action` states for
+    itself: one action goes to ONE socket, the connection whose frame this
+    dispatch is answering.  It moves nobody -- `x=7` is a single BasicAttr
+    field, not a position -- and writes no DB row: this composes a WIRE
+    FRAME only, never touching `store`/`characters` (the separate,
+    DB-writing `store.write_typed_attributes_and_compose_sparse` path
+    LANE-DB's interface letter `20260901_1716` describes is NOT this one).
+
+    THE VERSION GATE IS A SCOPED, TEMPORARY EXCEPTION, NOT THE GENERAL ONE.
+    `speed_wire.shared_vital_version_confirmed()` reads
+    `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` live, which
+    `COO-DECISION 2026-09-01T18:47+07:00` flipped `None` -> `0` for exactly
+    this send site (see that constant's own comment in attr_wire.py for the
+    full reasoning) -- it is not evidence attr_wire.py's own three-point
+    full-block unlock has been answered, and this function must never be
+    copied as a template for a full-block send.
+
+    IDENTITY HAS NO ESTABLISHED READ SITE OF ITS OWN, UNLIKE POSITION.
+    `_selected_speed_identity` mirrors `_current_position`'s read of
+    `session.foundation.selected` exactly, but for `identity_lo`/
+    `identity_hi` rather than `.position` -- a connection with no character
+    selected yet (or a test double missing the fields) is a named refusal,
+    never a crash.
+
+    !! RUN-COPY DB REQUIREMENT -- NOT ENFORCED HERE, NAMED HONESTLY.
+    CORE-REQUEST-GM-049's letter requires "the send site must check it is
+    running on a run-copy DB before every send" (never canonical).  This
+    function composes a WIRE FRAME and touches no DB at all, so there is no
+    DB handle here to check the identity of -- but the requirement as
+    written is about the PROCESS this composed frame is sent from, and this
+    lane found NO existing code-level mechanism anywhere in this repository
+    that lets a runtime call site distinguish "booted against a run-copy"
+    from "booted against canonical" (LANE-DB's own interface letter
+    `20260901_1716` item 2 says the same thing about its DB-write path: "this
+    lane has no way to force it from code ... it is call-site discipline,
+    not the module's").  TODO run-copy-db gate: no existing mechanism found,
+    see round notes -- reported to chief/COO rather than invented here.
+    """
+    identity_lo, identity_hi = _selected_speed_identity(session)
+    if identity_lo is None or identity_hi is None:
+        _note(session, EVENT_SPEED_NO_SELECTED_CHARACTER)
+        return _Verdict(None, OUTCOME_SPEED_NO_SELECTED_CHARACTER)
+
+    version = speed_wire.shared_vital_version_confirmed()
+    if version is None:
+        # The scoped exception above has not (or no longer) landed --
+        # withhold exactly the way `_say_action`/`_warp_action` do for their
+        # own still-shut gates.  GT-101 measured what an unproven
+        # vital_version does to a real client: modal error, socket closed.
+        _note(session, EVENT_SPEED_WITHHELD_NO_VERSION)
+        return _Verdict(None, OUTCOME_SPEED_WITHHELD_NO_VERSION)
+
+    try:
+        value = speed_wire.parse_speed_value(command.args[0])
+        pc, frame = speed_wire.compose_sparse_speed_update(
+            legacy, identity_lo, identity_hi, value
+        )
+    except Exception as error:  # noqa: BLE001 - includes SpeedWireError
+        # Type name only: an exception message can embed the GM's typed
+        # text, same reasoning as every other refusal in this module.
+        _note(session, f"{EVENT_SPEED_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}"
+        )
+
+    return _Verdict((SPEED_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
 
 
 def _current_position(session: object) -> object | None:

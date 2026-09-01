@@ -891,10 +891,11 @@ class ContractTests(_Case):
         self.assertNotIn(chat_command_action.NO_BLOCKER_RECORDED, said[0])
 
     def test_every_no_bytes_outcome_this_module_can_write_has_a_blocker(self):
-        # The five constants below are every "nothing went out" outcome that
+        # The constants below are every "nothing went out" outcome that
         # is a fixed word rather than a `<prefix><ExcType>` family.  A round
-        # that adds a sixth and forgets the sentence gets a red test, not a
-        # console line reading `no blocker recorded`.
+        # that adds one more and forgets the sentence gets a red test, not a
+        # console line reading `no blocker recorded`.  CORE-REQUEST-GM-049
+        # added the two `speed` ones this round.
         for outcome in (
             chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
             chat_command_action.OUTCOME_SAY_WITHHELD_NO_VERSION,
@@ -902,6 +903,8 @@ class ContractTests(_Case):
             chat_command_action.OUTCOME_WARP_NO_POSITION,
             chat_command_action.OUTCOME_SAY_VERSION_CODEC_MISMATCH,
             chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN,
+            chat_command_action.OUTCOME_SPEED_WITHHELD_NO_VERSION,
+            chat_command_action.OUTCOME_SPEED_NO_SELECTED_CHARACTER,
         ):
             with self.subTest(outcome=outcome):
                 self.assertIn(outcome, chat_command_action.NO_BYTES_BLOCKERS)
