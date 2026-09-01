@@ -1,0 +1,176 @@
+-- 007_character_vitals_seed.sql
+-- LANE-DB / M4.  The first migration OF THIS LANE that writes existing rows.
+--
+-- The qualifier is load-bearing and is not modesty: this repository's earlier
+-- migrations write rows too, and harder.  `002_character_integrity.sql:3` is
+-- an unconditional `UPDATE characters SET name_key=..., create_fingerprint=...`
+-- over every row; `002:10` updates `sessions`; `005:29` updates
+-- `character_backpacks`; `004` DROPs and rebuilds `characters` outright --
+-- all of them before any snapshot mechanism existed.  What is new here is
+-- that a row-touching migration lands with `migrate_with_backup` in front of
+-- it and with an adjudicated value behind every number it writes.
+--
+-- TRANSCRIBED from player_wire hardcode -- original game default OPEN
+--
+-- That tag is the header label COO-DECISION 20260902_0250 point 3 requires,
+-- written in ASCII (`--` for the em dash); the words are the decision's, the
+-- dash is this file's.  The reason is a house rule rather than a scan that
+-- covers this file: `gate-windows.yml`'s cp874 tripwire reads tracked `.py`
+-- under `tools/`, `src/` and `current/` only -- 237 files, measured -- so
+-- neither `migrations/` nor `tests/` is scanned by it.  What does read this
+-- file under a Thai-locale console is a person, and a boot's traceback.
+--
+-- What the tag means, and it is a limit rather than a boast: the three
+-- numbers below are a TRANSCRIPTION of what this server
+-- already puts on the wire for every character at every login, and NOT a
+-- claim about what the original game seeds a new character with.  That
+-- question is OPEN.  The day an RE answers it and the answer differs, the fix
+-- is a NEW migration file; 007 is never edited afterwards
+-- (COO-DECISION 20260902_0250 point 3, second sentence).
+--
+-- WHERE THE THREE NUMBERS COME FROM, each with what ships it today:
+--
+--   level        1    `PLAYER_LOGIN_LEVEL` in
+--                     `src/pirateforce_foundation/player_wire.py`, emitted by
+--                     `_make_actor_attr_with_name_and_class` as
+--                     `legacy.u16tag(0x12, level)`.
+--   hp_current   100  the first inline `legacy.u32tag(0x14, 100)` in that
+--                     same function's return expression.
+--   hp_max       100  the second inline `legacy.u32tag(0x14, 100)`.
+--
+-- Cited by SYMBOL and by the emitting expression, deliberately, NOT by line
+-- number.  A `pf-adversary` pass inserted three comment lines earlier in
+-- `player_wire.py`; the three fields moved from 203-205 to 206-208 and every
+-- test stayed green -- a pin nothing re-derives is decoration.  It matters
+-- more here than in ordinary code because point 3 of the decision forbids
+-- editing this file afterwards: a line number written here would become
+-- permanently wrong on the first unrelated edit above it and could never be
+-- corrected in place.  A symbol survives that, and the test that grades this
+-- (`test_the_transcribed_values_are_still_what_player_wire_emits`) re-derives
+-- the three values from `player_wire.py` AT HEAD rather than comparing this
+-- file with itself.  As a pointer only, the lines as they stood the day this
+-- landed: :22 and :203-205.
+--
+-- So this file does not put a number into the world that the world has not
+-- been receiving all along.  The bytes on the wire do not change on the day
+-- it runs; what changes is that the server can now SAY WHY it sends them,
+-- from a row instead of from a literal, and a later write to that row
+-- survives a logout.  `tests/test_persistence_vitals_seed_007.py` proves the
+-- equality byte for byte rather than by assertion in a comment: it encodes
+-- x=2/3/4 from the values this file leaves in the database and finds the
+-- result inside the login frame `player_wire` builds today.
+--
+-- WHY IT IS ALLOWED TO SEED AT ALL, when 006 refused to.
+-- 006's header states the rule it was obeying: a backfill needs a VALUE, and
+-- no value had been adjudicated.  `COO-DECISION 20260901_1447` point 2 is
+-- still in force for `speed_walk` -- 150.0 and 400.0 are two candidates and
+-- "both numbers are equally a guess without" an RE -- and this file does not
+-- touch `speed_walk` or any of the other seventeen columns for exactly that
+-- reason.  These three are different in kind, and `COO-DECISION 20260902_0250`
+-- is where that difference was adjudicated rather than assumed by this lane:
+-- there is only ONE number in this repository for each of them, this server
+-- already sends it to every client, and so seeding does not invent anything.
+--
+-- WHY IT DOES NOT BREAK THE OWNER'S "NEVER GUESS ZERO" RULE
+-- (PANYA-ORDER relayed verbatim in COO-DECISION 20260901_1059).  The rule
+-- forbids sending a block in which an unknown field was guessed to be zero.
+-- None of these three values is zero, and none of them is a guess: each is a
+-- literal read out of the shipped login frame.  The columns this file does
+-- NOT seed stay NULL, `SQLiteStore.read_typed_attributes` keeps omitting
+-- them, and `persistence_attr_compose` keeps refusing a block that would need
+-- them -- fail-closed is unchanged for the other eighteen.
+--
+-- WHY THE HP PAIR IS SEEDED TOGETHER, AND WHY IT ALSO LOOKS AT `level`.
+-- COO-DECISION 20260902_0250 point 1 says `WHERE ... IS NULL` on all three
+-- and forbids touching a row that already holds a value.  Applying that
+-- per-column to `hp_current` alone would satisfy the letter and break the
+-- database: a row holding `hp_max = 50` with `hp_current` NULL would come out
+-- of this file at `hp_current = 100 > hp_max = 50`, a state
+-- `persistence_vitals.resolve` refuses to hand to anything (a relation
+-- between two columns is the one thing a per-column SQL CHECK cannot
+-- express).  So the pair is seeded ATOMICALLY: only a row where BOTH ends are
+-- NULL gets both, which is strictly narrower than the decision -- it can only
+-- ever touch fewer rows, never more, and it can never invent a half-pair.
+--
+-- The second half of that predicate closes the SAME defect one column over,
+-- and a `pf-adversary` pass found it rather than this reasoning: a row
+-- holding `level = 0` with both HP ends NULL is REFUSED today (its HP is
+-- unseeded, so `resolve(...).require()` raises).  Seed the pair into it and
+-- it becomes COMPLETE -- accepted by `require()`, usable by
+-- `apply_hp_damage` -- while carrying a level of zero that nobody
+-- adjudicated.  `persistence_vitals` refuses `hp_max = 0` and has NO rule
+-- about `level = 0`; `006`'s CHECK allows it (`BETWEEN 0 AND 65535`).  That
+-- is this file turning a fail-closed row into an accepted one, which is
+-- exactly what the HP-pair argument above forbids -- so the same argument is
+-- applied to the level/HP relation and not only to the HP/HP one.  A row at
+-- `level = 0` keeps its unseeded HP and stays refused.  Nothing in this
+-- repository writes `level` today, so this is a latent state rather than one
+-- that exists; a migration is the wrong place to find out which.
+--
+-- `level` itself is seeded on its own condition: it has no partner, and
+-- `WHERE level IS NULL` never touches a stored zero.
+--
+-- WHY IT IS SURVIVABLE.  The owner's rule (COO-DECISION 20260901_1112
+-- point 3) is that a migration touching existing rows lands with an automatic
+-- pre-apply copy of the .db file.  That mechanism exists and is already at
+-- both migrating BOOT call sites: `SQLiteStore.migrate_with_backup`
+-- (store.py) is called on both branches of `app.py`'s boot that migrate at
+-- all (as a pointer only, :786 and :789 the day this landed), and
+-- `persistence_backup.should_snapshot` returns True whenever a migration file
+-- is pending -- which is exactly the boot that applies this file.  A test in
+-- this lane's file drives the real `migrate_with_backup` over this real
+-- directory and restores the pre-007 database out of the snapshot it leaves,
+-- so "reversible" is measured here rather than asserted.
+--
+-- That is a statement about BOOTS, not about the repository, and the
+-- difference matters from this file onward.  `grep -n "\.migrate()"` finds
+-- eleven `tools/*_headless_replay.py` and one `reports/` probe that call the
+-- plain, snapshot-less `migrate()`; nine of them build a `tempfile` copy
+-- first, but `tools/pf_delete_refresh001_headless_replay.py` (`--db-file
+-- ... --prepare-db`) and `reports/moveisol001_smoke/
+-- pf_move_isolation_probe.py` take an operator-supplied path.  Until this
+-- file, `migrate()` down one of those paths only ADDED COLUMNS; from this
+-- file on it rewrites rows.  Those call sites are outside this lane's write
+-- zone and went to chief in writing the round this landed.
+--
+-- *** THE LIMITATION A READER MUST NOT MISS: THIS FILE SEEDS A COHORT, NOT A
+-- DATABASE.  It writes the characters that EXIST at the moment it runs, and
+-- no others, ever.  `SQLiteStore.create_character` names its INSERT columns
+-- explicitly and none of these three is among them; `006` added them with no
+-- DEFAULT; and the ledger stops this file from running a second time.  So a
+-- character created after it has NULL vitals forever, exactly as before -- and
+-- on a FRESH INSTALL, where this file runs against an empty table, the census
+-- reads 0/0/0 for all three columns while the migration reports success.
+-- A `pf-adversary` pass measured that; it is not a theory.
+--
+-- Nothing in this lane may close it: `create_character` is an existing method
+-- and the LANE-DB charter (`COO-DECISION 20260901_1100`) allows new methods in
+-- `store.py` and forbids changing an old one.  Closing it needs either a
+-- DEFAULT on the three columns -- a table rebuild, since SQLite cannot add a
+-- default to a column that exists -- or a write at character creation.  Both
+-- are decisions about what every future character is born holding, which is
+-- the same question `COO-DECISION 20260902_0250` answered for the characters
+-- that already exist, asked again for the ones that do not.  It went to COO in
+-- writing the same round this file landed.  Until it is answered, "M4 is
+-- unblocked" is true of the characters alive on the morning of 2026-09-02 and
+-- of no others, and `tests/test_persistence_vitals_seed_007.py`'s
+-- `SeedsACohortNotADatabaseTests` is what keeps that sentence from drifting.
+--
+-- WHAT ELSE THIS FILE DOES NOT DO.  It inserts nothing, deletes nothing, drops
+-- nothing, rebuilds no table, and adds no column.  It also does not touch
+-- `updated_at`: every other row-writing path in `store.py` stamps it, and this
+-- one deliberately does not, because a backfill of columns that were absent is
+-- not a change the character made and an operator reading `updated_at` should
+-- not see the whole table move on the day of a migration.  It never writes a row that
+-- already holds the value it would write, so re-running it (which the ledger
+-- prevents anyway) would change nothing.  It does not touch soft-deleted rows
+-- any differently from live ones ON PURPOSE: `004_character_soft_delete_
+-- reuse.sql` keeps a deleted character's row, and leaving those three columns
+-- NULL there would make an undelete produce a character the server refuses to
+-- compose for.
+
+UPDATE characters SET level = 1 WHERE level IS NULL;
+
+UPDATE characters SET hp_current = 100, hp_max = 100
+    WHERE hp_current IS NULL AND hp_max IS NULL
+      AND (level IS NULL OR level > 0);

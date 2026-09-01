@@ -57,11 +57,17 @@ know the HP of.  So:
   that had none.  Whether anything ELSE has seeded them is not asserted here
   and is not knowable from this file: it is a question about a database, and
   ``census_sql`` / ``SQLiteStore.vitals_seeding_census`` ask it there.
-  Seeding is a write on live rows and therefore a migration, and what the
-  migration is waiting for is a VALUE that this lane may not pick on its own:
+  Seeding is a write on live rows and therefore a migration, and that
+  migration now EXISTS: ``migrations/007_character_vitals_seed.sql``, under
+  ``COO-DECISION 20260902_0250``, writes ``level 1, hp 100/100`` into the rows
+  that held none when it ran -- and into no row created afterwards, which is
+  its own open question and is with COO.  What follows is kept because it is
+  still the SHAPE of the rule for the other eighteen columns, not because the
+  question is still open for these three.  What the migration was waiting for
+  was a VALUE that this lane may not pick on its own:
   ``COO-DECISION 20260901_1447`` point 2 is the standing shape of that rule
-  for ``speed_walk``, and the same question for ``level``/``hp`` is put to COO
-  in the OTHER repository -- ``pf_bridge/notes_to_chief/20260901_2322_LANE-DB-
+  for ``speed_walk``, and the same question for ``level``/``hp`` WAS put to
+  COO in the OTHER repository -- ``pf_bridge/notes_to_chief/20260901_2322_LANE-DB-
   ASK-COO-hp-level-seed-value-adjudication.md``.  Named with its repository
   because a reviewer of THIS repository cannot open it: a ``pf-adversary``
   pass searched for it here, found nothing, and was right to call the citation
@@ -69,12 +75,18 @@ know the HP of.  So:
   where the question went, not evidence for anything here.
   What is measured and is in that letter: the shipped login frame already
   sends level ``1`` and hp ``100/100`` for every character
-  (``src/pirateforce_foundation/player_wire.py:203-205``, with
-  ``PLAYER_LOGIN_LEVEL = 1`` at ``:22`` and the two ``100``\\ s written inline),
-  so seeding those three numbers would be a TRANSCRIPTION of what this server
-  already puts on the wire rather than a new number -- but "one number instead
-  of two candidates" is a better position to ask from, not a licence to
-  answer, so this module ships unseeded and fail-closed.
+  (``src/pirateforce_foundation/player_wire.py``, in
+  ``_make_actor_attr_with_name_and_class``: ``PLAYER_LOGIN_LEVEL`` and the two
+  inline ``legacy.u32tag(0x14, 100)`` calls -- named by symbol rather than by
+  line, because a ``pf-adversary`` pass moved those lines with an unrelated
+  edit and every test in this lane stayed green),
+  so seeding those three numbers is a TRANSCRIPTION of what this server
+  already puts on the wire rather than a new number.  That was the position
+  the question was asked from, and ``COO-DECISION 20260902_0250`` answered it.
+  THIS MODULE still seeds nothing and is still fail-closed, which is the
+  sentence that matters here: a migration wrote those rows, this file did not,
+  and a character created after that migration reaches ``resolve()`` carrying
+  the same three gaps as before.
 * **It sends nothing and is wired to nothing.**  No frame, no encoder, no
   socket, no call site.  Composing an attribute block from these values is
   still ``persistence_attr_compose``'s decision and still refuses today.
