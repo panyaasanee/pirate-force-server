@@ -81,6 +81,7 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
     WARP_ACTION_LABEL,
+    WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
 )
 from pirateforce_foundation.gm.warp_executor import WarpTarget  # noqa: E402
 from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
@@ -916,6 +917,58 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
         # warp's, unchanged -- CORE-REQUEST-GM-030/031's own token logic is
         # explicitly out of scope for this fix; only the scene label moved.
         self.assertTrue(state.gm_warp_position_pending)
+
+    def test_a_real_cross_scene_label_resyncs_through_actual_dispatch(self):
+        """CORE-REQUEST-GM-047 -- prove the DISPATCH path, not just the resync
+        function.
+
+        Every other test in this class arms through ``_arm_the_warp_with_
+        target`` / ``_arm_the_warp``, which always queues ``WARP_ACTION_LABEL``
+        (see that helper's own class docstring: "the WARP_ACTION_LABEL
+        action"). That label is same-scene ForcePos only --
+        ``warp_executor.make_warp_force_pos_frame_with_target`` refuses to
+        build one cross-scene -- so no test above ever sends the label a real
+        cross-scene ``/warp`` actually produces through
+        ``_gm_warp_note_position_pending``'s own label check at
+        ``runtime.py:5304``. Before CORE-REQUEST-GM-047's fix, that check
+        matched only ``WARP_ACTION_LABEL``, so this exact scenario (a real
+        ``WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL`` action reaching
+        dispatch) never resynced ``selected.position.scene_id`` at all --
+        this test fails on that old code and passes on the fix.
+        """
+        state = self._login_and_start("gmwarp_resync05")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        character_id = current_character_id(state)
+        self.assertTrue(record_warp_target(state, target, character_id))
+
+        real = state._dispatch_with_lanes
+
+        def _one_cross_scene_warp_action(parsed):
+            state._dispatch_with_lanes = real
+            return [(
+                WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, b"", b"", 0.0,
+            )]
+
+        state._dispatch_with_lanes = _one_cross_scene_warp_action
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(state.token)
+        ))
+        self.assertEqual(
+            [action[0] for action in actions],
+            [WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL],
+        )
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, destination_scene,
+        )
+        self.assertIn(
+            f"gm_warp_selected_scene_resynced_{destination_scene}",
+            state.events,
+        )
 
 
 if __name__ == "__main__":
