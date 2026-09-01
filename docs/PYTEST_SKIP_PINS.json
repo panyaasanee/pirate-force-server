@@ -326,6 +326,17 @@
       "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     },
     {
+      "key": "bridge_serializer_table",
+      "module": "tests/test_mob_pickup_request.py",
+      "count": 3,
+      "tests": [
+        "DeliveryTableCrossCheckTests::test_the_table_still_carries_four_symmetric_rows",
+        "DeliveryTableCrossCheckTests::test_every_pinned_number_is_the_tables_number",
+        "DeliveryTableCrossCheckTests::test_the_seven_byte_size_is_the_labelled_inference_it_claims_to_be"
+      ],
+      "note": "round okdfge (LANE-B): mob_pickup_request.py transcribes its pins (object ref tag 0x14 at +0x14, cell tag 0x08 at +0x18, seven-byte body) by hand out of PF_SERIALIZER_FIELDS.tsv; this class re-reads that table itself so the transcription cannot drift, and a clone without the sibling table cannot answer. Pinned here because round h6bl53 shipped the same class with a BARE skipTest in setUp and the Windows gate's skip census closed pull request #540 for it - 'UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)' - the same defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud, and that round szdkgs shipped again before round 0n9inw converted it. THE KEY IS THE ONE FILE, NOT THE EIGHT: a first draft of this pin guarded the class with external_re_tables, and pf-adversary measured a sibling holding seven of the eight tables (only PF_TAG_CENSUS.tsv missing) skipping this cross-check with a reason whose own tail said the table it reads was present - so bridge_serializer_table names exactly PF_SERIALIZER_FIELDS.tsv. The half of the same check that CAN run on the gate is PinnedNumbersAreHardPinnedEverywhereTests in the same module, which carries no precondition and must never appear in this file."
+    },
+    {
       "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0002.py",
       "count": 4,

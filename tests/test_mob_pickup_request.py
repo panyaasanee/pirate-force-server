@@ -38,6 +38,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from pf_preconditions import BRIDGE_SERIALIZER_TABLE  # noqa: E402
 
 from pirateforce_foundation import (  # noqa: E402
     mob_loot,
@@ -755,6 +758,81 @@ class TheWiringLineRunsTests(unittest.TestCase):
 # 7. What this round does NOT claim
 # ---------------------------------------------------------------------------
 
+class PinnedNumbersAreHardPinnedEverywhereTests(unittest.TestCase):
+    """The half of the cross-check that runs on the machine that decides.
+
+    ROUND okdfge, pf-adversary defect 2, quoted because it is the whole
+    reason this class exists: on the Windows gate - the one machine whose
+    verdict merges or closes a pull request - the table this module's pins
+    come from is not present, so ``DeliveryTableCrossCheckTests`` never runs
+    and the only thing the skip census certifies there is THAT IT DID NOT
+    RUN.  A round could have replaced those three test bodies with ``pass``
+    and the gate would have reported the same numbers.
+
+    So the two checks are split by what each machine can honestly answer:
+
+      * HERE, everywhere, with no sibling repository and no artifact: the
+        constants are compared against the literal values the table was read
+        as, so an edit to a pin is red on the gate itself.
+      * THERE, on the bridge and the cloud clone, where the table exists:
+        those same constants are re-derived FROM the table, so a re-published
+        table that moves a tag or an offset is red as well.
+
+    Neither one alone is enough.  This one cannot notice the table changing;
+    that one cannot run where it would matter for a merge.
+    """
+
+    def test_the_body_grammar_constants_are_the_values_the_table_was_read_as(
+            self):
+        module = mob_pickup_request
+        self.assertEqual(module.PICKUP_REQUEST_OBJECT_REF_TAG, 0x14)
+        self.assertEqual(module.PICKUP_REQUEST_OBJECT_REF_OBJECT_OFFSET, 0x14)
+        self.assertEqual(module.PICKUP_REQUEST_OBJECT_REF_WIDTH, 4)
+        self.assertEqual(module.PICKUP_REQUEST_OPAQUE_U8_TAG, 0x08)
+        self.assertEqual(module.PICKUP_REQUEST_OPAQUE_U8_OBJECT_OFFSET, 0x18)
+        self.assertEqual(module.PICKUP_REQUEST_OPAQUE_U8_WIDTH, 1)
+        self.assertEqual(module.PICKUP_REQUEST_PAYLOAD_SIZE, 7)
+
+    def test_the_serializer_span_constants_are_pinned_too(self):
+        module = mob_pickup_request
+        self.assertEqual(module.PICKUP_REQUEST_SERIALIZER_VA, 0x005E5E30)
+        self.assertEqual(module.PICKUP_REQUEST_SERIALIZER_END_VA, 0x005E5E83)
+        self.assertEqual(module.PICKUP_REQUEST_SERIALIZER_LEN, 83)
+        self.assertEqual(module.PICKUP_REQUEST_PRODUCER_VA, 0x006B0639)
+        self.assertEqual(
+            module.PICKUP_REQUEST_SERIALIZER_END_VA
+            - module.PICKUP_REQUEST_SERIALIZER_VA,
+            module.PICKUP_REQUEST_SERIALIZER_LEN,
+            "the span and its length are two spellings of one fact and must "
+            "not drift apart",
+        )
+
+    def test_the_hard_pin_and_the_table_check_name_the_same_constants(self):
+        """A constant added to one half and not the other is the bug.
+
+        Read as text on purpose: the point is that a future round which adds
+        a pin to the table cross-check without adding it here would leave the
+        gate blind to that pin, which is exactly the hole this class closes.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        hard = source.split(
+            "class PinnedNumbersAreHardPinnedEverywhereTests", 1)[1].split(
+            "class DeliveryTableCrossCheckTests", 1)[0]
+        table = source.split("class DeliveryTableCrossCheckTests", 1)[1]
+        for name in (
+            "PICKUP_REQUEST_OBJECT_REF_TAG",
+            "PICKUP_REQUEST_OBJECT_REF_OBJECT_OFFSET",
+            "PICKUP_REQUEST_OPAQUE_U8_TAG",
+            "PICKUP_REQUEST_OPAQUE_U8_OBJECT_OFFSET",
+            "PICKUP_REQUEST_PAYLOAD_SIZE",
+            "PICKUP_REQUEST_SERIALIZER_VA",
+        ):
+            with self.subTest(constant=name):
+                self.assertIn(name, hard)
+                self.assertIn(name, table)
+
+
+@BRIDGE_SERIALIZER_TABLE.skip_unless_present()
 class DeliveryTableCrossCheckTests(unittest.TestCase):
     """Re-derive the pins from the SOURCE table, not from a sibling copy.
 
@@ -766,22 +844,45 @@ class DeliveryTableCrossCheckTests(unittest.TestCase):
     the case on the cloud runner and on the bridge machine -- this class
     reads the table itself.  When it is not (a clone of this repo alone),
     it skips with a declared reason rather than pretending to check.
+
+    THE SKIP IS DECLARED, NOT HAND-WRITTEN (round okdfge).  The first draft
+    of this class wrote a bare ``skipTest`` in ``setUp``, and the Windows
+    gate's skip census closed pull request #540 for exactly that:
+    ``UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)``.
+    The guard is ``BRIDGE_SERIALIZER_TABLE`` - the ONE file this class reads -
+    and not the eight-table key, because the eight-table key hides this check
+    on a machine that holds the table it needs (measured by pf-adversary this
+    round on a sibling carrying seven of the eight).  Its count is pinned in
+    ``docs/PYTEST_SKIP_PINS.json`` in the same commit as this line.
+
+    WHAT THIS CLASS DOES NOT COVER, said here rather than left to be
+    discovered: it never runs on the Windows gate, which is the machine whose
+    verdict opens or closes a pull request.  What the gate can still catch is
+    an edit to the constants themselves - see
+    ``PinnedNumbersAreHardPinnedEverywhereTests`` below, which runs on every
+    machine and needs no sibling at all.
     """
 
     TSV = ROOT.parent / "pf_bridge" / "external" / "PF_SERIALIZER_FIELDS.tsv"
 
     def setUp(self):
-        if not self.TSV.exists():
-            self.skipTest(
-                "the delivery table lives in the pf_bridge checkout, which "
-                "is not beside this one here; the pins cannot be "
-                "re-derived from this repo alone")
         self.rows = [
             line.split("\t")
             for line in self.TSV.read_text(
                 encoding="utf-8", errors="replace").splitlines()
             if line.startswith("PickupTerrainThing\t")
         ]
+        # A present-but-empty (or re-published, or truncated) table must fail
+        # by NAME here, not as a KeyError three assertions later: the
+        # precondition proves the file exists, never that it still carries
+        # this object's rows.  pf-adversary round okdfge built the eight files
+        # at zero bytes and measured the difference.
+        self.assertTrue(
+            self.rows,
+            "%s exists but carries no PickupTerrainThing row: the table was "
+            "re-published or truncated, and every pin below is unverifiable "
+            "rather than wrong" % self.TSV,
+        )
 
     def test_the_table_still_carries_four_symmetric_rows(self):
         self.assertEqual(len(self.rows), 4)
