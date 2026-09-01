@@ -1,1 +1,1 @@
-{"sha":"798507ee4241e8a2ba20ac835f874e7a3046f626","conclusion":"failure","event":"pull_request","ref":"refs/pull/492/merge","run_id":"33495707491","utc":"2026-09-01T10:14:07Z"}
+{"sha":"798507ee4241e8a2ba20ac835f874e7a3046f626","conclusion":"failure","event":"push","ref":"refs/heads/claude/focused-turing-57alcd","run_id":"33495703862","utc":"2026-09-01T10:18:09Z"}
