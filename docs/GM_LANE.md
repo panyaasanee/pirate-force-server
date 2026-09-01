@@ -6200,4 +6200,30 @@ diff เป็นการเพิ่มข้อความ docstring ล้�
 6. ไม่ลบประวัติเดิม.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1013_gm-20260901_1013_rule-f-plugin-model-key-stub-refresh.md`
-PR: `pf_bridge` #689 / `pirate-force-server` (this round's PR)
+PR: `pf_bridge` #689 / `pirate-force-server` #460
+
+## Round `p4cndg` -- 2026-09-01T11:19+07:00
+
+No `gm/` code change. Corrected a misrouted letter (UI-A/UI-B belong to LANE-A per
+`FROM_CHIEF_R278`, not LANE-GM), confirmed GM-B (`/speed`) ownership moved to the new LANE-DB
+lane per `COO-DECISION 20260901_1059`, and sent LANE-DB an informational letter naming the two
+independent refusal gates in `gm/attr_wire.py`'s `build_named_field_update` for field `x=7`
+(`known=False`, separate from the cache-seed gate) so they do not have to re-derive it from the
+source themselves. P-2's RE follow-up ticket (proposed round `h6rsgl`) is still waiting for chief
+to assign an RE lane, second round running.
+
+pf-adversary ran as a real spawned subagent this round (tool available, unlike round
+`gm-20260901_1013`) and checked all three of this round's factual claims (UI-A ownership, the
+`attr_wire.py` x=7 field status, the decision not to touch code) -- no defect found.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` = **1206 passed, 547 subtests passed** เขียว(cloud
+sanity), unchanged (no code edit this round).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- letter/routing round only, no wire change, no new chat command.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1119_p4cndg_ui-a-correction-p2-still-waiting-gm-b-to-lane-db.md`
+PR: `pf_bridge` #695 / `pirate-force-server` #464
