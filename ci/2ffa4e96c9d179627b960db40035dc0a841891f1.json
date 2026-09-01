@@ -1,1 +1,1 @@
-{"sha":"2ffa4e96c9d179627b960db40035dc0a841891f1","conclusion":"success","event":"push","ref":"refs/heads/claude/verify-lane-gm-9x4k1q","run_id":"33508776607","utc":"2026-09-01T12:46:43Z"}
+{"sha":"2ffa4e96c9d179627b960db40035dc0a841891f1","conclusion":"success","event":"pull_request","ref":"refs/pull/504/merge","run_id":"33508792384","utc":"2026-09-01T12:48:29Z"}
