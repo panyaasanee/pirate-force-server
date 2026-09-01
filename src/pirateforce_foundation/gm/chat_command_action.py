@@ -713,6 +713,10 @@ EVENT_SAY_REFUSED_PREFIX = "gm_chat_action_say_refused_"
 EVENT_SPEED_WITHHELD_NO_VERSION = (
     "gm_chat_action_speed_withheld_no_confirmed_update_attr_vital_version"
 )
+# The run-copy-DB gate (`_speed_db_is_canonical`), fired BEFORE the identity
+# read and the version-gate read above -- see `_speed_action`'s own
+# docstring for what this filename heuristic does and does not prove.
+EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 
@@ -819,6 +823,12 @@ OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
 OUTCOME_SPEED_WITHHELD_NO_VERSION = (
     f"{OUTCOME_WITHHELD_PREFIX}update_attr_vital_version"
 )
+# The run-copy-DB gate.  Prefixed `speed_` (unlike the version-gate outcome
+# above) because this check's shape -- filename heuristic against a live
+# `store.path` -- is not specific to `/speed`, and a future command reusing
+# `_speed_db_is_canonical`'s pattern for its own send site would need its
+# own outcome word rather than colliding with this one.
+OUTCOME_SPEED_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}speed_canonical_db"
 OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
     f"{OUTCOME_REFUSED_PREFIX}speed_no_selected_character"
 )
@@ -877,6 +887,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_WITHHELD_NO_VERSION: (
         "no confirmed UpdateAttrVital version for the /speed sparse door;"
         " see attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED's own comment"
+    ),
+    OUTCOME_SPEED_WITHHELD_CANONICAL_DB: (
+        "session.foundation.lifecycle.store.path's filename is (or could not"
+        " be read as anything but) the canonical pirateforce.sqlite3; /speed"
+        " refuses to send against it -- boot with an explicit --db run-copy"
     ),
     OUTCOME_SPEED_NO_SELECTED_CHARACTER: (
         "this connection has no selected character to read identity_lo/hi"
@@ -2386,6 +2401,67 @@ def _selected_speed_identity(session: object) -> tuple[int | None, int | None]:
     return identity_lo, identity_hi
 
 
+# CORE-REQUEST-GM-049's run-copy-DB requirement (`pf_bridge/notes_to_chief/
+# 20260901_1728_LANE-GM-CORE-REQUEST-GM-049-speed-sparse-x7-runtime-send-
+# point.md`).  The literal is cited from its one authoritative source:
+# `app.py:660-664` builds `db_path` from `known.db or str(root / (... else
+# 'state/pirateforce.sqlite3'))` -- `pirateforce.sqlite3` is the filename
+# this process's default DB path ends in when no `--db` is passed, and a
+# run-copy boot always passes an explicit different `--db` value (see
+# `pf_bridge/GAME_TEST_QUEUE.md`'s GT-193 db section: a timestamped filename
+# per run).
+CANONICAL_DB_FILENAME = "pirateforce.sqlite3"
+
+
+def _speed_db_filename(session: object) -> str | None:
+    """The last path component of the DB `session`'s process booted with.
+
+    Reads `session.foundation.lifecycle.store.path`
+    (`FoundationSession.lifecycle` -> `CharacterLifecycle.store` ->
+    `SQLiteStore.path`; `session.py:35`, `lifecycle.py:9`, `store.py:26`) --
+    the same live string production code elsewhere in this file already
+    dereferences (`session.py:49,54,68,252,261`), read here the same
+    attribute-chain way `_selected_speed_identity` above reads
+    `session.foundation.selected`.  Defensive at every step: a missing link
+    anywhere in the chain, or a `path` that is not a non-empty `str`,
+    returns `None` rather than raising -- a read for a SAFETY gate must
+    never become the reason the gate crashes instead of refusing.
+
+    Splits on BOTH `/` and `\\`.  `pf_bridge` composes the `/speed` command
+    on a Windows bridge machine while this checked-out clone is Linux, and
+    `os.path.basename` only ever splits on the separator of the platform IT
+    is running on -- on Linux it would leave a Windows-style
+    `state\\pirateforce.sqlite3` path whole instead of isolating the
+    filename, and a whole path never equals the bare canonical literal.
+    """
+    store = getattr(
+        getattr(getattr(session, "foundation", None), "lifecycle", None),
+        "store",
+        None,
+    )
+    path = getattr(store, "path", None)
+    if type(path) is not str or not path:
+        return None
+    return path.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _speed_db_is_canonical(session: object) -> bool:
+    """True unless this process can be PROVEN to be on a non-canonical DB.
+
+    "Proven" means: the full attribute chain to `store.path` read, and its
+    filename read something other than the canonical literal.  Anything
+    short of that -- the canonical filename itself, or a chain this function
+    could not walk at all (a test double, an unusual session shape) -- is
+    "cannot prove this is safe", which this function treats identically to
+    "proven canonical": refused, never assumed safe.  See `_speed_action`'s
+    own docstring for what this heuristic does and does not guarantee.
+    """
+    filename = _speed_db_filename(session)
+    if filename is None:
+        return True
+    return filename == CANONICAL_DB_FILENAME
+
+
 def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     """One authorized `/speed <value>` -> a sparse `UpdateAttrVital` action.
 
@@ -2422,20 +2498,48 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     selected yet (or a test double missing the fields) is a named refusal,
     never a crash.
 
-    !! RUN-COPY DB REQUIREMENT -- NOT ENFORCED HERE, NAMED HONESTLY.
-    CORE-REQUEST-GM-049's letter requires "the send site must check it is
-    running on a run-copy DB before every send" (never canonical).  This
-    function composes a WIRE FRAME and touches no DB at all, so there is no
-    DB handle here to check the identity of -- but the requirement as
-    written is about the PROCESS this composed frame is sent from, and this
-    lane found NO existing code-level mechanism anywhere in this repository
-    that lets a runtime call site distinguish "booted against a run-copy"
-    from "booted against canonical" (LANE-DB's own interface letter
-    `20260901_1716` item 2 says the same thing about its DB-write path: "this
-    lane has no way to force it from code ... it is call-site discipline,
-    not the module's").  TODO run-copy-db gate: no existing mechanism found,
-    see round notes -- reported to chief/COO rather than invented here.
+    !! RUN-COPY DB REQUIREMENT -- ENFORCED HERE, AS A FILENAME HEURISTIC,
+    NOT THE CRYPTOGRAPHIC GUARANTEE A PRIOR DRAFT OF THIS DOCSTRING WOULD
+    HAVE IMPLIED BY SAYING NOTHING.  CORE-REQUEST-GM-049's letter requires
+    "the send site must check it is running on a run-copy DB before every
+    send" (never canonical).  An earlier round of this docstring claimed no
+    code-level mechanism existed anywhere in this repository to tell "booted
+    against a run-copy" from "booted against canonical" -- THAT CLAIM WAS
+    FALSE, and pf-adversary measured the gap it excused as live-reachable:
+    `session` already carries `session.foundation.lifecycle.store.path`
+    (`FoundationSession.lifecycle` -> `CharacterLifecycle.store` ->
+    `SQLiteStore.path`; `session.py:35`, `lifecycle.py:9`, `store.py:26`), the
+    exact live path string this process booted against, read the same
+    attribute-chain way `_selected_speed_identity` above already reads
+    `session.foundation.selected`, and already dereferenced by production
+    code elsewhere in this same file (`session.py:49,54,68,252,261`).
+    `_speed_db_is_canonical` below reads it defensively (never raises; a
+    chain it cannot walk is treated as "cannot prove this is safe", i.e.
+    refused, never as "assume safe") and compares its filename -- split on
+    both `/` and `\\`, since `pf_bridge` composes this command on a Windows
+    bridge machine while this clone is Linux and `os.path.basename` alone
+    would not isolate the name out of a `state\\pirateforce.sqlite3` style
+    path -- against the literal `"pirateforce.sqlite3"`, the canonical
+    default `app.py:660-664` builds when `--db` is not passed.  Run FIRST in
+    this function, before the identity read and the version-gate read below:
+    a wrong-DB refusal is the more fundamental safety gate and must not
+    depend on a character having been selected first.
+
+    THE LIMIT, STATED PLAINLY RATHER THAN OVERSOLD: this is a filename
+    heuristic, not a cryptographic guarantee of anything about the bytes on
+    disk.  A bridge script that named a real production copy of the DB
+    `pirateforce.sqlite3` in some other directory would fool this check into
+    sending against it; a run-copy DB that happened to be renamed back to
+    the canonical filename would fool this check into withholding a send
+    that was actually safe.  It proves nothing beyond the name the path
+    string ends in.
     """
+    if _speed_db_is_canonical(session):
+        # The more fundamental gate: refuse before either read below, so a
+        # wrong-DB refusal never depends on a character being selected.
+        _note(session, EVENT_SPEED_WITHHELD_CANONICAL_DB)
+        return _Verdict(None, OUTCOME_SPEED_WITHHELD_CANONICAL_DB)
+
     identity_lo, identity_hi = _selected_speed_identity(session)
     if identity_lo is None or identity_hi is None:
         _note(session, EVENT_SPEED_NO_SELECTED_CHARACTER)

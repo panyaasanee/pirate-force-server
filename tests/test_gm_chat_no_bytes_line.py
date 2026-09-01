@@ -895,7 +895,8 @@ class ContractTests(_Case):
         # is a fixed word rather than a `<prefix><ExcType>` family.  A round
         # that adds one more and forgets the sentence gets a red test, not a
         # console line reading `no blocker recorded`.  CORE-REQUEST-GM-049
-        # added the two `speed` ones this round.
+        # added the two `speed` ones; the pf-adversary run-copy-DB finding
+        # added the third `speed` one (`OUTCOME_SPEED_WITHHELD_CANONICAL_DB`).
         for outcome in (
             chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
             chat_command_action.OUTCOME_SAY_WITHHELD_NO_VERSION,
@@ -904,6 +905,7 @@ class ContractTests(_Case):
             chat_command_action.OUTCOME_SAY_VERSION_CODEC_MISMATCH,
             chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN,
             chat_command_action.OUTCOME_SPEED_WITHHELD_NO_VERSION,
+            chat_command_action.OUTCOME_SPEED_WITHHELD_CANONICAL_DB,
             chat_command_action.OUTCOME_SPEED_NO_SELECTED_CHARACTER,
         ):
             with self.subTest(outcome=outcome):

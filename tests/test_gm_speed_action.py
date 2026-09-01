@@ -68,21 +68,48 @@ class FakeSelected:
         self.identity_hi = identity_hi
 
 
+class FakeStore:
+    """Only the one field `_speed_db_filename` reads off `.lifecycle.store`."""
+
+    def __init__(self, path):
+        self.path = path
+
+
+class FakeLifecycle:
+    def __init__(self, path):
+        self.store = FakeStore(path)
+
+
+# The default run-copy-style path every test below gets unless it asks for
+# something else -- deliberately NOT the canonical filename, so the whole
+# suite exercises `_speed_action` past the run-copy-DB gate by default the
+# same way it already defaults past the identity read and version gate.
+# Mirrors `pf_bridge/GAME_TEST_QUEUE.md`'s GT-193 run-copy naming: a
+# timestamped filename, never the bare canonical one.
+DEFAULT_RUN_COPY_DB_PATH = "state/pirateforce_gt193_20260901_1200.sqlite3"
+
+
 class FakeFoundation:
-    def __init__(self, selected=None):
+    def __init__(self, selected=None, db_path=DEFAULT_RUN_COPY_DB_PATH):
         self.selected = selected
+        # `None` means "no `.lifecycle` at all" -- the same shape
+        # `_speed_db_filename` must treat as unreadable, not as canonical
+        # for the wrong reason and not as safe.
+        self.lifecycle = None if db_path is None else FakeLifecycle(db_path)
 
 
 _DEFAULT = object()
 
 
 class FakeSession:
-    def __init__(self, token="GM_ONE", selected=_DEFAULT):
+    def __init__(self, token="GM_ONE", selected=_DEFAULT, db_path=_DEFAULT):
         self.token = token
         self.events = []
         if selected is _DEFAULT:
             selected = FakeSelected()
-        self.foundation = FakeFoundation(selected)
+        if db_path is _DEFAULT:
+            db_path = DEFAULT_RUN_COPY_DB_PATH
+        self.foundation = FakeFoundation(selected, db_path)
 
 
 class _Case(unittest.TestCase):
@@ -264,6 +291,116 @@ class SpeedIdentityTests(_Case):
         self.assertEqual(
             records[-1]["outcome"],
             chat_command_action.OUTCOME_SPEED_NO_SELECTED_CHARACTER,
+        )
+
+
+class SpeedRunCopyDbGateTests(_Case):
+    """CORE-REQUEST-GM-049's run-copy-DB requirement, enforced this round.
+
+    pf-adversary found that the prior docstring's "no existing code-level
+    mechanism" claim was false and the gap it excused was live-reachable:
+    `session.foundation.lifecycle.store.path` was already the live DB path
+    string this process booted against.  This class proves the filename
+    heuristic `_speed_db_is_canonical` reads off it -- see that function's
+    own docstring, and `_speed_action`'s, for the honest statement of what a
+    FILENAME HEURISTIC does and does not guarantee.
+    """
+
+    def test_the_canonical_filename_exact_match_withholds(self):
+        session = FakeSession(db_path="state/pirateforce.sqlite3")
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_the_bare_canonical_filename_with_no_directory_also_withholds(self):
+        session = FakeSession(db_path="pirateforce.sqlite3")
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_an_explicit_run_copy_filename_proceeds_past_this_gate(self):
+        # A GT-193-style timestamped filename is exactly what a run-copy
+        # boot passes to --db -- this must NOT be refused by this gate.
+        session = FakeSession(
+            db_path="state/pirateforce_gt193_20260901.sqlite3"
+        )
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNotNone(action)
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_a_windows_backslash_path_to_the_canonical_file_is_still_caught(self):
+        # `os.path.basename` alone would leave this whole string uncut on a
+        # Linux process -- this is what proves the explicit `/`-and-`\`
+        # split actually does its job rather than trusting the platform's
+        # own separator.
+        session = FakeSession(db_path="state\\pirateforce.sqlite3")
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_an_unreadable_path_withholds_rather_than_proceeding(self):
+        # `db_path=None` means `FakeFoundation` carries no `.lifecycle` at
+        # all -- a test double / unusual session shape this function cannot
+        # read.  "Cannot prove this is safe" must refuse, never proceed as
+        # if it were proven safe.
+        session = FakeSession(db_path=None)
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_this_gate_runs_before_the_identity_read(self):
+        # Point 4 of the fix: a wrong-DB refusal must not depend on a
+        # character having been selected first.  No character is selected
+        # here, and the refusal must still be the DB one, not the identity
+        # one.
+        session = FakeSession(selected=None, db_path="state/pirateforce.sqlite3")
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_NO_SELECTED_CHARACTER,
+            session.events,
+        )
+
+    def test_the_outcome_row_names_the_canonical_db_case(self):
+        session = FakeSession(db_path="state/pirateforce.sqlite3")
+        self.act(session, "/speed 5.0")
+        records = self.log_records()
+        self.assertEqual(
+            records[-1]["outcome"],
+            chat_command_action.OUTCOME_SPEED_WITHHELD_CANONICAL_DB,
+        )
+
+    def test_the_path_string_itself_never_reaches_an_event_name(self):
+        # Defense in depth, same rule this whole module states for every
+        # other refusal: the event/outcome names are fixed literals, never
+        # built from anything read off the session, so a run-copy filename
+        # cannot leak through this gate's refusal either.
+        session = FakeSession(
+            db_path="state/pirateforce_SECRET_TOKEN_1234.sqlite3"
+        )
+        self.act(session, "/speed 5.0")
+        self.assertFalse(
+            any("SECRET_TOKEN" in event for event in session.events),
+            session.events,
         )
 
 

@@ -1269,6 +1269,12 @@ class EventNameContractTests(_Case):
             "gm_chat_action_speed_withheld_no_confirmed_update_attr_"
             "vital_version"
         ),
+        # pf-adversary's run-copy-DB finding: the run-copy-DB gate
+        # (`_speed_db_is_canonical`), fired FIRST in `_speed_action` -- see
+        # that constant's own comment.
+        "EVENT_SPEED_WITHHELD_CANONICAL_DB": (
+            "gm_chat_action_speed_withheld_canonical_db"
+        ),
         "EVENT_SPEED_NO_SELECTED_CHARACTER": (
             "gm_chat_action_speed_no_selected_character"
         ),
