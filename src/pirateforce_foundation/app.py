@@ -7,6 +7,7 @@ from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .mob_loot import preserve_ground_heartbeat_frame
 from .lifecycle import CharacterLifecycle
+from .persistence_backup import BackupError
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
 from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
@@ -726,37 +727,10 @@ def main() -> int:
         )
     legacy = load_legacy(root/'current/pf_login_game_server_v141.py')
     store = SQLiteStore(db_path, root/'migrations')
-    if (
-        scene_load is not None
-        or item_move_capture is not None
-        or item_move_hypothesis is not None
-        or logout_hypothesis is not None
-        or chat_input_hypothesis is not None
-        or channel_message_hypothesis is not None
-        or delete_actor_hypothesis is not None
-        or delete_refresh_hypothesis is not None
-        or stats_progression_hypothesis is not None
-        or hp_death_hypothesis is not None
-        or runtimeres_death_hypothesis is not None
-        or damage_model_hypothesis is not None
-        or damage_hp_link_hypothesis is not None
-        or remote_player_hypothesis is not None
-        or npc_hostile_hypothesis is not None
-        or npc_hp_link_hypothesis is not None
-        or move_authority_hypothesis is not None
-        or ground_loot_hypothesis is not None
-        or ground_loot_nameprop is not None
-        or learn_skill_result_hypothesis is not None
-        or learn_skill_request_hypothesis is not None
-        or skill_attr_hypothesis is not None
-        or pickup_listener_hypothesis is not None
-        or item_operate_res_hypothesis is not None
-        or hostile_hp_link_hypothesis is not None
-    ):
-        if not Path(db_path).is_file():
-            raise FileNotFoundError(db_path)
+    try:
         if (
-            item_move_capture is not None
+            scene_load is not None
+            or item_move_capture is not None
             or item_move_hypothesis is not None
             or logout_hypothesis is not None
             or chat_input_hypothesis is not None
@@ -781,12 +755,46 @@ def main() -> int:
             or item_operate_res_hypothesis is not None
             or hostile_hp_link_hypothesis is not None
         ):
-            store.migrate_with_backup()
+            if not Path(db_path).is_file():
+                raise FileNotFoundError(db_path)
+            if (
+                item_move_capture is not None
+                or item_move_hypothesis is not None
+                or logout_hypothesis is not None
+                or chat_input_hypothesis is not None
+                or channel_message_hypothesis is not None
+                or delete_actor_hypothesis is not None
+                or delete_refresh_hypothesis is not None
+                or stats_progression_hypothesis is not None
+                or hp_death_hypothesis is not None
+                or runtimeres_death_hypothesis is not None
+                or damage_model_hypothesis is not None
+                or damage_hp_link_hypothesis is not None
+                or remote_player_hypothesis is not None
+                or npc_hostile_hypothesis is not None
+                or npc_hp_link_hypothesis is not None
+                or move_authority_hypothesis is not None
+                or ground_loot_hypothesis is not None
+                or ground_loot_nameprop is not None
+                or learn_skill_result_hypothesis is not None
+                or learn_skill_request_hypothesis is not None
+                or skill_attr_hypothesis is not None
+                or pickup_listener_hypothesis is not None
+                or item_operate_res_hypothesis is not None
+                or hostile_hp_link_hypothesis is not None
+            ):
+                store.migrate_with_backup()
+                store.expire_open_sessions()
+        else:
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate_with_backup()
+            # A previous process cannot own a live lease after this process starts.
             store.expire_open_sessions()
-    else:
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate_with_backup()
-        # A previous process cannot own a live lease after this process starts.
-        store.expire_open_sessions()
+    except BackupError as error:
+        print("ABORT: refusing to migrate the database because the pre-migration "
+              "snapshot could not be taken -- your database has NOT been changed.",
+              file=sys.stderr)
+        print("  reason: %s" % error, file=sys.stderr)
+        return 13
     default = Position(1,0,legacy.V135_PLAYER_X,legacy.V135_PLAYER_Y,legacy.V135_PLAYER_Z)
     lifecycle = CharacterLifecycle(store, default, legacy.extract_avatar_attr_wire_from_actor)
     legacy.run_self_test(verbose=True)
