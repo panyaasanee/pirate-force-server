@@ -404,6 +404,31 @@ BRIDGE_GAMEDATA = Precondition(
     "table where they are present (round g627j0)",
 )
 
+#: The ONE serializer table a consumer needs, named on its own.
+#
+#: WHY IT IS NOT EXTERNAL_RE_TABLES (round okdfge, LANE-B, measured).  That key
+#: names all eight Codex tables at once, which is right for
+#: tools/pf_external_registry.py - it joins across them.  A consumer that reads
+#: exactly ONE of the eight and is guarded by the eight-table key skips on a
+#: machine that HOLDS the file it needs: pf-adversary built a sibling carrying
+#: seven of the eight (only PF_TAG_CENSUS.tsv missing) and measured the
+#: delivery-table cross-check skipping with a reason whose own tail reads
+#: "[missing 1/8: PF_TAG_CENSUS.tsv]" - it announced that the table it reads is
+#: present and skipped anyway, with the census still green.  That window is not
+#: hypothetical: this repository lived in it once already, when five of the
+#: eight tables were on the remote and the last three were not (R145).  Name
+#: the object the consumer actually reads, exactly as the history guards below
+#: already do.
+BRIDGE_SERIALIZER_TABLE = Precondition(
+    "bridge_serializer_table",
+    [SIBLING / "pf_bridge" / "external" / "PF_SERIALIZER_FIELDS.tsv"],
+    "the serializer delivery table ../pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
+    "it is one Codex RE deliverable living in the pf_bridge sibling "
+    "repository, which the single-repo gate checkout does not have; a test "
+    "that re-derives a wire pin FROM that table cannot answer without it, and "
+    "the eight-table key would also hide it on a machine that has it",
+)
+
 GAME_INSTALL_TREE = Precondition(
     "game_install_tree",
     [SIBLING / "GameClient"],
@@ -507,6 +532,7 @@ REGISTRY = {
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
         BRIDGE_GAMEDATA,
+        BRIDGE_SERIALIZER_TABLE,
         GAME_INSTALL_TREE,
         EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,
