@@ -30,16 +30,22 @@ WHAT IT DOES NOT DO.
   CLIENT_CONSTRUCTION_DEFAULTS``) is a real and wanted step, and it is a data
   write on live rows, so it waits for a boot path that calls
   ``SQLiteStore.migrate_with_backup`` (``CORE-REQUEST-DB-001``, open).
-* It does not know whether ``speed_walk`` really is the player's walk speed.
-  The column serves BasicAttr+0x54 (x=7).  The corpus scopes that offset's row
-  to ``CNetNPC`` and ``gm/attr_wire.py:173`` still calls it ``basic_f32_54``,
-  ``known=False``.  [สมมติของสาย DB - รอ RE]
+* It does not know whether ``speed_walk`` really is the PLAYER's walk speed.
+  The column serves BasicAttr+0x54 (x=7).  ``gm/attr_wire.py:173`` calls it
+  ``basic_f32_54``, ``known=False``, and the Codex corpus scopes its row to
+  ``CNetNPC`` -- but ``docs/FUNCTIONAL_COVERAGE.json`` grades
+  ``npc_locomotion_presentation`` ``runtime_pass`` on the same bit (0x0040)
+  and ``tests/test_npc_gait_wire.py:59`` pins ``PROVEN_WALK_SPEED = 150.0``
+  there.  Identified for NPCs at the wire+visual layer, untested for a player,
+  and carrying two different numbers between layers (150.0 proven on the wire,
+  400.0 as the client's construction default).  [สมมติของสาย DB - รอ RE]
 * It sends nothing.  No frame, no encoder, no socket.
 """
 from __future__ import annotations
 
 import math
 import re
+import struct
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -54,6 +60,19 @@ MIGRATION_FILE = "006_character_typed_attribute_columns.sql"
 #: column is an 8-byte REAL, so this is the real bound, checked here and again
 #: by the column's own SQL CHECK.
 F32_MAX = 3.4028234663852886e38
+
+
+def as_f32(value: float) -> float:
+    """``value`` after the round trip through the wire's own float32.
+
+    ``gm/attr_wire.py`` emits an ``f32`` field as ``struct.pack("<f", value)``.
+    A REAL column is eight bytes, so without this the database could hold a
+    number the client can never be sent -- ``400.1`` is stored, the client
+    receives ``400.1000061035156``, and the two disagree forever with nothing
+    watching.  Storing the rounded value instead makes "what the database
+    says" and "what the wire carries" the same number by construction.
+    """
+    return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
 class TypedAttrError(ValueError):
@@ -156,7 +175,14 @@ def validate(column: str, value: object) -> int | float:
     * ``bool`` -- ``True`` is an ``int`` in python and would store as ``1``
       with no complaint at all;
     * a float for an integer field, a string for anything, ``NaN``/``inf``;
-    * anything outside the wire kind's range.
+    * anything outside the wire kind's range;
+    * a nonzero ``f32`` value that underflows to exactly ``0.0`` on the wire.
+
+    An ``f32`` value that survives is returned ROUNDED to float32
+    (``as_f32``), so the number the database stores is the number the client
+    is sent.  A caller that hands in ``400.1`` gets ``400.1000061035156``
+    back and stores that; the alternative is a database and a client that
+    quietly disagree about the same character with nothing measuring it.
     """
     if column not in TYPED_COLUMNS:
         raise TypedAttrError(
@@ -188,6 +214,29 @@ def validate(column: str, value: object) -> int | float:
         stored = float(value)
         if not math.isfinite(stored):
             raise TypedAttrError(f"{column}: {value!r} is not a finite number")
+        if stored < spec.minimum or stored > spec.maximum:
+            # checked BEFORE rounding: `struct.pack("<f", ...)` raises
+            # OverflowError rather than returning anything for a double
+            # outside the float32 range, and an OverflowError here would read
+            # as a bug in this module rather than as a refused value
+            raise TypedAttrError(
+                f"{column}: {value!r} is outside the {spec.kind} range "
+                f"[{spec.minimum}, {spec.maximum}]"
+            )
+        rounded = as_f32(stored)
+        if stored != 0.0 and rounded == 0.0:
+            # An adversary pass measured this: 1e-300 validates, stores, reads
+            # back as 1e-300, and reaches the client as an EXACT 0.0 -- and on
+            # this wire 0.0 is a value, not an absence
+            # (tests/test_npc_gait_wire.py:
+            # test_zero_speed_is_still_serialized_because_only_none_means_absent).
+            # That is the owner's banned guessed zero arriving by arithmetic
+            # instead of by a `.get(x, 0)`, so it is refused here.
+            raise TypedAttrError(
+                f"{column}: {value!r} underflows to exactly 0.0 as a float32, "
+                "and a zero on this wire is a value rather than an absence"
+            )
+        stored = rounded
     if stored < spec.minimum or stored > spec.maximum:
         raise TypedAttrError(
             f"{column}: {value!r} is outside the {spec.kind} range "
@@ -206,3 +255,19 @@ def validate_all(values: Mapping[str, object]) -> dict[str, int | float]:
     if not values:
         raise TypedAttrError("no typed attribute values to write")
     return {column: validate(column, value) for column, value in values.items()}
+
+
+def typed_values_for_compose(stored: Mapping[str, object]) -> dict[int, int | float]:
+    """``{x: value}`` for ``persistence_attr_compose``, re-validated on the way.
+
+    ``block_gaps`` keys on PRESENCE -- ``if x in typed_values`` -- so a caller
+    that builds that dict straight off a ``SELECT`` puts a ``None`` for an
+    unset column past the gate and into the encoder, where it becomes a
+    ``TypeError`` at emit time on a live client.  An adversary pass measured
+    exactly that.  ``SQLiteStore.read_typed_attributes`` already drops NULLs,
+    but nothing forces a future caller to go through it, so this is the
+    conversion that does: every value is validated again here, and a ``None``
+    or an out-of-range value raises rather than being handed on.
+    """
+    checked = {column: validate(column, value) for column, value in stored.items()}
+    return {TYPED_COLUMNS[column].x: value for column, value in checked.items()}

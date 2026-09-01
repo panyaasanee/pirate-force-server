@@ -833,6 +833,16 @@ class SQLiteStore:
         Returns the character's full typed-attribute state after the write
         (the same shape `read_typed_attributes` returns), so a caller does not
         have to guess whether the row it just wrote also has other values.
+        That read-back happens INSIDE this method's own transaction, on the
+        same connection.  An adversary pass measured what the obvious shape --
+        commit, then call `read_typed_attributes` -- does under concurrency:
+        another writer soft-deleting the character in that window made this
+        method COMMIT the write and then raise `KeyError` (a caller catching
+        `KeyError` would report "no such character" while the row on disk had
+        changed), and another writer's value came back as "the state after
+        this write".  Neither is possible while the read is under the same
+        lock as the write.
+
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a value
         this schema may not hold.  Nothing is written when anything is refused.
@@ -841,6 +851,7 @@ class SQLiteStore:
 
         checked = typed_attrs.validate_all(values)
         assignments = ",".join(f"{column}=?" for column in checked)
+        columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -849,11 +860,24 @@ class SQLiteStore:
             ).fetchone()
             if row is None:
                 raise KeyError(character_id)
-            db.execute(
-                f"UPDATE characters SET {assignments},updated_at=? WHERE id=?",
+            # `deleted_at IS NULL` is repeated here on purpose.  The guard
+            # above is the error message; this predicate is what makes the
+            # write itself impossible on a soft-deleted row, so removing
+            # either one alone cannot land a write where the API says it
+            # cannot -- an adversary pass deleted the guard and every test
+            # stayed green while the UPDATE landed.
+            written = db.execute(
+                f"UPDATE characters SET {assignments},updated_at=? "
+                "WHERE id=? AND deleted_at IS NULL",
                 (*checked.values(), _now(), character_id),
-            )
-        return self.read_typed_attributes(character_id)
+            ).rowcount
+            if written != 1:
+                raise KeyError(character_id)
+            after = db.execute(
+                f"SELECT {','.join(columns)} FROM characters WHERE id=?",
+                (character_id,),
+            ).fetchone()
+        return {c: after[c] for c in columns if after[c] is not None}
 
     @staticmethod
     def _character(r):
