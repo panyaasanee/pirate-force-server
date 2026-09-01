@@ -1,3 +1,4 @@
 round claim: t2qkn3
 lane: LANE-GM
 started: 2026-09-01T13:4x+07:00 (scheduled)
+wake gate: t2qkn3
