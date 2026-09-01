@@ -26,6 +26,7 @@ move-authority interaction) with the differences that shape actually has:
 from __future__ import annotations
 
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -42,6 +43,10 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+
+MIGRATIONS = ROOT / "migrations"
 
 
 def make_chat_payload(message: str, speaker: str = "") -> bytes:
@@ -56,23 +61,48 @@ def make_chat_payload(message: str, speaker: str = "") -> bytes:
 
 
 class FakeSelected:
-    """Only the two fields `_speed_action` reads off `.selected`.
+    """Only the three fields `_speed_action` reads off `.selected`.
 
-    `id`/`position` are deliberately absent -- `speed` reads neither, and a
-    future edit that starts reaching for one fails here instead of quietly
-    working on a real session.
+    ~~"`id`/`position` are deliberately absent -- `speed` reads neither"~~ --
+    struck, not deleted: `id` IS read now, since `/speed` writes the row
+    before it composes the frame (`_selected_speed_character_id`).
+    `.position` stays absent for the original reason: `/speed` moves nobody,
+    and a future edit that starts reaching for a position fails here instead
+    of quietly working on a real session.
     """
 
-    def __init__(self, identity_lo=1, identity_hi=0):
+    def __init__(self, identity_lo=1, identity_hi=0, character_id=1):
         self.identity_lo = identity_lo
         self.identity_hi = identity_hi
+        self.id = character_id
 
 
 class FakeStore:
-    """Only the one field `_speed_db_filename` reads off `.lifecycle.store`."""
+    """`.path` for the run-copy gate, plus LANE-DB's persistence entry point.
+
+    The method's name and signature are copied from the real
+    `store.SQLiteStore.write_typed_attributes_and_compose_sparse`
+    (`character_id`, `values`) -> the SPARSE `{x: value}` for the columns
+    written.  `PersistenceIntegrationTests` at the bottom of this file runs
+    the same command against a REAL `SQLiteStore` on a temp file, so this
+    double can never be the only thing the wiring is proven against.
+    """
 
     def __init__(self, path):
         self.path = path
+        self.calls = []
+        # What the store "reads back".  A `float` per column, keyed the way
+        # the real one keys its return: by WIRE FIELD INDEX, not column name.
+        self.readback = None
+        self.raises = None
+
+    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+        self.calls.append((character_id, dict(values)))
+        if self.raises is not None:
+            raise self.raises
+        if self.readback is not None:
+            return dict(self.readback)
+        return {speed_wire.SPEED_FIELD_X: float(values["speed_walk"])}
 
 
 class FakeLifecycle:
@@ -457,3 +487,282 @@ class SpeedCoverageHonestyTests(_Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _StoreWithoutThePersistenceMethod:
+    """A store-shaped object carrying only `.path`.
+
+    Exactly what every session double in this file looked like BEFORE the
+    persistence half existed -- kept as a named double so the "an old-shaped
+    session refuses instead of silently sending an unpersisted frame" branch
+    has something real to walk.
+    """
+
+    def __init__(self, path):
+        self.path = path
+
+
+class SpeedPersistenceTests(_Case):
+    """DB FIRST, WIRE SECOND -- the half added the round LANE-DB's entry
+    point (`store.write_typed_attributes_and_compose_sparse`) was live on
+    `main`.
+
+    WHAT THIS CLASS DOES AND DOES NOT CLAIM, stated before the first
+    assertion rather than left for a reader to infer:
+
+    * it proves the ORDER (row written before any frame exists) and the
+      NO-FRAME-ON-REFUSAL rule against a fake store, and the round trip
+      against a real `SQLiteStore` on a temp file (`PersistenceIntegration
+      Tests`);
+    * it does NOT prove the client accepts or applies the frame, and it does
+      NOT prove `/speed` is "done".  That is `GT-193`'s job, attended, and
+      only its condition (b) is what this wiring moves;
+    * the DB-first ORDERING ITSELF is `[ASSUMPTION OF LANE-GM, AWAITING
+      COO]` (`pf_bridge/notes_to_chief/20260902_0017_LANE-GM-ASK-COO-speed-
+      db-first-ordering-change.md`).  If COO rules wire-first, these tests
+      are what has to change, and they are written to fail loudly rather
+      than to bend.
+    """
+
+    def store_of(self, session):
+        return session.foundation.lifecycle.store
+
+    def test_the_row_is_written_before_any_frame_exists(self):
+        session = FakeSession(selected=FakeSelected(character_id=42))
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            self.store_of(session).calls, [(42, {"speed_walk": 5.0})]
+        )
+
+    def test_the_column_written_is_the_one_the_typed_table_owns_for_x7(self):
+        # Never the literal "speed_walk" typed twice: if LANE-DB's table
+        # renames the column serving x=7, this test moves with it and the
+        # send site does too (`SPEED_TYPED_COLUMN`).
+        session = FakeSession()
+        self.act(session, "/speed 3.0")
+        (_character_id, values), = self.store_of(session).calls
+        self.assertEqual(
+            list(values), [chat_command_action.SPEED_TYPED_COLUMN]
+        )
+
+    def test_exactly_one_field_is_written_never_a_merged_block(self):
+        # COO-ORDER 20260901_1641's rule for this path, now applying to the
+        # WRITE as well as to the frame.
+        session = FakeSession()
+        self.act(session, "/speed 3.0")
+        (_character_id, values), = self.store_of(session).calls
+        self.assertEqual(len(values), 1)
+
+    def test_the_frame_carries_the_stores_readback_not_the_typed_text(self):
+        # The store says the row holds 9.5 while the GM typed 5.0.  Real
+        # stores round f32 on the way in; this double exaggerates the same
+        # divergence so the assertion can see which number won.
+        session = FakeSession(selected=FakeSelected(identity_lo=7, identity_hi=3))
+        self.store_of(session).readback = {speed_wire.SPEED_FIELD_X: 9.5}
+        _label, pc, frame, _delay = self.act(session, "/speed 5.0")
+        expected_pc, expected_frame = speed_wire.compose_sparse_speed_update(
+            self.legacy, 7, 3, 9.5
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        typed_text_frame = speed_wire.compose_sparse_speed_update(
+            self.legacy, 7, 3, 5.0
+        )[1]
+        self.assertNotEqual(bytes(frame), bytes(typed_text_frame))
+
+    def test_a_store_refusal_sends_no_frame_and_names_only_the_type(self):
+        session = FakeSession()
+        self.store_of(session).raises = KeyError(1)
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_SPEED_PERSIST_REFUSED_PREFIX}KeyError",
+            session.events,
+        )
+        self.assertEqual(
+            self.log_records()[-1]["outcome"],
+            f"{chat_command_action.OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}KeyError",
+        )
+
+    def test_a_store_refusal_message_never_reaches_the_audit_row(self):
+        # The same TYPE-name-only discipline every other refusal in this
+        # module keeps: an exception message can embed the GM's typed text.
+        session = FakeSession()
+        self.store_of(session).raises = ValueError("/speed 999999 by GM_ONE")
+        self.act(session, "/speed 999999")
+        row = self.log_records()[-1]["outcome"]
+        self.assertNotIn("999999", row)
+        self.assertNotIn("GM_ONE", row)
+
+    def test_an_unusable_readback_sends_no_frame(self):
+        session = FakeSession()
+        self.store_of(session).readback = {speed_wire.SPEED_FIELD_X: "fast"}
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_PERSIST_READBACK_UNUSABLE,
+            session.events,
+        )
+
+    def test_a_readback_missing_the_field_entirely_sends_no_frame(self):
+        session = FakeSession()
+        self.store_of(session).readback = {}
+        self.assertIsNone(self.act(session, "/speed 5.0"))
+
+    def test_a_boolean_readback_is_refused_rather_than_encoded_as_one(self):
+        # `True` is an `int` in python and would ride the wire as `1.0`.
+        session = FakeSession()
+        self.store_of(session).readback = {speed_wire.SPEED_FIELD_X: True}
+        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_PERSIST_READBACK_UNUSABLE,
+            session.events,
+        )
+
+    def test_a_store_with_no_persistence_method_refuses(self):
+        session = FakeSession()
+        session.foundation.lifecycle.store = _StoreWithoutThePersistenceMethod(
+            DEFAULT_RUN_COPY_DB_PATH
+        )
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(chat_command_action.EVENT_SPEED_NO_STORE, session.events)
+
+    def test_a_selected_character_with_no_id_refuses_before_writing(self):
+        session = FakeSession(selected=FakeSelected())
+        del session.foundation.selected.id
+        action = self.act(session, "/speed 5.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_NO_CHARACTER_ID, session.events
+        )
+        self.assertEqual(self.store_of(session).calls, [])
+
+    def test_a_non_positive_id_is_refused_rather_than_written_against(self):
+        # A rowid is >= 1; `0` is a sentinel that leaked, and handing it to a
+        # keyed write would read as a lookup miss instead of a read fault.
+        for bad in (0, -1, True, "3"):
+            with self.subTest(character_id=bad):
+                session = FakeSession(selected=FakeSelected(character_id=bad))
+                self.assertIsNone(self.act(session, "/speed 5.0"))
+                self.assertEqual(self.store_of(session).calls, [])
+
+    def test_the_canonical_db_gate_fires_before_any_write(self):
+        # The gate was a send gate; it is now also the only thing standing
+        # between this lane and writing the canonical database.
+        session = FakeSession(db_path="state/pirateforce.sqlite3")
+        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertEqual(self.store_of(session).calls, [])
+
+    def test_a_shut_version_gate_writes_nothing_either(self):
+        # Withheld means withheld: no frame AND no row.  A round that moved
+        # the write above the version gate would leave a database holding a
+        # speed no client was ever told about.
+        session = FakeSession()
+        with self.close_the_version_gate():
+            self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertEqual(self.store_of(session).calls, [])
+
+    def test_an_unparseable_value_writes_nothing(self):
+        session = FakeSession()
+        self.assertIsNone(self.act(session, "/speed fast"))
+        self.assertEqual(self.store_of(session).calls, [])
+
+
+def _build_wire(selector):
+    return b"wire", b"avatar", 0x20000001 + selector, 0
+
+
+class PersistenceIntegrationTests(_Case):
+    """The same command against a REAL `SQLiteStore` on a real temp file.
+
+    The fake store above can only prove this lane calls the method it says
+    it calls.  This class is the half that proves the value is still there
+    after the write -- read back through a SECOND `SQLiteStore` opened on
+    the same file, which is the closest a headless test gets to "the GM
+    logs in again tomorrow".
+
+    It is still not `GT-193`: nothing here has a client in it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Registered AFTER `_Case.setUp` queued the temp directory's own
+        # cleanup, so LIFO runs this one FIRST -- checking after the
+        # directory is gone would check nothing.  This guard exists because
+        # a leaked sqlite handle is what killed PR #495 on the Windows gate
+        # (`TemporaryDirectory.cleanup` -> `WinError 32`), a failure Linux
+        # never shows.  `SQLiteStore.connect` closes in a `finally`, so this
+        # is a regression guard, not a known leak.
+        self.addCleanup(self._assert_no_sqlite_handle_survives)
+        self.db_path = self.tmp / "pirateforce_gt193_speedtest.sqlite3"
+        self.store = SQLiteStore(self.db_path, MIGRATIONS)
+        self.store.migrate()
+        account_id = self.store.ensure_account("GM_ONE")
+        self.character = self.store.create_character(
+            account_id, "SpeedGM", "speedgm", "fingerprint-speed-gm",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        self.session = FakeSession(
+            selected=FakeSelected(
+                identity_lo=self.character.identity_lo,
+                identity_hi=self.character.identity_hi,
+                character_id=self.character.id,
+            )
+        )
+        self.session.foundation.lifecycle.store = self.store
+
+    def _assert_no_sqlite_handle_survives(self):
+        fd_dir = "/proc/self/fd"
+        if not os.path.isdir(fd_dir):  # not Linux: the OS enforces it loudly
+            return
+        root = os.path.realpath(self.tmp)
+        held = []
+        for fd in os.listdir(fd_dir):
+            try:
+                target = os.readlink(os.path.join(fd_dir, fd))
+            except OSError:
+                continue
+            if target.startswith(root + os.sep):
+                held.append(target)
+        self.assertEqual(
+            sorted(held),
+            [],
+            "a handle on this test's temp directory outlives the test; on "
+            "Windows TemporaryDirectory.cleanup raises WinError 32 here and "
+            "the gate goes red",
+        )
+
+    def reopened_speed_walk(self):
+        """`speed_walk` as a freshly opened store sees it on disk."""
+        return SQLiteStore(self.db_path, MIGRATIONS).read_typed_attributes(
+            self.character.id
+        ).get("speed_walk")
+
+    def test_the_value_survives_on_disk_for_a_store_opened_afterwards(self):
+        action = self.act(self.session, "/speed 620.0")
+        self.assertIsNotNone(action)
+        self.assertEqual(self.reopened_speed_walk(), 620.0)
+
+    def test_the_frame_and_the_stored_column_are_the_same_float32(self):
+        # A GM who types 400.1 must not get a client showing one number and
+        # a column holding another: `validate` rounds to f32 on the way in,
+        # and the frame is composed from that rounded read-back.
+        _label, _pc, frame, _delay = self.act(self.session, "/speed 400.1")
+        stored = self.reopened_speed_walk()
+        self.assertNotEqual(stored, 400.1)  # rounded, as the column requires
+        _expected_pc, expected_frame = speed_wire.compose_sparse_speed_update(
+            self.legacy,
+            self.character.identity_lo,
+            self.character.identity_hi,
+            stored,
+        )
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+
+    def test_a_value_the_column_refuses_leaves_the_row_untouched(self):
+        # Out of the wire kind's f32 range -> `TypedAttrError` inside the
+        # store, before any UPDATE.  No frame, and nothing on disk.
+        self.act(self.session, "/speed 620.0")
+        self.assertIsNone(self.act(self.session, "/speed 1e40"))
+        self.assertEqual(self.reopened_speed_walk(), 620.0)

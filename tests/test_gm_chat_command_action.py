@@ -1290,6 +1290,19 @@ class EventNameContractTests(_Case):
             "gm_chat_action_speed_no_selected_character"
         ),
         "EVENT_SPEED_REFUSED_PREFIX": "gm_chat_action_speed_refused_",
+        # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
+        # `store.write_typed_attributes_and_compose_sparse` was live on
+        # `main`.  All four are NO-FRAME outcomes: DB first, wire second, a
+        # store refusal sends nothing.  See `_speed_action`'s own docstring
+        # for the ordering decision and the COO letter it waits on.
+        "EVENT_SPEED_NO_STORE": "gm_chat_action_speed_no_store",
+        "EVENT_SPEED_NO_CHARACTER_ID": "gm_chat_action_speed_no_character_id",
+        "EVENT_SPEED_PERSIST_REFUSED_PREFIX": (
+            "gm_chat_action_speed_persist_refused_"
+        ),
+        "EVENT_SPEED_PERSIST_READBACK_UNUSABLE": (
+            "gm_chat_action_speed_persist_readback_unusable"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a

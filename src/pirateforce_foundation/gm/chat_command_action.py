@@ -294,6 +294,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from .. import gm_npc_toggle_recompose
+from .. import persistence_typed_attrs
 from . import (
     bt_gm_probe,
     item_catalog,
@@ -462,6 +463,17 @@ GMPROBE_ACTION_LABEL = "LANE_GM_CHAT_GMPROBE_STATE_VITAL"
 # (`pf_bridge/notes_to_chief/20260901_1728_LANE-GM-CORE-REQUEST-GM-049-
 # speed-sparse-x7-runtime-send-point.md`).
 SPEED_ACTION_LABEL = "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL"
+
+# The `characters` column LANE-DB's persistence entry point is keyed by for
+# this one field, resolved THROUGH their own table rather than spelled here
+# as the literal `"speed_walk"`.  Two reasons, both measured rather than
+# stylistic: (1) `persistence_typed_attrs.column_for` raises `TypedAttrError`
+# at IMPORT time if x=7 ever loses its column, so a schema change becomes a
+# loud boot failure in this lane instead of a `/speed` that silently refuses
+# in front of a tester; (2) it keeps the x -> column mapping owned in exactly
+# one place, the way `speed_wire.SPEED_FIELD_NAME` already reads its own
+# label out of `attr_wire.BY_X` rather than copying the string.
+SPEED_TYPED_COLUMN = persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)
 
 # Console token printed on the production path whenever an authorized GM
 # command is handled.  `lane_hooks` prints `LANE_HOOK_FIRED` for the route
@@ -736,6 +748,30 @@ EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 
+# The PERSISTENCE half of `/speed`, added the round LANE-DB's
+# `store.write_typed_attributes_and_compose_sparse` was measured live on
+# `main` (their letter `pf_bridge/notes_to_chief/20260901_2213_LANE-DB-TO-
+# LANE-GM-speed-sparse-live-on-main-but-speed-does-not-persist.md`, which
+# also stated the gap this closes: before this round `/speed` composed a
+# frame and wrote no row, so a value "applied" on screen was forgotten by
+# the next login).
+#
+# DB FIRST, WIRE SECOND -- and that ordering is [ASSUMPTION OF LANE-GM,
+# AWAITING COO] per `pf_bridge/notes_to_chief/20260902_0017_LANE-GM-ASK-COO-
+# speed-db-first-ordering-change.md`.  Every name below is therefore a
+# NO-FRAME outcome: a value the database would not take must never be
+# painted on a client, because a screen that disagrees with the row is the
+# one failure mode this lane may not ship.
+EVENT_SPEED_NO_STORE = "gm_chat_action_speed_no_store"
+EVENT_SPEED_NO_CHARACTER_ID = "gm_chat_action_speed_no_character_id"
+EVENT_SPEED_PERSIST_REFUSED_PREFIX = "gm_chat_action_speed_persist_refused_"
+# The read-back the store handed us was not a number this module can encode.
+# Distinct from the prefix above on purpose: nothing raised, the write
+# COMMITTED, and only the composed view of it is unusable.
+EVENT_SPEED_PERSIST_READBACK_UNUSABLE = (
+    "gm_chat_action_speed_persist_readback_unusable"
+)
+
 # CORE-REQUEST-GM-043's `/gmprobe <variant_id>`.  No withheld-by-version-gate
 # event exists for this command -- see `_gmprobe_action`'s own docstring for
 # why: `GM_UPDATE_STATE_VITAL_VERSION_CONFIRMED` was pinned outright by
@@ -848,6 +884,19 @@ OUTCOME_SPEED_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}speed_canonical
 OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
     f"{OUTCOME_REFUSED_PREFIX}speed_no_selected_character"
 )
+# The persistence half's four named refusals.  See the matching
+# `EVENT_SPEED_*` block above for why all four withhold the frame too.
+OUTCOME_SPEED_NO_STORE = f"{OUTCOME_REFUSED_PREFIX}speed_no_store"
+OUTCOME_SPEED_NO_CHARACTER_ID = f"{OUTCOME_REFUSED_PREFIX}speed_no_character_id"
+# `refused_speed_persist_<ExcType>` -- the store raised.  Same TYPE-name-only
+# discipline as `refused_speed_<ExcType>` above: a `TypedAttrError` message
+# can embed the GM's typed text, and audit rows carry no typed text.
+OUTCOME_SPEED_PERSIST_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}speed_persist_"
+# Snake-cased on purpose so it can never collide with an `<ExcType>` suffix
+# above, which is always CamelCase.
+OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE = (
+    f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}readback_unusable"
+)
 # The one named refusal `/gmprobe` can write that is not an exception TYPE
 # suffix: the typed `variant_id` matched no row in
 # `bt_gm_probe.VARIANTS_BY_ID`.  A GM typo, not this lane's error -- and not
@@ -912,6 +961,18 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_NO_SELECTED_CHARACTER: (
         "this connection has no selected character to read identity_lo/hi"
         " from"
+    ),
+    OUTCOME_SPEED_NO_STORE: (
+        "session.foundation.lifecycle.store is unreadable, so /speed has no"
+        " database to write the value to before painting it"
+    ),
+    OUTCOME_SPEED_NO_CHARACTER_ID: (
+        "this connection's selected character carries no usable id, so"
+        " /speed cannot name the row to persist into"
+    ),
+    OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE: (
+        "the value was committed but the store's composed read-back for x=7"
+        " is not a number this lane may encode; no frame was sent"
     ),
     WHY_AUDIT_ROW_NOT_WRITTEN: (
         "the outcome row could not be appended, so this command's audit"
@@ -2417,6 +2478,50 @@ def _selected_speed_identity(session: object) -> tuple[int | None, int | None]:
     return identity_lo, identity_hi
 
 
+def _speed_store(session: object) -> object | None:
+    """The ONE read site for the store `/speed` both checks and writes to.
+
+    `_speed_db_filename` (the run-copy gate) and `_persist_speed` (the row
+    write) must never disagree about WHICH database they mean -- a gate that
+    inspected one object and a write that landed in another would be a gate
+    in name only.  Spelling the attribute chain once, here, is what makes
+    that divergence impossible to introduce by editing one of them.
+
+    `None` for any break in `session.foundation.lifecycle.store`; never
+    raises, the same posture `_selected_speed_identity` states for itself.
+    """
+    return getattr(
+        getattr(getattr(session, "foundation", None), "lifecycle", None),
+        "store",
+        None,
+    )
+
+
+def _selected_speed_character_id(session: object) -> int | None:
+    """`characters.id` off the connection's own selected character.
+
+    LANE-DB's persistence entry point is keyed by `character_id`, not by
+    `identity_lo`/`identity_hi` -- and `model.Character` has carried `id` as
+    its first field all along, so the method LANE-GM asked LANE-DB for in
+    `pf_bridge/notes_to_chief/20260902_0017_LANE-GM-TO-LANE-DB-request-speed-
+    persistence-method.md` (an identity_lo/hi-keyed overload) turned out not
+    to be needed: this read is the whole translation, and it lives in this
+    lane where it belongs rather than adding an API to theirs.
+
+    `None` for "no character selected" or for an id this module cannot trust
+    as a positive `int` (a test double, a half-built session).  `bool` is
+    excluded for free by `type(...) is not int`.  A non-positive id is
+    refused rather than passed down: SQLite rowids start at 1, so `0`/`-1`
+    is a sentinel that leaked, and handing it to a keyed write would look
+    like a real lookup miss instead of the read fault it is.
+    """
+    selected = getattr(getattr(session, "foundation", None), "selected", None)
+    character_id = getattr(selected, "id", None)
+    if type(character_id) is not int or character_id <= 0:
+        return None
+    return character_id
+
+
 # CORE-REQUEST-GM-049's run-copy-DB requirement (`pf_bridge/notes_to_chief/
 # 20260901_1728_LANE-GM-CORE-REQUEST-GM-049-speed-sparse-x7-runtime-send-
 # point.md`).  The literal is cited from its one authoritative source:
@@ -2450,12 +2555,7 @@ def _speed_db_filename(session: object) -> str | None:
     `state\\pirateforce.sqlite3` path whole instead of isolating the
     filename, and a whole path never equals the bare canonical literal.
     """
-    store = getattr(
-        getattr(getattr(session, "foundation", None), "lifecycle", None),
-        "store",
-        None,
-    )
-    path = getattr(store, "path", None)
+    path = getattr(_speed_store(session), "path", None)
     if type(path) is not str or not path:
         return None
     return path.replace("\\", "/").rsplit("/", 1)[-1]
@@ -2493,10 +2593,33 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     !! WHAT THIS SENDS AND TO WHOM, same property `_say_action` states for
     itself: one action goes to ONE socket, the connection whose frame this
     dispatch is answering.  It moves nobody -- `x=7` is a single BasicAttr
-    field, not a position -- and writes no DB row: this composes a WIRE
-    FRAME only, never touching `store`/`characters` (the separate,
-    DB-writing `store.write_typed_attributes_and_compose_sparse` path
-    LANE-DB's interface letter `20260901_1716` describes is NOT this one).
+    field, not a position.
+
+    !! IT NOW WRITES A DB ROW.  ~~"writes no DB row: this composes a WIRE
+    FRAME only, never touching `store`/`characters`"~~ -- struck, not
+    deleted, because it was true of every earlier round of this function and
+    a reader of an old audit line needs to know when it stopped being true.
+    LANE-DB's `store.write_typed_attributes_and_compose_sparse` landed on
+    `main` and their letter `pf_bridge/notes_to_chief/20260901_2213_LANE-DB-
+    TO-LANE-GM-speed-sparse-live-on-main-but-speed-does-not-persist.md`
+    named the consequence of not calling it: `GT-193` would have graded a
+    frame, not a memory, and `/speed 400` would be gone by the next login.
+    This function now calls it FIRST and composes from its read-back:
+
+      * the ORDER is DB -> wire, and a store refusal means NO FRAME AT ALL
+        ([ASSUMPTION OF LANE-GM, AWAITING COO] -- `pf_bridge/notes_to_chief/
+        20260902_0017_LANE-GM-ASK-COO-speed-db-first-ordering-change.md`;
+        before this round a parse-clean value ALWAYS sent);
+      * the row is named by `characters.id` off this connection's own
+        selected character (`_selected_speed_character_id`), never by an id
+        this module was handed;
+      * the composed number is the store's read-back, not the GM's typed
+        text -- see the WIRE SECOND comment in the body;
+      * the run-copy-DB gate below is now load-bearing for a WRITE, not just
+        for a send, and it fails closed (an unreadable store path counts as
+        canonical and refuses).  `ห้ามแตะ canonical DB` is a project rule,
+        not a preference, and this is the only thing standing between this
+        function and breaking it.
 
     THE VERSION GATE IS A SCOPED, TEMPORARY EXCEPTION, NOT THE GENERAL ONE.
     `speed_wire.shared_vital_version_confirmed()` reads
@@ -2572,12 +2695,65 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
 
     try:
         value = speed_wire.parse_speed_value(command.args[0])
-        pc, frame = speed_wire.compose_sparse_speed_update(
-            legacy, identity_lo, identity_hi, value
-        )
     except Exception as error:  # noqa: BLE001 - includes SpeedWireError
         # Type name only: an exception message can embed the GM's typed
         # text, same reasoning as every other refusal in this module.
+        _note(session, f"{EVENT_SPEED_REFUSED_PREFIX}{type(error).__name__}")
+        return _Verdict(
+            None, f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}"
+        )
+
+    # ---- DB FIRST ----------------------------------------------------
+    # Everything from here to the compose below is the persistence half.
+    # Read the `EVENT_SPEED_NO_STORE` comment block for the ordering
+    # decision and the letter it is still waiting on.
+    store = _speed_store(session)
+    persist = getattr(store, "write_typed_attributes_and_compose_sparse", None)
+    if not callable(persist):
+        # A session shape with no store to write to is NOT "send the frame
+        # anyway": that is precisely the screen-disagrees-with-the-row case
+        # this ordering exists to make impossible.
+        _note(session, EVENT_SPEED_NO_STORE)
+        return _Verdict(None, OUTCOME_SPEED_NO_STORE)
+
+    character_id = _selected_speed_character_id(session)
+    if character_id is None:
+        _note(session, EVENT_SPEED_NO_CHARACTER_ID)
+        return _Verdict(None, OUTCOME_SPEED_NO_CHARACTER_ID)
+
+    try:
+        sparse = persist(character_id, {SPEED_TYPED_COLUMN: value})
+    except Exception as error:  # noqa: BLE001 - KeyError/TypedAttrError/...
+        # `store.write_typed_attributes_and_compose_sparse`'s own docstring
+        # warns that its compose gate can raise AFTER the write committed,
+        # so this refusal deliberately does not say "nothing was stored" --
+        # it says the send was refused, which is the only half this lane can
+        # speak for.
+        _note(
+            session,
+            f"{EVENT_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
+        )
+        return _Verdict(
+            None,
+            f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
+        )
+
+    # ---- WIRE SECOND, FROM THE ROW, NOT FROM THE TYPED TEXT ----------
+    # The composed value comes out of the store's own read-back rather than
+    # `value`, so the number on the client is by construction the number the
+    # database holds.  `validate` rounds an f32 on the way in (`400.1` is
+    # stored as `400.1000061035156`), which is exactly the divergence a
+    # caller-side compose would hide.
+    stored = sparse.get(speed_wire.SPEED_FIELD_X) if isinstance(sparse, dict) else None
+    if isinstance(stored, bool) or not isinstance(stored, (int, float)):
+        _note(session, EVENT_SPEED_PERSIST_READBACK_UNUSABLE)
+        return _Verdict(None, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE)
+
+    try:
+        pc, frame = speed_wire.compose_sparse_speed_update(
+            legacy, identity_lo, identity_hi, stored
+        )
+    except Exception as error:  # noqa: BLE001 - includes SpeedWireError
         _note(session, f"{EVENT_SPEED_REFUSED_PREFIX}{type(error).__name__}")
         return _Verdict(
             None, f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}"
