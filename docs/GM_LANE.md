@@ -6135,3 +6135,69 @@ confirmed before and unaffected by this round (no code changed).
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_0921_h6rsgl_p2-color-static-research-fontstyle63-gap.md`
 PR: `pf_bridge` #685 / `pirate-force-server` #456
+
+## Round `gm-20260901_1013` (2026-09-01T10:1x+07:00) -- rule F, GM_PLUGIN_MODEL_KEY_SUSPECT stub refreshed with newer Codex ABI facts, no wire change
+
+Round-lock: no open `[LANE-GM]` PR in either repo at round start; previous round (`h6rsgl`,
+`pf_bridge#685` / `pirate-force-server#456`) verified `merged:true` directly via
+`pull_request_read(method=get)`, not `list_pull_requests`.
+
+Mailbox: no unconsumed `ADDRESSEE: LANE-GM` letter found this round (fast-forwarding to
+`origin/main` pulled in several already-consumed-by-others letters, including
+`20260901_0934_CODEX-CHECKPOINT-GM-COLOR-DROP-SECOND.md`, already stubbed by chief round `632iyt`
+with "no chief action this round; relevant lanes (GM, B) pick up their own pieces"). All three
+priority fronts (P-2 color, GM-B `/speed`, P-3 GM button) are externally blocked this round:
+
+- P-2: follow-up RE ticket proposed last round (`h6rsgl`) still awaits chief assigning it to the RE
+  lane -- nothing new to do until that assignment lands.
+- GM-B (`gm/attr_wire.py` path 1 vs path 2): still waiting on the owner's answer to
+  `notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-attr-wire-path1-vs-path2-after-re172-negative.md`
+  (unanswered as of this round). `GT-183` stays `BLOCKED-ON-WIRING`.
+  `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB not touched, as declared.
+- P-3 (GM button): the `0934` checkpoint adds an implementation-contract detail for
+  `CreateGameMaster` itself (export name, vtable slot `+0x00` in addition to `+0x04`, calling
+  convention/stack cleanup, MSVCR90 scalar-delete allocator compatibility) -- this is native
+  `GameMaster.dll` authoring, a different question from `bt_gm_probe.py`'s existing
+  `GM_PLUGIN_MODEL_KEY_SUSPECT` (`.model` basename resolution), and this Python server repo
+  neither builds nor loads that DLL. Appended the new facts to that suspect stub's own docstring
+  (additive only, no field/shape change, no new frame, no runtime effect) so a future native-side
+  attempt does not have to re-derive them from the checkpoint letter. This is this round's only
+  code change.
+
+Empty-round-rule-F basis: no unconsumed `ADDRESSEE: LANE-GM` letter, no new `CORE-REQUEST-GM-0xx`
+reply requiring code, no LANE-GM-owned `GAME_TEST_QUEUE.md` entry newly unblocked, and own last
+round's backlog (P-2 RE assignment, GM-B owner answer) both still pending replies from other
+parties -- per the mission's "don't stall" rule, took the one available in-bounds action (stub
+refresh) rather than writing a pure status letter with zero `gm/` change.
+
+### เขียว
+
+`python3 -m pytest tests/test_gm_*.py -q` = **1206 passed, 547 subtests passed** เขียว(cloud
+sanity), unchanged count before/after this round's docstring-only edit.
+
+### pf-adversary
+
+**ไม่ได้รันจริง** -- ไม่มีเครื่องมือ spawn subagent (`Agent`/`Task`, `subagent_type: pf-adversary`)
+ในชุดเครื่องมือของ session นี้รอบนี้ (ตรวจด้วย `ToolSearch` แล้ว ไม่พบ) ทำ manual self-review แทน:
+diff เป็นการเพิ่มข้อความ docstring ล้วน (ไม่มีโค้ด/logic/shape เปลี่ยน), อ้างอิงจดหมายที่มีอยู่จริงและ
+ตรวจแล้วว่า chief consume ไปแล้ว, ไม่มี claim ใหม่เกินกว่าที่จดหมายต้นทางพูด, ไม่มีข้อขัดแย้งในตัวเอง
+(ตรวจแบบเดียวกับที่ pf-adversary จับได้รอบ `h6rsgl`) -- **ต้องแจ้งเจ้าของ**: ถ้า session ในอนาคตก็ไม่มี
+เครื่องมือนี้เช่นกัน อาจต้องทบทวนว่า pf-adversary ผูกกับ environment ไหน
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี** -- docstring-only, ไม่มี wire ใหม่, ไม่มีคำสั่งแชทใหม่.
+
+### nonclaim
+
+1. ไม่อ้างว่า `GMUI_1` เป็นค่าจริงที่ original DLL คืน -- ยังเป็น proposed binding ตามจดหมายต้นทาง.
+2. ไม่อ้างว่า slot `+0x00`/allocator facts ใหม่เปลี่ยนข้อสรุปของ suspect stub -- ยังไม่มี wire variant
+   ให้เพิ่มเหมือนเดิม, เป็นการบันทึกไว้เผื่ออนาคตเท่านั้น.
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/`scenarios/world_*.json`/
+   `scenarios/combat_*.json`/`gm/attr_wire.py` (ยัง shelved เหมือนเดิม).
+4. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone.
+5. ไม่ได้รัน pf-adversary จริง (เครื่องมือไม่มีใน session นี้) -- self-review แทน ตามที่ระบุข้างบน.
+6. ไม่ลบประวัติเดิม.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1013_gm-20260901_1013_rule-f-plugin-model-key-stub-refresh.md`
+PR: `pf_bridge` #689 / `pirate-force-server` (this round's PR)
