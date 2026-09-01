@@ -35,13 +35,23 @@ entirely kept the suite green) and ``test_repeated_boots_against_an_unchanged
 _database_reuse_one_snapshot`` (ten retries of a failing migration used to make
 ten full copies of the live world).
 
-WHAT THIS FILE DOES NOT PROVE.  No boot path calls ``migrate_with_backup``
-yet -- ``app.py`` (chief's zone, not this lane's) still calls ``migrate``, and
-CORE-REQUEST-DB-001 asks for that one-line insertion point.  So this is
-wire/DB evidence only: nothing here is client-observable, and nothing here
-proves the owner's own canonical database was ever protected on a real boot.
-It also proves nothing about restoring: this lane's module only ever creates
-snapshots, and a restore is a human act (see the manifest's ``restore_hint``).
+WHAT THIS FILE DOES NOT PROVE.  ``app.py`` now calls ``migrate_with_backup``
+at both boot call sites (CORE-REQUEST-DB-001, wired by chief), but nothing in
+THIS file exercises that integration end to end -- every test here calls
+``store.migrate_with_backup()``/``persistence_backup`` functions directly,
+never ``app.main()``.  In particular, a real boot whose backup snapshot
+raises ``persistence_backup.BackupError`` (e.g. insufficient free space, or a
+snapshot verification failure) now propagates that exception straight out of
+``app.main()`` -- ``app.py`` has no ``try``/``except`` anywhere in the call
+chain -- and nothing here or in ``tests/test_startup_stale_lease_recovery.py``
+(which only checks the AST for which method name is called, not what happens
+when it raises) proves what an operator sees or whether that is the intended
+incident-response shape.  So this is wire/DB evidence only: nothing here is
+client-observable, and nothing here proves the owner's own canonical
+database was ever protected on a real boot, or that a real boot survives a
+failed backup attempt cleanly.  It also proves nothing about restoring: this
+lane's module only ever creates snapshots, and a restore is a human act (see
+the manifest's ``restore_hint``).
 """
 import json
 import sqlite3

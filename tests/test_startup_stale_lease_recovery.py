@@ -297,7 +297,9 @@ class StartupRecoveryWiringTests(unittest.TestCase):
             if not recovery:
                 continue
             blocks_with_recovery += 1
-            migrations = self._direct_statement_calls(block, "migrate")
+            migrations = self._direct_statement_calls(
+                block, "migrate"
+            ) + self._direct_statement_calls(block, "migrate_with_backup")
             self.assertTrue(migrations, ast.dump(block[0]))
             self.assertLess(min(migrations), min(recovery))
         self.assertEqual(blocks_with_recovery, 2)

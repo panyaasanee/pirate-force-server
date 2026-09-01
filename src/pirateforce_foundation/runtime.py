@@ -117,6 +117,7 @@ from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
     LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT,
     LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
+    LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH,
     LOGOUT_RESPONSE_POLICY_WORLDINFO_FIRST,
     LOGOUT_VITAL_ID,
     WORLDINFO_VITAL_ID,
@@ -126,6 +127,10 @@ from .logout_hypothesis import (
     make_return_select_server_response,
     make_worldinfo_first_response,
     require_logout_hypothesis_scenario,
+)
+from . import logout_dialog_open_hypothesis
+from .logout_dialog_open_hypothesis import (
+    dispatch_logout_dialog_open_hypothesis,
 )
 from .population import (
     build_port_royal_initial_population,
@@ -1057,6 +1062,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # HYP-PF-031 one-shot latch: the unsolicited return-select
                 # push may leave this session exactly once.
                 self.logout_chat_push_count = 0
+                # HYP_PF_040 one-shot latch: the unsolicited return-select
+                # push at dialog-open time (branch 6) may leave this
+                # session exactly once.
+                self.logout_dialog_open_push_count = 0
                 # GROUND-LOOT-001 one-shot latch: the bit-0x08 pair frame
                 # may leave this session exactly once, and a refused
                 # composition latches too so drift can never retry itself
@@ -5525,6 +5534,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 return self._dispatch_logout_chat_push_hypothesis(parsed)
             if logout_hypothesis_scenario is not None and nested_id == LOGOUT_VITAL_ID:
                 return self._dispatch_logout_hypothesis(parsed)
+            # PF-HYPOTHESIS-LEDGER: HYP-PF-040 active
+            # LOGOUT-DIALOG-OPEN-001.  Registered in
+            # docs/HYPOTHESIS_LEDGER.json; this annotation and that entry's
+            # source_refs bind each other both ways.
+            if (
+                logout_hypothesis_scenario is not None
+                and logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH
+                and nested_id == WORLDINFO_VITAL_ID
+                and logout_dialog_open_hypothesis.production_allowed
+            ):
+                # HYP_PF_040 only: this policy owns every 0x3D4B-bearing
+                # frame the same way worldinfo_first does, but routes to the
+                # dialog-open dispatch (branch 6, RE-189 Job 2) instead of
+                # the silent observation path below.  This is a top-level
+                # routing branch, not a nested call, so the dispatch
+                # function's own unconditional ``self.rx_frames += 1`` is
+                # the only increment for this frame -- see
+                # logout_dialog_open_hypothesis.py's own module docstring,
+                # "WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY", point 3(a).
+                return dispatch_logout_dialog_open_hypothesis(
+                    self, parsed, legacy
+                )
             if (
                 logout_hypothesis_scenario is not None
                 and logout_hypothesis_scenario.response_policy

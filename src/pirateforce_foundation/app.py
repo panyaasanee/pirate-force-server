@@ -781,10 +781,10 @@ def main() -> int:
             or item_operate_res_hypothesis is not None
             or hostile_hp_link_hypothesis is not None
         ):
-            store.migrate()
+            store.migrate_with_backup()
             store.expire_open_sessions()
     else:
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate()
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate_with_backup()
         # A previous process cannot own a live lease after this process starts.
         store.expire_open_sessions()
     default = Position(1,0,legacy.V135_PLAYER_X,legacy.V135_PLAYER_Y,legacy.V135_PLAYER_Z)

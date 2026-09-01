@@ -190,6 +190,9 @@ from .logout_hypothesis import (
 # this lane has re-read tests/test_logout_dialog_open_hypothesis.py with
 # pf-adversary at least once more, ideally with an attended GT-184/GT-186
 # pass confirming (or falsifying) the client transition.
+# PF-HYPOTHESIS-LEDGER: HYP-PF-040 active
+# LOGOUT-DIALOG-OPEN-001.  Registered in docs/HYPOTHESIS_LEDGER.json; this
+# annotation and that entry's source_refs bind each other both ways.
 production_allowed = False
 
 DIALOG_OPEN_PUSH_EVENT = "logout_dialog_open_hypothesis_return_select_pushed"

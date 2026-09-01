@@ -711,7 +711,36 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # its stop_rule freezes the element fields this lane sends.  Nothing else
 # moved: no existing entry added to, removed or reordered, no stop_rule or
 # production_allowed touched anywhere else.)
-CANONICAL_CONTENT_SHA256 = "AC079598EB1D82B764B3394907908011D4D1E2FFF43F2B8F400AABC1F1EC2F10"
+#
+# ---- lineage: liq4ri pin 6B096616.. ----
+# -> 6B096616.. (2026-09-01 chief cloud round liq4ri: ONE ENTRY ADDED,
+# HYP-PF-040 LOGOUT-DIALOG-OPEN-001, appended at the end so every earlier
+# index stays stable; count 47 -> 48.  Wires a LANE-A CORE-REQUEST (round
+# bkgaq8, pf_bridge/notes_to_chief/consumed/20260901_1254_LANE-A-CORE-
+# REQUEST-wire-logout-dialog-open-hypothesis-open-hypothesis-gt184-gt186.md):
+# a one-shot counter init and import in runtime.py, a new response_policy
+# constant in logout_hypothesis.py, and a new top-level nested_id routing
+# branch (option (a) from the module's own docstring; option (b) was
+# already ruled out by pf-adversary in the CORE-REQUEST's own review for
+# double-counting self.rx_frames with no carve-out).  No scenario/CLI
+# construction path is added this round, so the new branch is not reachable
+# through any boot argument yet and logout_dialog_open_hypothesis.
+# production_allowed stays False; this entry documents exactly that ceiling.
+# Nothing else moved: no existing entry added to, removed or reordered, no
+# other stop_rule or production_allowed touched.)
+#
+# ---- lineage: liq4ri-2 pin 7D19B77C.. ----
+# -> 7D19B77C.. (2026-09-01 chief cloud round liq4ri, same round as 6B096616..:
+# HYP-PF-040's accepted_ceiling gains one AMENDED paragraph (not replaced, per
+# the R166 precedent) recording a mandatory pf-adversary review's findings:
+# the wired branch is unreachable for a second, independent reason beyond the
+# missing CLI/scenario path (require_logout_hypothesis_scenario's hardcoded
+# 5-item allowlist does not include the new policy), and that the adversary
+# DID exercise the branch directly in an isolated harness (not via any path
+# reachable from a real boot) confirming no rx_frames double-count and
+# correct one-shot/storage behavior. No entry added or removed, count stays
+# 48, no index shift, no status/kind/checkpoint/production_allowed moves.)
+CANONICAL_CONTENT_SHA256 = "7D19B77C51A979872F90904766CCC3C97FACE17103784A300999F1EF1446C065"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -971,6 +1000,10 @@ EXPECTED_IDS = (
     # and expiry.decision.  Appended at the end to keep every earlier entry
     # index stable for the index-based fixtures.
     "HYP-PF-039",
+    # HYP-PF-040 (LOGOUT-DIALOG-OPEN-001: chief round liq4ri, cloud,
+    # 2026-09-01, wiring a LANE-A CORE-REQUEST) is likewise appended at the
+    # end to keep every earlier entry index stable.
+    "HYP-PF-040",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -1047,6 +1080,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-039": (
         "protocol_hypothesis", "GROUND-LOOT-NAMEPROP-001", "active",
+    ),
+    "HYP-PF-040": (
+        "protocol_hypothesis", "LOGOUT-DIALOG-OPEN-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
