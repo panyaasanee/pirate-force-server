@@ -19,12 +19,13 @@ PR นั้นคือ `#526` ซึ่ง merge ไปแล้ว ⇒ รอ
    `HYP-PF-042` / checkpoint `LOGOUT-ACK-FIRST-REORDER-001` / `status: active` / `production_allowed: false`
 2. `tools/verify_hypothesis_ledger.py` — `EXPECTED_IDS` + `EXPECTED_META` + `CANONICAL_CONTENT_SHA256`
    คำนวณใหม่ **ด้วยสูตรของเครื่องมือเอง** (`json.dumps(raw, sort_keys=True, separators=(",",":"),
-   ensure_ascii=False)` → utf-8 → sha256 → upper) ไม่ได้เดามือ: `D47A9994…` → `F3E21DD3…`
+   ensure_ascii=False)` → utf-8 → sha256 → upper) ไม่ได้เดามือ: `D47A9994…` → `6579D952…` (ค่ากลางทาง `F3E21DD3…`/`3DA0950E…` ถูกแทนที่ตอนแก้ตามรีวิว ดูภาคผนวก)
    พร้อมบล็อก lineage ใหม่ที่ระบุว่ามัน supersede ประโยคของ lineage ก่อนหน้าอย่างไร
 3. `src/pirateforce_foundation/logout_hypothesis.py` — บรรทัด annotation
    `# PF-HYPOTHESIS-LEDGER: HYP-PF-042 active` **ต้องอยู่ commit เดียวกับแถว** เพราะ verifier ล้มทั้งสองทาง
-   (มี annotation ไม่มีแถว = `unregistered emitter annotation` · มีแถวไม่มี annotation =
-   `declared emitter is missing adjacent annotation`) ⇒ ครึ่งเดียวลงไม่ได้
+   (มีแถวไม่มี annotation = `declared emitter is missing adjacent annotation` เป๊ะ · ลบแถวออก
+   จะได้ `unknown hypothesis id` เพราะด่านชุด id ยิงก่อน — **ข้อความเดิมที่ผมเขียนตรงนี้ผิด แก้ตามรีวิว D7**)
+   ⇒ ครึ่งเดียวลงไม่ได้ ยืนยันด้วย mutation ทั้งสองทาง
 4. + 5. แก้คำอ้างที่ **กลายเป็นเท็จ** ใน `runtime.py` (2 จุด) และ docstring ของ
    `tests/test_logout_ack_first_reorder_routing_wired.py`
 
@@ -37,8 +38,12 @@ PR นั้นคือ `#526` ซึ่ง merge ไปแล้ว ⇒ รอ
 ขีดฆ่า ไม่ลบ (แบบ R166) เพราะคนที่เคยอ่าน audit บรรทัดเก่าต้องรู้ว่ามันเลิกจริงเมื่อไหร่
 **สิ่งที่ยังจริงและแคบกว่า**: ถึง branch นี้ได้ต้องมีแฟล็ก `--logout-hypothesis-scenario` ชี้ไฟล์นั้นไฟล์เดียว
 (ซึ่งเองก็บังคับให้มี `--db` ชัดเจน) และไฟล์ถูกแมตช์ field-exact กับ allowlist ในโค้ด · บูตปกติไม่ส่งแฟล็ก
-⇒ พิสูจน์ด้วยเทสสองใบ (`test_unreachable_from_a_default_boot_with_no_scenario_at_all` และ
-`test_default_boot_scenario_files_never_carry_this_policy`) ไม่ใช่ด้วยคอมเมนต์
+⇒ ครึ่งที่ว่า "scenario=None แล้วไม่มีอะไรวิ่ง" **พิสูจน์แล้ว** ด้วยเทสสองใบ
+(`test_unreachable_from_a_default_boot_with_no_scenario_at_all` และ
+`test_default_boot_scenario_files_never_carry_this_policy`)
+🔴 **แต่ครึ่งที่ว่า "บูตปกติให้ค่า None" ยังเป็นการอ่านจาก `app.py` ไม่ใช่การพิสูจน์** — ไม่มีเทสของใบนี้
+ใบไหน import `app.py` เลย และ mutation สองทางตรงข้ามเขียวทั้ง 18 ใบทั้งคู่ (รีวิว D3 · แก้ถ้อยคำแล้ว
+ทั้งในใบ ledger และในคอมเมนต์ของ `runtime.py`)
 
 🔴 จุดที่ต้องระวังและเขียนไว้ในไฟล์แล้ว: `test_scenario_carrying_the_new_policy_is_not_yet_allowlisted`
 **ยังผ่านอยู่** แต่ผ่านเพราะ probe ในหน่วยความจำต่างจาก profile จริงสองฟิลด์ (`scenario_id`/`hypothesis_id`)
@@ -129,3 +134,37 @@ file:line ครบ) **แต่ยังไม่มีใครพยายา
    บนเครื่องเจ้าของ ปิดจาก cloud clone ไม่ได้
 4. annotation ในโค้ดใส่โดย chief ไม่ใช่สาย A — สาย A เสนอจะใส่เองรอบหน้า แต่ใส่แยก commit ไม่ได้
    ด้วยเหตุผลข้อ 3 ข้างบน จึงใส่ให้ในใบนี้เลย
+
+---
+
+# ภาคผนวก — pf-adversary คืนผลช้า (หลัง push) และจับได้ของจริง 8 ข้อ · แก้ทั้งหมดก่อน merge
+
+ตัวรีวิวที่ผมเขียนไว้ข้างบนว่า "ไม่คืนผล" **คืนผลทีหลัง** (~29 นาที) ตอน PR ยังเปิดอยู่ gate ยังรัน
+⇒ แก้ทันทีในเซสชันเดียวกัน ไม่ปล่อยข้ามรอบ · ย่อหน้าข้างบนคงไว้ตามเดิม (ขีดฆ่าไม่ลบ) เพราะมันเป็น
+บันทึกของสิ่งที่จริง ณ ตอนเขียน · **สิ่งที่มันจับได้คือจุดที่ผมบอกเองว่า "ยังไม่มีใครหักล้าง" พอดี**
+
+| # | ระดับ | ข้อบกพร่อง | แก้อย่างไร |
+|---|---|---|---|
+| D1 | HIGH | **11 จาก 17 เลขบรรทัดในใบผิดตั้งแต่ commit ที่คลอดมันเอง** — เพราะ commit เดียวกันแทรกคอมเมนต์เหนือโค้ดที่มันอ้าง · ที่ร้ายที่สุด: `logout_hypothesis.py:1708-1722` ที่อ้างว่าเป็น drift check ของ HYP-PF-028 ตอนนี้ชี้ไปที่ drift check ของ **HYP-PF-012** ⇒ การอ้างอิงเถียงกับข้ออ้างที่มันควรจะหนุน · และ `runtime.py:5741` ที่ยกเป็นตัวเทียบ ตอนนี้ชี้ไป `CHAT_INPUT_VITAL_ID` | **ถอดเลขบรรทัดออกจากใบทั้งหมด** เหลือชื่อไฟล์/ค่าคงที่/ชื่อฟังก์ชัน/ชื่อเทส ตามแบบอีก 49 ใบ · เขียนกฎลง `stop_rule` ว่าห้ามปักเลขบรรทัดในใบนี้อีก |
+| D2 | HIGH | `accepted_ceiling` และ `expiry` อ้างว่า `closed_at` + close ถูก schedule + closer ยิงครั้งเดียว **"ทั้งสอง subcode"** — ไม่จริง เทส subcode-03 ไม่แตะสามอย่างนี้เลย · พิสูจน์ด้วย mutation: ใส่ `if subcode != 3:` คร่อม `close_timer_factory` แล้ว **เทสทั้ง 18 ใบยังเขียว** ⇒ "ซ็อกเก็ตไม่เคยปิดบน subcode 03" เป็นสภาพที่หลักฐานชุดนี้แยกไม่ออกจากของที่ส่งจริง | เขียนใหม่ให้ระบุว่า **lease/close = subcode 01 เท่านั้น** พร้อมบันทึกผล mutation ไว้ในใบ |
+| D3 | HIGH | "reachable through the CLI flag" และคำว่า **"proven, not asserted"** ในคอมเมนต์ที่ผมเพิ่งเขียนรอบนี้ — ไม่มีเทสของใบนี้ใบไหน import หรือรัน `app.py` เลย · mutation สองทางตรงข้าม (บูตปกติโหลด scenario เสมอ / แฟล็กเป็น no-op) **เขียวทั้ง 18 ใบทั้งคู่** | แยกให้ชัดในทั้งใบและคอมเมนต์ว่าครึ่งไหน **พิสูจน์** ครึ่งไหน **อ่านจาก `app.py` เฉย ๆ** · ระบุด้วยว่ามีเทสอื่นอีก 8 ใบที่จับได้ แต่ไม่ใช่ของสมมติฐานนี้ |
+| D4 | MED-HIGH | 🔴 **ใบอ่าน HYP-PF-028 แค่ครึ่งเดียว** — ใบนั้น `retired` และเหตุผลคือ RE-075 พิสูจน์ว่า composition นี้ (0x709E ฟิลด์ศูนย์ทั้งหมด) **เอื้อมไม่ถึง helper ฝั่ง transition ไม่ว่า live state จะเป็นอะไร** เพราะตกด่านฟิลด์ที่สอง (`vital+0x14 == 0x1E`) · **การสลับลำดับเปลี่ยน "เมื่อไหร่" ไม่เปลี่ยน "ค่าฟิลด์"** · และการวัดฝั่งไคลเอนต์ของ HYP-PF-028 ครอบแค่ **subcode 03** ⇒ ครึ่ง subcode-01 ของใบนี้ **ไม่มีแขนเทียบ falsify ไม่ได้ตามเกณฑ์ของตัวเอง** | ยก RE-075 ขึ้นหัว `evidence_gap` ตรง ๆ ว่า **ถ้าใช้รอบ attended กับใบนี้ มีแนวโน้มว่าจะไปวัดด่าน +0x14 ซ้ำ ไม่ใช่วัดลำดับ** · แก้ `falsification` ให้ผูกกับ subcode 03 · เขียน `stop_rule` ว่าการตั้ง `+0x14 = 0x1E` เป็น **เวอร์ชันใหม่** ตาม stop_rule ของ HYP-PF-028 ไม่ใช่การแก้ใบนี้ |
+| D5 | MED | "18 เทส driving the real dispatch path" — 6 ใบในนั้นรันโดย **patch `require_logout_hypothesis_scenario` ทิ้ง** (ด่านที่ `scope` ของใบเรียกว่าเป็นตัวรับน้ำหนัก) แล้วป้อน probe ที่ด่านจริงปฏิเสธ | เขียนใหม่เป็น **12 ใบ (ของจริง ไม่มี mock) + 6 ใบ (ด่านถูก patch)** แยกกันชัด |
+| D6 | MED | **จุดที่ห้าที่ยังไม่ถูกแก้ และมันเป็น `evidence_ref` ของใบนี้เอง** — docstring ของ `test_logout_ack_first_reorder_scenario_wired.py` ยังเขียนว่า "ยังไม่ลงทะเบียน · `entries=49` · ไม่มี annotation" ผิดทั้งสามข้อ · และ docstring **ภายในเทส** ที่ `routing_wired.py` (ห่างจากคำเตือนที่ผมเขียน 190 บรรทัด) ยังอ้างว่าเป็น "direct proof" ของความเอื้อมไม่ถึง ซึ่ง `pytest -v` และ IDE จะโชว์บรรทัดนั้นโดยไม่โชว์คำเตือน | แก้ทั้งสองจุด ขีดฆ่าไม่ลบ — มาตรฐานที่ผมเขียนเองรอบนี้ ("docstring ที่แอบเปลี่ยนข้ออ้างตัวเองคือวิธีที่คำอ้างเก่ารอดสายตารีวิว") ต้องใช้กับ docstring ของเทสเองด้วย |
+| D7 | LOW | ข้อความ error ที่ผมยกมาผิด: ลบแถว `EXPECTED_META` แล้วเครื่องมือขึ้น `unknown hypothesis id` (ด่านชุด id ยิงก่อน) ไม่ใช่ `unregistered emitter annotation` | แก้ทั้งในคอมเมนต์ของโค้ดและใน lineage ของ verifier · ข้ออ้างหลัก ("ครึ่งเดียวลงไม่ได้") ยังจริงและยืนยันด้วย mutation ทั้งสองทาง |
+| D8 | LOW | `test_default_boot_scenario_files_never_carry_this_policy` glob แค่ `logout_hypothesis_*.json` ⇒ ไฟล์ชื่ออื่นมองไม่เห็น | ระบุข้อจำกัดนี้ไว้ในคอมเมนต์ของ `runtime.py` ว่า "จริงวันนี้ ไม่ได้จริงโดยโครงสร้าง" |
+
+**ของแถมที่ผมเจอเองระหว่างแก้**: ผมใส่อักขระ `🔴` (นอก cp874) ลงในเนื้อ ledger ซึ่งเครื่องมืออาจพิมพ์
+ออกคอนโซลของสะพานเมื่อ check ล้ม ⇒ เปลี่ยนเป็น `!!` ทั้งหมด · ไฟล์กลับมาที่ 18 ไบต์ non-ascii เท่า HEAD เดิม
+
+**ที่รีวิวตรวจแล้วไม่พบปัญหา** (รายงานผลลบด้วย): `CANONICAL_CONTENT_SHA256` คำนวณถูกตามสูตรของเครื่องมือ ·
+ledger diff เป็นการแทรกล้วน · annotation มีบรรทัดเดียว regex-match · `required_markers`/`evidence_refs` ครบ ·
+`EXPECTED_IDS` ตรงลำดับ 50/50 ไม่มี index เก่าขยับ · โปรไฟล์ต่างกันสามฟิลด์จริงตามที่อ้าง (diff ครบ 11 ฟิลด์) ·
+ชื่อเทสและจำนวน 12+6=18 ถูกต้อง · non-ascii ในโค้ด 0 · กับดัก prose-mention ไม่โดน · ชุดเทสเขียวทั้งก่อนและหลัง `git add`
+
+**เขียวหลังแก้**: ชุดเต็ม **6774 passed / 323 skipped / 0 failed** · `verify_hypothesis_ledger.py` PASS entries=50 ·
+`hpenc` exit 0 · `mpaudit` exit 0 · preflight PASS · pin ใหม่ `6579D952…`
+
+**คำถามที่รีวิวทิ้งไว้และผมยังไม่ตอบ**: `verify_hypothesis_ledger.py` re-derive ได้ทุกอย่าง **ยกเว้นเลขบรรทัด**
+⇒ ถ้าใบไหนปักเลขบรรทัด อะไรจะทำให้มันแดงตอนเลขเลื่อน? รอบนี้ตอบด้วยการ **เลิกปักเลขบรรทัด** ซึ่งแก้ที่ใบนี้ใบเดียว
+ยังไม่ใช่กฎของทะเบียน — เสนอเป็นงานถัดไป: เขียนลง `AGENTS.md` ว่าใบ ledger ห้ามปัก `file:line`

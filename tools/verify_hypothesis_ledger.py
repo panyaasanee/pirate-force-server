@@ -799,8 +799,8 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # status/kind/checkpoint/production_allowed touched.)
 #
 # ---- lineage: chief cloud round dfx8bu / R298 (2026-09-02, LANE-A
-# CORE-REQUEST-026) pin F3E21DD3.. ----
-# -> F3E21DD3.. (2026-09-02, chief cloud round dfx8bu: ONE ENTRY ADDED, HYP-PF-042
+# CORE-REQUEST-026) pin 6579D952.. ----
+# -> 6579D952.. (2026-09-02, chief cloud round dfx8bu: ONE ENTRY ADDED, HYP-PF-042
 # LOGOUT-ACK-FIRST-REORDER-001, appended at the end so every earlier index
 # stays stable; count 49 -> 50.  This registers exactly the branch the
 # paragraph above said was "NOT registered as a ledger entry this round" --
@@ -819,9 +819,15 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # next-pr.md).  One .py source_ref (logout_hypothesis.py) carries the
 # active_claim_marker; its inline "PF-HYPOTHESIS-LEDGER: HYP-PF-042 active"
 # annotation was added in this same commit, because verify_source_annotations
-# rejects either half landing alone -- an annotation with no EXPECTED_META row
-# raises "unregistered emitter annotation", a declared .py source_ref with no
-# annotation raises "declared emitter is missing adjacent annotation".  That
+# rejects either half landing alone.  A declared .py source_ref with no
+# annotation raises "declared emitter is missing adjacent annotation" (exact,
+# tested by mutation).  Dropping the EXPECTED_META row does NOT reach
+# verify_source_annotations at all -- the id-set check fires first and the tool
+# exits with "unknown hypothesis id: HYP-PF-042"; an earlier draft of this
+# comment quoted "unregistered emitter annotation" here, which is the message
+# for a DIFFERENT mutation (an annotation for an id no table knows).  The
+# substantive claim -- neither half may land alone -- is unchanged and was
+# confirmed in both directions by mutation.  That
 # file's PROVENANCE NOTE is amended in place with a dated [REGISTERED ...]
 # follow-up rather than rewritten, per the R166 amend-not-replace precedent.
 # No runtime.py behaviour change was made or is claimed: the routing branch
@@ -829,7 +835,7 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # "no allowlisted profile can carry this value yet" comments were corrected.
 # No other entry added, removed or reordered; no earlier status/kind/
 # checkpoint/production_allowed touched.)
-CANONICAL_CONTENT_SHA256 = "F3E21DD30AB0C1255C971CFA478896DF2540E9DD1FFDD4B46C9ACE68D9704F60"
+CANONICAL_CONTENT_SHA256 = "6579D95295347AB1B1D2C4C252F41EB81C98C9D31D82DE72C719530E164C16FC"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

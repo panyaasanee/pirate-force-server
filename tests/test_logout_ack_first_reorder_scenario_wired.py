@@ -20,13 +20,23 @@ HYP-PF-042 IS NOT HYP-PF-041.  HYP-PF-041 (LOGOUT-TEARDOWN-TIMER-VARIANT-001)
 is a sibling opened by the same CORE-REQUEST letter but is a different
 hypothesis (the post-ack close-delay VALUE, not frame order) -- see the
 ``_PROFILE_ACK_FIRST_REORDER`` comment block in ``logout_hypothesis.py`` for
-the full id-collision analysis.  HYP-PF-042 is NOT YET a registered entry in
+the full id-collision analysis.  ~~HYP-PF-042 is NOT YET a registered entry in
 ``docs/HYPOTHESIS_LEDGER.json`` as of this round (a CORE-REQUEST accompanies
 this round asking chief to register it, the same two-step pattern
 HYP-PF-040/HYP-PF-041 both used); ``tools/verify_hypothesis_ledger.py`` still
 passes unchanged (entries=49, same count as before this file's diff) because
 no ``# PF-HYPOTHESIS-LEDGER: HYP-PF-042 active`` annotation line was added
-anywhere -- that line is deliberately withheld until the ledger entry exists.
+anywhere -- that line is deliberately withheld until the ledger entry exists.~~
+
+[AMENDED 2026-09-02, chief round dfx8bu -- struck above, not deleted.]  ALL
+THREE of those claims are now false: the entry EXISTS, the count is FIFTY, and
+the annotation line IS present, in ``logout_hypothesis.py`` beside
+``LOGOUT_ACK_FIRST_REORDER_CHECKPOINT``.  This paragraph is corrected here
+rather than elsewhere because this file is one of HYP-PF-042's own
+``evidence_refs``: a hardcoded ``entries=49`` that outlived the thing it
+counted, sitting inside a file the ledger cites as evidence, is worse than the
+same rot anywhere else.  The two-step pattern it describes did happen, exactly
+as predicted; only the tense was left behind.
 
 No byte is invented anywhere in this file: every ack pin and every
 ReturnSelectServerVital pin reused here is the unchanged HYP-PF-012/
