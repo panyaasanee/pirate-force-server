@@ -1,1 +1,1 @@
-{"sha":"ef74dfbbf17e7076a28f0c7924d4843a36e03a44","conclusion":"failure","event":"push","ref":"refs/heads/claude/inspiring-bohr-u2wgzc","run_id":"33505566615","utc":"2026-09-01T12:11:15Z"}
+{"sha":"ef74dfbbf17e7076a28f0c7924d4843a36e03a44","conclusion":"failure","event":"pull_request","ref":"refs/pull/503/merge","run_id":"33505615045","utc":"2026-09-01T12:13:39Z"}
