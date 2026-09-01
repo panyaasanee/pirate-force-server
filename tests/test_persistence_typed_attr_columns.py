@@ -879,5 +879,178 @@ class TheGateStillRefusesTests(unittest.TestCase):
         )
 
 
+class SparseSendPathTests(unittest.TestCase):
+    """`store.write_typed_attributes_and_compose_sparse`: the DB is written
+    first and the block is a view of what landed -- never the other way round.
+
+    This is the entry point `COO-ORDER 20260901_1640`/`1641` sends LANE-GM to
+    for `/speed`.  Everything here runs against a real SQLite file.
+
+    What that does NOT buy, said here rather than discovered later: an
+    adversary pass replaced the read-back with the caller's own input dict and
+    every test in this class stayed green.  No input has been found for which
+    the two differ -- SQLite round-trips a python float exactly and `as_f32`
+    is idempotent -- so "the value comes from the row" is a structural choice,
+    not a property this class measures.  The three controls that DO fire are
+    below: composing the whole stored row instead of what was written,
+    composing before the write, and dropping the write entirely.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("sparse-send")
+        self.character = self.store.create_character(
+            self.account_id, "SparseSend", "sparsesend",
+            "fingerprint-sparse-send", _build_wire,
+            Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+
+    def test_a_speed_write_comes_back_as_the_one_field_block(self):
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 620.0}
+        )
+        self.assertEqual(block, {7: 620.0})
+
+    def test_the_block_and_the_reopened_column_agree_on_the_same_float32(self):
+        """Note what this asserts: the two AGREE.
+
+        It does not prove the block was built from the row -- `compose_sparse
+        _block` runs `as_f32` itself, so both paths produce the same number
+        and no control distinguishes them (see this class's docstring).  What
+        it does prove is that a caller who types `400.1` gets one number, not
+        two: the double is rounded on the way into the column AND on the way
+        to the wire, so the database and the client cannot disagree about the
+        same character.
+        """
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 400.1}
+        )
+        reopened = SQLiteStore(self.path, MIGRATIONS)
+        stored = reopened.read_typed_attributes(self.character.id)
+        self.assertEqual(stored, {"speed_walk": block[7]})
+        # and it is the float32 the wire will carry, not the double typed in
+        self.assertEqual(block[7], struct.unpack("<f", struct.pack("<f", 400.1))[0])
+        self.assertNotEqual(block[7], 400.1)
+
+    def test_the_block_is_not_composed_before_the_write(self):
+        """A control that DOES fire: compose-then-write is red.
+
+        If the block were built first and the write failed, a caller would
+        have sent the player a speed the database never accepted.  Measured
+        with a value the column refuses.
+        """
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": float("nan")}
+            )
+        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+
+    def test_other_columns_already_on_the_row_do_not_join_the_block(self):
+        """The write returns the WHOLE typed state; the block must not.
+
+        `write_typed_attributes` deliberately reports every column the row has
+        (`test_the_write_returns_the_whole_state_not_only_what_it_wrote`).
+        Composing that return value directly would turn `/speed` into a
+        multi-field send -- which `COO-ORDER 20260901_1641` forbids -- and it
+        would do it silently, only for characters that happen to have a level.
+        """
+        self.store.write_typed_attributes(self.character.id, {"level": 12})
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 500.0}
+        )
+        self.assertEqual(block, {7: 500.0})
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id),
+            {"level": 12, "speed_walk": 500.0},
+        )
+
+    def test_writing_an_unapproved_column_through_this_path_is_refused(self):
+        with self.assertRaises(compose.AttrComposeError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"level": 30}
+            )
+
+    def test_the_refusal_is_about_the_send_and_says_so_by_leaving_the_write(self):
+        """A refused BLOCK is not a refused WRITE, and the test states which.
+
+        The column is this server's truth; the sparse path is one view of it.
+        The write commits before the compose gate runs, so a caller must not
+        read `AttrComposeError` as "nothing was stored" -- pinned here rather
+        than left for someone to discover on a live row.
+        """
+        with self.assertRaises(compose.AttrComposeError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": 300.0, "level": 30}
+            )
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id),
+            {"level": 30, "speed_walk": 300.0},
+        )
+
+    def test_a_value_the_column_may_not_hold_never_reaches_the_database(self):
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": float("inf")}
+            )
+        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+
+    def test_an_unknown_character_is_a_key_error_before_anything(self):
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                999999, {"speed_walk": 300.0}
+            )
+
+    def test_a_soft_deleted_character_is_a_key_error_and_nothing_is_written(self):
+        """The earlier test was named for this case and never exercised it.
+
+        `KeyError` alone is not enough here: an adversary pass on the sibling
+        method showed the trailing read can raise `KeyError` by itself while
+        the UPDATE has already landed on the soft-deleted row, so the row is
+        read raw.
+        """
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE characters SET deleted_at=? WHERE id=?",
+                ("2026-09-01T00:00:00Z", self.character.id),
+            )
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": 300.0}
+            )
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                "SELECT speed_walk FROM characters WHERE id=?",
+                (self.character.id,),
+            ).fetchone()
+        self.assertIsNone(row["speed_walk"])
+
+    def test_an_empty_write_is_refused_before_it_becomes_an_empty_block(self):
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(self.character.id, {})
+
+    def test_the_stored_speed_survives_a_new_store_and_composes_again(self):
+        """The lane's whole point, at the smallest size it can be measured.
+
+        Write once, throw the store away, open the file again, compose again:
+        the same block comes back.  That is "จำได้ข้าม session" for exactly one
+        field -- what actually SENDS it at login is runtime.py, which is not
+        this lane's file.
+        """
+        self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 777.0}
+        )
+        reopened = SQLiteStore(self.path, MIGRATIONS)
+        stored = reopened.read_typed_attributes(self.character.id)
+        self.assertEqual(
+            compose.compose_sparse_block(typed.typed_values_for_compose(stored)),
+            {7: 777.0},
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
