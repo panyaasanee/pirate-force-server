@@ -84,6 +84,19 @@ WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
   that shape because it is the only inbound action shape this project has ever
   parsed, and the ticket that decides whether a real attack input produces it
   is the wiring step below, not a claim of this module.
+  [STALE as of GT-084-R2, attended round, OBSERVER_CONFIRMED
+  2026-08-27T15:52-15:55+07:00] [MEASURED, by console reading]: an attended
+  round HAS since shown that shape arriving from a normal attack input on a
+  hostile actor.  The owner double-clicked Tornado Eagle (template 31, the
+  field-mobs hostile body, mask 0x070D) five times; the console logged five
+  ``MOB-COMBAT-001 hit: performer 0x10010001 -> target 0x201F`` lines, one
+  per click, the fifth taking HP to zero (kill).  See
+  ``pf_bridge/archive/notes_to_chief_2026-08/
+  20260827_1620_GT084R2-RESULT-PASS-hostile-kill-full-wire-but-corpse-freezes-
+  no-target-panel.md``.  The inbound half is measured for THAT actor and
+  THAT session; it is not re-derived here as a general proof for every
+  hostile body or every input path (auto-attack cadence, miss, out-of-range)
+  - those stay open, see MOB_COMBAT_NONCLAIMS.
 
 THE FLOOR, STATED LOUDLY BECAUSE IT IS THE SEAM.  ``HP_FLOOR`` is 0, and the
 death half is what lowered it.
@@ -132,6 +145,20 @@ above that is still true today is the last one: the inbound half (a real
 EA7D produced by a real attack input) has still never been observed by
 anyone, so whether a real click on a real monster reaches this driver at all
 remains PROPOSED, not MEASURED - see GT-084, queued and not yet run.
+
+[STALE as of GT-084-R2, attended round, OBSERVER_CONFIRMED
+2026-08-27T15:52-15:55+07:00] [MEASURED, by console reading]: GT-084 has run.
+A real click on a real monster (Tornado Eagle, template 31, the field-mobs
+hostile body) DID reach this driver: the owner's five double-clicks produced
+five inbound ActionVital frames and five ``MOB-COMBAT-001 hit`` console
+lines, ending the ladder at zero HP and a kill (see
+``pf_bridge/archive/notes_to_chief_2026-08/
+20260827_1620_GT084R2-RESULT-PASS-hostile-kill-full-wire-but-corpse-freezes-
+no-target-panel.md``).  "PROPOSED, not measured" and "queued and not yet
+run" are both false now for that one actor and that one session.  What
+GT-084-R2 did NOT measure and this module still does not claim: whether the
+same holds for every hostile body, for auto-attack cadence, for a miss, or
+for an out-of-range click - see MOB_COMBAT_NONCLAIMS for what stays open.
 
 NOTHING IS INSTALLED.  No socket, no clock, no randomness, no database, no
 global state, no import-time side effect.  Every function is a pure function of
@@ -335,14 +362,25 @@ HP_FLOOR = 0
 # module without quoting these too.
 MOB_COMBAT_NONCLAIMS = (
     "a real attack input has never been observed producing the EA7D "
-    "ActionVital this driver reads; the inbound half is unproven",
+    "ActionVital this driver reads; the inbound half is unproven. "
+    "[STALE as of GT-084-R2, attended round, OBSERVER_CONFIRMED "
+    "2026-08-27T15:52-15:55+07:00] [MEASURED, by console reading]: a real "
+    "attack input HAS been observed producing it -- five double-clicks on "
+    "Tornado Eagle (template 31) produced five inbound ActionVital frames "
+    "and five MOB-COMBAT-001 hit console lines, ending in a kill.  What "
+    "stays unproven: whether every hostile body and every input path "
+    "(auto-attack cadence, a miss, an out-of-range click) reaches this "
+    "driver the same way -- one actor, one session is not a general proof",
     "nothing dispatches this module: runtime.py belongs to the chief and the "
     "one wiring line has not been written. "
     "[STALE as of runtime.py CORE-REQUEST-005, PR #63, round mdj01v, "
     "2026-08-26] [MEASURED, by call-site reading]: the wiring line HAS been "
-    "written and runs unconditionally on a flagless boot; what remains true "
-    "is the nonclaim right above this one -- the inbound half that would "
-    "drive it from a real attack is still unproven",
+    "written and runs unconditionally on a flagless boot. "
+    "[STALE as of GT-084-R2, attended round, 2026-08-27T15:52-15:55+07:00] "
+    "[MEASURED]: what remained true after the wiring line landed -- that "
+    "the inbound half was unproven -- is ALSO now measured, narrower, for "
+    "the one actor GT-084-R2 clicked; see the nonclaim right above this "
+    "one for the current scope of what is still unproven",
     "death is delivered by mob_death, not by this module: what this lane "
     "claims is the arithmetic that reaches zero and the announce frame that "
     "says so, and the corpse itself has never been watched land",
