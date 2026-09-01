@@ -797,7 +797,39 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # register once a real scenario/profile exists, matching that precedent
 # exactly.  No other entry added, removed or reordered; no earlier
 # status/kind/checkpoint/production_allowed touched.)
-CANONICAL_CONTENT_SHA256 = "D47A999430BF43716C885E2D774B149377E9BFEDD6AE09242CCF7D6D5E829960"
+#
+# ---- lineage: chief cloud round dfx8bu / R298 (2026-09-02, LANE-A
+# CORE-REQUEST-026) pin F3E21DD3.. ----
+# -> F3E21DD3.. (2026-09-02, chief cloud round dfx8bu: ONE ENTRY ADDED, HYP-PF-042
+# LOGOUT-ACK-FIRST-REORDER-001, appended at the end so every earlier index
+# stays stable; count 49 -> 50.  This registers exactly the branch the
+# paragraph above said was "NOT registered as a ledger entry this round" --
+# that sentence is now SUPERSEDED, not deleted: it was true when written and
+# stopped being true when LANE-A round 4h2nzu landed the allowlisted profile
+# _PROFILE_ACK_FIRST_REORDER and scenarios/logout_hypothesis_ack_first_
+# reorder.json.  What it predicted also held: a future round did register it
+# once a real scenario/profile existed, exactly the HYP-PF-040 precedent it
+# cited.  The entry varies ONE thing, the emission ORDER of two frames that
+# were already byte-pinned by HYP-PF-012 and HYP-PF-028; no new response byte
+# exists anywhere in it, and both composers re-hash and raise on drift.  It is
+# NOT folded into HYP-PF-041: that entry's already-hash-pinned text claims a
+# close_delay_ms sweep, and a frame-order claim filed under it would
+# misattribute both (chief's ruling on LANE-A's id question, pf_bridge/
+# notes_to_chief/20260902_0215_CHIEF-REPLY-hyp-pf-042-registration-queued-
+# next-pr.md).  One .py source_ref (logout_hypothesis.py) carries the
+# active_claim_marker; its inline "PF-HYPOTHESIS-LEDGER: HYP-PF-042 active"
+# annotation was added in this same commit, because verify_source_annotations
+# rejects either half landing alone -- an annotation with no EXPECTED_META row
+# raises "unregistered emitter annotation", a declared .py source_ref with no
+# annotation raises "declared emitter is missing adjacent annotation".  That
+# file's PROVENANCE NOTE is amended in place with a dated [REGISTERED ...]
+# follow-up rather than rewritten, per the R166 amend-not-replace precedent.
+# No runtime.py behaviour change was made or is claimed: the routing branch
+# has been in runtime.py since chief round 5qs3y7 (R293) and only its stale
+# "no allowlisted profile can carry this value yet" comments were corrected.
+# No other entry added, removed or reordered; no earlier status/kind/
+# checkpoint/production_allowed touched.)
+CANONICAL_CONTENT_SHA256 = "F3E21DD30AB0C1255C971CFA478896DF2540E9DD1FFDD4B46C9ACE68D9704F60"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(
@@ -1069,6 +1101,16 @@ EXPECTED_IDS = (
     # branch3-needs-runtime-py-hyp041-ledger.md) is likewise appended at the
     # end to keep every earlier entry index stable.
     "HYP-PF-041",
+    # HYP-PF-042 (LOGOUT-ACK-FIRST-REORDER-001: LANE-A round 4h2nzu, cloud,
+    # 2026-09-01, the RE-189 Job 2 branch 3 frame-ORDER reversal behind one
+    # allowlisted scenario file, on routing chief wired in round 5qs3y7;
+    # registered by chief cloud round dfx8bu per LANE-A's CORE-REQUEST-026,
+    # pf_bridge/notes_to_chief/20260901_2252_LANE-A-CORE-REQUEST-026-register-
+    # hyp-pf-042-ledger.md) is likewise appended at the end to keep every
+    # earlier entry index stable.  Its lever is which frame goes first;
+    # HYP-PF-041's is when the socket closes.  Two levers, two entries, on
+    # purpose.
+    "HYP-PF-042",
 )
 EXPECTED_META = {
     "HYP-PF-001": ("protocol_hypothesis", "SCENE-005", "frozen"),
@@ -1151,6 +1193,9 @@ EXPECTED_META = {
     ),
     "HYP-PF-041": (
         "protocol_hypothesis", "LOGOUT-TEARDOWN-TIMER-VARIANT-001", "active",
+    ),
+    "HYP-PF-042": (
+        "protocol_hypothesis", "LOGOUT-ACK-FIRST-REORDER-001", "active",
     ),
 }
 KINDS = {"protocol_hypothesis", "diagnostic_value", "retired_claim", "test_geometry"}
