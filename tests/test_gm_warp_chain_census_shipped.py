@@ -26,9 +26,11 @@ below it):
   for a frame;
 * the composer.  ``lane_hooks.scene_census_composer(scene_id)`` must exist
   AND its module must be production-allowed (``runtime.py:8184-8194``);
-* the composer's own admission check -- ``login_entry_allowed`` for that
-  scene -- which answers ``None`` and takes the DECLINED arm, latching
-  ``world_census_sent = True`` with no frame at all (``runtime.py:8339``);
+* the composer's own admission check (``lane_a_scene_census.
+  scene_is_open_to_players``, which reads that scene's
+  ``login_entry_allowed``): when it says no the COMPOSER returns ``None``,
+  and the runtime's DECLINED arm latches ``world_census_sent = True`` with
+  no frame at all (``runtime.py:8339``);
 * composition itself, which latches ``world_census_refused`` on any raise
   (``runtime.py:8326``);
 * and, for scene 1 only, the walk-before-census disjunct still held shut on
@@ -37,10 +39,24 @@ below it):
   not a bug report.
 
 So this file drives the REAL dispatcher, headless, with no scenario objects
-at all, and for a chain of eight hops across REGISTRY-PINNED scenes asserts
-the thing the owner asks for: a ``WORLD_CENSUS_*`` action, naming that
-destination scene, carrying a non-zero actor count, on the very first
+at all, and for a chain across every REGISTRY-PINNED scene a composer claims
+(eleven today, plus one revisit -- the length is read from the registry, not
+written down here) asserts the thing the owner asks for on the very first
 ordinary runtime poll after each hop.
+
+AND IT ASSERTS THE BYTES, NOT THE LABEL.  pf-adversary (round ``ibxaf0``, D1
+and D2) measured the first version of this file green against two mutants
+that are exactly the bug being hunted: blanking ``lane_pc``/``lane_frame`` at
+``runtime.py:8270-8271`` (a label saying 56 actors with an empty buffer
+behind it), and caching hop one's bytes and replaying them for every later
+hop (scene 130's arrival shipping scene 3's dock NPCs under scene 130's
+label).  Both survived because the actor count in a census label is an
+integer the LANE handed the runtime -- the runtime's own comment at that line
+calls it untrusted -- and the label is all the first version read.  Every
+assertion here now goes through the queued buffer itself: the count is read
+back off the wire with ``world_population_handoff.wire_count_of``, and the
+buffer is compared byte for byte against a census composed independently for
+that scene at that scene's own spawn.
 
 The two halves of the harness are borrowed, not invented, so this file
 cannot drift away from what the other two prove:
@@ -78,6 +94,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
+from pirateforce_foundation import world_population_bg0002  # noqa: E402
+from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.gm import scene_catalog  # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
@@ -178,6 +196,10 @@ class _WarpChainHarness(unittest.TestCase):
             self.legacy.extract_avatar_attr_wire_from_actor,
         )
         field_mobs.load_roster()
+        # The registry the runtime itself loads once at boot
+        # (``runtime.py:577``); this file needs it to compose the reference
+        # census the byte comparison above is against.
+        self.scene_registry = world_scene_travel.load_scene_registry()
 
     # ----- boot ----------------------------------------------------------
 
@@ -292,6 +314,77 @@ class _WarpChainHarness(unittest.TestCase):
             if action[0].startswith("WORLD_CENSUS_")
         ]
 
+    def _arrival_census(self, actions, scene_id):
+        """The ONE arrival census action for `scene_id`, unpacked.
+
+        Returns `(label, pc, frame, count_on_the_label)`.  Fails rather than
+        returns None: every caller here is asserting a census happened.
+        """
+        census = self._census(actions)
+        initial = [
+            action for action in census if "_INITIAL_" in action[0]
+        ]
+        self.assertEqual(
+            len(initial), 1,
+            f"scene {scene_id}: expected exactly one INITIAL census action, "
+            f"got {[action[0] for action in census]}",
+        )
+        label, pc, frame, _delay = initial[0]
+        count = self._actor_count(label)
+        self.assertIsNotNone(count, f"unreadable census label {label}")
+        return label, pc, frame, count
+
+    def _assert_the_bytes_are_this_scenes_own(
+        self, scene_id, spawn, label, pc, frame, count,
+    ):
+        """The assertion pf-adversary's D1/D2 got past, done on the buffer.
+
+        Three steps, each killing a mutant the label alone cannot see:
+
+        1. there ARE bytes.  ``lane_pc = b""`` at ``runtime.py:8270`` ships
+           an empty buffer under a label that still says 56 actors;
+        2. the count is read back OFF those bytes
+           (``world_population_handoff.wire_count_of``), not off the label --
+           the label's number came from ``int(composed.actor_count)``, which
+           the runtime's own comment at that line calls untrusted lane input;
+        3. the buffer equals a census composed INDEPENDENTLY here, for this
+           scene, at this scene's pinned spawn.  A replayed buffer from an
+           earlier hop, or one composed around the previous map's anchor
+           (which changes the order actors are listed in -- see
+           ``runtime.py:8237-8248``), is a byte mismatch.
+
+        Step 3 is skipped for scene 2 only, which has no ``lane_hooks``
+        composer to ask: its census comes from the runtime's own bg0002 arm.
+        Steps 1 and 2 still apply there, and its label is pinned separately.
+        """
+        self.assertTrue(pc, f"{label}: the census pc is empty")
+        self.assertTrue(frame, f"{label}: the census frame is empty")
+        self.assertGreater(count, 0, f"{label}: label says zero actors")
+        self.assertEqual(
+            world_population_handoff.wire_count_of(pc), count,
+            f"{label}: the count on the label is not the count on the wire",
+        )
+
+        composer = lane_hooks.scene_census_composer(scene_id)
+        if composer is None:
+            return
+        reference = composer.compose(
+            legacy=self.legacy,
+            anchor=spawn,
+            scene_id=scene_id,
+            scene_entry_registry=self.scene_registry,
+        )
+        self.assertIsNotNone(
+            reference,
+            f"scene {scene_id}: the runtime shipped a census but an "
+            "independent compose for the same scene declined",
+        )
+        self.assertEqual(
+            bytes(reference.pc), pc,
+            f"{label}: these are not this scene's own census bytes",
+        )
+        self.assertEqual(bytes(reference.frame), frame, label)
+
     @staticmethod
     def _actor_count(label):
         """The trailing ``_<count>`` every census label carries.
@@ -317,139 +410,182 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
     def test_every_hop_of_a_long_chain_queues_a_census_for_that_scene(self):
         scenes = _lane_census_scenes()
         self.assertGreaterEqual(
-            len(scenes), 4,
-            "a chain shorter than four hops is not the scenario GM-A was "
-            "rejected over",
+            len(scenes), 8,
+            "a chain this short is not the scenario GM-A was rejected over "
+            f"-- the composer registry answered {scenes}",
         )
         chain = list(scenes)
         chain.append(scenes[0])  # the "back to a map already seen" leg
         state = self._login_and_start("gmwarpchain01")
 
         seen = []
+        bytes_of = {}
         for hop_index, scene_id in enumerate(chain):
-            self._warp(state, scene_id)
+            spawn = self._warp(state, scene_id)
             self.assertFalse(
                 state.world_census_sent,
                 f"hop {hop_index} to scene {scene_id}: the latch was not "
                 "cleared, so no census can be composed for this map",
             )
             actions, _out, _err = self._poll(state)
-            census = self._census(actions)
             self.assertTrue(
-                census,
+                self._census(actions),
                 f"hop {hop_index} to scene {scene_id}: the first ordinary "
                 "poll after the warp queued NO census action at all -- this "
                 "is the empty map the owner reported, measured",
             )
-            labels = [action[0] for action in census]
-            for label in labels:
-                self.assertIn(
-                    f"SCENE{scene_id}_", label,
-                    f"hop {hop_index}: a census went out, but it is not this "
-                    f"destination's ({labels})",
-                )
-            initial = [
-                label for label in labels if "_INITIAL_" in label
-            ]
+            label, pc, frame, count = self._arrival_census(actions, scene_id)
+            self.assertIn(
+                f"SCENE{scene_id}_", label,
+                f"hop {hop_index}: a census went out, but its label is not "
+                f"this destination's ({label})",
+            )
+            self._assert_the_bytes_are_this_scenes_own(
+                scene_id, spawn, label, pc, frame, count,
+            )
+
+            # ONCE per scene, not once per poll.  Deleting the
+            # `world_census_sent = True` on the commit path would re-queue a
+            # ~10KB roster on every runtime poll for the rest of the
+            # session, and every other assertion in this file would stay
+            # green (pf-adversary D8).
+            again, _out, _err = self._poll(state)
             self.assertEqual(
-                len(initial), 1,
-                f"hop {hop_index} to scene {scene_id}: expected exactly one "
-                f"INITIAL census action, got {labels}",
+                self._census(again), [],
+                f"hop {hop_index} to scene {scene_id}: the census re-shipped "
+                "on the very next poll -- it is not latching",
             )
-            count = self._actor_count(initial[0])
-            self.assertIsNotNone(
-                count, f"hop {hop_index}: unreadable label {initial[0]}",
-            )
-            self.assertGreater(
-                count, 0,
-                f"hop {hop_index} to scene {scene_id}: the census shipped "
-                "with ZERO actors -- an empty map that reports success",
-            )
+
             seen.append((scene_id, count))
+            bytes_of.setdefault(scene_id, pc)
 
         self.assertEqual([scene for scene, _count in seen], chain)
+        self.assertEqual(
+            len(set(bytes_of.values())), len(bytes_of),
+            "two different maps shipped byte-identical censuses -- one "
+            "roster is being replayed for another map",
+        )
+        # The revisit leg really did re-compose the same map, byte for byte.
+        self.assertEqual(seen[0], seen[-1])
+
+    def test_the_second_hop_is_not_a_replay_of_the_first_maps_roster(self):
+        """Two maps, two different sets of bytes on the wire.
+
+        The bug shape: a census composed from the DEPARTURE scene's roster
+        after the scene id was relabelled -- it ships a frame (so a label
+        check stays green), names the right scene and carries the right
+        count, and puts the previous map's NPCs in front of the player.
+
+        pf-adversary's D2 measured the first version of this test failing to
+        kill exactly that: it compared actor COUNTS, and the count comes
+        from the composer's own return value, not from the buffer.  Caching
+        hop one's ``lane_pc``/``lane_frame`` and replaying them for every
+        later hop left the counts (and this test) untouched.  So the
+        comparison here is on the queued buffers themselves.
+        """
+        scenes = _lane_census_scenes()
+        self.assertGreaterEqual(len(scenes), 2, scenes)
+        state = self._login_and_start("gmwarpchain02")
+        counts = {}
+        buffers = {}
+        for scene_id in scenes:
+            spawn = self._warp(state, scene_id)
+            actions, _out, _err = self._poll(state)
+            label, pc, frame, count = self._arrival_census(actions, scene_id)
+            self._assert_the_bytes_are_this_scenes_own(
+                scene_id, spawn, label, pc, frame, count,
+            )
+            counts[scene_id] = count
+            buffers[scene_id] = pc
+
+        self.assertEqual(
+            len(set(buffers.values())), len(buffers),
+            "two maps shipped the identical census buffer",
+        )
+        self.assertGreater(
+            len(set(counts.values())), 1,
+            "every scene in the chain shipped the same actor count "
+            f"({counts}) -- either the rosters really are identical or one "
+            "roster is being replayed for every map",
+        )
 
     def test_every_map_a_bare_warp_can_reach_ships_one_on_arrival(self):
         """The whole reachable world, in one login, in one test.
 
-        The three tests above prove the CHAIN for the lane-composed scenes.
-        This one closes the set: it asks the production gate which scenes
+        The tests above prove the CHAIN for the lane-composed scenes.  This
+        one closes the set: it asks the production gate which scenes
         ``/warp <scene>`` can reach at all and requires a census from every
-        single one of them -- including scene 2, whose census comes from the
-        runtime's own bg0002 arm and not from ``lane_hooks`` at all, so a
-        chain built only from the lane registry would never have touched it.
+        one of them -- including scene 2, whose census comes from the
+        runtime's own bg0002 arm and not from ``lane_hooks``, so a chain
+        built from the lane registry alone never touches it.
 
-        Scene 1 is the one documented exception and is asserted as an
-        exception, not skipped: see ``TheOneMapThatIsStillSilentTests``.
-        If the walk-before-census disjunct opens, THIS test starts failing
-        too (it will find a census where it expects none), which is the
-        reminder to come back and rewrite both.
+        SCENE 1 IS VISITED LAST, ON PURPOSE.  The session boots in scene 1,
+        so warping there first is a same-scene no-op that returns early
+        before the resync runs (``runtime.py:5660``) -- pf-adversary's D4
+        measured the first version of this test "proving" scene 1's silence
+        with a session that had never warped anywhere.  Reaching it from
+        another map is the only version of that claim worth making, and the
+        resync event is asserted so a future early return cannot make it
+        vacuous again.
         """
         destinations = _bare_warp_destinations()
+        self.assertGreaterEqual(
+            len(destinations), 8,
+            "the bare-warp gate answered a set too small to be the world "
+            f"this test claims to cover: {destinations}",
+        )
         self.assertIn(world_population.SCENE_ID, destinations)
+        self.assertIn(
+            world_population_bg0002.SCENE2_N_ID, destinations,
+            "scene 2 is the only scene this file covers through the "
+            "runtime's own arm; without it this test loses that half",
+        )
+        elsewhere = [
+            scene_id for scene_id in destinations
+            if scene_id != world_population.SCENE_ID
+        ]
         state = self._login_and_start("gmwarpchain09")
 
         shipped = {}
-        for scene_id in destinations:
-            self._warp(state, scene_id)
+        for scene_id in elsewhere:
+            spawn = self._warp(state, scene_id)
             actions, _out, _err = self._poll(state)
-            initial = [
-                action[0] for action in self._census(actions)
-                if "_INITIAL_" in action[0]
-            ]
-            if scene_id == world_population.SCENE_ID:
-                self.assertEqual(
-                    initial, [],
-                    "scene 1 shipped on arrival -- the walk-before-census "
-                    "disjunct opened and this file is now stale",
+            label, pc, frame, count = self._arrival_census(actions, scene_id)
+            if scene_id == world_population_bg0002.SCENE2_N_ID:
+                # Its own spelling, from its own arm.  Renaming these labels
+                # to the home census's spelling is the "dock NPCs delivered
+                # into Prison Exile Island" mix-up world_population_handoff
+                # exists to prevent, and a bare "_INITIAL_" check cannot see
+                # it (pf-adversary D6).
+                self.assertTrue(
+                    label.startswith("WORLD_CENSUS_BG0002_INITIAL_"), label,
                 )
-                continue
-            self.assertEqual(
-                len(initial), 1,
-                f"scene {scene_id} is reachable by a bare /warp but did not "
-                f"ship exactly one arrival census: {initial}",
-            )
-            count = self._actor_count(initial[0])
-            self.assertIsNotNone(count, initial[0])
-            self.assertGreater(
-                count, 0, f"scene {scene_id} shipped an empty census",
+            else:
+                self.assertIn(f"SCENE{scene_id}_", label)
+            self._assert_the_bytes_are_this_scenes_own(
+                scene_id, spawn, label, pc, frame, count,
             )
             shipped[scene_id] = count
+
+        # Scene 1 LAST, arrived at from somewhere else.
+        self._warp(state, world_population.SCENE_ID)
+        self.assertIn(
+            f"gm_warp_selected_scene_resynced_{world_population.SCENE_ID}",
+            state.events,
+            "the hop to scene 1 did not resync -- this leg proves nothing",
+        )
+        actions, _out, _err = self._poll(state)
+        self.assertEqual(
+            self._census(actions), [],
+            "scene 1 shipped on arrival -- the walk-before-census disjunct "
+            "opened and this file is now stale",
+        )
 
         self.assertEqual(
             sorted(list(shipped) + [world_population.SCENE_ID]),
             sorted(destinations),
             "some reachable map was neither measured nor named as the "
             "exception",
-        )
-
-    def test_the_second_hop_is_not_a_replay_of_the_first_maps_roster(self):
-        """Two different maps must not ship the same actor count by accident.
-
-        The bug shape this kills is a census composed from the DEPARTURE
-        scene's roster after the scene id was relabelled -- it would ship a
-        frame (so the test above stays green) that shows the previous map's
-        NPCs.  Two scenes whose rosters differ in size make that visible
-        without needing to decode the frame.
-        """
-        scenes = _lane_census_scenes()
-        state = self._login_and_start("gmwarpchain02")
-        counts = {}
-        for scene_id in scenes:
-            self._warp(state, scene_id)
-            actions, _out, _err = self._poll(state)
-            initial = [
-                action[0] for action in self._census(actions)
-                if "_INITIAL_" in action[0]
-            ]
-            self.assertEqual(len(initial), 1, f"scene {scene_id}: {initial}")
-            counts[scene_id] = self._actor_count(initial[0])
-
-        self.assertGreater(
-            len(set(counts.values())), 1,
-            "every scene in the chain shipped the same actor count "
-            f"({counts}) -- either the rosters really are identical or one "
-            "roster is being replayed for every map",
         )
 
     def test_a_hop_after_the_player_walked_anchors_on_the_destination(self):
@@ -463,22 +599,39 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
         map's coordinates in ``last_target_pos``, and the arrival census
         reads that field before it falls back to the spawn
         (``runtime.py:7908-7910``) -- so a hop that forgot to clear it
-        composes the new map around a point on the old one.  That is F-1
-        from GT-172 arriving through a different door, and it is invisible
-        to a label check: the frame ships, names the right scene, carries
-        the right count, and puts the bodies where the player is not.
+        composes the new map around a point on the old one.
 
-        Measured, not assumed: with ``last_target_pos = None`` removed from
-        the resync (``runtime.py:5683``), every other test in this file
-        still passes and this one fails.
+        WHAT THAT COSTS, MEASURED RATHER THAN ASSUMED.  An earlier draft of
+        this docstring said it "puts the bodies where the player is not".
+        pf-adversary (D3) checked and it does not: composing scene 7 at its
+        spawn and at a point 9000 units away yields the same actor count,
+        the same buffer length and the same multiset of bytes -- only the
+        ORDER actors are listed in changes, which is what
+        ``runtime.py:8237-8248`` says in as many words. So the claim here is
+        the narrow one: the arrival census must be the one composed for this
+        map at this map's own spawn, byte for byte, and a stale anchor makes
+        it a different buffer.  Whether the client cares about that order is
+        not something this file knows.
+
+        Both halves are asserted, because they can fail apart: the buffer
+        actually queued (via ``_assert_the_bytes_are_this_scenes_own``), and
+        the ``census_anchor_record`` the runtime stamps beside it -- a stamp
+        that agrees with a buffer composed from some other anchor is the
+        failure that would let every downstream recompose go wrong quietly.
+
+        Measured: with ``last_target_pos = None`` removed from the resync
+        (``runtime.py:5683``), every other test in this file still passes
+        and this one fails.
         """
         scenes = _lane_census_scenes()[:5]
+        self.assertGreaterEqual(len(scenes), 5, scenes)
         state = self._login_and_start("gmwarpchain08")
         for hop_index, scene_id in enumerate(scenes):
             spawn = self._warp(state, scene_id)
             actions, _out, _err = self._poll(state)
-            self.assertTrue(
-                self._census(actions), f"hop {hop_index}: no census at all",
+            label, pc, frame, count = self._arrival_census(actions, scene_id)
+            self._assert_the_bytes_are_this_scenes_own(
+                scene_id, spawn, label, pc, frame, count,
             )
             record = state.census_anchor_record
             self.assertIsNotNone(
@@ -491,7 +644,7 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
             self.assertEqual(
                 tuple(record.anchor), tuple(float(axis) for axis in spawn),
                 f"hop {hop_index} to scene {scene_id}: this map's census was "
-                "composed around a point that is not its own spawn -- on the "
+                "stamped with a point that is not its own spawn -- on the "
                 "walking chain that means the PREVIOUS map's coordinates",
             )
             # What the tester does before typing the next /warp.
@@ -512,6 +665,7 @@ class TheChainShipsACensusOnEveryHopTests(_WarpChainHarness):
         above.
         """
         scenes = _lane_census_scenes()[:4]
+        self.assertEqual(len(scenes), 4, scenes)
         state = self._login_and_start("gmwarpchain03")
         for scene_id in scenes:
             self._warp(state, scene_id)
@@ -546,6 +700,51 @@ class TheHarnessMeasuresWhatItClaimsTests(_WarpChainHarness):
 
         self.assertEqual(self._census(actions), [])
         self.assertIn("world_census_skipped_scene_278_not_home", state.events)
+
+    def test_a_refused_census_on_one_map_does_not_silence_the_next(self):
+        """The OTHER half of the latch clear, which nothing here pinned.
+
+        The resync clears two fields.  Deleting ``world_census_sent = False``
+        makes five tests in this file red; deleting
+        ``world_census_refused = False`` beside it made none of them red
+        (pf-adversary D7), because no test ever put the session in the state
+        that field describes.  It is not a hypothetical state: any composer
+        raise latches it (``runtime.py:8326``), and an unpinned scene's
+        anchor lookup latches it too (``:7952``) -- and with the clear gone,
+        ONE such failure anywhere in a session silences every map for the
+        rest of that login.
+
+        So this test parks the session in that state deliberately, confirms
+        it really does block a census, and then requires the next hop to
+        clear it.
+        """
+        scenes = _lane_census_scenes()
+        self.assertGreaterEqual(len(scenes), 2, scenes)
+        state = self._login_and_start("gmwarpchain10")
+        self._warp(state, scenes[0])
+
+        # Exactly what a composer raise leaves behind: refused latched,
+        # sent still False.
+        state.world_census_refused = True
+        state.world_census_sent = False
+        actions, _out, _err = self._poll(state)
+        self.assertEqual(
+            self._census(actions), [],
+            "world_census_refused did not block this poll, so the rest of "
+            "this test would prove nothing about clearing it",
+        )
+
+        spawn = self._warp(state, scenes[1])
+        self.assertFalse(
+            state.world_census_refused,
+            "the hop did not clear world_census_refused -- one earlier "
+            "failure now silences every remaining map of this login",
+        )
+        actions, _out, _err = self._poll(state)
+        label, pc, frame, count = self._arrival_census(actions, scenes[1])
+        self._assert_the_bytes_are_this_scenes_own(
+            scenes[1], spawn, label, pc, frame, count,
+        )
 
     def test_without_the_latch_clear_the_second_hop_ships_nothing(self):
         """The mutation this whole file exists to catch, run as a test.

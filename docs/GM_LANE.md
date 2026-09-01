@@ -6954,8 +6954,9 @@ composition itself (`:8326`), and scene 1's walk-before-census disjunct.
 
 ### Measured, headless, on the real dispatcher, flagless boot
 
-`tests/test_gm_warp_chain_census_shipped.py`, 9 tests. Twelve consecutive cross-scene warps in ONE
-login, each followed by one ordinary runtime poll:
+`tests/test_gm_warp_chain_census_shipped.py`, 10 tests. Twelve consecutive cross-scene warps in ONE
+login (eleven registry scenes plus one revisit -- the chain is read from the composer registry, not
+written down, and guarded against shrinking below eight), each followed by one ordinary runtime poll:
 
 | destination | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 14 | 130 | 3 again |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -6969,19 +6970,61 @@ asserted AS an exception.
 
 And the way a tester actually plays: land, walk, then type the next `/warp`. That leaves the
 departure map's coordinates in `last_target_pos`, which the arrival census reads before it falls back
-to the destination's spawn -- so the walking chain asserts the stamped `census_anchor_record` is the
-DESTINATION's pinned spawn on every hop. That is GT-172's F-1 arriving through a different door, and
-it is invisible to a label check: right scene, right count, bodies in the wrong place.
+to the destination's spawn -- so the walking chain asserts BOTH the queued buffer and the stamped
+`census_anchor_record` belong to the destination and its own spawn. That is GT-172's F-1 arriving
+through a different door.
+
+### pf-adversary: NOT APPROVED on the first pass, ten defects, all ten answered before un-drafting
+
+The subagent ran mutation experiments in its own worktree and came back with the finding that mattered
+most: **the first version of this file asserted labels, not bytes**. A census label's actor count is an
+integer the LANE hands the runtime -- `runtime.py:8270-8272` coerces it and the runtime's own comment
+there calls it untrusted -- so two mutants that ARE the bug being hunted stayed green:
+
+* blank `lane_pc`/`lane_frame` at `:8270-8271` -> every hop ships `..._SCENE7_INITIAL_56` with an empty
+  buffer behind it. That is the empty map GT-182 reported, and the first version said 9 passed;
+* cache hop one's bytes and replay them for every later hop -> scene 130's arrival ships scene 3's dock
+  NPCs under scene 130's label. Also 9 passed.
+
+Every assertion now goes through the queued buffer: the count is read back off the wire with
+`world_population_handoff.wire_count_of`, and the buffer is compared byte for byte against a census
+composed independently for that scene at that scene's own spawn.
+
+Two more findings were corrections to what this lane had WRITTEN, not to the code:
+
+* the walking-chain docstring claimed a stale anchor "puts the bodies where the player is not". The
+  subagent measured it: same actor count, same buffer length, same multiset of bytes -- only the ORDER
+  actors are listed in changes, which `runtime.py:8237-8248` says in as many words. The claim is now
+  the narrow one it can support, and the sentence that overstated it is gone rather than softened;
+* the "whole reachable world" test visited scene 1 FIRST, and the session boots in scene 1 -- so the
+  warp was a same-scene no-op that returned before the resync ran (`runtime.py:5660`). Scene 1's
+  silence was being "proved" by a session that had never warped anywhere. It is visited LAST now,
+  arrived at from another map, with `gm_warp_selected_scene_resynced_1` asserted so it cannot go
+  vacuous again. The published "12 of the 13" was re-measured after that fix, not carried over.
+
+The rest: once-per-scene latching is asserted (a second poll must ship nothing), scene 2's own label
+spelling is pinned (renaming it to the home census's spelling is the "dock NPCs into Prison Exile
+Island" mix-up), `world_census_refused` gets its own test, and every helper that reads the registry has
+a minimum-size guard so a shrunken registry cannot leave a test asserting nothing.
 
 ### Mutation control (separate worktree, deleted; live tree clean)
 
-| mutant | result |
-|---|---|
-| delete `world_census_sent/refused = False` from the resync (the pre-`67fe6fe` behaviour) | **5 red** |
-| delete `last_target_pos = None` from the same block | **1 red** (the walking chain), 8 green |
+Measured on the 10-test file that is being merged, not on the draft the subagent reviewed:
 
-The second row is the whole reason the walking-chain test exists: every other test in this file is
-blind to a stale anchor, because none of them ever walks.
+| mutant | before this pass | after |
+|---|---|---|
+| neither latch field cleared on a hop (the pre-`67fe6fe` behaviour) | 5 red | **6 red** |
+| only `world_census_sent = False` removed | 5 red | **5 red** |
+| only `world_census_refused = False` removed | **0 red** | **1 red** |
+| `last_target_pos = None` removed (stale anchor) | 1 red | **1 red** |
+| `lane_pc`/`lane_frame` blanked: label says 56, wire is empty | **0 red** | **5 red** |
+| hop one's bytes replayed for every later hop | **0 red** | **4 red** |
+| composed around the previous map's anchor, stamp still correct | **0 red** | **4 red** |
+| the lane census never latches `world_census_sent` | **0 red** | **1 red** |
+| scene 2's label renamed to the home census's spelling | **0 red** | **1 red** |
+
+The `last_target_pos` row is still the whole reason the walking-chain test exists: every other test in
+this file warps from a standing start, so none of them can see a stale anchor.
 
 ### The two asterisks GT-192 needs before the owner runs it (letter to COO, `0425`)
 
