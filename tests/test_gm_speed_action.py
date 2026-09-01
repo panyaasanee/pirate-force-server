@@ -220,6 +220,41 @@ class _Case(unittest.TestCase):
             attr_wire, "UPDATE_ATTR_VITAL_VERSION_CONFIRMED", None
         )
 
+    def assertRefusalWentToTheScreen(self, action):
+        """A refused `/speed` returns the ON-SCREEN NOTICE, not `None`.
+
+        ~~`assertIsNone(action)`~~ -- struck, not deleted, because what the
+        old spelling asserted was TRUE until COO-DECISION 2026-09-02T03:45
+        +07:00 (`pf_bridge/notes_to_chief/20260902_0345_COO-DECISION-speed-
+        refusal-localtalk-via-say-wire-12-ascii.md`) ordered path 1: a
+        refused `/speed` was silent on the client, and GM-B could not close
+        because a tester could not tell "refused" from "the command did
+        nothing at all".  Chief wired the notice (`_speed_denied` ->
+        `say_wire.make_local_talk_notice_frame`, 0xAC52, body `SPEED
+        DENIED`, exactly 12 ASCII), so every refusal now answers the
+        connection with one sentence.
+
+        WHAT THIS STILL PINS, AND IT IS THE PART THAT MATTERED: no
+        `UpdateAttrVital` goes out -- the command did not run.  The label
+        check is what keeps that promise, so a refusal that started emitting
+        the COMMAND's frame still goes red here.  What each test asserts
+        about rows, events and outcome words is untouched by this change.
+        The full nine-path proof (bytes decoded, length pinned, console line
+        preserved, `queued` never armed) lives in chief's own
+        `tests/test_gm_speed_denied_notice.py`.
+        """
+        self.assertIsNotNone(
+            action,
+            "a refused /speed reached the client with nothing at all; "
+            "COO-DECISION 20260902_0345 requires the SPEED DENIED notice",
+        )
+        self.assertEqual(
+            action[0],
+            chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL,
+            "a refused /speed returned an action that is not the refusal "
+            "notice: %r" % (action[0],),
+        )
+
 
 class SpeedVersionGateTests(_Case):
     def test_the_shipped_constant_is_zero_by_the_scoped_exception(self):
@@ -239,7 +274,7 @@ class SpeedVersionGateTests(_Case):
         session = FakeSession()
         with self.close_the_version_gate():
             action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_NO_VERSION, session.events
         )
@@ -312,7 +347,7 @@ class SpeedActionTests(_Case):
             side_effect=speed_wire.SpeedWireError("nope"),
         ):
             action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             f"{chat_command_action.EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
             "SpeedWireError",
@@ -361,7 +396,7 @@ class SpeedActionTests(_Case):
             "parse_speed_value",
             side_effect=speed_wire.SpeedWireError("nope"),
         ):
-            self.assertIsNone(self.act(session, "/speed 5.0"))
+            self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
         self.assertEqual(session.foundation.lifecycle.store.calls, [])
         self.assertIn(
             f"{chat_command_action.EVENT_SPEED_REFUSED_PREFIX}SpeedWireError",
@@ -376,7 +411,7 @@ class SpeedIdentityTests(_Case):
     def test_no_selected_character_is_a_named_refusal_not_a_crash(self):
         session = FakeSession(selected=None)
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_NO_SELECTED_CHARACTER,
             session.events,
@@ -388,7 +423,7 @@ class SpeedIdentityTests(_Case):
 
         session = FakeSession(selected=BareSelected())
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_NO_SELECTED_CHARACTER,
             session.events,
@@ -419,7 +454,7 @@ class SpeedRunCopyDbGateTests(_Case):
     def test_the_canonical_filename_exact_match_withholds(self):
         session = FakeSession(db_path="state/pirateforce.sqlite3")
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -428,7 +463,7 @@ class SpeedRunCopyDbGateTests(_Case):
     def test_the_bare_canonical_filename_with_no_directory_also_withholds(self):
         session = FakeSession(db_path="pirateforce.sqlite3")
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -454,7 +489,7 @@ class SpeedRunCopyDbGateTests(_Case):
         # own separator.
         session = FakeSession(db_path="state\\pirateforce.sqlite3")
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -480,7 +515,7 @@ class SpeedRunCopyDbGateTests(_Case):
         ):
             with self.subTest(db_path=path):
                 session = FakeSession(db_path=path)
-                self.assertIsNone(self.act(session, "/speed 5.0"))
+                self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
                 self.assertIn(
                     chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
                     session.events,
@@ -500,7 +535,7 @@ class SpeedRunCopyDbGateTests(_Case):
         alias = self.tmp / "pirateforce_gt193_looks_like_a_run_copy.sqlite3"
         os.link(canonical, alias)
         session = FakeSession(db_path=str(alias))
-        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -528,7 +563,7 @@ class SpeedRunCopyDbGateTests(_Case):
         # if it were proven safe.
         session = FakeSession(db_path=None)
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -541,7 +576,7 @@ class SpeedRunCopyDbGateTests(_Case):
         # one.
         session = FakeSession(selected=None, db_path="state/pirateforce.sqlite3")
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -802,7 +837,7 @@ class SpeedPersistenceTests(_Case):
         session = FakeSession()
         self.store_of(session).raises = KeyError(1)
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             f"{chat_command_action.EVENT_SPEED_PERSIST_REFUSED_PREFIX}KeyError",
             session.events,
@@ -826,7 +861,7 @@ class SpeedPersistenceTests(_Case):
         session = FakeSession()
         self.store_of(session).readback = {speed_wire.SPEED_FIELD_X: "fast"}
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_PERSIST_READBACK_UNUSABLE,
             session.events,
@@ -835,13 +870,13 @@ class SpeedPersistenceTests(_Case):
     def test_a_readback_missing_the_field_entirely_sends_no_frame(self):
         session = FakeSession()
         self.store_of(session).readback = {}
-        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
 
     def test_a_boolean_readback_is_refused_rather_than_encoded_as_one(self):
         # `True` is an `int` in python and would ride the wire as `1.0`.
         session = FakeSession()
         self.store_of(session).readback = {speed_wire.SPEED_FIELD_X: True}
-        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
         self.assertIn(
             chat_command_action.EVENT_SPEED_PERSIST_READBACK_UNUSABLE,
             session.events,
@@ -853,14 +888,14 @@ class SpeedPersistenceTests(_Case):
             DEFAULT_RUN_COPY_DB_PATH
         )
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(chat_command_action.EVENT_SPEED_NO_STORE, session.events)
 
     def test_a_selected_character_with_no_id_refuses_before_writing(self):
         session = FakeSession(selected=FakeSelected())
         del session.foundation.selected.id
         action = self.act(session, "/speed 5.0")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         self.assertIn(
             chat_command_action.EVENT_SPEED_NO_CHARACTER_ID, session.events
         )
@@ -872,14 +907,14 @@ class SpeedPersistenceTests(_Case):
         for bad in (0, -1, True, "3"):
             with self.subTest(character_id=bad):
                 session = FakeSession(selected=FakeSelected(character_id=bad))
-                self.assertIsNone(self.act(session, "/speed 5.0"))
+                self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
                 self.assertEqual(self.store_of(session).calls, [])
 
     def test_the_canonical_db_gate_fires_before_any_write(self):
         # The gate was a send gate; it is now also the only thing standing
         # between this lane and writing the canonical database.
         session = FakeSession(db_path="state/pirateforce.sqlite3")
-        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
         self.assertEqual(self.store_of(session).calls, [])
 
     def test_a_shut_version_gate_writes_nothing_either(self):
@@ -888,7 +923,7 @@ class SpeedPersistenceTests(_Case):
         # speed no client was ever told about.
         session = FakeSession()
         with self.close_the_version_gate():
-            self.assertIsNone(self.act(session, "/speed 5.0"))
+            self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
         self.assertEqual(self.store_of(session).calls, [])
 
     def test_an_unparseable_value_writes_nothing(self):
@@ -991,7 +1026,7 @@ class PersistenceIntegrationTests(_Case):
         # Out of the wire kind's f32 range -> `TypedAttrError` inside the
         # store, before any UPDATE.  No frame, and nothing on disk.
         self.act(self.session, "/speed 620.0")
-        self.assertIsNone(self.act(self.session, "/speed 1e40"))
+        self.assertRefusalWentToTheScreen(self.act(self.session, "/speed 1e40"))
         self.assertEqual(self.reopened_speed_walk(), 620.0)
 
 
@@ -1213,7 +1248,7 @@ class TheRefusalNamesThisConnectionTests(_Case):
             selected=self.selected(), db_path="state/pirateforce.sqlite3"
         )
         action, err = self.say(session, "/speed 400")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
         self.assertIn("why=withheld_speed_canonical_db ", line)
         for field in self.expected_fields():
@@ -1265,7 +1300,7 @@ class TheRefusalNamesThisConnectionTests(_Case):
         session = FakeSession(selected=self.selected())
         with self.close_the_version_gate():
             action, err = self.say(session, "/speed 400")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
         self.assertIn("why=withheld_update_attr_vital_version ", line)
         for field in self.expected_fields():
@@ -1275,7 +1310,7 @@ class TheRefusalNamesThisConnectionTests(_Case):
         session = FakeSession(selected=self.selected())
         session.foundation.lifecycle.store.raises = RuntimeError("column locked")
         action, err = self.say(session, "/speed 400")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
         self.assertIn("why=refused_speed_persist_RuntimeError", line)
         for field in self.expected_fields():
@@ -1292,7 +1327,7 @@ class TheRefusalNamesThisConnectionTests(_Case):
             DEFAULT_RUN_COPY_DB_PATH
         )
         action, err = self.say(session, "/speed 400")
-        self.assertIsNone(action, "a None answer may not paint a screen")
+        self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
         self.assertIn("why=refused_speed_persist_readback_unusable", line)
         for field in self.expected_fields():
@@ -1301,7 +1336,7 @@ class TheRefusalNamesThisConnectionTests(_Case):
     def test_a_connection_with_nothing_selected_says_none_not_a_guess(self):
         session = FakeSession(selected=None)
         action, err = self.say(session, "/speed 400")
-        self.assertIsNone(action)
+        self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
         self.assertIn("character_id=none", line)
         self.assertIn("identity=none", line)
