@@ -133,13 +133,27 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- the other measured preconditions ---------------------------
 
-    def test_no_roster_and_no_death_ruling_today(self) -> None:
+    def test_no_roster_and_carlos_alone_lacks_a_death_ruling_today(
+            self) -> None:
+        # ~~no death ruling for any of the seven~~ WITHDRAWN round
+        # n3wqrt-successor: COO-RULING-20260901-1046 covers six of the
+        # seven now (mob_death.py). Only Carlos (924) is still refused --
+        # this test's own name used to claim more than that.
         self.assertFalse(gates.roster_gate_open())
         self.assertEqual(gates.scene14_roster_size_today(), 0)
         self.assertEqual(
-            gates.templates_without_a_death_ruling(),
-            (343, 345, 348, 350, 353, 355, 924))
+            gates.templates_without_a_death_ruling(), (924,))
+        ruled, refused = [], []
         for mob in hostile_bg0015.scene14_hostile_roster():
+            if mob.template_id == 924:
+                refused.append(mob)
+                continue
+            ruled.append(mob)
+        self.assertTrue(ruled, "expected six ruled rows, got none")
+        for mob in ruled:
+            self.assertEqual(
+                mob_death.ruling_for(mob), "COO-RULING-20260901-1046")
+        for mob in refused:
             with self.assertRaises(mob_death.MobDeathContractError) as ctx:
                 mob_death.ruling_for(mob)
             self.assertEqual(

@@ -84,12 +84,20 @@ letter asks for "at most 2-3 options if the answer isn't clean" -- it isn't:
 reading of which is weakest is written on :func:`option_c_defer_the_whole_
 roster`'s own docstring, labelled as this lane's assumption, not as data.
 
-WHAT IS STILL CLOSED AFTER THIS MODULE EXISTS.  Nothing:
-``mob_death.WIDENING_RULINGS`` carries no new entry, ``mob_combat_bg0015_
-gates.templates_without_a_death_ruling()`` still refuses all seven, and
-``field_mobs._SCENE_TABLE_MODULES`` is untouched (gate 1, COO-DECISION
-2026-09-01T08:47+07:00 item (c), stays locked pending item (b)'s answer).  A
-player sees nothing different because this file exists.
+WHAT IS STILL CLOSED AFTER THIS MODULE EXISTS.  ~~Nothing: mob_death.
+WIDENING_RULINGS carries no new entry, mob_combat_bg0015_gates.
+templates_without_a_death_ruling() still refuses all seven~~ IS STRUCK,
+round n3wqrt-successor (COO-RULING-20260901-1046): the COO answered this
+module's own three options with OPTION B, and ``mob_death.py`` -- not this
+module, which still registers nothing itself -- now carries that ruling.
+``templates_without_a_death_ruling()`` refuses one template today (924,
+Carlos), not seven; the six others resolve to ``"COO-RULING-20260901-1046"``.
+What is unchanged: ``field_mobs._SCENE_TABLE_MODULES`` is still untouched
+(gate 1, COO-DECISION 2026-09-01T08:47+07:00 item (c), stays locked
+pending item (b)'s answer -- the COO's own decision letter says registering
+a ruling and opening gate 1 are "two separate matters").  A player sees
+nothing different because of either this file or the ruling: gate 1 alone
+is what would let a swing ever reach ``mob_death.kill()`` for a Bg0015 row.
 """
 
 from __future__ import annotations
@@ -182,13 +190,23 @@ def overlaps_with_registered_rulings() -> frozenset[int]:
     """Intersection of Bg0015's 7 candidate templates with every template id
     ANY currently-registered ``mob_death.WIDENING_RULINGS`` entry already
     covers -- measured, not assumed from ``field_mobs.py``'s own comment
-    that the two overlap on nothing.  Empty at HEAD.
+    that the two overlap on nothing.  ~~Empty at HEAD~~ IS STRUCK, round
+    n3wqrt-successor: ``COO-RULING-20260901-1046`` now covers six of the
+    seven (:func:`option_b_roster_minus_carlos`'s own answer), so this
+    returns that same six-member set, not the empty one this docstring used
+    to promise. Carlos (924) alone is still excluded from every registered
+    ruling's covered set, by design -- see that ruling's own comment in
+    ``mob_death.py``.
 
-    This answers only the TEMPLATE axis.  It says nothing about
-    ``WIDENING_RULING_SCENES`` (whether a shared template id would also
-    need to share a scene to collide) because there is nothing to say: an
-    empty intersection here means the scene axis is never even reached for
-    Bg0015's candidates against today's registered rulings.
+    This answers only the TEMPLATE axis.  It says nothing NEW about
+    ``WIDENING_RULING_SCENES`` today because there is nothing new to say:
+    ``COO-RULING-20260901-1046`` is tied to Bg0015's own scene, and every
+    candidate this function reads is a Bg0015 row by construction, so the
+    scene check the ruling's own membership test performs never refuses any
+    of them -- the axis is REACHED now (it was never reached before this
+    ruling existed), and reached in agreement, which is the case this
+    function still cannot distinguish from "never reached" without also
+    calling :func:`mob_death.rulings_covering` on the real rows.
     """
     candidates = set(full_roster_template_ids())
     covered: set[int] = set()
