@@ -1932,13 +1932,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # entry for it since chief round dfx8bu.  WHAT IS STILL TRUE, and
             # is the only unreachability this branch has ever really had:
             # it needs an explicit --logout-hypothesis-scenario flag naming
-            # that one file (app.py:145, 347-349, which also demands an
-            # explicit --db), and the file is matched field-exact against the
-            # in-code allowlist.  A default boot passes no flag, so nothing
-            # here runs -- proven, not asserted, by
-            # tests/test_logout_ack_first_reorder_scenario_wired.py's
-            # test_unreachable_from_a_default_boot_with_no_scenario_at_all and
-            # test_default_boot_scenario_files_never_carry_this_policy.
+            # that one file (app.py, which also demands an explicit --db), and
+            # the file is matched field-exact against the in-code allowlist.
+            # A default boot passes no flag, so nothing here runs.
+            # BE PRECISE ABOUT WHAT PROVES WHICH HALF, because an earlier
+            # draft of this comment said "proven, not asserted" of the whole
+            # sentence and pf-adversary measured that as false:
+            #   * "with scenario=None, nothing here runs" IS proven, by
+            #     tests/test_logout_ack_first_reorder_scenario_wired.py's
+            #     test_unreachable_from_a_default_boot_with_no_scenario_at_all,
+            #     and no shipped scenarios/logout_hypothesis_*.json carries
+            #     this policy, by
+            #     test_default_boot_scenario_files_never_carry_this_policy
+            #     (a prefix glob, so a file named otherwise is invisible to
+            #     it -- true today, not guaranteed by construction).
+            #   * "a default boot yields scenario=None" is ASSERTED HERE AND
+            #     READ FROM app.py, not proven by either test: none of this
+            #     hypothesis's eighteen tests imports or executes app.py.
+            #     Mutations that made every default boot load the scenario,
+            #     and that made the flag a no-op, both left all eighteen
+            #     green.  Eight unrelated CLI/db-gate tests do catch the
+            #     first; none of them belongs to this hypothesis.
             ack_first_reorder = (
                 logout_hypothesis_scenario.response_policy
                 == LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER
