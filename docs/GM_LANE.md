@@ -6744,3 +6744,79 @@ a failure Linux never shows.
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260902_0129_hw6dix_speed-persistence-wired-db-first.md`
 PR: `pf_bridge` #777 / `pirate-force-server` #523
+
+### pf-adversary (round `hw6dix`, second pass) -- NOT APPROVED, six defects, all six fixed before the draft came off
+
+The subagent ran 20 minutes of real mutation testing in a separate worktree, sha256-compared its
+copies against the committed blobs (so it measured the shipped code, not a stale patch), and returned
+**Not approved**. Every finding was fixed in a follow-up commit on the same branch, before the PR left
+draft. None was deferred.
+
+* **D1 -- `/speed` had durable state and no `undo`.** `_make_action`'s own rule is "AN EFFECT THAT IS
+  ALREADY ON DISK HAS TO COME BACK OFF IT" when the outcome row cannot be written. Reproduced: an
+  `OSError` on the outcome append left the column at 777.0 while the console printed *"anything it had
+  in hand was dropped with it"* -- false. Fixed with `_speed_undo`, which reads the prior value BEFORE
+  the write and restores it through `write_typed_attributes` (never the compose variant -- an undo a
+  wire-side gate can refuse is not an undo), carried by every verdict from the write down. A column
+  that was NULL before cannot be restored (`write_typed_attributes` refuses `None` by design) and
+  reports `not_reverted` rather than lying. Control: removing the undo turns 4 tests red, including
+  one against a real `SQLiteStore`.
+* **D2 -- one word for two opposite durable states.** `refused_speed_<ExcType>` meant both "parse
+  failed, nothing stored" and "write committed, composer then failed", and the console printed
+  `no blocker recorded` for the dangerous one. Fixed with its own
+  `refused_speed_persist_compose_<ExcType>` and a prefix-matched blocker sentence
+  (`COMMITTED_ROW_BLOCKER_PREFIXES`) that says the row IS committed. The two pre-existing tests whose
+  meaning had silently changed are struck through with the reason and replaced.
+* **D3 -- 🔴 the canonical-DB gate authorized a WRITE to the canonical file.** The exact `==` was
+  case-sensitive, and `app.py:660` keeps the operator's `--db` string verbatim. Measured as allowing
+  `PirateForce.sqlite3`, `PIRATEFORCE.SQLITE3`, a trailing space, a trailing dot, `::$DATA`, and the
+  8.3 short name -- all the same file on Windows. Fixed by normalizing (stream suffix, trailing dots
+  and spaces, casefold), refusing any `~` short name outright (a string cannot resolve one), and
+  adding `os.path.samefile` against a sibling `pirateforce.sqlite3`, which sees through case, 8.3,
+  hard links and junctions. Fail-closed on every error. Controls: the old `==` turns 7 tests red;
+  dropping `samefile` as well turns 8 red, including a real hard link on a real file.
+* **D4 -- the ordering test could not see ordering.** Inserting a compose call ABOVE the write left
+  all 134 tests green. Replaced with a test that wraps the composer and records how many rows the
+  store had written each time it ran; a compose before the write shows up as a `0`. The same mutation
+  is now red.
+* **D5 -- `SPEED_TYPED_COLUMN`'s stated purpose had no control.** Hardcoding the literal survived
+  everything, because the guard compared the constant against itself -- and so did a first fix that
+  compared it against `column_for(7)`, which agrees today. Replaced with an AST guard that reads the
+  source and requires the binding to be a `column_for(...)` call, not a constant. `FakeStore` no
+  longer copies the literal it forbids. The docstring's "loud boot failure in this lane" is corrected:
+  `runtime.py:40` imports this module at module level, so it is the whole server refusing to start --
+  a deliberate trade, now stated as one.
+* **D6 -- three of the four new refusals are unreachable in production.** `no_store`,
+  `no_character_id` and `persist_readback_unusable` cannot occur against a real `SQLiteStore`; only
+  `persist_refused_TypedAttrError` can, and the integration test reaches it. The class docstring now
+  says which is which instead of implying all four are proven against production shapes.
+
+Also fixed from its two non-defect flags: `unittest.main()` sat mid-file above three classes, so
+`python3 tests/test_gm_speed_action.py` ran 29 of 59 tests and printed OK (pytest, and therefore the
+gate, was never fooled) -- moved to the end. And its worktree measured `6562 passed / 387 skipped`
+against this clone's `6638 / 327`: same total, 60 tests moved passed→skipped, none red, almost
+certainly the client-image/capture-corpus modules a sandbox lacks. Recorded rather than smoothed over;
+naming those 60 is next round's backlog.
+
+### The design question it said was unanswered, answered here
+
+**When the row is on disk and the frame is not, who owns the divergence?** Two cases, not one:
+
+1. **The audit row could not be written** -> revert. The house rule is "no effect this lane could not
+   record", and D1's undo is what makes it true. A NULL-before column cannot be restored and reports
+   `not_reverted` instead of claiming success.
+2. **The composer or the store failed after the commit** -> keep the row. The DB is the durable truth
+   and the value IS that character's speed; the client sees it at next login. But it must be
+   distinguishable in the trail, which is what D2's own outcome word and console sentence are for.
+
+**How a tester grading `GT-193` step 6 reads it:** a changed row with an unchanged screen, together
+with `refused_speed_persist_compose_*` or `refused_speed_persist_*` on the console, is NOT a FAIL of
+the entry -- it is the designed state; record it as a separate observation. The same divergence with
+NO such token is something nobody has measured; open a new entry for it. Case 2 is
+`[สมมติของสาย GM - รอ COO ยืนยัน]`; case 1 is the existing house rule.
+
+### เขียว (after the six fixes)
+
+`python3 -m pytest tests/ -q` = 6638 passed, 327 skipped, 13805 subtests -- เขียว(cloud sanity).
+The 6622/327 pinned earlier in this round's first entry was the pre-fix run; the difference is this
+round's own new tests, not a test that had been red.

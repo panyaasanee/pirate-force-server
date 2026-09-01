@@ -25,6 +25,7 @@ move-authority interaction) with the differences that shape actually has:
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import struct
@@ -43,6 +44,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import persistence_typed_attrs  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -95,14 +97,40 @@ class FakeStore:
         # the real one keys its return: by WIRE FIELD INDEX, not column name.
         self.readback = None
         self.raises = None
+        #: The row as it stands.  Empty = the column was never written, which
+        #: is the one case `_speed_undo` honestly cannot revert.
+        self.stored = {}
+        self.undo_writes = []
+
+    def read_typed_attributes(self, character_id):
+        """What `_speed_undo` reads BEFORE the write, to know what to put
+        back.  `stored` starts empty, which is the never-written-before case
+        (`speed_walk` NULL) -- an undo that has nothing to restore."""
+        return dict(self.stored)
+
+    def write_typed_attributes(self, character_id, values):
+        """The plain write `_speed_undo` restores through -- deliberately NOT
+        the compose variant, so an undo can never be refused by a wire-side
+        gate."""
+        self.undo_writes.append((character_id, dict(values)))
+        self.stored.update(values)
 
     def write_typed_attributes_and_compose_sparse(self, character_id, values):
         self.calls.append((character_id, dict(values)))
         if self.raises is not None:
             raise self.raises
+        self.stored.update(values)
         if self.readback is not None:
             return dict(self.readback)
-        return {speed_wire.SPEED_FIELD_X: float(values["speed_walk"])}
+        # Keyed through the send site's own constant, never the literal
+        # "speed_walk" typed a second time -- pf-adversary (round `hw6dix`,
+        # D5) caught this double doing exactly what the test two hundred
+        # lines below forbids.
+        return {
+            speed_wire.SPEED_FIELD_X: float(
+                values[chat_command_action.SPEED_TYPED_COLUMN]
+            )
+        }
 
 
 class FakeLifecycle:
@@ -264,7 +292,17 @@ class SpeedActionTests(_Case):
             struct.pack("<II", 0xAABBCCDD, 0x11223344), bytes(frame)
         )
 
-    def test_a_composer_rejection_surfaces_as_a_named_speed_refusal(self):
+    # ~~`test_a_composer_rejection_surfaces_as_a_named_speed_refusal`~~ and
+    # ~~`test_the_refusal_outcome_names_the_command_and_the_exception_type`~~
+    # -- struck, not deleted.  Both used to prove that a composer failure
+    # wrote `refused_speed_<ExcType>`.  Since the persistence half landed,
+    # the composer runs AFTER the row is committed, so those two tests were
+    # silently exercising write-then-refuse while still asserting the
+    # pre-write word and nothing at all about the row (pf-adversary round
+    # `hw6dix`, D2 side effect).  Replaced by the two below, which assert the
+    # word that now belongs to that branch AND the durable state it leaves.
+
+    def test_a_post_commit_composer_failure_has_its_own_refusal_word(self):
         session = FakeSession()
         with mock.patch.object(
             speed_wire,
@@ -274,11 +312,18 @@ class SpeedActionTests(_Case):
             action = self.act(session, "/speed 5.0")
         self.assertIsNone(action)
         self.assertIn(
+            f"{chat_command_action.EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
+            "SpeedWireError",
+            session.events,
+        )
+        # The word must NOT be the pre-write one: that one means the opposite
+        # durable state (nothing stored).
+        self.assertNotIn(
             f"{chat_command_action.EVENT_SPEED_REFUSED_PREFIX}SpeedWireError",
             session.events,
         )
 
-    def test_the_refusal_outcome_names_the_command_and_the_exception_type(self):
+    def test_that_refusal_says_the_row_is_committed_and_names_the_type(self):
         session = FakeSession()
         with mock.patch.object(
             speed_wire,
@@ -286,9 +331,42 @@ class SpeedActionTests(_Case):
             side_effect=speed_wire.SpeedWireError("nope"),
         ):
             self.act(session, "/speed 5.0")
-        records = self.log_records()
         self.assertEqual(
-            records[-1]["outcome"], "refused_speed_SpeedWireError"
+            self.log_records()[-1]["outcome"],
+            "refused_speed_persist_compose_SpeedWireError",
+        )
+        # The row really is committed on that branch -- which is why it may
+        # not share a word with the pre-write refusal.
+        self.assertEqual(
+            session.foundation.lifecycle.store.calls,
+            [(1, {chat_command_action.SPEED_TYPED_COLUMN: 5.0})],
+        )
+
+    def test_a_pre_write_parse_refusal_still_uses_the_pre_write_word(self):
+        """The other half of the same distinction: nothing stored, old word.
+
+        `parse_speed_value` has to be patched to reach this branch at all --
+        `commands.parse_gm_command` applies the identical finite-number check
+        at GRAMMAR time, so `/speed fast` is refused before `_speed_action`
+        runs (`refused_command_parse_error_GmCommandParseError`).  That is
+        why this test patches rather than typing a bad value: the branch is
+        the "regardless of source" backstop `speed_wire` documents, and it
+        must keep the pre-write word.
+        """
+        session = FakeSession()
+        with mock.patch.object(
+            speed_wire,
+            "parse_speed_value",
+            side_effect=speed_wire.SpeedWireError("nope"),
+        ):
+            self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertEqual(session.foundation.lifecycle.store.calls, [])
+        self.assertIn(
+            f"{chat_command_action.EVENT_SPEED_REFUSED_PREFIX}SpeedWireError",
+            session.events,
+        )
+        self.assertEqual(
+            self.log_records()[-1]["outcome"], "refused_speed_SpeedWireError"
         )
 
 
@@ -376,6 +454,67 @@ class SpeedRunCopyDbGateTests(_Case):
         action = self.act(session, "/speed 5.0")
         self.assertIsNone(action)
         self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_every_windows_alias_of_the_canonical_name_still_withholds(self):
+        """pf-adversary (round `hw6dix`, D3): the exact `==` this gate used
+        authorized a WRITE to the canonical file through all of these.
+
+        `app.py:660` keeps the operator's `--db` string verbatim -- no
+        `resolve()`, no normalization -- so every spelling below is what a
+        real boot can hand this gate, and every one of them opens the SAME
+        file on Windows.
+        """
+        for path in (
+            "state/PirateForce.sqlite3",
+            "state/PIRATEFORCE.SQLITE3",
+            "state\\PirateForce.sqlite3",
+            "state/pirateforce.sqlite3 ",
+            "state/pirateforce.sqlite3.",
+            "state/pirateforce.sqlite3::$DATA",
+            "state/PIRATE~1.SQL",
+        ):
+            with self.subTest(db_path=path):
+                session = FakeSession(db_path=path)
+                self.assertIsNone(self.act(session, "/speed 5.0"))
+                self.assertIn(
+                    chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+                    session.events,
+                )
+
+    def test_a_hard_link_to_the_canonical_file_withholds(self):
+        """The one check that sees past strings entirely.
+
+        A short name, a case variant, a hard link or a junction all defeat a
+        filename comparison; `os.path.samefile` against a sibling
+        `pirateforce.sqlite3` does not.  Built here as a hard link because
+        that is the alias a POSIX runner can actually create -- the property
+        under test (two names, one file) is the same one an 8.3 alias has.
+        """
+        canonical = self.tmp / chat_command_action.CANONICAL_DB_FILENAME
+        canonical.write_bytes(b"")
+        alias = self.tmp / "pirateforce_gt193_looks_like_a_run_copy.sqlite3"
+        os.link(canonical, alias)
+        session = FakeSession(db_path=str(alias))
+        self.assertIsNone(self.act(session, "/speed 5.0"))
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
+            session.events,
+        )
+
+    def test_a_real_separate_run_copy_beside_the_canonical_file_proceeds(self):
+        # The control for the test above: a genuinely different file in the
+        # same directory as the canonical one must NOT be refused, or a
+        # standard `staged/*_boot.ps1` run-copy could never send.
+        canonical = self.tmp / chat_command_action.CANONICAL_DB_FILENAME
+        canonical.write_bytes(b"")
+        run_copy = self.tmp / "pirateforce_gt193_20260902_0129.sqlite3"
+        run_copy.write_bytes(b"")
+        session = FakeSession(db_path=str(run_copy))
+        self.assertIsNotNone(self.act(session, "/speed 5.0"))
+        self.assertNotIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
         )
@@ -485,8 +624,6 @@ class SpeedCoverageHonestyTests(_Case):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class _StoreWithoutThePersistenceMethod:
@@ -510,10 +647,28 @@ class SpeedPersistenceTests(_Case):
     WHAT THIS CLASS DOES AND DOES NOT CLAIM, stated before the first
     assertion rather than left for a reader to infer:
 
-    * it proves the ORDER (row written before any frame exists) and the
+    * it proves the ORDER (no frame composed before the row is written --
+      and that one has a live control, see
+      `test_no_frame_is_composed_before_the_row_is_written`) and the
       NO-FRAME-ON-REFUSAL rule against a fake store, and the round trip
       against a real `SQLiteStore` on a temp file (`PersistenceIntegration
       Tests`);
+
+    * WHICH OF THESE REFUSALS A REAL BOOT CAN ACTUALLY REACH, because an
+      earlier draft of this docstring implied all of them and pf-adversary
+      (round `hw6dix`, D6) measured that three cannot:
+        - `persist_refused_TypedAttrError` -- REACHABLE, and
+          `PersistenceIntegrationTests` reaches it with `1e40`;
+        - `no_store` -- `SQLiteStore` always defines the method;
+        - `no_character_id` -- `SQLiteStore._character` always builds
+          `Character(int(r['id']), ...)`, a positive int;
+        - `persist_readback_unusable` -- every value comes back through
+          `persistence_typed_attrs.validate`, which returns `int | float`.
+      The last three are defence against session shapes production does not
+      currently produce (test doubles, replay tools, a future caller), and
+      they are kept for that reason -- not because a boot can hit them
+      today.  Saying so here is the point: a green test on an unreachable
+      branch is not evidence about a real boot;
     * it does NOT prove the client accepts or applies the frame, and it does
       NOT prove `/speed` is "done".  That is `GT-193`'s job, attended, and
       only its condition (b) is what this wiring moves;
@@ -527,23 +682,93 @@ class SpeedPersistenceTests(_Case):
     def store_of(self, session):
         return session.foundation.lifecycle.store
 
-    def test_the_row_is_written_before_any_frame_exists(self):
+    def test_the_store_is_called_with_this_connections_row_and_value(self):
         session = FakeSession(selected=FakeSelected(character_id=42))
         action = self.act(session, "/speed 5.0")
         self.assertIsNotNone(action)
         self.assertEqual(
-            self.store_of(session).calls, [(42, {"speed_walk": 5.0})]
+            self.store_of(session).calls,
+            [(42, {chat_command_action.SPEED_TYPED_COLUMN: 5.0})],
+        )
+
+    def test_no_frame_is_composed_before_the_row_is_written(self):
+        """The ORDER, with a control that can actually see it.
+
+        pf-adversary (round `hw6dix`, D4) inserted a full
+        `compose_sparse_speed_update` call ABOVE the write -- so a frame
+        demonstrably existed before the row -- and every test in this file
+        stayed green, because asserting "the store was called with these
+        args" says nothing about when.  This wraps the composer and records
+        how many rows the store had written each time it ran: a compose
+        before the write shows up as a `0` in that list.
+        """
+        session = FakeSession()
+        store = self.store_of(session)
+        rows_written_at_each_compose = []
+        real = speed_wire.compose_sparse_speed_update
+
+        def recording(*args, **kwargs):
+            rows_written_at_each_compose.append(len(store.calls))
+            return real(*args, **kwargs)
+
+        with mock.patch.object(
+            speed_wire, "compose_sparse_speed_update", recording
+        ):
+            self.assertIsNotNone(self.act(session, "/speed 5.0"))
+        self.assertEqual(rows_written_at_each_compose, [1])
+
+    def test_the_send_sites_column_constant_resolves_to_lane_dbs_column(self):
+        self.assertEqual(
+            chat_command_action.SPEED_TYPED_COLUMN,
+            persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X),
+        )
+
+    def test_that_constant_is_DERIVED_from_the_table_not_a_string_literal(self):
+        """An AST guard, because a value check cannot see the difference.
+
+        pf-adversary (round `hw6dix`, D5) mutated `SPEED_TYPED_COLUMN` to a
+        hardcoded `"speed_walk"` and every test stayed green -- including a
+        first attempt at a fix that compared the constant against
+        `column_for(7)`, which of course AGREES today.  The property the
+        constant's own comment claims ("resolved THROUGH their own table ...
+        a schema change becomes a loud failure, not a silent refusal") is
+        about the SHAPE of the assignment, so that is what this reads.  Same
+        technique `tests/test_persistence_attr_compose.py` uses on its own
+        producers.
+        """
+        source = (
+            ROOT / "src/pirateforce_foundation/gm/chat_command_action.py"
+        ).read_text(encoding="utf-8")
+        assignments = [
+            node
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name)
+                and target.id == "SPEED_TYPED_COLUMN"
+                for target in node.targets
+            )
+        ]
+        self.assertEqual(len(assignments), 1, "expected exactly one binding")
+        value = assignments[0].value
+        self.assertIsInstance(
+            value,
+            ast.Call,
+            "SPEED_TYPED_COLUMN must be CALLED out of the typed-attribute "
+            "table, never spelled as a literal",
+        )
+        self.assertEqual(
+            getattr(value.func, "attr", getattr(value.func, "id", None)),
+            "column_for",
         )
 
     def test_the_column_written_is_the_one_the_typed_table_owns_for_x7(self):
-        # Never the literal "speed_walk" typed twice: if LANE-DB's table
-        # renames the column serving x=7, this test moves with it and the
-        # send site does too (`SPEED_TYPED_COLUMN`).
         session = FakeSession()
         self.act(session, "/speed 3.0")
         (_character_id, values), = self.store_of(session).calls
         self.assertEqual(
-            list(values), [chat_command_action.SPEED_TYPED_COLUMN]
+            list(values),
+            [persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)],
         )
 
     def test_exactly_one_field_is_written_never_a_merged_block(self):
@@ -766,3 +991,125 @@ class PersistenceIntegrationTests(_Case):
         self.act(self.session, "/speed 620.0")
         self.assertIsNone(self.act(self.session, "/speed 1e40"))
         self.assertEqual(self.reopened_speed_walk(), 620.0)
+
+
+class SpeedUndoTests(_Case):
+    """`/speed` leaves durable state, so it needs a real undo (D1).
+
+    `_make_action`'s own comment states the house rule: "AN EFFECT THAT IS
+    ALREADY ON DISK HAS TO COME BACK OFF IT" when the outcome row cannot be
+    written.  Before this fix `/speed` was the only handler with durable
+    state and no undo, and pf-adversary (round `hw6dix`) measured the result:
+    an `OSError` on the outcome append left the column at the new value while
+    the console printed "anything it had in hand was dropped with it".
+    """
+
+    def break_the_outcome_append(self):
+        """Fail the SECOND audit append only -- the `issued` row still lands,
+        which is the state that makes the trail broken rather than absent."""
+        real = chat_command_action.log_gm_command_outcome
+
+        def failing(*args, **kwargs):
+            raise OSError(28, "no space left on device")
+
+        return mock.patch.object(
+            chat_command_action, "log_gm_command_outcome", failing
+        ), real
+
+    def test_a_failed_outcome_append_puts_the_previous_speed_back(self):
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        patcher, _real = self.break_the_outcome_append()
+        with patcher:
+            action = self.act(session, "/speed 777.0")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_REVERTED, session.events
+        )
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 100.0
+        )
+
+    def test_the_restore_goes_through_the_plain_write_not_the_compose_one(self):
+        # An undo that could be refused by the wire-side compose gate is not
+        # an undo.
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        patcher, _real = self.break_the_outcome_append()
+        with patcher:
+            self.act(session, "/speed 777.0")
+        self.assertEqual(
+            store.undo_writes,
+            [(1, {chat_command_action.SPEED_TYPED_COLUMN: 100.0})],
+        )
+
+    def test_a_first_ever_speed_reports_not_reverted_rather_than_lying(self):
+        # `write_typed_attributes` refuses `None` outright and this API has no
+        # way to clear a column back to NULL, so there is nothing to put back.
+        # The honest outcome is `not_reverted`, never a silent success.
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        self.assertEqual(store.stored, {})
+        patcher, _real = self.break_the_outcome_append()
+        with patcher:
+            self.act(session, "/speed 777.0")
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED,
+            session.events,
+        )
+        self.assertEqual(store.undo_writes, [])
+
+    def test_a_successful_round_never_runs_the_undo(self):
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        self.assertIsNotNone(self.act(session, "/speed 777.0"))
+        self.assertEqual(store.undo_writes, [])
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 777.0
+        )
+
+    def test_a_post_commit_compose_failure_also_carries_the_undo(self):
+        # That branch commits too, so an audit failure on top of it must be
+        # able to take the row back off disk the same way.
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        patcher, _real = self.break_the_outcome_append()
+        with patcher, mock.patch.object(
+            speed_wire,
+            "compose_sparse_speed_update",
+            side_effect=speed_wire.SpeedWireError("nope"),
+        ):
+            self.act(session, "/speed 777.0")
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 100.0
+        )
+
+
+class UndoIntegrationTests(PersistenceIntegrationTests):
+    """The same undo against a REAL `SQLiteStore`, not the double."""
+
+    def test_the_row_on_disk_goes_back_when_the_outcome_row_cannot(self):
+        self.act(self.session, "/speed 100.0")
+        self.assertEqual(self.reopened_speed_walk(), 100.0)
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            mock.Mock(side_effect=OSError(28, "no space left on device")),
+        ):
+            action = self.act(self.session, "/speed 777.0")
+        self.assertIsNone(action)
+        self.assertEqual(self.reopened_speed_walk(), 100.0)
+
+
+# AT THE END OF THE FILE, and it has to stay here.  pf-adversary (round
+# `hw6dix`) found this block sitting mid-file, above three of the test
+# classes: `python3 tests/test_gm_speed_action.py` then ran 29 of the 59
+# tests and printed OK, executing none of that round's work.  The Windows
+# gate uses pytest so it was never fooled, but a green that means nothing
+# is worse than no green at all.
+if __name__ == "__main__":
+    unittest.main()

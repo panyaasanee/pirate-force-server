@@ -468,9 +468,16 @@ SPEED_ACTION_LABEL = "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL"
 # this one field, resolved THROUGH their own table rather than spelled here
 # as the literal `"speed_walk"`.  Two reasons, both measured rather than
 # stylistic: (1) `persistence_typed_attrs.column_for` raises `TypedAttrError`
-# at IMPORT time if x=7 ever loses its column, so a schema change becomes a
-# loud boot failure in this lane instead of a `/speed` that silently refuses
-# in front of a tester; (2) it keeps the x -> column mapping owned in exactly
+# at IMPORT time if x=7 ever loses its column, so a schema change is loud
+# instead of a `/speed` that silently refuses in front of a tester -- and be
+# precise about how loud, because an earlier draft of this comment said "in
+# this lane" and pf-adversary (round `hw6dix`, D5) measured otherwise:
+# `runtime.py:40` imports this module at module level, so the failure is THE
+# WHOLE SERVER REFUSING TO START, not one command refusing.  That is a
+# deliberate trade -- a typed column that moved under this send site is a
+# schema/lane disagreement nobody should discover mid-attended-round -- but
+# it is a trade, and it is stated here rather than discovered on a boot;
+# (2) it keeps the x -> column mapping owned in exactly
 # one place, the way `speed_wire.SPEED_FIELD_NAME` already reads its own
 # label out of `attr_wire.BY_X` rather than copying the string.
 SPEED_TYPED_COLUMN = persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)
@@ -771,6 +778,16 @@ EVENT_SPEED_PERSIST_REFUSED_PREFIX = "gm_chat_action_speed_persist_refused_"
 EVENT_SPEED_PERSIST_READBACK_UNUSABLE = (
     "gm_chat_action_speed_persist_readback_unusable"
 )
+# THE WRITE COMMITTED AND THE COMPOSER THEN FAILED.  Its own name, not the
+# pre-write `EVENT_SPEED_REFUSED_PREFIX` one -- pf-adversary (round `hw6dix`,
+# D2) measured that reusing that prefix made one word mean two OPPOSITE
+# durable states: a parse refusal (nothing stored) and a post-commit compose
+# refusal (row at the new value, no client told).  An attended tester grading
+# GT-193 step 6 reads the audit trail to decide what the row should say, so
+# the two may not share a word.
+EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX = (
+    "gm_chat_action_speed_persist_compose_refused_"
+)
 
 # CORE-REQUEST-GM-043's `/gmprobe <variant_id>`.  No withheld-by-version-gate
 # event exists for this command -- see `_gmprobe_action`'s own docstring for
@@ -896,6 +913,30 @@ OUTCOME_SPEED_PERSIST_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}speed_persist_"
 # above, which is always CamelCase.
 OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE = (
     f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}readback_unusable"
+)
+# `refused_speed_persist_compose_<ExcType>` -- see the matching EVENT above.
+OUTCOME_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX = (
+    f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}compose_"
+)
+
+# THE OUTCOME WORDS THAT MEAN A ROW IS ALREADY COMMITTED.  Every one of them
+# is a NO-BYTES outcome, so the console printer reaches for a blocker
+# sentence and would otherwise print `no blocker recorded` for exactly the
+# states an attended tester most needs explained (pf-adversary D2).  Matched
+# by PREFIX because two of the three carry an exception TYPE name that
+# cannot be enumerated ahead of time, unlike every fixed key in
+# `_NO_BYTES_BLOCKERS_SOURCE`.
+COMMITTED_ROW_BLOCKER_PREFIXES = (
+    (
+        OUTCOME_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX,
+        "the speed IS committed to the character row; the frame could not be"
+        " composed afterwards, so no client was told -- the row is the truth",
+    ),
+    (
+        OUTCOME_SPEED_PERSIST_REFUSED_PREFIX,
+        "the store refused or failed; its compose gate can raise AFTER the"
+        " write commits, so do NOT read this as 'nothing was stored'",
+    ),
 )
 # The one named refusal `/gmprobe` can write that is not an exception TYPE
 # suffix: the typed `variant_id` matched no row in
@@ -2109,7 +2150,21 @@ def _print_no_bytes_way_out(
         # that looks trustworthy.  `unnamed` is not a failure -- the outcome
         # word beside it is the answer either way.
         name = command_name if command_name in COMMAND_NAMES else "unnamed"
-        blocker = NO_BYTES_BLOCKERS.get(why, NO_BLOCKER_RECORDED)
+        blocker = NO_BYTES_BLOCKERS.get(why)
+        if blocker is None:
+            # Prefix fallback, ONLY for the committed-row outcomes: their
+            # suffix is an exception type name, so they cannot be fixed keys
+            # in the mapping above.  Ordered longest-prefix-first in the
+            # tuple itself, so the compose-refused word does not match the
+            # more general persist-refused prefix it starts with.
+            blocker = next(
+                (
+                    sentence
+                    for prefix, sentence in COMMITTED_ROW_BLOCKER_PREFIXES
+                    if str(why).startswith(prefix)
+                ),
+                NO_BLOCKER_RECORDED,
+            )
         # Capped at the printer for the reason the other cap is: this
         # function reads its blocker out of a mapping a later round edits,
         # and a bound that lives with the supplier is the supplier's
@@ -2497,6 +2552,63 @@ def _speed_store(session: object) -> object | None:
     )
 
 
+def _speed_undo(store: object, character_id: int) -> object:
+    """A zero-argument callable that puts `speed_walk` back where it was.
+
+    WHY `/speed` NEEDS ONE AT ALL (pf-adversary round `hw6dix`, D1).  Since
+    this command started writing a row, it became the SECOND handler in this
+    module with durable state -- and `_make_action`'s own comment states the
+    house rule for that: "AN EFFECT THAT IS ALREADY ON DISK HAS TO COME BACK
+    OFF IT" when the outcome row cannot be written.  Without this, an audit
+    append that failed between the `issued` row and the `outcome` row left
+    the column at the new value while the console printed "anything it had
+    in hand was dropped with it", which was measurably false.
+
+    READ BEFORE THE WRITE, ON PURPOSE, and here is what that does and does
+    not buy.  The previous value is read on its own connection before
+    `write_typed_attributes_and_compose_sparse` runs, so a concurrent writer
+    in that window makes this undo restore WHAT THIS COMMAND SAW, not
+    whatever was there an instant before the write.  That is weaker than
+    `login_scene_stage.restore_login_scene`'s undo, which re-validates the
+    whole file it is putting back.  It is not made stronger by pretending:
+    the alternative -- reading inside LANE-DB's transaction -- would need an
+    API in their zone that does not exist, and this lane does not add one.
+
+    RETURNS FALSE RATHER THAN RAISING, always.  Three honest failures:
+    the column was NULL before (a first-ever `/speed` for this character --
+    `write_typed_attributes` refuses `None` outright and this API offers no
+    way to clear a column back to NULL, so there is nothing to put back);
+    the store cannot be read; the restoring write itself fails.  A `False`
+    surfaces as `EVENT_OUTCOME_STAGE_NOT_REVERTED`, which is the truth.
+
+    The event names `_make_action` writes still say `STAGE` -- they were
+    minted for the staged-login-scene undo and are pinned by the event-name
+    contract table.  Renaming them to cover a second handler is a separate,
+    louder change than this fix; recorded here rather than left for a reader
+    of the audit trail to wonder about.
+    """
+    read = getattr(store, "read_typed_attributes", None)
+    write = getattr(store, "write_typed_attributes", None)
+    previous = None
+    if callable(read):
+        try:
+            previous = read(character_id).get(SPEED_TYPED_COLUMN)
+        except Exception:  # noqa: BLE001 - an unreadable prior value is a
+            # refused undo, never a crash on the listener thread.
+            previous = None
+
+    def _undo() -> bool:
+        if previous is None or not callable(write):
+            return False
+        try:
+            write(character_id, {SPEED_TYPED_COLUMN: previous})
+        except Exception:  # noqa: BLE001 - see docstring
+            return False
+        return True
+
+    return _undo
+
+
 def _selected_speed_character_id(session: object) -> int | None:
     """`characters.id` off the connection's own selected character.
 
@@ -2561,21 +2673,92 @@ def _speed_db_filename(session: object) -> str | None:
     return path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
+# Every way Windows lets one file answer to more than one name, as far as a
+# STRING can see it.  pf-adversary (round `hw6dix`, D3) measured the previous
+# exact `==` comparison authorizing a WRITE to the canonical database through
+# all of these, because `app.py:660` keeps the operator's `--db` string
+# verbatim -- no `resolve()`, no normalization:
+#
+#   state\PirateForce.sqlite3        case (NTFS is case-insensitive)
+#   state\pirateforce.sqlite3 	     trailing space
+#   state\pirateforce.sqlite3.       trailing dot
+#   state\pirateforce.sqlite3::$DATA the NTFS default data stream
+#   state\PIRATE~1.SQL               the 8.3 short name
+#
+# The first four are normalized away below.  The fifth CANNOT be resolved
+# from a string, so a `~<digits>` name is refused outright -- an 8.3 alias is
+# never what a GT-193 run-copy boot passes, and "cannot tell" has to mean
+# "refuse" on a gate that now guards a write.
+NTFS_STREAM_SEPARATOR = ":"
+SHORT_NAME_MARKER = "~"
+
+
+def _speed_db_normalized_filename(filename: str) -> str:
+    """The filename as Windows would resolve it, minus the aliases a string
+    can see.  Case-folded last, so the caller compares one lowered form."""
+    # The stream suffix first: `a.sqlite3::$DATA` -> `a.sqlite3`.  Everything
+    # from the first `:` on is a stream name, never part of the file's own.
+    filename = filename.split(NTFS_STREAM_SEPARATOR, 1)[0]
+    # Windows silently drops trailing dots and spaces when opening a path,
+    # so `x.sqlite3.` and `x.sqlite3 ` open `x.sqlite3`.
+    return filename.rstrip(". ").casefold()
+
+
 def _speed_db_is_canonical(session: object) -> bool:
     """True unless this process can be PROVEN to be on a non-canonical DB.
 
     "Proven" means: the full attribute chain to `store.path` read, and its
-    filename read something other than the canonical literal.  Anything
-    short of that -- the canonical filename itself, or a chain this function
-    could not walk at all (a test double, an unusual session shape) -- is
+    filename read -- after the Windows-alias normalization above -- as
+    something other than the canonical literal.  Anything short of that is
     "cannot prove this is safe", which this function treats identically to
-    "proven canonical": refused, never assumed safe.  See `_speed_action`'s
-    own docstring for what this heuristic does and does not guarantee.
+    "proven canonical": refused, never assumed safe.  That covers the
+    canonical filename itself, a chain this function could not walk at all
+    (a test double, an unusual session shape), and an 8.3 short name.
+
+    ONE REAL CHECK ON TOP OF THE STRING, when the filesystem can answer it:
+    if a file named `pirateforce.sqlite3` sits in the SAME directory as this
+    process's DB and the two are the same file, this refuses -- `samefile`
+    sees through case, 8.3 aliases, hard links and junctions, which no amount
+    of string work does.  Any error asking that question is itself a refusal.
+    It cannot see a canonical copy living in a DIFFERENT directory under a
+    different name; that limit is unchanged and is stated in `_speed_action`'s
+    own docstring.
     """
     filename = _speed_db_filename(session)
     if filename is None:
         return True
-    return filename == CANONICAL_DB_FILENAME
+    normalized = _speed_db_normalized_filename(filename)
+    if normalized == CANONICAL_DB_FILENAME.casefold():
+        return True
+    if SHORT_NAME_MARKER in normalized:
+        # An 8.3 alias resolves only against a live filesystem, and this may
+        # be running on the wrong OS to ask.  Refuse rather than guess.
+        return True
+    return _speed_db_is_the_canonical_file_on_disk(session)
+
+
+def _speed_db_is_the_canonical_file_on_disk(session: object) -> bool:
+    """True when this process's DB IS the canonical file under another name.
+
+    Fails closed: an unreadable path, a raising `samefile`, anything at all
+    other than a clean "these are two different files" answers True.  The one
+    case that answers False without asking is a sibling canonical file that
+    does not exist -- there is then nothing for this DB to be an alias OF, in
+    this directory, which is the only directory this check can speak about.
+    """
+    path = getattr(_speed_store(session), "path", None)
+    if type(path) is not str or not path:
+        return True
+    try:
+        import os
+
+        directory = os.path.dirname(path.replace("\\", "/"))
+        sibling = os.path.join(directory, CANONICAL_DB_FILENAME)
+        if not os.path.exists(sibling):
+            return False
+        return os.path.samefile(path, sibling)
+    except Exception:  # noqa: BLE001 - see docstring; cannot ask => refuse
+        return True
 
 
 def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
@@ -2721,14 +2904,19 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         _note(session, EVENT_SPEED_NO_CHARACTER_ID)
         return _Verdict(None, OUTCOME_SPEED_NO_CHARACTER_ID)
 
+    # Built BEFORE the write, because it has to remember what was there
+    # first.  Carried by every verdict from here down, including the
+    # refusals: `store.write_typed_attributes_and_compose_sparse`'s own
+    # docstring warns its compose gate can raise AFTER the write commits, so
+    # "this branch refused" is not the same as "this branch changed nothing".
+    undo = _speed_undo(store, character_id)
+
     try:
         sparse = persist(character_id, {SPEED_TYPED_COLUMN: value})
     except Exception as error:  # noqa: BLE001 - KeyError/TypedAttrError/...
-        # `store.write_typed_attributes_and_compose_sparse`'s own docstring
-        # warns that its compose gate can raise AFTER the write committed,
-        # so this refusal deliberately does not say "nothing was stored" --
-        # it says the send was refused, which is the only half this lane can
-        # speak for.
+        # Deliberately does not say "nothing was stored" -- see `undo` above.
+        # It says the send was refused, which is the only half this lane can
+        # speak for, and the console sentence for this prefix says the rest.
         _note(
             session,
             f"{EVENT_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
@@ -2736,6 +2924,7 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         return _Verdict(
             None,
             f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
+            undo,
         )
 
     # ---- WIRE SECOND, FROM THE ROW, NOT FROM THE TYPED TEXT ----------
@@ -2747,19 +2936,33 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     stored = sparse.get(speed_wire.SPEED_FIELD_X) if isinstance(sparse, dict) else None
     if isinstance(stored, bool) or not isinstance(stored, (int, float)):
         _note(session, EVENT_SPEED_PERSIST_READBACK_UNUSABLE)
-        return _Verdict(None, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE)
+        return _Verdict(
+            None, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE, undo
+        )
 
     try:
         pc, frame = speed_wire.compose_sparse_speed_update(
             legacy, identity_lo, identity_hi, stored
         )
     except Exception as error:  # noqa: BLE001 - includes SpeedWireError
-        _note(session, f"{EVENT_SPEED_REFUSED_PREFIX}{type(error).__name__}")
+        # ITS OWN WORD, not the pre-write `speed_<ExcType>` one: the row is
+        # committed by the time this branch runs, and the pre-write refusal
+        # means the opposite (see the EVENT constant's own comment).
+        _note(
+            session,
+            f"{EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
+            f"{type(error).__name__}",
+        )
         return _Verdict(
-            None, f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}"
+            None,
+            f"{OUTCOME_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
+            f"{type(error).__name__}",
+            undo,
         )
 
-    return _Verdict((SPEED_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED)
+    return _Verdict(
+        (SPEED_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED, undo
+    )
 
 
 def _current_position(session: object) -> object | None:

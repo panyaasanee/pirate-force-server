@@ -1303,6 +1303,12 @@ class EventNameContractTests(_Case):
         "EVENT_SPEED_PERSIST_READBACK_UNUSABLE": (
             "gm_chat_action_speed_persist_readback_unusable"
         ),
+        # Its own word for the post-commit composer failure: reusing
+        # `EVENT_SPEED_REFUSED_PREFIX` made one name mean two OPPOSITE
+        # durable states (pf-adversary round `hw6dix`, D2).
+        "EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX": (
+            "gm_chat_action_speed_persist_compose_refused_"
+        ),
     }
 
     # Action labels are the same kind of interface as the event names, and a
