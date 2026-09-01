@@ -37,11 +37,13 @@ The last test in this file asserts that refusal rather than hiding it.
 """
 import re
 import shutil
+import struct
 import sqlite3
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -113,21 +115,36 @@ class MigrationShapeTests(unittest.TestCase):
         self.assertEqual(declared, list(typed.TYPED_COLUMNS))
 
     def test_each_column_declares_the_sql_type_and_range_of_its_wire_kind(self):
+        """The bounds are PARSED and compared as numbers, not searched for.
+
+        The first version of this test did `assertIn(str(bound), statement)`.
+        An adversary pass broke two CHECKs and the whole suite stayed green:
+        `"0"` is a substring of `"-1000"`, so `BETWEEN -1000 AND 65535` passed
+        a u16 column, and `"65535"` is a substring of `"655350"`, so a bound
+        ten times too large passed as well.  A repair script writing
+        `stat_str = -7` would then have been admitted by the CHECK and blown
+        up in `gm/attr_wire.encode_field` at emit time on a live client.
+        """
         for statement in self.statements:
-            column = re.match(
+            declaration = re.match(
                 r"^ALTER TABLE characters ADD COLUMN ([a-z][a-z0-9_]*) (INTEGER|REAL)",
                 statement,
             )
-            self.assertIsNotNone(statement)
-            name, sql_type = column.group(1), column.group(2)
+            self.assertIsNotNone(declaration, statement)
+            name, sql_type = declaration.group(1), declaration.group(2)
             spec = typed.TYPED_COLUMNS[name]
             with self.subTest(column=name):
                 self.assertEqual(sql_type, spec.sql_type)
                 self.assertIn(f"{name} IS NULL", statement)
                 self.assertIn(f"typeof({name})=", statement)
-                # python renders a float exponent as `e+38`, SQL as `e38`
-                for bound in (spec.minimum, spec.maximum):
-                    self.assertIn(str(bound).replace("e+", "e"), statement)
+                bounds = re.search(
+                    rf"{name} BETWEEN (-?[0-9.eE+-]+) AND (-?[0-9.eE+-]+)\)",
+                    statement,
+                )
+                self.assertIsNotNone(bounds, statement)
+                low, high = (float(bounds.group(1)), float(bounds.group(2)))
+                self.assertEqual(low, float(spec.minimum))
+                self.assertEqual(high, float(spec.maximum))
 
     def test_no_column_is_declared_not_null_or_with_a_default(self):
         # A NOT NULL column needs a constant default, and on a live character
@@ -230,6 +247,53 @@ class ValidationTests(unittest.TestCase):
     def test_an_empty_write_is_refused_rather_than_reported_as_done(self):
         with self.assertRaises(typed.TypedAttrError):
             typed.validate_all({})
+
+    def test_a_float_is_stored_as_the_float32_the_wire_will_carry(self):
+        """The database and the client must hold the SAME number.
+
+        `gm/attr_wire.py` emits an f32 as `struct.pack("<f", value)` while the
+        column is an 8-byte REAL, so without rounding here the row says
+        `400.1` and the client is sent `400.1000061035156` -- two numbers, one
+        character, nothing measuring the difference.
+        """
+        self.assertEqual(typed.validate("speed_walk", 400.1), 400.1000061035156)
+        stored = typed.validate("speed_walk", 400.1)
+        self.assertEqual(struct.unpack("<f", struct.pack("<f", stored))[0], stored)
+
+    def test_a_speed_that_underflows_to_zero_on_the_wire_is_refused(self):
+        """The owner's banned zero, arriving by arithmetic instead of `.get`.
+
+        An adversary pass measured it: `1e-300` validates, stores, reads back
+        as `1e-300`, and reaches the client as an EXACT `0.0`.  And on this
+        wire a zero is a value rather than an absence -- see
+        `tests/test_npc_gait_wire.py`,
+        `test_zero_speed_is_still_serialized_because_only_none_means_absent`.
+        """
+        for value in (1e-300, 5e-324, -1e-300):
+            with self.subTest(value=value):
+                with self.assertRaises(typed.TypedAttrError):
+                    typed.validate("speed_walk", value)
+        # a real zero, asked for on purpose, is still storable
+        self.assertEqual(typed.validate("speed_walk", 0.0), 0.0)
+
+    def test_the_compose_conversion_revalidates_instead_of_trusting_presence(self):
+        """`block_gaps` keys on `x in typed_values`, never on the value.
+
+        So a caller building `{x: row[x]}` straight off a SELECT walks a
+        `None` past the gate and into the encoder.  This conversion is the one
+        that refuses it.
+        """
+        self.assertEqual(
+            typed.typed_values_for_compose({"speed_walk": 400.0, "level": 3}),
+            {7: 400.0, 2: 3},
+        )
+        for bad in ({"level": None}, {"level": 99999}, {"deleted_at": 1},
+                    {"speed_walk": "fast"}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(typed.TypedAttrError):
+                    typed.typed_values_for_compose(bad)
+        gaps = {g.x: g for g in compose.block_gaps({7: None})}
+        self.assertNotIn(7, gaps, "the gate itself cannot see a None; this is why")
 
 
 class MigrationIsNonDestructiveTests(unittest.TestCase):
@@ -367,6 +431,14 @@ class StoreRoundTripTests(unittest.TestCase):
             self.store.write_typed_attributes(999999, {"level": 1})
 
     def test_a_soft_deleted_character_is_invisible_to_both_sides(self):
+        """And the refused write really did not land.
+
+        The earlier version of this test asserted only the `KeyError`.  An
+        adversary pass deleted the whole existence guard from
+        `write_typed_attributes` and this test stayed green -- the trailing
+        read raised `KeyError` by itself while the UPDATE had already written
+        `level=10` onto the soft-deleted row.  So the row is read raw here.
+        """
         second = self.store.create_character(
             self.account_id, "TypedAttrTwo", "typedattrtwo",
             "fingerprint-typed-attr-store-2", _build_wire, self.home,
@@ -377,6 +449,49 @@ class StoreRoundTripTests(unittest.TestCase):
             self.store.read_typed_attributes(second.id)
         with self.assertRaises(KeyError):
             self.store.write_typed_attributes(second.id, {"level": 10})
+        db = sqlite3.connect(self.path)
+        try:
+            row = db.execute(
+                "SELECT level FROM characters WHERE id=?", (second.id,)
+            ).fetchone()
+        finally:
+            db.close()
+        self.assertEqual(row[0], 9, "the refused write landed on a deleted row")
+
+    def test_the_state_returned_is_read_under_the_write_s_own_lock(self):
+        """D3/D4: commit-then-read let another writer into the window.
+
+        Measured by an adversary pass on the earlier shape, which returned
+        `self.read_typed_attributes(...)` on a NEW connection after the
+        transaction had already committed: a concurrent soft-delete in that
+        window made this method commit the write AND raise `KeyError` (a
+        caller catching `KeyError` would report "no such character" while the
+        row on disk had changed), and a concurrent write made it return a
+        value it never wrote.  The read-back is now inside the same
+        transaction, and this test pins that by making the second-connection
+        path explode if it is ever taken again.
+        """
+        def forbidden(*args, **kwargs):
+            raise AssertionError(
+                "write_typed_attributes read its result on a second "
+                "connection, outside its own transaction"
+            )
+
+        with mock.patch.object(SQLiteStore, "read_typed_attributes", forbidden):
+            after = self.store.write_typed_attributes(self.character.id, {"level": 4})
+        self.assertEqual(after, {"level": 4})
+
+    def test_the_update_itself_refuses_a_soft_deleted_row(self):
+        # Belt and braces, measured separately from the guard above it: the
+        # UPDATE carries `deleted_at IS NULL` too, so neither one alone can be
+        # removed and still let a write land where the API says it cannot.
+        sql = Path(
+            ROOT / "src" / "pirateforce_foundation" / "store.py"
+        ).read_text(encoding="utf-8")
+        body = sql[sql.index("def write_typed_attributes"):]
+        body = body[:body.index("def _character")]
+        self.assertIn("WHERE id=? AND deleted_at IS NULL", body)
+        self.assertIn("rowcount", body)
 
     def test_the_write_moves_updated_at(self):
         before = self._raw_value("updated_at")

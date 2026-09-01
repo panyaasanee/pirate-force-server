@@ -47,20 +47,53 @@
 --     2^64-1: SQLite's INTEGER is a signed 64-bit value and has no room for
 --     the top half of the range.  A character who legitimately exceeds
 --     9223372036854775807 experience is not representable here and would need
---     a TEXT/BLOB column; that is not a problem this game has.
---   * f32 speed (x=7) is stored in an 8-byte REAL.  The CHECK bounds it to
---     the finite float32 range so an out-of-range double cannot be stored,
---     but a double inside that range can still hold more precision than the
---     wire f32 carries; the encoder rounds on the way out.
+--     a TEXT/BLOB column.  [PROPOSED - LANE-DB] whether this game ever
+--     reaches that number is not measured anywhere; the narrowing is in the
+--     safe direction (storage narrower than what `encode_field` accepts), so
+--     it fails loudly at the write rather than truncating.
+--   * f32 speed (x=7) is stored in an 8-byte REAL, which is WIDER than the
+--     wire.  `persistence_typed_attrs.validate` therefore rounds a stored f32
+--     through `struct.pack("<f", ...)` -- the same call `gm/attr_wire.py`
+--     emits with -- so the number in this column and the number the client
+--     receives are the same number.  Without that rounding the two disagree
+--     silently: an adversary pass measured `1e-300` stored, read back as
+--     `1e-300`, and arriving at the client as an EXACT 0.0, which on this
+--     wire is a value rather than an absence (see tests/test_npc_gait_wire.py)
+--     -- the owner's banned zero, reached by arithmetic instead of a lookup.
+--     Values that underflow that way are now refused at the write.
+--
+-- THIS MIGRATION IS NOT REVERSIBLE, and that is a different word from
+-- "non-destructive".  It destroys nothing (proved row by row in
+-- tests/test_persistence_typed_attr_columns.py), but once it is applied the
+-- checksum ledger makes this file immutable and `migrate()` refuses to boot a
+-- server older than the schema ("database schema is newer than this server",
+-- store.py).  So rolling the server back past this commit on a database that
+-- has already applied 006 means the server will not start, and there is no
+-- snapshot to go back to until CORE-REQUEST-DB-001 is answered.  Measured,
+-- not feared: `persistence_backup.should_snapshot` votes True for the first
+-- time in this repository's history on this very file ("pending migrations:
+-- 006"), and nothing calls it on boot to act on that vote.
 --
 -- NAMING NOTE, said out loud rather than buried.  x=7 is called `speed_walk`
 -- here because that is the field `COO-ORDER 20260901_1101` ordered this lane
--- to build for `/speed`.  The corpus scopes the row it comes from to
--- `CNetNPC` and `gm/attr_wire.py:173` still calls the same offset
--- `basic_f32_54`, `known=False`.  So the COLUMN NAME encodes a hypothesis
--- that the offset is the player's walk speed.  [สมมติของสาย DB - รอ RE]
+-- to build for `/speed`.  What this repository already knows about that
+-- offset, read in full rather than in the convenient half:
+--   * `gm/attr_wire.py:173` calls it `basic_f32_54`, `known=False`, and the
+--     Codex corpus scopes its row to `CNetNPC`, not to the player.
+--   * BUT `docs/FUNCTIONAL_COVERAGE.json` grades `npc_locomotion_presentation`
+--     as `runtime_pass` on the SAME bit -- "the decoded MOBS walk-speed value
+--     carried in BasicAttr bit 0x0040" -- and `tests/test_npc_gait_wire.py:59`
+--     pins `PROVEN_WALK_SPEED = 150.0` at that bit and offset.
+-- So the offset is not unidentified: it is identified AT THE NPC/VISUAL LAYER
+-- and untested for a player character (that same coverage row says the
+-- Foundation population path never requests a movement speed).  Two layers
+-- also carry two different numbers for it -- 150.0 proven on the wire for
+-- NPCs, 400.0 as the client's construction default for the player object --
+-- and this lane is not the one to rule which applies to a player.  The COLUMN
+-- NAME therefore still encodes a hypothesis.  [สมมติของสาย DB - รอ RE]
 -- Nothing else in this file depends on that name being right: the column is
--- bound to BasicAttr+0x54 by x=7, and a rename is a later, cheap migration.
+-- bound to BasicAttr+0x54 by x=7, and a rename is a later, cheap migration
+-- (verified: ALTER TABLE ... RENAME COLUMN works with the CHECK in place).
 
 ALTER TABLE characters ADD COLUMN level INTEGER
     CHECK(level IS NULL OR (typeof(level)='integer' AND level BETWEEN 0 AND 65535));
