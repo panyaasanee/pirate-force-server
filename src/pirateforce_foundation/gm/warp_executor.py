@@ -137,6 +137,7 @@ from dataclasses import dataclass
 
 from .. import world_scene_travel
 from ..population import SCENE_SEQUENCE
+from ..world_scene_entry import is_position_within_scene_ground
 from .commands import GmCommand
 from .scene_catalog import is_known_scene_id
 from .teleport_wire import make_force_pos_frame_with_body
@@ -292,6 +293,7 @@ def make_warp_force_pos_frame_with_target(
     x = _require_finite_float(raw_x, "x")
     y = _require_finite_float(raw_y, "y")
     z = _require_finite_float(z, "z")
+    _refuse_if_outside_ground(scene_id, x, y)
     pc, frame, body = make_force_pos_frame_with_body(legacy, vital_version, x, y, z)
     # `body`, not `(x, y, z)`: see WarpTarget's docstring -- the target has to
     # be the wire's own binary32 values, or every later comparison inherits an
@@ -379,6 +381,7 @@ def make_warp_teleport_frame_with_target(
     x = _require_finite_float(raw_x, "x")
     y = _require_finite_float(raw_y, "y")
     z = _require_finite_float(z, "z")
+    _refuse_if_outside_ground(scene_id, x, y)
     pc, frame = legacy.make_login_teleport(scene_id, SCENE_SEQUENCE, x, y, z)
     # No payload comes back to decode the way `make_force_pos_frame_with_body`
     # hands one back -- `legacy.make_login_teleport` is a fixed constructor,
@@ -574,6 +577,66 @@ def _require_int(value, label: str) -> int:
         return int(value)
     except Exception as exc:
         raise WarpExecutorError(f"{label} must be an integer, got {value!r}") from exc
+
+
+def _refuse_if_outside_ground(scene_id: int, x: float, y: float) -> None:
+    """Refuse an (x, y) this project's own ground data proves is off the map.
+
+    Closes the gap LANE-GM opened against LANE-A for (`pf_bridge/
+    notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-
+    needs-a-public-ground-check.md`): before this, `_require_finite_float`
+    only rejected NaN/Inf, so `/warp 2 100000 200` composed a real frame for
+    a point `world_scene_entry.py` elsewhere calls `RELOCATED_OUTSIDE_GROUND`
+    against the scene's own `ground_extent`. LANE-A opened
+    `world_scene_entry.is_position_within_scene_ground` for this (reply:
+    `.../20260901_2252_LANE-A-REPLY-to-lane-gm-ground-check-api-ready.md`);
+    this function is the one place that decides what this module DOES with
+    its three-valued answer.
+
+    NOT a hard gate for a scene whose ONLY spawn evidence is a
+    PROVISIONAL-OWNER-DECREE (scene 17 today, per `world_scene_travel`'s own
+    registry). `is_position_within_scene_ground`'s underlying
+    `_ground_evidence` returns `False` there for EVERY (x, y) -- including
+    (834, -598), the EXACT coordinate GT-106-R2 measured a real client
+    receiving and rendering, and that COO-DECISION 2026-08-31T14:41+07:00
+    already authorized `/warp 17 834 -598` to send
+    (`tests/test_gm_warp_executor.py::WarpTeleportCrossSceneTests::
+    test_scene_seq_is_always_the_shared_scene_sequence_constant` pins that
+    exact call). A hard gate on that `False` would silently revoke the one
+    cross-scene destination this project has ever proven live -- a worse
+    outcome than the unbounded-coordinate gap this function exists to close.
+    So: only refuse when the destination's OWN evidence is not decree-only.
+    This reads `spawn_provenance`, a field `world_scene_travel.destination`
+    already computes and this module already imports that module for -- it
+    does not re-derive or copy `_ground_evidence`'s radius arithmetic (the
+    one thing the request letter's own "ข้อควรระวัง" section asked the
+    consumer to avoid).
+
+    Every scene with NO ground evidence at all (`ground_extent is None` --
+    every scene this registry carries today except 17 and 278) answers
+    `None` here and is never refused; a caller that types `/warp 1 100000
+    200` still gets no protection from this function, the same as before
+    this round -- see the round file's nonclaim for why that gap stays
+    open (there is no ground data to check it against yet).
+    """
+    try:
+        target = world_scene_travel.destination(scene_id)
+    except (KeyError, ValueError):
+        # Unknown scene id: the caller's own scene_id checks
+        # (is_known_scene_id / current_scene_id equality, above this
+        # function's call sites) already own refusing that shape; nothing
+        # for a ground check to add for a destination that is not real.
+        return
+    if (
+        target.spawn_provenance is not None
+        and target.spawn_provenance.startswith("PROVISIONAL-OWNER-DECREE")
+    ):
+        return
+    if is_position_within_scene_ground(scene_id, x, y) is False:
+        raise WarpExecutorError(
+            f"({x}, {y}) is outside scene {scene_id}'s ground_extent -- "
+            "refusing rather than sending a warp frame off the map"
+        )
 
 
 def _require_finite_float(value, label: str) -> float:

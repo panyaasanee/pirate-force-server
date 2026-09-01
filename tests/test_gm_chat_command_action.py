@@ -281,8 +281,16 @@ class WarpActionTests(_Case):
         # live `TeleportVital` via `legacy.make_login_teleport`, the same
         # encoder `runtime.py`'s own call sites already send.  Nothing is
         # staged for this shape any more; a real action goes out.
+        # (-13270, 22794) replaces this test's original (100, 200) fixture
+        # (round `n05nxf`, LANE-GM's warp ground gate): scene 278's real
+        # ground_extent (opened by LANE-A, `pf_bridge/notes_to_chief/
+        # 20260901_2252_LANE-A-REPLY-...`) makes (100, 200) a real off-map
+        # point now, and `warp_executor._refuse_if_outside_ground` refuses
+        # it. This test is about the action shape/label, not the ground
+        # gate, so it moves to a point this project's own registry proves
+        # is on 278's ground (near its spawn).
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
-        action = self.act(session, "/warp 278 100 200")
+        action = self.act(session, "/warp 278 -13270 22794")
         self.assertIsNotNone(action)
         label, pc, frame, delay = action
         self.assertEqual(
@@ -291,7 +299,7 @@ class WarpActionTests(_Case):
         self.assertIn("TELEPORT", label)
         self.assertEqual(delay, 0.0)
         expected_pc, expected_frame = self.legacy.make_login_teleport(
-            278, 0, 100.0, 200.0, 30.0
+            278, 0, -13270.0, 22794.0, 30.0
         )
         self.assertEqual(bytes(pc), bytes(expected_pc))
         self.assertEqual(bytes(frame), bytes(expected_frame))
@@ -307,9 +315,12 @@ class WarpActionTests(_Case):
         # that constructor) may compose -- a regression that made the cross-
         # scene path depend on the ForcePos constant would silently reopen
         # the stage-only behaviour COO-DECISION 1441 replaced.
+        # See the fixture-move comment on
+        # test_a_cross_scene_warp_with_coordinates_now_fires_a_live_teleport
+        # above -- same reason, same round.
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
         with self.close_the_version_gate():
-            action = self.act(session, "/warp 278 100 200")
+            action = self.act(session, "/warp 278 -13270 22794")
         self.assertIsNotNone(action)
         self.assertEqual(
             action[0], chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL
@@ -1699,8 +1710,12 @@ class ContractTests(_Case):
         self.assertEqual(label, label.encode("ascii").decode())
 
     def test_the_cross_scene_teleport_action_shape_matches_what_runtime_appends(self):
+        # (1, 2) -> a point inside scene 278's real ground_extent (round
+        # `n05nxf`, LANE-GM's warp ground gate) -- see the fixture-move
+        # comment on test_a_cross_scene_warp_with_coordinates_now_fires_a_
+        # live_teleport above for why (1, 2) itself would now be refused.
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
-        action = self.act(session, "/warp 278 1 2")
+        action = self.act(session, "/warp 278 -13270 22794")
         self.assertIsInstance(action, tuple)
         self.assertEqual(len(action), 4)
         self.assertEqual(
