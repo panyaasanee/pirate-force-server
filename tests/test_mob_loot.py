@@ -43,15 +43,23 @@ from pirateforce_foundation.mob_death import DeathRecord
 from pirateforce_foundation.mob_loot import (
     DROP_COORD_SPANS,
     DROP_ELEMENT_SIZE,
+    DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE,
+    DROP_ELEMENT_MODEL_TYPE_SPAN,
+    DROP_ELEMENT_SIZE_WITH_MODEL_TYPE,
     DROP_ENVELOPE_PIN,
     DROP_ENVELOPE_SIZE,
     DROP_FRAME_COORD_SHIFT,
     DROP_FRAME_SIZE,
+    DROP_FRAME_SIZE_WITH_MODEL_TYPE,
     DROP_KEY_BASE,
     DROP_KEY_LIMIT,
+    DROP_MODEL_TYPE_FIELD_ENABLED,
     DROP_PC_SIZE,
+    DROP_PC_SIZE_WITH_MODEL_TYPE,
     DROP_SCATTER_STEP,
     ELEMENT_MASK_POSITION_AND_DWORD,
+    ELEMENT_MASK_WITH_MODEL_TYPE,
+    ELEMENT_MODEL_TYPE_TAG,
     DROP_FRAME_HEADER_PIN,
     DROP_FRAME_HEADER_SIZE,
     GROUND_DROP_DOES_NOT_PERSIST,
@@ -75,9 +83,13 @@ from pirateforce_foundation.mob_loot import (
     as_wire_float,
     commit_drops,
     drop_collection_pc,
+    drop_collection_pc_with_model_type,
     drop_element,
+    drop_element_with_model_type,
     drop_frames,
+    drop_frames_with_model_type,
     drop_pc,
+    drop_pc_with_model_type,
     drops_console_line,
     loot_report,
     money_element,
@@ -873,6 +885,250 @@ class MobLootTests(unittest.TestCase):
                 ceiling + 1))
         self.assertEqual(
             caught.exception.args[0], "generation_too_wide_to_frame")
+
+    # -- mask 0x04, n_DROPMODEL_TYPE (ka1-B, [DERIVED, not yet client-------
+    # -- measured]) ----------------------------------------------------------
+    def test_the_model_type_mask_and_tag_constants(self):
+        """The one candidate NONCLAIM 16 did not already rule out.
+
+        RE-067 pinned mask 0x08 and mask 0x20 as the client's text-label
+        COLOR property; this asserts the new bit is neither of those and is
+        exactly the proven mask plus the one untouched bit.
+        """
+        self.assertEqual(mob_loot.ELEMENT_MODEL_TYPE_TAG, 0x0F)
+        self.assertEqual(mob_loot.ELEMENT_MASK_MODEL_TYPE_BIT, 0x04)
+        self.assertEqual(ELEMENT_MASK_WITH_MODEL_TYPE, 0x16)
+        self.assertEqual(
+            ELEMENT_MASK_WITH_MODEL_TYPE,
+            ELEMENT_MASK_POSITION_AND_DWORD | mob_loot.ELEMENT_MASK_MODEL_TYPE_BIT)
+        # NONCLAIM 16's pinned color bits, untouched by this round.
+        for reserved_bit in (0x08, 0x20):
+            self.assertEqual(
+                ELEMENT_MASK_WITH_MODEL_TYPE & reserved_bit, 0,
+                "mask 0x%02X is RE-067's text-label-color property "
+                "(NONCLAIM 16); this lane must not set it" % reserved_bit)
+
+    def test_the_wide_element_size_and_pc_size_are_derived_arithmetic(self):
+        self.assertEqual(
+            DROP_ELEMENT_SIZE_WITH_MODEL_TYPE,
+            DROP_ELEMENT_SIZE + 3,
+            "the model-type field is one tag byte plus a u16 value")
+        self.assertEqual(
+            DROP_PC_SIZE_WITH_MODEL_TYPE,
+            DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE_WITH_MODEL_TYPE)
+        self.assertEqual(
+            DROP_FRAME_SIZE_WITH_MODEL_TYPE,
+            DROP_PC_SIZE_WITH_MODEL_TYPE + DROP_FRAME_HEADER_SIZE)
+        self.assertEqual(
+            DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE,
+            tuple((start + 3, end + 3) for start, end in
+                  mob_loot.DROP_ELEMENT_COORD_SPANS))
+
+    def test_the_wide_element_is_byte_exact_for_a_known_weapon_item(self):
+        """[DERIVED, not yet client-measured].
+
+        There is no probe lane for mask 0x16 to cross-pin against (the task
+        that added this field found none in the repo), so this test derives
+        the expected bytes independently -- tag by tag, through the same
+        legacy primitives the composer uses -- rather than trusting the
+        composer's own arithmetic.  2200201 is field_drop_tables' own
+        lowest item id, a weapon (Dagger) with drop_model_type 1.
+        """
+        item_id = 2200201
+        self.assertEqual(field_drop_tables.ITEMS[item_id][3], 1)
+        drop = GroundDrop(
+            DROP_KEY_BASE, item_id, 1,
+            as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
+            0x201F, KILLER,
+        )
+        expected = bytearray()
+        expected += self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key)
+        expected += self.legacy.u8tag(
+            mob_loot.ELEMENT_MASK_TAG, ELEMENT_MASK_WITH_MODEL_TYPE)
+        expected += self.legacy.u32tag(mob_loot.ELEMENT_PAYLOAD_TAG, item_id)
+        expected += self.legacy.u16tag(ELEMENT_MODEL_TYPE_TAG, 1)
+        expected += self.legacy.f32tag(drop.x)
+        expected += self.legacy.f32tag(drop.y)
+        expected += self.legacy.f32tag(drop.z)
+        expected = bytes(expected)
+        self.assertEqual(len(expected), DROP_ELEMENT_SIZE_WITH_MODEL_TYPE)
+        self.assertEqual(
+            drop_element_with_model_type(self.legacy, drop), expected)
+
+    def test_the_wide_element_model_type_matches_field_drop_tables_column(
+            self):
+        """The value is PULLED, never guessed, across every item category."""
+        for item_id in sorted(field_drop_tables.ITEMS):
+            row = field_drop_tables.ITEMS[item_id]
+            if not str(row[2]).strip():
+                continue   # a nameless row is refused before it gets here
+            drop = GroundDrop(
+                DROP_KEY_BASE, item_id, 1,
+                as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
+                0x201F, KILLER,
+            )
+            element = drop_element_with_model_type(self.legacy, drop)
+            start, end = DROP_ELEMENT_MODEL_TYPE_SPAN
+            composed = struct.unpack("<H", element[start:end])[0]
+            self.assertEqual(
+                composed, row[3],
+                "item %d composed model type %d, table says %d"
+                % (item_id, composed, row[3]))
+
+    def test_the_wide_pc_is_byte_exact_for_a_one_drop_generation(self):
+        """[DERIVED, not yet client-measured].  Same derivation style as the
+        element test above: built tag by tag, not trusted from the composer.
+        """
+        item_id = 2200201
+        drop = GroundDrop(
+            DROP_KEY_BASE, item_id, 1,
+            as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
+            0x201F, KILLER,
+        )
+        expected = bytearray()
+        expected += self.legacy.u16tag(
+            0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_RES)
+        expected += self.legacy.u32tag(0x14, 0)
+        expected += self.legacy.u8tag(0x08, 4)
+        expected += self.legacy.u8tag(0x0B, 0)
+        expected += self.legacy.u8tag(0x0B, RUNTIME_DERIVED_BIT_GROUND_LIST)
+        expected += self.legacy.u16tag(0x12, 1)
+        expected += self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key)
+        expected += self.legacy.u8tag(
+            mob_loot.ELEMENT_MASK_TAG, ELEMENT_MASK_WITH_MODEL_TYPE)
+        expected += self.legacy.u32tag(mob_loot.ELEMENT_PAYLOAD_TAG, item_id)
+        expected += self.legacy.u16tag(ELEMENT_MODEL_TYPE_TAG, 1)
+        expected += self.legacy.f32tag(drop.x)
+        expected += self.legacy.f32tag(drop.y)
+        expected += self.legacy.f32tag(drop.z)
+        expected = bytes(expected)
+        self.assertEqual(len(expected), DROP_PC_SIZE_WITH_MODEL_TYPE)
+        pc = drop_pc_with_model_type(self.legacy, drop)
+        self.assertEqual(pc, expected)
+        # The envelope is IDENTICAL to the narrow, proven shape -- only the
+        # element widened -- so it must still equal DROP_ENVELOPE_PIN.
+        self.assertEqual(pc[:DROP_ENVELOPE_SIZE], DROP_ENVELOPE_PIN)
+
+    def test_the_wide_one_drop_frame_is_47_and_57_bytes_and_decompresses(
+            self):
+        item_id = 2200201
+        drop = GroundDrop(
+            DROP_KEY_BASE, item_id, 1,
+            as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
+            0x201F, KILLER,
+        )
+        (pc, frame), = drop_frames_with_model_type(self.legacy, (drop,))
+        self.assertEqual(len(pc), DROP_PC_SIZE_WITH_MODEL_TYPE)
+        self.assertEqual(len(frame), DROP_FRAME_SIZE_WITH_MODEL_TYPE)
+        self.assertEqual(
+            self.legacy.snappy_raw_decompress(frame[8:]), pc,
+            "the wide one-element frame does not decompress to its own pc")
+
+    def test_the_wide_multi_drop_generation_carries_every_element_and_model(
+            self):
+        """The mask-0x16 sibling of the narrow multi-drop containment test."""
+        items = (2200201, 2204001, 2205001, 2400047)   # 1, 2, 3, 10
+        drops = tuple(
+            GroundDrop(
+                DROP_KEY_BASE + index, item_id, 1,
+                as_wire_float(1.0 + DROP_SCATTER_STEP * index),
+                as_wire_float(2.0), as_wire_float(3.0), 0x201F, KILLER,
+            )
+            for index, item_id in enumerate(items)
+        )
+        (pc, frame), = drop_frames_with_model_type(self.legacy, drops)
+        self.assertEqual(
+            len(pc),
+            DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE_WITH_MODEL_TYPE * len(drops))
+        self.assertEqual(
+            struct.unpack("<H", pc[15:17])[0], len(drops))
+        self.assertEqual(
+            self.legacy.snappy_raw_decompress(frame[8:]), pc,
+            "the wide multi-element frame does not decompress to its own pc")
+        for index, (item_id, drop) in enumerate(zip(items, drops)):
+            base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE_WITH_MODEL_TYPE
+            start, end = DROP_ELEMENT_MODEL_TYPE_SPAN
+            model_type = struct.unpack(
+                "<H", pc[base + start:base + end])[0]
+            self.assertEqual(model_type, field_drop_tables.ITEMS[item_id][3])
+            coordinates = b"".join(
+                pc[base + s:base + e]
+                for s, e in DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE
+            )
+            self.assertEqual(
+                coordinates, struct.pack("<fff", drop.x, drop.y, drop.z))
+
+    def test_the_wide_composer_reuses_the_encoder_disagreement_refusal(self):
+        """Same refusal name as the narrow encoder, same reachability rule."""
+        class _BrokenLegacy:
+            GSCN_RUNTIME_PROTOCOL_RES = 0x6E9D
+
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                if tag == ELEMENT_MODEL_TYPE_TAG:
+                    return self._real.u16tag(tag, value ^ 1)
+                return self._real.u16tag(tag, value)
+
+        drop = GroundDrop(
+            DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
+            as_wire_float(3.0), 0x201F, KILLER,
+        )
+        with self.assertRaises(MobLootContractError) as caught:
+            drop_element_with_model_type(_BrokenLegacy(self.legacy), drop)
+        self.assertEqual(
+            caught.exception.args[0], "element_encoder_disagrees")
+
+    def test_the_narrow_path_is_unaffected_by_the_new_flag(self):
+        """GT-045's proven shape does not move, regardless of the flag.
+
+        drop_frames -- what runtime.py actually calls per MOB_LOOT_WIRING --
+        must keep composing exactly 44/54 bytes for a one-drop kill even
+        though DROP_MODEL_TYPE_FIELD_ENABLED defaults to True: this module's
+        own rule says the mask-0x12 path may not be weakened, and the flag
+        exists to gate a SIBLING function, not this one.
+        """
+        self.assertTrue(
+            DROP_MODEL_TYPE_FIELD_ENABLED,
+            "this round's own default is True; if that changed, the "
+            "assertions below about drop_frames still must not")
+        drop = GroundDrop(
+            DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
+            as_wire_float(3.0), 0x201F, KILLER,
+        )
+        (pc, frame), = drop_frames(self.legacy, (drop,))
+        self.assertEqual(len(pc), DROP_PC_SIZE)
+        self.assertEqual(len(frame), DROP_FRAME_SIZE)
+        self.assertEqual(pc[:DROP_ENVELOPE_SIZE], DROP_ENVELOPE_PIN)
+        self.assertEqual(pc[DROP_ENVELOPE_SIZE + 6], ELEMENT_MASK_POSITION_AND_DWORD)
+
+    def test_the_flag_is_a_real_rollback_lever_not_only_a_comment(self):
+        """DROP_MODEL_TYPE_FIELD_ENABLED = False must actually do something.
+
+        drop_frames_with_model_type reads the flag itself: flipped off, it
+        must fall back to exactly drop_frames's own proven bytes, so "leave
+        this False" (the docstring's stated rollback) is true of the code,
+        not only of the comment describing it.
+        """
+        drop = GroundDrop(
+            DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
+            as_wire_float(3.0), 0x201F, KILLER,
+        )
+        narrow = drop_frames(self.legacy, (drop,))
+        mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED = False
+        try:
+            fell_back = drop_frames_with_model_type(self.legacy, (drop,))
+        finally:
+            mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED = True
+        self.assertEqual(fell_back, narrow)
+        # And with the flag at its shipped default, the two must differ --
+        # otherwise this test would pass for the wrong reason.
+        wide = drop_frames_with_model_type(self.legacy, (drop,))
+        self.assertNotEqual(wide, narrow)
 
     def test_the_declared_count_is_cross_checked_against_the_payload(self):
         """A legacy shim that lies in the count record must not ship.

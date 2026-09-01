@@ -91,6 +91,35 @@ ledger, which is the only lever this lane has toward "it stays"; whether
 re-emission redraws the label, does nothing, or restarts the dust is UNMEASURED
 and is written as a nonclaim rather than as a feature.
 
+WHAT THIS ROUND ADDS, AND WHAT IT DOES NOT YET REACH (ROUND KA1B-DROPMODEL).
+Everything above this paragraph is untouched history and stays exactly as it
+was written -- GT-045 measured NO MODEL, and that finding does not move.
+What is new: ka1-B's letter (pf_bridge notes_to_chief/20260901_2015_KA1B-
+TO-LANE-B-drop-model-selector-field-is-not-on-our-wire.md, [HYPOTHESIS,
+unproven]) reads GT-045's own open question -- what makes a model appear --
+as a field this lane has simply never SENT: mask bit 0x04 (tag 0x0F, u16,
++0x18, ``n_DROPMODEL_TYPE``), one of three candidates the same static
+element table already names.  The other two (mask 0x08 and 0x20) are RULED
+OUT by an earlier pin already in this file (RE-067 / NONCLAIM 16: they are
+the client's text-label COLOR, not a model selector).  :func:`drop_element_
+with_model_type`, :func:`drop_collection_pc_with_model_type`,
+:func:`drop_pc_with_model_type` and :func:`drop_frames_with_model_type`
+compose the wider mask-0x16 element -- the proven mask-0x12 fields plus
+this one -- sourcing the value from
+``field_drop_tables.ITEMS[item_id][3]`` (already mined, already matching
+ka1-B's 0..12 token table item for item; see :func:`_model_type_for_item`).
+NONE OF THIS IS MEASURED: no client has ever been shown these bytes, and
+this addition proves nothing about whether ``n_DROPMODEL_TYPE`` is even
+read from this wire location -- only that a candidate byte the client's own
+decompiled shape reserves for mask 0x04 is no longer silently absent from
+what this lane CAN send.  Whether a model appears is therefore still open,
+is still GT-045/GT-132's question, and this round does not close it.  It is
+production code -- no scenario id, no CLI flag, ``test_only`` unchanged at
+False -- gated only by the module-level :data:`DROP_MODEL_TYPE_FIELD_
+ENABLED`, and it is NOT (yet) reached by :func:`drop_frames`, the function
+``runtime.py`` actually calls; see that function's own docstring for why,
+and this round's CORE-REQUEST for the one-line swap that would change it.
+
 PROVENANCE OF EVERY CLAIM THE CODE MAKES
 ----------------------------------------
 * [STATIC, survived adversarial re-derive in GT-042] The 0x5F85B0 element
@@ -315,6 +344,26 @@ ELEMENT_MASK_TAG = 0x0B                  # +0x28 dirty mask
 ELEMENT_PAYLOAD_TAG = 0x14               # +0x14, mask bit 0x02
 ELEMENT_F32_TAG = 0x2A                   # +0x1C / +0x20 / +0x24
 ELEMENT_LIST_COUNT_TAG = 0x12
+# ---------------------------------------------------------------------------
+# ROUND KA1B-DROPMODEL -- MASK 0x04, n_DROPMODEL_TYPE.  ka1-B's letter
+# (pf_bridge notes_to_chief/20260901_2015_KA1B-TO-LANE-B-drop-model-
+# selector-field-is-not-on-our-wire.md, [HYPOTHESIS, unproven]) reads
+# GT-045's own open question -- "what makes a model appear is the OPEN
+# question of that ticket" (see the module docstring above) -- as a field
+# this lane has simply never sent, and names three candidates from the
+# SAME static element-shape table this file already cites (GT-042).  TWO of
+# the three are RULED OUT already, not by this letter but by an EARLIER pin
+# in this file: NONCLAIM 16 / RE-067 pinned mask 0x08 (tag 0x05, +0x1B) and
+# mask 0x20 (tag 0x08, +0x1A) as the client's TEXT-LABEL-COLOR property, P-2
+# territory this lane does not own.  That leaves mask 0x04 (tag 0x0F, u16,
+# +0x18) as the one candidate nothing has pinned to something else -- it is
+# still [DERIVED, not yet client-measured] itself, just not contradicted.
+ELEMENT_MODEL_TYPE_TAG = 0x0F            # +0x18, mask bit 0x04, u16
+ELEMENT_MASK_MODEL_TYPE_BIT = 0x04
+# mask 0x12 (the proven position+payload shape) | 0x04 (this round's
+# untested candidate) = 0x16.
+ELEMENT_MASK_WITH_MODEL_TYPE = (
+    ELEMENT_MASK_POSITION_AND_DWORD | ELEMENT_MASK_MODEL_TYPE_BIT)
 ENVELOPE_VERSION = 4
 DROP_PC_SIZE = 44                        # one element, pinned by GT-045
 DROP_FRAME_SIZE = 54                     # the same pc, framed
@@ -377,12 +426,76 @@ DROP_FRAME_HEADER_SIZE = len(DROP_FRAME_HEADER_PIN)
 # against them at run time.
 DROP_FRAME_MAGIC_PIN = DROP_FRAME_HEADER_PIN[:4]
 
+# ---------------------------------------------------------------------------
+# The mask-0x16 element sizes.  Same 27 bytes as DROP_ELEMENT_SIZE above,
+# plus the model-type field -- one tag byte (ELEMENT_MODEL_TYPE_TAG) and one
+# little-endian u16 value -- inserted where ELEMENT_FIELD_ORDER's own
+# ascending-bit-order convention puts it: after the mask-0x02 payload dword
+# this lane already sends, and before the mask-0x10 coordinate triple.
+# [DERIVED, not yet client-measured]: unlike DROP_ENVELOPE_PIN and the
+# 44-byte DROP_PC_SIZE, nothing here is pinned to bytes a real client took --
+# only the ARITHMETIC (existing element + 1 tag byte + 2 value bytes) is
+# asserted, at run time, by drop_collection_pc_with_model_type below.
+# ---------------------------------------------------------------------------
+DROP_ELEMENT_MODEL_TYPE_FIELD_SIZE = 3     # 1 tag byte + u16 little-endian
+DROP_ELEMENT_SIZE_WITH_MODEL_TYPE = (
+    DROP_ELEMENT_SIZE + DROP_ELEMENT_MODEL_TYPE_FIELD_SIZE)      # 30
+DROP_PC_SIZE_WITH_MODEL_TYPE = (
+    DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE_WITH_MODEL_TYPE)      # 47
+# A snappy raw-literal header for a pc THIS SHORT never changes shape (a
+# one-byte varint length, a one-byte extended-literal tag) for any length
+# <= 60 -- DROP_PC_SIZE_WITH_MODEL_TYPE (47) is inside that range the same
+# way DROP_PC_SIZE (44) is -- so the header stays DROP_FRAME_HEADER_SIZE
+# bytes long; only its CONTENT bytes differ, and they are not hand-typed
+# here for the same [DERIVED] reason as above.  drop_frames_with_model_type
+# checks the arithmetic below against a REALLY COMPOSED frame at run time,
+# so a wrong assumption here fails loudly instead of shipping quietly.
+DROP_FRAME_SIZE_WITH_MODEL_TYPE = (
+    DROP_PC_SIZE_WITH_MODEL_TYPE + DROP_FRAME_HEADER_SIZE)       # 57
+# Coordinate spans of ONE wide element, relative to that element's first
+# byte -- the narrow spans shifted right by the model-type field's width,
+# derived rather than typed again for the same reason DROP_ELEMENT_COORD_
+# SPANS is derived from DROP_COORD_SPANS.
+DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE = tuple(
+    (start + DROP_ELEMENT_MODEL_TYPE_FIELD_SIZE,
+     end + DROP_ELEMENT_MODEL_TYPE_FIELD_SIZE)
+    for start, end in DROP_ELEMENT_COORD_SPANS
+)
+# Element-relative span of the model-type field's VALUE bytes (the u16, not
+# its tag byte).  The tag byte sits exactly where the narrow element's first
+# coordinate tag used to sit -- one byte before DROP_ELEMENT_COORD_SPANS'
+# first span -- because the model-type field is inserted immediately in
+# front of the coordinate triple.
+_MODEL_TYPE_TAG_ELEMENT_OFFSET = DROP_ELEMENT_COORD_SPANS[0][0] - 1
+DROP_ELEMENT_MODEL_TYPE_SPAN = (
+    _MODEL_TYPE_TAG_ELEMENT_OFFSET + 1, _MODEL_TYPE_TAG_ELEMENT_OFFSET + 3)
+# An emitter ceiling for the wide element, same reasoning as
+# DROP_MAX_ELEMENTS_PER_FRAME and OURS for the same two reasons: it is
+# smaller than the narrow ceiling because each wide element costs 3 more
+# bytes.
+DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE = (
+    (0x10000 - DROP_ENVELOPE_SIZE) // DROP_ELEMENT_SIZE_WITH_MODEL_TYPE)
+
 # The list codec's element field order, re-derived from the same span
 # [0x005F85B0,0x005F8869) sha256 ce0a58f7.. that GT-040/GT-042 pinned.
 ELEMENT_FIELD_ORDER = (
     "key_u32_tag14",
     "dirty_mask_u8_tag0B",
     "payload_u32_tag14",
+    "x_f32_tag2A",
+    "y_f32_tag2A",
+    "z_f32_tag2A",
+)
+# The mask-0x16 sibling: the same fields, with the model-type field inserted
+# in the ascending-bit-order slot ELEMENT_FIELD_ORDER's own comment
+# describes (0x02 before 0x04 before 0x10).  [DERIVED, not yet
+# client-measured] -- this ordering is this module's own convention applied
+# to a new field, not a re-derivation of anything GT-040/GT-042 measured.
+ELEMENT_FIELD_ORDER_WITH_MODEL_TYPE = (
+    "key_u32_tag14",
+    "dirty_mask_u8_tag0B",
+    "payload_u32_tag14",
+    "model_type_u16_tag0F",
     "x_f32_tag2A",
     "y_f32_tag2A",
     "z_f32_tag2A",
@@ -422,6 +535,33 @@ DROP_SCATTER_STEP = 30.0
 DROP_REFRESH_MS_IS_EXPERIMENT_ONLY = True
 DROP_REFRESH_MS = 80
 MAX_DROPS_PER_KILL = 16
+
+# ---------------------------------------------------------------------------
+# ROUND KA1B-DROPMODEL -- n_DROPMODEL_TYPE, SHIPPED BUT NOT (YET) THE PROVEN
+# CALL SITE'S DEFAULT.  [ASSUMPTION OF LANE B - awaiting COO confirmation]
+# Following NONCLAIM 22's own precedent -- additive, reversible, so ship it
+# unflagged and let an attended run falsify it cheaply -- this flag is True
+# by default and gates :func:`drop_frames_with_model_type` (and the
+# mask-0x16 composers under it), which is production code: no scenario id,
+# no dispatch kwarg, no CLI switch, ``test_only`` for this module is still
+# False.  It does NOT gate :func:`drop_frames` itself.  :data:`MOB_LOOT_
+# WIRING` and NONCLAIM 1 both name ``drop_frames`` as the literal call site
+# ``runtime.py`` already invokes unconditionally on every server-computed
+# mob death, and that function's ONE-drop output is pinned byte-for-byte not
+# only by this file's own tests but by tests/test_ground_drop_multi_drop_
+# emission_shape.py and tests/test_mob_drop_presence*.py -- files this
+# round's task scope does not authorize touching.  Making ``drop_frames``
+# itself pick the wide mask would silently break every one of those pins,
+# which is exactly the "weaken the existing proven mask-0x12 path" this
+# module's own rule forbids.  So the wide path ships as its OWN
+# always-callable function instead, reachable with NO FLAG the way this
+# whole module is, and the one-line ask that would make it the live call
+# site's default is this round's CORE-REQUEST, not a change made here to
+# runtime.py, which this lane may not edit.
+# Rollback if the assumption is wrong: leave this False, or simply never
+# take the CORE-REQUEST swap -- drop_frames, the function actually wired
+# today, does not read this flag at all.
+DROP_MODEL_TYPE_FIELD_ENABLED = True
 
 # [MEASURED, GT-045 CLOSED-ANSWERED, four attended rounds 2026-08-25]
 GROUND_DROP_DOES_NOT_PERSIST = True
@@ -695,6 +835,36 @@ MOB_LOOT_NONCLAIMS = (
     "one whose cost is measured.  [ASSUMPTION OF LANE B - awaiting COO "
     "confirmation]  Rollback if the call is wrong: drop_frames returning "
     "one pair per drop again, one function, no call-site change.",
+    "23. MASK 0x04 (n_DROPMODEL_TYPE) IS NOW COMPOSED, AND IT IS UNMEASURED "
+    "WHETHER THE CLIENT DRAWS ANYTHING FROM IT.  2026-09-01, "
+    "drop_element_with_model_type / drop_collection_pc_with_model_type / "
+    "drop_pc_with_model_type / drop_frames_with_model_type add tag 0x0F "
+    "(u16, element offset +0x18, mask bit 0x04) to the proven mask-0x12 "
+    "element, sourcing the value from field_drop_tables.ITEMS[item_id][3] -- "
+    "already-mined data, not a guess.  This answers ka1-B's letter "
+    "(pf_bridge notes_to_chief/20260901_2015_KA1B-TO-LANE-B-drop-model-"
+    "selector-field-is-not-on-our-wire.md, [HYPOTHESIS, unproven]), which "
+    "named THREE mask-bit candidates from the same static element table "
+    "GT-042 pinned.  TWO OF THOSE THREE ARE NOT TOUCHED HERE: NONCLAIM 16 "
+    "already pinned mask 0x08 (tag 0x05, +0x1B) and mask 0x20 (tag 0x08, "
+    "+0x1A) as RE-067's TEXT-LABEL-COLOR property -- P-2 territory, not this "
+    "lane's -- so only mask 0x04 was built.  NOTHING ABOUT THIS IS "
+    "MEASURED: no client has ever been shown these bytes, and GT-045's own "
+    "finding (n_DROPMODEL_TYPE = 1 is NOT SUFFICIENT; both v3 ids carried "
+    "it and only ID_MODEL differed) is the reason this lane does not read "
+    "'the field is now sent' as 'a model will now appear'.  It answers only "
+    "whether a byte the decompiled shape reserves is present, not what the "
+    "client does with it.  [ASSUMPTION OF LANE B - awaiting COO "
+    "confirmation]  It is production code with no CLI flag, gated by "
+    "DROP_MODEL_TYPE_FIELD_ENABLED (True), but is NOT wired into "
+    "drop_frames -- the function runtime.py actually calls -- because that "
+    "function's ONE-drop output is pinned byte-for-byte in test files this "
+    "round did not touch (test_ground_drop_multi_drop_emission_shape.py, "
+    "test_mob_drop_presence*.py).  The swap that would make it the call "
+    "site's default is this round's CORE-REQUEST.  Rollback if the "
+    "assumption is wrong: leave DROP_MODEL_TYPE_FIELD_ENABLED False, or "
+    "simply never take the CORE-REQUEST swap -- drop_frames itself never "
+    "reads this flag.",
 )
 
 # ---------------------------------------------------------------------------
@@ -994,6 +1164,22 @@ def _require_known_item(item_id: int, label: str) -> tuple:
             "%s: item %d has no display name, and the name is the only thing "
             "this lane has ever been measured to draw" % (label, item_id))
     return row
+
+
+def _model_type_for_item(item_id: int) -> int:
+    """``n_DROPMODEL_TYPE`` for ``item_id``, PULLED, never guessed.
+
+    ``field_drop_tables.ITEMS[item_id]`` is ``(table_code, low_id,
+    display_name, drop_model_type)`` -- the 4th element already IS the 0..12
+    token ka1-B's letter names item for item (weapons 1, armor 2, jewelry/
+    fittings 3, crystal ids 10/11, and so on).  This function exists so
+    every mask-0x16 composer reads that column exactly once and refuses the
+    same way :func:`_require_known_item` already refuses an unmined or
+    nameless item, rather than re-deriving the value or defaulting it.
+    """
+    row = _require_known_item(item_id, "model type lookup")
+    return _require_int(
+        row[3], "drop_model_type for item %d" % item_id, 0, 12)
 
 
 def _require_mob(mob: Any) -> FieldMob:
@@ -2089,6 +2275,68 @@ def drop_element(legacy: Any, drop: Any) -> bytes:
     return via_tags
 
 
+# ---------------------------------------------------------------------------
+# The mask-0x16 sibling.  Same two-derivation-compared shape as
+# ``drop_element`` above; the only difference is the extra field and that
+# nothing here is pinned to a real client's bytes (see the constants block
+# this reads from for why).
+# ---------------------------------------------------------------------------
+def _element_via_tags_with_model_type(legacy: Any, drop: GroundDrop) -> bytes:
+    model_type = _model_type_for_item(drop.item_id)
+    return (
+        legacy.u32tag(ELEMENT_KEY_TAG, drop.drop_key)
+        + legacy.u8tag(ELEMENT_MASK_TAG, ELEMENT_MASK_WITH_MODEL_TYPE)
+        + legacy.u32tag(ELEMENT_PAYLOAD_TAG, drop.item_id)
+        + legacy.u16tag(ELEMENT_MODEL_TYPE_TAG, model_type)
+        + legacy.f32tag(drop.x)
+        + legacy.f32tag(drop.y)
+        + legacy.f32tag(drop.z)
+    )
+
+
+def _element_via_struct_with_model_type(drop: GroundDrop) -> bytes:
+    """The same wide element built from the pinned layout, no legacy helper."""
+    model_type = _model_type_for_item(drop.item_id)
+    return (
+        bytes([ELEMENT_KEY_TAG]) + struct.pack("<I", drop.drop_key)
+        + bytes([ELEMENT_MASK_TAG, ELEMENT_MASK_WITH_MODEL_TYPE])
+        + bytes([ELEMENT_PAYLOAD_TAG]) + struct.pack("<I", drop.item_id)
+        + bytes([ELEMENT_MODEL_TYPE_TAG]) + struct.pack("<H", model_type)
+        + bytes([ELEMENT_F32_TAG]) + struct.pack("<f", drop.x)
+        + bytes([ELEMENT_F32_TAG]) + struct.pack("<f", drop.y)
+        + bytes([ELEMENT_F32_TAG]) + struct.pack("<f", drop.z)
+    )
+
+
+def drop_element_with_model_type(legacy: Any, drop: Any) -> bytes:
+    """One mask-0x16 element: the proven mask-0x12 fields plus
+    :data:`ELEMENT_MODEL_TYPE_TAG` (mask bit 0x04, ``n_DROPMODEL_TYPE``).
+
+    [DERIVED, not yet client-measured].  See the module docstring's "WHAT
+    THIS ROUND ADDS" section and ``MOB_LOOT_NONCLAIMS`` for what is and is
+    not proven -- no client has ever been shown these bytes, and this
+    function does not claim otherwise.  The value composed is pulled from
+    ``field_drop_tables.ITEMS[item_id][3]`` via :func:`_model_type_for_item`,
+    never guessed.
+    """
+    if type(drop) is not GroundDrop:
+        raise MobLootContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "drop must be a typed GroundDrop")
+    via_tags = _element_via_tags_with_model_type(legacy, drop)
+    via_struct = _element_via_struct_with_model_type(drop)
+    if via_tags != via_struct:
+        raise MobLootContractError(
+            REFUSE_ELEMENT_ENCODER_DISAGREES,
+            "the legacy tag helpers and the pinned wide layout disagree; "
+            "this lane refuses to emit a shape it cannot check")
+    if len(via_tags) != DROP_ELEMENT_SIZE_WITH_MODEL_TYPE:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a mask-0x16 element is %d bytes, composed %d"
+            % (DROP_ELEMENT_SIZE_WITH_MODEL_TYPE, len(via_tags)))
+    return via_tags
+
+
 def drop_collection_pc(legacy: Any, drops: Any) -> bytes:
     """ONE RuntimeRes generation carrying every drop THE CALLER PASSES.
 
@@ -2213,6 +2461,106 @@ def drop_collection_pc(legacy: Any, drops: Any) -> bytes:
     return pc
 
 
+def drop_collection_pc_with_model_type(legacy: Any, drops: Any) -> bytes:
+    """mask-0x16 sibling of :func:`drop_collection_pc`.
+
+    [DERIVED, not yet client-measured].  Same generation shape as the
+    proven function above -- one envelope, N elements, RE-130's
+    replace-by-omission rules apply identically because this function
+    changes the ELEMENT, not the generation/frame structure -- with every
+    element carrying the mask-0x04 model-type field
+    (:data:`ELEMENT_MODEL_TYPE_TAG`) alongside the mask-0x12 fields this
+    lane has already put on a real client's wire.  See ka1-B's letter
+    (pf_bridge notes_to_chief/20260901_2015_KA1B-TO-LANE-B-drop-model-
+    selector-field-is-not-on-our-wire.md) and ``MOB_LOOT_NONCLAIMS`` for
+    what is and is not proven about it.
+    """
+    rows = tuple(drops)
+    if not rows:
+        raise MobLootContractError(
+            REFUSE_GENERATION_IS_EMPTY,
+            "an empty generation is a no-op in this consumer (RE-130 T3), "
+            "not a clear; this lane refuses to compose one")
+    if len(rows) > DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE:
+        raise MobLootContractError(
+            REFUSE_GENERATION_TOO_WIDE_TO_FRAME,
+            "%d elements is wider than this lane can frame without a "
+            "multi-run literal it has never composed (ceiling %d, and it is "
+            "OURS, not a client limit)"
+            % (len(rows), DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE))
+    elements = [drop_element_with_model_type(legacy, drop) for drop in rows]
+    keys = [drop.drop_key for drop in rows]
+    if len(set(keys)) != len(keys):
+        raise MobLootContractError(
+            REFUSE_DUPLICATE_KEY_IN_GENERATION,
+            "two drops in one generation carry the same key; the consumer "
+            "keys its tree on that dword (RE-130 T3) and the second would "
+            "silently replace the first")
+    payload = b"".join(elements)
+    pc = bytearray()
+    pc += legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+    pc += legacy.u32tag(0x14, 0)
+    pc += legacy.u8tag(0x08, ENVELOPE_VERSION)
+    pc += legacy.u8tag(0x0B, 0)                                # inherited none
+    pc += legacy.u8tag(0x0B, RUNTIME_DERIVED_BIT_GROUND_LIST)  # derived 0x08
+    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, len(rows))
+    pc += payload
+    pc = bytes(pc)
+    expected_size = (
+        DROP_ENVELOPE_SIZE + DROP_ELEMENT_SIZE_WITH_MODEL_TYPE * len(rows))
+    if len(pc) != expected_size:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a %d-element wide ground pc is %d bytes, composed %d"
+            % (len(rows), expected_size, len(pc)))
+    if pc[:DROP_ENVELOPE_CONSTANT_SIZE] != DROP_ENVELOPE_CONSTANT_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed envelope is not the pinned envelope; the legacy "
+            "serializer moved under this lane and it refuses to emit")
+    if pc[DROP_ENVELOPE_CONSTANT_SIZE] != ELEMENT_LIST_COUNT_TAG:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the count record does not start with the pinned 0x12 tag")
+    declared = struct.unpack(
+        "<H", pc[DROP_ENVELOPE_CONSTANT_SIZE + 1:DROP_ENVELOPE_SIZE])[0]
+    if declared != len(rows):
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the generation declares %d elements and carries %d"
+            % (declared, len(rows)))
+    if pc[DROP_ENVELOPE_SIZE:] != payload:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed pc does not end in the elements it was built from")
+    if len(rows) == 1 and pc[:DROP_ENVELOPE_SIZE] != DROP_ENVELOPE_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a one-element wide generation does not compose to the same "
+            "envelope GT-045 measured for the narrow shape; the envelope is "
+            "identical between the two masks and this must never diverge")
+    for index, drop in enumerate(rows):
+        base = DROP_ENVELOPE_SIZE + index * DROP_ELEMENT_SIZE_WITH_MODEL_TYPE
+        coordinates = b"".join(
+            pc[base + start:base + end]
+            for start, end in DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE
+        )
+        if coordinates != struct.pack("<fff", drop.x, drop.y, drop.z):
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "element %d's composed coordinates are not that drop's "
+                "coordinates" % index)
+        model_start, model_end = DROP_ELEMENT_MODEL_TYPE_SPAN
+        expected_model_type = _model_type_for_item(drop.item_id)
+        if pc[base + model_start:base + model_end] != struct.pack(
+                "<H", expected_model_type):
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "element %d's composed model type does not match "
+                "field_drop_tables.ITEMS[item_id][3]" % index)
+    return pc
+
+
 def drop_pc(legacy: Any, drop: Any) -> bytes:
     """The single-element RuntimeRes pc that carries one ground drop.
 
@@ -2227,6 +2575,27 @@ def drop_pc(legacy: Any, drop: Any) -> bytes:
             REFUSE_COMPOSED_BYTES_OFF_PIN,
             "a one-element ground pc is %d bytes, composed %d"
             % (DROP_PC_SIZE, len(pc)))
+    if pc[:DROP_ENVELOPE_SIZE] != DROP_ENVELOPE_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the composed envelope is not the pinned envelope; the legacy "
+            "serializer moved under this lane and it refuses to emit")
+    return pc
+
+
+def drop_pc_with_model_type(legacy: Any, drop: Any) -> bytes:
+    """The single-element mask-0x16 pc: :func:`drop_pc`'s bytes plus the
+    model-type field.  [DERIVED, not yet client-measured] -- unlike
+    ``drop_pc``, nothing here is pinned to bytes GT-045 or any other
+    attended round put in front of a real client; only the arithmetic
+    (:data:`DROP_PC_SIZE_WITH_MODEL_TYPE`) is asserted.
+    """
+    pc = drop_collection_pc_with_model_type(legacy, (drop,))
+    if len(pc) != DROP_PC_SIZE_WITH_MODEL_TYPE:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "a one-element wide ground pc is %d bytes, composed %d"
+            % (DROP_PC_SIZE_WITH_MODEL_TYPE, len(pc)))
     if pc[:DROP_ENVELOPE_SIZE] != DROP_ENVELOPE_PIN:
         raise MobLootContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN,
@@ -2293,6 +2662,20 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
     pairs -- so the call site in ``runtime.py:4292``, which is chief's file
     and not this lane's to edit, keeps working unread: it iterates, and now
     it iterates once.
+
+    ROUND KA1B-DROPMODEL, DELIBERATELY UNCHANGED HERE.  A sibling,
+    :func:`drop_frames_with_model_type`, composes the mask-0x16 element
+    (mask-0x12 plus [DERIVED, not yet client-measured] ``n_DROPMODEL_TYPE``)
+    and is gated by :data:`DROP_MODEL_TYPE_FIELD_ENABLED` (True).  THIS
+    function does not read that flag and still composes ONLY the mask-0x12
+    shape: the ONE-drop bytes below are GT-045's own measured 44/54, pinned
+    not only in this file's tests but in tests/test_ground_drop_multi_
+    drop_emission_shape.py and tests/test_mob_drop_presence*.py, none of
+    which this round touched.  Making this function pick the wide mask
+    would break every one of those pins silently.  The one-line swap that
+    would make the wide mask THIS function's default (which is what would
+    make it runtime.py's default, since that file calls this name) is this
+    round's CORE-REQUEST, not a change made unilaterally here.
     """
     rows = tuple(drops)
     if not rows:
@@ -2366,6 +2749,103 @@ def drop_frames(legacy: Any, drops: Any) -> tuple:
                 REFUSE_COMPOSED_BYTES_OFF_PIN,
                 "element %d's framed coordinates are not that drop's "
                 "coordinates" % index)
+    return ((pc, frame),)
+
+
+def drop_frames_with_model_type(legacy: Any, drops: Any) -> tuple:
+    """mask-0x16 sibling of :func:`drop_frames`.  NO SCENARIO ID, NO DISPATCH
+    KWARG, NO CLI FLAG -- this is production code the same way every other
+    function in this module is; :data:`DROP_MODEL_TYPE_FIELD_ENABLED` gates
+    only whether a CALLER of THIS function is expected to prefer it, not
+    whether the function itself is reachable.
+
+    [DERIVED, not yet client-measured].  Composes the same generation/frame
+    STRUCTURE :func:`drop_frames` does -- one envelope, N wide elements, the
+    RE-130 replace-by-omission rules unchanged -- with every element
+    carrying ``n_DROPMODEL_TYPE`` alongside the fields GT-045 already put on
+    a real client's wire.  Unlike ``drop_frames``, the ONE-drop case here is
+    NOT checked against a hand-typed literal frame-header pin the way
+    :data:`DROP_FRAME_HEADER_PIN` checks the narrow shape: nothing has
+    measured those bytes, and typing a fake "pin" for an unmeasured shape
+    would be exactly the kind of invented row this project's rules forbid.
+    What IS checked, at run time, on every call: the envelope pin (which the
+    wide element does not change), the frame magic, the frame's own length
+    field, the two framing encoders agreeing, and -- per element -- both the
+    coordinates and the model-type value against
+    ``field_drop_tables.ITEMS[item_id][3]``.
+
+    NOT WIRED INTO ``runtime.py``.  See :func:`drop_frames`'s own docstring
+    for why, and this round's CORE-REQUEST for the one-line swap that would
+    change that.
+
+    :data:`DROP_MODEL_TYPE_FIELD_ENABLED` IS READ HERE, not only documented:
+    a caller who flips it to False gets exactly :func:`drop_frames`'s own
+    proven mask-0x12 bytes back, with no other code change -- which is what
+    makes "leave this False" a real rollback lever and not a comment nobody
+    checks.
+    """
+    if not DROP_MODEL_TYPE_FIELD_ENABLED:
+        return drop_frames(legacy, drops)
+    rows = tuple(drops)
+    if not rows:
+        return ()
+    if len(rows) == 1:
+        pc = drop_pc_with_model_type(legacy, rows[0])
+    else:
+        pc = drop_collection_pc_with_model_type(legacy, rows)
+    frame = legacy.frame_pc(pc)
+    header_size = len(frame) - len(pc)
+    if frame[:len(DROP_FRAME_MAGIC_PIN)] != DROP_FRAME_MAGIC_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the frame magic is not the pinned magic; the framing layer "
+            "moved under this lane and it refuses to emit")
+    if len(frame) < 8 or struct.unpack("<I", frame[4:8])[0] != len(frame) - 8:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the frame's own length field does not describe the frame")
+    if frame[header_size:] != pc:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the framed body is not the pc that was composed")
+    recomposed = _frame_via_struct(pc)
+    if frame != recomposed:
+        raise MobLootContractError(
+            REFUSE_FRAME_ENCODER_DISAGREES,
+            "the legacy framing layer and the pinned frame format disagree; "
+            "this lane refuses to emit a frame shape it cannot check")
+    for index, drop in enumerate(rows):
+        base = (
+            header_size + DROP_ENVELOPE_SIZE
+            + index * DROP_ELEMENT_SIZE_WITH_MODEL_TYPE)
+        shifted = b"".join(
+            frame[base + start:base + end]
+            for start, end in DROP_ELEMENT_COORD_SPANS_WITH_MODEL_TYPE
+        )
+        if shifted != struct.pack("<fff", drop.x, drop.y, drop.z):
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "element %d's framed coordinates are not that drop's "
+                "coordinates" % index)
+        model_start, model_end = DROP_ELEMENT_MODEL_TYPE_SPAN
+        expected_model_type = _model_type_for_item(drop.item_id)
+        if frame[base + model_start:base + model_end] != struct.pack(
+                "<H", expected_model_type):
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "element %d's framed model type does not match "
+                "field_drop_tables.ITEMS[item_id][3]" % index)
+    if len(rows) == 1:
+        if len(pc) != DROP_PC_SIZE_WITH_MODEL_TYPE:
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "a one-element wide ground pc is %d bytes, composed %d"
+                % (DROP_PC_SIZE_WITH_MODEL_TYPE, len(pc)))
+        if len(frame) != DROP_FRAME_SIZE_WITH_MODEL_TYPE:
+            raise MobLootContractError(
+                REFUSE_COMPOSED_BYTES_OFF_PIN,
+                "a framed one-element wide ground message is %d bytes, "
+                "composed %d" % (DROP_FRAME_SIZE_WITH_MODEL_TYPE, len(frame)))
     return ((pc, frame),)
 
 
