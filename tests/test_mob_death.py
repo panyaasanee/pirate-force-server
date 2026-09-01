@@ -766,6 +766,201 @@ class MobDeathTests(unittest.TestCase):
                 override[mob.actor_identity],
                 field_mobs.hostile_actor_entry(self.legacy, mob))
 
+    # -- CODEX_URGENT 2026-09-01T20:40+07:00 / COO-DECISION 2026-09-01T21:48
+    # +07:00, item 1: the corpse re-arm fix (``transitioning=``).  bg0001's
+    # real roster is all four Training Iron Man placements (template 916),
+    # so two of ITS OWN rows -- no stand-in fixtures needed -- both die under
+    # the same registered ruling, which is exactly the shape the docstring
+    # this round retired ("ONE-CORPSE LIMIT") warned would regress once more
+    # than one identity could be dead at once.
+
+    def two_real_corpses(self):
+        """Kill two DIFFERENT real bg0001 roster rows, same ruling, one
+        register.  Returns (mob_a, mob_b, ledger, register) with both dead.
+        """
+        mob_a, mob_b = self.roster[0], self.roster[1]
+        self.assertNotEqual(mob_a.actor_identity, mob_b.actor_identity)
+        struck_a = strike(
+            self.legacy, None, open_ledger(), None, mob_a, PERFORMER, LETHAL)
+        outcome_a = struck_a.outcome
+        step_a = kill(
+            self.legacy, mob_a, outcome_a, DeathRegister(),
+            widened=CONTROL_WIDENING)
+        register = mob_death.commit_death(DeathRegister(), step_a)
+        struck_b = strike(
+            self.legacy, None, struck_a.ledger, None, mob_b, PERFORMER,
+            LETHAL)
+        outcome_b = struck_b.outcome
+        step_b = kill(
+            self.legacy, mob_b, outcome_b, register,
+            widened=CONTROL_WIDENING)
+        register = mob_death.commit_death(register, step_b)
+        ledger = struck_b.ledger
+        self.assertTrue(register.is_dead(mob_a.actor_identity, mob_a.scene))
+        self.assertTrue(register.is_dead(mob_b.actor_identity, mob_b.scene))
+        return mob_a, mob_b, ledger, register
+
+    def test_transitioning_none_reproduces_the_old_re_arm_regression(self):
+        # THE BUG, PINNED SO NOBODY LOSES IT.  With transitioning=None (the
+        # default, unchanged for every existing single-corpse call site),
+        # composing mob_b's DYING frame still re-arms mob_a's ALREADY-DEAD
+        # corpse back to a positive (DYING) timer, exactly as CODEX_URGENT
+        # 2026-09-01T20:40+07:00 measured against the real call chain.
+        mob_a, mob_b, ledger, register = self.two_real_corpses()
+        override = full_roster_override(
+            self.legacy, self.roster, register, ledger=ledger,
+            dead_timer=DYING_TIMER_SECONDS)
+        self.assertEqual(
+            override[mob_a.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_a, death_timer=DYING_TIMER_SECONDS))
+
+    def test_transitioning_names_the_one_row_that_re_arms(self):
+        # THE FIX.  Naming mob_b as the transitioning row: mob_b (the corpse
+        # actually entering DYING this frame) gets the DYING timer; mob_a
+        # (already dead, unrelated to this transition) holds at
+        # DEAD_TIMER_SECONDS -- its steady state -- instead of following
+        # dead_timer.
+        mob_a, mob_b, ledger, register = self.two_real_corpses()
+        override = full_roster_override(
+            self.legacy, self.roster, register, ledger=ledger,
+            dead_timer=DYING_TIMER_SECONDS,
+            transitioning=(mob_b.scene, mob_b.actor_identity))
+        self.assertEqual(
+            override[mob_b.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_b, death_timer=DYING_TIMER_SECONDS))
+        self.assertEqual(
+            override[mob_a.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_a, death_timer=DEAD_TIMER_SECONDS))
+        # and the DEAD half of the same two-frame schedule holds the fixed
+        # corpse's timer at the floor on BOTH rows, same as before this fix
+        # existed -- the regression is only visible on the DYING half, where
+        # dead_timer > 0.
+        dead_override = full_roster_override(
+            self.legacy, self.roster, register, ledger=ledger,
+            dead_timer=DEAD_TIMER_SECONDS,
+            transitioning=(mob_b.scene, mob_b.actor_identity))
+        self.assertEqual(
+            dead_override[mob_a.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_a, death_timer=DEAD_TIMER_SECONDS))
+        self.assertEqual(
+            dead_override[mob_b.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_b, death_timer=DEAD_TIMER_SECONDS))
+
+    def test_transitioning_naming_a_row_that_is_not_dead_is_refused(self):
+        mob_a, mob_b, ledger, register = self.two_real_corpses()
+        alive = [m for m in self.roster if m not in (mob_a, mob_b)][0]
+        with self.assertRaises(MobDeathContractError) as caught:
+            full_roster_override(
+                self.legacy, self.roster, register, ledger=ledger,
+                dead_timer=DYING_TIMER_SECONDS,
+                transitioning=(alive.scene, alive.actor_identity))
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW)
+
+    def test_transitioning_naming_a_dead_row_from_a_foreign_scenes_roster_is_refused(
+            self):
+        # PF-ADVERSARY'S EXACT REPRO (coordinator-relayed, this round).  A
+        # ``transitioning`` value can name a row that IS dead in the
+        # register -- ``DeathRegister`` persists dead rows across scene
+        # changes BY DESIGN -- while still being a row from a DIFFERENT
+        # scene's roster than the one this call actually received.  Before
+        # this fix, ``register.is_dead(...)`` alone said yes and the whole
+        # point of the refusal (catch a caller that is wrong about which
+        # corpse it means) walked straight through: a real bg0001 kill and a
+        # real Bg0002 kill in ONE register, then composing the bg0001
+        # roster's DYING frame while naming the Bg0002 row as
+        # ``transitioning`` did not raise, and every dead row in the bg0001
+        # roster being composed -- including the real bg0001 corpse -- fell
+        # back to DEAD_TIMER_SECONDS instead of the caller's DYING_TIMER_
+        # SECONDS.  The fix requires membership in THIS call's own
+        # ``roster``, not just registry-wide deadness.
+        bg0001_mob = self.mob
+        bg0002_mob = self.bg0002_roster[0]
+        self.assertNotEqual(bg0001_mob.scene, bg0002_mob.scene)
+        struck_bg0001 = strike(
+            self.legacy, None, open_ledger(), None, bg0001_mob, PERFORMER,
+            LETHAL)
+        step_bg0001 = kill(
+            self.legacy, bg0001_mob, struck_bg0001.outcome, DeathRegister(),
+            widened=CONTROL_WIDENING)
+        register = mob_death.commit_death(DeathRegister(), step_bg0001)
+        step_bg0002 = self.killing_outcome_solo(bg0002_mob)
+        death_bg0002 = kill(
+            self.legacy, bg0002_mob, step_bg0002.outcome, register,
+            widened=WIDENED_BG0002_RULING)
+        register = mob_death.commit_death(register, death_bg0002)
+        # the register really does carry the Bg0002 row as dead -- the old,
+        # insufficient check would have accepted it right here.
+        self.assertTrue(
+            register.is_dead(bg0002_mob.actor_identity, bg0002_mob.scene))
+        # ...but it is not a member of the bg0001 roster this call receives.
+        self.assertNotIn(
+            (bg0002_mob.scene, bg0002_mob.actor_identity),
+            set((m.scene, m.actor_identity) for m in self.roster))
+        with self.assertRaises(MobDeathContractError) as caught:
+            full_roster_override(
+                self.legacy, self.roster, register,
+                ledger=struck_bg0001.ledger, dead_timer=DYING_TIMER_SECONDS,
+                transitioning=(bg0002_mob.scene, bg0002_mob.actor_identity))
+        self.assertEqual(
+            caught.exception.reason,
+            mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW)
+        # and the real bg0001 corpse did NOT silently fall back to
+        # DEAD_TIMER_SECONDS: the call raised instead of returning anything
+        # for ANY identity, which is the whole fix -- the adversary's repro
+        # was exactly that ``override[bg0001_mob.actor_identity]`` used to
+        # come back at the wrong (floor) timer with no exception at all.
+
+    def test_transitioning_reaches_hostile_census_frames_with_correct_per_row_wire_bytes(
+            self):
+        # End-to-end through the wider function, mirroring the production
+        # call shape (runtime.py's two hostile_census_frames calls, DYING
+        # then DEAD) -- this is the function CORE-REQUEST asks the chief to
+        # pass transitioning= into.
+        #
+        # STRENGTHENED, pf-adversary (coordinator-relayed): the first draft
+        # of this test only checked ``len(frame) > 0``, which would stay
+        # green even if the composed bytes carried the WRONG timer on every
+        # row.  This now recomposes the same inputs independently (build_
+        # world_population + full_roster_override + apply_identity_override,
+        # the same three calls hostile_census_frames itself makes) and
+        # compares the full composed pc/frame byte for byte -- so a mutant
+        # that drops ``transitioning`` on the way through, or applies it to
+        # the wrong row, fails HERE rather than only at the full_roster_
+        # override layer already covered above.
+        mob_a, mob_b, ledger, register = self.two_real_corpses()
+        anchor = (0.0, 0.0, 0.0)
+        actor_count = len(self.roster)
+        transitioning = (mob_b.scene, mob_b.actor_identity)
+        plain = world_population.build_world_population(
+            self.legacy, anchor, actor_count, scene_id=mob_death.SCENE_ID,
+        )
+        for dead_timer_kwargs in (
+                {"dead_timer": DYING_TIMER_SECONDS}, {}):
+            pc, frame = hostile_census_frames(
+                self.legacy, anchor, actor_count, self.roster, register,
+                ledger=ledger, transitioning=transitioning,
+                **dead_timer_kwargs)
+            expected_override = full_roster_override(
+                self.legacy, self.roster, register, ledger=ledger,
+                transitioning=transitioning, **dead_timer_kwargs)
+            expected = world_population.apply_identity_override(
+                self.legacy, plain, expected_override)
+            self.assertEqual(pc, expected.pc)
+            self.assertEqual(frame, expected.frame)
+            # and mob_a (the row NOT named by transitioning) really is at
+            # the floor in both compositions, never following dead_timer
+            self.assertEqual(
+                expected_override[mob_a.actor_identity],
+                mob_death.death_actor_entry(
+                    self.legacy, mob_a, death_timer=DEAD_TIMER_SECONDS))
+
     # -- GT-084 console-coverage helper ------------------------------------
 
     def test_roster_override_coverage_reports_matched_and_missing(self):

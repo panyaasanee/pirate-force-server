@@ -117,6 +117,80 @@ class SceneRecomposeTests(unittest.TestCase):
             "reaching the composer",
         )
 
+    def test_scene_1_transitioning_reaches_the_live_composer_and_only_that_row_moves(
+            self):
+        # CODEX_URGENT 2026-09-01T20:40+07:00 / COO-DECISION 2026-09-01T21:48
+        # +07:00's fix, pinned at THIS layer (recompose_frames -> the live
+        # composer runtime.py actually calls) rather than only at
+        # mob_death.hostile_census_frames directly -- pf-adversary
+        # (coordinator-relayed) flagged that the only prior test at this
+        # layer never checked composed WIRE BYTES for the per-row timer, only
+        # ``len(frame) > 0``.  Two real bg0001 corpses, one named as
+        # ``transitioning``: that row alone must carry the passed
+        # ``dead_timer``, the other must stay at ``DEAD_TIMER_SECONDS``.
+        register, ledger, mob_a, mob_b = self._register_with_two_real_corpses()
+        record = recompose.recompose_frames(
+            self.legacy, self.anchor1, register, ledger=ledger,
+            dead_timer=mob_death.DYING_TIMER_SECONDS,
+            transitioning=(mob_b.scene, mob_b.actor_identity))
+        self.assertEqual(record.state, recompose.STATE_COMPOSED)
+        expected_override = mob_death.full_roster_override(
+            self.legacy, self.roster1, register, ledger=ledger,
+            dead_timer=mob_death.DYING_TIMER_SECONDS,
+            transitioning=(mob_b.scene, mob_b.actor_identity))
+        self.assertEqual(
+            expected_override[mob_b.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_b,
+                death_timer=mob_death.DYING_TIMER_SECONDS))
+        self.assertEqual(
+            expected_override[mob_a.actor_identity],
+            mob_death.death_actor_entry(
+                self.legacy, mob_a, death_timer=mob_death.DEAD_TIMER_SECONDS))
+        generation = world_population.build_world_population(
+            self.legacy, ANCHOR, world_population.CENSUS_COUNT, scene_id=SCENE1,
+        )
+        expected = recompose.splice_identity_override(
+            self.legacy, generation, expected_override)
+        # THE ACTUAL PER-ROW WIRE CHECK: the live composer's OWN bytes at
+        # each mob's own offset must equal repopulation_entries' per-row
+        # entry, not just "the frame is nonempty" and not just "some frame
+        # was returned distinct from another frame" -- both of which the
+        # prior test at the mob_death.hostile_census_frames layer already
+        # covered, and neither of which proves the RIGHT row got the RIGHT
+        # timer.
+        self.assertEqual(record.pc, expected.pc)
+        self.assertEqual(record.frame, expected.frame)
+
+    def _register_with_two_real_corpses(self):
+        """Two committed corpses (a DIFFERENT bg0001 roster pair from
+        ``_register_with_a_real_corpse``'s single one), same ruling, WITH
+        the ledger both kills left behind -- the shape
+        CODEX_URGENT/COO-DECISION's re-arm fix exists for: more than one
+        identity dead in the SAME register at once.
+        """
+        mob_a, mob_b = self.roster1[0], self.roster1[1]
+        self.assertNotEqual(mob_a.actor_identity, mob_b.actor_identity)
+        struck_a = mob_combat.strike(
+            self.legacy, None, self.ledger1, None, mob_a, 0x1001,
+            mob_combat.Combatant(level=1000, ability_str=100000, ability_con=0),
+        )
+        self.assertTrue(struck_a.outcome.death_due)
+        death_a = mob_death.kill(
+            self.legacy, mob_a, struck_a.outcome, mob_death.DeathRegister(),
+            widened=WIDENING_RULING)
+        register = mob_death.commit_death(mob_death.DeathRegister(), death_a)
+        struck_b = mob_combat.strike(
+            self.legacy, None, struck_a.ledger, None, mob_b, 0x1001,
+            mob_combat.Combatant(level=1000, ability_str=100000, ability_con=0),
+        )
+        self.assertTrue(struck_b.outcome.death_due)
+        death_b = mob_death.kill(
+            self.legacy, mob_b, struck_b.outcome, register,
+            widened=WIDENING_RULING)
+        register = mob_death.commit_death(register, death_b)
+        return register, struck_b.ledger, mob_a, mob_b
+
     def _register_with_a_real_corpse(self):
         """One committed corpse, through strike -> kill -> commit_death, WITH
         the ledger that kill left behind.
