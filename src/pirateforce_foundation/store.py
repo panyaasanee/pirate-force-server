@@ -952,6 +952,199 @@ class SQLiteStore:
         written = {column: stored[column] for column in values}
         return compose_sparse_block(typed_attrs.typed_values_for_compose(written))
 
+    def read_character_vitals(self, character_id: int):
+        """This character's `level`/`hp_current`/`hp_max`, and every reason
+        they are not usable -- `persistence_vitals.VitalsResolution`.
+
+        LANE-DB owns this method (charter `COO-DECISION 20260901_1100`); no
+        existing method is touched by it.  It is `read_typed_attributes`
+        narrowed to the three columns M4 needs and passed through the vitals
+        gate, so that a caller gets either three numbers that have survived
+        every rule or a named list of what is missing -- never a zero standing
+        in for a column nobody has written yet.
+
+        After `006` all three columns are NULL on every existing character, so
+        today this returns a resolution with three `vital_column_not_seeded`
+        gaps and `complete` False for every character in the database.  That
+        is the correct answer, not a failure: seeding waits on a value COO has
+        not adjudicated (see `persistence_vitals`' docstring).
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, matching `get_character` and `read_typed_attributes`.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        with self.connect() as db:
+            vitals.verify_schema(db)
+            row = db.execute(
+                f"SELECT {','.join(columns)} FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+        return vitals.resolve({c: row[c] for c in columns if row[c] is not None})
+
+    def vitals_seeding_census(self) -> dict:
+        """How many characters in THIS database hold each vital, counted.
+
+        LANE-DB owns this method; no existing method is touched by it.
+
+        It replaces a text parser over `migrations/*.sql` that a
+        `pf-adversary` pass defeated seven different ways -- `ADD COLUMN ...
+        DEFAULT 100`, a BOM, a CTE, `REPLACE INTO`, a trigger body, `INSERT
+        ... SELECT`, a `/* */` comment -- every one of them reporting "nothing
+        seeds" while a real database held a seeded value in every row.  The
+        parser also answered "nothing seeds" for a directory that did not
+        exist, and read the repository's migrations directory rather than the
+        one this store was actually built with.
+
+        Counting rows cannot be wrong in that direction: it is the database
+        the caller is holding, and a value is there or it is not, whichever
+        statement in whichever file put it there.
+
+        EVERY ROW IS COUNTED, soft-deleted ones included, and the two counts
+        are reported side by side (`*_seeded_live` and `*_seeded_any`).  The
+        first version of this method carried `WHERE deleted_at IS NULL` --
+        matching every other read in this lane -- and a `pf-adversary` pass
+        showed that a REPORT is not a read: a seeded character that is then
+        soft-deleted made it answer `level_seeded: 0` over a row holding
+        `level=9` on disk, permanently, because `004_character_soft_delete_
+        reuse.sql` keeps those rows.  That is the same wrong answer in the
+        same reassuring direction as the text parser this replaced.
+
+        `database` is in the result on purpose: a census number quoted into a
+        round file is worth nothing if a reader cannot tell which file it was
+        counted from.
+
+        WHAT IT STILL CANNOT TELL YOU, said here rather than discovered
+        later: it counts values, not their provenance.  A value a migration
+        put there with a blanket `DEFAULT` and a value COO adjudicated are
+        the same bytes, and this method cannot distinguish them.  It answers
+        "has anything been written", never "was what was written allowed".
+        """
+        from . import persistence_vitals as vitals
+
+        with self.connect() as db:
+            vitals.verify_schema(db)
+            row = db.execute(vitals.census_sql()).fetchone()
+        census = {key: (0 if row[key] is None else int(row[key]))
+                  for key in row.keys()}
+        census["database"] = self.path
+        return census
+
+    def apply_hp_damage(self, character_id: int, amount: int):
+        """Subtract `amount` from this character's stored `hp_current`, with a
+        floor of zero, and return the `persistence_vitals.DamageOutcome`.
+
+        LANE-DB owns this method; no existing method is touched by it.  This
+        is the DB half of M4 (`ตีได้ตายได้`): the one place a hit becomes a
+        number on disk that survives a logout.
+
+        FAIL-CLOSED ON AN UNSEEDED CHARACTER.  If either HP column has no
+        value this raises `persistence_vitals.VitalsError` and writes nothing.
+        Treating an absent `hp_current` as `0` would make the first hit on
+        every unseeded character kill it -- the owner's banned guessed zero
+        (`COO-DECISION 20260901_1059`) arriving as a death rather than as a
+        wire field.  So on today's database, where nothing is seeded, this
+        method refuses for every character, loudly, by design.
+
+        The read and the write are ONE transaction on ONE connection
+        (`BEGIN IMMEDIATE`).  That line is NOT decoration and the cost of
+        losing it is measured, not feared: a `pf-adversary` pass deleted it
+        and ran 8 threads x 60 hits of 1 damage at one character -- 232 of
+        the 480 hits vanished (hp 99752 instead of 99520) and surfaced as
+        `KeyError`, which this method's own contract says means "no such
+        character".  A lost hit reported as a missing character is the worst
+        shape this method could fail in, so the lock now has a test that
+        fails without it (`tests/test_persistence_vitals.py`,
+        `BeginImmediateHoldsTheWriteLockTests`).
+
+        The `UPDATE` also carries `hp_current=?` for the value it read.  An
+        earlier draft of this docstring said no test could be made to fail by
+        deleting that predicate.  That was true when it was written and is
+        false now: `test_a_lost_write_would_not_be_reported_as_a_missing_
+        character`, added in the same round thirty lines further down the
+        test file, forces the predicate to miss and dies without it.  The
+        sentence outlived the suite it described -- corrected here rather
+        than left standing, since an under-claim is still a claim nobody
+        re-derived.  What the predicate buys: if the guarded UPDATE matches
+        nothing, this method says the write did not land instead of blaming a
+        missing character.
+
+        The new value goes out through `persistence_typed_attrs.validate` on
+        the way in (inside `write_typed_attributes`' rules) so a number this
+        schema may not hold cannot be reached by arithmetic either.
+
+        Raises `KeyError` for a character that does not exist or is
+        soft-deleted, and `persistence_vitals.VitalsError` for an unseeded or
+        inconsistent character, or for an amount that is not a whole number of
+        points of damage.  Nothing is written when anything is refused.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
+            row = db.execute(
+                f"SELECT {','.join(columns)} FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            stored = {c: row[c] for c in columns if row[c] is not None}
+            current = vitals.resolve(stored).require()
+            outcome = vitals.apply_damage(
+                current.hp_current, current.hp_max, amount)
+            if outcome.hp_after != outcome.hp_before:
+                # `deleted_at IS NULL` is repeated from the SELECT above on
+                # purpose, the same doubling `write_typed_attributes` carries
+                # and for the same reason: removing EITHER one alone cannot
+                # land a write where the API says it cannot.  Measured: each
+                # alone leaves the suite green, removing both is caught.
+                # `validate` on the stored value is belt-and-braces too --
+                # `hp_after` is an int inside the range by construction, so
+                # no test can fail on its removal.  Both are written down as
+                # structural rather than counted as evidence.
+                written = db.execute(
+                    "UPDATE characters SET hp_current=?,updated_at=? "
+                    "WHERE id=? AND deleted_at IS NULL AND hp_current=?",
+                    (
+                        typed_attrs.validate(
+                            vitals.HP_CURRENT_COLUMN, outcome.hp_after),
+                        _now(), character_id, outcome.hp_before,
+                    ),
+                ).rowcount
+                if written != 1:
+                    still_there = db.execute(
+                        "SELECT hp_current FROM characters "
+                        "WHERE id=? AND deleted_at IS NULL",
+                        (character_id,),
+                    ).fetchone()
+                    # ONE branch, not two.  A first draft split this into
+                    # `KeyError` when the row had vanished and `VitalsError`
+                    # otherwise; a `pf-adversary` pass showed the KeyError
+                    # half is unreachable by construction -- under
+                    # `BEGIN IMMEDIATE`, on this connection, between this
+                    # UPDATE and this SELECT, the row cannot disappear --
+                    # and deleting it left every test green.  Either way the
+                    # honest report is the same: the write did not land.
+                    # Saying `KeyError` here would tell a caller the
+                    # character is gone, which is the lie worth avoiding.
+                    raise vitals.VitalsError(
+                        "the guarded write matched no row (read hp_current="
+                        "%r, row now %r): the damage was NOT applied"
+                        % (outcome.hp_before,
+                           None if still_there is None
+                           else still_there["hp_current"])
+                    )
+        return outcome
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))

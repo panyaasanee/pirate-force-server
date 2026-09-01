@@ -4188,6 +4188,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     roster, epoch=0,
                 )
                 self.mob_combat_scene_folder = folder
+                # NOT WIRED HERE, ON PURPOSE (chief, round clw1zb/R297).
+                # LANE-B's letter 20260901_2255 asked for
+                # mob_loot_cell.reconcile_scene_transition() to be called at
+                # this boundary.  It was built, tested and then WITHDRAWN
+                # before push after pf-adversary review, for three measured
+                # reasons, and it is not to be re-added without a COO ruling:
+                #
+                # (1) COO-DECISION 2026-09-01T21:48+07:00 item 2 names the
+                #     OTHER of the two bounded options CODEX_URGENT offered:
+                #     "bind drop ownership to scene/generation", not
+                #     "reconcile the cell at the transition".  The two are not
+                #     equivalent -- ownership leaves the drop standing in the
+                #     scene it fell in, reconcile destroys it.
+                # (2) There is no TerrainThing removal publisher
+                #     (CODEX_URGENT 2026-09-01T20:40+07:00, and a count-zero
+                #     frame is PRESERVE, not CLEAR).  The ledger row is the
+                #     server's only handle on a ground object it has already
+                #     announced, so dropping the row makes the object
+                #     permanently unreachable rather than removed.
+                # (3) self.mob_combat_scene_folder is seeded to the boot
+                #     roster's scene in __init__, so the reconcile also fired
+                #     on the arrival-census path at LOGIN for any character
+                #     whose stored scene is not that one -- a boundary that
+                #     did not happen.  Harmless only while no ground state is
+                #     rehydrated, which is exactly what NOW.md P-1 wants to
+                #     change.
+                #
+                # Asked of the COO in notes_to_chief/20260902_02xx_CHIEF-ASK-
+                # COO-drop-cross-scene-option-1-vs-2-and-the-missing-removal-
+                # publisher.md.  The library half is on main and untouched.
             return roster
 
         def _dispatch_mob_combat(self, parsed):
@@ -4740,6 +4770,50 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             if anchor_record.scene_id
                             == world_population.SCENE_ID else ()
                         )
+                        # CORE-REQUEST (LANE-B letter 20260901_2255),
+                        # approved by COO-DECISION 2026-09-01T21:48+07:00,
+                        # answering CODEX_URGENT 2026-09-01T20:40+07:00 P0-5:
+                        # name the ONE corpse this recompose is about.
+                        # ``dead_timer`` used to be a single scalar applied to
+                        # EVERY dead row the census composed -- correct only
+                        # while at most one identity could be dead at once --
+                        # so composing THIS kill's DYING frame put
+                        # DYING_TIMER_SECONDS into EVERY other already-dead
+                        # corpse's census entry.  With the row named, only it
+                        # follows ``dead_timer``; every other corpse holds
+                        # mob_death.DEAD_TIMER_SECONDS, its steady state.
+                        # WHAT IS MEASURED IS THE BYTES, nothing more: whether
+                        # a real client re-plays a death animation on the old
+                        # timer is client-observable and UNPROVEN here (same
+                        # NONCLAIM mob_death.hostile_census_frames carries).
+                        # GT-199 is where that half gets a human's eyes.
+                        #
+                        # SAFE AT THIS CALL SITE, checked rather than assumed
+                        # (mob_death.REFUSE_TRANSITIONING_NOT_A_DEAD_ROW wants
+                        # the row to be dead in the register AND a member of
+                        # the roster THIS call receives): ``mob`` above is
+                        # ``next(m for m in roster ...)``, mob_death.kill
+                        # builds the record as DeathRecord(mob.actor_identity,
+                        # ..., mob.scene), and self.mob_death_register is the
+                        # POST-commit register a few lines up -- so the pair
+                        # below is by construction a row of THIS roster that
+                        # the register carries as dead.  ``roster`` is the same
+                        # object both calls receive.
+                        # THE SECOND PRODUCER, named because the paragraph
+                        # above does not cover it (pf-adversary, R297): the
+                        # diag branch takes ``death_step`` from
+                        # diag_multi_object_wiring.death_dispatch instead.
+                        # That chain holds for a different reason --
+                        # mob_diag_multi_object.kill_schedule calls
+                        # mob_death.kill(legacy, obj.mob, ...) and
+                        # widen_for_combat has APPENDED obj.mob to ``roster``
+                        # (it only ever appends) -- but no test drives it,
+                        # because config/diag_multi_object.json is not shipped
+                        # in this repo.  Traced, not exercised.
+                        death_transitioning = (
+                            death_step.record.scene,
+                            death_step.record.actor_identity,
+                        )
                         recompose_dying = (
                             mob_scene_recompose.recompose_frames(
                                 legacy, anchor_record,
@@ -4748,6 +4822,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 roster=roster,
                                 dead_timer=mob_death.DYING_TIMER_SECONDS,
                                 objects=death_objects,
+                                transitioning=death_transitioning,
                             )
                         )
                         recompose_dead = (
@@ -4757,6 +4832,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 ledger=self.mob_combat_ledger,
                                 roster=roster,
                                 objects=death_objects,
+                                transitioning=death_transitioning,
                             )
                         )
                         # Point (3) of the wiring ask: the module's line
