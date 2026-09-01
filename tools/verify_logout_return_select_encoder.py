@@ -8,9 +8,25 @@ ReturnSelectServerVital (0x709E) response whose 16-byte body is the client
 serializer 0x5e69f0's own field layout with every field zero, wraps it in the
 accepted GSCN_RunTimeProtocolRes v4 envelope, keeps the PF-012 ack bytes and
 the PF-013 clean close byte-identical, and refuses -- by name and with no
-bytes -- every scenario the exact allowlist can drive wrong.  An independent
-walker in this file reads the 16-byte body back tag by tag (0x08 u8, 0x32
-8-byte scalar, 0x44 empty std::string) rather than trusting the module.
+bytes -- every scenario the exact allowlist can drive wrong.  A walker in
+this file reads the 16-byte body back tag by tag (0x08 u8, 0x32 8-byte
+scalar, 0x44 std::string) using literals defined independently of the
+module's own code path -- but this checks INTERNAL CONSISTENCY (this file
+agrees with the module), not a second independent source: both share the
+same UNCONFIRMED assumption that field3 itself carries a wire tag 0x44
+before its length-prefixed string. `0x44` is a real, independently measured
+tag elsewhere (DeleteActorVital, GT-018), but `pf_bridge/external/
+PF_SERIALIZER_FIELDS.tsv` labels BOTH DeleteActorVital's own string field
+(rows 462/466) AND ReturnSelectServerVital's field3 (rows 1125/1128) as
+`UNTAGGED_STRING8_LEN32LE` -- and GT-055 already established that this
+label describes the scope of the string-writing helper only, not a
+full-wire claim (a tag byte can still be written by an instruction just
+before the helper call, outside the labeled span, the way GT-018
+independently confirmed for DeleteActorVital). So the TSV does NOT prove
+field3 lacks a tag, and it does NOT prove field3's tag (if any) is 0x44 --
+both directions are open. See RE-196 (CLIENT_RE_QUEUE.md) and
+logout_hypothesis.py's field3 comment for the exact open question;
+[STALE][MEASURED] round 292.
 
 It proves NOTHING about a client.  No client has ever been shown one byte of
 this profile.  Whether the real client transitions to character select on
@@ -69,7 +85,9 @@ RSS_VITAL_ID = 0x709E
 RUNTIME_PROTOCOL_RES_ID = 0x6E9D
 FIELD1_TAG = 0x08          # u8
 FIELD2_TAG = 0x32          # 8-byte scalar
-FIELD3_TAG = 0x44          # std::string (u32 length + data)
+FIELD3_TAG = 0x44          # std::string (u32 length + data) -- UNCONFIRMED
+                           # for this field specifically; see module
+                           # docstring "WHAT THIS PROVES" and RE-196
 BODY_HEX = "08003200000000000000004400000000"
 BODY_SIZE = 16
 RESP_PC_SIZE = 38
@@ -162,17 +180,23 @@ def main() -> int:
     check("the hypothesis id is HYP-PF-028",
           scenario.hypothesis_id == "HYP-PF-028")
 
-    print("-- B. the 16-byte body is the client serializer's own tag layout --")
+    print("-- B. the 16-byte body matches this reader's own literals "
+          "(field3's tag is UNCONFIRMED -- see RE-196) --")
     body = L.RETURN_SELECT_SERVER_BODY
     read = walk_body(body)
     check("field1 is tag 0x08 (u8) and defaults to zero (no client producer)",
           body[0] == FIELD1_TAG and read["field1"] == 0)
     check("field2 is tag 0x32 (8-byte scalar) and defaults to zero",
           body[2] == FIELD2_TAG and read["field2"] == 0)
-    check("field3 is tag 0x44 (std::string) with an empty, zero-length string",
+    check("field3 byte equals this reader's literal 0x44 [UNCONFIRMED as a "
+          "wire tag for THIS field -- RE-196, PF_SERIALIZER_FIELDS.tsv:1125 "
+          "records field3 as UNTAGGED_STRING8_LEN32LE] with an empty, "
+          "zero-length string",
           body[11] == FIELD3_TAG and read["strlen"] == 0
           and read["string"] == b"")
-    check("every tag byte is one of the three the serializer 0x5e69f0 writes",
+    check("byte 0/2/11 equal this reader's three literals -- 0x08/0x32 "
+          "confirmed client serializer tags, 0x44 UNCONFIRMED for field3 "
+          "(RE-196)",
           set([body[0], body[2], body[11]]) == {0x08, 0x32, 0x44})
 
     print("-- C. the composed response, recomposed and re-pinned --")
@@ -278,10 +302,12 @@ def main() -> int:
               % (len(failures), failures))
         return 1
     print("RESULT: PASS - the return-select lane composes one well-formed "
-          "0x709E vital from the client serializer's own field layout, keeps "
-          "the PF-012/013 pins, refuses every driven tamper by name, and "
-          "claims nothing about a client (GT-033 variants B and C ran and "
-          "came back client-observable NEGATIVE; see the docstring)")
+          "0x709E vital matching this reader's own literals (field1/field2 "
+          "tags confirmed from the client serializer, field3's tag "
+          "UNCONFIRMED -- see RE-196), keeps the PF-012/013 pins, refuses "
+          "every driven tamper by name, and claims nothing about a client "
+          "(GT-033 variants B and C ran and came back client-observable "
+          "NEGATIVE; see the docstring)")
     return 0
 
 
