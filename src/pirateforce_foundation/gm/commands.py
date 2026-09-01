@@ -89,6 +89,20 @@ COMMAND_USAGE = {
     # and a tooling command reordering them ahead of a gameplay one would be
     # a stranger drift than growing the tuple by one at the end.
     "gmprobe": "gmprobe <variant_id>",
+    # Not one of the owner's original six either, and not a LANE-GM tooling
+    # command like `gmprobe` -- an OWNER-ORDERED gameplay command, added by
+    # COO-ORDER 2026-09-01T16:41+07:00 (`pf_bridge/notes_to_chief/
+    # 20260901_1641_COO-ORDER-speed-sparse-x7-lane-gm-wire-chat-command.md`,
+    # itself Panya's live session override of 2026-09-01T16:39+07:00: "ส่งให้
+    # พอใช้งานได้ก่อน อย่ารอ RE"). Appended LAST, after `gmprobe`, for the
+    # same reason that comment gives for its own placement: growing the
+    # tuple by one at the end is a smaller drift than reordering the six
+    # pinned gameplay commands or the one tooling command ahead of it. The
+    # actual wire (a SPARSE `UpdateAttrVital` touching field x=7 only, never
+    # the other 54) lives in `gm/speed_wire.py`, deliberately NOT
+    # `gm/attr_wire.build_named_field_update` -- see that module's docstring
+    # for why the two are not interchangeable doors.
+    "speed": "speed <value>",
 }
 
 COMMAND_NAMES = tuple(COMMAND_USAGE)
@@ -289,6 +303,7 @@ def parse_gm_command(text: str) -> GmCommand:
       lv <n>
       spawn <mob_id>
       say <message...>
+      speed <value>
     """
     if not isinstance(text, str):
         raise TypeError("text must be a str")
@@ -346,6 +361,17 @@ def parse_gm_command(text: str) -> GmCommand:
                 f"say message exceeds {MAX_SAY_MESSAGE_LENGTH} characters"
             )
         return GmCommand(name, (rest,), stripped)
+
+    if name == "speed":
+        args = rest.split()
+        if len(args) != 1:
+            raise GmCommandParseError(COMMAND_USAGE["speed"])
+        # Same finite-number rule `warp`'s x/y already apply -- x=7's own
+        # `kind` is f32 (`attr_wire.FIELDS[6]`), and a value this lane cannot
+        # honestly encode as one must never reach a composer as a string that
+        # merely happens to parse there.
+        _require_number(args[0], "value")
+        return GmCommand(name, tuple(args), stripped)
 
     if name == "gmprobe":
         args = rest.split()

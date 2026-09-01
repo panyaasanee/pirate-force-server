@@ -98,6 +98,33 @@ class ParseGmCommandTests(unittest.TestCase):
         with self.assertRaises(GmCommandParseError):
             parse_gm_command("say")
 
+    def test_speed_accepts_a_finite_value(self):
+        cmd = parse_gm_command("speed 5.0")
+        self.assertEqual(cmd.name, "speed")
+        self.assertEqual(cmd.args, ("5.0",))
+
+    def test_speed_accepts_integer_looking_value(self):
+        cmd = parse_gm_command("speed 400")
+        self.assertEqual(cmd.args, ("400",))
+
+    def test_speed_rejects_wrong_arg_count(self):
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("speed")
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("speed 1 2")
+
+    def test_speed_rejects_non_numeric_value(self):
+        with self.assertRaises(GmCommandParseError):
+            parse_gm_command("speed fast")
+
+    def test_speed_rejects_nan_and_infinite(self):
+        # Same rule warp's x/y already enforce (_require_number): a value
+        # this lane cannot honestly encode as f32 must never reach a
+        # composer as a string that merely happens to parse.
+        for bad in ("speed nan", "speed inf", "speed -inf", "speed 1e400"):
+            with self.assertRaises(GmCommandParseError):
+                parse_gm_command(bad)
+
     def test_say_accepts_message_at_the_length_cap(self):
         cmd = parse_gm_command("say " + ("x" * MAX_SAY_MESSAGE_LENGTH))
         self.assertEqual(len(cmd.args[0]), MAX_SAY_MESSAGE_LENGTH)
