@@ -772,23 +772,8 @@ GRADE_SUBSET_SHA256 = (
     # RECORDED it rather than the one replacing it (pf-adversary read the
     # two older lines the other way round, so this one says which is which):
     #   parent 034304EA80D0C8119BC208A8EB1AA5F934F3D8C34AB473223492B7E629E3ABB3, recorded by round g627j0
-    #   parent DB3F2D0DC76426B0EF93DBF33809E3E0A87AA99FDD1F9D4559371C846238064B, recorded by round uq2lxw
-    # ROUND `2p4n3h` (LANE-A) and again it is NOT a grade change.
-    # movement/npc_locomotion_presentation stays runtime_pass -- no Foundation
-    # runtime has reproduced the observed gait and this round claims no pixel
-    # -- but the row gains one test ref (tests/test_world_census_gait.py) and
-    # its notes were rewritten in the same commit, because the sentence that
-    # used to close them ("The Foundation population path never requests a
-    # movement speed, so no Foundation runtime has reproduced this gait and a
-    # test pins that absence") stopped being true: the thirteen live census
-    # composers now send each actor its own mined MOBS.n_SPEED_WALK.  Why the
-    # ref has to move with the prose: the absence that row described was
-    # pinned by tests/test_npc_gait_wire.py, and the file that now pins the
-    # PRESENCE is a different one, so a machine reading the structured refs
-    # would otherwise see a row whose evidence still stops at the absence.
-    # The old sentence is kept inside the row's own notes as history.
-    #   this pin, recorded by round 2p4n3h:
-    "A42CE7830AA1510615DB4CBEDAFA2ECF8A357BCD8A0ED7C76D5E1ECF52A16A20"
+    #   this pin, recorded by round uq2lxw:
+    "DB3F2D0DC76426B0EF93DBF33809E3E0A87AA99FDD1F9D4559371C846238064B"
 )
 
 

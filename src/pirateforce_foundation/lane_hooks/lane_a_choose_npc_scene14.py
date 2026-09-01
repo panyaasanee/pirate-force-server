@@ -189,7 +189,7 @@ from typing import Any
 from .. import field_mob_hostile_bg0015 as hostile_bg0015
 from .. import field_mobs
 from .. import lane_hooks
-from .. import world_census_gait
+from .. import world_census_level
 from .. import world_bg0015_identity as identity
 from .lane_a_scene_census import scene_is_open_to_players
 
@@ -312,17 +312,15 @@ def respond(
                     scene_id=scene_id, scene_sequence=0,
                 )
             else:
-                # EVERY GENERATION (round `2p4n3h`, LANE-A).  This hook
-                # recomposes the WHOLE roster on a click, so a plain
-                # ``legacy.make_npc_attr`` body here re-sends every actor
-                # WITHOUT the level round `7ste68` added and without the
-                # walk-speed field bit `0x0040` -- the shape the gait
-                # coverage row's own accepted rule calls out (a value
-                # present only in the bootstrap generation is what turned
-                # an observed walk into a run).  Composed through the same
-                # census helper the arrival census uses, so the two
-                # generations agree byte for byte.
-                npc_attr_bytes = world_census_gait.census_npc_attr(
+                # EVERY GENERATION (round `2p4n3h`, LANE-A).  Same defect
+                # world_face_frame.build_face_state carried for scene 1: a
+                # bare make_npc_attr here re-sent every civilian in the
+                # roster with no level, reverting round `7ste68` on the wire
+                # the moment anyone was clicked.  The hostile branch above
+                # never had the problem -- field_mobs' body has carried a
+                # level since RE-117 -- which is why the revert showed only
+                # on civilians and was easy to miss.
+                npc_attr_bytes = world_census_level.leveled_npc_attr(
                     legacy,
                     template_n_id=placement.n_id,
                     actor_identity=placement.actor_identity,

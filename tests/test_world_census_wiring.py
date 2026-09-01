@@ -212,30 +212,11 @@ GROUND_LOOT_SCENARIO = (
 #        frame=D0931EA657DC9B007B2331DD6169D092C5CC37977D886E9D26FBF473503C4B35
 #   115: pc=D21FD174A2F9740B194F7D71E8ECEBDEACF654BBE2874C65A3B1471356E96637
 #        frame=14A45111DF96CFB6F8FCAB157A2C4EFDA3CCB439DE9DBF0FC69EFC930F6594AA
-# AMENDMENT round `2p4n3h` (LANE-A): every digest below moved a SIXTH time,
-# by +5 bytes per assembled entry (a tag byte plus an f32) and by nothing
-# else.  All 108 assembled bg0001 entries now carry BasicAttr bit 0x0040 and
-# the mined MOBS.n_SPEED_WALK float at +0x54 (world_census_gait).  That bit is
-# the round's deliverable rather than a side effect: every row of Codex's
-# icon-board selector table says the CNetNPC setter skips the board call
-# "when +0x70 mask 0x40 is clear", so an ordinary census body could never
-# reach that board at all.  Re-derived from the real dispatcher at PIN_ANCHOR,
-# not hand-typed, same as every prior amendment.  The pre-this-round digests
-# are kept as history:
-#
-#   3:   pc=D7165F7628BBA4E1A276852142D8653396E0FB4CCDA7C6B439E3D44CF2734DC3
-#        frame=1CBDFA20E1F836802588BE421BBC3130B76889709F9A8ECCD6CE4FF7E5C0C041
-#   20:  pc=49D53CB25BA16449B0ACD830263693609DBA33E0DDE4C47F92E252329A1073D3
-#        frame=AFCB41374A5FF1E7E5F702A489D96135AFEBFE40D08D104C6045064DF57476C8
-#   60:  pc=9796D50B2940A23C3461BDF9FF432B93E20B2552B7B1DA248CB5B1A8B86D610A
-#        frame=AEBDEA37F01499EE63CF625771361AF7427026D10602FD03966D69140023735C
-#   115: pc=4ADD9F3A186CEABC27ADB69132C130C75C1926ADDA1162AB7347753FD23CA582
-#        frame=EB8437B0D705087C8142BDA3B979B767492F038841E8EB0DDC6831586A903AF0
 CENSUS_WIRE_SHA256 = {
-    3: ("4FA2D7FFF305496CDCEEAF8F5955DDA3DDFFFB1C70644DCF20BAA7895C8B5A92",
-        "A6D2E8CE5930DBBC520B3C4D6CCFE58012A7BBD7A5F0F401E53345CF8D42B304"),
-    20: ("721417ECC3CD0BEEB9439D00B6814819C3009CCF5653AD63824D5FCB23351236",
-         "0B3544CAE3D774A0CA05893E397AF92CB23E0E924AC5F5CD7F7FAAD7DF1E97A7"),
+    3: ("D7165F7628BBA4E1A276852142D8653396E0FB4CCDA7C6B439E3D44CF2734DC3",
+        "1CBDFA20E1F836802588BE421BBC3130B76889709F9A8ECCD6CE4FF7E5C0C041"),
+    20: ("49D53CB25BA16449B0ACD830263693609DBA33E0DDE4C47F92E252329A1073D3",
+         "AFCB41374A5FF1E7E5F702A489D96135AFEBFE40D08D104C6045064DF57476C8"),
     # AMENDMENT round szdkgs (LANE-B): the two rungs large enough to include
     # placements 103/105/107/109 moved, and THAT MOVEMENT IS THE ROUND'S
     # DELIVERABLE, not a regression: those four now ship n_ID 916 "Training
@@ -266,10 +247,10 @@ CENSUS_WIRE_SHA256 = {
     #        frame=42DA2662CBF20BE6A774CD578C61DBDD77F779DCAB795F3DA8E2A26AA364F165
     # ~~115: pc=1E52C78765C59DC313313505BD690B1B7F0D2040FC4111D45AC66F7CF300C53E
     #        frame=FC1F9B1FA4C1853ED42F9BE22F50483B2C11E2FA516B9D7981FD9C68FBF2D4D7~~
-    60: ("F6E81DD5C25F26815E90CCC2AC29BBD984C382CD6185C8710F09375606D9F5C3",
-         "BE37D3AF2DCE3B882EED208C186400BE72B5E08CDE65D7AD51012A8086FCFC45"),
-    115: ("53195E8F8275864FDF4639FB66EA0E7D1354DB37814AEE02CEB3DF997C58720F",
-          "E074064F58305F59DAD602AEAE477B3DE9EF1660BB9B3AF8675BC524591404D0"),
+    60: ("9796D50B2940A23C3461BDF9FF432B93E20B2552B7B1DA248CB5B1A8B86D610A",
+         "AEBDEA37F01499EE63CF625771361AF7427026D10602FD03966D69140023735C"),
+    115: ("4ADD9F3A186CEABC27ADB69132C130C75C1926ADDA1162AB7347753FD23CA582",
+          "EB8437B0D705087C8142BDA3B979B767492F038841E8EB0DDC6831586A903AF0"),
 }
 PIN_ANCHOR = (10.0, 20.0, 30.0)
 
@@ -611,14 +592,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         # (BasicAttr bit 0x0002).  None of the three is roster-overridden any
         # more (see 8ftmbx above), so all three moved, which is the arithmetic
         # written out rather than a number copied off the run.
-        # ROUND `2p4n3h` (LANE-A): +5 more per member = a tag byte plus the
-        # f32 walk speed (BasicAttr bit 0x0040), the field the client's
-        # icon-board setter checks before it will call the board at all.
-        # Same shape as the level line above: arithmetic, not a number copied
-        # off the run, and all three members moved because none of the three
-        # is roster-overridden.
-        self.assertEqual(len(census[0][1]), 556 + 3 * 3 + 3 * 5)
-        self.assertEqual(len(census[0][2]), 569 + 3 * 3 + 3 * 5)
+        self.assertEqual(len(census[0][1]), 556 + 3 * 3)
+        self.assertEqual(len(census[0][2]), 569 + 3 * 3)
 
     def test_the_census_is_one_shot_per_session(self):
         """The pc/frame byte counts below are RE-DERIVED, not hand-typed.
@@ -685,16 +660,8 @@ class WorldCensusWiringTests(unittest.TestCase):
         # from RE-117 and did not move.  Written as the arithmetic rather than
         # as whatever the run printed, and asserted against the builder's own
         # numbers above, which is what makes this the cheap proof it claims.
-        # ~~(20410, 20424)~~ round `2p4n3h` (LANE-A): +520 = 104 * 5.  The
-        # ordinary census now also sends the mined MOBS.n_SPEED_WALK
-        # (BasicAttr bit 0x0040, a tag byte plus an f32), so the same 104
-        # entries grew by exactly that; the 4 overridden with a hostile body
-        # have carried the field since COO-DECISION 2026-08-28T01:46 and did
-        # not move.  The two exempt counts agreeing across two different
-        # fields is what says the split is real and not a coincidence.
         self.assertEqual((generation.pc_bytes, generation.frame_bytes),
-                          (20098 + 104 * 3 + 104 * 5,
-                           20112 + 104 * 3 + 104 * 5))
+                          (20098 + 104 * 3, 20112 + 104 * 3))
 
     def test_world_density_line_is_printed_alongside_the_census_line(self):
         """world_density is LANE-A's tenth production lane (production_allowed

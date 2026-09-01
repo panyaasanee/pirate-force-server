@@ -242,31 +242,11 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
     ``field_mobs.hostile_actor_entry`` for the same reason ``field_mobs.py``
     itself is already named here -- one more scene's hostile composer, same
     mined ``n_SPEED_WALK`` field, not a new gait mechanism.
-
-    WIDENED round `2p4n3h` (LANE-A) -- and this one IS the Foundation census
-    path, so the coverage matrix row was revisited in the same change, as
-    this class's third paragraph requires.  ``world_census_gait.py`` sends
-    each census actor its own mined ``MOBS.n_SPEED_WALK`` and
-    ``world_census_level.py`` forwards the parameter; the thirteen census
-    composers ask through the former by name and so do not carry the token
-    themselves.  WHY, in one line: every row of Codex's icon-board selector
-    table skips the board call "when +0x70 mask 0x40 is clear", and 0x0040
-    is this field -- so the absence these two byte tests pin was not a
-    neutral omission, it was a closed gate.  The two byte tests below are
-    UNCHANGED and still pass: they cover ``population.py``'s legacy
-    nearest-20 path, a different composer that this round did not touch.
-    The "every generation" rule from the V85 walk-to-run regression is
-    honoured rather than broken -- the same round wired the two
-    ``lane_hooks/lane_a_choose_npc_scene*.py`` recompose paths, which
-    rebuild the whole roster on a click, so a census actor cannot lose the
-    field between generations.  ``docs/FUNCTIONAL_COVERAGE.json``'s
-    ``npc_locomotion_presentation`` notes were rewritten in the same commit.
     """
 
     KNOWN_GAIT_REQUESTING_MODULES = (
         "field_mob_hostile_bg0015.py", "field_mobs.py", "mob_death.py",
-        "mob_diag_multi_object.py", "world_census_gait.py",
-        "world_census_level.py",
+        "mob_diag_multi_object.py",
     )
 
     def test_initial_population_carries_no_walk_speed_field(self):

@@ -67,12 +67,6 @@
       "change": "_entry() now composes through world_census_level.leveled_npc_attr, which splices BasicAttr bit 0x0002 and a u16 tag 0x12 level (object +0x5E, RE-117) in front of the HP pair, carrying world_port_royal_identity's newly mined MOBS.n_LEVEL_MIN. Every staircase rung below grew by exactly 3 bytes per actor at BOTH anchors (measured, at both anchors: 3 -> +9, 20 -> +60, 60 -> +180, 108 -> +324). Membership, order, counts, the source sha256 and the unshippable list are unchanged.",
       "superseded_pc_frame_bytes_at_both_anchors": "identical at both pinned anchors before this round: 3 -> 550/563, 20 -> 3621/3634, 60 -> 10814/10827, 108 -> 20046/20060. Read out of the previous revision of this file rather than retyped from memory.",
       "note": "The superseded numbers stay here rather than being deleted: they are still correct for what they described, a census that sent no level. n_LEVEL_MIN is the floor of each row's range - 53 of the 105 resolved templates have n_LEVEL_MAX above it, and nothing in this project has measured how the original server rolled inside that range, so the floor is what is sent."
-    },
-    {
-      "date": "2026-09-02",
-      "reason": "No census NPC has ever been able to reach the client's icon board over its head, and the reason measured this round is not the quest state: every one of the ten rows of Codex's PF_ATTR_QUEST_MARK_SELECTOR.tsv carries the same skip clause, 'CNetNPC setter skips the board call when +0x70 mask 0x40 is clear'. +0x70 is BasicAttr's field_presence_mask (the only field at that offset in PF_ATTR_FIELD_SEMANTICS.tsv, PROVEN_EXACT) and bit 0x0040 is BasicAttr+0x54, MOBS.n_SPEED_WALK, f32 tag 0x2A, also PROVEN_EXACT. The frozen make_npc_attr sets that bit only when its movement_speed parameter is given, and all thirteen census composers passed None, so the selector was never evaluated for a townsperson at all. 91 of the 100 MOBS ids this scene ships carry a non-empty s_QUEST_BEGIN or s_QUEST_END, so the gate is what stands between the shipped data and the screen.",
-      "change": "_entry() now composes through world_census_gait.census_npc_attr, a keyword-only wrapper over world_census_level.leveled_npc_attr that adds the row's own mined MOBS.n_SPEED_WALK. Every staircase rung below grew by exactly 5 bytes per actor at BOTH anchors (a tag byte plus the f32): 3 -> +15, 20 -> +100, 60 -> +300, 108 -> +540. Membership, order and the 'indices' lists did NOT change - only the per-entry byte length did. The pre-this-round numbers are 559/572, 3681/3694, 10994/11007, 20370/20384 at both anchors, kept here as history.",
-      "nonclaim": "This does not claim any icon appears. Three of the four clauses in that skip condition are the client's (board pointer +0x360, cached selector +0x364, the quest predicates), the whole selector table is source=IMAGE with no client-observable row behind it, and Codex's own nonclaim says the on-screen presentation is a different evidence layer. GT-202 is the attended ticket that decides. It also does not claim any NPC walks: the field is named an initial visual locomotion scalar, and nothing tells a census actor to move. The reading of +0x70 as BasicAttr's mask is this lane's, tagged in world_census_gait and put to the COO in notes_to_chief/20260902_0437_LANE-A-ASK-COO-quest-board-gate-plus-0x70.md; the value sent is the shipped column either way."
     }
   ],
   "entry": {
@@ -146,8 +140,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 574,
-            "frame_bytes": 587,
+            "pc_bytes": 559,
+            "frame_bytes": 572,
             "indices": [
               30,
               91,
@@ -156,8 +150,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3781,
-            "frame_bytes": 3794,
+            "pc_bytes": 3681,
+            "frame_bytes": 3694,
             "indices": [
               30,
               91,
@@ -183,8 +177,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 11294,
-            "frame_bytes": 11307,
+            "pc_bytes": 10994,
+            "frame_bytes": 11007,
             "indices": [
               30,
               91,
@@ -250,8 +244,8 @@
           },
           {
             "actor_count": 108,
-            "pc_bytes": 20910,
-            "frame_bytes": 20924,
+            "pc_bytes": 20370,
+            "frame_bytes": 20384,
             "indices": [
               30,
               91,
@@ -373,8 +367,8 @@
         "rungs": [
           {
             "actor_count": 3,
-            "pc_bytes": 574,
-            "frame_bytes": 587,
+            "pc_bytes": 559,
+            "frame_bytes": 572,
             "indices": [
               30,
               91,
@@ -383,8 +377,8 @@
           },
           {
             "actor_count": 20,
-            "pc_bytes": 3781,
-            "frame_bytes": 3794,
+            "pc_bytes": 3681,
+            "frame_bytes": 3694,
             "indices": [
               30,
               91,
@@ -410,8 +404,8 @@
           },
           {
             "actor_count": 60,
-            "pc_bytes": 11294,
-            "frame_bytes": 11307,
+            "pc_bytes": 10994,
+            "frame_bytes": 11007,
             "indices": [
               30,
               91,
@@ -477,8 +471,8 @@
           },
           {
             "actor_count": 108,
-            "pc_bytes": 20910,
-            "frame_bytes": 20924,
+            "pc_bytes": 20370,
+            "frame_bytes": 20384,
             "indices": [
               30,
               91,

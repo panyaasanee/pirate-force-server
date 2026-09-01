@@ -182,12 +182,8 @@ class WorldPopulationTests(unittest.TestCase):
         # mined level every ordinary census body now carries (BasicAttr bit
         # 0x0002, world_census_level).  Written as the arithmetic, not as the
         # number the run printed.
-        # ROUND `2p4n3h` (LANE-A): +5 more per member = a tag byte plus the
-        # f32 MOBS.n_SPEED_WALK (BasicAttr bit 0x0040, world_census_gait),
-        # the bit the client's icon-board setter checks before it will call
-        # that board at all.  Arithmetic again, not a copied number.
         self.assertEqual((rung.pc_bytes, rung.frame_bytes),
-                         (550 + 3 * 3 + 3 * 5, 563 + 3 * 3 + 3 * 5))
+                         (550 + 3 * 3, 563 + 3 * 3))
 
     def test_the_control_rungs_first_two_members_are_anchor_invariant(self) -> None:
         """Was ``test_the_control_rung_is_anchor_invariant``.

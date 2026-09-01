@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import world_face_frame
+from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_port_royal_identity
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -156,10 +157,24 @@ class FaceFrameIdentityWiringTests(unittest.TestCase):
 
         identity = world_port_royal_identity.resolve(2)
         self.assertEqual(identity.mobs_n_id, COLUMBUS_MOBS_N_ID)
+        # ROUND `2p4n3h` (LANE-A): built through the face frame's own
+        # composer, which is the census's.  A bare make_npc_attr here used to
+        # match because the frame itself used one -- and that is exactly the
+        # defect this round closed: one click re-sent all 108 actors with no
+        # level at all.  This assertion is now also the level's proof on the
+        # REAL dispatch path, not only in build_face_state's unit test.
         self.assertIn(
-            self.legacy.make_npc_attr(
-                identity.mobs_n_id, COLUMBUS_ACTOR_IDENTITY, 1, 0,
-                identity.outfit, basic_name=identity.name,
+            world_census_level.leveled_npc_attr(
+                self.legacy,
+                template_n_id=identity.mobs_n_id,
+                actor_identity=COLUMBUS_ACTOR_IDENTITY,
+                scene_id=1,
+                scene_sequence=0,
+                visual_preset=identity.outfit,
+                current_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
+                max_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
+                basic_name=identity.name,
+                level=identity.level,
             ),
             frame,
             "the frame a click returns does not carry the census identity - "

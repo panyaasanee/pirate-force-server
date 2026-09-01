@@ -364,20 +364,6 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         "runtime.py": {"quest"},
         "world_port_royal_identity.py": {"shop"},
         "trade_session_membership.py": {"trade"},
-        # ADDED round `2p4n3h` (LANE-A).  world_census_gait sends one field:
-        # the mined MOBS.n_SPEED_WALK, BasicAttr bit 0x0040.  It names the
-        # icon board only to say WHY that bit matters -- every row of Codex's
-        # selector table skips the board call when the bit is clear -- and it
-        # implements no behaviour of that kind at all.  The premise is
-        # CHECKED, not argued: the test below tokenises the module and
-        # requires every occurrence of the word to be a comment or a string,
-        # never an identifier, an attribute or a call.  This is the prose
-        # trap chief measured in
-        # notes_to_chief/20260902_0330_CHIEF-TO-ALL-prose-mention-trap-*.md
-        # (this guard is named there as the highest false-positive risk in
-        # the tree); the exemption below is deliberately the narrowest shape
-        # that keeps the guard biting on real code.
-        "world_census_gait.py": {"quest"},
     }
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
@@ -416,33 +402,6 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             # column follows it.
             title = line.rsplit("', '", 1)[-1].split("'", 1)[0]
             self.assertIn("shop", title.lower())
-
-    def test_the_gait_modules_quest_hits_are_all_prose(self):
-        """The premise of the `2p4n3h` exemption above, checked by tokenising.
-
-        A grep cannot tell "explains why a mask bit matters" from
-        "implements a quest".  Tokenising can: every token that carries the
-        word must be a COMMENT or a STRING.  The moment the word appears as
-        an identifier, an attribute, a keyword argument or a call in that
-        module, this goes red and the exemption has to be re-argued instead
-        of silently covering real behaviour.
-        """
-        import io
-        import tokenize
-
-        path = ROOT / "src/pirateforce_foundation/world_census_gait.py"
-        source = path.read_text(encoding="utf-8")
-        prose = 0
-        code_hits = []
-        for token in tokenize.generate_tokens(io.StringIO(source).readline):
-            if not re.search(r"\bquest\b", token.string.lower()):
-                continue
-            if token.type in (tokenize.COMMENT, tokenize.STRING):
-                prose += 1
-            else:
-                code_hits.append(token.string)
-        self.assertGreater(prose, 0, "the exemption covers nothing")
-        self.assertEqual(code_hits, [])
 
     def test_no_foundation_module_implements_quest_or_shop_behavior(self):
         offenders = {}
