@@ -82,6 +82,94 @@ def _build_wire(selector):
     return b"wire", b"avatar", 0x20000001 + selector, 0
 
 
+def _unseed(path, character_id):
+    """Put a freshly created character back into the UNSEEDED typed state.
+
+    `COO-DECISION 20260902_0443` route (KHO) has chief's plug write
+    `persistence_vitals.new_character_vitals()` into the row at
+    `create_character` time, from a PR that is not this one.  Most fixtures in
+    this file need a character whose typed columns hold NOTHING -- that is
+    what 006 is about -- and until that plug lands they got it for free,
+    because `create_character`'s INSERT names no typed column.
+
+    Measured, not predicted: with the plug simulated locally, `pytest tests/`
+    went from 0 failures to 18, and ALL EIGHTEEN were in this file -- a file
+    the round that added `new_character_vitals()` never opened.  Sixteen of
+    them were this shape.  A `pf-adversary` pass found that, after the same
+    round had fixed the identical rot in two OTHER files and reported the
+    measurement as though it had closed the question; the two comments that
+    made that claim were each scoped to their own file, which is exactly how
+    a keyhole measurement reads as a whole answer.
+
+    So the unseeded state is BUILT here rather than assumed.  Raw SQL on a
+    `tempfile` database, never on a real one.
+    """
+    db = sqlite3.connect(path)
+    try:
+        db.execute(
+            "UPDATE characters SET level=NULL, hp_current=NULL, hp_max=NULL "
+            "WHERE id=?", (character_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _pre_006_character(path, label, name, selector=1,
+                       stamp="2026-09-01T15:00:00Z"):
+    """One real character row on a PRE-006 schema, without `create_character`.
+
+    WHY THIS EXISTS, and it is a precondition rather than a convenience.
+    `COO-DECISION 20260902_0443` route (KHO) puts a write of
+    `persistence_vitals.new_character_vitals()` inside `create_character`'s
+    INSERT.  From the moment chief's plug lands, that INSERT names `level`,
+    `hp_current` and `hp_max` -- so `create_character` REQUIRES the 006
+    schema, and calling it on a 005 database raises
+
+        sqlite3.OperationalError: table characters has no column named level
+
+    out of `store.py`.  Two tests in this file build a pre-006 database with a
+    real row in it ON PURPOSE -- that is the state 006 has to survive -- so
+    they cannot go through `create_character` any more.  A `pf-adversary` pass
+    measured both, and they are the half of the eighteen that was a real
+    finding rather than fixture rot: the raw `OperationalError` is exactly the
+    failure mode `persistence_vitals.verify_schema` was written to replace.
+
+    The rows are built the way this file's own `keep_wal_hot` branch already
+    built one (`BootSnapshotProtects006Tests._at_005_with_a_character`), plus
+    the position and backpack children, so the three tables the caller dumps
+    still hold what `create_character` would have left.  The backpack goes
+    through the store's own `_insert_initial_backpack` rather than a copy of
+    `INITIAL_BACKPACK`, so this helper cannot drift from it.
+    """
+    actor, avatar, identity, _ = _build_wire(selector)
+    db = sqlite3.connect(str(path))
+    try:
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("INSERT INTO accounts(login_name,created_at) VALUES (?,?)",
+                   (label, stamp))
+        account_id = int(db.execute(
+            "SELECT id FROM accounts WHERE login_name=?",
+            (label,)).fetchone()[0])
+        cur = db.execute(
+            "INSERT INTO characters(account_id,selector,name,actor_wire,"
+            "avatar_wire,identity_lo,identity_hi,created_at,updated_at,"
+            "name_key,create_fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (account_id, selector, name, actor, avatar, identity, 0,
+             stamp, stamp, label, "fingerprint-%s" % label),
+        )
+        cid = int(cur.lastrowid)
+        db.execute(
+            "INSERT INTO character_positions(character_id,scene_id,scene_seq,"
+            "x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
+            (cid, 3, 0, 11.0, 22.0, 33.0, stamp, 1.5),
+        )
+        SQLiteStore._insert_initial_backpack(db, cid, stamp)
+        db.commit()
+    finally:
+        db.close()
+    return cid
+
+
 def _statements(sql: str) -> list[str]:
     """The migration's real statements, with `--` comment lines removed."""
     body = "\n".join(
@@ -349,12 +437,10 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
     def test_existing_rows_survive_006_unchanged_and_the_new_columns_are_null(self):
         old_store = SQLiteStore(self.path, self.older)
         old_store.migrate()
-        account_id = old_store.ensure_account("typed-attr-006")
-        home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
-        old_store.create_character(
-            account_id, "TypedAttrOne", "typedattrone",
-            "fingerprint-typed-attr-006", _build_wire, home,
-        )
+        # NOT `create_character`: see `_pre_006_character`.  Once chief's plug
+        # (COO-DECISION 20260902_0443 route KHO) lands, that method names the
+        # 006 columns in its INSERT and cannot run on this 005 database.
+        _pre_006_character(self.path, "typedattrone", "TypedAttrOne")
         before = {t: self._dump(t) for t in
                   ("characters", "character_positions", "character_backpacks")}
         self.assertEqual(len(before["characters"]), 1)
@@ -452,12 +538,11 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         store = SQLiteStore(self.path, self.older)
         store.migrate()
         if not keep_wal_hot:
-            account_id = store.ensure_account("boot-snapshot-006")
-            store.create_character(
-                account_id, "SnapshotOne", "snapshotone",
-                "fingerprint-boot-snapshot-006", _build_wire,
-                Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
-            )
+            # NOT `create_character`, for the same reason the WAL branch below
+            # never used it: this database is at 005, and after chief's plug
+            # lands (COO-DECISION 20260902_0443 route KHO) that method's
+            # INSERT names three columns 006 has not added yet.
+            _pre_006_character(self.path, "snapshotone", "SnapshotOne")
             return store
 
         holder = sqlite3.connect(str(self.path))
@@ -680,6 +765,7 @@ class StoreRoundTripTests(unittest.TestCase):
             self.account_id, "TypedAttrStore", "typedattrstore",
             "fingerprint-typed-attr-store", _build_wire, self.home,
         )
+        _unseed(self.path, self.character.id)
         self.store.select_character(self.sid, self.character.selector)
 
     def test_a_fresh_character_has_no_typed_values_at_all(self):
@@ -739,6 +825,7 @@ class StoreRoundTripTests(unittest.TestCase):
             self.account_id, "TypedAttrTwo", "typedattrtwo",
             "fingerprint-typed-attr-store-2", _build_wire, self.home,
         )
+        _unseed(self.path, second.id)
         self.store.write_typed_attributes(second.id, {"level": 9})
         self.store.soft_delete_character(self.sid, second.selector)
         with self.assertRaises(KeyError):
@@ -875,6 +962,7 @@ class TheGateStillRefusesTests(unittest.TestCase):
             "fingerprint-typed-attr-gate", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
+        _unseed(self.path, self.character.id)
 
     def _typed_values(self):
         """What the database really knows, in the gate's `{x: value}` shape."""
@@ -1123,6 +1211,7 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             "fingerprint-sparse-send", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
+        _unseed(self.path, self.character.id)
 
     def test_a_speed_write_comes_back_as_the_one_field_block(self):
         block = self.store.write_typed_attributes_and_compose_sparse(

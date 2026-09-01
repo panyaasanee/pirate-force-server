@@ -45,7 +45,19 @@ know the HP of.  So:
   characters, which are the only rows in ``characters``; nothing here claims a
   mob or an NPC may not have a zero maximum somewhere else in this repository.
 * ``level = 0`` is refused as a stored state, for the same reason and by
-  ``COO-DECISION 20260902_0443`` point 4.  ``006``'s CHECK allows it
+  ``COO-DECISION 20260902_0443`` point 4.  THE REFUSAL IS ON THE READ DOOR
+  ONLY, and a ``pf-adversary`` pass was right to measure the asymmetry that
+  leaves: ``SQLiteStore.write_typed_attributes`` still ACCEPTS ``level = 0``
+  (``006``'s CHECK allows it), so a row can be written that ``resolve()``
+  then refuses for the rest of that character's life -- and a character with
+  a perfectly good 100/100 HP pair becomes unhittable by
+  ``apply_hp_damage``.  Latent rather than live: the only shipped typed-attr
+  write path today is ``/speed`` writing ``speed_walk``, and nothing in this
+  repository writes ``level`` at all.  It is not closed here because
+  ``write_typed_attributes`` is a pre-existing method and this lane's charter
+  (``COO-DECISION 20260901_1100``) forbids changing the behaviour of one; it
+  went to COO in writing (letter ``20260902_0620``) rather than being fixed
+  quietly or left unsaid.  ``006``'s CHECK allows it
   (``BETWEEN 0 AND 65535``), nothing in this repository writes ``level`` at
   all today, and the only level this server has ever sent is ``1``
   (``player_wire.PLAYER_LOGIN_LEVEL``) -- so a stored zero here is not a
@@ -555,9 +567,27 @@ def apply_damage(hp_current: int, hp_max: int, amount: int) -> DamageOutcome:
 #: a ``DEFAULT`` in the schema.  The decision's reason, in its own words: the
 #: source of these numbers is ``player_wire``, not the schema; a DEFAULT would
 #: need a table rebuild (SQLite cannot add one to a column that exists) and
-#: would bury an OPEN number in a place nobody reads, so that the day an RE
-#: finds the original game's real value, the fix would be a second rebuild
-#: instead of one line here.
+#: would bury an OPEN number in a place nobody reads.
+#:
+#: THE DECISION'S OWN JUSTIFICATION IS NOT YET TRUE, AND SAYING SO HERE IS
+#: THE POINT.  It reasoned that route (KO) would need a second table rebuild
+#: the day an RE finds the real value, while route (KHO) is "one line".  A
+#: `pf-adversary` pass measured the one line: changing `NEW_CHARACTER_HP`
+#: alone turns FIVE tests red, because
+#: `test_the_values_are_the_ones_007_wrote` pins these constants to the text
+#: of `migrations/007` -- a file `COO-DECISION 20260902_0250` point 3 forbids
+#: ever editing.  So the escape route is currently blocked by the pin that
+#: keeps the two cohorts equal, and nothing yet says whether a newborn must
+#: match the FIRST seed migration or the NEWEST one, nor what becomes of the
+#: characters 007 already seeded when an 008 writes a different number.
+#: That question is with COO (letter `20260902_0620`); until it is answered
+#: this constant is pinned to 007 on purpose, and the pin is the safe side of
+#: it -- two cohorts that agree, and a change that costs a decision.
+#:
+#: (The word avoided in the line above is one `tests/test_npc_interaction_
+#: wire.py::QuestAndShopStateGuardTests` forbids in every module of this
+#: package.  Measured, not guessed: the first draft used it in this comment
+#: and turned that lane's guard red across the whole suite.)
 #:
 #: TRANSCRIBED from player_wire hardcode -- original game default OPEN.  The
 #: same label ``migrations/007_character_vitals_seed.sql`` carries, meaning
@@ -572,8 +602,25 @@ NEW_CHARACTER_LEVEL = 1
 NEW_CHARACTER_HP = 100
 
 
-def new_character_vitals() -> dict[str, int]:
+def new_character_vitals(db=None) -> dict[str, int]:
     """The three column values to INSERT for a character being created.
+
+    THE PRECONDITION, FIRST, BECAUSE IT IS THE ONE THING A CALLER CAN GET
+    WRONG.  These are the names of columns ``migrations/006`` added.  A plug
+    that puts them in ``create_character``'s INSERT makes that method require
+    the 006 schema, and on an older database SQLite answers with
+
+        sqlite3.OperationalError: table characters has no column named level
+
+    raised from inside ``store.py`` -- the raw, unnamed failure this module's
+    ``verify_schema`` was written to replace.  A ``pf-adversary`` pass
+    measured it: with the plug simulated, two tests that build a real pre-006
+    database died exactly that way.  So pass the open connection as ``db``
+    and the refusal arrives as ``SchemaDriftError`` naming the missing column
+    instead.  It is optional only because this function is also called with no
+    database in sight (to compare values against a migration, for instance);
+    a call site that HAS a connection and does not pass it is choosing the
+    raw error.
 
     Returned as ``{column name: value}`` so that the call site -- chief's, in
     ``SQLiteStore.create_character`` (``COO-DECISION 20260902_0443`` point 1
@@ -599,8 +646,20 @@ def new_character_vitals() -> dict[str, int]:
         HP_CURRENT_COLUMN: NEW_CHARACTER_HP,
         HP_MAX_COLUMN: NEW_CHARACTER_HP,
     }
-    resolve(values).require()
-    return values
+    if db is not None:
+        verify_schema(db)
+    checked = resolve(values).require()
+    # The VALIDATED numbers, not the dict that went in.  A `pf-adversary`
+    # pass pointed out that returning `values` makes "checked on the way out"
+    # a check on a copy: `resolve` re-validates into its own mapping and the
+    # caller was handed the original.  Harmless today, because the two are
+    # equal for every input `require()` accepts -- and a guarantee that holds
+    # only by coincidence is the kind this module exists to remove.
+    return {
+        LEVEL_COLUMN: checked.level,
+        HP_CURRENT_COLUMN: checked.hp_current,
+        HP_MAX_COLUMN: checked.hp_max,
+    }
 
 
 def census_sql() -> str:

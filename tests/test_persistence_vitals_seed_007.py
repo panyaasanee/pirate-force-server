@@ -732,6 +732,45 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             "is neither the pre-plug state nor the post-plug one" % (present,))
         return len(present) == 3
 
+    def _grade_a_newborn(self, store, character_id):
+        """The ONE body of assertions for a newly created character.
+
+        THE POINT OF THIS METHOD IS THAT THERE IS ONLY ONE OF IT, and that is
+        a `pf-adversary` correction rather than a style choice.  The first
+        version of this class branched on `landed` INSIDE the test and wrote
+        the post-plug assertions inline -- which, in this checkout, never run.
+        The adversary replaced every one of them with `assertEqual(born, born)`
+        and the suite stayed at 112 passed: an arm that can be emptied without
+        a gate noticing is not a test, it is a comment.  A second copy of the
+        assertions further down the file (reached by simulating the plug) did
+        not fix that either, because a copy can drift from the original and
+        nothing compares them.
+
+        So both callers -- the real newborn, and the newborn whose vitals were
+        written by the simulation below -- run THIS code.  In today's checkout
+        the pre-plug arm is reached by one caller and the post-plug arm by the
+        other, so NEITHER arm is dead, and on the day chief's plug lands both
+        callers take the post-plug arm and nothing else has to change.
+        """
+        stored = store.read_typed_attributes(character_id)
+        if not self._plug_has_landed(stored):
+            with self.assertRaises(vitals.VitalsError):
+                store.read_character_vitals(character_id).require()
+            return False
+        born = vitals.new_character_vitals()
+        self.assertEqual({c: stored[c] for c in SEEDED}, born)
+        self.assertEqual(born, SEEDED)
+        resolved = store.read_character_vitals(character_id).require()
+        self.assertEqual(resolved.hp_current, SEEDED["hp_current"])
+        self.assertEqual(resolved.hp_max, SEEDED["hp_max"])
+        self.assertEqual(resolved.level, SEEDED["level"])
+        self.assertTrue(resolved.alive)
+        census = store.vitals_seeding_census()
+        for column in SEEDED:
+            self.assertGreaterEqual(
+                census["%s_seeded_any" % column], 1, column)
+        return True
+
     def test_a_character_born_after_007_holds_nothing_or_the_seed(self):
         """Either state is correct; a third one is not.
 
@@ -743,27 +782,25 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         store = SQLiteStore(self.path, MIGRATIONS)
         store.migrate()
         character = self._new_character(store)
-        stored = store.read_typed_attributes(character.id)
-        if not self._plug_has_landed(stored):
-            with self.assertRaises(vitals.VitalsError):
-                store.read_character_vitals(character.id).require()
-            return
-        born = vitals.new_character_vitals()
-        self.assertEqual({c: stored[c] for c in SEEDED}, born)
-        self.assertEqual(born, SEEDED)
-        self.assertEqual(
-            store.read_character_vitals(character.id).require().hp_current,
-            SEEDED["hp_current"])
+        self._grade_a_newborn(store, character.id)
 
     def test_the_values_a_newborn_would_get_are_the_ones_007_wrote(self):
         """The claim that makes the post-plug branch above safe, checked on
         its own so that it is graded even in a checkout where the plug has
         not landed and that branch never runs.
 
-        `SEEDED` is this file's independent transcription of the migration
-        (`MigrationShapeTests` grades it against the SQL text, and
-        `WireEqualityTests` against the login frame's bytes), so comparing
-        `new_character_vitals()` with it ties the birth values to both.
+        `SEEDED` is this file's independent transcription of the migration,
+        so comparing `new_character_vitals()` with it ties the birth values
+        to whatever grades `SEEDED`.  WHAT ACTUALLY GRADES IT, measured
+        rather than assumed: `MigrationIsNarrowTests` (it reads the rows 007
+        leaves in a real database) and `WireEqualityTests` (it encodes those
+        rows and finds the bytes in the login frame).  The first draft of
+        this docstring named `MigrationShapeTests` instead; a `pf-adversary`
+        pass edited 007 to `SET level = 2` and that whole class stayed GREEN,
+        because `test_the_columns_written_are_exactly_the_three_vitals`
+        compares `set(SEEDED)` -- the KEYS. A citation inside the docstring
+        that authorises an assertion is the worst place to name the wrong
+        test, so it is named right here and the reds are listed.
         """
         self.assertEqual(vitals.new_character_vitals(), SEEDED)
 
@@ -803,19 +840,15 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         store = SQLiteStore(self.path, MIGRATIONS)
         store.migrate()
         character = self._new_character(store)
-        born = vitals.new_character_vitals()
         stored = store.read_typed_attributes(character.id)
         if not self._plug_has_landed(stored):
-            store.write_typed_attributes(character.id, born)
-        stored = store.read_typed_attributes(character.id)
-        self.assertTrue(self._plug_has_landed(stored))
-        self.assertEqual({c: stored[c] for c in SEEDED}, born)
-        self.assertEqual(
-            store.read_character_vitals(character.id).require().hp_current,
-            SEEDED["hp_current"])
-        census = store.vitals_seeding_census()
-        for column in SEEDED:
-            self.assertEqual(census["%s_seeded_any" % column], 1, column)
+            store.write_typed_attributes(
+                character.id, vitals.new_character_vitals())
+        self.assertTrue(
+            self._grade_a_newborn(store, character.id),
+            "the simulated plug did not reach the post-plug arm, so that arm "
+            "is still ungraded in this checkout",
+        )
 
     def test_a_partial_vitals_row_is_refused_by_the_two_state_check(self):
         """`_plug_has_landed` is the gate the two-state tests trust, so the

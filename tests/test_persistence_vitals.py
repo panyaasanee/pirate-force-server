@@ -37,6 +37,7 @@ canonical database.
 import ast
 import contextlib
 import re
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -428,6 +429,10 @@ class NewCharacterVitalsTests(unittest.TestCase):
     that stays honest.
     """
 
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
     def test_it_answers_the_three_vital_columns_and_nothing_else(self):
         self.assertEqual(
             sorted(vitals.new_character_vitals()),
@@ -456,8 +461,22 @@ class NewCharacterVitalsTests(unittest.TestCase):
             if " SET " not in statement:
                 continue
             assignments = statement.split(" SET ", 1)[1].split(" WHERE ", 1)[0]
-            for column, value in re.findall(
-                    r"(\w+)\s*=\s*(\d+)", assignments):
+            # EVERY assignment is matched and each must be a BARE integer.
+            # A `pf-adversary` pass broke the first version with
+            # `SET hp_current = 100 + 20`: the loose `(\w+)\s*=\s*(\d+)`
+            # search read the token `100`, compared equal, and passed while
+            # 007 wrote 120 -- this test re-deriving a TOKEN and calling it a
+            # VALUE, in the test whose whole claim is that the two cohorts
+            # cannot drift apart.
+            for assignment in assignments.split(","):
+                match = re.fullmatch(
+                    r"\s*(\w+)\s*=\s*(\d+)\s*", assignment)
+                self.assertIsNotNone(
+                    match,
+                    "007 assigns something this test cannot re-derive as a "
+                    "plain integer (%r); it must be read by hand before this "
+                    "comparison means anything" % (assignment,))
+                column, value = match.group(1), match.group(2)
                 self.assertIn(column, vitals.VITAL_COLUMNS, statement)
                 self.assertNotIn(column, from_migration, statement)
                 from_migration[column] = int(value)
@@ -472,7 +491,12 @@ class NewCharacterVitalsTests(unittest.TestCase):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        self.assertEqual(body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        # AT LEAST the pair, not EXACTLY two.  A `pf-adversary` pass pointed
+        # out that `== 2` turns red, with a message about vitals drift, the
+        # day somebody adds a third 0x14 tag for an unrelated reason.  What
+        # this test is about is that the HP pair is still 100/100.
+        self.assertGreaterEqual(
+            body.count("legacy.u32tag(0x14, 100)"), 2, body)
         born = vitals.new_character_vitals()
         self.assertEqual(
             born[vitals.LEVEL_COLUMN], player_wire.PLAYER_LOGIN_LEVEL)
@@ -505,14 +529,62 @@ class NewCharacterVitalsTests(unittest.TestCase):
         """The self-check is not decoration.  Route (KHO) means these numbers
         reach a live INSERT; if an edit ever makes them inconsistent, that has
         to fail at creation rather than write a row every later read refuses.
+
+        A `pf-adversary` pass measured the FIRST version of this test, which
+        drove only the two zeroes -- the two cases `resolve()` already has
+        rules for -- and reported the honest limit: `NEW_CHARACTER_HP` at
+        `2**32-1` and `NEW_CHARACTER_LEVEL` at `65535` both came back
+        RETURNED, so "not decoration" was proved for zero and nothing else.
+        Every drift the door can catch is driven here now, and the two the
+        door CANNOT catch are named rather than left to look covered.
         """
-        with mock.patch.object(vitals, "NEW_CHARACTER_LEVEL", 0):
-            with self.assertRaises(vitals.VitalsError):
-                vitals.new_character_vitals()
-        with mock.patch.object(vitals, "NEW_CHARACTER_HP", 0):
-            with self.assertRaises(vitals.VitalsError):
-                vitals.new_character_vitals()
+        refused = {
+            "NEW_CHARACTER_LEVEL": [0, -1, 70000, 1.0, "1", None],
+            "NEW_CHARACTER_HP": [0, -1, 2 ** 32, 100.5, "100", None],
+        }
+        for constant, values in refused.items():
+            for value in values:
+                with mock.patch.object(vitals, constant, value):
+                    with self.assertRaises(vitals.VitalsError, msg=(
+                            "%s = %r was RETURNED, not refused"
+                            % (constant, value))):
+                        vitals.new_character_vitals()
+        # In range and therefore NOT refused here.  Named so that nobody reads
+        # the loop above as "any wrong number is caught": a level of 65535 and
+        # an HP of 2**32-1 are absurd birth values and this door has no
+        # opinion about them.  What holds them to 1/100/100 is
+        # `test_the_values_are_the_ones_007_wrote` and the wire test, not this.
+        for constant, value in (("NEW_CHARACTER_LEVEL", 65535),
+                                ("NEW_CHARACTER_HP", 2 ** 32 - 1)):
+            with mock.patch.object(vitals, constant, value):
+                self.assertIn(value, vitals.new_character_vitals().values())
         self.assertEqual(vitals.new_character_vitals()[vitals.LEVEL_COLUMN], 1)
+
+    def test_a_pre_006_database_is_named_rather_than_raising_raw_sqlite(self):
+        """The precondition a `pf-adversary` pass found by simulating chief's
+        plug: `create_character` with these three columns in its INSERT dies
+        on a 005 database with a raw `sqlite3.OperationalError` out of
+        `store.py`.  Passing the connection turns that into this module's own
+        named error, which is what `verify_schema` exists for.
+        """
+        older = Path(self.tmp.name) / "migrations_upto_005"
+        older.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) < 6:
+                shutil.copy2(path, older / path.name)
+        path = Path(self.tmp.name) / "pre006.sqlite3"
+        SQLiteStore(path, older).migrate()
+        with raw(path) as db:
+            with self.assertRaises(vitals.SchemaDriftError) as caught:
+                vitals.new_character_vitals(db)
+        self.assertIn("level", str(caught.exception))
+
+    def test_passing_a_migrated_database_changes_nothing(self):
+        path = Path(self.tmp.name) / "migrated.sqlite3"
+        SQLiteStore(path, MIGRATIONS).migrate()
+        with raw(path) as db:
+            self.assertEqual(vitals.new_character_vitals(db),
+                             vitals.new_character_vitals())
 
 
 class SeedingCensusTests(unittest.TestCase):
@@ -541,7 +613,18 @@ class SeedingCensusTests(unittest.TestCase):
         )
         _unseed(self.path, self.character.id)
 
-    def test_the_repository_as_it_stands_has_seeded_nothing(self):
+    def test_the_census_reads_zero_over_a_row_that_holds_nothing(self):
+        """RENAMED, and the old name is the finding.
+
+        It was `test_the_repository_as_it_stands_has_seeded_nothing` -- the
+        exact sentence a round file would quote.  Once chief's plug lands
+        (COO-DECISION 20260902_0443 route KHO) the repository DOES seed, on
+        the very character this fixture creates, and `_unseed` erases it so
+        the assertion keeps passing.  A `pf-adversary` pass measured that:
+        before `_unseed` runs, all three `*_seeded_any` read 1.  The test is
+        still worth having -- the census must read zero over an empty row --
+        but it is about a ROW this test built, not about the repository.
+        """
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_any"], 1)
         self.assertEqual(census["characters_live"], 1)
@@ -759,9 +842,17 @@ class StoreVitalsTests(unittest.TestCase):
             "level": level, "hp_current": hp_current, "hp_max": hp_max,
         })
 
-    # -- the unseeded database this repository actually has today ------------
+    # -- rows whose vitals columns are NULL ----------------------------------
+    # NOT "the unseeded database this repository actually has today", which is
+    # what this line said until a `pf-adversary` pass pointed out that
+    # `_unseed` in `setUp` manufactures the state, and that chief's plug ends
+    # it for created characters.  The tests below are about a row, not a
+    # repository.
 
-    def test_a_fresh_character_has_three_gaps_and_no_numbers(self):
+    def test_a_row_holding_nothing_has_three_gaps_and_no_numbers(self):
+        """RENAMED for the same reason: post-plug a freshly CREATED character
+        has zero gaps.  What this grades is a row whose columns are NULL,
+        which `_unseed` in `setUp` now guarantees explicitly."""
         resolution = self.store.read_character_vitals(self.character.id)
         self.assertFalse(resolution.complete)
         self.assertEqual(
@@ -770,7 +861,7 @@ class StoreVitalsTests(unittest.TestCase):
         )
         self.assertEqual(self._hp_on_disk(), (None, None, None))
 
-    def test_damage_on_an_unseeded_character_refuses_and_writes_nothing(self):
+    def test_damage_on_an_unseeded_row_refuses_and_writes_nothing(self):
         before = self._hp_on_disk()
         with self.assertRaises(vitals.VitalsError) as caught:
             self.store.apply_hp_damage(self.character.id, 10)
