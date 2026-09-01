@@ -211,6 +211,14 @@ FIELDS = (
     (43, "actor", 1 << 28, 0x0CC, 0x48, "wstr", "wstr_CC",         False, "unknown text 2"),
     (44, "actor", 1 << 29, 0x198, 0x32, "u64",  "q_198",           False, "unknown"),
     (45, "actor", 1 << 30, 0x190, 0x32, "u64",  "q_190",           False, "unknown"),
+    # Bit 30 -> 32 skips bit 31 (0x80000000) on purpose, not a transcription
+    # gap: the mask is a real 64-bit ActorAttr change mask but only 41 of its
+    # 64 bits are ever bound to a field, and bit 31 is one of the unused ones
+    # -- [PROVEN], pf_bridge/drafts/CHUNK2_Q1_ACTORATTR_MASK_FINDINGS.md:12
+    # ("mask 64 บิตนั้น ใช้จริงแค่ 41 บิต (บิต 0..30 และ 32..41; บิต 31 =
+    # 0x80000000 ไม่มีฟิลด์ผูก)"). Re-flagged as an open suspicion by
+    # pf-adversary round egee8l and closed the same round by re-reading the
+    # original probe report rather than re-guessing from this table alone.
     (46, "actor", 1 << 32, 0x1A0, 0x0B, "u8",   "u8_1A0",          False, "unknown"),
     (47, "actor", 1 << 33, 0x1A2, 0x12, "u16",  "u16_1A2",         False, "unknown"),
     (48, "actor", 1 << 34, 0x1A4, 0x12, "u16",  "u16_1A4",         False, "unknown"),

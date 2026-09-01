@@ -6490,3 +6490,90 @@ reach any client yet. That half needs `CORE-REQUEST-GM-049`'s two blockers clear
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1728_nqba17_speed-sparse-x7-chat-command-parser.md`
 PR: `pf_bridge` #735 / `pirate-force-server` #493
+
+## Round `egee8l` (2026-09-01T20:28+07:00) -- first real `pf-adversary` pass on `gm/`, one doc fix, two cross-lane letters
+
+Two verify-only rounds in a row (`csux59`, `9x4k1q`) had left LANE-GM's write zone genuinely empty
+(GM-A waiting on Panya's `GT-192`, GM-B's remaining half waiting on chief's `runtime.py` wiring per
+`COO-DECISION 20260901_1847`, P-3 waiting on RE-104's continuation) -- rule F's "not a second empty
+round in a row" forces picking one of (a)/(b)/(c)/(d) this round. Picked (d): this session is the
+first one in this project's ~300 rounds to actually have the `Agent`/`pf-adversary` subagent tool
+available (every prior round recorded its absence and substituted a manual self-review) -- ran it
+for a full adversarial read of `gm/` (not a TODO/FIXME grep) rather than reporting empty again.
+
+The agent live-tested invariant 1 (GM only for `gm_accounts` members) with a real attack: a `str`
+subclass forging `__eq__`/`__hash__` to match a listed account, fed into `accounts.is_gm_account`.
+Confirmed `frozenset.__contains__` itself is exploitable this way in isolation, but
+`is_gm_account`'s `type(x) is not str` guard (not `isinstance`) rejects the subclass before the
+`in` test ever runs -- the invariant holds under an actual exploit attempt, not just by reading the
+guard and trusting it. Full `tests/` suite green in an isolated `git worktree` before any change
+(1262 passed / 554 subtests / 0 failed on the `gm/`-scoped run cited by the agent; this round's own
+post-fix run below is the full suite).
+
+Three findings, all resolved or routed this round:
+
+1. `GM_WARP_POSITION_CONFIRMED` fires on "position row changed," not "reached the commanded
+   target." Re-checked against the codebase's own answer: the stronger, target-comparing pair
+   (`GM_WARP_POSITION_TARGET_MATCH`/`..._MISMATCH`, `runtime.py:3899-3914`, driven by
+   `warp_target_record.position_matches_target`) already exists and nothing in this lane's docs or
+   tests relies on the weaker token alone as proof a warp worked. Not a new defect -- closed by
+   re-verifying the mitigation, no code change.
+2. `/warp` has no coordinate-magnitude bound (`_require_finite_float` only rejects NaN/Inf). Already
+   named in this file's own docstring (`chat_command_action.py:231-238`, "ALSO OPEN") as fixable by
+   importing a check from LANE-A's `world_scene_entry.py` rather than copying its logic -- not done
+   because no public function exists yet to import. Opened
+   `notes_to_chief/20260901_2028_LANE-GM-TO-LANE-A-warp-coordinate-bound-needs-a-public-ground-check.md`
+   asking LANE-A for one; LANE-GM will wire the check itself once it exists. Not fixed this round
+   (cross-lane, low severity: GM-authenticated-only, self-affecting, and the version gate already
+   blocks any `/warp` byte from reaching a client today regardless).
+3. `attr_wire.FIELDS`'s ActorAttr mask-bit sequence jumps from `1 << 30` to `1 << 32`, skipping bit
+   31 -- looked like a possible transcription slip in a 55-row table this project treats as a
+   probe-measured, independently-rewritten transcription. Re-read the original source
+   (`pf_bridge/drafts/CHUNK2_Q1_ACTORATTR_MASK_FINDINGS.md:12`) rather than re-guessing from the
+   table alone: `[PROVEN]` states the mask is genuinely 64 bits wide but only 41 of those bits are
+   ever bound to a field, and bit 31 (`0x80000000`) is one of the 23 that are not. Not a bug --
+   added a 7-line comment in `attr_wire.py` between the x=45/x=46 rows citing the source so a future
+   reader (or another adversarial pass) does not re-open the same question from scratch.
+
+A fourth item surfaced that is a genuinely new, previously-untracked question rather than a
+resolved finding: every authorization check in `gm/` reads `session.token`, which this lane's own
+docs already state plainly is a process-wide `--token` set once at server boot, not a
+per-connection identity (`chat_command_action.py`'s "IDENTITY, STATED HONESTLY" block). No letter,
+CORE-REQUEST, COO-DECISION, or test anywhere had asked what happens to audit rows, parked warp
+targets, and staged login-scene entries written under that shared identity once per-connection
+identity eventually lands (which `CORE-REQUEST-GM-049` already has chief moving toward, for an
+unrelated reason -- reading `identity_lo`/`identity_hi` to compose outbound frames, not migrating
+inbound history). Opened
+`notes_to_chief/20260901_2028_LANE-GM-ASK-COO-shared-process-identity-leaves-audit-migration-unowned.md`
+with this lane's best-effort position (no retroactive migration by guessing which account a shared-
+identity-era row belonged to; treat old rows as bound to wall-clock time, not to an account) tagged
+`[สมมติของสาย GM - รอ COO ยืนยัน]`, and kept moving rather than blocking on an answer.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` (cloud sanity) = 6402 passed, 327 skipped, 13732 subtests passed, 0
+failed -- run after the one-comment `attr_wire.py` change, confirming zero behavioral diff (the
+edit adds a comment between two existing tuple rows; nothing in `FIELDS`, `BY_X`, or `BY_NAME`
+changed).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี (บนจอ)** -- one explanatory comment plus two cross-lane/COO letters this round; no new wire,
+no new chat command, no server or game client boot.
+
+### nonclaim
+
+1. ไม่อ้างว่าพบช่องโหว่ authorization ที่โจมตีได้จริงวันนี้ -- invariant 1-3 ยืนจริงภายใต้การโจมตีจริงที่
+   ทดลอง (`str` subclass forgery); คำถามเรื่อง shared-identity migration เป็นคำถามสำหรับอนาคต ไม่ใช่
+   ช่องโหว่ปัจจุบัน
+2. ไม่อ้างว่าแก้ `/warp` coordinate bound แล้ว -- เปิดใบขอ API จาก LANE-A เท่านั้น ยังไม่มีเช็คขอบเขตจริง
+3. ไม่อ้างว่า `attr_wire.FIELDS` เคยผิด -- ตารางถูกอยู่แล้ว มีแค่คอมเมนต์อธิบายเพิ่ม
+4. ไม่ใช้ GM เพื่อข้ามขั้นตอนใด ๆ รอบนี้ -- ไม่มีการ boot เกม/เซิร์ฟเวอร์เลย
+5. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone
+6. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/`scenarios/world_*.json`/
+   `scenarios/combat_*.json`
+7. ไม่ลบประวัติเดิมใด ๆ
+
+รายละเอียดเต็ม:
+`pf_bridge/rounds/GM_20260901_2028_egee8l_first-real-adversarial-pass-plus-two-letters.md`
+PR: `pf_bridge` #751 / `pirate-force-server` #506
