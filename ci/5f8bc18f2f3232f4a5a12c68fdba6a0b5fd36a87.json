@@ -1,1 +1,1 @@
-{"sha":"5f8bc18f2f3232f4a5a12c68fdba6a0b5fd36a87","conclusion":"success","event":"push","ref":"refs/heads/claude/quirky-mendel-k6971s","run_id":"33467162511","utc":"2026-09-01T03:49:25Z"}
+{"sha":"5f8bc18f2f3232f4a5a12c68fdba6a0b5fd36a87","conclusion":"success","event":"pull_request","ref":"refs/pull/461/merge","run_id":"33467200429","utc":"2026-09-01T03:51:43Z"}
