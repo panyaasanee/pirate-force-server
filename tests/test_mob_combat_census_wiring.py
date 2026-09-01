@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
@@ -192,6 +193,22 @@ class MobCombatCensusWiringTests(unittest.TestCase):
             self._action_vital_pc(target_identity, **kwargs)
         ))
 
+    def _announce(self, state, scene_id, *identities):
+        """RE-157 job 2 harness helper: seed the announced-actor membership
+        the new mob_combat_membership guard requires, WITHOUT driving a
+        real census dispatch -- used only by the tests in this file that
+        are deliberately isolating the pre-arrival fallback (this file's
+        own ``_drive_arrival_census`` already seeds a real membership for
+        every test that calls it, via the real census commit in
+        ``runtime.py``).
+        """
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                scene_id, identities,
+                state.mob_combat_announced_membership_generation,
+            )
+        )
+
     def _set_balance(self, state, identity, current_hp):
         row = state.mob_combat_ledger.balance_of(identity)
         state.mob_combat_ledger = state.mob_combat_ledger.with_balance(
@@ -296,9 +313,18 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         (attack with no arrival census ever driven) -- proves the fallback
         this round adds is not merely inert but actually taken, and named by
         its own event rather than silently degrading.
+
+        RE-157 job 2: the announced-actor membership is seeded directly
+        (``_announce``) rather than by driving a real census dispatch,
+        which would arm ``population_refresh_anchor`` and defeat this
+        test's own point -- it is specifically about the state BEFORE any
+        arrival census has run.
         """
         state = self._state("cw_bar_fallback")
         self.assertIsNone(getattr(state, "population_refresh_anchor", None))
+        self._announce(
+            state, state.foundation.selected.position.scene_id, CONTROL_TARGET,
+        )
         actions = self._attack(state, CONTROL_TARGET)
         self.assertEqual(
             [label for label, _pc, _f, _d in actions],
@@ -315,6 +341,11 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         state = self._state("cw_death_fallback")
         self.assertIsNone(getattr(state, "population_refresh_anchor", None))
         self._set_balance(state, CONTROL_TARGET, 500)
+        # RE-157 job 2: see the identical note on the bar-frame sibling
+        # test just above.
+        self._announce(
+            state, state.foundation.selected.position.scene_id, CONTROL_TARGET,
+        )
         actions = self._attack(state, CONTROL_TARGET)
         labels = [label for label, _pc, _f, _d in actions]
         self.assertEqual(
@@ -396,6 +427,18 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         roster.  Same guard, proven where it is still reachable: the
         scene-1 arrival anchor must not be recomposed into a Bg0002 hit's
         bar frame.
+
+        RE-157 job 2 ADDENDUM (MOB-COMBAT-001 announced-actor guard): the
+        exact mismatch this test drives -- a stale scene-1 census record
+        while the character now stands in scene 2 -- is now caught ONE
+        GATE EARLIER than the recompose fallback this docstring describes.
+        ``mob_combat_membership.admits()`` refuses on the scene mismatch
+        before ``attack_from_observed_action`` ever runs, so the swing
+        lands NO hit at all (not even the one-entry-frame fallback) and
+        the ledger is untouched.  This is the stronger version of the same
+        property: previously a stale anchor could not be RECOMPOSED into
+        the wrong scene's frame; now a stale announcement cannot even let
+        the swing THROUGH to compose anything.
         """
         state = self._state("cw_bar_wrong_scene")
         self._drive_arrival_census(state)
@@ -408,21 +451,19 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         bg0002_target = field_mobs.load_roster(
             field_mobs.BG0002_SCENE
         )[0].actor_identity
+        before_ledger_generation = state.mob_combat_ledger.generation
         actions = self._attack(state, bg0002_target)
-        self.assertEqual(
-            [
-                label for label, _pc, _f, _d in actions
-                if not label.startswith("WORLD_CENSUS_")
-            ],
-            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
-        )
+        self.assertEqual(actions, [])
         self.assertIn(
-            "mob_combat_bar_census_compose_skipped_no_population_anchor",
+            "mob_combat_target_not_announced_no_reply",
             state.events,
         )
         self.assertNotIn(
             "mob_combat_bar_census_compose_refused_ValueError",
             state.events,
+        )
+        self.assertEqual(
+            state.mob_combat_ledger.generation, before_ledger_generation,
         )
 
 

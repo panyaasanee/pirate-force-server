@@ -74,6 +74,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.gm import (  # noqa: E402
     accounts as gm_accounts,
@@ -1119,6 +1120,40 @@ class GmWarpCensusLatchClearTests(GmWarpPositionTargetTests):
         self.assertFalse(state.npc_idle_action_sent)
         self.assertFalse(state.world_census_identity_resolved)
         self.assertIsNone(state.world_census_actor_count)
+
+    def test_a_cross_scene_resync_clears_the_stale_announced_membership(
+        self,
+    ):
+        """RE-157 job 2 (MOB-COMBAT-001 announced-actor guard): the OLD
+        scene's announced membership must not leak into the new scene.
+        Simulates a departure scene that had already announced a field mob
+        through a committed census -- the cross-scene resync must clear
+        the record to ``None`` AND bump the generation counter (never
+        merely leave the record standing under a same-numbered generation,
+        which a warp back to the SAME scene id later this session could
+        then be mistaken for current).
+        """
+        state = self._login_and_start("gmwarp_censuslatch04")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                departure_scene, (0x2058,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
+        generation_before = state.mob_combat_announced_membership_generation
+
+        self._arm_and_return(state, target)
+
+        self.assertIsNone(state.mob_combat_announced_membership)
+        self.assertGreater(
+            state.mob_combat_announced_membership_generation,
+            generation_before,
+        )
 
     def test_the_latch_clear_event_token_is_present_on_a_cross_scene_resync(
         self,

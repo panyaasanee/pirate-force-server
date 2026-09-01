@@ -14,6 +14,7 @@ from . import mob_ai_control
 from . import mob_census_hostility
 from . import mob_census_wire_count
 from . import mob_combat
+from . import mob_combat_membership
 from . import mob_death
 from . import mob_drop_presence
 from . import mob_loot
@@ -1207,6 +1208,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
+                # RE-157 job 2 / MOB-COMBAT-001 announced-actor guard.
+                # ``mob_combat_membership.AnnouncedActorMembership`` (or
+                # None, meaning "no census has ever committed this
+                # session") -- the exact actor-identity set the LAST
+                # committed census actually put on the wire for the
+                # scene it was composed for, plus the generation counter
+                # below.  Read by ``_dispatch_mob_combat`` via
+                # ``mob_combat_membership.admits()`` before a
+                # target-is-field-mob ActionVital is allowed to spend
+                # cadence or mutate the ledger; written only at the
+                # census commit points that already know the exact set
+                # of identities they are shipping (bg0001 home census,
+                # bg0002 census, and the lane composer census); cleared
+                # on scene handoff (``_gm_warp_resync_selected_scene``)
+                # so a stale scene's membership can never leak into a
+                # new one.  UNCONDITIONAL, like the sibling mob-combat
+                # state above -- no scenario flag gates it.
+                self.mob_combat_announced_membership = None
+                # Opaque counter this session owns and bumps by one on
+                # every committed census (never read by anything but
+                # this class and the ``admits()`` call it feeds), so an
+                # ``AnnouncedActorMembership`` recorded for an earlier
+                # census can never be mistaken for the current one even
+                # when the scene id happens to repeat (a warp back to a
+                # scene already visited this session).
+                self.mob_combat_announced_membership_generation = 0
                 # CORE-REQUEST (GT-DIAG-MULTI-OBJECT-001).  Empty for every
                 # account that is not in config/diag_multi_object.json, which
                 # this repo does not ship: the default is a zero-length tuple
@@ -4208,6 +4235,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             target_is_field_mob = any(
                 mob.actor_identity == target for mob in roster
             )
+            # RE-157 job 2 / MOB-COMBAT-001: a target in the STATIC roster
+            # is not enough -- it must also have been ANNOUNCED to THIS
+            # session's own client, in the current scene and the current
+            # census generation, via a committed census frame.  Fail
+            # closed (mob_combat_membership.admits() never raises; it
+            # returns False on any mismatch or missing record), before
+            # cadence is spent or the ledger is touched, so a forged or
+            # desynced ActionVital against a real roster member the
+            # client was never told about cannot mutate combat state.
+            if target_is_field_mob and not mob_combat_membership.admits(
+                self.mob_combat_announced_membership,
+                scene_id=self.foundation.selected.position.scene_id,
+                actor_identity=target,
+                generation=self.mob_combat_announced_membership_generation,
+            ):
+                self.events.append(
+                    "mob_combat_target_not_announced_no_reply"
+                )
+                return []
             if target_is_field_mob:
                 at_ms_wallclock = int(monotonic_clock() * 1000)
                 cadence_check = mob_combat.check_attack_cadence(
@@ -5475,6 +5521,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.npc_idle_action_sent = False
             self.world_census_identity_resolved = False
             self.world_census_actor_count = None
+            # RE-157 job 2 / MOB-COMBAT-001: the OLD scene's announced
+            # membership must not leak into the new scene -- the census
+            # that will (re-)build it below has not committed yet, so
+            # until it does, ``mob_combat_membership.admits()`` must fail
+            # closed for THIS scene too, not silently answer with the
+            # departure scene's stale roster.  Clearing to None (rather
+            # than a same-scene mismatch) is enough on its own since
+            # ``admits()`` refuses a scene mismatch already, but a warp
+            # BACK to a scene already visited this session must also be
+            # refused until re-announced, which is exactly what bumping
+            # the generation counter (never resetting it, so an old
+            # generation for the same scene id can never be replayed as
+            # current) guarantees.
+            self.mob_combat_announced_membership = None
+            self.mob_combat_announced_membership_generation += 1
             self.events.append(
                 f"gm_warp_cross_scene_census_latch_cleared_{target.scene_id}"
             )
@@ -7864,6 +7925,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             f"{generation.pc_bytes}_frame_"
                             f"{generation.frame_bytes}"
                         )
+                        # RE-157 job 2 / MOB-COMBAT-001: stamp exactly the
+                        # actor identities THIS commit put on the wire, so
+                        # ``_dispatch_mob_combat`` can refuse an ActionVital
+                        # against a roster member that was never announced
+                        # to this session.  ``generation.actor_identities``
+                        # is the post-splice set the hostility coverage
+                        # line just above already prints from -- not
+                        # ``world_census_indices``, which bg0002 sets
+                        # nowhere (mob_combat_membership.py's own docstring,
+                        # nonclaim 4).  Bumped, never reused, so a stale
+                        # membership from an earlier commit this same
+                        # session cannot be mistaken for this one even if
+                        # the scene id repeats.
+                        self.mob_combat_announced_membership_generation += 1
+                        self.mob_combat_announced_membership = (
+                            mob_combat_membership.build_membership(
+                                scene_id, generation.actor_identities,
+                                self.mob_combat_announced_membership_generation,
+                            )
+                        )
                         # CORE-REQUEST (LANE-B 20260829_2055) chief's half,
                         # the bg0002 side: same stamped record as the bg0001
                         # commit, so a hit or a kill in this scene stops
@@ -8098,6 +8179,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"{lane_actor_count}_pc_"
                                 f"{len(lane_pc)}_frame_"
                                 f"{len(lane_frame)}"
+                            )
+                            # RE-157 job 2 / MOB-COMBAT-001.  JUDGMENT CALL,
+                            # flagged for review: ``lane_hooks.
+                            # SceneCensusResult`` (unlike ``generation`` from
+                            # the bg0001/bg0002 builders) carries no per-
+                            # actor identity list -- only opaque
+                            # ``pc``/``frame`` bytes and, optionally,
+                            # PLACEMENT indices via ``membership``, which
+                            # this module's own docstring (nonclaim 4) says
+                            # must never stand in for actor identities by
+                            # coincidental equality.  So this commit cannot
+                            # name what it announced and stamps an EMPTY
+                            # membership for this scene/generation instead
+                            # of a fabricated or stale one: fail closed
+                            # means no field mob a lane composes for is
+                            # attackable until a lane composer can hand its
+                            # own actor identities back (a
+                            # ``SceneCensusResult`` field, not this call
+                            # site's to add -- lane_hooks is not in this
+                            # round's scope).  Latent today, same as the
+                            # comment above this block: no lane scene a
+                            # player can stand in and fight in exists yet.
+                            self.mob_combat_announced_membership_generation += 1
+                            self.mob_combat_announced_membership = (
+                                mob_combat_membership.build_membership(
+                                    scene_id, (),
+                                    self.mob_combat_announced_membership_generation,
+                                )
                             )
                             # CORE-REQUEST (LANE-B 20260829_2055), THE
                             # THIRD ARRIVAL COMMIT.  pf-adversary (round
@@ -8429,6 +8538,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             print(diag_multi_object_wiring.describe_census(
                                 generation, self.diag_multi_objects, census_pc,
                             ))
+                        # RE-157 job 2 / MOB-COMBAT-001: stamp exactly the
+                        # actor identities THIS commit put on the wire.
+                        # ``generation.actor_identities`` is the base
+                        # bg0001 set (post mob-death-override splice, which
+                        # only rewrites entry bytes, never the identity
+                        # set -- see ``_apply_mob_death_census_override``);
+                        # unioned with any diag-widen actor identities when
+                        # ``self.diag_multi_objects`` is non-empty (off by
+                        # default -- see the comment above), since those
+                        # extra actors are also announced in
+                        # ``census_pc``/``census_frame`` below.  Not
+                        # ``world_census_indices``, which is a PLACEMENT
+                        # index, not an actor identity
+                        # (mob_combat_membership.py's own docstring,
+                        # nonclaim 4).
+                        self.mob_combat_announced_membership_generation += 1
+                        self.mob_combat_announced_membership = (
+                            mob_combat_membership.build_membership(
+                                scene_id,
+                                frozenset(generation.actor_identities)
+                                | frozenset(
+                                    obj.mob.actor_identity
+                                    for obj in self.diag_multi_objects
+                                ),
+                                self.mob_combat_announced_membership_generation,
+                            )
+                        )
                         # The count is in the LABEL too: v141 prints every
                         # queued action as "[G>] <label> (N bytes)" at SEND
                         # time (v141:7762), so the attended tester can tell the

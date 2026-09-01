@@ -45,6 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import diag_multi_object_wiring  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import mob_diag_multi_object  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
@@ -352,6 +353,21 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         )
         state.mob_combat_ledger = ledger
         target = objects[0].mob.actor_identity
+        # RE-157 job 2: ``_arrive`` composed the real arrival census (and
+        # its real announced-actor membership) BEFORE ``diag_multi_objects``
+        # was assigned directly above, bypassing the activation path that
+        # would normally widen that same census -- so the diag identity
+        # this test attacks was never actually announced.  Widen the
+        # membership by hand to match, the same union runtime.py's own
+        # census-compose site performs when diag objects are active.
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                frozenset(state.mob_combat_announced_membership.actor_identities)
+                | {target},
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         actions, _console = self._attack(state, target)
         bar = [a for a in actions if a[0] == "MOB_COMBAT_BAR"]
         self.assertEqual(1, len(bar), self._combat_labels(actions))
@@ -440,6 +456,16 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
         The bar site had a test for it (test_mob_combat_census_wiring.py);
         the death site did not, so the death guard could trust a stamp from
         another scene and recompose the previous map into this one.
+
+        RE-157 job 2 ADDENDUM (MOB-COMBAT-001 announced-actor guard): the
+        same scene-1-stamp-while-standing-in-scene-2 mismatch this test
+        drives is now caught ONE GATE EARLIER, by
+        ``mob_combat_membership.admits()``, before ``attack_from_observed_
+        action`` ever runs -- see the identical addendum on
+        ``test_mob_combat_census_wiring.py::
+        test_bar_frame_outside_home_scene_falls_back_to_one_entry``.  No
+        hit lands at all now, so there is no death frame (composed OR
+        one-entry-fallback) to observe; the ledger is untouched.
         """
         state = self._state_scene1("rw_death_wrong_scene")
         self._arrive(state)
@@ -447,28 +473,25 @@ class MobSceneRecomposeWiringTests(unittest.TestCase):
             world_population.SCENE_ID, state.census_anchor_record.scene_id,
         )
         # Stand the character in scene 2 while the stamp still describes
-        # scene 1, then kill a scene-2 mob.
+        # scene 1, then attempt to kill a scene-2 mob.
         state.foundation.selected = dataclasses.replace(
             state.foundation.selected,
             position=dataclasses.replace(
                 state.foundation.selected.position, scene_id=SCENE2_N_ID,
             ),
         )
-        # The combat ledger is re-opened on the scene the character now
-        # stands in the first time a dispatch reads it, so the balance is
-        # lowered through a probe attack's own ledger rather than the
-        # boot's.  One attack only: a second one in the same second is
-        # refused by the cadence gate (mob_combat_cadence_rejected_no_reply),
-        # measured this round.
         target = self.bg0002_mob.actor_identity
         state._sync_combat_scene_state()
         self._set_balance(state, target, 1)
+        before_ledger_generation = state.mob_combat_ledger.generation
         actions, _console = self._attack(state, target)
-        labels = self._combat_labels(actions)
-        self.assertIn("MOB_DEATH_DEAD", labels)
+        self.assertEqual(actions, [])
         self.assertIn(
-            "mob_death_frames_census_compose_skipped_no_population_anchor",
+            "mob_combat_target_not_announced_no_reply",
             state.events,
+        )
+        self.assertEqual(
+            state.mob_combat_ledger.generation, before_ledger_generation,
         )
 
     def test_every_non_composed_state_keeps_a_greppable_prefix(self):

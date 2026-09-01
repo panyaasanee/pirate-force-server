@@ -409,6 +409,20 @@ class Bg0015WiredPathTests(unittest.TestCase):
         gate :func:`recompose_status` already named) -- so the event this
         test now measures is ``no_composer_for_scene``, one gate further
         along than before, and this file did not move that gate.
+
+        RE-157 job 2 ADDENDUM (MOB-COMBAT-001 announced-actor guard): STRUCK
+        again.  ``runtime.py``'s scene-14 census commit (the lane-composer
+        branch the paragraph above names) now runs before this file's
+        helper ever attacks -- but ``lane_hooks.SceneCensusResult`` carries
+        no per-actor identity list, only opaque wire bytes, so that commit
+        cannot name what it announced and stamps an EMPTY announced-actor
+        membership for scene 14 rather than a fabricated or stale one (see
+        the ``JUDGMENT CALL`` comment at that commit site in ``runtime.py``).
+        0x2017 is therefore a real roster/ledger member that was never
+        ANNOUNCED, which is exactly the gap RE-157 job 2 closes: the new
+        guard now refuses the swing one gate EARLIER than the recompose
+        call this docstring's previous paragraph measured, before the
+        recompose path is ever reached at all.
         """
         # Imported plainly by name: the approved-importer guard sweeps
         # src/**/*.py only, and tests/test_field_mob_hostile_bg0015.py
@@ -432,15 +446,13 @@ class Bg0015WiredPathTests(unittest.TestCase):
             state.mob_combat_ledger.identities(),
             tuple(sorted(gates.splice_identities(self.legacy))))
         # The one reply this specific (non-strike) packet produces today,
-        # measured rather than assumed: a "no composer for scene" note on
-        # the recompose path -- the still-open composer gate named above,
-        # not the ai-table gate this test used to exercise.  ROUND n8kq4r
-        # ADDENDUM (post-merge): this used to be
-        # "..._skipped_no_population_anchor" -- see the docstring above for
-        # why the merge moved this test one gate further along without this
-        # file touching runtime.py.
+        # measured rather than assumed.  RE-157 job 2 ADDENDUM: this used to
+        # be "..._skipped_no_composer_for_scene" (the recompose path's own
+        # refusal) -- see the docstring's RE-157 paragraph for why the
+        # MOB-COMBAT-001 announced-actor guard now refuses one gate
+        # earlier, before the recompose call is ever reached.
         self.assertIn(
-            "mob_combat_bar_census_compose_skipped_no_composer_for_scene",
+            "mob_combat_target_not_announced_no_reply",
             state.events)
         self.assertFalse(gates.recompose_status()["has_composer"])
 

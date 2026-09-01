@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
@@ -161,6 +162,26 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
 
     def _attack(self, state, target_identity, **kwargs):
+        # RE-157 job 2 harness note: seed the announced-actor membership
+        # the new mob_combat_membership guard (runtime.py's
+        # ``_dispatch_mob_combat``) now requires before a field-mob target
+        # can spend cadence or mutate the ledger.  This file deliberately
+        # isolates combat/death wiring from real census composition
+        # (test_mob_combat_census_wiring.py owns proving the
+        # arrival-census-then-combat sequence itself), so the announcement
+        # is seeded directly here rather than by driving a real census
+        # dispatch first, which would change what these tests measure.  A
+        # harmless no-op for a target that never resolves to a field-mob
+        # identity (test_a_target_that_is_not_a_field_mob_sends_nothing):
+        # the guard only ever consults this membership once the STATIC
+        # roster has already said the target is a field mob.
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                (target_identity,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
         return state.dispatch(self.legacy.parse_outer(
             self._action_vital_pc(target_identity, **kwargs)
         ))
