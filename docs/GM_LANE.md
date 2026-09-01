@@ -6368,3 +6368,63 @@ wire/behavior ใด ๆ
 
 รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260901_1519_r2jfjm_p2-rgb-closed-faction-pink-crossref.md`
 PR: `pf_bridge` #723 / `pirate-force-server` #483
+
+## Round `zkqaq1` (2026-09-01T16:29+07:00) -- pf-adversary finds and fixes a withheld-warp-clear gap in this lane's own zone
+
+Consumed chief's reply on `CORE-REQUEST-GM-048`: P-2 targets the FontStyleID selector
+(`0x00443F50` chain), not the faction/relation comparator. `RE-195` is open to answer whether the
+two mechanisms are the same function; no color code yet either way. P-2/P-3 both unchanged from
+prior rounds, still externally blocked (RE-195 open; RE-164 items 1/3 need disassembly this clone
+does not have).
+
+Ran `pf-adversary` (Agent tool available this round) against the merged warp wire
+(`warp_executor.py`, `teleport_wire.py`). Found a real bug, this time inside this lane's own write
+zone rather than `runtime.py`: `chat_command_action.py:1256-1259`'s withhold-clear tuple (which
+clears a parked warp target when the audit-log write for a composed warp fails) listed only
+`WARP_ACTION_LABEL` and `WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL` -- missing
+`WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL`, which GM-A added later without updating this
+set (confirmed via `git log`, commit `cdf5d7b`). A withheld bare `/warp <scene_id>` whose audit
+write raised `OSError` left `gm_last_warp_target` parked despite no bytes reaching the client,
+violating the invariant the surrounding comment states directly. Not an observed on-screen defect
+today (the runtime's confirm-token gate only reads labels actually present in the dispatch
+`actions` list, so the stale target was never read this way yet) -- a landmine, not a regression
+a tester would have hit.
+
+Fixed this round: added the missing label to the tuple and rewrote the stale two-label comment.
+Added two regression tests in `tests/test_gm_command_audit_outcome.py` covering both cross-scene
+shapes. Mutation-tested: reverted the fix, confirmed the new no-coords test fails
+(`AssertionError: WarpTargetRecord(...) is not None`), restored the fix, confirmed all tests pass.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = **6350 passed, 327 skipped, 13717 subtests passed, 0 failed**
+เขียว(cloud sanity) -- prior baseline was 6156 (other lanes' merges account for the rest; this
+round adds exactly 2 new tests). `tools/verify_hypothesis_ledger.py` PASS entries=48,
+`tools/verify_functional_coverage.py` PASS domains=8 -- no drift.
+
+### pf-adversary
+
+Ran for real via the Agent tool (not self-review) against `warp_executor.py`/`teleport_wire.py`
+plus their test files. One real bug found and fixed (above). Six other areas checked (auth gate,
+scene validation, kill-switch regression test, `warp_executor.*`'s input hardening,
+`teleport_wire.py`'s wire codec round-trip, the `FORCE_POS_VITAL_VERSION_CONFIRMED` release) with
+no issues found -- recorded so nobody re-digs them.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+**ไม่มี (บนจอ)** -- this closes an invariant gap that was never observed as a visible defect; no
+new wire, no new chat command for an attended tester to try.
+
+### nonclaim
+
+1. ไม่อ้างว่าบั๊กนี้เคยทำให้ตำแหน่งเพี้ยนบนจอจริง -- landmine ปิดก่อน ไม่ใช่ observed defect
+2. ไม่อ้างว่า `RE-195` ตอบแล้ว -- ยังเปิดอยู่
+3. ไม่แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+   `scenarios/world_*.json`/`scenarios/combat_*.json`
+4. ไม่ให้สถานะ GM กับบัญชีนอก `gm_accounts.json`, ไม่ประกาศ milestone
+5. ไม่ลบประวัติเดิมใด ๆ
+6. ไม่ใช้ GM เพื่อข้ามขั้นตอนใด ๆ รอบนี้ -- ไม่มีการ boot เกม/เซิร์ฟเวอร์เลย
+
+รายละเอียดเต็ม:
+`pf_bridge/rounds/GM_20260901_1629_zkqaq1_adversary-finds-fixes-withheld-warp-clear-bug.md`
+PR: `pf_bridge` #729 / `pirate-force-server` #488

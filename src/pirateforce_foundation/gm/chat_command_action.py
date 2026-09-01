@@ -1247,15 +1247,24 @@ def _make_action(
             # could not be audited, which is a second bug wearing the first
             # one's clothes.  `say` parks nothing, so it has nothing to undo.
             #
-            # BOTH WARP LABELS, not just the ForcePos one: the cross-scene
-            # TeleportVital path (`WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL`)
-            # parks a target through the same `record_warp_target` call
-            # (`_warp_teleport_action`), so a withheld cross-scene warp has
-            # exactly the same stale-target hazard this branch exists to
-            # close for the same-scene one.
+            # ALL THREE WARP LABELS, not just the ForcePos one: the two
+            # cross-scene TeleportVital paths (`WARP_CROSS_SCENE_TELEPORT_
+            # ACTION_LABEL` via `_warp_teleport_action`, and GM-A's
+            # `WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL` via
+            # `_warp_teleport_action_no_coords`) each park a target through
+            # the same `record_warp_target` call, so a withheld warp of
+            # either shape has exactly the same stale-target hazard this
+            # branch exists to close for the same-scene one.  This tuple
+            # already drifted out of sync once (GM-A added the third label
+            # and its own park call without updating this set -- caught by
+            # pf-adversary round `zkqaq1`, not by a test); it is not the
+            # single shared source of truth for "does this label park a
+            # target" and has to be kept in step with the label defs above
+            # by hand.
             if action[0] in (
                 WARP_ACTION_LABEL,
                 WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+                WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
             ):
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)

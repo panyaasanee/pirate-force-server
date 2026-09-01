@@ -360,6 +360,41 @@ class AuditFailureIsFailClosedTests(_Case):
             self.assertIsNone(self.act(session, "/warp 2 100 200"))
         self.assertIsNone(getattr(session, "gm_last_warp_target", None))
 
+    def test_the_withheld_cross_scene_warp_leaves_no_parked_target_behind(self):
+        # Same defect as the test above, for the other labeled path that
+        # parks a target: `_warp_teleport_action` (with typed coords).  Not
+        # a duplicate -- pf-adversary round `zkqaq1` found the withhold-clear
+        # tuple only listed `WARP_ACTION_LABEL`, missing both cross-scene
+        # labels, before this test and the no-coords one below were added.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(self.act(session, "/warp 278 1 2"))
+        self.assertIsNone(getattr(session, "gm_last_warp_target", None))
+
+    def test_the_withheld_no_coords_cross_scene_warp_leaves_no_parked_target(
+        self,
+    ):
+        # The label pf-adversary round `zkqaq1` actually found missing from
+        # the withhold-clear tuple: GM-A's bare `/warp <scene_id>` (no typed
+        # coords, live-teleports to the destination's marker spawn).  Before
+        # the fix this round, `clear_warp_target` was never called for this
+        # label, so a withheld no-coords cross-scene warp left a stale
+        # target parked -- exactly the class of bug the same-scene test
+        # above already covers, just for the one label that had drifted out
+        # of the tuple.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(self.act(session, "/warp 4"))
+        self.assertIsNone(getattr(session, "gm_last_warp_target", None))
+
     def test_a_withheld_say_does_not_clear_an_earlier_warps_target(self):
         # The clearing above must be tied to the command that PARKED the
         # target, not to "any withheld action".  A `/say` whose audit row
