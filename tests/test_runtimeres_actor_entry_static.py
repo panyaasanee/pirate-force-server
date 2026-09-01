@@ -362,9 +362,14 @@ class TestTheAnswer(unittest.TestCase):
         # count moves -- the entry-builder counts below are unchanged,
         # because that module composes bodies other modules built and
         # invents none of its own.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 26)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 17)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 16)
+        # 26 -> 27, 17 -> 18, 16 -> 17 on 2026-09-01 (LANE-A door-priority
+        # build): world_population_bg0004.py, the Bg0004 (Slave Market
+        # Island) census (COO-DECISION 2026-08-30T14:41), builds one entry
+        # and sends one carrier -- the same single-module move bg0002 and
+        # bg0015 each made.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 27)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 18)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 17)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],

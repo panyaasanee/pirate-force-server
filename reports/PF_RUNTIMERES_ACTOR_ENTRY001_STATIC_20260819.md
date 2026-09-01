@@ -259,9 +259,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 17,
-  "src_actor_stream_call_sites": 26,
-  "src_modules_building_actor_entries": 16,
+  "src_actor_entry_call_sites": 18,
+  "src_actor_stream_call_sites": 27,
+  "src_modules_building_actor_entries": 17,
   "src_modules_building_actor_entries_names": [
     "field_mobs.py",
     "hostile_hp_link_hypothesis.py",
@@ -278,6 +278,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "world_face_frame.py",
     "world_population.py",
     "world_population_bg0002.py",
+    "world_population_bg0004.py",
     "world_population_bg0015.py"
   ],
   "src_modules_doing_both": 4,
@@ -596,3 +597,25 @@ This is a NOTE rather than an erratum because no published sentence was wrong - 
 live in the `RUNTIMERES_COUNTS` block, a live mirror of a tool run that is expected to move when we
 write code. All six are re-pinned in the tool with the lane named beside the count, and the `guards`
 total stays **152** (six values re-pinned, no guard added or removed).
+
+## NOTE - round 20260901_1131 (lane A, door-priority build): three live-mirror counts move again
+
+`world_population_bg0004.py` (Bg0004, Slave Market Island census, COO-DECISION 2026-08-30T14:41)
+builds one actor entry and sends one carrier over `scene4_slave_market_tables.py`'s 84 CLINE-
+crosswalked placements - the exact same reuse `world_population_bg0002.py` and
+`world_population_bg0015.py` already established for their own scenes, no new encoder.
+
+| count | was | now | which lane moved it |
+|---|---|---|---|
+| `src_actor_entry_call_sites` | 17 | **18** | lane A, `world_population_bg0004.py` |
+| `src_actor_stream_call_sites` | 26 | **27** | lane A, `world_population_bg0004.py` |
+| `src_modules_building_actor_entries` | 16 | **17** | lane A, `world_population_bg0004.py` (sorts in between `world_population_bg0002.py` and `world_population_bg0015.py`) |
+
+This is a NOTE rather than an erratum for the same reason as the two notes above it: no published
+sentence was wrong, the three moved numbers live in the `RUNTIMERES_COUNTS` block, and all three are
+re-pinned here, in `tools/pf_runtimeres_actor_entry_static.py`'s own guards, and in
+`tests/test_runtimeres_actor_entry_static.py` in the same commit. `guards` stays **152** (three
+values re-pinned, no guard added or removed). The new module's own composer, not this scene's login
+door, is what moved: `login_entry_allowed` for scene 4 stays `False` in
+`scenarios/world_scene_registry_001.json`, unchanged this round, per the same COO letter that
+approved building the composer - nothing here is a player-visible claim.
