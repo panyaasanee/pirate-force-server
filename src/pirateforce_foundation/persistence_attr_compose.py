@@ -151,6 +151,54 @@ as its own reason code rather than hiding it behind the missing columns.
   a NULL column is absent at this gate rather than zero.  The NAME
   ``speed_walk`` still encodes an unproven identification of BasicAttr+0x54.
   [สมมติของสาย DB - รอ RE]
+
+## THE SPARSE PATH (``compose_sparse_block``) -- narrower than the full block
+
+``COO-ORDER 20260901_1640`` (relaying Panya live, 2026-09-01 16:39+07, and
+reversing part of ``COO-ORDER 20260901_1447`` point 2) opens ONE named
+exception to "a block or nothing": a block that sets the mask bit of x=7
+(walk speed) and NO OTHER FIELD BIT, for the attended ``/speed`` test round.
+"No other field bit" is the exact claim: ``encode_block`` always emits the
+identity tag, the ActorAttr mask word (zero here) and the extra-group byte
+(``gm/attr_wire.py:338-346``), so the FRAME carries more than one field -- what
+this module promises is about the ``{x: value}`` dict it returns.  The
+companion order to LANE-GM (``20260901_1641``) forbids the full 55-field block
+on that path in the same breath.
+
+This is a different shape of send, not a relaxed version of the same one, and
+the difference is what makes it allowed:
+
+* A field OMITTED from a sparse block has no mask bit set.  The server states
+  nothing about it -- it does not send a zero for it.  The owner's rule bans
+  GUESSING a value; it does not require the server to speak about every field.
+* What the CLIENT does with a field whose mask bit is clear is NOT settled
+  here, and this module does not claim it.  The often-repeated MECHANISM --
+  that the bulk copy at ``0x00464F30`` zeroes omitted fields -- has NO row
+  anywhere in the Codex corpus (re-derived in ``LANE-DB ASK 20260901_1335``,
+  ``## ขออะไร`` item 3, ทาง ก), and the only place that mechanism is asserted is
+  a v141 note this lane is forbidden to use as a criterion.
+  THE EFFECT IS A DIFFERENT QUESTION, AND THIS REPOSITORY HAS EVIDENCE ON
+  IT -- pointing the other way.  An earlier draft of this paragraph said the
+  v141 note was the claim's "only origin"; an adversary pass showed that is
+  false.  ``docs/FUNCTIONAL_COVERAGE.json`` grades
+  ``movement/npc_locomotion_presentation`` ``runtime_pass`` on THIS SAME bit
+  (BasicAttr 0x0040, ``+0x54``) with the finding that omitting the value from
+  later snapshots is what turned an observed WALK INTO A RUN, and
+  ``tests/test_npc_gait_wire.py:5-9`` pins the same rule from two ``reports/``
+  files.  That is a client-observable measurement that omission was NOT
+  neutral.  It does not settle this: it is an NPC (``CNetNPC``-scoped, the
+  same scoping caveat as the x=7 name itself), it is a repeated-generation
+  question rather than a single send, and it says nothing about the
+  ``0x00464F30`` mechanism.  But it means the attended ``/speed`` round is
+  looking for something this repository has already seen once, not for a
+  merely theoretical risk -- so "did anything else change?" is the FIRST thing
+  that round must answer, not a footnote.
+  [สมมติของสาย DB - รอผลเทส attended]
+
+``SPARSE_APPROVED_FIELDS`` is the whole of that permission, and it is a
+frozenset with one element in it.  Widening it is a COO decision, not an edit:
+every other field either has no honest value today (the 33 counted in
+``unlock_report``) or is refused forever (x=30).
 """
 from __future__ import annotations
 
@@ -493,6 +541,175 @@ def compose_full_block(typed_values: dict[int, object]) -> dict[int, object]:
             f"no honest value -- {listed}"
         )
     return {field[0]: _value_for(field[0], typed_values) for field in FIELDS}
+
+
+# -- The sparse path: the ONE approved narrow send --------------------------
+# `COO-ORDER 20260901_1640` approves a block carrying the mask bit of x=7 and
+# nothing else, for the attended `/speed` round; `COO-ORDER 20260901_1641`
+# forbids LANE-GM the full block on the same path.  One element, because a
+# permission with one element cannot be widened by accident -- only by an edit
+# that has to argue with this comment and with COO.
+SPARSE_APPROVED_FIELDS: frozenset[int] = frozenset({7})
+
+REASON_NOT_SPARSE_APPROVED = "field_not_approved_for_the_sparse_path"
+REASON_NOT_A_FIELD = "not_a_field_in_the_wire_table"
+
+
+def _is_field_index(x: object) -> bool:
+    """A field index is an ``int`` and not a ``bool``.
+
+    Kept out of the producers on purpose: the AST guard in
+    ``tests/test_persistence_attr_compose.py`` refuses ANY ``or`` inside a
+    function that produces values, because an `or` there is the shape of a
+    fallback.  This predicate is the honest way to spell the same test.
+    """
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def sparse_block_gaps(typed_values: dict[int, object]) -> tuple[BlockGap, ...]:
+    """Every reason a SPARSE block cannot be composed from ``typed_values``.
+
+    A sparse block carries exactly the fields the caller supplies, so the four
+    ways it can fail are:
+
+    * a key outside ``SPARSE_APPROVED_FIELDS`` -- including a key that is a
+      perfectly good server-owned field with a real column (level, hp): the
+      permission COO gave is for x=7, not for "any field with a column";
+    * a key that is not in ``gm/attr_wire.FIELDS`` at all;
+    * a key that is not an ``int`` (see the comment below -- ``7.0`` passed
+      every check in this function before that guard existed);
+    * an EMPTY mapping -- reported once per approved field rather than as a
+      success.  ``encode_block`` would happily build a body with both masks
+      zero, and that frame is not a smaller send: it is a send that claims a
+      state update happened while stating nothing at all.
+
+    Ordered by ``x``, with the type refusals first (they have no position in
+    such an ordering).  An empty tuple means ``compose_sparse_block``
+    succeeds -- and this function names EVERY refusal rather than raising, so
+    a mapping with mixed key types is reported here rather than dying in
+    ``sorted()``.
+    """
+    gaps: list[BlockGap] = []
+    # A field index is an int.  Measured before this guard existed:
+    # `{7.0: 620.0}` composed a block keyed by a FLOAT -- `7.0 == 7` hashes
+    # equal, so it walked through every check here and through
+    # `encode_block`, setting the right bit.  That is the bad kind of
+    # harmless: nothing was wrong yet, and nothing would have said so when it
+    # became wrong.  Reported first, with `x=-1`, because a non-int key has no
+    # position in an ordering by field index.
+    wrong_type = [x for x in typed_values if not _is_field_index(x)]
+    for x in sorted(wrong_type, key=repr):
+        gaps.append(BlockGap(
+            -1, f"x={x!r}", REASON_NOT_A_FIELD,
+            f"a field index is an int, not {type(x).__name__}",
+        ))
+    for x in sorted(x for x in typed_values if _is_field_index(x)):
+        if x not in BY_X:
+            gaps.append(BlockGap(
+                x, f"x={x}", REASON_NOT_A_FIELD,
+                f"gm/attr_wire.FIELDS has no field x={x} (valid: 1..{len(FIELDS)})",
+            ))
+            continue
+        if x not in SPARSE_APPROVED_FIELDS:
+            gaps.append(BlockGap(
+                x, BY_X[x][6], REASON_NOT_SPARSE_APPROVED,
+                "COO-ORDER 20260901_1640 approves the sparse path for "
+                f"x={sorted(SPARSE_APPROVED_FIELDS)} only; widening it is a "
+                "COO decision, not a caller's argument",
+            ))
+    if not typed_values:
+        for x in sorted(SPARSE_APPROVED_FIELDS):
+            gaps.append(BlockGap(
+                x, BY_X[x][6], REASON_NO_TYPED_VALUE,
+                "a sparse block was asked for with no field in it; that frame "
+                "sets no mask bit and states nothing",
+            ))
+    return tuple(gaps)
+
+
+def _verify_sparse_permission() -> None:
+    """Every approved field is a real, server-owned field with a built column.
+
+    ``_verify_partition`` runs before this set is even defined, so the set was
+    the one source table in this module that nothing checked at import time.
+    Measured: ``frozenset({7, 99})`` imported cleanly and then raised a bare
+    ``KeyError: 99`` out of ``sparse_block_gaps`` on the first call.  A COO
+    order that widens this set is a sentence in a letter; the three properties
+    below are what make that sentence safe, and they are checked here so the
+    round that widens it finds out at import rather than on a live client.
+
+    ``column_exists`` is read from ``SERVER_OWNED_FIELDS`` rather than from
+    ``persistence_typed_attrs`` on purpose: that module imports this one at
+    its top, so reaching into it here would be an import cycle.  Its
+    ``SchemaPinTests`` is what proves the flag agrees with ``migrations/``.
+    """
+    for x in sorted(SPARSE_APPROVED_FIELDS):
+        if x not in BY_X:
+            raise AttrComposeError(
+                f"sparse permission names x={x}, which is not a field in "
+                "gm/attr_wire.FIELDS"
+            )
+        if x not in SERVER_OWNED_FIELDS:
+            raise AttrComposeError(
+                f"sparse permission names x={x} ({BY_X[x][6]}), whose source "
+                f"is {source_of(x)}: only a server-owned field has a value "
+                "this server may state"
+            )
+        if not SERVER_OWNED_FIELDS[x].column_exists:
+            raise AttrComposeError(
+                f"sparse permission names x={x} ({BY_X[x][6]}), whose column "
+                f"characters.{SERVER_OWNED_FIELDS[x].column} is not built yet"
+            )
+
+
+_verify_sparse_permission()
+
+
+def compose_sparse_block(typed_values: dict[int, object]) -> dict[int, object]:
+    """``{x: value}`` for the approved sparse fields, or ``AttrComposeError``.
+
+    The three guarantees, in the order a value meets them:
+
+    1. ``sparse_block_gaps`` -- the field must be approved for this path and
+       there must be at least one of them.
+    2. ``_value_for`` -- the same single value producer the full block uses,
+       so a field that is refused, unsourced, or server-owned-but-unsupplied
+       cannot enter through this narrower door either.
+    3. ``persistence_typed_attrs.validate`` -- the value must be one the typed
+       column could hold AND the encoder could put on the wire, and the number
+       RETURNED (rounded to float32 for an ``f32`` field) is the number used.
+       Without this a direct caller handing in ``"fast"`` or ``NaN`` reaches
+       ``gm/attr_wire.encode_field`` and fails at emit time against a live
+       client; with it the refusal is named here, before any frame exists.
+       The import is deferred because ``persistence_typed_attrs`` imports this
+       module at its top -- module-level here would be a cycle.
+
+    The rounding in (3) is also what keeps the two evidence layers honest: the
+    number the client is sent is byte-for-byte the number the column holds.
+    """
+    from .persistence_typed_attrs import column_for, validate
+
+    gaps = sparse_block_gaps(typed_values)
+    if gaps:
+        listed = ", ".join(f"x={g.x}({g.field_name}):{g.reason}" for g in gaps)
+        raise AttrComposeError(
+            f"cannot compose a sparse attribute block: {len(gaps)} field(s) "
+            f"refused -- {listed}"
+        )
+    composed: dict[int, object] = {}
+    for x in sorted(typed_values):
+        # `_value_for` FIRST, on its own line.  Written as
+        # `validate(column_for(x), _value_for(...))` this read the same and
+        # behaved differently: python evaluates `column_for(x)` first, so a
+        # field that `_value_for` refuses outright (x=30, the credential-
+        # shaped one) died inside `column_for` with a `TypedAttrError` about
+        # a missing column instead -- a different exception type, which a
+        # caller catching `AttrComposeError` does not catch at all.  An
+        # adversary pass measured exactly that against a widened permission
+        # set.  The order below is the order the docstring promises.
+        value = _value_for(x, typed_values)
+        composed[x] = validate(column_for(x), value)
+    return composed
 
 
 def unlock_report() -> dict[str, object]:
