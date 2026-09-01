@@ -859,10 +859,20 @@ class FieldMobTests(unittest.TestCase):
             # shut.  IT DISPATCHES NOTHING: no runtime.py/app.py call site,
             # does not touch _SCENE_TABLE_MODULES -- see the module's own
             # NONCLAIM.
+            # ROUND vzhc6s adds mob_death_bg0015_ruling_proposal.py
+            # (COO-DECISION 2026-09-01T08:47+07:00 item (b)): mentions
+            # ``field_mobs._SCENE_TABLE_MODULES`` only in prose, to say it is
+            # untouched -- it does not import field_mobs, only
+            # field_mob_hostile_bg0015 and mob_death.  IT DISPATCHES
+            # NOTHING and WRITES NOTHING: no runtime.py/app.py call site, no
+            # entry added to mob_death.WIDENING_RULINGS (a test in its own
+            # file proves that dict is unchanged after every function in
+            # the module runs).
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_combat_bg0015_gates.py", "mob_death.py",
+             "mob_death_bg0015_ruling_proposal.py",
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
