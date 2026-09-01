@@ -149,6 +149,26 @@ still holds: nothing in ``runtime.py`` calls ``full_roster_override`` yet -
 its one existing census-override call site still calls the narrower
 ``corpse_override``, which is chief's file and this round's one-line request,
 not a wiring line this lane can write itself.
+
+[STALE as of commit ``5a272a0``, "Wire two CORE-REQUESTs: measured stowaways
+line and scene-consistent census override", 2026-08-29 (see
+``pf_bridge/notes_to_chief/20260829_1603_CHIEF-REPLY-two-core-requests-wired-
+stowaways-and-census-override-sync.md``)] [MEASURED, by call-site reading,
+round qlrf4j 2026-09-01]: the sentence above is now false in the direction
+that matters.  ``runtime.py`` DOES call ``mob_death.full_roster_override``
+(grep ``mob_death_override = mob_death.full_roster_override(`` in
+``runtime.py``'s world-census composer) - the narrower ``corpse_override``
+call site this paragraph described is gone, replaced by the wider override.
+So this module's headline claim ("never sent, never observed") is ALSO
+stale: the named+hostile combination this module builds IS on the wire now,
+on every boot that reaches that composer, gated on the scene's ledger being
+in sync (see ``runtime.py``'s own comments at that call site for the one
+case - an unaddressed registry - where the override still does not fire).
+What remains unmeasured is unchanged from the rest of this docstring: no
+attended round has separately confirmed the CLIENT renders a named+hostile
+body correctly (RE-067 is CLOSED per the correction above, but what
+actually decides name colour is still unidentified); this correction only
+fixes the WIRING claim, not a new client observation.
 """
 
 from __future__ import annotations
