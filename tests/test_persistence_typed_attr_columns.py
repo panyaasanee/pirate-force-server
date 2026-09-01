@@ -106,12 +106,18 @@ def _unseed(path, character_id):
     """
     db = sqlite3.connect(path)
     try:
-        db.execute(
+        changed = db.execute(
             "UPDATE characters SET level=NULL, hp_current=NULL, hp_max=NULL "
-            "WHERE id=?", (character_id,))
+            "WHERE id=?", (character_id,)).rowcount
         db.commit()
     finally:
         db.close()
+    # A `pf-adversary` pass pointed out that an absent or wrong id makes this
+    # a silent no-op: the fixture would look built and grade nothing.
+    if changed != 1:
+        raise AssertionError(
+            "_unseed matched %d rows for character %r, not 1: the fixture it "
+            "was supposed to build does not exist" % (changed, character_id))
 
 
 def _pre_006_character(path, label, name, selector=1,
@@ -768,7 +774,20 @@ class StoreRoundTripTests(unittest.TestCase):
         _unseed(self.path, self.character.id)
         self.store.select_character(self.sid, self.character.selector)
 
-    def test_a_fresh_character_has_no_typed_values_at_all(self):
+    def test_a_row_holding_nothing_reads_back_as_nothing(self):
+        """RENAMED, and the old name is the finding.
+
+        It was `test_a_fresh_character_has_no_typed_values_at_all`.  Once
+        chief's plug lands (COO-DECISION 20260902_0443 route KHO) a FRESH
+        CHARACTER has three typed values, and `_unseed` in `setUp` is what
+        keeps this green -- so the old name asserted, in its title, the exact
+        fact the fixture had started manufacturing.  A second `pf-adversary`
+        pass measured it: drop `_unseed` and this fails with
+        `{'level': 1, 'hp_current': 100, 'hp_max': 100} != {}`.
+
+        What is graded is unchanged and still worth grading: a row whose
+        columns are NULL reads back as an EMPTY mapping, not as zeros.
+        """
         # NOT `{column: 0 for ...}`: the whole rule in one assertion.
         self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
 
@@ -983,6 +1002,49 @@ class TheGateStillRefusesTests(unittest.TestCase):
         self.assertNotIn(7, gaps)
         self.assertIn(2, gaps)  # level, still unwritten
         self.assertEqual(len(gaps), 54)
+
+    def test_the_gate_on_the_row_a_landed_plug_leaves(self):
+        """The state `_unseed` erases everywhere else, graded once here.
+
+        A second `pf-adversary` pass named this as a hole rather than a
+        finding, and it was right: this round added `_unseed` to four fixtures
+        in this file so the gate is never exercised on the row chief's plug
+        will actually produce -- three of twenty-one columns filled, and four
+        after a `/speed` write.  "Green because it never got there" is a
+        scar this lane has written down before; a fixture that erases the
+        realistic state and no test that covers it is exactly that shape.
+
+        So the post-plug row is BUILT here through this lane's own writer and
+        the gate is asked about it directly.  What must hold: three more
+        columns present closes three more gaps and NO others, and the block
+        still cannot be composed, because the point of the gate is that a
+        partial row is not a sendable block however many columns it has.
+        """
+        born = {"level": 1, "hp_current": 100, "hp_max": 100}
+        self.store.write_typed_attributes(self.character.id, born)
+        values = self._typed_values()
+        self.assertEqual(values, {2: 1, 3: 100, 4: 100})
+        gaps = {g.x: g for g in compose.block_gaps(values)}
+        for x in (2, 3, 4):
+            self.assertNotIn(x, gaps, x)
+        self.assertEqual(gaps[7].reason, compose.REASON_NO_TYPED_VALUE)
+        without = {g.x for g in compose.block_gaps({})}
+        self.assertEqual(without - set(gaps), {2, 3, 4})
+        with self.assertRaises(compose.AttrComposeError):
+            compose.compose_full_block(values)
+
+    def test_the_gate_after_a_speed_write_onto_a_landed_plug_row(self):
+        """The four-of-twenty-one state: what `/speed` really meets once
+        every character is born holding three columns.  The sparse path must
+        still send ONE field -- `COO-ORDER 20260901_1641` -- and the three the
+        plug wrote must not join it."""
+        self.store.write_typed_attributes(
+            self.character.id, {"level": 1, "hp_current": 100, "hp_max": 100})
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 620.0})
+        self.assertEqual(block, {7: 620.0})
+        self.assertEqual(self._typed_values(),
+                         {2: 1, 3: 100, 4: 100, 7: 620.0})
 
     def test_a_full_block_still_cannot_be_composed_after_this_round(self):
         self.store.write_typed_attributes(

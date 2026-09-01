@@ -751,6 +751,25 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         the pre-plug arm is reached by one caller and the post-plug arm by the
         other, so NEITHER arm is dead, and on the day chief's plug lands both
         callers take the post-plug arm and nothing else has to change.
+
+        THAT WAS NOT ENOUGH, AND THE SECOND `pf-adversary` PASS PROVED IT.
+        Executing is not discriminating.  The whole body of this method could
+        be replaced with `return self._plug_has_landed(stored)` and 179 tests
+        stayed green, before AND after the plug -- because the only caller
+        that reaches the post-plug arm today writes the values two lines
+        earlier, which makes `stored == born` a tautology and the rest a
+        write-then-read roundtrip.  The mutation the round ran (compare
+        against 999999) proved the LINE RUNS; it proved nothing about whether
+        the line would catch anything.  The adversary then measured what this
+        arm is actually worth -- a plug binding `hp_current = 50` is caught
+        here and NOWHERE ELSE in the tree -- so an arm that can be deleted in
+        silence is the sole guard against the one failure this class exists
+        for.
+
+        `PlugsThatBindWrongValuesTests` below is the answer: it drives this
+        method against rows a WRONG plug would leave and requires it to FAIL.
+        Gut any assertion below and those tests go red, because a grader that
+        asserts nothing cannot reject anything.
         """
         stored = store.read_typed_attributes(character_id)
         if not self._plug_has_landed(stored):
@@ -871,6 +890,70 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         sql = MIGRATION_007.read_text(encoding="utf-8")
         self.assertIn("created after it", sql)
         self.assertIn("create_character", sql)
+
+
+class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
+    """`_grade_a_newborn` must REJECT a wrong plug, not merely run.
+
+    WHY THIS CLASS EXISTS.  A second `pf-adversary` pass replaced the whole
+    body of `_grade_a_newborn` with `return self._plug_has_landed(stored)` and
+    179 tests stayed green, before and after the plug.  Every assertion in the
+    grader was deletable in silence -- and the same pass measured that the
+    grader is the ONLY thing in this repository that would catch a plug which
+    names the three right columns and binds the wrong numbers.  A sole guard
+    that no gate protects is one tidy-up away from not existing.
+
+    So each test here builds the row a WRONG plug would leave and requires the
+    grader to fail on it.  These are the tests that go red when an assertion
+    is deleted from the grader, which is what makes the grader real.
+
+    It subclasses `SeedsACohortNotADatabaseTests` on purpose: the method under
+    test is that class's, and inheriting runs its own tests again here.  That
+    is a few seconds of duplicate work in exchange for grading the real
+    method rather than a copy of it, which is the mistake this class exists
+    to correct.
+    """
+
+    #: Each is a complete, INTERNALLY CONSISTENT vitals state -- `resolve()`
+    #: accepts every one, `_plug_has_landed` says "landed" for every one, and
+    #: the SQL CHECKs allow every one.  The only thing wrong with them is that
+    #: they are not what 007 wrote, which is exactly the class of error no
+    #: other gate in this repository can see.
+    WRONG_PLUGS = (
+        ("half the HP a 007-seeded character has",
+         {"level": 1, "hp_current": 50, "hp_max": 50}),
+        ("a level nobody adjudicated",
+         {"level": 2, "hp_current": 100, "hp_max": 100}),
+        ("born already damaged",
+         {"level": 1, "hp_current": 99, "hp_max": 100}),
+        ("the right numbers on the wrong columns",
+         {"level": 100, "hp_current": 1, "hp_max": 100}),
+    )
+
+    def test_every_wrong_plug_is_rejected_by_the_grader(self):
+        for description, values in self.WRONG_PLUGS:
+            with self.subTest(plug=description):
+                store = SQLiteStore(self.path, MIGRATIONS)
+                store.migrate()
+                character = self._new_character(store)
+                store.write_typed_attributes(character.id, values)
+                with self.assertRaises(AssertionError, msg=(
+                        "a plug that binds %s (%r) was ACCEPTED; the grader "
+                        "asserts nothing that discriminates"
+                        % (description, values))):
+                    self._grade_a_newborn(store, character.id)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_right_plug_is_accepted_by_the_same_grader(self):
+        """The control.  Without it, a grader that raised unconditionally
+        would satisfy every test above."""
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        character = self._new_character(store)
+        store.write_typed_attributes(
+            character.id, vitals.new_character_vitals())
+        self.assertTrue(self._grade_a_newborn(store, character.id))
 
 
 class BootSnapshotProtects007Tests(_MigratedWorkspace):

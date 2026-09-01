@@ -57,7 +57,9 @@ know the HP of.  So:
   ``write_typed_attributes`` is a pre-existing method and this lane's charter
   (``COO-DECISION 20260901_1100``) forbids changing the behaviour of one; it
   went to COO in writing (letter ``20260902_0620``) rather than being fixed
-  quietly or left unsaid.  ``006``'s CHECK allows it
+  quietly or left unsaid (`pf_bridge/notes_to_chief/20260902_0620_LANE-DB-
+  ASK-COO-what-a-newborn-is-pinned-to-when-008-lands.md`, named with its
+  repository for the same reason).  ``006``'s CHECK allows it
   (``BETWEEN 0 AND 65535``), nothing in this repository writes ``level`` at
   all today, and the only level this server has ever sent is ``1``
   (``player_wire.PLAYER_LOGIN_LEVEL``) -- so a stored zero here is not a
@@ -580,7 +582,11 @@ def apply_damage(hp_current: int, hp_max: int, amount: int) -> DamageOutcome:
 #: keeps the two cohorts equal, and nothing yet says whether a newborn must
 #: match the FIRST seed migration or the NEWEST one, nor what becomes of the
 #: characters 007 already seeded when an 008 writes a different number.
-#: That question is with COO (letter `20260902_0620`); until it is answered
+#: That question is with COO (`pf_bridge/notes_to_chief/20260902_0620_LANE-DB-
+#: ASK-COO-what-a-newborn-is-pinned-to-when-008-lands.md` -- named with its
+#: REPOSITORY, because a reviewer of THIS one cannot open it, which is the
+#: lesson recorded a few paragraphs down and was not applied here on the
+#: first pass); until it is answered
 #: this constant is pinned to 007 on purpose, and the pin is the safe side of
 #: it -- two cohorts that agree, and a change that costs a decision.
 #:

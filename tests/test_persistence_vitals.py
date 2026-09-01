@@ -14,9 +14,18 @@ proves four things, in the order they matter:
    not "unknown", it is DEAD -- so the owner's banned guessed zero
    (``COO-DECISION 20260901_1059``) would arrive here not as a wrong field in
    a block but as a character killed by the first hit that ever touched it.
-   Measured against a real database: every character in it today has three
-   NULL vitals, ``read_character_vitals`` reports three named gaps, and
-   ``apply_hp_damage`` refuses and writes nothing.
+   Measured against a real database: a character row whose three columns are
+   NULL reports three named gaps out of ``read_character_vitals``, and
+   ``apply_hp_damage`` refuses it and writes nothing.
+
+   THIS SENTENCE USED TO SAY "every character in it today has three NULL
+   vitals", AND THAT IS NOW FALSE.  A second ``pf-adversary`` pass measured
+   it: run ``007`` and every character it seeded resolves COMPLETE, with no
+   gaps at all.  The round that fixed the same overclaim in three test names
+   and a section comment further down did not open the top of its own file --
+   which is the whole shape of the defect, so the correction is recorded here
+   rather than quietly applied.  What this file grades is a ROW holding
+   nothing, which its fixtures now build explicitly (``_unseed``).
 2. **The cross-column rules SQLite cannot express are enforced somewhere.**
    ``006`` writes one CHECK per column, so ``hp_current > hp_max`` and a zero
    maximum pass the database happily.  Proved by storing exactly those states
@@ -25,8 +34,17 @@ proves four things, in the order they matter:
    clamped and REPORTED (``requested`` vs ``applied``), a negative amount is
    refused rather than healing, ``True`` is not one point of damage, and the
    floor is zero.
-4. **Nothing is seeded and nothing is wired.**  Asserted rather than promised,
-   by parsing the migrations directory and the module's own source.
+4. **Nothing is WIRED.**  No call site outside this lane calls either store
+   method; asserted rather than promised, by scanning every python tree in
+   the repository (``NothingIsWiredTests``), not by trusting a comment.
+
+   It used to read "nothing is seeded and nothing is wired ... by parsing the
+   migrations directory".  Both halves had rotted and a ``pf-adversary`` pass
+   named them: ``migrations/007_character_vitals_seed.sql`` SEEDS, and no test
+   in this file parses the migrations directory any more -- ``census_sql``
+   replaced that text parser, for reasons ``SeedingCensusTests`` records at
+   length.  A headline that describes a test the file no longer contains is
+   worse than no headline.
 
 WHAT THIS FILE DOES NOT PROVE.  Nothing here is client-observable: no frame is
 composed, nothing is sent, and no call site in this repository calls either
@@ -55,6 +73,12 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
+
+#: What `migrations/007_character_vitals_seed.sql` writes, transcribed here so
+#: that a test can compare against it.  `NewCharacterVitalsTests.
+#: test_the_values_are_the_ones_007_wrote` re-derives the same three numbers
+#: from that file's SQL, so this constant cannot drift from it in silence.
+SEEDED_BY_007 = {"level": 1, "hp_current": 100, "hp_max": 100}
 MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
 
 
@@ -79,9 +103,17 @@ def _unseed(path, character_id):
     lane's rules allow one.
     """
     with raw(path) as db:
-        db.execute(
+        changed = db.execute(
             "UPDATE characters SET level=NULL, hp_current=NULL, hp_max=NULL "
-            "WHERE id=?", (character_id,))
+            "WHERE id=?", (character_id,)).rowcount
+    # A `pf-adversary` pass pointed out that an absent or wrong id makes this
+    # a silent no-op: the fixture would look built and grade nothing.
+    # Invisible today, because the columns are already NULL; the day the plug
+    # lands it is the difference between a fixture and a decoration.
+    if changed != 1:
+        raise AssertionError(
+            "_unseed matched %d rows for character %r, not 1: the fixture it "
+            "was supposed to build does not exist" % (changed, character_id))
 
 
 @contextlib.contextmanager
@@ -491,10 +523,23 @@ class NewCharacterVitalsTests(unittest.TestCase):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        # AT LEAST the pair, not EXACTLY two.  A `pf-adversary` pass pointed
-        # out that `== 2` turns red, with a message about vitals drift, the
-        # day somebody adds a third 0x14 tag for an unrelated reason.  What
-        # this test is about is that the HP pair is still 100/100.
+        # A SMOKE CHECK, AND NOT THE TIE.  `== 2` turned red, with a message
+        # about vitals drift, the day anyone added a third 0x14 tag for an
+        # unrelated reason (0x14 is the generic u32 tag; `basic_faction` uses
+        # it in this same function).  `>= 2` fixed that and a second
+        # `pf-adversary` pass measured what it cost: change hp_max to 150 AND
+        # add one unrelated `u32tag(0x14, 100)` above it, and this test stays
+        # GREEN while `player_wire` sends 150.  A false-red became a
+        # false-green.
+        #
+        # Neither form is the real tie and neither ever was, so this no longer
+        # pretends to be one.  WHAT ACTUALLY TIES THESE VALUES TO THE WIRE is
+        # `tests/test_persistence_vitals_seed_007.py::WireEqualityTests`,
+        # which encodes x=2/3/4 from what is IN THE DATABASE and finds the
+        # bytes inside the login frame `player_wire` really builds -- it reads
+        # no source text at all, so no amount of editing this function fools
+        # it.  (Measured: the same mutation turns eight other tests red,
+        # golden hashes among them.  The suite is not blind; this test is.)
         self.assertGreaterEqual(
             body.count("legacy.u32tag(0x14, 100)"), 2, body)
         born = vitals.new_character_vitals()
@@ -512,6 +557,33 @@ class NewCharacterVitalsTests(unittest.TestCase):
         born = resolution.require()
         self.assertTrue(born.alive)
         self.assertEqual(born.hp_current, born.hp_max)
+
+    def test_the_answer_comes_from_the_validated_state_not_the_constants(self):
+        """The F8 change, graded.  A `pf-adversary` pass reverted
+        `return {LEVEL_COLUMN: checked.level, ...}` to `return values` and
+        367 tests stayed green: the fix was right and nothing protected it,
+        because for every input `require()` accepts the two are equal.
+
+        So the two are forced apart.  `resolve` is replaced with one that
+        returns a DIFFERENT complete state; whatever comes back must be that
+        state, because the contract is "what the door validated", not "the
+        constants that went in".
+        """
+        other = vitals.Vitals(level=7, hp_current=70, hp_max=80)
+
+        class _Resolution:
+            def require(self_inner):
+                return other
+
+        with mock.patch.object(vitals, "resolve",
+                               lambda values: _Resolution()):
+            self.assertEqual(
+                vitals.new_character_vitals(),
+                {vitals.LEVEL_COLUMN: 7,
+                 vitals.HP_CURRENT_COLUMN: 70,
+                 vitals.HP_MAX_COLUMN: 80},
+            )
+        self.assertEqual(vitals.new_character_vitals(), SEEDED_BY_007)
 
     def test_mutating_the_answer_does_not_change_the_next_one(self):
         """It hands back a fresh dict, not a shared module-level mapping: a
