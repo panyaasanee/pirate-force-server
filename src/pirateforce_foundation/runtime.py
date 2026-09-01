@@ -5426,6 +5426,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"gm_warp_selected_scene_resynced_{target.scene_id}"
             )
+            # KA1A-ROOTCAUSE (20260901_1035): WORLD-CENSUS-001 gates on
+            # ``world_census_sent``, initialised once per CONNECTION
+            # (construction, above) and never reset -- so every scene after
+            # the first one a session's census fires in dispatches a
+            # teleport frame and nothing else, silent by construction (the
+            # attended round that found this: ten cross-scene warps, two
+            # censuses, both the first of their login). Relabelling the
+            # scene here without also unlatching the census leaves every
+            # later scene of the session permanently empty.
+            #
+            # Also clear ``last_target_pos`` and the composition state that
+            # is keyed off the OLD scene: leaving ``last_target_pos`` set
+            # would let the newly-unlatched census use the DEPARTURE
+            # scene's coordinates as its anchor (this is F-1 from GT-172
+            # arriving through a different door -- measured, not
+            # hypothetical: GT-182 session 1 only looked correct because
+            # the player had not walked in Port Royal yet, so this field
+            # was already None and the anchor fell through to the
+            # destination's own pinned spawn). ``population_indices`` and
+            # its siblings describe placements in the OLD scene's index
+            # space; leaving them set would point the next NPC click frame
+            # at the previous map's roster.
+            #
+            # Deliberately NOT touching the scene-1 walk-before-census
+            # disjunct (WORLD-CENSUS-001, later in this dispatch) here --
+            # that is a separate, still-unsafe change gated on either
+            # ``lane_hooks.lane_a_choose_npc_scene1.production_allowed`` or
+            # a deferred ``population_indices`` install (KA1A-AMENDMENT
+            # 20260901_1120); this method only fires on an already-armed
+            # cross-scene GM warp, never on a fresh login.
+            self.world_census_sent = False
+            self.world_census_refused = False
+            self.last_target_pos = None
+            self.population_indices = None
+            self.world_census_indices = None
+            self.population_refresh_anchor = None
+            self.census_anchor_record = None
+            self.npc_idle_action_sent = False
+            self.world_census_identity_resolved = False
+            self.world_census_actor_count = None
+            self.events.append(
+                f"gm_warp_cross_scene_census_latch_cleared_{target.scene_id}"
+            )
 
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id

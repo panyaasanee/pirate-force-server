@@ -1044,5 +1044,124 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
         )
 
 
+class GmWarpCensusLatchClearTests(GmWarpPositionTargetTests):
+    """KA1A-ROOTCAUSE (20260901_1035) -- a cross-scene resync must unlatch
+    WORLD-CENSUS-001, not just relabel the scene.
+
+    ``pf_bridge/notes_to_chief/20260901_1035_KA1A-ROOTCAUSE-*`` measured
+    (GT-182 session 2, ten cross-scene warps, two censuses, both the first
+    of their login) that ``world_census_sent``/``world_census_refused`` are
+    set once per CONNECTION and never reset, so every scene after the first
+    one a session's census fires in gets a teleport frame and silence --
+    the map changes, nothing spawns. ``_gm_warp_resync_selected_scene``
+    already ran on every one of those ten warps (``GmWarpSelectedSceneResync
+    Tests`` above pins that); it just never told the census latch anything
+    changed. This class pins the fix: the same resync also clears the latch
+    and the OLD scene's composition state (stale anchor, placement indices)
+    so the next census composes the DESTINATION scene's roster instead of
+    silently refusing or mis-anchoring on the departure scene's coordinates
+    (F-1 from GT-172, arriving through this door too).
+
+    Deliberately not covered here: the scene-1 walk-before-census disjunct.
+    That is KA1A-AMENDMENT 20260901_1120's item 4, still gated on
+    ``lane_hooks.lane_a_choose_npc_scene1.production_allowed`` or a
+    deferred ``population_indices`` install, and out of scope for this fix.
+    """
+
+    def _arm_and_return(self, state, target):
+        self._arm_the_warp_with_target(state, target)
+        return state
+
+    def test_a_cross_scene_resync_clears_the_once_per_login_census_latch(
+        self,
+    ):
+        state = self._login_and_start("gmwarp_censuslatch01")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        # Simulate: this session's FIRST scene already shipped a census.
+        state.world_census_sent = True
+        state.world_census_refused = True
+
+        self._arm_and_return(state, target)
+
+        self.assertFalse(state.world_census_sent)
+        self.assertFalse(state.world_census_refused)
+
+    def test_a_cross_scene_resync_clears_the_stale_anchor_and_placements(
+        self,
+    ):
+        state = self._login_and_start("gmwarp_censuslatch02")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        # Simulate: departure scene had a fully composed, walked-in census.
+        state.last_target_pos = (x, y, z, 0.0)
+        state.population_indices = (1, 2, 3)
+        state.world_census_indices = (1, 2, 3)
+        state.population_refresh_anchor = (x, y, z)
+        state.census_anchor_record = "bg0001"
+        state.npc_idle_action_sent = True
+        state.world_census_identity_resolved = True
+        state.world_census_actor_count = 3
+
+        self._arm_and_return(state, target)
+
+        self.assertIsNone(state.last_target_pos)
+        self.assertIsNone(state.population_indices)
+        self.assertIsNone(state.world_census_indices)
+        self.assertIsNone(state.population_refresh_anchor)
+        self.assertIsNone(state.census_anchor_record)
+        self.assertFalse(state.npc_idle_action_sent)
+        self.assertFalse(state.world_census_identity_resolved)
+        self.assertIsNone(state.world_census_actor_count)
+
+    def test_the_latch_clear_event_token_is_present_on_a_cross_scene_resync(
+        self,
+    ):
+        state = self._login_and_start("gmwarp_censuslatch03")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        self._arm_and_return(state, target)
+
+        self.assertIn(
+            f"gm_warp_cross_scene_census_latch_cleared_{destination_scene}",
+            state.events,
+        )
+
+    def test_a_same_scene_warp_does_not_touch_the_census_latch(self):
+        """The early return for a same-scene target must not clear anything
+        -- this is the resync's own guard (see ``test_a_same_scene_warp_
+        does_not_fire_the_resync_event`` above), pinned again here for the
+        latch specifically so a future edit cannot move the clearing code
+        above that guard by accident.
+        """
+        state = self._login_and_start("gmwarp_censuslatch04")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 40.0, y + 20.0, z)
+
+        state.world_census_sent = True
+        state.last_target_pos = (x, y, z, 0.0)
+
+        self._arm_and_return(state, target)
+
+        self.assertTrue(state.world_census_sent)
+        self.assertEqual(state.last_target_pos, (x, y, z, 0.0))
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_cross_scene_census_latch_cleared_")
+                for event in state.events
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
