@@ -18,7 +18,9 @@ file's own work.  (object_ref_u32, opaque_u8) -> item in a bag slot + delta
 bytes belongs to the two transaction modules, which this file CALLS and does
 not reimplement one line of.  What is left for ``runtime.py`` -- the chief's
 file -- is a single call: see ``MOB_PICKUP_REQUEST_WIRING`` at the bottom,
-which is a REQUEST, never a call site, and which is HELD (NONCLAIM 7).
+which is a REQUEST, never a call site.  It was HELD; COO-DECISION
+20260902_0541 cleared it to land and NOTHING HAS LANDED YET (NONCLAIM 5,
+NONCLAIM 7).
 
 WHAT IS PROVEN, AND BY WHOM (do not re-prove)
 ---------------------------------------------
@@ -91,13 +93,24 @@ NONCLAIMS -- read these before using one symbol from this file
      and is never interpreted here or anywhere.
   5. NOTHING HERE IS EVIDENCE THAT A PLAYER PICKED ANYTHING UP.  No call
      site exists yet: ``MOB_PICKUP_REQUEST_WIRING`` is a request to the
-     chief.  Until that line lands, this module decodes nothing on any
-     running server.
+     chief, now cleared to land by COO-DECISION 20260902_0541 but still not
+     landed by anyone.  Until that line is in ``runtime.py``, this module
+     decodes nothing on any running server, and no round may report P-1's
+     "picked up" half as done on the strength of this file.
   6. THE MONSTER-DROP FAMILY IS STILL UNDECODED.  A separate client-side
      module family may carry monster-drop pickup instead of this message.
      This lane is not claimed to explain that path.
-  7. THE CALL SITE THIS LANE PUBLISHES IS HELD, NOT AUTHORIZED, AND THIS
-     MODULE SAYS SO IN THE ONE PLACE THE CHIEF WILL READ.  RE-125
+  7. THE CALL SITE THIS LANE PUBLISHES WAS HELD, AND IS NOW CLEARED BY
+     COO-DECISION 20260902_0541 -- WHICH DOES NOT MAKE THE ID OBSERVED.
+     Read the paragraph below as the history it is: it is kept, not
+     rewritten, because the reason the hold existed is the reason the
+     clearance had to be a decision rather than a lane's own judgement.
+     0541 takes option 1 of the ASK-COO letter of round h6bl53: the
+     prohibitions in 0245 and 20260830_1145 are withdrawn, RE-125's red
+     header is excepted for exactly the published line, and the FACT it
+     records stays true and must be written at the call site.  What follows
+     is what stood before that decision:
+     RE-125
      (CLOSED BOUNDED-NEGATIVE) and COO-DECISION 20260901_0245 both forbid a
      production call site for the pickup transaction keyed on 0x4543 until
      an attended click capture exists; GT-146 (attended, the owner driving)
@@ -106,11 +119,12 @@ NONCLAIMS -- read these before using one symbol from this file
      opens until a dropped element stays on screen longer than the under-
      one-second life it had.  COO-DECISION 20260902_0254 ordered THIS
      module and a request to the chief; it does not mention 0245, RE-125 or
-     GT-146.  This lane does not get to resolve that by writing code, so it
-     does not: the decoder is landed (nothing forbids reading), and the
-     wiring below is published as HELD -- specified, executable, and not to
-     be landed until COO reconciles the two.  See the ASK-COO letter of
-     round h6bl53.
+     GT-146.  This lane did not get to resolve that by writing code, so it
+     did not: the decoder was landed (nothing forbids reading), and the
+     wiring below was published as HELD -- specified, executable, and not to
+     be landed until COO reconciled the two.  COO-DECISION 20260902_0541 is
+     that reconciliation, and it also records that 0254/0348 were written
+     without sight of the three older tickets.
   8. RELOG PERSISTENCE IS NOT THIS TICKET.  P-1 closes at "seen and picked
      up in one session"; the persisted-bag question belongs to M5 and its
      own tickets, and no line here may be read as answering it.
@@ -186,22 +200,50 @@ PICKUP_REQUEST_VITAL_ID_PROVENANCE = (
 PICKUP_REQUEST_CAPTURE_STATUS = (
     "not_observed_among_parsed_nested_frames_bounded_negative"
 )
-#: Landing a call site for this id is BLOCKED by RE-125 and COO-DECISION
-#: 20260901_0245 until an attended click capture exists; GT-146 measured
-#: zero unknown frames per click and carries a standing owner order that
-#: comes first.  COO-DECISION 20260902_0254 ordered this module and the
-#: request to the chief without mentioning those; the conflict is COO's to
-#: settle, and until it is settled the wiring below is HELD.
-PICKUP_REQUEST_WIRING_STATUS = "held_pending_coo_reconciliation"
+#: THE HOLD IS LIFTED.  Round h6bl53 published this ask as HELD because
+#: RE-125, COO-DECISION 20260901_0245 and GT-146 forbade a production call
+#: site keyed on this id while COO-DECISION 20260902_0254 and 20260902_0348
+#: ordered one, and a lane does not settle a contradiction between its own
+#: instructions by writing code.  COO-DECISION 20260902_0541 answers the
+#: ASK-COO letter of that round and takes option 1: the two prohibitions are
+#: WITHDRAWN and the exception is granted for exactly the line this module
+#: publishes.  The FACT inside RE-125 is untouched and is still true - this
+#: id has never been seen on any wire - and 0541 requires it to be written at
+#: the call site, which the ask below does.
+PICKUP_REQUEST_WIRING_STATUS = "approved_by_coo_20260902_0541"
+PICKUP_REQUEST_WIRING_APPROVAL = (
+    "COO-DECISION 20260902_0541 (answering the ASK-COO letter of round "
+    "h6bl53): option 1, the prohibitions of COO-DECISION 20260901_0245 and "
+    "20260830_1145 are withdrawn, RE-125's red header is excepted for this "
+    "one line by COO ruling, and the substitution of the persist-and-"
+    "dispatch call for the dispatch-only one is endorsed"
+)
+#: EACH ONE STRUCK THROUGH IN PLACE, with what lifted it and the whole of
+#: what it used to say after "-- was:": the project's rule is that history is
+#: crossed out rather than erased, and a reader who lands on RE-125 next month
+#: must see both that it once blocked this line and by whose decision it
+#: stopped blocking it.  What the paragraph ABOVE this tuple used to say is
+#: not preserved word for word - it was a "this is HELD and here is why"
+#: comment that no longer describes anything, and the sentences it carried are
+#: all in the four entries below plus NONCLAIM 7.  Said plainly rather than
+#: claimed away: pf-adversary round okdfge caught an earlier draft of this
+#: comment asserting "nothing was deleted", which was not true to the letter.
 PICKUP_REQUEST_WIRING_BLOCKERS = (
-    "RE-125 CLOSED BOUNDED-NEGATIVE: no production call site keyed on this "
-    "id until an attended click capture exists",
-    "COO-DECISION 20260901_0245: the pickup transaction stays unwired "
-    "until GT-124 captures a real opcode",
-    "GT-146 (attended): zero unknown frames on every click; standing owner "
-    "order that a dropped element must stay on screen first",
-    "COO-DECISION 20260902_0254 and 20260902_0348 order this module and "
-    "the chief's line, and do not mention the three above",
+    "LIFTED by COO-DECISION 20260902_0541 -- was: RE-125 CLOSED "
+    "BOUNDED-NEGATIVE: no production call site keyed on this id until an "
+    "attended click capture exists.  The negative itself stands; only the "
+    "prohibition it carried was excepted, and only for this line.",
+    "WITHDRAWN by COO-DECISION 20260902_0541 -- was: COO-DECISION "
+    "20260901_0245: the pickup transaction stays unwired until GT-124 "
+    "captures a real opcode",
+    "REREAD by COO-DECISION 20260902_0541 -- was: GT-146 (attended): zero "
+    "unknown frames on every click; standing owner order that a dropped "
+    "element must stay on screen first.  0541 reads that order as being "
+    "about the ORDER OF ATTENDED ROUNDS, not about landing code, and notes "
+    "that one attended round can now answer both questions at once.",
+    "ANSWERED by COO-DECISION 20260902_0541 -- was: COO-DECISION "
+    "20260902_0254 and 20260902_0348 order this module and the chief's "
+    "line, and do not mention the three above",
 )
 PICKUP_REQUEST_RUNTIME_ID_SLOT_VA = 0x0108202C      # zero on disk
 
@@ -605,8 +647,9 @@ def _refused_after_read(
 
 
 # ---------------------------------------------------------------------------
-# THE REQUEST TO THE CHIEF.  Not a call site -- see NONCLAIM 5 -- and HELD
-# rather than authorized -- see NONCLAIM 7 and PICKUP_REQUEST_WIRING_STATUS.
+# THE REQUEST TO THE CHIEF.  Not a call site -- see NONCLAIM 5 -- and no
+# longer held: authorized by COO-DECISION 20260902_0541, see NONCLAIM 7 and
+# PICKUP_REQUEST_WIRING_STATUS, which is the value this comment defers to.
 # ---------------------------------------------------------------------------
 
 # The line, as a string, so a test can EXECUTE it instead of a reader
@@ -627,12 +670,19 @@ MOB_PICKUP_REQUEST_READ_ONLY_CALL = (
 )
 
 MOB_PICKUP_REQUEST_WIRING = (
-    "STATUS: " + PICKUP_REQUEST_WIRING_STATUS + ".  DO NOT LAND THIS BRANCH "
-    "UNTIL COO SAYS SO IN WRITING.  The blockers are listed in "
-    "PICKUP_REQUEST_WIRING_BLOCKERS and the reason the request exists "
-    "anyway is that COO-DECISION 20260902_0254 and 20260902_0348 asked for "
-    "it: the line is specified and executed by this lane's tests so that "
-    "the day the hold lifts, nothing has to be designed.\n"
+    "STATUS: " + PICKUP_REQUEST_WIRING_STATUS + ".  THIS BRANCH IS CLEARED "
+    "TO LAND.  " + PICKUP_REQUEST_WIRING_APPROVAL + ".  What each former "
+    "blocker was and what lifted it is kept, struck through, in "
+    "PICKUP_REQUEST_WIRING_BLOCKERS.\n"
+    "  WRITE THIS FACT AT THE CALL SITE -- 0541 makes it a CONDITION of the "
+    "exception it grants, not advice, and this lane's test enforces it the "
+    "moment runtime.py names this module: the id 0x4543 has NEVER been "
+    "observed on any wire.  A comment carrying the words 'never been "
+    "observed on any wire' (any casing) must sit within ten lines of the "
+    "call, or tests/test_mob_pickup_request.py goes red on the gate and the "
+    "PR carrying the call site cannot merge.  The branch is landed on a "
+    "static-image reading, so if the id is wrong the branch never fires and "
+    "every frame keeps today's behaviour.\n"
     "  WHERE: runtime.py, in the inbound runtime-request dispatch, as a "
     "PRODUCTION branch -- no scenario object in the condition, no flag, no "
     "allowlisted profile -- keyed on the NESTED vital id and never on the "
@@ -669,8 +719,9 @@ MOB_PICKUP_REQUEST_WIRING = (
     "transaction lane itself measured that following the dispatch-only "
     "recipe destroys a player's item whenever the session's bag cell has "
     "drifted from the database.  The substitution is deliberate, it is "
-    "named here rather than made silently, and it is one of the things the "
-    "ASK-COO letter of round h6bl53 puts in front of COO.\n"
+    "named here rather than made silently, it was put in front of COO by "
+    "the ASK-COO letter of round h6bl53, and COO-DECISION 20260902_0541 "
+    "item 2 ENDORSED it: the dispatch-only recipe is not to be followed.\n"
     "  IF THE VITAL ID IS WRONG (NONCLAIM 1) this branch simply never "
     "fires and every frame keeps today's fall-through behavior."
 )

@@ -733,25 +733,63 @@ class TheWiringLineRunsTests(unittest.TestCase):
             else:
                 self.assertEqual(passed, name)
 
-    def test_the_wiring_note_still_says_the_branch_is_held(self):
-        """The hold is the load-bearing sentence in the request.
+    def test_the_wiring_note_carries_the_decision_that_cleared_it(self):
+        """The hold was the load-bearing sentence; now the clearance is.
 
-        RE-125 and COO-DECISION 20260901_0245 block a production call site
-        for this id until an attended click capture exists, and GT-146
-        measured zero such frames.  COO-DECISION 20260902_0254 ordered this
-        module anyway.  Until COO reconciles the two, the published note
-        must say so in its first line -- and this test is what stops that
-        sentence being quietly dropped by a later edit.
+        ROUND h6bl53 published this ask as HELD, because RE-125, COO-DECISION
+        20260901_0245 and GT-146 forbade a production call site keyed on this
+        id while COO-DECISION 20260902_0254 and 20260902_0348 ordered one.
+        COO-DECISION 20260902_0541 answered that ASK-COO letter with option
+        1: the prohibitions are withdrawn and this one line is excepted.
+
+        This test moved WITH that decision rather than being deleted by it.
+        What it pins now is the shape a reader can audit: the named decision
+        that cleared the branch, the fact RE-125 measured (still true, and
+        0541 requires it AT the call site), and every former blocker still
+        present and struck through - not erased.
         """
         wiring = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
-        self.assertTrue(wiring.startswith("STATUS: held_pending"))
-        self.assertIn("DO NOT LAND THIS BRANCH", wiring)
+        self.assertTrue(wiring.startswith("STATUS: approved_by_coo_"))
+        self.assertIn("THIS BRANCH IS CLEARED TO LAND", wiring)
+        # Not the whole six-word sentence: pf-adversary round okdfge got a
+        # green suite out of "THIS BRANCH IS STILL HELD, DO NOT LAND IT",
+        # which re-imposes the hold in prose while the status says cleared.
+        self.assertNotIn("DO NOT LAND", wiring.upper())
         self.assertEqual(
             mob_pickup_request.PICKUP_REQUEST_WIRING_STATUS,
-            "held_pending_coo_reconciliation")
-        blockers = " ".join(mob_pickup_request.PICKUP_REQUEST_WIRING_BLOCKERS)
+            "approved_by_coo_20260902_0541")
+        approval = mob_pickup_request.PICKUP_REQUEST_WIRING_APPROVAL
+        for phrase in ("20260902_0541", "option 1", "withdrawn",
+                       "persist-and-", "endorsed"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, approval)
+        # 0541: "the fact of RE-125 is still true and must be written at the
+        # call site".  A clearance that quietly drops the nonclaim is the
+        # failure this line exists to catch.
+        self.assertIn("NEVER been observed on any wire", wiring)
+        self.assertIn("0541 item 2 ENDORSED it", wiring)
+        blockers = mob_pickup_request.PICKUP_REQUEST_WIRING_BLOCKERS
+        joined = " ".join(blockers)
         for ticket in ("RE-125", "20260901_0245", "GT-146", "20260902_0254"):
-            self.assertIn(ticket, blockers)
+            self.assertIn(ticket, joined)
+        for blocker in blockers:
+            with self.subTest(blocker=blocker[:40]):
+                self.assertRegex(
+                    blocker, r"^(LIFTED|WITHDRAWN|REREAD|ANSWERED) by "
+                             r"COO-DECISION 20260902_0541 -- was: ")
+        # THE PREFIX IS NOT THE HISTORY.  pf-adversary round okdfge replaced
+        # all four entries with their prefix plus a bare ticket number and
+        # this test stayed green: the condition each blocker CARRIED - which
+        # is the part a later round would be tempted to lose - was gone and
+        # nothing said so.  These are the words that made each one a blocker.
+        for phrase in (
+            "until an attended click capture exists",
+            "until GT-124 captures a real opcode",
+            "must stay on screen first",
+            "do not mention the three above",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, joined)
 
 
 # ---------------------------------------------------------------------------
@@ -934,6 +972,26 @@ class DeliveryTableCrossCheckTests(unittest.TestCase):
 
 
 class NonclaimTests(unittest.TestCase):
+    def test_the_two_nonclaims_the_clearance_leans_on_are_still_written(self):
+        """Deleting a nonclaim must not be free.
+
+        pf-adversary round okdfge removed NONCLAIM 5 ("nothing here is
+        evidence that a player picked anything up") and NONCLAIM 7 (the
+        history of the hold and the decision that lifted it) one at a time
+        and the suite stayed green both times.  Both are load-bearing now
+        that the branch is cleared: 5 is what stops a round reporting P-1's
+        "picked up" half as done on the strength of an unwired module, and 7
+        is the only place a reader learns that RE-125 once forbade this line
+        and by whose decision it stopped forbidding it.
+        """
+        doc = mob_pickup_request.__doc__
+        self.assertIn("NOTHING HERE IS EVIDENCE THAT A PLAYER PICKED "
+                      "ANYTHING UP", doc)
+        self.assertIn("no round may report P-1's", doc)
+        self.assertIn("COO-DECISION 20260902_0541 -- WHICH DOES NOT MAKE "
+                      "THE ID OBSERVED", doc)
+        self.assertIn("RE-125", doc)
+
     def test_the_vital_id_is_marked_unobserved_and_the_negative_is_bounded(
             self):
         """The provenance line was rewritten this round, on evidence.
@@ -966,13 +1024,14 @@ class NonclaimTests(unittest.TestCase):
         mentioned this module -- so the assertion vanished exactly when the
         branch landed, which is the only moment it could catch anything.
         Now: while the branch is absent, this pins that it is absent (the
-        wiring note is a request, NONCLAIM 5, and it is HELD, NONCLAIM 7);
-        once it lands, this pins that what landed is the published call and
-        not a hand-written variant of it.
+        wiring note is a request, NONCLAIM 5, cleared to land by
+        COO-DECISION 20260902_0541 and not landed by anyone yet); once it
+        lands, this pins that what landed is the published call, that it
+        keys on this lane's own constant, and that it carries the one fact
+        0541 made a CONDITION of lifting RE-125's prohibition.
         """
-        runtime = (
-            ROOT / "src/pirateforce_foundation/runtime.py"
-        ).read_text(encoding="utf-8")
+        runtime_path = ROOT / "src/pirateforce_foundation/runtime.py"
+        runtime = runtime_path.read_text(encoding="utf-8")
         if "mob_pickup_request" not in runtime:
             self.assertNotIn("dispatch_inbound_pickup_request", runtime)
             return
@@ -984,6 +1043,32 @@ class NonclaimTests(unittest.TestCase):
         self.assertIn(
             "PICKUP_REQUEST_VITAL_ID", runtime,
             "the branch must key on this lane's own nested id constant")
+        # COO-DECISION 20260902_0541 item 1 lifts RE-125's prohibition ON
+        # CONDITION that the fact RE-125 measured is written at the call
+        # site.  pf-adversary round okdfge measured that nothing enforced
+        # that condition: a clean landing with no comment left every test
+        # green and the condition silently gone.  It is enforced here, in
+        # the only file that can see both halves.
+        lines = runtime.splitlines()
+        anchors = [
+            i for i, line in enumerate(lines)
+            if "dispatch_inbound_pickup_request(" in line
+        ]
+        self.assertTrue(anchors)
+        needle = "never been observed on any wire"
+        for anchor in anchors:
+            window = "\n".join(
+                lines[max(0, anchor - 10):anchor + 11]).lower()
+            with self.subTest(line=anchor + 1):
+                self.assertIn(
+                    needle, window,
+                    "runtime.py:%d makes this lane's call without the "
+                    "nonclaim COO-DECISION 20260902_0541 made a condition "
+                    "of the exception it granted.  Put a comment carrying "
+                    "the words '%s' within ten lines of the call: the id "
+                    "0x4543 has never been seen on any wire, and a reader "
+                    "of runtime.py must not have to find that out from "
+                    "another repository." % (anchor + 1, needle))
 
 
 if __name__ == "__main__":
