@@ -116,6 +116,7 @@ from .delete_refresh_hypothesis import (
 )
 from .logout_hypothesis import (
     LOGOUT_POST_ACK_ACTION_CLOSE_SOCKET,
+    LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER,
     LOGOUT_RESPONSE_POLICY_CHAT_PUSH_RETURN_SELECT,
     LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST,
     LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH,
@@ -1912,6 +1913,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 logout_hypothesis_scenario.response_policy
                 == LOGOUT_RESPONSE_POLICY_RETURN_SELECT_FIRST
             )
+            # RE-189 Job 2, branch 3 (CORE-REQUEST, see the
+            # LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER constant comment in
+            # logout_hypothesis.py for the full provenance).  This is the
+            # exact reverse wire order of ``return_select_first`` above: the
+            # pinned ack goes out first, then the pinned 0x709E response --
+            # same two composers, same pins, no new byte.  No profile in
+            # ``require_logout_hypothesis_scenario``'s allowlist can carry
+            # this value yet, so this branch is provably unreachable from
+            # any default boot; lane A wires the allowlisted profile and
+            # scenario file in a later round, the same two-step pattern
+            # HYP-PF-040 used.
+            ack_first_reorder = (
+                logout_hypothesis_scenario.response_policy
+                == LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER
+            )
             # The designed responses are fully composed and pinned before
             # the lease is touched; no bytes are queued unless the clean
             # close commits.
@@ -1921,7 +1937,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     legacy, self.worldinfo_last_payload,
                 )
             return_select_response = None
-            if return_select_first:
+            if return_select_first or ack_first_reorder:
                 return_select_response = make_return_select_server_response(
                     legacy,
                 )
@@ -2002,6 +2018,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             f"HYP_PF_028_LOGOUT_SUBCODE{subcode:02d}"
                             "_ACK_THEN_SERVER_SOCKET_CLOSE",
                             pc, frame, 0.0,
+                        ),
+                    ]
+                # RE-189 Job 2, branch 3: the exact reverse wire order of
+                # the return_select_first branch above -- same two pinned
+                # composers, same pins, only the send order and which frame
+                # goes first are swapped.  See the
+                # LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER constant comment
+                # in logout_hypothesis.py for the full CORE-REQUEST
+                # provenance.  Unreachable from any default boot until a
+                # future round adds an allowlisted profile carrying this
+                # response_policy value.
+                if ack_first_reorder:
+                    self.events.append(
+                        f"logout_hypothesis_subcode{subcode:02d}"
+                        "_ack_before_return_select_response"
+                    )
+                    rss_pc, rss_frame = return_select_response
+                    return [
+                        (
+                            f"RE_189_BRANCH3_LOGOUT_SUBCODE{subcode:02d}"
+                            "_ACK_FIRST",
+                            pc, frame, 0.0,
+                        ),
+                        (
+                            f"RE_189_BRANCH3_LOGOUT_SUBCODE{subcode:02d}"
+                            "_RETURN_SELECT_SERVER_RESPONSE_THEN_SERVER_"
+                            "SOCKET_CLOSE",
+                            rss_pc, rss_frame, 0.0,
                         ),
                     ]
                 return [(
