@@ -2392,7 +2392,36 @@ def refresh_frames(legacy: Any, ledger: Any) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# HEARTBEAT-PRESERVE-001.  CORE-REQUEST answer, not yet wired anywhere.
+# HEARTBEAT-PRESERVE-001.  ~~CORE-REQUEST answer, not yet wired anywhere.~~
+# IS STRUCK -- wired, TO THE LEVEL CHIEF'S OWN REPLY CERTIFIES, NOT FURTHER
+# (pf-adversary, this round: the first draft of this correction said flatly
+# "it is done" and named only GT-188 as open, which overclaimed by dropping
+# this same reply's own third hedge -- restored below).  ``app.py``'s
+# ``install_ground_heartbeat_preserve(legacy)`` (called unconditionally from
+# that module's ``main()``, line 890 as of this round) installs a
+# caller-frame-checked wrapper around ``legacy.make_runtime_res_empty_exact``
+# that substitutes ``preserve_ground_heartbeat_frame`` (this module, below)
+# only when the caller is ``heartbeat_worker`` -- see chief's reply,
+# pf_bridge notes_to_chief/consumed/20260901_0507_CHIEF-REPLY-CORE-REQUEST-
+# heartbeat-preserve-wired.md.  This lane composed the bytes and named the
+# fix (below); wiring them into the running server was chief's job per
+# COO-DECISION 20260901_0347, and the source-level wiring is done.  That
+# same reply names THREE things still open, not one -- carried forward here
+# in full, not just the one this lane happens to be closest to:
+# (1) whether Codex's client-image reading of the reconciler is itself
+# correct; (2) the attended proof (``GT-188``, pf_bridge
+# GAME_TEST_QUEUE.md) that a drop label actually survives past one
+# heartbeat tick on a real client; (3) THERE IS NO BOOT-LEVEL TEST OF
+# ``app.py`` IN THIS REPO -- the reply's own words, confirmed by search, not
+# assumed.  What IS confirmed, and no further: a source-order assertion
+# (``tests/test_foundation_legacy_seam.py``'s
+# ``test_app_installs_the_ground_heartbeat_patch_before_adapting_the_listener``,
+# comparing string offsets, not runtime order) and a unit test that drives
+# the wrapper through a locally-defined stand-in function also named
+# ``heartbeat_worker`` (that file's
+# ``test_ground_heartbeat_patch_only_changes_the_heartbeat_worker_caller``),
+# not the real v141 thread through an actual server boot.  This lane has
+# run none of (1)-(3) and owns none of the channels that would.
 #
 # Codex static RE (pf_bridge notes_to_chief/CODEX_URGENT_20260901_0324_DROP_
 # HEARTBEAT_CLEARS_SET.md) found that ``pf_login_game_server_v141.py``'s
