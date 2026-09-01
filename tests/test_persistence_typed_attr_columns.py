@@ -1076,9 +1076,18 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        # AFTER the line above on purpose: cleanups run LIFO, so this one runs
-        # BEFORE the directory is removed.  Registered the other way round it
-        # would inspect a directory that no longer exists and pass always.
+        # AFTER the line above on purpose: cleanups run LIFO, so this one
+        # inspects the directory while it is still there.
+        #
+        # An earlier version of this comment claimed the reverse order "would
+        # inspect a directory that no longer exists and pass always".  An
+        # adversary pass measured it and that is FALSE: Linux `readlink`
+        # reports a deleted-but-open file as `/tmp/.../state.sqlite3
+        # (deleted)`, which still starts with the root, so the reversed order
+        # happens to catch the leak too.  The order here is still the right
+        # one -- it does not depend on that "(deleted)" spelling, which is a
+        # Linux detail nothing pins -- but the reason is robustness, not the
+        # measurement that was asserted without being made.
         self.guard_the_temp_dir(self.tmp)
         self.path = Path(self.tmp.name) / "state.sqlite3"
         self.store = SQLiteStore(self.path, MIGRATIONS)
@@ -1360,17 +1369,147 @@ class NoLeakedSqliteHandleTests(unittest.TestCase):
         mutant = "import sqlite3\ndb = sqlite3.connect('x')\n"
         self.assertEqual(unclosed_connect_sites(mutant), [2])
 
+    # --- the mixin's FIRING behaviour ---------------------------------
+    #
+    # An adversary pass found that the class this file calls "THE GUARD THAT
+    # MATTERS" had no test that it ever fires: `_assert_no_handle_survives`
+    # replaced by a bare `return`, `guard_the_temp_dir` replaced by `pass`,
+    # and `assertEqual(held, [])` weakened to `assertIsInstance(held, list)`
+    # all survived the whole file, on Linux AND under a no-`/proc`
+    # simulation.  A guard that cannot tell you whether it still guards is
+    # the exact shape of defect that has already cost this lane two rounds.
+    #
+    # These tests drive the probe through a stub instead of through
+    # `/proc`, so they assert the SAME thing on every platform and neither
+    # skip nor return early anywhere -- the gate's machine runs them in
+    # full, which is the whole point.
+
+    def _guarded_case(self, probe_result):
+        """Run one real TestCase that uses the mixin, with the probe stubbed."""
+        outer = self
+
+        class Case(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
+            def setUp(self):
+                self.tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(self.tmp.cleanup)
+                self.guard_the_temp_dir(self.tmp)
+
+            def runTest(self):
+                outer.seen_directory = self.tmp.name
+
+        saved = globals()["open_handles_under"]
+        calls = []
+
+        def stub(directory):
+            calls.append(directory)
+            return probe_result
+
+        globals()["open_handles_under"] = stub
+        try:
+            result = unittest.TestResult()
+            Case().run(result)
+        finally:
+            globals()["open_handles_under"] = saved
+        return result, calls
+
+    def test_the_guard_fails_a_test_that_leaves_a_handle_open(self):
+        """The mutant `_assert_no_handle_survives -> return` dies here."""
+        result, calls = self._guarded_case(["/somewhere/state.sqlite3"])
+        self.assertEqual(len(result.failures) + len(result.errors), 1)
+        message = (result.failures + result.errors)[0][1]
+        self.assertIn("outlives this test", message)
+        self.assertIn("state.sqlite3", message)
+
+    def test_the_guard_passes_a_test_that_closed_everything(self):
+        result, _ = self._guarded_case([])
+        self.assertEqual(result.failures, [])
+        self.assertEqual(result.errors, [])
+
+    def test_the_guard_stands_down_when_the_probe_cannot_answer(self):
+        """`None` is not `[]`: it must not be read as clean, and must not
+        raise either.  This is the Windows path, asserted on every platform.
+        """
+        result, _ = self._guarded_case(None)
+        self.assertEqual(result.failures, [])
+        self.assertEqual(result.errors, [])
+
+    def test_the_guard_is_registered_and_asks_about_its_own_directory(self):
+        """The mutant `guard_the_temp_dir -> pass` dies here: with no
+        registration the probe is never consulted at all.
+        """
+        result, calls = self._guarded_case([])
+        self.assertEqual(len(calls), 1, "the probe was never consulted")
+        self.assertEqual(calls[0], self.seen_directory)
+
+    def test_a_non_empty_probe_is_not_satisfied_by_being_a_list(self):
+        """The mutant `assertEqual(held, []) -> assertIsInstance(held, list)`
+        dies here: a list of held handles is still a list.
+        """
+        result, _ = self._guarded_case(["/a", "/b"])
+        self.assertEqual(len(result.failures) + len(result.errors), 1)
+
+    def test_where_the_question_cannot_be_asked_the_guard_stands_down_loudly(self):
+        """On a machine with no `/proc/self/fd` the probe must return `None`
+        and the guard must stand down -- never report an empty list.
+
+        This test asserts on EVERY platform and skips on none.  An earlier
+        version called `skipTest` here, which cost this lane a whole round:
+        the Windows gate's `skip_census` cell refuses any skip that is not
+        declared in `tests/pf_preconditions.py` or pinned in
+        `docs/PYTEST_SKIP_PINS.json`, both of which are outside this lane's
+        write zone, and one red cell closes the pull request.  So the two
+        platforms are asserted rather than one being skipped.
+
+        What it buys on Windows is not ceremony.  If someone "simplified"
+        `open_handles_under` to return `[]` where `/proc` is absent, the
+        mixin would report every Windows test as clean while measuring
+        nothing, and the exact defect that killed PR #495 would walk back in
+        under a guard that says it is guarding.  This is the test that fails.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        probe = open_handles_under(directory.name)
+        if not os.path.isdir("/proc/self/fd"):
+            self.assertIsNone(
+                probe,
+                "no /proc/self/fd, so the probe cannot know what is open and "
+                "must say so with None.  Returning [] here would make the "
+                "mixin certify every test on this platform as clean.",
+            )
+            # And standing down must be silent-but-harmless, not an error.
+            self.assertIsNone(
+                NoHandleOutlivesItsTempDirMixin._assert_no_handle_survives(
+                    self, directory.name
+                )
+            )
+            return
+        self.assertEqual(
+            probe,
+            [],
+            "/proc/self/fd exists, so the probe must answer with a list",
+        )
+
     def test_the_runtime_guard_sees_a_handle_that_outlives_its_frame(self):
         """The premise the source-only version got wrong, measured here rather
-        than inherited from another file's conclusion.  If this ever starts
-        skipping on Linux, the runtime guard has stopped guarding.
+        than inherited from another file's conclusion.
+
+        Linux-only by nature: it measures open fds.  It does not skip
+        elsewhere -- it asserts the stand-down contract instead, which is what
+        the test above owns, so this one simply has nothing left to do once
+        the probe says `None`.
         """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "probe.sqlite3"
         sqlite3.connect(path).close()
         if open_handles_under(directory.name) is None:
-            self.skipTest("no /proc/self/fd: the OS enforces this rule itself")
+            # Covered by the stand-down test above; never skipTest.  Assert
+            # WHY there is nothing to do, so that a probe which starts
+            # answering None on a machine that does have /proc -- i.e. the
+            # runtime guard silently switching itself off -- fails here
+            # instead of passing vacuously.
+            self.assertFalse(os.path.isdir("/proc/self/fd"))
+            return
         self.assertEqual(open_handles_under(directory.name), [])
 
         # The leaking form is built from a STRING on purpose.  Written
