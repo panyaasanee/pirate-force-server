@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "id": "logout_hypothesis_dialog_open_push_subcode01_03",
+  "test_only": true,
+  "production_allowed": false,
+  "hypothesis_id": "HYP-PF-040",
+  "entry": {
+    "flow": "full_writable_character",
+    "required_sequence": "selected_and_runtime_ready",
+    "response_policy": "worldinfo_dialog_open_push",
+    "dialog_open_trigger": "full_form_getworldinfo_vital_0x3d4b_correlated_7_of_7_with_client_local_logout_dialog_open_across_two_captured_sessions",
+    "dialog_open_push_source": "client_serializer_0x5e69f0_field_layout_all_zero_no_client_producer_values_default_zero_unchanged_from_hyp_pf_028",
+    "dialog_open_push_policy": "unsolicited_one_shot_ahead_of_any_logoutvital",
+    "post_ack_policy": "dispatch_silent_then_server_clean_socket_close",
+    "post_ack_action": "close_socket",
+    "close_delay_ms": 250
+  },
+  "requests": {
+    "subcode01": {
+      "pc_size": 34,
+      "pc_sha256": "EF3B19F34A5FA55698617A16254BA5F722AC0BE44AF12170E1352CD206408973"
+    },
+    "subcode03": {
+      "pc_size": 34,
+      "pc_sha256": "EC5B53DCC49C034A9B716F893F4315104146B4220E9551C0101F1F699BB0FAA0"
+    },
+    "worldinfo_full": {
+      "pc_size": 268,
+      "payload_size": 248,
+      "vital_count": 3,
+      "probe_payload_sha256": {
+        "capture_gt002": "5959EC6BF3F9C9AD34E5CFB8D444C8664659087065425C15CF1D876F95FAF324",
+        "capture_item_move_hyp001": "9D4D11E13ADF4ADE1AF639C9BDB925FD9395404BEDC4E683DF43127E1CD0BCF1"
+      }
+    }
+  },
+  "composed_responses": {
+    "dialog_open_push": {
+      "vital_id": 28830,
+      "body_size": 16,
+      "pc_size": 38,
+      "pc_sha256": "A4C8DF4299EA7C3A5EE5554D1D29D7F8C1A2B51031CA210CBEB9AF2AD9D4CA9E",
+      "frame_size": 48,
+      "frame_sha256": "08C2A925BD67CD3D0AFA7992F98D472ED8FD22787756521A5DF8CBF174E5CB8E"
+    },
+    "subcode01": {
+      "pc_size": 36,
+      "pc_sha256": "9E4FA00E408910204C91DE264ED9274ECF7A3C7E8C37C75199F090AB7DE23C67",
+      "frame_size": 46,
+      "frame_sha256": "9B417B5F0EF05B1096FA000C7FC154DF952EF817232115DA077253BDC27A3D0A"
+    },
+    "subcode03": {
+      "pc_size": 36,
+      "pc_sha256": "FC8B9E2CC2BD590458F1EAAFCE712D283538D525F136AD0F9838B108395F6DC6",
+      "frame_size": 46,
+      "frame_sha256": "AB172DFFCBC1195F086A848018FC4797D53945B6B2854D651D37B3740F4E6696"
+    }
+  },
+  "persisted_post_state": {
+    "sessions_closed_at": "written_before_ack_bytes_are_queued",
+    "position_rewrite": "none",
+    "worldinfo_storage": "connection_memory_only_no_table_no_write_path"
+  },
+  "capabilities": [
+    "push_the_pinned_return_select_server_vital_unsolicited_on_the_dialog_open_full_form_getworldinfo_trigger",
+    "refuse_a_second_dialog_open_push_on_the_same_session_by_name",
+    "acknowledge_exact_captured_logout_requests_after_clean_close",
+    "silence_connection_after_acknowledged_logout",
+    "server_initiated_clean_socket_close_after_acknowledged_logout"
+  ],
+  "nonclaims": [
+    "original_server_response_policy",
+    "return_select_server_field_values_and_string_semantics",
+    "client_consumes_0x709e_or_transitions_to_character_select",
+    "client_observable_exit_or_character_select_return",
+    "dialog_is_open_at_the_exact_instant_the_push_is_queued",
+    "logout_outside_runtime_ready_sequence",
+    "subcodes_other_than_01_and_03",
+    "production_baseline_behavior"
+  ]
+}

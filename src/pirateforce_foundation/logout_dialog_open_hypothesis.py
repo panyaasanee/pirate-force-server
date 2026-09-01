@@ -11,6 +11,31 @@ docstring specifies below has actually landed and been read back by
 pf-adversary at least once. See "WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY"
 below for the one-line letter that turns this file from inert into live.
 
+[STALE as of ``pirate-force-server`` main ``4ff782b`` (round ``liq4ri``, PR
+#476) and this file's own round (LANE-A, this round)] [MEASURED, by
+grep/read-back]: both halves of "WHAT THE CORE-REQUEST NEEDS TO DO" below
+have now landed. PR #476 wired the import, the one-shot counter init, and
+the top-level ``nested_id`` routing branch into ``runtime.py`` (option (a),
+exactly as specified). This round added the still-missing sixth
+allowlisted profile (``logout_hypothesis._PROFILE_DIALOG_OPEN`` /
+``_EXPECTED_DIALOG_OPEN``, carrying
+``LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH``) and its scenario
+file (``scenarios/logout_hypothesis_dialog_open_push.json``), so
+``require_logout_hypothesis_scenario`` no longer rejects this policy and
+the existing, generic ``--logout-hypothesis-scenario`` CLI flag (app.py,
+unchanged) can now construct a real state carrying it for the first time.
+``production_allowed`` below is STILL ``False`` and this correction does
+not flip it: docs/HYPOTHESIS_LEDGER.json's own HYP-PF-040 stop_rule reads
+"Do not flip ... to True before an attended GT-184/GT-186 pass", which has
+not happened yet. The still-true sentence above is the first one: no
+player sees anything different on a default boot today, because the
+routing branch this policy owns is gated on this module flag, not merely
+on scenario construction. See
+``tests/test_logout_dialog_open_scenario_wired.py`` for the real
+end-to-end dispatch test this construction path unblocks (it patches the
+flag True inside two of its own tests only; ``main``'s default is
+untouched).
+
 WHY THIS FILE EXISTS, AND WHY BRANCH 6 -- NOT 2 OR 3.  RE-189
 (``pf_bridge/notes_to_chief/consumed/
 20260901_1008_RE-189-RESULT-PLUS18-LOCAL-UI-AND-SERVER-BRANCH-MATRIX.md``,
@@ -78,8 +103,20 @@ inert either way; it exists now so the CORE-REQUEST wiring below has
 something to gate on the day it lands, instead of shipping live the same
 round it is first read.
 
-WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY (written by someone else, not
-this lane -- this is only the pointer that letter needs).
+[STALE as of PR #476 (round ``liq4ri``)] [MEASURED, by grep]: this module
+IS now imported by ``runtime.py`` (``from . import
+logout_dialog_open_hypothesis`` and the direct function import, both near
+the top of that file) and its function is called from a real routing
+branch. The flag is no longer inert for that reason; it is still the only
+thing standing between the routing branch and a live default boot, per the
+correction above.
+
+WHAT THE CORE-REQUEST NEEDED TO DO, EXACTLY (written by someone else, not
+this lane -- this section is now historical: PR #476 did items 1-3(a)
+below; item 4 was judged unneeded because the LogoutVital side of the new
+scenario profile this round added reuses the existing HYP-PF-013
+ack-then-close branch unchanged rather than refusing to answer
+LogoutVital, so no companion no-reply routing branch was required).
 
 1. Counter init, mirroring the existing HYP-PF-031 one-shot latch exactly:
    ``runtime.py:1059`` currently reads
@@ -154,6 +191,11 @@ registers the ledger entry should confirm ``040`` is still free at wiring
 time and rename the label here (and in the paired test file) together with
 the ledger entry if it is not.
 
+[STALE as of PR #476 (round ``liq4ri``)] [MEASURED, by reading
+docs/HYPOTHESIS_LEDGER.json]: ``040`` was confirmed free and registered
+for real -- see the ``HYP-PF-040`` entry, provenance "round liq4ri". The
+label below is final, not provisional.
+
 WHAT THIS MODULE DOES NOT DO.  It does not touch ``self.worldinfo_last_payload``
 or ``self.worldinfo_stored_count`` -- those belong to the existing
 HYP-PF-016 storage behavior, and this module's caller decides whether both
@@ -186,10 +228,20 @@ from .logout_hypothesis import (
 
 # See "WHY THE GATE IS A MODULE FLAG, NOT A CLI SCENARIO FLAG" above. Flip
 # only after the CORE-REQUEST wiring (see this module's own docstring,
-# "WHAT THE CORE-REQUEST NEEDS TO DO, EXACTLY") has landed on runtime.py AND
+# "WHAT THE CORE-REQUEST NEEDED TO DO, EXACTLY") has landed on runtime.py AND
 # this lane has re-read tests/test_logout_dialog_open_hypothesis.py with
 # pf-adversary at least once more, ideally with an attended GT-184/GT-186
 # pass confirming (or falsifying) the client transition.
+# STATUS as of this round (LANE-A): the runtime.py wiring (PR #476) and the
+# sixth allowlist profile + scenario file (this round, see
+# tests/test_logout_dialog_open_scenario_wired.py) are BOTH done, so this
+# flag is the ONLY remaining gate before a real boot can take this branch.
+# docs/HYPOTHESIS_LEDGER.json's HYP-PF-040 stop_rule is stricter than the
+# "ideally" above and controls: do NOT flip this to True before an attended
+# GT-184/GT-186 pass and a fresh pf-adversary read of the wired branch --
+# this round's pf-adversary pass reviewed the new allowlist profile and the
+# scenario-construction path, not a live client, so that condition is still
+# unmet.
 # PF-HYPOTHESIS-LEDGER: HYP-PF-040 active
 # LOGOUT-DIALOG-OPEN-001.  Registered in docs/HYPOTHESIS_LEDGER.json; this
 # annotation and that entry's source_refs bind each other both ways.
