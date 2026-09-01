@@ -55,6 +55,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_face_frame
 from pirateforce_foundation import world_port_royal_identity
 from pirateforce_foundation.legacy_bridge import load_legacy
@@ -171,16 +172,39 @@ class RebuiltFaceFrameTests(unittest.TestCase):
             self.legacy, self.indices, COLUMBUS_PLACEMENT_INDEX, 100.0, 200.0,
         )
 
-    def _attr(self, template_id, preset, name=""):
-        return self.legacy.make_npc_attr(
-            template_id, COLUMBUS_ACTOR_IDENTITY, 1, 0, preset,
+    def _attr(self, template_id, preset, name="", level=None):
+        """The face frame's own composer, not the frozen one.
+
+        ROUND `2p4n3h` (LANE-A): ``build_face_state`` composes through
+        ``world_census_level.leveled_npc_attr`` now, because a bare
+        ``make_npc_attr`` here re-sent every actor with NO level and
+        reverted round `7ste68` on the wire at every click.  ``level=None``
+        keeps the OLD, level-less shape for the negative assertions below,
+        which want a body the frame must NOT contain.
+        """
+        if level is None:
+            return self.legacy.make_npc_attr(
+                template_id, COLUMBUS_ACTOR_IDENTITY, 1, 0, preset,
+                basic_name=name,
+            )
+        return world_census_level.leveled_npc_attr(
+            self.legacy,
+            template_n_id=template_id,
+            actor_identity=COLUMBUS_ACTOR_IDENTITY,
+            scene_id=1,
+            scene_sequence=0,
+            visual_preset=preset,
+            current_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
+            max_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
             basic_name=name,
+            level=level,
         )
 
     def test_the_rebuilt_frame_ships_the_census_identity(self):
         identity = world_port_royal_identity.resolve(2)
         self.assertIn(
-            self._attr(identity.mobs_n_id, identity.outfit, identity.name),
+            self._attr(identity.mobs_n_id, identity.outfit, identity.name,
+                       level=identity.level),
             self.frame,
             "the rebuilt face frame stopped carrying the resolved census "
             "identity for actor 0x2002 - the GT-102 defect is back",
@@ -202,9 +226,17 @@ class RebuiltFaceFrameTests(unittest.TestCase):
         with itself while both sides are wrong together.
         """
         identity = world_port_royal_identity.resolve(2)
-        census_attr = self.legacy.make_npc_attr(
-            identity.mobs_n_id, COLUMBUS_ACTOR_IDENTITY, 1, 0,
-            identity.outfit, basic_name=identity.name,
+        census_attr = world_census_level.leveled_npc_attr(
+            self.legacy,
+            template_n_id=identity.mobs_n_id,
+            actor_identity=COLUMBUS_ACTOR_IDENTITY,
+            scene_id=1,
+            scene_sequence=0,
+            visual_preset=identity.outfit,
+            current_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
+            max_hp=world_face_frame.FACE_FRAME_DEFAULT_HP,
+            basic_name=identity.name,
+            level=identity.level,
         )
         self.assertIn(census_attr, self.frame)
 

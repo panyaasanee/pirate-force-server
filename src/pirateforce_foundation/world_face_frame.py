@@ -109,7 +109,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from . import world_census_level
 from . import world_port_royal_identity
+
+
+# The census's own HP rule, spelled out rather than imported so this module's
+# import set does not grow.  Held to ``world_population``'s constants by
+# tests/test_world_face_frame_level.py, which goes red if either side drifts.
+FACE_FRAME_MONSTER_INDEX = 30
+FACE_FRAME_MONSTER_HP = 3857
+FACE_FRAME_DEFAULT_HP = 100
 
 # Both labels the frozen ChooseNPC branch emits for this frame.  Each ends in
 # ``P<placement index>``, which is how the rebuild knows which actor the
@@ -195,11 +204,40 @@ def build_face_state(
             # caller records one event per omission.
             continue
         aid = 0x2000 + idx + 1
+        # EVERY GENERATION (round `2p4n3h`, LANE-A; found by pf-adversary).
+        # This function recomposes the WHOLE roster whenever a player clicks
+        # anyone, and it is on the PRODUCTION path: ``runtime.py`` calls
+        # ``rebuild_face_actions`` on any CHOOSE_NPC once
+        # ``world_census_identity_resolved`` -- the census's own flag -- is
+        # set.  Until this round it composed with a bare
+        # ``legacy.make_npc_attr``, which has no level parameter, so ONE
+        # CLICK re-sent all 108 Port Royal actors with no level at all and
+        # silently reverted round `7ste68` on the wire.  Measured through the
+        # real dispatcher, not argued: census frame 108 actors carrying a
+        # level, click frame 108 carrying none.  ``GT-200``'s photographs are
+        # only trustworthy with this in place.
+        # The HP rule is the census's own (``world_population._entry``): P30
+        # carries the measured V117 override, everyone else the default.  The
+        # frozen helper's own default happens to be the same 100, so this
+        # changes P30's HP on the click frame too -- deliberately, because the
+        # rule is that a click must repeat the census, not approximate it.
+        hp = (
+            FACE_FRAME_MONSTER_HP if idx == FACE_FRAME_MONSTER_INDEX
+            else FACE_FRAME_DEFAULT_HP
+        )
         attrs = [(
             legacy.NPC_ATTR,
-            legacy.make_npc_attr(
-                identity.mobs_n_id, aid, 1, 0, identity.outfit,
+            world_census_level.leveled_npc_attr(
+                legacy,
+                template_n_id=identity.mobs_n_id,
+                actor_identity=aid,
+                scene_id=1,
+                scene_sequence=0,
+                visual_preset=identity.outfit,
+                current_hp=hp,
+                max_hp=hp,
                 basic_name=identity.name,
+                level=identity.level,
             ),
         )]
         if idx == selected_idx:
