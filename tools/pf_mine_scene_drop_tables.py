@@ -41,7 +41,13 @@ rename cannot pass quietly:
      STRUCK, and struck rather than deleted because the first version of this
      tool shipped it: GT-045 CLOSED-ANSWERED (chief R163, 2026-08-25) measured
      a NAME LABEL and NO MODEL for 2200423, i.e. n_DROPMODEL_TYPE = 1 is NOT
-     enough to draw a model and this column explains nothing about drawing.
+     enough to draw a model.  NARROWED (Codex GDL-IMG-017, IMAGE layer,
+     static): the column DOES directly select the NIF file path (item_id ->
+     n_DROPMODEL_TYPE 0..12 -> a token -> .\Data\GC\F\<token>.nif), so it is
+     not true that the column "explains nothing about drawing" -- what it
+     still does NOT do is prove the selected model is ever rendered or
+     geometry-visible on screen, which is exactly the gap GT-045 measured
+     open.
      It stays as a CONTROL on the TABLES ONLY -- two rows whose values differ,
      so a swapped or re-versioned data set fails here -- and the generated
      module says on every row that it is not a claim.

@@ -25,7 +25,13 @@ Four suspects remain, named by RE-126 itself, none of them guessed at here:
    only at draw-time?
 3. the real current-UI object-key condition (RE-118's "must be non-empty"
    guess is falsified, the true condition is unknown)
-4. whether factory `0x007280D0` (constructs `GMUI_BASIC`) is even reached
+4. whether factory `0x007280D0` is even reached -- Codex's static-RE
+   checkpoints (pf_bridge notes_to_chief 20260901_1251/1331/1439
+   CODEX-CHECKPOINT-GM-COLOR-DROP THIRD/FOURTH/FIFTH) narrow what this
+   factory is shown to do: the evidence supports only that it
+   constructs/returns a panel/model object, and that `GMUI_BASIC`
+   itself is reached from that object via a child/tab lookup, not
+   constructed directly by this factory
 
 This module builds concrete, byte-verifiable WIRE variants for suspect area
 2 (`iter_state_vital_bit_variants` / `build_variant_frame`, reusing
