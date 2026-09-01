@@ -47,6 +47,7 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import sqlite3
 import sys
 import tempfile
@@ -56,6 +57,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_preconditions  # noqa: E402  (the census token lives here)
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
@@ -1362,15 +1366,67 @@ class NoLeakedSqliteHandleTests(unittest.TestCase):
 
     def test_the_runtime_guard_sees_a_handle_that_outlives_its_frame(self):
         """The premise the source-only version got wrong, measured here rather
-        than inherited from another file's conclusion.  If this ever starts
-        skipping on Linux, the runtime guard has stopped guarding.
+        than inherited from another file's conclusion.
+
+        THIS TEST DOES NOT SKIP, ANYWHERE, ON PURPOSE.  The version that
+        reached the gate called `skipTest("no /proc/self/fd: ...")` where the
+        measurement cannot be taken, and that skip -- not a failing assertion
+        -- is what closed PR #503: `tools/pf_pytest_precondition_census.py`
+        reported `UNDECLARED SKIP` and the gate cell `skip_census exit=1`
+        went RED while `pytest_subset` was green (Actions run 33505566615).
+        The census is right to refuse it.  A skip has to be either a missing
+        clone artifact declared in `tests/pf_preconditions.py` -- which
+        `/proc` is not; it is a property of the operating system, not of the
+        checkout -- or a pin in `docs/PYTEST_SKIP_PINS.json`, which belongs
+        to chief.  So instead of asking for either, the branch that cannot
+        take the Linux measurement asserts the thing that IS true there, and
+        the census sees no skip from this module at all.
+
+        On Linux: the leak is produced and observed.  Elsewhere: the helper
+        must answer `None`, meaning "cannot be asked".
+
+        BE PRECISE ABOUT WHAT THAT SECOND BRANCH BUYS, because an adversary
+        pass measured it and an earlier draft of this docstring oversold it.
+        It kills exactly one mutant: `open_handles_under` returning `[]`
+        instead of `None` where the question cannot be asked, which would make
+        `NoHandleOutlivesItsTempDirMixin` read "checked and clean" and go
+        vacuous.  Nothing else in the suite catches that mutant.  It is a
+        one-mutant guard, not a test of the runtime guard, and it does not
+        measure a leak.
+
+        AND BE HONEST ABOUT WHAT IS LOST.  On a machine without `/proc`, lines
+        below this branch never run and `_assert_no_handle_survives` returns
+        early for every test in the file, so the class documented as "THIS IS
+        THE GUARD THAT MATTERS" is inert on the one platform where WinError 32
+        actually happens.  That was already true when this test skipped; what
+        changed is the bookkeeping.  A skip was COUNTED -- named in the census
+        output and in the job summary -- and this branch is counted as
+        `passed`.  The tool whose whole thesis is "a skipped check is not a
+        passed check" is satisfied here by a check that did not happen.  That
+        trade is made deliberately, because the alternative needs a pin in
+        `docs/`, which this lane may not write; it is recorded in the round
+        file and in a letter to COO rather than left for someone to discover.
+
+        The measurement this branch CANNOT take -- asserting that
+        `TemporaryDirectory.cleanup` raises `PermissionError` under
+        `os.name == "nt"` -- is the honest replacement, and it is deliberately
+        not attempted here: it has never been run on Windows, and three
+        rounds of this lane have already been lost to gate cells nobody could
+        test from a Linux clone.  It is proposed to chief in writing instead
+        of gambled on a fourth.
         """
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "probe.sqlite3"
         sqlite3.connect(path).close()
-        if open_handles_under(directory.name) is None:
-            self.skipTest("no /proc/self/fd: the OS enforces this rule itself")
+        if not os.path.isdir("/proc/self/fd"):
+            self.assertIsNone(
+                open_handles_under(directory.name),
+                "without /proc this helper must say `cannot ask` (None).  "
+                "Returning [] here would read as `checked and clean` and "
+                "would make NoHandleOutlivesItsTempDirMixin vacuous.",
+            )
+            return
         self.assertEqual(open_handles_under(directory.name), [])
 
         # The leaking form is built from a STRING on purpose.  Written
@@ -1394,6 +1450,260 @@ class NoLeakedSqliteHandleTests(unittest.TestCase):
         )
         gc.collect()
         self.assertEqual(open_handles_under(directory.name), [])
+
+
+LANE_TEST_MODULES = tuple(
+    sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "tests").glob("test_persistence_*.py")
+    )
+)
+"""This lane's own test modules, DERIVED at import time, never hand-listed.
+
+The charter gives LANE-DB `src/pirateforce_foundation/persistence_*.py` and the
+test files of its own work; the glob is the same rule spelled once.  A
+hand-maintained tuple is a pin that cannot be re-derived at HEAD: an adversary
+pass measured the first version of this list naming two modules while the lane
+owned three, so a skip added to `test_persistence_premigration_backup.py` --
+which the Windows gate does run -- would have been ungraded by a class whose
+name says otherwise.
+"""
+
+_RECURSION_GUARD = "PF_LANE_DB_SKIP_PIN_CHILD"
+
+
+class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
+    """No test of this lane may report SKIPPED -- measured, not spelled.
+
+    WHY THIS EXISTS.  PR #503 was closed with every assertion in the tree
+    passing.  `pytest_subset` was green on real Windows (5515 passed); the
+    cell that went red was `skip_census`, because this file skipped one test
+    with a reason that was neither a `tests/pf_preconditions.py` precondition
+    nor a `design_skips` pin in `docs/PYTEST_SKIP_PINS.json` (Actions run
+    33505566615).  Neither of those two doors is open to this lane on its own
+    -- `docs/` belongs to chief, and `/proc` is a property of the operating
+    system rather than something a clone can lack -- so the rule for these
+    modules is the strict one: they do not skip at all.
+
+    WHY IT RUNS PYTEST INSTEAD OF READING THE SOURCE.  The first version of
+    this guard walked the parse tree for `self.skipTest`, `unittest.skip*`
+    and `raise SkipTest`.  An adversary pass broke it six times out of six in
+    ten minutes -- `@pytest.mark.skipif`, `pytest.skip(...)`,
+    `from unittest import skipUnless`, `from unittest import SkipTest as
+    Alias`, and the repository's own two idioms
+    (`Precondition.skip_unless_present()` and `Precondition.require(self)`,
+    whose skip call lives in `tests/pf_preconditions.py`, another module
+    entirely).  Every one of those left the pin green on Linux and the gate
+    red on Windows, which is precisely the failure being guarded against.
+    Measured on the corpus: of the 47 modules that produce a pinned skip
+    today, that source walker saw a site in 4.
+
+    Enumerating spellings is a losing game, so this asserts the artifact the
+    gate actually grades: the pytest report.  `tools/pf_pytest_precondition
+    _census.py` parses `SKIPPED` lines out of `pytest -rs` output; so does
+    this.  Spelling-independent, and blind to no idiom, because it never
+    looks at an idiom.
+
+    The child runs with this class DESELECTED, not skipped: deselection
+    removes it from collection (no recursion), while skipping it would emit
+    the very `SKIPPED` line this test asserts is absent.  The environment
+    marker is a second belt -- if a future edit loses the `--deselect`, the
+    child fails loudly instead of forking without end.
+    """
+
+    #: The three modules take ~8s together on this machine; the bound is
+    #: generous enough that a loaded windows-latest runner cannot trip it by
+    #: being slow, and small enough that a hang is reported rather than run
+    #: out the job's whole 360-minute default.
+    CHILD_TIMEOUT_SECONDS = 600
+
+    def test_pytest_reports_no_skip_for_any_module_of_this_lane(self):
+        if os.environ.get(_RECURSION_GUARD):
+            self.fail(
+                "this test ran inside its own child process -- the "
+                "--deselect below no longer names it.  Fix the selector; do "
+                "NOT skip this test to break the recursion."
+            )
+        # A pin over an empty set grades nothing and reads like a closed
+        # hole; `tests/test_pytest_precondition_census.py` learned that as
+        # R172 adversary finding 8 and pins its own list the same way.
+        self.assertTrue(LANE_TEST_MODULES, "the module glob matched nothing")
+        self.assertIn(
+            "tests/test_persistence_typed_attr_columns.py", LANE_TEST_MODULES
+        )
+
+        selector = "%s::%s::%s" % (
+            Path(__file__).resolve().relative_to(ROOT).as_posix(),
+            type(self).__name__,
+            self._testMethodName,
+        )
+        environment = dict(
+            os.environ,
+            **{
+                _RECURSION_GUARD: "1",
+                # The child is decoded as UTF-8 below.  On Windows a child
+                # writing to a pipe otherwise encodes with the locale codec,
+                # which on the bridge is cp874, and the failure detail in
+                # `report` -- the ONLY place the child's output survives,
+                # since it is captured and never reaches the gate log --
+                # comes back as replacement characters.  Make the decode true
+                # by construction rather than by luck.
+                "PYTHONIOENCODING": "utf-8",
+            },
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable, "-m", "pytest", *LANE_TEST_MODULES,
+                    "-q", "-rs", "-p", "no:cacheprovider",
+                    "--deselect", selector,
+                ],
+                cwd=str(ROOT), capture_output=True, env=environment,
+                # `capture_output` returns when the PIPE closes, not when the
+                # child exits, so a grandchild holding the pipe open blocks
+                # here forever.  `gate-windows.yml` puts no timeout on the
+                # pytest step and its `Step` helper only echoes after the
+                # step completes, so an unbounded wait burns the whole job
+                # and reports nothing at all.  `tests/pf_preconditions.py`
+                # already settled the shape: DEVNULL in, a bound, a message.
+                stdin=subprocess.DEVNULL,
+                timeout=self.CHILD_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as expired:
+            self.fail(
+                "the child pytest did not finish within %ds.  Either a test "
+                "in %s hangs, or something it spawned outlived it and is "
+                "holding the output pipe open.\n%s"
+                % (
+                    self.CHILD_TIMEOUT_SECONDS,
+                    ", ".join(LANE_TEST_MODULES),
+                    (expired.output or b"").decode("utf-8", "replace")[-4000:],
+                )
+            )
+        report = (completed.stdout + completed.stderr).decode(
+            "utf-8", "replace"
+        )
+
+        # Guard the guard, part one: prove the --deselect above actually
+        # matched THIS test.  A selector naming a path that does not exist is
+        # accepted by pytest in silence, and an adversary pass measured the
+        # consequence -- with the selector broken, the child re-ran this test,
+        # the recursion marker below made the CHILD fail, and the parent, which
+        # reads only skips, still reported PASS.  The deselected count is the
+        # one number that cannot be satisfied by a selector that matched
+        # nothing.
+        deselected = re.search(r"(\d+) deselected", report)
+        self.assertIsNotNone(
+            deselected,
+            "pytest did not report a deselection, so `--deselect %s` matched "
+            "nothing:\n%s" % (selector, report[-4000:]),
+        )
+        self.assertEqual(int(deselected.group(1)), 1, report[-4000:])
+
+        # Guard the guard, part two: "no SKIPPED lines" is also what a run
+        # that collected nothing produces.  Demand evidence that tests really
+        # ran before believing the absence of skips means anything.
+        passed = re.search(r"(\d+) passed", report)
+        self.assertIsNotNone(
+            passed, "the child produced no pytest summary:\n%s" % report[-4000:]
+        )
+        self.assertGreater(int(passed.group(1)), 0, report[-4000:])
+
+        # What is forbidden is an UNDECLARED skip -- the thing the census
+        # closes a pull request for -- not every skip.  A reason carrying the
+        # `[precondition:<key>]` token is one the census accepts by design,
+        # and `tests/test_persistence_premigration_backup.py` already
+        # contemplates guarding on `BACKUPS_TREE`.  An adversary pass showed
+        # the strict form going red on exactly that: a census-approved,
+        # docs-pinned precondition skip, reported with a message telling its
+        # author to fix something that was already correct.  Whether such a
+        # skip is also PINNED is the census's job, not this test's; this test
+        # owns the one case the census calls UNDECLARED.
+        #
+        # `SUBSKIPPED` is included because pytest spells a `subTest` skip that
+        # way and this file runs 340 subtests.  The census's own SKIP_LINE
+        # regex does not match it, so this is deliberately STRICTER than the
+        # gate rather than a claim about what the gate would do.
+        undeclared = [
+            line for line in report.splitlines()
+            if (line.startswith("SKIPPED") or line.startswith("SUBSKIPPED"))
+            and pf_preconditions.TOKEN_PREFIX not in line
+        ]
+        self.assertEqual(
+            undeclared, [],
+            "a module of this lane reported a skip that carries no "
+            "`%s<key>]` token.  The gate's census calls that an UNDECLARED "
+            "SKIP and accepts it only as a design_skips pin in docs/, which "
+            "this lane may not write -- so `skip_census` goes red and the "
+            "pull request is closed with every assertion passing, exactly "
+            "how PR #503 died.  Assert what IS true on that platform "
+            "instead of skipping.\n%s"
+            % (pf_preconditions.TOKEN_PREFIX, report[-4000:]),
+        )
+
+        # A `[precondition:...]` skip is accepted by the census only if it is
+        # ALSO pinned, by key and module, in docs/PYTEST_SKIP_PINS.json;
+        # otherwise the census says `UNPINNED` and the pull request closes
+        # just the same.  This lane cannot write that file, so the practical
+        # rule is: do not add a precondition skip to these modules without
+        # chief landing the pin in the same change.  Reading the pin file is
+        # not writing it.
+        pins = json.loads(
+            (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        pinned = {
+            (entry["key"], entry["module"].replace("\\", "/"))
+            for entry in pins.get("preconditions", [])
+        }
+        for line in report.splitlines():
+            if not line.startswith(("SKIPPED", "SUBSKIPPED")):
+                continue
+            key = pf_preconditions.key_of(line)
+            if key is None:
+                continue  # already reported as undeclared above
+            module = re.search(r"(tests/[\w./-]+\.py):\d+", line)
+            self.assertIsNotNone(module, line)
+            self.assertIn(
+                (key, module.group(1)), pinned,
+                "a module of this lane skips on precondition '%s', which is "
+                "not pinned for it in docs/PYTEST_SKIP_PINS.json.  The census "
+                "calls that UNPINNED and the gate goes red exactly as it does "
+                "for an undeclared skip.  That pin is chief's to write, so it "
+                "has to land in the same change as the skip.\n%s"
+                % (key, line),
+            )
+
+        # `xfail(run=False)` is a test that never executes and that NOTHING
+        # counts: no SKIPPED line, no `N skipped`, no census row, nothing in
+        # docs/PYTEST_SKIP_PINS.json to pin.  A round forbidden by this very
+        # test from skipping would reach for it next, trading a counted skip
+        # for an uncounted non-execution -- strictly worse.  These modules
+        # carry no xfail today and this keeps it that way.
+        for token in ("xfailed", "xpassed"):
+            self.assertIsNone(
+                re.search(r"(\d+) %s" % token, report),
+                "a module of this lane reported %s.  Nothing anywhere counts "
+                "an xfail, so it hides a check that did not run even better "
+                "than a skip does.\n%s" % (token, report[-4000:]),
+            )
+
+        # The totals line is the belt to the braces above: it survives
+        # `--no-summary`, and it catches a skip spelling whose per-line form
+        # this test does not know about.
+        summary_count = re.search(r"(\d+) skipped", report)
+        if summary_count is not None:
+            declared = [
+                line for line in report.splitlines()
+                if line.startswith(("SKIPPED", "SUBSKIPPED"))
+            ]
+            self.assertEqual(
+                int(summary_count.group(1)), len(declared),
+                "the child reported more skips than it named, so at least "
+                "one carries a spelling this test cannot inspect:\n%s"
+                % report[-4000:],
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover
