@@ -81,6 +81,8 @@ from pirateforce_foundation.gm import (  # noqa: E402
 )
 from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
     WARP_ACTION_LABEL,
+    WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+    WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
 )
 from pirateforce_foundation.gm.warp_executor import WarpTarget  # noqa: E402
 from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
@@ -804,9 +806,40 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
     next TargetPos report -- the same scope ``GM_WARP_POSITION_CONFIRMED``
     and ``GM_WARP_POSITION_TARGET_MATCH`` already have, one dispatch call
     earlier.
+
+    CORE-REQUEST-GM-047 (pf-adversary, this round): every test below except
+    ``test_a_real_cross_scene_label_resyncs_through_actual_dispatch`` arms
+    through ``_arm_the_warp_with_target`` / ``_arm_the_warp``, which injects
+    the SAME-SCENE ``WARP_ACTION_LABEL`` regardless of the target scene --
+    an action/target combination that cannot occur in production, since
+    ``warp_executor.make_warp_force_pos_frame_with_target`` refuses to build
+    a ``WARP_ACTION_LABEL`` frame cross-scene in the first place. That gap
+    (a synthetic label paired with a cross-scene target) is exactly what let
+    the real bug -- neither actual cross-scene label ever reaching this
+    resync -- stay green here for as long as it did. These tests below are
+    still correct and worth keeping: they pin ``_gm_warp_resync_selected_
+    scene``'s OWN logic in isolation (given any warp action label, does it
+    resync to the given target's scene?), just not the label-matching branch
+    at ``runtime.py:5304`` that decides whether to call it at all. That
+    branch is covered separately, through real dispatch with the real
+    label, by ``test_a_real_cross_scene_label_resyncs_through_actual_
+    dispatch`` below (currently only the no-coords cross-scene label; the
+    coordinate-carrying cross-scene label, the one already live via
+    COO-DECISION 20260831_1441 and the one GT-182/GT-106-R2 exercise, is
+    NOT separately proven through real dispatch yet -- inferred only from
+    sharing the same tuple-membership check and the same resync call).
     """
 
-    def test_a_cross_scene_warp_resyncs_the_selected_scene_at_arm_time(self):
+    def test_the_resync_function_moves_to_a_different_target_scene_when_armed(
+        self,
+    ):
+        """Exercises ``_gm_warp_resync_selected_scene`` directly, in
+        isolation -- NOT a real cross-scene warp through dispatch (see this
+        class's docstring). Renamed from ``test_a_cross_scene_warp_resyncs_
+        the_selected_scene_at_arm_time`` per CORE-REQUEST-GM-047's own ask:
+        the old name claimed a cross-scene warp when the harness actually
+        injects the same-scene ``WARP_ACTION_LABEL``.
+        """
         state = self._login_and_start("gmwarp_resync01")
         x, y, z = self._origin(state)
         departure_scene = state.foundation.selected.position.scene_id
@@ -852,13 +885,15 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
             )
         )
 
-    def test_the_confirm_window_still_matches_after_a_cross_scene_resync(self):
+    def test_the_confirm_window_still_matches_after_a_resync(self):
         """The resync must not disturb CORE-REQUEST-GM-030/031's own match.
 
         Regression guard: ``_gm_warp_resync_selected_scene`` reads the
         parked record without consuming it, specifically so
         ``_gm_warp_open_confirm_window``'s own ``take_warp_target_with_
-        reason`` on the next frame still finds it.
+        reason`` on the next frame still finds it. Renamed (dropped "cross
+        scene") per CORE-REQUEST-GM-047: this harness arms through the
+        same-scene ``WARP_ACTION_LABEL``, see this class's docstring.
         """
         state = self._login_and_start("gmwarp_resync03")
         x, y, z = self._origin(state)
@@ -873,7 +908,7 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
         self.assertEqual(self._match_or_mismatch_lines(err), [MATCH_TOKEN])
         self.assertEqual(state.events.count(MATCH_EVENT), 1)
 
-    def test_a_second_warp_to_a_different_scene_resyncs_to_the_second_one(self):
+    def test_a_second_resync_to_a_different_scene_moves_past_the_first(self):
         """pf-adversary, this round: the rearmed branch must resync too.
 
         ``record_warp_target`` unconditionally overwrites the parked target
@@ -885,7 +920,11 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
         which left ``selected.position.scene_id`` stuck on the FIRST warp's
         scene for the rest of the chain: exactly CORE-REQUEST-GM-045's own
         measured symptom, one warp later. Two warps, two different scenes,
-        no TargetPos report between them.
+        no TargetPos report between them. Renamed (dropped "warp", was
+        "test_a_second_warp_to...") per CORE-REQUEST-GM-047: this harness
+        arms both warps through the same-scene ``WARP_ACTION_LABEL``, see
+        this class's docstring -- it is two resyncs, not two real
+        cross-scene warps.
         """
         state = self._login_and_start("gmwarp_resync04")
         x, y, z = self._origin(state)
@@ -916,6 +955,93 @@ class GmWarpSelectedSceneResyncTests(GmWarpPositionTargetTests):
         # warp's, unchanged -- CORE-REQUEST-GM-030/031's own token logic is
         # explicitly out of scope for this fix; only the scene label moved.
         self.assertTrue(state.gm_warp_position_pending)
+
+    def _arm_via_real_label_through_dispatch(self, state, target, label):
+        """Like ``_arm_the_warp_with_target``, but injects the REAL label
+        given instead of always ``WARP_ACTION_LABEL`` -- the one difference
+        that matters for CORE-REQUEST-GM-047 (see below).
+        """
+        character_id = current_character_id(state)
+        self.assertTrue(record_warp_target(state, target, character_id))
+
+        real = state._dispatch_with_lanes
+
+        def _one_warp_action(parsed):
+            state._dispatch_with_lanes = real
+            return [(label, b"", b"", 0.0)]
+
+        state._dispatch_with_lanes = _one_warp_action
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(state.token)
+        ))
+        self.assertEqual([action[0] for action in actions], [label])
+
+    def test_a_real_cross_scene_label_resyncs_through_actual_dispatch(self):
+        """CORE-REQUEST-GM-047 -- prove the DISPATCH path, not just the resync
+        function, for the no-coordinates cross-scene label.
+
+        Every other test in this class (besides this one and the sibling
+        below) arms through ``_arm_the_warp_with_target`` / ``_arm_the_warp``,
+        which always queues ``WARP_ACTION_LABEL`` (see that helper's own
+        docstring: "the WARP_ACTION_LABEL action"). That label is same-scene
+        ForcePos only -- ``warp_executor.make_warp_force_pos_frame_with_
+        target`` refuses to build one cross-scene -- so no test above ever
+        sends the label a real cross-scene ``/warp`` actually produces
+        through ``_gm_warp_note_position_pending``'s own label check at
+        ``runtime.py:5304``. Before CORE-REQUEST-GM-047's fix, that check
+        matched only ``WARP_ACTION_LABEL``, so this exact scenario (a real
+        ``WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL`` action reaching
+        dispatch) never resynced ``selected.position.scene_id`` at all --
+        this test fails on that old code (manually confirmed:
+        ``AssertionError: 1 != 2``) and passes on the fix.
+        """
+        state = self._login_and_start("gmwarp_resync05")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        self._arm_via_real_label_through_dispatch(
+            state, target, WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, destination_scene,
+        )
+        self.assertIn(
+            f"gm_warp_selected_scene_resynced_{destination_scene}",
+            state.events,
+        )
+
+    def test_a_real_coordinate_cross_scene_label_resyncs_through_dispatch(
+        self,
+    ):
+        """Sibling of the test above, for the OTHER cross-scene label --
+        ``WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL``, the coordinate-carrying
+        one already live via COO-DECISION 20260831_1441 and the one
+        GT-182/GT-106-R2 actually exercise with typed x/y. pf-adversary
+        review of this fix (this round) flagged that only the no-coords
+        sibling label was proven through real dispatch, leaving this one an
+        inference from "same tuple-membership check, same resync call"
+        rather than a measurement -- this test closes that gap the same way.
+        """
+        state = self._login_and_start("gmwarp_resync06")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 700.0, y + 300.0, z)
+
+        self._arm_via_real_label_through_dispatch(
+            state, target, WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+        )
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, destination_scene,
+        )
+        self.assertIn(
+            f"gm_warp_selected_scene_resynced_{destination_scene}",
+            state.events,
+        )
 
 
 if __name__ == "__main__":

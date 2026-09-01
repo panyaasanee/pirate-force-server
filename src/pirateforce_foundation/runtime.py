@@ -5294,14 +5294,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             all, and a flag raised only behind one would never be raised on the
             boot shape the attended test actually uses.
 
-            Keyed on the EXACT GM warp label, not on the substring TELEPORT
-            that ``_move_authority_note_server_moves`` matches: scene entry and
-            the Columbus lane also carry TELEPORT in their labels, and a token
-            that fired for those would say "the GM's warp landed" about a frame
-            no GM ever typed.
+            Keyed on the EXACT GM warp labels (all three: same-scene ForcePos
+            plus both cross-scene teleport variants), not on the substring
+            TELEPORT that ``_move_authority_note_server_moves`` matches: scene
+            entry and the Columbus lane also carry TELEPORT in their labels,
+            and a token that fired for those would say "the GM's warp landed"
+            about a frame no GM ever typed.
+
+            CORE-REQUEST-GM-047 (pf-adversary, this round): this used to match
+            only ``WARP_ACTION_LABEL`` (same-scene ForcePos, which
+            ``warp_executor.make_warp_force_pos_frame_with_target`` refuses to
+            emit cross-scene in the first place), so neither cross-scene warp
+            label ever reached this branch and the resync below never fired
+            for a real cross-scene warp -- ``selected.position.scene_id``
+            stayed on the OLD scene while the client's x/y/z moved to the new
+            one, corrupting the next persisted position row. Both cross-scene
+            labels are safe to add here unconditionally:
+            ``_gm_warp_resync_selected_scene`` already early-returns when the
+            target scene equals the current one, so a same-scene call through
+            either cross-scene label (if that ever happened) would be a no-op,
+            not a double-resync.
             """
+            _GM_WARP_LABELS = (
+                chat_command_action.WARP_ACTION_LABEL,
+                chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+                chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+            )
             for action in actions or ():
-                if action and action[0] == chat_command_action.WARP_ACTION_LABEL:
+                if action and action[0] in _GM_WARP_LABELS:
                     if self.gm_warp_position_pending:
                         # Two warps before one write: the trail must not read
                         # like one warp that armed twice.
