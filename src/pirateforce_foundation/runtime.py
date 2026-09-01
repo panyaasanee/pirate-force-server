@@ -1918,12 +1918,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # logout_hypothesis.py for the full provenance).  This is the
             # exact reverse wire order of ``return_select_first`` above: the
             # pinned ack goes out first, then the pinned 0x709E response --
-            # same two composers, same pins, no new byte.  No profile in
-            # ``require_logout_hypothesis_scenario``'s allowlist can carry
-            # this value yet, so this branch is provably unreachable from
-            # any default boot; lane A wires the allowlisted profile and
-            # scenario file in a later round, the same two-step pattern
-            # HYP-PF-040 used.
+            # same two composers, same pins, no new byte.
+            # ~~No profile in ``require_logout_hypothesis_scenario``'s
+            # allowlist can carry this value yet, so this branch is provably
+            # unreachable from any default boot; lane A wires the allowlisted
+            # profile and scenario file in a later round, the same two-step
+            # pattern HYP-PF-040 used.~~ -- struck, not deleted: it was true
+            # when written and stopped being true when LANE-A round 4h2nzu
+            # landed _PROFILE_ACK_FIRST_REORDER and scenarios/
+            # logout_hypothesis_ack_first_reorder.json.  A reader of the old
+            # sentence would conclude this branch cannot execute; it can, and
+            # HYP-PF-042 (LOGOUT-ACK-FIRST-REORDER-001) has been the ledger
+            # entry for it since chief round dfx8bu.  WHAT IS STILL TRUE, and
+            # is the only unreachability this branch has ever really had:
+            # it needs an explicit --logout-hypothesis-scenario flag naming
+            # that one file (app.py:145, 347-349, which also demands an
+            # explicit --db), and the file is matched field-exact against the
+            # in-code allowlist.  A default boot passes no flag, so nothing
+            # here runs -- proven, not asserted, by
+            # tests/test_logout_ack_first_reorder_scenario_wired.py's
+            # test_unreachable_from_a_default_boot_with_no_scenario_at_all and
+            # test_default_boot_scenario_files_never_carry_this_policy.
             ack_first_reorder = (
                 logout_hypothesis_scenario.response_policy
                 == LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER
@@ -2026,9 +2041,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # goes first are swapped.  See the
                 # LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER constant comment
                 # in logout_hypothesis.py for the full CORE-REQUEST
-                # provenance.  Unreachable from any default boot until a
+                # provenance.  ~~Unreachable from any default boot until a
                 # future round adds an allowlisted profile carrying this
-                # response_policy value.
+                # response_policy value.~~ -- that round happened (LANE-A
+                # 4h2nzu); the profile exists and this branch is live behind
+                # the scenario flag.  Ledger entry: HYP-PF-042.  See the
+                # struck paragraph at the ack_first_reorder assignment above
+                # for what unreachability this branch does and does not have.
                 if ack_first_reorder:
                     self.events.append(
                         f"logout_hypothesis_subcode{subcode:02d}"
