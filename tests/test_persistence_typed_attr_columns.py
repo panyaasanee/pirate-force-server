@@ -40,10 +40,14 @@ attribute block still cannot compose.  ``TheGateStillRefusesTests`` asserts
 that refusal rather than hiding it, and ``BootSnapshotProtects006Tests``
 asserts the protection that arriving wiring is supposed to give this file.
 """
+import ast
+import gc
 import json
+import os
 import re
 import shutil
 import struct
+import subprocess
 import sqlite3
 import sys
 import tempfile
@@ -53,6 +57,9 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+import pf_preconditions  # noqa: E402  (the census token lives here)
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
@@ -877,6 +884,826 @@ class TheGateStillRefusesTests(unittest.TestCase):
         self.assertEqual(
             [g.x for g in gaps if g.reason == compose.REASON_NO_TYPED_VALUE], [1]
         )
+
+
+def _is_sqlite_connect(node):
+    """`sqlite3.connect(...)` as an AST call, not as a run of characters.
+
+    Matching source text is what made the first version of this guard false
+    green: a comment, a docstring, or a line break in the wrong place all
+    changed the answer.  The parser does not care where the newlines are.
+    """
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "connect"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "sqlite3"
+    )
+
+
+def _own_nodes(function):
+    """Every node belonging to `function` itself, nested functions excluded."""
+    for child in ast.iter_child_nodes(function):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        yield child
+        yield from _own_nodes(child)
+
+
+def bare_with_connect_sites(source):
+    """`with sqlite3.connect(...) as db:` -- the line that closed PR #495.
+
+    `sqlite3`'s context manager commits or rolls back and leaves the
+    connection OPEN.  `with contextlib.closing(sqlite3.connect(...))` is the
+    correct spelling of the same idea and is NOT reported: the call directly
+    under `with` is `closing`, not `connect`.
+    """
+    return sorted(
+        item.context_expr.lineno
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.With, ast.AsyncWith))
+        for item in node.items
+        if _is_sqlite_connect(item.context_expr)
+    )
+
+
+def unclosed_connect_sites(source):
+    """`db = sqlite3.connect(...)` whose handle is neither closed nor handed on.
+
+    Within the method that opened it, one of two things must be true:
+    `db.close()` is CALLED (an `ast.Call`, so a comment or a docstring
+    mentioning it proves nothing), or the connection object ITSELF is
+    returned (`return db`, or `return store, db` -- the caller inherits the
+    duty; `_at_005_with_a_character` returns exactly that pair, and
+    `test_a_hot_wal_is_carried_into_the_snapshot` closes it).
+    `return db.execute(...)` returns a cursor or a row and is NOT handing the
+    handle on; that shape is the most likely way for this defect to come
+    back, so it is reported.
+    """
+    tree = ast.parse(source)
+    offenders = []
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = list(_own_nodes(function))
+        opened = {
+            target.id: node.lineno
+            for node in body
+            if isinstance(node, ast.Assign) and _is_sqlite_connect(node.value)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for name, lineno in opened.items():
+            closed = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "close"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == name
+                for node in body
+            )
+            handed_on = any(
+                isinstance(node, ast.Return)
+                and any(
+                    isinstance(returned, ast.Name) and returned.id == name
+                    for returned in (
+                        node.value.elts
+                        if isinstance(node.value, (ast.Tuple, ast.List))
+                        else [node.value]
+                    )
+                )
+                for node in body
+            )
+            if not (closed or handed_on):
+                offenders.append(lineno)
+    inside_a_function = {
+        id(node)
+        for function in ast.walk(tree)
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for node in ast.walk(function)
+    }
+    offenders += [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and _is_sqlite_connect(node.value)
+        and id(node) not in inside_a_function
+    ]
+    return sorted(offenders)
+
+
+def open_handles_under(directory):
+    """Paths inside `directory` this process still has open, or `None` where
+    that cannot be asked (no `/proc`, i.e. not Linux).
+
+    `None` is not "clean" and callers must not read it as clean.  On Windows
+    the question does not need asking: the operating system enforces the same
+    rule by refusing the unlink, which is how this defect reached the gate in
+    the first place.
+    """
+    if not os.path.isdir("/proc/self/fd"):
+        return None
+    root = os.path.realpath(directory)
+    held = set()
+    for fd in os.listdir("/proc/self/fd"):
+        try:
+            target = os.readlink(os.path.join("/proc/self/fd", fd))
+        except OSError:
+            continue
+        if target.startswith(root + os.sep):
+            held.add(target)
+    return sorted(held)
+
+
+class NoHandleOutlivesItsTempDirMixin:
+    """Fail a test that leaves a handle open on its own temp directory.
+
+    THIS IS THE GUARD THAT MATTERS, and the round that wrote it first got
+    this wrong.  `with sqlite3.connect(path) as db:` commits and leaves the
+    connection open; on POSIX `TemporaryDirectory.cleanup` then unlinks a file
+    that is still open and says nothing, while on Windows the same handle
+    makes cleanup raise
+    `PermissionError: [WinError 32] ... being used by another process`.  That
+    is how PR #495 died: gate `pytest_subset exit=1`, `1 failed / 5471
+    passed`, the workflow closed the pull request, and a round of this lane
+    was spent on a defect that lives entirely in this test file.
+
+    An earlier version of this guard was source-only, justified by a sentence
+    copied from `tests/test_store_acquired_item_insert.py` -- that a
+    cleanup-time assertion was tried on Linux and could not see the leak
+    because the object was collected first.  An adversary pass measured that
+    premise in THIS file and it does not hold here: the three fds
+    (`state.sqlite3`, `-wal`, `-shm`) are still open at the cleanup boundary
+    and a ten-line assertion sees all three.  The conclusion was inherited
+    instead of re-measured, and it cost a working guard.
+
+    Registered in `setUp` AFTER the temp directory's own cleanup so that LIFO
+    ordering runs this first -- checking after the directory is gone would
+    check nothing.
+    """
+
+    def guard_the_temp_dir(self, temporary_directory):
+        self.addCleanup(self._assert_no_handle_survives, temporary_directory.name)
+
+    def _assert_no_handle_survives(self, name):
+        held = open_handles_under(name)
+        if held is None:  # not Linux: the OS enforces this itself, loudly
+            return
+        self.assertEqual(
+            held,
+            [],
+            "a handle on the temp directory outlives this test.  On Windows "
+            "TemporaryDirectory.cleanup raises WinError 32 here and the gate "
+            "goes red.  `with sqlite3.connect(...)` does not close; use "
+            "`db = sqlite3.connect(...)` with `try: ... finally: db.close()`.",
+        )
+
+
+class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
+    """`store.write_typed_attributes_and_compose_sparse`: the DB is written
+    first and the block is a view of what landed -- never the other way round.
+
+    This is the entry point `COO-ORDER 20260901_1640`/`1641` sends LANE-GM to
+    for `/speed`.  Everything here runs against a real SQLite file.
+
+    What that does NOT buy, said here rather than discovered later: an
+    adversary pass replaced the read-back with the caller's own input dict and
+    every test in this class stayed green.  No input has been found for which
+    the two differ -- SQLite round-trips a python float exactly and `as_f32`
+    is idempotent -- so "the value comes from the row" is a structural choice,
+    not a property this class measures.  The three controls that DO fire are
+    below: composing the whole stored row instead of what was written,
+    composing before the write, and dropping the write entirely.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        # AFTER the line above on purpose: cleanups run LIFO, so this one runs
+        # BEFORE the directory is removed.  Registered the other way round it
+        # would inspect a directory that no longer exists and pass always.
+        self.guard_the_temp_dir(self.tmp)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("sparse-send")
+        self.character = self.store.create_character(
+            self.account_id, "SparseSend", "sparsesend",
+            "fingerprint-sparse-send", _build_wire,
+            Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+
+    def test_a_speed_write_comes_back_as_the_one_field_block(self):
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 620.0}
+        )
+        self.assertEqual(block, {7: 620.0})
+
+    def test_the_block_and_the_reopened_column_agree_on_the_same_float32(self):
+        """Note what this asserts: the two AGREE.
+
+        It does not prove the block was built from the row -- `compose_sparse
+        _block` runs `as_f32` itself, so both paths produce the same number
+        and no control distinguishes them (see this class's docstring).  What
+        it does prove is that a caller who types `400.1` gets one number, not
+        two: the double is rounded on the way into the column AND on the way
+        to the wire, so the database and the client cannot disagree about the
+        same character.
+        """
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 400.1}
+        )
+        reopened = SQLiteStore(self.path, MIGRATIONS)
+        stored = reopened.read_typed_attributes(self.character.id)
+        self.assertEqual(stored, {"speed_walk": block[7]})
+        # and it is the float32 the wire will carry, not the double typed in
+        self.assertEqual(block[7], struct.unpack("<f", struct.pack("<f", 400.1))[0])
+        self.assertNotEqual(block[7], 400.1)
+
+    def test_the_block_is_not_composed_before_the_write(self):
+        """A control that DOES fire: compose-then-write is red.
+
+        If the block were built first and the write failed, a caller would
+        have sent the player a speed the database never accepted.  Measured
+        with a value the column refuses.
+        """
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": float("nan")}
+            )
+        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+
+    def test_other_columns_already_on_the_row_do_not_join_the_block(self):
+        """The write returns the WHOLE typed state; the block must not.
+
+        `write_typed_attributes` deliberately reports every column the row has
+        (`test_the_write_returns_the_whole_state_not_only_what_it_wrote`).
+        Composing that return value directly would turn `/speed` into a
+        multi-field send -- which `COO-ORDER 20260901_1641` forbids -- and it
+        would do it silently, only for characters that happen to have a level.
+        """
+        self.store.write_typed_attributes(self.character.id, {"level": 12})
+        block = self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 500.0}
+        )
+        self.assertEqual(block, {7: 500.0})
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id),
+            {"level": 12, "speed_walk": 500.0},
+        )
+
+    def test_writing_an_unapproved_column_through_this_path_is_refused(self):
+        with self.assertRaises(compose.AttrComposeError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"level": 30}
+            )
+
+    def test_the_refusal_is_about_the_send_and_says_so_by_leaving_the_write(self):
+        """A refused BLOCK is not a refused WRITE, and the test states which.
+
+        The column is this server's truth; the sparse path is one view of it.
+        The write commits before the compose gate runs, so a caller must not
+        read `AttrComposeError` as "nothing was stored" -- pinned here rather
+        than left for someone to discover on a live row.
+        """
+        with self.assertRaises(compose.AttrComposeError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": 300.0, "level": 30}
+            )
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id),
+            {"level": 30, "speed_walk": 300.0},
+        )
+
+    def test_a_value_the_column_may_not_hold_never_reaches_the_database(self):
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": float("inf")}
+            )
+        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+
+    def test_an_unknown_character_is_a_key_error_before_anything(self):
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                999999, {"speed_walk": 300.0}
+            )
+
+    def test_a_soft_deleted_character_is_a_key_error_and_nothing_is_written(self):
+        """The earlier test was named for this case and never exercised it.
+
+        `KeyError` alone is not enough here: an adversary pass on the sibling
+        method showed the trailing read can raise `KeyError` by itself while
+        the UPDATE has already landed on the soft-deleted row, so the row is
+        read raw.
+        """
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute(
+                "UPDATE characters SET deleted_at=? WHERE id=?",
+                ("2026-09-01T00:00:00Z", self.character.id),
+            )
+            db.commit()
+        finally:
+            db.close()
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attributes_and_compose_sparse(
+                self.character.id, {"speed_walk": 300.0}
+            )
+        db = sqlite3.connect(self.path)
+        try:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                "SELECT speed_walk FROM characters WHERE id=?",
+                (self.character.id,),
+            ).fetchone()
+        finally:
+            db.close()
+        self.assertIsNone(row["speed_walk"])
+
+    def test_an_empty_write_is_refused_before_it_becomes_an_empty_block(self):
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attributes_and_compose_sparse(self.character.id, {})
+
+    def test_the_stored_speed_survives_a_new_store_and_composes_again(self):
+        """The lane's whole point, at the smallest size it can be measured.
+
+        Write once, throw the store away, open the file again, compose again:
+        the same block comes back.  That is "จำได้ข้าม session" for exactly one
+        field -- what actually SENDS it at login is runtime.py, which is not
+        this lane's file.
+        """
+        self.store.write_typed_attributes_and_compose_sparse(
+            self.character.id, {"speed_walk": 777.0}
+        )
+        reopened = SQLiteStore(self.path, MIGRATIONS)
+        stored = reopened.read_typed_attributes(self.character.id)
+        self.assertEqual(
+            compose.compose_sparse_block(typed.typed_values_for_compose(stored)),
+            {7: 777.0},
+        )
+
+
+class NoLeakedSqliteHandleTests(unittest.TestCase):
+    """The source pins, kept as a second line behind the runtime guard above.
+
+    They earn their place only because they name the defect at the line that
+    causes it rather than at the test that trips over it, and because they
+    read the whole file rather than only the classes that happen to run a
+    temp directory.  They are NOT the primary defence and must not be relied
+    on as one: an adversary pass drove four separate mutants past an earlier,
+    line-matching version of them while all three stayed green.  Both
+    predicates now work on the parse tree, and every test below CALLS the
+    predicate rather than restating it -- the earlier `test_the_guard_can_fail`
+    re-implemented the match inline, so neutering the real matcher left it
+    green.
+    """
+
+    def _source(self):
+        return Path(__file__).read_text(encoding="utf-8")
+
+    def test_no_connection_in_this_file_is_opened_by_a_bare_with(self):
+        self.assertEqual(bare_with_connect_sites(self._source()), [])
+
+    def test_every_connect_in_this_file_is_closed_or_handed_to_its_caller(self):
+        self.assertEqual(unclosed_connect_sites(self._source()), [])
+
+    def test_the_bare_with_pin_fires_on_the_line_that_closed_pr_495(self):
+        shipped = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    with sqlite3.connect(self.path) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(shipped), [3])
+
+    def test_the_bare_with_pin_fires_when_the_with_is_parenthesised(self):
+        """Adversary mutant B3: the same defect with a line break in it.  A
+        line-matching pin missed this entirely -- the line holding `with` has
+        no `connect` on it and the line holding `connect` does not start with
+        `with`.
+        """
+        wrapped = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    with (\n"
+            "        sqlite3.connect(self.path)\n"
+            "    ) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(wrapped), [4])
+
+    def test_closing_is_correct_code_and_is_not_reported(self):
+        """The complement of the pin above: a guard that reports correct code
+        teaches people to delete the guard.
+        """
+        correct = (
+            "import contextlib, sqlite3\n"
+            "def t(self):\n"
+            "    with contextlib.closing(sqlite3.connect(self.path)) as db:\n"
+            "        db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(bare_with_connect_sites(correct), [])
+
+    def test_returning_a_row_is_not_handing_the_handle_on(self):
+        """Adversary mutant B1, ranked its most likely regression shape: pull
+        the read-back into a helper that returns the ROW.  A substring test
+        for "a return line mentioning db" credits this as handing the handle
+        to a caller.  It hands over a `sqlite3.Row`; the connection leaks.
+        """
+        mutant = (
+            "import sqlite3\n"
+            "def _raw_speed(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    db.row_factory = sqlite3.Row\n"
+            "    return db.execute('SELECT speed_walk').fetchone()\n"
+        )
+        self.assertEqual(unclosed_connect_sites(mutant), [3])
+
+    def test_returning_the_connection_itself_is_handing_the_handle_on(self):
+        """`_at_005_with_a_character` really does this: it opens `holder` to
+        keep a WAL file hot across a migration and returns it, and
+        `test_a_hot_wal_is_carried_into_the_snapshot` closes it.  Reporting
+        that would be a false red on correct code.
+        """
+        handed_on = (
+            "import sqlite3\n"
+            "def _open(self):\n"
+            "    holder = sqlite3.connect(self.path)\n"
+            "    holder.execute('PRAGMA journal_mode=WAL')\n"
+            "    return holder\n"
+        )
+        self.assertEqual(unclosed_connect_sites(handed_on), [])
+
+    def test_a_comment_promising_a_close_is_not_a_close(self):
+        """Adversary mutant B2.  The earlier pin scanned raw lines, so a
+        comment saying `db.close()` satisfied it.
+        """
+        mutant = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    # db.close() happens when the temp dir goes away\n"
+            "    db.execute('SELECT 1')\n"
+        )
+        self.assertEqual(unclosed_connect_sites(mutant), [3])
+
+    def test_a_close_in_a_finally_satisfies_the_pin(self):
+        correct = (
+            "import sqlite3\n"
+            "def t(self):\n"
+            "    db = sqlite3.connect(self.path)\n"
+            "    try:\n"
+            "        db.execute('SELECT 1')\n"
+            "    finally:\n"
+            "        db.close()\n"
+        )
+        self.assertEqual(unclosed_connect_sites(correct), [])
+
+    def test_a_module_level_connection_is_reported(self):
+        mutant = "import sqlite3\ndb = sqlite3.connect('x')\n"
+        self.assertEqual(unclosed_connect_sites(mutant), [2])
+
+    def test_the_runtime_guard_sees_a_handle_that_outlives_its_frame(self):
+        """The premise the source-only version got wrong, measured here rather
+        than inherited from another file's conclusion.
+
+        THIS TEST DOES NOT SKIP, ANYWHERE, ON PURPOSE.  The version that
+        reached the gate called `skipTest("no /proc/self/fd: ...")` where the
+        measurement cannot be taken, and that skip -- not a failing assertion
+        -- is what closed PR #503: `tools/pf_pytest_precondition_census.py`
+        reported `UNDECLARED SKIP` and the gate cell `skip_census exit=1`
+        went RED while `pytest_subset` was green (Actions run 33505566615).
+        The census is right to refuse it.  A skip has to be either a missing
+        clone artifact declared in `tests/pf_preconditions.py` -- which
+        `/proc` is not; it is a property of the operating system, not of the
+        checkout -- or a pin in `docs/PYTEST_SKIP_PINS.json`, which belongs
+        to chief.  So instead of asking for either, the branch that cannot
+        take the Linux measurement asserts the thing that IS true there, and
+        the census sees no skip from this module at all.
+
+        On Linux: the leak is produced and observed.  Elsewhere: the helper
+        must answer `None`, meaning "cannot be asked".
+
+        BE PRECISE ABOUT WHAT THAT SECOND BRANCH BUYS, because an adversary
+        pass measured it and an earlier draft of this docstring oversold it.
+        It kills exactly one mutant: `open_handles_under` returning `[]`
+        instead of `None` where the question cannot be asked, which would make
+        `NoHandleOutlivesItsTempDirMixin` read "checked and clean" and go
+        vacuous.  Nothing else in the suite catches that mutant.  It is a
+        one-mutant guard, not a test of the runtime guard, and it does not
+        measure a leak.
+
+        AND BE HONEST ABOUT WHAT IS LOST.  On a machine without `/proc`, lines
+        below this branch never run and `_assert_no_handle_survives` returns
+        early for every test in the file, so the class documented as "THIS IS
+        THE GUARD THAT MATTERS" is inert on the one platform where WinError 32
+        actually happens.  That was already true when this test skipped; what
+        changed is the bookkeeping.  A skip was COUNTED -- named in the census
+        output and in the job summary -- and this branch is counted as
+        `passed`.  The tool whose whole thesis is "a skipped check is not a
+        passed check" is satisfied here by a check that did not happen.  That
+        trade is made deliberately, because the alternative needs a pin in
+        `docs/`, which this lane may not write; it is recorded in the round
+        file and in a letter to COO rather than left for someone to discover.
+
+        The measurement this branch CANNOT take -- asserting that
+        `TemporaryDirectory.cleanup` raises `PermissionError` under
+        `os.name == "nt"` -- is the honest replacement, and it is deliberately
+        not attempted here: it has never been run on Windows, and three
+        rounds of this lane have already been lost to gate cells nobody could
+        test from a Linux clone.  It is proposed to chief in writing instead
+        of gambled on a fourth.
+        """
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "probe.sqlite3"
+        sqlite3.connect(path).close()
+        if not os.path.isdir("/proc/self/fd"):
+            self.assertIsNone(
+                open_handles_under(directory.name),
+                "without /proc this helper must say `cannot ask` (None).  "
+                "Returning [] here would read as `checked and clean` and "
+                "would make NoHandleOutlivesItsTempDirMixin vacuous.",
+            )
+            return
+        self.assertEqual(open_handles_under(directory.name), [])
+
+        # The leaking form is built from a STRING on purpose.  Written
+        # literally it would be a real offender in this file and the two
+        # source pins above would report it -- correctly.  Exempting it would
+        # put a hole in the pins for the sake of the test that checks them,
+        # so the defect is data here and the pins stay absolute.
+        namespace = {"sqlite3": sqlite3, "path": path}
+        exec(  # noqa: S102 - the string is a literal three lines above
+            "def leaks():\n"
+            "    with sqlite3.connect(path) as db:\n"
+            "        db.execute('SELECT 1')\n",
+            namespace,
+        )
+        namespace["leaks"]()
+        self.assertEqual(
+            open_handles_under(directory.name),
+            [str(path)],
+            "the `with` form no longer outlives its frame on this "
+            "interpreter -- re-measure before trusting the runtime guard",
+        )
+        gc.collect()
+        self.assertEqual(open_handles_under(directory.name), [])
+
+
+LANE_TEST_MODULES = tuple(
+    sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "tests").glob("test_persistence_*.py")
+    )
+)
+"""This lane's own test modules, DERIVED at import time, never hand-listed.
+
+The charter gives LANE-DB `src/pirateforce_foundation/persistence_*.py` and the
+test files of its own work; the glob is the same rule spelled once.  A
+hand-maintained tuple is a pin that cannot be re-derived at HEAD: an adversary
+pass measured the first version of this list naming two modules while the lane
+owned three, so a skip added to `test_persistence_premigration_backup.py` --
+which the Windows gate does run -- would have been ungraded by a class whose
+name says otherwise.
+"""
+
+_RECURSION_GUARD = "PF_LANE_DB_SKIP_PIN_CHILD"
+
+
+class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
+    """No test of this lane may report SKIPPED -- measured, not spelled.
+
+    WHY THIS EXISTS.  PR #503 was closed with every assertion in the tree
+    passing.  `pytest_subset` was green on real Windows (5515 passed); the
+    cell that went red was `skip_census`, because this file skipped one test
+    with a reason that was neither a `tests/pf_preconditions.py` precondition
+    nor a `design_skips` pin in `docs/PYTEST_SKIP_PINS.json` (Actions run
+    33505566615).  Neither of those two doors is open to this lane on its own
+    -- `docs/` belongs to chief, and `/proc` is a property of the operating
+    system rather than something a clone can lack -- so the rule for these
+    modules is the strict one: they do not skip at all.
+
+    WHY IT RUNS PYTEST INSTEAD OF READING THE SOURCE.  The first version of
+    this guard walked the parse tree for `self.skipTest`, `unittest.skip*`
+    and `raise SkipTest`.  An adversary pass broke it six times out of six in
+    ten minutes -- `@pytest.mark.skipif`, `pytest.skip(...)`,
+    `from unittest import skipUnless`, `from unittest import SkipTest as
+    Alias`, and the repository's own two idioms
+    (`Precondition.skip_unless_present()` and `Precondition.require(self)`,
+    whose skip call lives in `tests/pf_preconditions.py`, another module
+    entirely).  Every one of those left the pin green on Linux and the gate
+    red on Windows, which is precisely the failure being guarded against.
+    Measured on the corpus: of the 47 modules that produce a pinned skip
+    today, that source walker saw a site in 4.
+
+    Enumerating spellings is a losing game, so this asserts the artifact the
+    gate actually grades: the pytest report.  `tools/pf_pytest_precondition
+    _census.py` parses `SKIPPED` lines out of `pytest -rs` output; so does
+    this.  Spelling-independent, and blind to no idiom, because it never
+    looks at an idiom.
+
+    The child runs with this class DESELECTED, not skipped: deselection
+    removes it from collection (no recursion), while skipping it would emit
+    the very `SKIPPED` line this test asserts is absent.  The environment
+    marker is a second belt -- if a future edit loses the `--deselect`, the
+    child fails loudly instead of forking without end.
+    """
+
+    #: The three modules take ~8s together on this machine; the bound is
+    #: generous enough that a loaded windows-latest runner cannot trip it by
+    #: being slow, and small enough that a hang is reported rather than run
+    #: out the job's whole 360-minute default.
+    CHILD_TIMEOUT_SECONDS = 600
+
+    def test_pytest_reports_no_skip_for_any_module_of_this_lane(self):
+        if os.environ.get(_RECURSION_GUARD):
+            self.fail(
+                "this test ran inside its own child process -- the "
+                "--deselect below no longer names it.  Fix the selector; do "
+                "NOT skip this test to break the recursion."
+            )
+        # A pin over an empty set grades nothing and reads like a closed
+        # hole; `tests/test_pytest_precondition_census.py` learned that as
+        # R172 adversary finding 8 and pins its own list the same way.
+        self.assertTrue(LANE_TEST_MODULES, "the module glob matched nothing")
+        self.assertIn(
+            "tests/test_persistence_typed_attr_columns.py", LANE_TEST_MODULES
+        )
+
+        selector = "%s::%s::%s" % (
+            Path(__file__).resolve().relative_to(ROOT).as_posix(),
+            type(self).__name__,
+            self._testMethodName,
+        )
+        environment = dict(
+            os.environ,
+            **{
+                _RECURSION_GUARD: "1",
+                # The child is decoded as UTF-8 below.  On Windows a child
+                # writing to a pipe otherwise encodes with the locale codec,
+                # which on the bridge is cp874, and the failure detail in
+                # `report` -- the ONLY place the child's output survives,
+                # since it is captured and never reaches the gate log --
+                # comes back as replacement characters.  Make the decode true
+                # by construction rather than by luck.
+                "PYTHONIOENCODING": "utf-8",
+            },
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable, "-m", "pytest", *LANE_TEST_MODULES,
+                    "-q", "-rs", "-p", "no:cacheprovider",
+                    "--deselect", selector,
+                ],
+                cwd=str(ROOT), capture_output=True, env=environment,
+                # `capture_output` returns when the PIPE closes, not when the
+                # child exits, so a grandchild holding the pipe open blocks
+                # here forever.  `gate-windows.yml` puts no timeout on the
+                # pytest step and its `Step` helper only echoes after the
+                # step completes, so an unbounded wait burns the whole job
+                # and reports nothing at all.  `tests/pf_preconditions.py`
+                # already settled the shape: DEVNULL in, a bound, a message.
+                stdin=subprocess.DEVNULL,
+                timeout=self.CHILD_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as expired:
+            self.fail(
+                "the child pytest did not finish within %ds.  Either a test "
+                "in %s hangs, or something it spawned outlived it and is "
+                "holding the output pipe open.\n%s"
+                % (
+                    self.CHILD_TIMEOUT_SECONDS,
+                    ", ".join(LANE_TEST_MODULES),
+                    (expired.output or b"").decode("utf-8", "replace")[-4000:],
+                )
+            )
+        report = (completed.stdout + completed.stderr).decode(
+            "utf-8", "replace"
+        )
+
+        # Guard the guard, part one: prove the --deselect above actually
+        # matched THIS test.  A selector naming a path that does not exist is
+        # accepted by pytest in silence, and an adversary pass measured the
+        # consequence -- with the selector broken, the child re-ran this test,
+        # the recursion marker below made the CHILD fail, and the parent, which
+        # reads only skips, still reported PASS.  The deselected count is the
+        # one number that cannot be satisfied by a selector that matched
+        # nothing.
+        deselected = re.search(r"(\d+) deselected", report)
+        self.assertIsNotNone(
+            deselected,
+            "pytest did not report a deselection, so `--deselect %s` matched "
+            "nothing:\n%s" % (selector, report[-4000:]),
+        )
+        self.assertEqual(int(deselected.group(1)), 1, report[-4000:])
+
+        # Guard the guard, part two: "no SKIPPED lines" is also what a run
+        # that collected nothing produces.  Demand evidence that tests really
+        # ran before believing the absence of skips means anything.
+        passed = re.search(r"(\d+) passed", report)
+        self.assertIsNotNone(
+            passed, "the child produced no pytest summary:\n%s" % report[-4000:]
+        )
+        self.assertGreater(int(passed.group(1)), 0, report[-4000:])
+
+        # What is forbidden is an UNDECLARED skip -- the thing the census
+        # closes a pull request for -- not every skip.  A reason carrying the
+        # `[precondition:<key>]` token is one the census accepts by design,
+        # and `tests/test_persistence_premigration_backup.py` already
+        # contemplates guarding on `BACKUPS_TREE`.  An adversary pass showed
+        # the strict form going red on exactly that: a census-approved,
+        # docs-pinned precondition skip, reported with a message telling its
+        # author to fix something that was already correct.  Whether such a
+        # skip is also PINNED is the census's job, not this test's; this test
+        # owns the one case the census calls UNDECLARED.
+        #
+        # `SUBSKIPPED` is included because pytest spells a `subTest` skip that
+        # way and this file runs 340 subtests.  The census's own SKIP_LINE
+        # regex does not match it, so this is deliberately STRICTER than the
+        # gate rather than a claim about what the gate would do.
+        undeclared = [
+            line for line in report.splitlines()
+            if (line.startswith("SKIPPED") or line.startswith("SUBSKIPPED"))
+            and pf_preconditions.TOKEN_PREFIX not in line
+        ]
+        self.assertEqual(
+            undeclared, [],
+            "a module of this lane reported a skip that carries no "
+            "`%s<key>]` token.  The gate's census calls that an UNDECLARED "
+            "SKIP and accepts it only as a design_skips pin in docs/, which "
+            "this lane may not write -- so `skip_census` goes red and the "
+            "pull request is closed with every assertion passing, exactly "
+            "how PR #503 died.  Assert what IS true on that platform "
+            "instead of skipping.\n%s"
+            % (pf_preconditions.TOKEN_PREFIX, report[-4000:]),
+        )
+
+        # A `[precondition:...]` skip is accepted by the census only if it is
+        # ALSO pinned, by key and module, in docs/PYTEST_SKIP_PINS.json;
+        # otherwise the census says `UNPINNED` and the pull request closes
+        # just the same.  This lane cannot write that file, so the practical
+        # rule is: do not add a precondition skip to these modules without
+        # chief landing the pin in the same change.  Reading the pin file is
+        # not writing it.
+        pins = json.loads(
+            (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        pinned = {
+            (entry["key"], entry["module"].replace("\\", "/"))
+            for entry in pins.get("preconditions", [])
+        }
+        for line in report.splitlines():
+            if not line.startswith(("SKIPPED", "SUBSKIPPED")):
+                continue
+            key = pf_preconditions.key_of(line)
+            if key is None:
+                continue  # already reported as undeclared above
+            module = re.search(r"(tests/[\w./-]+\.py):\d+", line)
+            self.assertIsNotNone(module, line)
+            self.assertIn(
+                (key, module.group(1)), pinned,
+                "a module of this lane skips on precondition '%s', which is "
+                "not pinned for it in docs/PYTEST_SKIP_PINS.json.  The census "
+                "calls that UNPINNED and the gate goes red exactly as it does "
+                "for an undeclared skip.  That pin is chief's to write, so it "
+                "has to land in the same change as the skip.\n%s"
+                % (key, line),
+            )
+
+        # `xfail(run=False)` is a test that never executes and that NOTHING
+        # counts: no SKIPPED line, no `N skipped`, no census row, nothing in
+        # docs/PYTEST_SKIP_PINS.json to pin.  A round forbidden by this very
+        # test from skipping would reach for it next, trading a counted skip
+        # for an uncounted non-execution -- strictly worse.  These modules
+        # carry no xfail today and this keeps it that way.
+        for token in ("xfailed", "xpassed"):
+            self.assertIsNone(
+                re.search(r"(\d+) %s" % token, report),
+                "a module of this lane reported %s.  Nothing anywhere counts "
+                "an xfail, so it hides a check that did not run even better "
+                "than a skip does.\n%s" % (token, report[-4000:]),
+            )
+
+        # The totals line is the belt to the braces above: it survives
+        # `--no-summary`, and it catches a skip spelling whose per-line form
+        # this test does not know about.
+        summary_count = re.search(r"(\d+) skipped", report)
+        if summary_count is not None:
+            declared = [
+                line for line in report.splitlines()
+                if line.startswith(("SKIPPED", "SUBSKIPPED"))
+            ]
+            self.assertEqual(
+                int(summary_count.group(1)), len(declared),
+                "the child reported more skips than it named, so at least "
+                "one carries a spelling this test cannot inspect:\n%s"
+                % report[-4000:],
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover
