@@ -330,8 +330,10 @@ MOB_PICKUP_WIRING = (
     "leaves the ground untouched.  Do not retry drop_left_the_ground.\n"
     "     - ROUND 4e9r7g, AND IT NEEDS THE SCENE BOUNDARY LINE: a claim is "
     "resolved against the rows of the CELL'S CURRENT SCENE, so runtime.py "
-    "must call drop_ledger_cell.enter_scene(folder) at the scene boundary "
-    "(mob_loot.MOB_LOOT_WIRING step 6 -- the same one line, asked for once).  "
+    "must call drop_ledger_cell.enter_scene_frames(legacy, folder) at the "
+    "scene boundary (mob_loot.MOB_LOOT_WIRING step 6, which since round "
+    "9jrsei asks for that call rather than the bare enter_scene(folder) "
+    "this line used to name -- same boundary, same ask, one place).  "
     "Two more refusals come from that, and both leave the row on the ground: "
     "drop_is_in_another_scene (the key names a row still standing in the "
     "scene the player left -- NOT the same fact as drop_already_taken) and "
@@ -1434,8 +1436,10 @@ class BagCell:
 
         * the cell does not know its scene -> ``cell_has_no_scene``.  Nothing
           is taken.  ``runtime.py`` is meant to call
-          ``cell.enter_scene(folder)`` at the scene boundary (this round's
-          CORE-REQUEST), and a kill sets it too, so this is reachable mainly
+          ``cell.enter_scene_frames(legacy, folder)`` at the scene boundary (the
+          CORE-REQUEST of round 9jrsei, which supersedes the bare
+          ``enter_scene(folder)`` this line named in round 4e9r7g), and a
+          kill sets it too, so this is reachable mainly
           before the first kill of a boot -- where refusing is right.
         * the key is on the ground IN ANOTHER SCENE ->
           ``drop_is_in_another_scene``, which is a DIFFERENT fact from
@@ -1465,8 +1469,9 @@ class BagCell:
                 REFUSE_CELL_HAS_NO_SCENE,
                 "this ground cell does not know which scene it is in, so a "
                 "claim cannot be resolved against the claimant's own scene; "
-                "nothing was taken.  runtime.py calls cell.enter_scene() at "
-                "the scene boundary and a kill sets it too")
+                "nothing was taken.  runtime.py calls "
+                "cell.enter_scene_frames() at the scene boundary and a kill "
+                "sets it too")
         reference = getattr(claim, "object_ref_u32", None)
         if type(reference) is int and not any(
                 row.drop_key == reference for row in scene_view.drops):

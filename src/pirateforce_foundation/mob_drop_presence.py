@@ -438,8 +438,9 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         return _refusal(
             REFUSE_NO_SCENE,
             "the cell does not know which scene it is publishing; "
-            "runtime.py must call cell.enter_scene(<scene folder>) at the "
-            "scene boundary (a kill through cell.loot_a_kill sets it too).  "
+            "runtime.py must call cell.enter_scene_frames(legacy, <scene folder>) "
+            "at the scene boundary (a kill through cell.loot_a_kill sets it "
+            "too).  "
             "Nothing was sent and nothing was removed: %d row(s) are still "
             "standing" % elsewhere,
             lifetime)
