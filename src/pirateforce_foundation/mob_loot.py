@@ -1445,65 +1445,116 @@ def scene_key(scene: Any) -> str:
     return _require_scene(scene, "scene").casefold()
 
 
-#: ROUND veby94.  The two reasons a boundary generation held for a scene is
-#: thrown away when a pickup lands in that scene, and they are NOT one event.
+#: ROUND veby94.  The reasons a boundary generation held for a scene is
+#: thrown away when a pickup lands in that scene, and there are THREE of
+#: them, not one word.
 #:
 #: SUPERSEDED: the pickup published the scene's remaining rows, so a newer
 #: generation for the same floor went out in the same reply and the held one
-#: is simply older.  STALE_AFTER_THE_LAST_OBJECT: the pickup published
-#: NOTHING because the row it took was the scene's last one (RE-208, held by
-#: COO-DECISION 2026-09-02T13:45+07:00), so nothing replaced the held
-#: generation -- it is dropped because it became FALSE, not because it was
-#: outranked.  A console that spells both "superseded_by_pickup" tells an
-#: operator a newer floor went out on a reply where none did, and the second
-#: case is exactly the one pf-adversary measured putting a bagged item back
-#: on the floor (CORE-REQUEST 2026-09-02T16:50+07:00, item 3).
+#: is simply older.  STALE (the last object): the pickup published NOTHING
+#: because the row it took was the scene's LAST one (RE-208, held by
+#: COO-DECISION 2026-09-02T13:45+07:00 -- letter in the pf_bridge repository,
+#: notes_to_chief/), so nothing replaced the held generation and it is
+#: dropped because it became FALSE rather than because it was outranked.
+#: UNPUBLISHED: the pickup published nothing because the publication itself
+#: REFUSED, which is a different fact again -- the floor may still hold rows
+#: nobody has re-announced.
+#:
+#: !! THE THIRD NAME IS pf-adversary D4 OF THIS ROUND, and it is the same
+#: defect this helper exists to remove, one level up: ``ground_after`` is
+#: ``()`` in all three cases (``runtime.py`` says so in its own words), so a
+#: boolean caller would print "the last object was taken" about a
+#: publication that merely refused.  What tells the second from the third is
+#: ``PickupRequestOutcome.ground_rows_left`` -- ``0`` for the last object,
+#: ``-1`` when nothing was composed -- so this takes the count, never a bool.
 #:
 #: !! WHAT THIS IS AND IS NOT.  It is a NAME, in the lane that owns the
 #: ground's vocabulary; it is not the guard.  The guard is one line in
 #: ``runtime.py``, which is the chief's file, and the letter above asks for
-#: it: today's ``if outcome.ground_after and ...`` is false in precisely the
+#: it (CORE-REQUEST 2026-09-02T16:50+07:00 item 3, pf_bridge repository):
+#: today's ``if outcome.ground_after and ...`` is false in precisely the
 #: last-object case, so the stash survives a take.  This helper exists so
-#: that when that line changes, the two outcomes it then covers do not have
-#: to share one word.  Nothing in ``src/`` calls it yet, and no round may
-#: report the hole closed on the strength of this function.
+#: that when that line changes, the outcomes it then covers do not have to
+#: share one word.  Nothing in ``src/`` calls it yet, and no round may report
+#: the hole closed on the strength of this function.
 BOUNDARY_STASH_SUPERSEDED_EVENT = "mob_loot_boundary_superseded_by_pickup"
 BOUNDARY_STASH_STALE_EVENT = (
     "mob_loot_boundary_dropped_after_last_object_pickup")
+BOUNDARY_STASH_UNPUBLISHED_EVENT = (
+    "mob_loot_boundary_dropped_after_pickup_published_nothing")
 #: The scene word used when the caller's scene cannot be named at all.  See
 #: :func:`boundary_stash_dropped_event` for why this exists rather than a
 #: raise.
 BOUNDARY_STASH_SCENE_UNNAMED = "scene_unnamed"
 
 
+def _console_count(value: Any) -> int:
+    """A count for a console line, from an int or from the thing itself.
+
+    ROUND veby94, pf-adversary D5.  The first draft took ``int(value)``, and
+    the natural call at the chief's site passes
+    ``self.mob_loot_boundary_frames_pending`` -- a TUPLE.  ``int(())`` raises,
+    the fall back said ``-1``, and every production event would have read
+    ``frames_-1`` forever with the suite green.  So a sized object counts as
+    its length, an exact ``int`` counts as itself, and everything else --
+    ``bool``, ``float``, a string of digits -- is ``-1`` rather than a
+    plausible number nobody can trace back.  A ``str`` or ``bytes`` IS sized
+    and is refused anyway: ``"7"`` would otherwise count as one frame, which
+    is the plausible-number failure with an extra step.
+    """
+    try:
+        if type(value) is int:
+            return value
+        if isinstance(value, (str, bytes, bytearray)):
+            return -1
+        return len(value)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return -1
+
+
 def boundary_stash_dropped_event(
-        scene: Any, frames: Any, *, a_newer_generation_went_out: Any) -> str:
+        scene: Any, frames_held: Any, *,
+        published_generations: Any, ground_rows_left: Any) -> str:
     """The event name for a held boundary generation that was thrown away.
 
-    ``a_newer_generation_went_out`` is the caller's own answer to one
-    question -- did this reply carry a newer generation for this scene --
-    and it is a keyword ON PURPOSE: the two call sites this is written for
-    are three lines apart in one branch, and a positional bool there is the
-    shape that gets passed inverted.
+    ``frames_held`` is the stash being dropped -- the tuple itself or its
+    length.  ``published_generations`` is what the SAME reply published for
+    this scene (``outcome.ground_after``, or its length), and
+    ``ground_rows_left`` is ``outcome.ground_rows_left``.  Both are keywords
+    ON PURPOSE: they are read off one outcome three lines apart, and two
+    positional numbers there is the shape that gets passed swapped.
+
+    The three names, in the order the questions are asked:
+
+      * anything published -> :data:`BOUNDARY_STASH_SUPERSEDED_EVENT`
+      * nothing published and no rows left (``0``) ->
+        :data:`BOUNDARY_STASH_STALE_EVENT`
+      * nothing published and rows still there, or a count that could not be
+        read -> :data:`BOUNDARY_STASH_UNPUBLISHED_EVENT`
 
     IT CANNOT RAISE, and that is not politeness either.  Its caller is the
     pickup branch inside a v141 listener thread with no ``except`` above it,
-    and the value it is handed is a scene name from a session's position --
-    which this lane does not own and has already seen arrive as ``None``.  A
-    name that cannot be composed costs the console its scene word
-    (:data:`BOUNDARY_STASH_SCENE_UNNAMED`), never the dispatch.
+    and the values it is handed come off a session's position and another
+    lane's dataclass.  A name that cannot be composed costs the console its
+    scene word (:data:`BOUNDARY_STASH_SCENE_UNNAMED`) or its count, never the
+    dispatch -- including the DECIDING value, which the first draft of this
+    round evaluated for truth outside every guard (pf-adversary D6: an object
+    whose ``__bool__`` raises went straight through the promise).
     """
     try:
         scene_word = scene_key(scene)
     except Exception:                            # noqa: BLE001 - see docstring
         scene_word = BOUNDARY_STASH_SCENE_UNNAMED
-    try:
-        count = int(frames)
-    except Exception:                            # noqa: BLE001 - see docstring
-        count = -1
-    return "%s_%s_frames_%d" % (
-        BOUNDARY_STASH_SUPERSEDED_EVENT if a_newer_generation_went_out
-        else BOUNDARY_STASH_STALE_EVENT, scene_word, count)
+    held = _console_count(frames_held)
+    published = _console_count(published_generations)
+    rows_left = _console_count(ground_rows_left)
+    if published > 0:
+        name = BOUNDARY_STASH_SUPERSEDED_EVENT
+    elif rows_left == 0:
+        name = BOUNDARY_STASH_STALE_EVENT
+    else:
+        name = BOUNDARY_STASH_UNPUBLISHED_EVENT
+    return "%s_%s_frames_%d" % (name, scene_word, held)
 
 
 def _require_draw(draw: Any) -> float:

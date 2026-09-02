@@ -335,20 +335,39 @@ MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
 #: scene the session is STANDING in, and a GT round grading on console lines
 #: would read it as "the ground that key was on is now empty".
 #:
-#: SO EVERY LINE NAMES BOTH SCENES NOW, and when they disagree a fourth token
-#: says so by name instead of leaving a reader to notice.  WHAT THIS IS NOT,
-#: measured rather than assumed, because a guard sold as a bug fix is worth
-#: less than the sentence it displaces: the production pickup path REFUSES a
-#: claim on a row standing in another scene BEFORE the take
-#: (``mob_pickup.REFUSE_DROP_IS_IN_ANOTHER_SCENE``, walked by
-#: ``mob_pickup``'s own refusal walk), and the session is strictly serial
-#: (FINDINGS_R18), so no dispatch reaches this file with a taken row from one
-#: scene and a cell pointed at another.  This is a LIE THAT CANNOT BE TOLD
-#: TODAY being made impossible to tell tomorrow -- the day a second pickup
-#: door, a second cell, or a boundary crossing inside one dispatch exists.
-#: The cross-scene token is therefore unreachable through
-#: :func:`dispatch_inbound_pickup_request` on this tree, and its test drives
-#: the private composer directly and says so in its own docstring.
+#: SO EVERY LINE NAMES BOTH SCENES NOW, plus ``same_ground=`` -- the verdict
+#: itself, because two scene words printed raw are a comparison the reader has
+#: to make, and the comparison this file makes is CASEFOLDED (pf-adversary D3b
+#: of this round measured a real dispatch printing ``taken_scene=bg0001
+#: scene=Bg0001`` on one same-ground take: no token, two visibly different
+#: words).  When the verdict is 0 a fourth token says so by name as well.
+#:
+#: [MEASURED, and re-derived rather than quoted, because the first draft of
+#: this comment leaned on a document that says something else]: the
+#: cross-scene case is UNREACHABLE through
+#: :func:`dispatch_inbound_pickup_request` on this tree.  The reason is the
+#: SCENE VIEW, not serialness: ``mob_pickup`` resolves every claim against
+#: ``ledger_cell.publication()``'s view and raises
+#: ``REFUSE_DROP_IS_IN_ANOTHER_SCENE`` for a key that is in the ledger but not
+#: in the view; ``DropLedger.for_scene`` keeps only rows whose
+#: ``scene_key`` equals the cell's; and ``mob_loot.scene_key`` is
+#: ``_require_scene(...).casefold()``, which returns the value unchanged after
+#: rejecting non-str, empty, over-long, non-ASCII, whitespace-bearing and
+#: non-printable names.  So every row that survives the view is casefold-equal
+#: to ``current_scene``, and that equality -- ONE ``.casefold()`` deep, and
+#: one roster spelling away -- is the whole of the unreachability.
+#: ~~"the session is strictly serial (FINDINGS_R18)"~~ IS STRUCK (pf-adversary
+#: D8): that report records serial accept as a ``known_limitation`` with
+#: HYP-PF-011 open to REMOVE it, so it is not a guarantee to lean on.
+#:
+#: [PROPOSED, this lane's judgement, not a measurement]: naming the
+#: disagreement is worth its lines anyway, for the day a second pickup door, a
+#: second cell, or a boundary crossing inside one dispatch exists.  WHAT THE
+#: TOKEN DOES NOT DO, stated because pf-adversary asked it as the round's open
+#: question: it does not REFUSE.  It narrates.  A cross-ground take that the
+#: view stops today would, on that day, still complete with this line printed
+#: next to it -- the refusal belongs to whoever opens that second door, and to
+#: the ground-publication sink of the design letter, not to a console token.
 MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN = (
     "MOB_PICKUP_GROUND_REMOVAL_KEY_IS_ANOTHER_SCENES")
 
@@ -862,7 +881,6 @@ def _ground_after_the_take(
     """
     try:
         taken_key = transacted.outcome.drop.drop_key
-        taken_scene = getattr(transacted.outcome.drop, "scene", None)
         rows_left, frames = drop_ledger_cell.frames_after_a_row_left(
             legacy, taken_key)
     except Exception as exc:                     # noqa: BLE001 - see docstring
@@ -874,21 +892,47 @@ def _ground_after_the_take(
     # ROUND veby94, the chief's item (b).  Both names, on every line, in the
     # same order every time -- ``taken_scene`` is where the row that LEFT was
     # standing, ``scene`` is the ground ``rows_left`` and the frames are
-    # about.  ``console_safe`` because a scene folder is a string this lane
-    # does not own and the bridge console is cp874 with errors='strict'.
+    # about -- and then ``same_ground``, which is the VERDICT rather than the
+    # evidence (pf-adversary D3b: the comparison below is casefolded, the two
+    # words printed are raw, and a real dispatch prints ``bg0001`` next to
+    # ``Bg0001`` on one same-ground take).  ``console_safe`` is belt and
+    # braces rather than a guard on a reachable case: ``mob_loot`` validates
+    # both names ASCII, printable and whitespace-free before either can be
+    # stored -- a mutant deleting both calls survives the suite.
     #
-    # READ AFTER THE PUBLICATION AND IN ITS OWN GUARD, and that is the whole
-    # reason it is three lines instead of one: everything above this point
-    # can cost the caller its frames when it raises (the refusal path returns
-    # ``(-1, ())``), and a NAME FOR THE CONSOLE may never do that.  A cell
-    # whose ``current_scene`` cannot be read loses the word, not the floor.
+    # !! EVERY READ FOR THIS LINE IS BELOW THE PUBLICATION AND IN ITS OWN
+    # GUARD, and pf-adversary D1 is why the rule is written twice: the first
+    # draft of this round read ``drop.scene`` up in the block above, where a
+    # raising ``.scene`` turns a successful publication into ``(-1, ())`` --
+    # measured, and it changes the BYTES (an empty ``ground_after`` flips
+    # ``_the_delta_that_matches_the_floor`` to the clearing delta and drops
+    # the removal actions).  A NAME FOR THE CONSOLE MAY NEVER COST A FRAME.
+    try:
+        taken_scene = getattr(transacted.outcome.drop, "scene", None)
+    except Exception:                            # noqa: BLE001 - see above
+        taken_scene = None
     try:
         published_scene = drop_ledger_cell.current_scene
     except Exception:                            # noqa: BLE001 - see above
         published_scene = None
-    scenes = "taken_scene=%s scene=%s" % (
-        mob_pickup_persist.console_safe(str(taken_scene))[:32],
-        mob_pickup_persist.console_safe(str(published_scene))[:32])
+    # THREE STATES, NOT TWO: the same ground, a different ground, and a name
+    # that could not be read at all.  ``same_ground=?`` is the third, and it
+    # exists because printing 0 for an unknown would be the same class of
+    # false line this whole block removes.  ``None`` on failure, and the
+    # comparison itself is guarded: every value here comes from outside this
+    # file, and a name for the console may never raise into a listener
+    # thread.
+    try:
+        if taken_scene is None or published_scene is None:
+            same_ground = None
+        else:
+            same_ground = (str(taken_scene).casefold()
+                           == str(published_scene).casefold())
+    except Exception:                            # noqa: BLE001 - see above
+        same_ground = None
+    scenes = "taken_scene=%s scene=%s same_ground=%s" % (
+        _scene_word(taken_scene), _scene_word(published_scene),
+        "?" if same_ground is None else ("1" if same_ground else "0"))
     if frames:
         _say(echo, "%s key=0x%X %s rows_left=%d frames=%d" % (
             MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN
@@ -902,21 +946,34 @@ def _ground_after_the_take(
         _say(echo, "%s key=0x%X %s rows_left=%d" % (
             MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, taken_key, scenes,
             rows_left))
-    # AND THE DISAGREEMENT ITSELF GETS A NAME.  Two scene names on one line
-    # are only readable by someone who compares them; this line is for the
-    # operator who does not.  Casefolded because ``mob_loot.scene_key`` is
-    # what the rest of this lane compares with, and str() because neither
-    # value is this file's to trust.  BOTH MUST BE KNOWN: an unreadable name
-    # is not a disagreement, and printing "these two scenes differ" because
-    # one of them is ``None`` would be the same class of false line this
-    # block exists to remove.
-    if (taken_scene is not None and published_scene is not None
-            and str(taken_scene).casefold()
-            != str(published_scene).casefold()):
+    # AND THE DISAGREEMENT ITSELF GETS A NAME, for the operator who greps
+    # instead of reading.  CASEFOLDED, and that is the property the whole
+    # token rests on rather than a nicety (pf-adversary D3 killed a mutant
+    # that dropped it): ``bg0001`` and ``Bg0001`` are ONE scene to
+    # ``DropLedger.for_scene``, so a case-only difference is an ordinary
+    # pickup, and a token that fired on it would fire on every pickup the day
+    # one roster module spells a folder differently from another -- which is
+    # exactly the noise this token must not become.  BOTH NAMES MUST BE
+    # KNOWN: an unreadable name is not a disagreement.
+    if same_ground is False:
         _say(echo, "%s key=0x%X %s rows_left_is_about=%s" % (
             MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN, taken_key, scenes,
-            mob_pickup_persist.console_safe(str(published_scene))[:32]))
+            _scene_word(published_scene)))
     return rows_left, tuple(frames)
+
+
+def _scene_word(value: Any) -> str:
+    """One scene name, safe for a cp874 console and for a hostile __str__.
+
+    ROUND veby94.  Every value this composes is a name from outside this
+    file, and the function it prints from may not raise into a v141 listener
+    thread.  ``console_safe`` covers the encoding; this covers the rest --
+    an object whose ``__str__`` raises costs the WORD, never the frames.
+    """
+    try:
+        return mob_pickup_persist.console_safe(str(value))[:32]
+    except Exception:                            # noqa: BLE001 - see docstring
+        return "scene_unreadable"
 
 
 def _say(echo: bool, line: str) -> bool:

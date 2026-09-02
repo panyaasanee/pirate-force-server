@@ -2857,36 +2857,67 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
             mob_loot.drop_element_with_model_type(self.legacy, second))
 
 
-class TheDroppedBoundaryStashHasTwoNamesTests(unittest.TestCase):
-    """ROUND veby94.  A held boundary generation is thrown away for two
-    different reasons and until this round both spelled "superseded".
+class TheDroppedBoundaryStashHasThreeNamesTests(unittest.TestCase):
+    """ROUND veby94.  A held boundary generation is thrown away for three
+    different reasons and until this round they all spelled "superseded".
 
-    The letter this pays is CORE-REQUEST 2026-09-02T16:50+07:00, item 3.  The
-    guard itself is one line in ``runtime.py`` and is NOT in this repository's
-    lane B zone; what is here is the vocabulary, so that when the line moves
-    the console does not have to say "a newer floor went out" on the reply
-    where none did.
+    The letter this pays is CORE-REQUEST 2026-09-02T16:50+07:00 item 3 (the
+    pf_bridge repository, notes_to_chief/).  The guard itself is one line in
+    ``runtime.py``, which is NOT this lane's file; what is here is the
+    vocabulary, so that when the line moves the console does not have to say
+    "a newer floor went out" on a reply where none did.
+
+    THE THIRD NAME IS pf-adversary D4 of this round: ``ground_after`` is
+    empty for a refused publication as well as for the last object, so a
+    boolean caller would have printed the last-object name about a
+    publication that merely refused.
     """
 
     SCENE = "Bg0002"
 
-    def test_the_two_reasons_do_not_share_a_word(self):
-        superseded = mob_loot.boundary_stash_dropped_event(
-            self.SCENE, 3, a_newer_generation_went_out=True)
-        stale = mob_loot.boundary_stash_dropped_event(
-            self.SCENE, 3, a_newer_generation_went_out=False)
-        self.assertNotEqual(superseded, stale)
-        for event in (superseded, stale):
-            self.assertIn(mob_loot.scene_key(self.SCENE), event)
-            self.assertTrue(event.endswith("_frames_3"), event)
-        self.assertTrue(
-            superseded.startswith(mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT))
-        self.assertTrue(
-            stale.startswith(mob_loot.BOUNDARY_STASH_STALE_EVENT))
-        self.assertFalse(
-            stale.startswith(mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT),
-            "the stale name must not be readable as the superseded one by a "
-            "console reader who greps for a prefix")
+    _KEEP = object()
+
+    def _event(self, *, published=1, rows_left=1, frames=3, scene=_KEEP):
+        return mob_loot.boundary_stash_dropped_event(
+            self.SCENE if scene is self._KEEP else scene, frames,
+            published_generations=published, ground_rows_left=rows_left)
+
+    def test_the_three_reasons_do_not_share_a_word(self):
+        names = {
+            "superseded": self._event(published=1, rows_left=1),
+            "last_object": self._event(published=0, rows_left=0),
+            "unpublished": self._event(published=0, rows_left=-1),
+        }
+        self.assertEqual(len(set(names.values())), 3, names)
+        for label, event in names.items():
+            with self.subTest(case=label):
+                self.assertIn(mob_loot.scene_key(self.SCENE), event)
+                self.assertTrue(event.endswith("_frames_3"), event)
+        for one in names.values():
+            for other in names.values():
+                if one is not other:
+                    self.assertFalse(
+                        one.startswith(other.rsplit("_" + mob_loot.scene_key(
+                            self.SCENE), 1)[0] + "_"),
+                        "one name is a prefix of another: a console reader "
+                        "who greps a prefix would match both -- %r vs %r"
+                        % (one, other))
+
+    def test_the_literal_words_are_pinned_here_and_not_only_referenced(self):
+        """pf-adversary D2: the deliverable of this round IS a greppable
+        string, and every other test reaches it through the constant.  A
+        rename would have been invisible to the whole suite."""
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT,
+            "mob_loot_boundary_superseded_by_pickup")
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_STALE_EVENT,
+            "mob_loot_boundary_dropped_after_last_object_pickup")
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_UNPUBLISHED_EVENT,
+            "mob_loot_boundary_dropped_after_pickup_published_nothing")
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_SCENE_UNNAMED, "scene_unnamed")
 
     def test_the_superseded_name_is_the_one_the_runtime_already_emits(self):
         """Adopting this helper may not RENAME a live event.
@@ -2898,32 +2929,66 @@ class TheDroppedBoundaryStashHasTwoNamesTests(unittest.TestCase):
         already greps for.
         """
         self.assertEqual(
-            mob_loot.boundary_stash_dropped_event(
-                self.SCENE, 2, a_newer_generation_went_out=True),
+            self._event(published=1, rows_left=1, frames=2),
             "mob_loot_boundary_superseded_by_pickup_%s_frames_2"
             % (mob_loot.scene_key(self.SCENE),))
+
+    def test_the_stash_may_be_handed_over_as_the_tuple_it_is(self):
+        """pf-adversary D5.  The natural call passes
+        ``mob_loot_boundary_frames_pending`` and ``outcome.ground_after``,
+        both TUPLES.  ``int(())`` raises, and a fall back to -1 would have
+        made every production event read ``frames_-1`` with the suite green.
+        """
+        self.assertTrue(self._event(
+            published=(("pc", "frame"),), rows_left=1,
+            frames=("a", "b")).endswith("_frames_2"))
+        self.assertTrue(self._event(
+            published=(), rows_left=0, frames=("a",)).startswith(
+                mob_loot.BOUNDARY_STASH_STALE_EVENT))
+
+    def test_a_count_that_is_not_one_is_minus_one_rather_than_plausible(self):
+        """A number nobody can trace back is worse than an obvious hole."""
+        for bogus in (2.9, True, "7", None, object()):
+            with self.subTest(frames=bogus):
+                self.assertTrue(
+                    self._event(frames=bogus).endswith("_frames_-1"))
 
     def test_it_cannot_raise_on_what_a_session_can_hand_it(self):
         """Its caller sits in a v141 listener thread with no except above it.
 
-        Both arguments come from outside this lane -- a scene name off a
-        session's position, a length off a stash -- and a console name may
-        never cost a dispatch.
+        Every argument comes from outside this lane -- a scene name off a
+        session's position, two counts off another lane's dataclass -- and a
+        console name may never cost a dispatch.  The deciding value is
+        included ON PURPOSE (pf-adversary D6): the first draft evaluated it
+        for truth in the return expression, outside every guard.
         """
         for scene in (None, "", "  ", 17, object()):
             with self.subTest(scene=scene):
-                event = mob_loot.boundary_stash_dropped_event(
-                    scene, 1, a_newer_generation_went_out=True)
+                event = self._event(scene=scene)
                 self.assertIn(mob_loot.BOUNDARY_STASH_SCENE_UNNAMED, event)
-                self.assertTrue(event.endswith("_frames_1"))
-        event = mob_loot.boundary_stash_dropped_event(
-            self.SCENE, "not a count", a_newer_generation_went_out=False)
-        self.assertTrue(event.endswith("_frames_-1"), event)
+                self.assertTrue(event.endswith("_frames_3"))
 
-    def test_the_answer_is_keyword_only(self):
-        """A positional bool three lines from its opposite gets inverted."""
+        class _Hostile:
+            def __bool__(self):
+                raise RuntimeError("no truth value here")
+
+            def __len__(self):
+                raise RuntimeError("no length here")
+
+            def __str__(self):
+                raise RuntimeError("no name here")
+
+        event = self._event(published=_Hostile(), rows_left=_Hostile(),
+                            frames=_Hostile())
+        self.assertTrue(event.endswith("_frames_-1"), event)
+        self.assertTrue(
+            event.startswith(mob_loot.BOUNDARY_STASH_UNPUBLISHED_EVENT),
+            "a count nobody could read is not the last object: %r" % (event,))
+
+    def test_the_two_counts_are_keyword_only(self):
+        """Two numbers read off one outcome three lines apart get swapped."""
         with self.assertRaises(TypeError):
-            mob_loot.boundary_stash_dropped_event(self.SCENE, 1, True)
+            mob_loot.boundary_stash_dropped_event(self.SCENE, 1, 0, 0)
 
 
 if __name__ == "__main__":

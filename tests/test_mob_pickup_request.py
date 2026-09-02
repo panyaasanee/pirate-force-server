@@ -218,6 +218,23 @@ class _TakenRow:
         self.scene = scene
 
 
+class _TakenRowWhoseSceneRaises:
+    """ROUND veby94, pf-adversary D1: a row whose ``.scene`` is a property
+    that raises.  Unreachable through the real transaction (``GroundDrop`` is
+    a frozen dataclass with a plain ``scene: str``), and the whole point of
+    the test that uses it is that an unreachable raise in a CONSOLE read must
+    still not be able to cost the caller its frames."""
+
+    def __init__(self, drop_key):
+        self.outcome = self
+        self.drop = self
+        self.drop_key = drop_key
+
+    @property
+    def scene(self):
+        raise ValueError("scene not loaded")
+
+
 class LegacyFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1431,6 +1448,114 @@ class TheRemovalLineNamesItsGroundTests(TheWiringHarness):
         for line in self._removal_lines(console):
             self.assertIn("taken_scene=%s" % (elsewhere,), line)
             self.assertIn("scene=%s" % (SCENE,), line)
+
+    def test_the_token_literal_is_pinned_here_and_not_only_referenced(self):
+        """pf-adversary D2.  The deliverable of this round is a string an
+        operator and a GT round GREP for, and every other test in this file
+        reaches it through the module constant -- so renaming the constant's
+        VALUE, or making it collide with the HELD token's prefix, was
+        invisible to the whole suite.  Measured: a mutant renaming it to
+        MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT_ALSO stayed green."""
+        self.assertEqual(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            "MOB_PICKUP_GROUND_REMOVAL_KEY_IS_ANOTHER_SCENES")
+        for other in (
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN):
+            with self.subTest(other=other):
+                self.assertFalse(
+                    other.startswith(mob_pickup_request
+                                     .MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN)
+                    or mob_pickup_request
+                    .MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN
+                    .startswith(other),
+                    "one removal token is a prefix of another: a console "
+                    "reader who greps a prefix would match both")
+
+    def test_a_case_only_difference_is_one_scene_and_fires_nothing(self):
+        """!! THE .casefold() IS THE WHOLE TOKEN, and pf-adversary D3 killed
+        a mutant that dropped it while the suite stayed green.
+
+        ``DropLedger.for_scene`` keeps rows whose ``scene_key`` -- a
+        casefold -- equals the cell's, so ``bg0001`` and ``Bg0001`` are ONE
+        ground and the pickup is ordinary.  Without the fold this token would
+        fire on that ordinary pickup, and the day one roster module spells a
+        folder differently from another it would fire on EVERY pickup -- the
+        noise its own docstring says it must never become.  Driven through
+        the real branch, not the composer.
+        """
+        other_case = SCENE.upper()
+        self.assertNotEqual(other_case, SCENE)
+        self.assertEqual(other_case.casefold(), SCENE.casefold())
+        drop = a_drop(0)
+        cell = DropLedgerCell(
+            DropLedger((drop,), 1, drop.drop_key + 1, ()), scene=other_case)
+        outcome, console = self._run(self._namespace(ground_cell=cell))
+        self.assertTrue(
+            outcome.handled,
+            "a case-only difference refused the take; this test's premise "
+            "is wrong: %r" % (console,))
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console)
+        for line in self._removal_lines(console):
+            self.assertIn("same_ground=1", line)
+
+    def test_the_verdict_is_on_the_line_and_not_left_to_the_reader(self):
+        """pf-adversary D3b: the comparison is casefolded and the two words
+        printed are RAW, so an operator reading the line sees two visibly
+        different spellings on a same-ground take.  ``same_ground`` is the
+        verdict itself, and ``?`` is its third state -- a name that could not
+        be read is not a disagreement."""
+        _, console = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        for line in self._removal_lines(console):
+            self.assertIn("same_ground=1", line)
+        cell = self._ground(0, 1)
+        transacted = _TakenRow(mob_loot.DROP_KEY_BASE + 99, "Bg0015")
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        for line in self._removal_lines(buffer.getvalue()):
+            self.assertIn("same_ground=0", line)
+        transacted = _TakenRowWhoseSceneRaises(mob_loot.DROP_KEY_BASE + 99)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        for line in self._removal_lines(buffer.getvalue()):
+            self.assertIn("same_ground=?", line)
+
+    def test_a_raising_scene_name_costs_the_word_and_not_the_frames(self):
+        """!! pf-adversary D1, and it changed BYTES rather than a line.
+
+        The first draft of this round read the taken row's ``.scene`` inside
+        the guard whose ``except`` returns ``(-1, ())``.  Measured against
+        the same input on ``origin/main``: ``rows_left`` 1 -> -1 and one
+        composed frame -> zero, which downstream flips
+        ``_the_delta_that_matches_the_floor`` to the CLEARING delta and drops
+        the removal actions the chief's branch sends.  A console name may
+        never cost a frame, so the read now sits below the publication in its
+        own guard -- and this test is what says so.
+        """
+        cell = self._ground(0, 1)
+        transacted = _TakenRowWhoseSceneRaises(mob_loot.DROP_KEY_BASE + 99)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            rows_left, frames = mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        console = buffer.getvalue()
+        self.assertEqual(rows_left, 2, console)
+        self.assertTrue(frames, "the floor was lost to a console name")
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+            console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console,
+            "a name that could not be read is not a disagreement")
 
     def test_an_unreadable_scene_name_costs_the_word_and_not_the_frames(self):
         """A console name may never cost a floor.
