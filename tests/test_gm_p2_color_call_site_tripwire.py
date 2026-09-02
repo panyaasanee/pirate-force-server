@@ -32,7 +32,9 @@ is LANE-GM's exclusive write zone: a lane doing the right thing had no
 in-zone way to go green inside its own round.  A guard that deadlocks
 another lane is worse than the gap it closes, so the obligation stops at the
 boundary this lane actually owns.  The cross-tree half is asked for in
-writing instead (``notes_to_chief/20260902_1230_LANE-GM-TO-CHIEF-*``), and
+writing instead -- in the bridge repository, which this one does not
+contain (``pf_bridge/notes_to_chief/20260902_1230_LANE-GM-TO-CHIEF-*``,
+and again in ``..._1335_...``) -- and
 until chief answers it, the gap below stands OPEN and named.
 
 WHAT THIS CANNOT DO -- read this before citing it as cover.  In rough order
@@ -43,9 +45,27 @@ of how likely each is to matter:
   the wire -- is not scanned, nor is the rest of ``src/``, ``tools/``,
   ``patches/``, or any ``.pyi``.  That is the biggest hole and it is not
   closed here.
-* RESULT.  It proves the verdict is CALLED, never that the caller obeyed it.
-  ``p2_color_wiring_verdict()`` on its own line, then wiring the colour
-  anyway, passes.
+* RESULT.  NARROWED by round ``9sqec6``, and narrowed by ONE step only: a
+  verdict call whose value is thrown away -- ``p2_color_wiring_verdict()``
+  alone on a line -- no longer counts as consulting anything.  That is the
+  exact shape round ``qhowwu`` wrote into its backlog, and nothing wider is
+  claimed.  Everything that KEEPS the value passes, including shapes that
+  plainly ignore it afterwards.  Measured holes, each pinned by a test that
+  asserts it PASSES rather than by prose: a tautological
+  ``if p2_color_wiring_verdict():`` (the dataclass is truthy, so the body
+  always runs); a consult sitting in dead code; an unreachable consult; a
+  branch that consults and then paints anyway -- OBEDIENCE is not provable
+  here at all -- and, in the row named ``logged`` of the shape table, a value
+  handed to a logger.  An ``assert``-only consult passes too, and in a
+  scanned module ``python -O`` would compile that assert away entirely; that
+  last point is argued rather than tested, because this file reads source
+  text and never executes the module it judges.  An earlier draft of this round tried to
+  require the value to reach an ``assert``/``if``/``raise``/``return``, and
+  pf-adversary showed that a blessed-shape list red-lights this zone's OWN
+  guard idiom (a bare ``_require_x(value)`` statement, ``gm/commands.py``),
+  plus tuple unpacks, attribute and subscript targets, ``with``, ``match``,
+  decorators and ``for`` iterables.  A rule that reds correct code buys its
+  strength from the next author's round; this one does not.
 * NAME.  It is a name tripwire, not a semantic one: colour code that names
   no token -- composing the field by a bare index -- walks past.
 * COMPOSITION.  Literal concatenation is folded and caught, but a runtime
@@ -252,13 +272,59 @@ def _defines_its_own(tree: ast.AST) -> bool:
 
 def _consults_the_refusal(source: str) -> bool:
     tree = ast.parse(source)
-    called = any(
-        isinstance(n, ast.Call)
+    if not _verdict_calls(tree):
+        return False
+    if not _imports_the_gate(tree) or _defines_its_own(tree):
+        return False
+    # RESULT tier: a call whose answer is thrown away consulted nothing.  This
+    # proves the value is KEPT -- never that it was read, believed, or obeyed
+    # (see the file docstring, and the two witness tests at the end).
+    return _verdict_value_is_kept(tree)
+
+
+def _verdict_calls(tree: ast.AST) -> list[ast.Call]:
+    return [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
         and (n.func.attr if isinstance(n.func, ast.Attribute) else getattr(n.func, "id", None))
         == REQUIRED_CALL
-        for n in ast.walk(tree)
-    )
-    return called and _imports_the_gate(tree) and not _defines_its_own(tree)
+    ]
+
+
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    table: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            table[child] = node
+    return table
+
+
+def _is_discarded(call: ast.Call, parents: dict[ast.AST, ast.AST]) -> bool:
+    """True iff this call's value is thrown away by the statement it sits in.
+
+    The rule is deliberately ONE shape wide -- the call IS the value of a bare
+    expression statement -- and everything else counts as consumed.  The first
+    draft of this round instead listed the shapes that DO count (assert / if /
+    while / raise / return / a name they read) and pf-adversary killed it: the
+    zone's own house idiom for a guard is a bare ``_require_x(value)`` call
+    statement (``gm/commands.py:321``, ``gm/teleport_wire.py:346``), and a
+    tuple unpack, an attribute or subscript target, a ``with``, a ``match``, a
+    decorator and a ``for`` iterable were all red-lighted while doing the
+    right thing.  A list of blessed shapes turns every unlisted-but-correct
+    idiom into a red this lane then has to widen the list for.  A discarded
+    value has no such reading: nothing can be done with it.
+    """
+    node: ast.AST = call
+    parent = parents.get(node)
+    while isinstance(parent, ast.Await):  # `await f()` adds no statement
+        node, parent = parent, parents.get(parent)
+    return isinstance(parent, ast.Expr) and node is parent.value
+
+
+def _verdict_value_is_kept(tree: ast.AST) -> bool:
+    parents = _parents(tree)
+    return any(not _is_discarded(call, parents) for call in _verdict_calls(tree))
 
 
 def _read(path: pathlib.Path) -> str:
@@ -307,7 +373,8 @@ def test_p2_colour_code_in_the_gm_zone_must_consult_the_refusal():
     )
     assert not offenders, (
         "P-2 colour tokens appear in executable code under gm/ that never "
-        f"reaches {REQUIRED_CALL}() through {GATE_MODULE_NAME}: "
+        f"reaches {REQUIRED_CALL}() through {GATE_MODULE_NAME}, or calls it "
+        "and throws the answer away: "
         + " | ".join(offenders)
         + " -- RE-195's bounded negative still stands, so a call site that "
         "touches this field has to read the refusal and say what it does "
@@ -397,21 +464,106 @@ def test_literal_concatenation_does_not_hide_a_token(literal):
     assert _token_hits(f"STYLE = {literal}\n")
 
 
+_IMPORT = "from pirateforce_foundation.gm import name_color_gate\n"
+_VERDICT = "name_color_gate.p2_color_wiring_verdict()"
+
+
 @pytest.mark.parametrize(
     "source, expected",
     [
-        ("from pirateforce_foundation.gm import name_color_gate\n"
-         "x = name_color_gate.p2_color_wiring_verdict()\n", True),
-        ("x = p2_color_wiring_verdict()\n", False),                       # no import
-        ("def p2_color_wiring_verdict():\n    return 1\n"
-         "x = p2_color_wiring_verdict()\n", False),                       # its own
-        ("from pirateforce_foundation.gm import name_color_gate\n"
-         "x = name_color_gate.p2_color_wiring_verdict\n", False),         # not a call
+        (_IMPORT + f"if {_VERDICT}.allowed:\n    paint()\n", True),
+        (f"if {_VERDICT}.allowed:\n    paint()\n", False),               # no import
+        (_IMPORT + "def p2_color_wiring_verdict():\n    return 1\n"
+         "if p2_color_wiring_verdict().allowed:\n    paint()\n", False),  # its own
+        (_IMPORT + "x = name_color_gate.p2_color_wiring_verdict\n", False),  # not a call
     ],
     ids=["real", "no-import", "shadowed", "bare-name"],
 )
 def test_only_a_real_call_through_the_gate_counts(source, expected):
     assert _consults_the_refusal(source) is expected
+
+
+# --------------------------------------------------------------------------
+# the RESULT tier: a value that is thrown away consulted nothing
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        (f"{_VERDICT}\n", False),                                        # bare statement
+        (f"({_VERDICT})\n", False),                                      # parenthesised
+        (f"async def f():\n    await {_VERDICT}\n", False),              # awaited, dropped
+        (f"assert {_VERDICT}.allowed is False\n", True),
+        (f"if {_VERDICT}.allowed:\n    paint()\n", True),
+        (f"raise RuntimeError({_VERDICT}.reason())\n", True),
+        (f"def f():\n    return {_VERDICT}\n", True),
+        (f"v = {_VERDICT}\nif v.allowed:\n    paint()\n", True),
+        (f"_require_p2({_VERDICT})\n", True),                            # zone house idiom
+        (f"self._verdict = {_VERDICT}\n", True),                         # attribute target
+        (f"allowed, blockers, evidence = {_VERDICT}\n", True),           # tuple unpack
+        (f"with {_VERDICT} as v:\n    pass\n", True),                    # with-item
+        (f"for b in {_VERDICT}.blockers:\n    pass\n", True),            # for iterable
+        (f"@guard({_VERDICT})\ndef paint():\n    pass\n", True),         # decorator
+        (f"log.info({_VERDICT}.reason())\n", True),                      # kept, then logged
+        (f"{_VERDICT}.reason()\n", True),                                # read, then dropped
+    ],
+    ids=[
+        "bare-statement",
+        "parenthesised-bare-statement",
+        "awaited-bare-statement",
+        "assert",
+        "if-test",
+        "raise",
+        "return",
+        "assigned",
+        "require-helper",
+        "attribute-target",
+        "tuple-unpack",
+        "with-item",
+        "for-iterable",
+        "decorator",
+        "logged",
+        "attribute-then-dropped",
+    ],
+)
+def test_a_discarded_verdict_is_not_a_consultation(body, expected):
+    """One shape fails: the value thrown away.  Every shape that KEEPS it
+    passes, INCLUDING ones that go on to ignore it -- the last rows are the
+    zone's own idioms, and red-lighting them is how the first draft of this
+    rule died (pf-adversary, round ``9sqec6``, D1).
+
+    ``attribute-then-dropped`` is the boundary case, pinned so nobody has to
+    guess: ``p2_color_wiring_verdict().reason()`` as a statement of its own
+    passes, because the verdict itself WAS read -- what gets dropped is the
+    string, not the answer.  Read literally, that is what this rule says.
+    """
+    assert _consults_the_refusal(_IMPORT + body) is expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"if {_VERDICT}:\n    paint()\n",                     # truthy: body always runs
+        f"def _never_called():\n    return {_VERDICT}\n",     # dead code
+        f"if False:\n    assert {_VERDICT}.allowed\n",        # unreachable consult
+        f"if {_VERDICT}.allowed:\n    pass\npaint()\n",      # consults, then disobeys
+    ],
+    ids=["tautology", "dead-code", "unreachable", "disobedient"],
+)
+def test_the_holes_this_rule_does_not_close_are_witnessed_not_asserted(body):
+    """Each of these PASSES the tripwire, and each is named in the header.
+
+    A guard whose limits live only in prose gets cited for more than it
+    proves.  ``P2ColorWiringVerdict`` defines no ``__bool__``, so
+    ``if p2_color_wiring_verdict():`` is a tautology whose body always runs
+    -- this file grades it green, on purpose, rather than pretend otherwise.
+    """
+    assert _consults_the_refusal(_IMPORT + body)
+    assert gate.p2_color_wiring_verdict(), "the tautology row depends on this"
+    doc = pathlib.Path(__file__).read_text(encoding="utf-8").split('"""')[1]
+    for word in ("tautological", "OBEDIENCE", "dead code"):
+        assert word in doc, f"the header stopped naming the hole: {word}"
 
 
 @pytest.mark.parametrize(
