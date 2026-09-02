@@ -2497,6 +2497,128 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
                          (self.SCENE_A, self.SCENE_A, 0, 0))
         self.assertEqual(self.cell.ledger.drops, before)
 
+    # -- the boundary re-announces the ground (COO-DECISION 20260902_0944) ---
+
+    def test_walking_back_without_killing_anything_re_announces_the_ground(
+            self):
+        """THE REGRESSION THE RULING NAMES, word for word: A has a drop ->
+        go to B -> come back to A WITHOUT KILLING ANYTHING -> A has a
+        publication.
+
+        Before this round the only emitter needed a kill, so "your loot is
+        still there when you walk back" was true of the server's ledger and
+        of nothing the player could see.
+        """
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        self.cell.enter_scene(self.SCENE_B)
+        previous, current, elsewhere, expired, frames = (
+            self.cell.enter_scene_frames(self.legacy, self.SCENE_A))
+        self.assertEqual((previous, current, expired),
+                         (self.SCENE_B, self.SCENE_A, 0))
+        self.assertEqual(elsewhere, 0)
+        self.assertTrue(frames, "the boundary announced nothing")
+        # the bytes are the scene's own generation, and nothing else's
+        self.assertEqual(
+            frames, mob_loot.refresh_frames(
+                self.legacy, self.cell.scene_ledger()))
+        keys = b"".join(pc for pc, _frame in frames)
+        for drop in in_a:
+            self.assertIn(
+                self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key),
+                keys)
+
+    def test_the_boundary_publication_carries_no_other_scenes_rows(self):
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        self.cell.enter_scene(self.SCENE_B)
+        in_b = self._kill(self._mob_in(self.SCENE_B, index_offset=40))
+        _p, _c, elsewhere, _e, frames = self.cell.enter_scene_frames(
+            self.legacy, self.SCENE_A)
+        self.assertEqual(elsewhere, len(in_b))
+        keys = b"".join(pc for pc, _frame in frames)
+        for drop in in_a:
+            self.assertIn(
+                self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key),
+                keys)
+        for drop in in_b:
+            self.assertNotIn(
+                self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key),
+                keys)
+
+    def test_an_empty_scene_announces_nothing_at_all(self):
+        """COO-DECISION 0944: a scene with no rows sends NOTHING.  A zero-row
+        generation is a no-op on the client (RE-082), so emitting one spends
+        an unmeasured shape to say nothing."""
+        self._kill(self._mob_in(self.SCENE_A))
+        _p, _c, elsewhere, _e, frames = self.cell.enter_scene_frames(
+            self.legacy, self.SCENE_B)
+        self.assertEqual(frames, ())
+        self.assertEqual(elsewhere, len(self.cell.ledger.drops))
+        # and the rows of the scene just left are still standing
+        self.assertTrue(self.cell.ledger.drops)
+
+    def test_the_empty_scene_guard_is_the_rule_and_not_an_accident(self):
+        """The previous test passes even with the guard removed, and this
+        round found that out by deleting it: ``refresh_frames`` already
+        returns no frames for zero rows, so "an empty scene sends nothing"
+        is true today for a reason that lives in ANOTHER function.
+
+        COO-DECISION 0944 makes it a RULE, so it is pinned as one: the
+        composer is not even reached.  If a later round teaches the composer
+        to emit a zero-element generation -- the exact unmeasured shape the
+        ruling avoids spending -- this is what goes red instead of the game
+        quietly acquiring a new frame on every empty crossing.
+        """
+        self._kill(self._mob_in(self.SCENE_A))
+        called = []
+        real = mob_loot.refresh_frames
+
+        def spy(legacy, ledger):
+            called.append(tuple(ledger.drops))
+            return ((b"pc", b"frame"),)
+
+        mob_loot.refresh_frames = spy
+        try:
+            _p, _c, _e, _x, frames = self.cell.enter_scene_frames(
+                self.legacy, self.SCENE_B)
+        finally:
+            mob_loot.refresh_frames = real
+        self.assertEqual(frames, ())
+        self.assertEqual(called, [], "the composer was reached for an empty "
+                                     "scene; the guard is gone")
+
+    def test_the_boundary_publication_removes_nothing(self):
+        """COO 0253 still stands: the announcing call may not become a
+        remover."""
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        self.cell.enter_scene(self.SCENE_B)
+        before = self.cell.ledger.drops
+        self.cell.enter_scene_frames(self.legacy, self.SCENE_A)
+        self.cell.enter_scene_frames(self.legacy, self.SCENE_B)
+        self.cell.enter_scene_frames(self.legacy, self.SCENE_A)
+        self.assertEqual(self.cell.ledger.drops, before)
+        self.assertEqual(len(before), len(in_a))
+
+    def test_the_two_entries_agree_about_everything_they_both_answer(self):
+        """``enter_scene_frames`` IS ``enter_scene`` plus bytes.  A later
+        round that changes one and not the other has to argue with this."""
+        self._kill(self._mob_in(self.SCENE_A))
+        plain_cell = DropLedgerCell()
+        framed_cell = DropLedgerCell()
+        for cell in (plain_cell, framed_cell):
+            self._kill_through(cell, self._mob_in(self.SCENE_A))
+            cell.enter_scene(self.SCENE_B)
+        plain = plain_cell.enter_scene(self.SCENE_A)
+        framed = framed_cell.enter_scene_frames(self.legacy, self.SCENE_A)
+        self.assertEqual(plain, framed[:4])
+
+    def test_the_boundary_refuses_a_scene_that_is_not_a_scene(self):
+        self._kill(self._mob_in(self.SCENE_A))
+        with self.assertRaises(MobLootContractError) as caught:
+            self.cell.enter_scene_frames(self.legacy, "bg 0001")
+        self.assertEqual(caught.exception.args[0], "scene_not_a_scene")
+        # and the cell did not move under the refusal
+        self.assertEqual(self.cell.current_scene, self.SCENE_A)
+
     def test_a_cell_that_does_not_know_its_scene_refuses_by_name(self):
         """FAIL-CLOSED.  The alternative -- falling back to every row -- is
         the leak way 1 closed, so 'I do not know' must not become 'send
@@ -2605,6 +2727,14 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
         wiring_step_six = mob_loot.MOB_LOOT_WIRING.split("  6. ")[1]
         self.assertIn("enter_scene(folder)", wiring_step_six)
         self.assertIn("~~call cell.reconcile_scene_transition()",
+                      wiring_step_six)
+        # ROUND 9jrsei: and the line the chief is asked to write is now the
+        # one that also announces the ground (COO-DECISION 20260902_0944).
+        # Pinned here because the wiring text is what the chief reads, and a
+        # round that changed the method without changing the instruction
+        # would ship a lane whose own file asks for the older half.
+        self.assertIn("enter_scene_frames(legacy, folder)", wiring_step_six)
+        self.assertIn("~~self.mob_loot_cell.enter_scene(folder)~~",
                       wiring_step_six)
         self.assertIn("SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY", source)
 

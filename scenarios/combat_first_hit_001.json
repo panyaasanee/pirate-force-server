@@ -27,7 +27,7 @@
   "damage_wire": -964,
   "hp_after": 2893,
   "fraction_after": 0.7500648172154524,
-  "announce_frame_bytes": 95,
+  "announce_frame_bytes": 98,
   "bar_frame_bytes": 167,
   "hp_floor": 0,
   "death_due": false,
@@ -45,6 +45,7 @@
     "named AND hostile in one body has never been sent and never been observed: field_mobs' nonclaim, inherited here, because the bar frame this driver refreshes IS that body (mask 0x070D, not GT-035's 0x030D)",
     "a monster this lane took to zero is finished by mob_death and by nothing else: until that call is made it lies at zero HP with no timer field, which is a state no client has been shown",
     "the announce frame carries the monster's own world position; for the sparse bg0001 rows that can be ~12,000 units from a spawning player, and a neighbouring lane measured no model drawn at that distance",
-    "threat is only recorded while the mob's aggro phase is idle or aggro: mob_aggro absorbs damage silently in its return and dead phases, by that module's declared design, and this driver does not override it"
+    "threat is only recorded while the mob's aggro phase is idle or aggro: mob_aggro absorbs damage silently in its return and dead phases, by that module's declared design, and this driver does not override it",
+    "the announce frame's PRESERVE tail (round 9jrsei, COO-DECISION 2026-09-02T06:46+07:00) has never been observed on a vitals collection: what is measured is that the same tail already ships on every ~2 s heartbeat of a flagless boot (app.py installs mob_loot.preserve_ground_heartbeat_frame), and that frame carries inherited mask 0 where this one carries 0x02.  That a client accepting the first accepts the second is this lane's assumption and GT-204 is where it gets watched; a refusal falls back to yesterday's bytes and prints GROUND_VITALS_PRESERVE_REFUSED, so the damage number cannot be lost with it"
   ]
 }

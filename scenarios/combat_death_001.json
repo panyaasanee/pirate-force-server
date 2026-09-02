@@ -13,7 +13,7 @@
   "hp_when_dead": 0,
   "killer_identity": 7667801,
   "damage_wire": -198125,
-  "announce_frame_bytes": 95,
+  "announce_frame_bytes": 98,
   "bar_frame_bytes": 0,
   "dying_timer_seconds": 20.0,
   "dead_timer_seconds": 0.0,

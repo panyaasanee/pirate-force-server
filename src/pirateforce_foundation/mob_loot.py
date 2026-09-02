@@ -361,7 +361,18 @@ MOB_LOOT_WIRING = (
     "+07:00 forbids until a removal publisher exists.  WHAT TO CALL INSTEAD, "
     "one line, at the SAME boundary (right where mob_combat_scene_folder is "
     "assigned), before the first publish in the new scene:\n"
-    "       self.mob_loot_cell.enter_scene(folder)\n"
+    "       ~~self.mob_loot_cell.enter_scene(folder)~~ IS SUPERSEDED, round "
+    "9jrsei, by COO-DECISION 2026-09-02T09:44+07:00, which answered the open "
+    "question below.  THE LINE TO WRITE IS NOW TWO, and the second one is the "
+    "half a player can see:\n"
+    "       _prev, _now, _elsewhere, _expired, ground = ("
+    "self.mob_loot_cell.enter_scene_frames(legacy, folder))\n"
+    "       # then send every (pc, frame) in `ground`, in order, like a "
+    "kill's drop frames.  It is EMPTY for a scene with no drops standing, "
+    "and then you send nothing.\n"
+    "     enter_scene(folder) still exists and still does exactly what it "
+    "did; enter_scene_frames is that call plus the entered scene's own "
+    "generation, composed from one snapshot.\n"
     "     It removes nothing FOR BEING A BOUNDARY (its own lazy expiry can "
     "still collect rows whose 120 s deadline had passed; the call returns "
     "how many, as its fourth element): scene A's drops keep standing in "
@@ -369,12 +380,18 @@ MOB_LOOT_WIRING = (
     "QUOTING IT TO A PLAYER, round 4e9r7g / pf-adversary: 'still there when "
     "the player walks back' is true of the SERVER's ledger and NOT of the "
     "client's screen.  RE-130 says scene B's first publication erases the "
-    "keys it omits, and the only emitter is sustain_a_kill, which needs a "
+    "keys it omits, and ~~the only emitter is sustain_a_kill, which needs a "
     "KILL -- so a player who returns to scene A sees the drop again only "
-    "when something else dies in scene A, inside what is left of the 120 s.  "
-    "WHO RE-ANNOUNCES A SCENE'S GROUND ON RE-ENTRY IS AN OPEN QUESTION this "
-    "lane has put to the COO rather than answered with an emitter on a "
-    "timer, which is refused.  Calling it for the scene the cell is "
+    "when something else dies in scene A, inside what is left of the "
+    "120 s~~ IS STRUCK, round 9jrsei: the boundary emits now, so nothing "
+    "else has to die -- what the player gets back is whatever is left inside "
+    "the 120 s.  "
+    "~~WHO RE-ANNOUNCES A SCENE'S GROUND ON RE-ENTRY IS AN OPEN QUESTION~~ "
+    "IS ANSWERED, round 9jrsei: COO-DECISION 2026-09-02T09:44+07:00 rules "
+    "that the boundary itself re-announces it -- ONE generation, only when "
+    "the entered scene has rows -- because that is an EVENT and not the "
+    "cadence refused on 2026-08-26.  That is why the line above is now "
+    "enter_scene_frames.  Calling it for the scene the cell is "
     "already in is a no-op, so it is safe to call on every sync.  WITHOUT IT "
     "the cell keeps publishing for whatever scene its last kill was in, and "
     "before the FIRST kill of a boot it does not know a scene at all, so "
@@ -2790,17 +2807,77 @@ class DropLedgerCell:
         than a reading: elsewhere=0 with expired=0 means the ground was
         already empty, elsewhere=0 with expired=4 means it was not.
         """
+        previous, scene, elsewhere, expired, _view = self._enter_scene(scene)
+        return previous, scene, elsewhere, expired
+
+    def _enter_scene(self, scene: Any) -> tuple:
+        """The locked half of :meth:`enter_scene`, plus the entered scene's
+        own rows as a value.
+
+        ONE ACQUISITION, for the reason :meth:`publication` is one: a caller
+        that entered the scene and then read the ledger holds two facts a kill
+        landing between them can make disagree, and the disagreement composes
+        a generation that omits a live key of the scene it publishes -- which
+        RE-130 says ERASES that key on the client.
+        """
         scene = _require_scene(scene, "scene")
-        wanted = scene_key(scene)
         with self._lock:
             now = self._read_now_locked()
             expired = self._sweep_locked(now)
             previous = self._scene
             self._scene = scene
             self._scene_declared = True
-            elsewhere = sum(
-                1 for drop in self._ledger.drops if drop.scene_key != wanted)
-            return previous, scene, elsewhere, len(expired)
+            whole = self._ledger
+            view = whole.for_scene(scene)
+            elsewhere = len(whole.drops) - len(view.drops)
+            return previous, scene, elsewhere, len(expired), view
+
+    def enter_scene_frames(self, legacy: Any, scene: Any) -> tuple:
+        """:meth:`enter_scene`, and the ONE generation that re-announces the
+        entered scene's ground.  ``(previous, current, elsewhere, expired,
+        frames)``.
+
+        COO-DECISION 2026-09-02T09:44+07:00, answering this lane's own
+        question of 09:15 ("who re-announces a scene's ground when the player
+        walks back into it").  Way 1 (COO 0252) keeps scene A's rows STANDING
+        while the player is in scene B -- but a row the server holds and the
+        screen does not draw is a row the player cannot pick up, so the half
+        of way 1 the owner can see did not exist until something re-announced
+        it.  Before this, the only thing that did was the next KILL in that
+        scene, and "walk back and kill something else" is not what way 1
+        promised.
+
+        WHY THIS IS NOT THE REFUSED REFRESH TIMER.  The COO refused a cadence
+        on 2026-08-26 (see :func:`refresh_frames`): a periodic re-emission of
+        the ground.  This fires on a ONE-OFF EVENT -- a scene boundary, the
+        same class of trigger as a kill -- and the same ruling states that
+        distinction in those words: what is forbidden is a timer, not an
+        event.  One frame per scene crossing.
+
+        AN EMPTY SCENE SENDS NOTHING, and that is the ruling too.  A zero-row
+        generation is a no-op on the client per RE-082, so emitting one would
+        be bytes that mean nothing; worse, it would spend this lane's only
+        UNMEASURED shape (a generation carrying no elements) on a case that
+        gains nothing, while the removal publisher COO 0253 asks for has not
+        been designed yet.  ``frames`` is the empty tuple there and the caller
+        sends nothing.
+
+        The bytes are composed OUTSIDE the lock, from the ledger VALUE this
+        call snapshotted, because composing bytes under a lock a kill is
+        waiting on is how a lane earns a stall it cannot see.  The value is
+        immutable, so what is composed is exactly what was true at the
+        boundary.
+
+        [ASSUMPTION OF LANE B - AWAITING AN ATTENDED ROUND] that a client
+        which draws a generation sent after a kill also draws the same
+        generation sent at a scene boundary.  NONCLAIM 12 (nobody has watched
+        what a re-emission does to a label that is already drawn) is
+        untouched by this and stays open; GT-204's re-entry step is where
+        both get watched.
+        """
+        previous, scene, elsewhere, expired, view = self._enter_scene(scene)
+        frames = refresh_frames(legacy, view) if view.drops else ()
+        return previous, scene, elsewhere, expired, frames
 
     def publication(self) -> tuple:
         """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.
@@ -3876,7 +3953,12 @@ def preserve_ground_in_runtime_res_vitals(
             "the legacy framing layer and this module's re-derivation of it "
             "disagree about the preserved RuntimeRes frame")
     return pc, frame
-    return rewritten, frame
+    # ~~return rewritten, frame~~ IS STRUCK, round 9jrsei: a leftover of the
+    # draft that rewrote an already-composed pc (refuted in round ewm6ff,
+    # finding D1).  It is unreachable AND names a variable this function does
+    # not define, so the day somebody deletes the return above it, this line
+    # answers with a NameError instead of bytes.  Struck rather than deleted,
+    # per the project's rule, with the reason beside it.
 
 
 def money_element(legacy: Any, money: Any) -> bytes:
