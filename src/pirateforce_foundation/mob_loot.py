@@ -1478,11 +1478,39 @@ def scene_key(scene: Any) -> str:
 #: that when that line changes, the outcomes it then covers do not have to
 #: share one word.  Nothing in ``src/`` calls it yet, and no round may report
 #: the hole closed on the strength of this function.
-BOUNDARY_STASH_SUPERSEDED_EVENT = "mob_loot_boundary_superseded_by_pickup"
+#:
+#: !! ROUND li9nce, COO-DECISION 2026-09-03T00:54+07:00 QUESTION 2: THE TWO
+#: NAME SETS ON ``main`` MERGE, AND THE INLINE SET WINS.  ``runtime.py``
+#: composes its own token for the same three outcomes
+#: (``mob_loot_boundary_<reason>_<scene>_frames_<n>``, runtime.py:7449-7488)
+#: and THAT is the set an operator has seen on a console and the set
+#: ``GT-204`` greps for.  This module had a second spelling for two of the
+#: three, with zero call sites in ``src/`` -- so this module is the side
+#: that yields.  The reason words below are the inline words, byte for
+#: byte, and the event names are built from them rather than typed twice.
+BOUNDARY_STASH_EVENT_PREFIX = "mob_loot_boundary_"
+BOUNDARY_STASH_SUPERSEDED_REASON = "superseded_by_pickup"
+BOUNDARY_STASH_STALE_REASON = "last_object_pickup"
+BOUNDARY_STASH_UNPUBLISHED_REASON = "publication_refused"
+BOUNDARY_STASH_SUPERSEDED_EVENT = (
+    BOUNDARY_STASH_EVENT_PREFIX + BOUNDARY_STASH_SUPERSEDED_REASON)
+#: ~~"mob_loot_boundary_dropped_after_last_object_pickup"~~ and
+#: ~~"mob_loot_boundary_dropped_after_pickup_published_nothing"~~ ARE STRUCK,
+#: round li9nce, by the decision above.  They are struck rather than deleted
+#: and they are still listed in :data:`BOUNDARY_STASH_RETIRED_EVENTS`,
+#: because a name that is deleted is a name a reader of an old round file
+#: cannot look up.  NOTHING may produce them again: this lane's own test
+#: drives every family through the composer to prove it.
 BOUNDARY_STASH_STALE_EVENT = (
-    "mob_loot_boundary_dropped_after_last_object_pickup")
+    BOUNDARY_STASH_EVENT_PREFIX + BOUNDARY_STASH_STALE_REASON)
 BOUNDARY_STASH_UNPUBLISHED_EVENT = (
-    "mob_loot_boundary_dropped_after_pickup_published_nothing")
+    BOUNDARY_STASH_EVENT_PREFIX + BOUNDARY_STASH_UNPUBLISHED_REASON)
+#: The spellings this module used between rounds ``veby94`` and ``li9nce``.
+#: Kept readable, produced by nothing.
+BOUNDARY_STASH_RETIRED_EVENTS = (
+    "mob_loot_boundary_dropped_after_last_object_pickup",
+    "mob_loot_boundary_dropped_after_pickup_published_nothing",
+)
 #: The scene word used when the caller's scene cannot be named at all.  See
 #: :func:`boundary_stash_dropped_event` for why this exists rather than a
 #: raise.
@@ -1511,6 +1539,84 @@ def _console_count(value: Any) -> int:
         return len(value)
     except Exception:                            # noqa: BLE001 - see docstring
         return -1
+
+
+def boundary_stash_reason(
+        *, published_generations: Any, ground_rows_left: Any) -> str:
+    """WHICH of the three outcomes this was, as the bare console word.
+
+    ROUND li9nce.  This is the one decision, in one place: the event name and
+    the console line are two RENDERINGS of it, and ``runtime.py`` can adopt
+    it as a one-line swap for its own ``if/elif/else`` without any operator
+    seeing a different word than they saw yesterday (COO-DECISION
+    2026-09-03T00:54+07:00 question 2).
+
+      * anything published -> :data:`BOUNDARY_STASH_SUPERSEDED_REASON`
+      * nothing published and no rows left (``0``) ->
+        :data:`BOUNDARY_STASH_STALE_REASON`
+      * nothing published and rows still there, or a count that could not be
+        read -> :data:`BOUNDARY_STASH_UNPUBLISHED_REASON`
+
+    IT CANNOT RAISE, for its caller's reason and not for politeness: the
+    inline site sits in a v141 listener thread with no ``except`` above it.
+    The counts go through :func:`_console_count`, so an unreadable count is
+    ``-1`` and lands on the third name -- "nobody could read the floor" is
+    not "the floor is empty", and only the third name leaves that open.
+
+    !! ONE MEASURED DIFFERENCE FROM THE INLINE SITE IT IS OFFERED TO.  The
+    inline line asks ``if outcome.ground_after:`` -- truth, not a count.  For
+    the tuple that field actually holds the two agree exactly (a non-empty
+    tuple is truthy and counts > 0).  They part on an object that is truthy
+    and has no ``len`` at all, which this reads as ``-1`` (unreadable) and
+    the inline site reads as "published": this side is the one that then
+    says ``publication_refused``, which is the honest word for a value
+    nobody could count.
+    """
+    published = _console_count(published_generations)
+    rows_left = _console_count(ground_rows_left)
+    if published > 0:
+        return BOUNDARY_STASH_SUPERSEDED_REASON
+    if rows_left == 0:
+        return BOUNDARY_STASH_STALE_REASON
+    return BOUNDARY_STASH_UNPUBLISHED_REASON
+
+
+def boundary_stash_cleared_console_line(
+        scene: Any, frames_held: Any, *,
+        published_generations: Any, ground_rows_left: Any) -> str:
+    """The console line ``runtime.py`` prints when it clears a held stash.
+
+    ROUND li9nce.  Byte for byte the line the inline site composes today
+    (``runtime.py:7484-7488``), which is the line ``GT-204``'s grader reads:
+
+        ``MOB_LOOT_BOUNDARY_STASH_CLEARED reason=<r> scene=<s> frames=<n>
+        rows_left=<n>``
+
+    It is here so the swap the decision asks for cannot change what an
+    operator greps for -- the reason word comes from
+    :func:`boundary_stash_reason`, the same call that names the event.
+
+    !! IT CANNOT RAISE, and that is worth one sentence more than usual.  The
+    inline site interpolates ``outcome.ground_rows_left`` with ``%d`` inside
+    a ``try``, so a value that is not a number costs the whole LINE -- the
+    operator sees nothing at all in exactly the case they most need to see
+    something.  Here every field goes through the counters first, so an
+    unreadable count prints as ``-1`` and the line still goes out.  ASCII
+    only: the bridge console is cp874 with ``errors='strict'``.
+    """
+    try:
+        scene_word = scene_key(scene)
+    except Exception:                            # noqa: BLE001 - see docstring
+        scene_word = BOUNDARY_STASH_SCENE_UNNAMED
+    return (
+        "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=%s scene=%s frames=%d "
+        "rows_left=%d"
+        % (boundary_stash_reason(
+               published_generations=published_generations,
+               ground_rows_left=ground_rows_left),
+           scene_word,
+           _console_count(frames_held),
+           _console_count(ground_rows_left)))
 
 
 def boundary_stash_dropped_event(
@@ -1547,14 +1653,13 @@ def boundary_stash_dropped_event(
     except Exception:                            # noqa: BLE001 - see docstring
         scene_word = BOUNDARY_STASH_SCENE_UNNAMED
     held = _console_count(frames_held)
-    published = _console_count(published_generations)
-    rows_left = _console_count(ground_rows_left)
-    if published > 0:
-        name = BOUNDARY_STASH_SUPERSEDED_EVENT
-    elif rows_left == 0:
-        name = BOUNDARY_STASH_STALE_EVENT
-    else:
-        name = BOUNDARY_STASH_UNPUBLISHED_EVENT
+    # ROUND li9nce: the three-way question moved to
+    # :func:`boundary_stash_reason` so the event name and the console line
+    # cannot drift apart.  The name is the prefix plus that word, which is
+    # the inline site's own composition rule, kept.
+    name = BOUNDARY_STASH_EVENT_PREFIX + boundary_stash_reason(
+        published_generations=published_generations,
+        ground_rows_left=ground_rows_left)
     return "%s_%s_frames_%d" % (name, scene_word, held)
 
 
