@@ -41,7 +41,15 @@ That behaviour was on this lane's own branch, green, with a test that
 asserted it as desired; it never reached ``main`` because the call-site
 keyword that would have armed it never landed.
 
-THE DEBT THIS FILE DOES NOT PAY, NAMED SO NOBODY READS IT AS PAID.  For a
+~~THE DEBT THIS FILE DOES NOT PAY, NAMED SO NOBODY READS IT AS PAID.~~
+PAID IN ROUND ``qa86im`` (``COO-DECISION 20260903_0252``): :func:`corpse_
+body_for` composes the corpse, both responders take the keyword
+``mob_death_register`` for it, and the console counts a corpse separately
+from a ceiling (``dead_as_corpse=`` beside ``dead_at_ceiling=``).  THE OLD
+PARAGRAPH IS KEPT BELOW UNCHANGED because every sentence in it is still
+true of a boot whose call site passes no register -- which is every boot
+until chief's line lands -- and because it names the reason the ceiling
+branch may not simply be deleted.  For a
 dead body that is NOT the clicked one, this lane has no corpse to send:
 ``mob_death.death_actor_entry`` needs the death register, which the
 ChooseNPC call site does not pass.  So the caller sends the table ceiling
@@ -151,6 +159,83 @@ def ledger_for_this_scene(
     if scene_folder and getattr(ledger, "scene", None) == scene_folder:
         return ledger
     return None
+
+
+def corpse_body_for(
+    legacy: Any, mob: Any, register: Any, *,
+    scene_id: int, scene_sequence: int,
+) -> bytes | None:
+    """The corpse NPCAttr bytes for a body the register buried, else ``None``.
+
+    THE DEBT NAMED IN THIS MODULE'S OWN DOCSTRING, PAID.  Until this round
+    both responders had exactly one thing to put in a frame for a monster
+    that is dead: the table CEILING, a full HP bar on a corpse, counted and
+    named because the alternative (omitting the row) DELETES the actor from
+    the client's set (``RE-092``).  ``COO-DECISION 20260903_0252`` gave this
+    lane the second half of chief's offer -- ``mob_death_register=`` at the
+    ChooseNPC call site beside the ledger -- so a click can now answer with
+    the body ``mob_death`` composes for the arrival census instead.
+
+    WHY THE REGISTER AND NOT THE LEDGER DECIDES WHO IS DEAD HERE.  The
+    ledger says "0 HP"; the register says "this identity in THIS scene is
+    dead, and here is the kill it came from".  ``mob_death.corpse_npc_attr``
+    needs the second statement, and ``_sync_combat_scene_state`` rebuilds
+    the ledger from the register on every scene re-entry (chief's letter
+    ``20260902_1918``), so the register is the older and narrower of the
+    two.  It is also SCENE-KEYED by construction
+    (``DeathRegister.is_dead(identity, scene)``, COO-DECISION
+    2026-08-27T22:49): this function asks with ``mob.scene``, the scene the
+    roster row itself carries, so a scene-14 kill can never bury scene 2's
+    placement 87 through the identity those two rosters really do share --
+    the collision ``ledger_for_this_scene`` exists for, closed here by the
+    key rather than by a second admission call.
+
+    ``scene_id`` / ``scene_sequence`` ARE THE CALLER'S, NOT THIS MODULE'S
+    DEFAULTS, and that is deliberate.  Each responder already sends its
+    LIVE hostile bodies with a particular pair (scene 2 sends
+    ``field_mobs.SCENE_ID`` -- 1, deliberately, because that is what the
+    arrival splice sent; scene 14 sends 14), and a corpse that re-states
+    that field differently from the live body it replaces would be a new
+    defect of exactly the class scene 14's responder exists to stop.  The
+    composer's own self-check makes the pairing measurable rather than
+    assumed: ``corpse_npc_attr`` reproduces ``field_mobs.hostile_npc_attr``
+    byte for byte for a live body with these same arguments and refuses if
+    it cannot, so the corpse is that known-good body plus exactly the five
+    bytes of the death timer (measured this round: scene 2 122 -> 127,
+    scene 14 108 -> 113).
+
+    THE TIMER IS THE FLOOR, NOT A TRANSITION.  ``mob_death.
+    DEAD_TIMER_SECONDS`` (0.0) is the steady state of a body that is
+    already dead -- the same value ``repopulation_entries`` gives every
+    dead row it is not currently transitioning.  A click is never the frame
+    that kills anything, so it never composes the dying side of the gate.
+
+    FAIL-SAFE, LIKE EVERY OTHER RULE IN THIS FILE.  A register of the wrong
+    type, a register with no row for this body, or a composer that refuses
+    for any reason at all answers ``None``, and ``None`` means "the caller
+    does what it did before this round": the ceiling, counted and named.
+    A raise here would turn a redrawn HP bar into a dropped click, which is
+    the outcome this whole module exists to avoid.
+    """
+    if register is None:
+        return None
+    try:
+        from . import mob_death
+        if type(register) is not mob_death.DeathRegister:
+            # Fail CLOSED on the type: an object that merely has an
+            # ``is_dead`` attribute is not a register this lane can read a
+            # grave out of, and guessing would put an invented corpse on
+            # the wire.
+            return None
+        if not register.is_dead(mob.actor_identity, mob.scene):
+            return None
+        return mob_death.corpse_npc_attr(
+            legacy, mob,
+            death_timer=mob_death.DEAD_TIMER_SECONDS,
+            scene_id=scene_id, scene_sequence=scene_sequence,
+        )
+    except Exception:  # noqa: BLE001 - fail-safe, see the docstring
+        return None
 
 
 def hp_for_a_body_that_is_not_the_click(

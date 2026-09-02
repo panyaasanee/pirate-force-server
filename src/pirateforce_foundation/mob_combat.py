@@ -1454,23 +1454,120 @@ GROUND_ROWS_LEDGER_MOVED_SUPPRESSED_TOKEN = "GROUND_ROWS_MOVED_SUPPRESSED"
 #: only because the lock is re-entrant (pf-adversary D7).  A composer bug,
 #: never a frame condition: the frame is returned either way.
 GROUND_ROWS_LEDGER_MOVED_TOKEN = "GROUND_ROWS_MOVED_UNDER_COMPOSITION"
-#: WHETHER ANY PRODUCTION CALL SITE ACTUALLY USES THE CLOSED PATH.  Not a
-#: preference and not a flag: a statement about ``runtime.py``, re-derived
-#: from that file's AST by this lane's own test on every run, exactly the way
-#: ``mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS`` is.
+#: WHAT THE SOURCE SAYS ABOUT WHETHER A PRODUCTION CALL SITE USES THE CLOSED
+#: PATH.  Not a preference and not a flag: a statement about ``src/``,
+#: re-derived from its AST by this lane's own test on every run.  ~~"exactly
+#: the way ``mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS`` is"~~ IS
+#: STRUCK (pf-adversary, this round, D11): that one is a SWITCH -- it selects
+#: which token fires, and its lane's test flips it both ways and asserts the
+#: behaviour changes.  Nothing in this module reads this constant for
+#: anything but printing it.  It is a LABEL, and the word "exactly" was not
+#: earned.
 #:
 #: WHY IT EXISTS (pf-adversary, round t8z97r, D3, and it is the sharpest
-#: finding of the round): zero ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines on a
+#: finding of that round): zero ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines on a
 #: console is what a CLOSED window and an UNWIRED closure both look like.
 #: An operator cannot tell them apart, and "the token is silent" would be
-#: read as "the window is shut".  This constant is the difference, in one
-#: greppable word, and it cannot drift: the test is as red for a status left
-#: at "called" after the line is reverted as for one left at
-#: "composed_not_called" after it lands.
-GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS = "composed_not_called"
+#: read as "the window is shut".  It cannot drift: the test is as red for a
+#: status left too high after a call site is reverted as for one left too low
+#: after it lands.
+#:
+#: !! WHAT IT DOES NOT SETTLE, said here because the paragraph above used to
+#: claim it did (pf-adversary, this round, D11): the middle word below is
+#: itself an "I do not know whether a frame goes through".  A console
+#: carrying ``wired_by_name_lookup`` and no ``GROUND_ROWS_RACE_WINDOW_OPEN``
+#: line is still the two-state ambiguity -- what closes it is an arrival
+#: line, :data:`GROUND_UNDER_PUBLICATION_REACHED_TOKEN`, and only on the days
+#: a caller actually arrives.
+#:
+#: THREE WORDS, NOT TWO, and the third one is the whole of LANE-A's letter
+#: ``20260903_0320``: ``lane_hooks/lane_a_ground_preserve.py`` reaches this
+#: composer through ``getattr(mob_combat, <str constant>)`` -- because that
+#: module has to import on a tree where the composer does not exist yet --
+#: and then calls it through a LOCAL NAME.  A scan that matches the
+#: function's own name sees ``NOTHING`` there, by definition: the indirection
+#: is exactly what kills static resolution.  So the answer this lane owes an
+#: operator is not "called / not called", it is which of these three:
+#:
+#: - ``composed_not_called``  nothing in ``src/`` reaches it, by any shape.
+#: - ``wired_by_name_lookup`` the only evidence is a name lookup: somebody
+#:   fetches it by string and calls what they fetched.  Whether a frame
+#:   ever goes through it depends on a caller ABOVE that module handing it a
+#:   cell, which is the state ``main`` is in today (the chief's one line at
+#:   the ChooseNPC site is what is missing).  A name lookup cannot be proved
+#:   to fire by reading source at all -- which is why the second half of the
+#:   answer is a RUNTIME line, :data:`GROUND_UNDER_PUBLICATION_REACHED_TOKEN`.
+#: - ``called``               a direct (or aliased-import) call site.
+#:
+#: A direct call site wins over a name lookup: the stronger evidence is the
+#: one an operator should be told about.
+#:
+#: !! THE SHAPES THE SCAN CANNOT SEE, written down rather than implied
+#: (pf-adversary, this round, D5, which drove eighteen of them): a name bound
+#: to the function and called later, ``operator.attrgetter``, ``vars()`` and
+#: ``__dict__`` lookups, a name built by concatenation, a lookup through a
+#: dict or a class attribute, and the string constant imported from another
+#: module.  Shapes it OVER-counts: a call in dead code, a call on an object
+#: that only looks like this module, and a feature probe that fetches the
+#: name and never calls it.  A module that declares itself out of production
+#: (``production_allowed = False`` or ``test_only = True``) is skipped, which
+#: closes the loudest of those.  This is the honest limit of a static answer,
+#: and it is the reason the runtime half exists at all.
+GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS = "wired_by_name_lookup"
+#: The vocabulary above, weakest evidence first.  Registered so a status that
+#: is not one of these three cannot reach a console and be grepped for in
+#: vain.
+GROUND_UNDER_PUBLICATION_CALL_SITE_STATUSES = (
+    "composed_not_called",
+    "wired_by_name_lookup",
+    "called",
+)
 #: The token that carries it to the console, said once per process by
 #: :func:`_say_call_site_status_once`.
 GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN = "GROUND_UNDER_PUBLICATION_CALL_SITE"
+#: Said ONCE PER SITE, the first time a caller from that site actually
+#: reaches :func:`remote_actors_preserving_the_ground_under_publication`.
+#: THE HALF NO SCAN CAN FAKE: the static status above reports what the source
+#: permits, this one reports what happened.  LANE-A's letter ``20260903_0320``
+#: asked for exactly this and preferred it alone; alone it is not enough,
+#: because the status line is said on the first preserve frame of the session
+#: (the bar frame of the first hit) and at that moment nothing has reached the
+#: composer yet on ANY build, wired or not.  The two lines together are the
+#: answer: what the tree allows, and what the process did.
+#:
+#: PER SITE AND NOT PER PROCESS (pf-adversary, this round, D12): the site
+#: names are per SCENE by LANE-A's own design, "so one shared name would let
+#: whichever responder fired first silence the other three" -- and the site
+#: an operator most wants to see arrive is the chief's, which would be the
+#: one silenced by a lane hook that fired first.
+#:
+#: !! ITS SILENCE IS NOT EVIDENCE, and this is the change's own open hole
+#: (pf-adversary, this round, the closing question): no line means the site
+#: is unwired, OR nobody clicked an NPC this session.  A counterpart line
+#: from the plain path -- "a preserve frame was composed and did NOT come
+#: through the closed path" -- would settle it and is NOT in this round: the
+#: plain path is the bar frame of every hit, and a token that fires there is
+#: the shape D1 of this round caught being wrong.  It is a proposal in the
+#: letter to LANE-A, not a claim made here.
+#: !! NOT AN EXTENSION OF THE STATUS TOKEN'S SPELLING, and the lane's test
+#: pins that neither is a prefix of the other (pf-adversary, this round, D3):
+#: the first spelling of this name was the status token plus ``_REACHED``, so
+#: ``grep -c GROUND_UNDER_PUBLICATION_CALL_SITE`` counted 2 for a line said
+#: once, and a parser reading "field 2 of a status line" got a site name
+#: where one of three registered words belongs.  The family is still
+#: greppable in one word: ``GROUND_UNDER_PUBLICATION``.
+GROUND_UNDER_PUBLICATION_REACHED_TOKEN = "GROUND_UNDER_PUBLICATION_REACHED"
+#: How many sites the arrival set will hold before it stops growing.  The set
+#: is keyed by CALLER DATA, so it is capped for the same reason the liveness
+#: family's is (pf-adversary, round t8z97r, D6): a caller that builds a site
+#: string per click would otherwise grow it for the life of the process.
+GROUND_UNDER_PUBLICATION_REACHED_SITE_CAP = 32
+#: Said once when the arrival family reaches its cap, IN ITS OWN NAME and in
+#: a spelling that is NOT an extension of either token above (pf-adversary,
+#: this round, D3 and round t8z97r D11 together): a suppression line that
+#: greps as an arrival line would be counted as one.
+GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED_TOKEN = (
+    "GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED")
 #: What the race line says when the caller handed no cell at all.  Kept
 #: separate from ``mob_loot.ground_liveness_reason``'s vocabulary because
 #: this one is about WHERE THE COMPOSITION HAPPENED, not about the count.
@@ -1795,6 +1892,98 @@ def _say_call_site_status_once() -> bool:
     return True
 
 
+#: WHICH SITES HAVE ALREADY REPORTED AN ARRIVAL.  ITS OWN MEMORY, not the
+#: status line's: they answer different questions and are said at different
+#: moments, and one container would let the status line silence the only
+#: line that reports a fact instead of a reading of the source (the shape
+#: pf-adversary D11 named when two console families shared a set).
+_GROUND_UNDER_PUBLICATION_REACHED_REPORTED: set = set()
+#: The key this family parks in its own set when it reaches the cap, so the
+#: suppression line is said once.  Unprintable on purpose, exactly like the
+#: liveness family's: no site can collide with it.
+_GROUND_UNDER_PUBLICATION_REACHED_SUPPRESSED = "\x00suppressed"
+
+
+def _reached_site_field(site: Any) -> str:
+    """``site`` as ONE console field: ASCII, no whitespace of any kind.
+
+    ALL WHITESPACE, NOT JUST THE SPACE (pf-adversary, this round, D8): a tab,
+    a vertical tab, a form feed and the four ASCII separators all survive
+    ``encode("ascii", "backslashreplace")`` and all split, so a site carrying
+    one of them put a third field on a line whose own grep is "the site is
+    the second field".
+
+    A SITE WHOSE ``__str__`` RAISES IS STILL A WIRING FACT (pf-adversary,
+    this round, D7, and it is this file's own prior finding one function up:
+    "reporting NOTHING for it is how a hole stays invisible for a session").
+    It is named by its type, never dropped.
+    """
+    try:
+        folded = _console_safe_one_line(site)
+    except Exception:                            # noqa: BLE001 - see docstring
+        try:
+            folded = "site_unprintable_%s" % (type(site).__name__[:32],)
+        except Exception:                        # noqa: BLE001
+            folded = "site_unprintable"
+    return "".join("_" if ch.isspace() else ch for ch in folded) or "site_empty"
+
+
+def _say_call_site_reached_once(site: Any) -> bool:
+    """Put :data:`GROUND_UNDER_PUBLICATION_REACHED_TOKEN` and the site ON THE
+    CONSOLE, once per SITE, the first time a caller from it REACHES the
+    composer.
+
+    WHY IT IS NOT THE STATUS LINE SAID AGAIN (LANE-A, ``20260903_0320``):
+    the status line reports what a scan of ``src/`` allows and is said on the
+    first preserve frame of the session; this reports that a caller arrived
+    here, which no scan can see when the caller reached it through a name
+    lookup and a local variable -- and that is the shape the ground-preserve
+    hook uses today.
+
+    IT REPORTS THE CALL, NOT THE FRAME, and is said at the entry on purpose:
+    a composition that then fails is still a call site that fired, and the
+    failure has console lines of its own.  Said before the status line would
+    be an operator reading "reached" above a line that says what the source
+    permits, so the status line is forced out first.
+
+    THE SITE IS REMEMBERED ONLY WHEN THE CONSOLE TOOK THE LINE (pf-adversary,
+    this round, D6): recording first means one transient failure -- a bridge
+    console detached at boot, a full disk -- deletes the only runtime
+    evidence for the life of the process.  That is this file's own rule for
+    every other once-per-key line, and this one had it backwards.
+
+    Never raises, and costs a LINE and never a FRAME.  Two threads arriving
+    from the same site at once print it twice, which is the harmless end of
+    that race -- the same caveat, and the same reason, as the race family's
+    own set fifty lines up; the alternative is a lock on a console line.
+    """
+    _say_call_site_status_once()
+    key = _reached_site_field(site)
+    reported = _GROUND_UNDER_PUBLICATION_REACHED_REPORTED
+    if key in reported:
+        return False
+    if len(reported) >= GROUND_UNDER_PUBLICATION_REACHED_SITE_CAP:
+        # ITS OWN SUPPRESSION TOKEN, never another family's (pf-adversary,
+        # round t8z97r, D11): a console that says the liveness family was
+        # suppressed while no liveness line was ever suppressed is a console
+        # that lies about which evidence is missing.
+        if _GROUND_UNDER_PUBLICATION_REACHED_SUPPRESSED not in reported:
+            reported.add(_GROUND_UNDER_PUBLICATION_REACHED_SUPPRESSED)
+            try:
+                print("%s %d" % (
+                    GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED_TOKEN,
+                    GROUND_UNDER_PUBLICATION_REACHED_SITE_CAP))
+            except Exception:                    # noqa: BLE001
+                pass
+        return False
+    try:
+        print("%s %s" % (GROUND_UNDER_PUBLICATION_REACHED_TOKEN, key))
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+    reported.add(key)
+    return True
+
+
 def remote_actors_preserving_the_ground_under_publication(
     legacy: Any, entries: Any, site: str, *, cell: Any, scene: Any = None,
 ) -> tuple[bytes, bytes]:
@@ -1831,8 +2020,14 @@ def remote_actors_preserving_the_ground_under_publication(
 
     Condition b rides along: whatever the read swept is reported through
     :func:`report_rows_swept_by_read`, after the frame is composed.
+
+    REACHING THIS FUNCTION IS ITSELF REPORTED, once per process, by
+    :func:`_say_call_site_reached_once` -- the half of the call-site answer
+    that a scan of ``src/`` cannot give, because the hook that calls this
+    fetches it by name and calls a local variable (LANE-A, ``20260903_0320``).
     """
     entries = list(entries)
+    _say_call_site_reached_once(site)
     state: dict = {}
 
     def _compose(rows_left: Any) -> tuple[bytes, bytes]:
