@@ -2556,6 +2556,36 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
         # and the rows of the scene just left are still standing
         self.assertTrue(self.cell.ledger.drops)
 
+    def test_the_empty_scene_guard_is_the_rule_and_not_an_accident(self):
+        """The previous test passes even with the guard removed, and this
+        round found that out by deleting it: ``refresh_frames`` already
+        returns no frames for zero rows, so "an empty scene sends nothing"
+        is true today for a reason that lives in ANOTHER function.
+
+        COO-DECISION 0944 makes it a RULE, so it is pinned as one: the
+        composer is not even reached.  If a later round teaches the composer
+        to emit a zero-element generation -- the exact unmeasured shape the
+        ruling avoids spending -- this is what goes red instead of the game
+        quietly acquiring a new frame on every empty crossing.
+        """
+        self._kill(self._mob_in(self.SCENE_A))
+        called = []
+        real = mob_loot.refresh_frames
+
+        def spy(legacy, ledger):
+            called.append(tuple(ledger.drops))
+            return ((b"pc", b"frame"),)
+
+        mob_loot.refresh_frames = spy
+        try:
+            _p, _c, _e, _x, frames = self.cell.enter_scene_frames(
+                self.legacy, self.SCENE_B)
+        finally:
+            mob_loot.refresh_frames = real
+        self.assertEqual(frames, ())
+        self.assertEqual(called, [], "the composer was reached for an empty "
+                                     "scene; the guard is gone")
+
     def test_the_boundary_publication_removes_nothing(self):
         """COO 0253 still stands: the announcing call may not become a
         remover."""
