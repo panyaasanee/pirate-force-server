@@ -549,6 +549,25 @@ class Bg0002KillDispatchTests(unittest.TestCase):
             [self.first_target],
         )
 
+        # THE HOLD ITSELF, MEASURED RATHER THAN INFERRED (pf-adversary D6,
+        # round h84hp6).  The ordering assertion further down compares
+        # POSITIONS inside one return sum, and D6 measured that deleting the
+        # census gate out of `_mob_loot_boundary_flush` altogether leaves this
+        # whole file green -- so the gate is measured here on its own, on the
+        # real method, at the one moment it is load-bearing: the arrival
+        # census of this crossing has neither committed nor refused yet.
+        self.assertFalse(state.world_census_sent)
+        self.assertFalse(state.world_census_refused)
+        self.assertEqual(
+            [], state._mob_loot_boundary_flush(),
+            "the flush released the boundary generation into a scene whose "
+            "arrival census has not committed",
+        )
+        self.assertEqual(
+            len(state.mob_loot_boundary_frames_pending), 1,
+            "the refused flush consumed the stash it refused to release",
+        )
+
         actions = self._kill(state, self.second_target)
         labels = self._labels(actions)
         ground_at = [
@@ -576,8 +595,15 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         self.assertTrue(census_at, labels)
         self.assertLess(
             max(census_at), boundary_index,
-            "the boundary generation overtook the arrival census -- the hold "
-            "in _mob_loot_cross_scene_boundary is what stops exactly this: %r"
+            # WHAT THIS LINE MEASURES, said exactly (pf-adversary D6, round
+            # h84hp6): the POSITION of the flush's term in the dispatch's
+            # return sum, in front of no census and behind both of these.  It
+            # is NOT a measurement of the census gate inside the flush -- that
+            # gate is measured above, at the crossing, because deleting it
+            # leaves this comparison green.
+            "the boundary generation overtook the arrival census -- the flush "
+            "sits between census_actions and mob_combat_actions and this is "
+            "the term order that says so: %r"
             % (labels,),
         )
         # The kill's generation is the last GROUND word of the dispatch.
