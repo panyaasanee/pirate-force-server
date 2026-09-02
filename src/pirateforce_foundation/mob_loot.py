@@ -311,9 +311,18 @@ MOB_LOOT_WIRING = (
     "2026-09-02T02:53+07:00 forbids removing until a removal publisher "
     "exists.  ROUND lh21ua BUILT ONE AND IT DOES NOT LICENSE THIS: "
     "DropLedgerCell.frames_after_a_row_left publishes the CURRENT scene's "
-    "remaining rows after a pickup, so it can withdraw a row of the scene "
-    "the player is standing in and NOTHING ELSE.  A row deleted in the "
-    "scene they left has still never been withdrawn from that client.  "
+    "remaining rows after a pickup, so the only row it can withdraw ON "
+    "PURPOSE is one of the scene the player is standing in.  ~~'and NOTHING "
+    "ELSE'~~ IS STRUCK BEFORE IT SHIPPED (pf-adversary D4 of that round): by "
+    "RE-130 a nonempty generation erases every key it omits, INCLUDING the "
+    "keys of scenes it does not carry, so the publication is not a targeted "
+    "withdrawal -- it also clears the other scenes' keys from the client's "
+    "list, exactly as any kill's generation in a new scene does.  What is "
+    "still true, and is why this step's prohibition stands: the SERVER "
+    "cannot announce a row it deleted in a scene it is not publishing for, "
+    "so a row deleted there is unannounceable in the only sense a call site "
+    "can act on, and way 1's promise (walk back and your drops are still "
+    "there) needs the row, not the erasure.  "
     "A chief following this step would have destroyed the previous "
     "scene's whole ground on the first kill in the new one.  DO NOT CALL IT: "
     "what bounds the ledger today is the per-drop expiry plus the trim "
@@ -1069,6 +1078,22 @@ MOB_LOOT_NONCLAIMS = (
     "returns drop_frames's own output verbatim, no other code change, so "
     "refresh_frames goes back to sending exactly the narrow bytes GT-045 "
     "measured.",
+    "24. THE REMOVAL PUBLISHER REMOVES NOTHING THAT ANYONE HAS WATCHED, "
+    "round lh21ua.  frames_after_a_row_left composes the scene's remaining "
+    "rows after a pickup, and the whole claim that this WITHDRAWS the taken "
+    "object rests on RE-082 and RE-130 -- both STATIC-ON-BRIDGE readings of "
+    "the client's list consumer.  No attended round has watched a label "
+    "leave a screen because a generation omitted its key, and NONCLAIM 12 "
+    "(nobody has watched what a re-emission does to a label already drawn) "
+    "is untouched by it.  Two further limits belong here rather than only in "
+    "a docstring: the LAST row of a scene is not withdrawn at all (the empty "
+    "generation is a no-op by the same static reading, RE-208 is open), and "
+    "the publication is not targeted -- by RE-130 it also erases other "
+    "scenes' keys from the client's list, exactly as any kill's generation "
+    "does.  AND, until the chief's call site lands, the bytes are composed "
+    "and DROPPED inside the process: the console token says "
+    "COMPOSED_NOT_SENT_NO_CALL_SITE for that reason and this lane may not "
+    "report the removal as a behaviour on any boot.",
 )
 
 # ---------------------------------------------------------------------------
@@ -3043,10 +3068,17 @@ class DropLedgerCell:
         bound: stand still after a pickup and the thing you are carrying is
         still lying there.
 
-        HOW IT REMOVES, and it is not a new message.  ``RE-082`` (closed PASS
-        2026-08-26) measured the ``PickupTerrainThing`` list consumer: A
-        NONEMPTY GENERATION ERASES EVERY KEY IT OMITS.  So the removal of one
-        key is the publication of the others -- this composes the scene's
+        HOW IT REMOVES, and it is not a new message.  ``RE-082`` (closed
+        PASS 2026-08-26) and ``RE-130`` (DONE/PASS 2026-08-28, the ticket
+        this module's own NONCLAIM 13 cites with VAs) both READ the
+        ``PickupTerrainThing`` list consumer OUT OF THE CLIENT IMAGE and
+        found the same rule: A NONEMPTY GENERATION ERASES EVERY KEY IT OMITS.
+        !! BOTH ARE ``STATIC-ON-BRIDGE``.  Nobody has watched a label leave a
+        screen because of this, here or anywhere -- NONCLAIM 12 is still the
+        ceiling on every sentence in this docstring, and 'removes' below
+        means 'the server stops naming the key in a shape the image says is
+        consumed that way', never 'the player saw it go'.  So the removal of
+        one key is the publication of the others -- this composes the scene's
         REMAINING rows, exactly the shape :meth:`enter_scene_frames` sends at
         a boundary, and the taken key is removed by being absent from it.
         Nothing here invents a wire message, and nothing here deletes a row:
@@ -3054,24 +3086,33 @@ class DropLedgerCell:
 
         THE HOLE, NAMED RATHER THAN PAPERED OVER, and it is the whole of
         ``RE-208``: the LAST object.  Zero remaining rows means the only
-        generation available is the empty one, and the same RE-082 measured
-        that a zero-row generation is a CLIENT NO-OP.  There is no known
+        generation available is the empty one, and the same RE-082 read a
+        zero-row generation as a CLIENT NO-OP (static, same ceiling).  There is no known
         message that removes the last object one at a time, so this returns
         ``(0, ())`` and the caller sends nothing -- today's behaviour, held
         deliberately.  [ASSUMPTION OF LANE B - AWAITING COO] that holding is
         better than spending this lane's one UNMEASURED shape (a generation
         carrying no elements) on it: an empty generation that turns out NOT
         to be a no-op on a real client would wipe the scene's whole ground,
-        and the case it would fix is one label that a scene change or the
-        next kill clears anyway.  ``RE-208`` is open on the question and this
-        lane consumes its own answer.
+        and the case it would fix is one label that the next kill in the
+        scene clears anyway.  ~~'that a scene change ... clears anyway'~~ IS
+        STRUCK (pf-adversary D5, same round): ``enter_scene_frames`` HAS NO
+        CALL SITE -- grep of src/, current/ and tools/ finds prose only -- so
+        at the server layer a scene change publishes nothing at all today,
+        and at the client layer nothing has been watched.  The consolation
+        that survives is the kill, which IS wired (mob_drop_presence.
+        sustain_a_kill).  ``RE-208`` is open on the question and this lane
+        consumes its own answer.
 
         THE TRIM IS INHERITED FROM THE BOUNDARY PUBLISHER, and it carries the
         same cost in the same words: a scene holding more rows than one frame
         can carry publishes its OLDEST ``cap`` rows, and RE-130 then erases
         the live keys the trim omitted from the client's list.  Those rows
         are still on this ledger and the next kill in the scene re-announces
-        them.  Refusing instead would mean a pickup in a crowded scene ends
+        them -- via ``mob_drop_presence.sustain_a_kill``, whose trim keeps the
+        NEWEST rows where this one keeps the oldest, so the two together do
+        cover the ledger (suspicion flagged by pf-adversary D10; unreachable
+        on today's numbers, where the cap is over two thousand rows).  Refusing instead would mean a pickup in a crowded scene ends
         in an exception where a player expects an item.
 
         WHY THE KEY IS AN ARGUMENT WHEN NOTHING IS COMPOSED FROM IT: it is

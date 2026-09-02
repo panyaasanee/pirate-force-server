@@ -288,18 +288,40 @@ PICKUP_REQUEST_PRODUCER_SOURCE = (
 # non-ASCII byte in a token is a red gate, not a cosmetic problem.
 MOB_PICKUP_REQUEST_DECODED_TOKEN = "MOB_PICKUP_REQUEST_DECODED"
 MOB_PICKUP_REQUEST_REFUSED_TOKEN = "MOB_PICKUP_REQUEST_REFUSED"
-#: ROUND lh21ua.  The three outcomes of the removal publisher, one ASCII line
-#: each, so an operator watching a cp874 console can tell them apart without a
-#: debugger.  PUBLISHED: the scene's remaining rows went out and the client's
-#: list loses the taken key by omission (RE-082).  HELD: nothing remained, so
-#: the only available generation is the empty one, which RE-082 measured as a
-#: client no-op -- the last object keeps today's behaviour and RE-208 owns the
-#: question.  REFUSED: the publication itself could not be composed; the
-#: pickup still stands, because the item is in the bag and in the database
-#: before this runs, and a floor that redraws late is not worth undoing that.
+#: ROUND lh21ua.  The outcomes of the removal publisher, one ASCII line each,
+#: so an operator watching a cp874 console can tell them apart without a
+#: debugger.  HELD: nothing remained, so the only available generation is the
+#: empty one, which RE-082 read as a client no-op -- the last object keeps
+#: today's behaviour and RE-208 owns the question.  REFUSED: the publication
+#: could not be composed; the pickup still stands, because the item is in the
+#: bag and in the database before this runs, and a floor that redraws late is
+#: not worth undoing that.
+#:
+#: !! THE SUCCESS TOKEN NAMES WHAT ACTUALLY HAPPENED, NOT WHAT WAS INTENDED,
+#: and that is pf-adversary's first finding on this round: the first draft
+#: printed PUBLISHED on a boot where ``runtime.py`` has no line that sends the
+#: frames, so the bytes were composed and dropped inside the process.  A GT
+#: round grading on console lines would have read "the server published the
+#: removal and the client ignored it" off a boot that never sent a byte -- a
+#: FALSE NEGATIVE against the CLIENT.  Same defect and same fix as R302's
+#: LANE_A_UIA_NOTICE_NOT_THIS_BOOT (commit 005caea, eight hours earlier).
+#: Which token fires is decided by :data:`GROUND_AFTER_CALL_SITE_STATUS`, and
+#: a test re-derives that constant from ``runtime.py``'s own source, so the
+#: day the chief's line lands the word changes with it and not before.
 MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_PUBLISHED"
+MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN = (
+    "MOB_PICKUP_GROUND_REMOVAL_COMPOSED_NOT_SENT_NO_CALL_SITE")
 MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT"
 MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
+
+#: Does the chief's file SEND what this lane composes?  ``"sent"`` only when
+#: ``runtime.py`` names ``ground_after``; ``"composed_not_sent"`` otherwise.
+#: NOT a preference and not a flag: it is a statement about another file, and
+#: ``test_the_ground_after_call_site_status_is_re_derived_from_runtime``
+#: re-derives it from that file's AST on every run, so it cannot drift in
+#: either direction -- a status left at "sent" after the line is reverted is
+#: as red as one left at "composed_not_sent" after it lands.
+GROUND_AFTER_CALL_SITE_STATUS = "composed_not_sent"
 
 ACCEPTED = "exact_pickup_request"
 
@@ -598,12 +620,21 @@ class PickupRequestOutcome:
     the scene's remaining rows without it (RE-082: a nonempty generation
     erases the keys it omits).  It is ``()`` on every refusal, ``()`` when the
     taken row was the scene's LAST one -- the hole RE-208 is open on, where no
-    known message removes one object and an empty generation is a measured
-    client no-op -- and ``()`` when the publication itself refused, which
-    never undoes the pickup.  ``ground_rows_left`` is how many rows the scene
-    has after the take, and ``-1`` when nothing was taken: read WITH
-    ``ground_after`` it separates "nothing left to say" (0, ()) from "could
-    not say it" (>0, ()).
+    known message removes one object and an empty generation is a client
+    no-op by RE-082's static reading -- and ``()`` when the publication itself
+    refused, which never undoes the pickup.
+
+    ``ground_rows_left`` is how many rows the scene has after the take.
+    ~~"``-1`` when nothing was taken: read WITH ``ground_after`` it separates
+    'nothing left to say' (0, ()) from 'could not say it' (>0, ())"~~ IS
+    STRUCK BEFORE IT SHIPPED (pf-adversary D7 of this round): THAT PAIR IS
+    UNREACHABLE.  Every failure returns ``(-1, ())`` and a success returns
+    empty frames only when ``rows_left`` is 0, so ``-1`` means "no
+    publication was composed" and covers BOTH "nothing was taken" and "the
+    publication itself refused".  What tells those two apart is the console
+    line -- ``MOB_PICKUP_GROUND_REMOVAL_REFUSED`` is printed for the second
+    and nothing at all for the first -- and ``handled``, which is False only
+    for the first.  A caller must not read the count as a refusal reason.
     """
 
     handled: bool
@@ -660,14 +691,14 @@ def dispatch_inbound_pickup_request(
             mob_pickup_persist.MobPickupPersistError) as exc:
         return _refused_after_read(read, str(exc.args[0]), echo)
     rows_left, ground_after = _ground_after_the_take(
-        legacy, drop_ledger_cell, read.fields.object_ref_u32, echo)
+        legacy, drop_ledger_cell, result, echo)
     return PickupRequestOutcome(
         True, ACCEPTED, read, result, result.outcome.delta,
         ground_after, rows_left)
 
 
 def _ground_after_the_take(
-        legacy: Any, drop_ledger_cell: Any, taken_key: Any, echo: bool
+        legacy: Any, drop_ledger_cell: Any, transacted: Any, echo: bool
 ) -> tuple:
     """The removal publication for a pickup that already succeeded.
 
@@ -690,8 +721,20 @@ def _ground_after_the_take(
     contract errors, because ``legacy`` is a module this lane does not own:
     ``AttributeError`` out of a moved serializer is exactly the case that
     must not reach the session.
+
+    THE KEY COMES OUT OF THE TRANSACTION, NOT OUT OF THE REQUEST, and that is
+    pf-adversary's D7 on this round: the first draft passed
+    ``read.fields.object_ref_u32`` -- what the STRANGER asked for -- and two
+    mutants that passed a constant 0 or the unrelated ``opaque_u8`` byte
+    survived the whole suite, because the composed frames do not depend on
+    the key at all and no test read it back.  ``transacted.outcome.drop`` is
+    the row the ground cell actually handed over, so the console line now
+    names what left the ground rather than what was asked for, and a test
+    reads that number back out.  The read happens INSIDE the try for the same
+    never-raises reason as everything else here.
     """
     try:
+        taken_key = transacted.outcome.drop.drop_key
         rows_left, frames = drop_ledger_cell.frames_after_a_row_left(
             legacy, taken_key)
     except Exception as exc:                     # noqa: BLE001 - see docstring
@@ -702,7 +745,9 @@ def _ground_after_the_take(
         return -1, ()
     if frames:
         _say(echo, "%s key=0x%X rows_left=%d frames=%d" % (
-            MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN
+            if GROUND_AFTER_CALL_SITE_STATUS == "sent"
+            else MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
             taken_key, rows_left, len(frames)))
     else:
         # rows_left == 0 is the only way a composed publication is empty:
@@ -850,6 +895,17 @@ MOB_PICKUP_REQUEST_WIRING = (
     "the "
     "answer, and the branch only FORWARDS it -- every byte of it is composed "
     "in this lane, behind the same never-raises promise.\n"
+    "  WHAT 'NEVER RAISES' COVERS AND WHAT IT DOES NOT, round lh21ua, "
+    "because pf-adversary MEASURED the gap rather than argued it: every "
+    "console line in this lane and in the two transaction lanes now goes "
+    "through mob_pickup.say, which loses the LINE and never the ROW.  "
+    "Before that fix, a stdout that refuses every write (the cp874 "
+    "console is one bad byte from being one) raised out of the bare "
+    "print BETWEEN the take and the database write: the drop had left "
+    "the ground, no row had been written, and the exception unwound into "
+    "the connection listener -- a DESTROYED item, not a failed pickup.  "
+    "The promise now holds for every line this lane prints; what it "
+    "still cannot cover is a caller that raises AFTER this returns.\n"
     "  WHY THE SIBLING LANE'S OWN HEADLINE IS NOT THE ONE PUBLISHED HERE: "
     "COO-DECISION 20260902_0254 named the dispatch-only call, and this lane "
     "publishes the persist-and-dispatch one instead, because the "
