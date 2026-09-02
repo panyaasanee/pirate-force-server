@@ -203,9 +203,9 @@ class TeleportVitalTests(unittest.TestCase):
         payload = make_teleport_vital_payload(self.legacy, 0, None, self.aux, 0, 0)
         # skip: field_0x18(2) + target_presence(2) + aux_presence(2)
         offset = 2 + 2 + 2
-        # skip untagged wstring: len(4) + utf16le bytes
+        # skip tagged wstring: tag(1) + len(4) + utf16le bytes
         str_len = len(self.aux.text.encode("utf-16-le"))
-        offset += 4 + str_len
+        offset += 1 + 4 + str_len
         # skip field_0x2c (u16tag, 3 bytes), field_0x30 (u32tag, 5 bytes),
         # field_0x34 (u32tag, 5 bytes)
         offset += 3 + 5 + 5
@@ -263,9 +263,9 @@ class TeleportVitalTests(unittest.TestCase):
         payload = bytearray(
             make_teleport_vital_payload(self.legacy, 0, None, self.aux, 0, 0)
         )
-        # string length prefix follows field_0x18(2) + target_presence(2)
-        # + aux_presence(2)
-        struct.pack_into("<I", payload, 6, 1)  # odd byte length
+        # the 0x48 string TAG follows field_0x18(2) + target_presence(2)
+        # + aux_presence(2), so the length prefix starts at 7, not 6.
+        struct.pack_into("<I", payload, 7, 1)  # odd byte length
         with self.assertRaises(GmTeleportWireError):
             decode_teleport_vital(bytes(payload))
 
@@ -273,8 +273,17 @@ class TeleportVitalTests(unittest.TestCase):
         payload = bytearray(
             make_teleport_vital_payload(self.legacy, 0, None, self.aux, 0, 0)
         )
-        struct.pack_into("<I", payload, 6, 0xFFFFFFFE)
-        with self.assertRaises(GmTeleportWireError):
+        struct.pack_into("<I", payload, 7, 0xFFFFFFFE)
+        with self.assertRaisesRegex(GmTeleportWireError, "truncated"):
+            decode_teleport_vital(bytes(payload))
+
+    def test_aux_string_without_the_0x48_tag_is_rejected(self):
+        # The pre-2026-09-02 wire shape (4+N, no tag) must not decode.
+        payload = bytearray(
+            make_teleport_vital_payload(self.legacy, 0, None, self.aux, 0, 0)
+        )
+        del payload[6]
+        with self.assertRaisesRegex(GmTeleportWireError, "tag"):
             decode_teleport_vital(bytes(payload))
 
     def test_aux_string_with_invalid_utf16_is_rejected_not_a_crash(self):
@@ -284,6 +293,7 @@ class TeleportVitalTests(unittest.TestCase):
             self.legacy.u8tag(0x0B, 0)  # field_0x18
             + self.legacy.u8tag(0x0B, 0)  # target presence
             + self.legacy.u8tag(0x0B, 1)  # aux presence
+            + bytes((0x48,))
             + struct.pack("<I", len(raw_string_bytes))
             + raw_string_bytes
             + self.legacy.u16tag(0x0F, 0)

@@ -338,13 +338,16 @@ class GmCommandDispatchTests(unittest.TestCase):
     def _nested_body_payload(str1: str, str2: str) -> bytes:
         # A structurally valid GM_RunGMCommandVital nested body (RE-088
         # pin): presence(u8 tag, nonzero) + field_0x10(u32 tag) +
-        # field_0x14(u32 tag) + field_0x18(u8 tag) + two untagged,
-        # length-prefixed UTF-16LE strings. Content of the scalar fields
+        # field_0x14(u32 tag) + field_0x18(u8 tag) + two 0x48-tagged,
+        # length-prefixed UTF-16LE strings (5+N each since the 2026-09-02
+        # tag correction -- with the old 4+N shape here the decode section
+        # raises, the strings are never re-printed, and this whole guard
+        # passes while testing nothing). Content of the scalar fields
         # does not matter for this test, only that command_capture.py's
         # decode section succeeds and re-prints str1/str2.
         def wstr(s: str) -> bytes:
             raw = s.encode("utf-16-le")
-            return struct.pack("<I", len(raw)) + raw
+            return bytes((0x48,)) + struct.pack("<I", len(raw)) + raw
 
         body = bytes([0x0B, 0x01])
         body += bytes([0x14]) + struct.pack("<I", 0)
@@ -365,7 +368,7 @@ class GmCommandDispatchTests(unittest.TestCase):
         # cap used to charge 328,694 bytes against an actual write of
         # 508,235 -- a 1.546x overrun of the guard's own stated invariant.
         thai_char = "ก"  # ก -- BMP, non-ASCII, non-Latin1
-        fixed_header = 2 + 5 + 5 + 2 + 4 + 4  # tags/scalars + 2 length prefixes
+        fixed_header = 2 + 5 + 5 + 2 + 5 + 5  # tags/scalars + 2 tagged length prefixes
         budget_chars = (gm_dispatch.MAX_RAW_PAYLOAD_LENGTH - fixed_header) // 2
         str1 = thai_char * (budget_chars // 2)
         str2 = thai_char * (budget_chars - len(str1))
