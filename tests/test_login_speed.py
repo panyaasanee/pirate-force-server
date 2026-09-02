@@ -48,12 +48,22 @@ the bytes leaving the composer carry the row's number.  Whether the character
 then WALKS at that speed on a real screen is an attended ticket, and the
 `GT-193` evidence says that half is not a formality.
 
-And it does not prove anything CHANGES today.  On a fresh database
-`speed_walk` is NULL for every character born after `migrations/008`, so the
-production path takes `ROW_HAS_NO_VALUE` and sends the same constant `main`
-sends -- `test_a_row_with_no_value_sends_the_constant` is that statement, on
-purpose, rather than a gap in coverage.
+And it does not prove anything CHANGES today -- but the REASON is no longer
+the one this docstring gave when it was written, and the correction matters
+more than the sentence it replaces.  It used to say `speed_walk` is NULL for
+every character born after `migrations/008`.  `migrations/009` then landed
+with `speed_walk REAL DEFAULT 400.0`, so a newborn's row now HOLDS a value
+and the production path takes `FROM_ROW`, not `ROW_HAS_NO_VALUE`.  Nothing on
+the wire changes anyway, because that DEFAULT is numerically the same as
+`player_wire.PLAYER_LOGIN_MOVEMENT_SPEED` -- which is exactly the hazard:
+the two branches are byte-identical on a fresh database, so no assertion
+about the NUMBER can tell them apart, and one that tries is unfalsifiable.
+Only the ATTACHED VALUE separates them (`session.py` attaches on `FROM_ROW`
+alone), and that is what `test_a_row_with_no_value_sends_the_constant` now
+pins, after emptying the column itself instead of trusting a migration
+another lane owns.  [pf-adversary, round `eww6tv`.]
 """
+import sqlite3
 import struct
 import sys
 import tempfile
@@ -551,18 +561,52 @@ class TheRealLoginPathTests(_LegacyCase):
             "another number -- which is the entire defect this change is for")
 
     def test_a_row_with_no_value_sends_the_constant(self):
-        """And this is what a FRESH database actually does today.
+        """The ROW_HAS_NO_VALUE branch, driven end to end.
 
-        `migrations/006` adds the column NULLable with no DEFAULT and `008`
-        is a one-shot seed of the EXISTING cohort, so a character born after
-        `008` has no value here.  A round that reports this change as a
-        visible feature is reporting something nobody measured -- this test
-        is what that statement rests on.
+        !! THIS TEST'S ORIGINAL PREMISE WENT STALE UNDER IT AND IT KEPT
+        PASSING, WHICH IS THE WHOLE REASON THE BODY BELOW LOOKS LIKE THIS.
+        It used to say: "`migrations/006` adds the column NULLable with no
+        DEFAULT and `008` is a one-shot seed of the EXISTING cohort, so a
+        character born after `008` has no value here" -- and it asserted only
+        that the constant appears on the wire.  `migrations/009` then landed
+        with `speed_walk REAL DEFAULT 400.0`, so a newborn's row DOES hold a
+        value, this test began walking FROM_ROW instead of ROW_HAS_NO_VALUE,
+        and it stayed green ONLY because that DEFAULT is numerically the same
+        as `player_wire.PLAYER_LOGIN_MOVEMENT_SPEED`.  Two different branches,
+        one byte-identical wire, and nothing said so.  [pf-adversary, round
+        `eww6tv`; the same measurement retired the sibling claim in
+        `login_speed.py`'s docstring.]
+
+        So the row is emptied explicitly rather than assumed empty -- a
+        fixture that STATES its precondition instead of inheriting it from a
+        migration another lane owns -- and the branch is pinned by the
+        attached value, which is `None` for every reason except FROM_ROW, not
+        by a number that both branches produce.
         """
         character = self._born("plain1")
+        # Raw SQL on purpose: `write_typed_attributes` is the write door for
+        # VALUES, and what this test needs is the ABSENCE of one.  Emptying
+        # the column is also the only way to reach this branch now that 009
+        # fills it at birth.
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE characters SET speed_walk = NULL WHERE id = ?",
+                (character.id,))
+        self.assertIsNone(
+            self.store.read_typed_attributes(character.id).get(
+                login_speed.COLUMN),
+            "the fixture failed to empty the column, so this test would be "
+            "measuring FROM_ROW again while claiming ROW_HAS_NO_VALUE")
+
         session = self._session("plain1")
-        _selected, (pc, _frame) = session.select_and_start(character.selector)
+        selected, (pc, _frame) = session.select_and_start(character.selector)
+
         self.assertIn(self.legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED), pc)
+        # THE LINE THAT MAKES THIS TEST FALSIFIABLE.  `session.py` attaches
+        # the resolved value only `if resolved.came_from_the_row`, so `None`
+        # here is the branch itself, distinguishable from a row that happened
+        # to hold the constant.
+        self.assertIsNone(selected.movement_speed)
 
     def test_a_zero_in_the_row_does_not_reach_the_client(self):
         """`/speed 0` stores and encodes; it must not brick a character.

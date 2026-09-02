@@ -208,7 +208,50 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
 
         stored = self.store.get_character(state.foundation.selected.id)
         self.assertEqual(state.foundation.selected.position, stored.position)
-        self.assertEqual(state.foundation.selected, stored)
+        # server#605 turned this login into the DELIBERATE writer of exactly
+        # one field of `selected`, so the whole-object comparison names that
+        # field rather than being deleted.  `movement_speed` is resolved at
+        # login from the character's own `speed_walk` column and RIDES the
+        # Character object in memory (`model.py`'s note: `store._character`
+        # is LANE-DB's and may not be changed by this lane), so the object
+        # that comes back out of the store always answers `None` here while
+        # the live one carries the resolved speed.  Dropping the comparison
+        # would let a login quietly change any OTHER field, which is the one
+        # thing this test exists to prevent -- so the exemption is a named
+        # field, not a weaker assertion.
+        self.assertIsNone(
+            stored.movement_speed,
+            "the store does not read typed attributes, and the CORE-REQUEST "
+            "that ordered server#605 (pf_bridge 20260902_2010, point 3) says "
+            "in its own words not to read the value and write it back -- a "
+            "value here means the login started PERSISTING the speed",
+        )
+        self.assertEqual(
+            replace(state.foundation.selected, movement_speed=None), stored,
+        )
+        # WHAT THAT FIELD CARRIES IS DELIBERATELY NOT GRADED HERE, and the
+        # first draft of this repair got that wrong in a way worth writing
+        # down.  It asserted the value against
+        # `store.read_typed_attributes(...)["speed_walk"]`, which pf-adversary
+        # measured as three separate defects: (1) circular -- that is the same
+        # door `login_speed.resolve_for_character` reads through, so a mutant
+        # that corrupts the door moves both sides together; (2) UNFALSIFIABLE
+        # for the thing #605 exists to do -- `migrations/009` gives the column
+        # `DEFAULT 400.0` and `player_wire.PLAYER_LOGIN_MOVEMENT_SPEED` IS
+        # 400.0, so on a fresh database "read the row" and "sent the constant"
+        # are byte-identical, and a mutant that sends the constant left this
+        # file 9/9 green; and (3) wrong about `session.py`, which attaches the
+        # value only `if resolved.came_from_the_row` -- three of the five
+        # reasons leave it `None`, so a validator tightening or a reverted
+        # DEFAULT would turn a GM-login-scene-override test red with no GM
+        # code changed.  This is the same shape the docstring above says was
+        # removed from this file once already, with 400.0 playing the part of
+        # `scene_seq=0`.
+        #
+        # The test that DOES own the claim writes 300.0 into the row first:
+        # tests/test_login_speed.py::TheRealLoginPathTests::
+        # test_the_login_sends_the_speed_the_row_holds -- and it is the one
+        # that dies for the constant-sending mutant.
         self.assertEqual(
             [event for event in state.events
              if event.startswith("gm_login_scene_override_")],
