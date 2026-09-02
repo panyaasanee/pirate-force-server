@@ -805,6 +805,15 @@ class NothingIsWiredTests(unittest.TestCase):
         # method in order to look for callers of it, which is the opposite of
         # being one.
         "tests/test_persistence_speed_walk_seed_008.py",
+        # LANE-DB round h5csld: `read_character_vitals_or_none` is a wrapper
+        # over `read_character_vitals`, so its own test file measures the two
+        # against each other on the same row -- that is the point of the
+        # file, and again it is an exercise rather than a wiring.  The new
+        # method is DELIBERATELY not added to the regex below: the day a
+        # login path calls it, that call is the wiring this lane asked COO
+        # for, and it must not turn someone else's PR red.  Whether it has a
+        # caller is a measurement for a round file, not a pin.
+        "tests/test_persistence_vitals_or_none.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):

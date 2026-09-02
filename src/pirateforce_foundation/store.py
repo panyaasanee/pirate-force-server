@@ -1003,6 +1003,108 @@ class SQLiteStore:
             raise KeyError(character_id)
         return vitals.resolve({c: row[c] for c in columns if row[c] is not None})
 
+    def read_character_vitals_or_none(
+        self, character_id: int
+    ) -> "persistence_vitals.Vitals | None":
+        """This character's `persistence_vitals.Vitals` if the database really
+        holds all three and every rule passes, otherwise `None`.  Never a
+        substitute number, and never a raise for the ordinary "not seeded
+        yet" case a caller would have to remember to catch.
+
+        LANE-DB owns this method (charter `COO-DECISION 20260901_1100`); no
+        existing method is touched by it.  It adds nothing to
+        `read_character_vitals` except a SHAPE, and the shape is the point:
+        the resolution is a two-branch object (`complete` / `gaps`) whose
+        numbers come out through `require()`, which RAISES.  A caller that
+        must not raise -- a login projection is the case this exists for --
+        would otherwise write the try/except itself, and the day someone
+        writes `except VitalsError: level = 0` in it, the owner's banned
+        guessed zero (`COO-DECISION 20260901_1059`) is back, in the one place
+        where zero HP does not mean "unknown" but DEAD.
+
+        WHAT `None` PROTECTS AND WHAT IT DOES NOT, measured rather than
+        asserted, because a `pf-adversary` pass measured the earlier sentence
+        here ("`None` cannot be added to, compared with `>`, or encoded") and
+        found it too strong: `None > 0` does raise, but `None == 0` is False,
+        `None != 0` is TRUE, `bool(None)` is False, and `json.dumps` turns it
+        into `null`.  So a caller writing `if hp != 0: send_alive_block()`
+        takes the ALIVE branch for an unknown HP.  What `None` really buys is
+        that the value cannot be arithmetic'd or encoded silently -- not that
+        every careless caller is caught.  This repository runs no type
+        checker (`.github/workflows/gate-windows.yml` has no mypy, pyright or
+        ruff step, checked), so the annotation below documents rather than
+        enforces.  A caller that must branch on the REASON should call
+        `read_character_vitals` instead and read the gaps: this door throws
+        them away by design, and that loss is what not raising costs.
+        (Two words this paragraph first used are refused inside a foundation
+        module by another lane's guard in
+        `tests/test_npc_interaction_wire.py`, which reserves a small
+        vocabulary for behaviour this module must not grow.  Caught by the
+        full suite, not by this lane's own files.)
+
+        WHAT `None` MEANS AND WHAT IT DOES NOT.  It means "this database does
+        not have a usable answer": no vital written at all, a partially
+        written row, a stored `level = 0` (`COO-DECISION 20260902_0443`
+        point 4 refuses it on the way out), `hp_current > hp_max`, and a zero
+        `hp_max`.  Which characters are in that state is NOT written here,
+        because it is a fact of today and `COO-DECISION 20260902_0444` is
+        already in flight to change it: ask `vitals_seeding_census`.
+
+        THREE THINGS STILL RAISE, and a caller that treats this as "never
+        raises" is wrong on all three:
+
+        * `KeyError` for a row that does not exist or has been soft-deleted,
+          deliberately -- a caller asking about a character it has just
+          selected has a bug rather than a gap, and turning that into `None`
+          would hand it a fallback path instead of a traceback.  It inherits
+          `read_character_vitals`' behaviour for a `character_id` of the
+          wrong TYPE too, which is SQLite's affinity rather than a check.
+        * `persistence_vitals.SchemaDriftError` when the database's columns
+          and `persistence_typed_attrs` disagree -- `read_character_vitals`
+          verifies the whole typed schema, not just three columns, so a
+          renamed `speed_walk` raises here even though this method's own
+          three columns are intact.  Loud is right for schema drift; it is
+          named here because "the door that does not raise" would otherwise
+          be a lie a login path discovers in production.
+        * `persistence_vitals.VitalsError` for a resolution that reports no
+          gaps while holding no values.  See the comment at the return.
+
+        NOTHING IS SENT BY THIS METHOD.  Whether a login block may carry the
+        ROW's numbers instead of `player_wire`'s literals is a send question,
+        and send questions in this lane belong to COO (the precedent is
+        `COO-DECISION 20260902_0742` point 4, which allowed `speed_walk` to be
+        STORED and forbade anyone reading it to send it).  This method is the
+        store half only.
+
+        NO TEST PINS "nothing calls this", and that is a decision.
+        Measured at the commit that added it -- zero call sites in `src/`,
+        `tools/`, `scenarios/`,
+        `current/` -- and left unpinned ON PURPOSE: the day a login path
+        calls it, that call is the wiring this lane asked COO for, and a pin
+        would turn another lane's PR red for doing the thing this method
+        exists for.  The cost is real and is stated rather than hidden: a
+        `pf-adversary` pass wrote a file that calls this door and composes
+        `{2: 0, 3: 0, 4: 0}` -- the banned guessed zero, on HP -- and the
+        whole suite stayed green.  What DOES fire on that shape is
+        `NothingComposesFromThisDoorTests` in
+        `tests/test_persistence_vitals_or_none.py`, which catches a file that
+        names this door and calls the attribute composer; a hand-rolled
+        `u32tag` path is caught by neither, and only review stands there.
+        """
+        resolution = self.read_character_vitals(character_id)
+        if not resolution.complete:
+            return None
+        # `require()` and not a hand-built `Vitals`: `resolve()` is the only
+        # builder of a resolution in SHIPPED code (`src/`, measured -- tests
+        # build one by hand deliberately, including the tests for this
+        # method), and it cannot report zero gaps with a column missing.  But
+        # this method must not be the place that assumption is silently
+        # relied on: if a resolution ever arrives complete-but-empty,
+        # `require()` raises and that raise travels.  It is not converted
+        # into `None`, because `None` here means "the database has no
+        # answer" and that case is a BUG, which is a different sentence.
+        return resolution.require()
+
     def vitals_seeding_census(self) -> dict:
         """How many characters in THIS database hold each vital, counted.
 
