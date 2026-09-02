@@ -990,8 +990,14 @@ guard(SRC_ACTOR_ENTRY_SITES == 28,
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
-guard(SRC_ACTOR_STREAM_SITES == 37,
-      "src/ sends the actor-entry carrier at exactly 37 call sites")
+# ROUND suovqw (lane B): 37 -> 38.  mob_loot.preserve_ground_in_runtime_res_
+# remote_actors_when_live composes v141's own bytes on the branch where no row
+# is standing, so the gate for the ChooseNPC carrier adds ONE call site of the
+# same stream composer and no new actor ENTRY builder.  The wrapper in
+# mob_combat delegates to that function rather than calling the composer a
+# second time, which is why this is +1 and not +2.
+guard(SRC_ACTOR_STREAM_SITES == 38,
+      "src/ sends the actor-entry carrier at exactly 38 call sites")
 guard(SRC_MODULES_WITH_ACTOR_ENTRY == 27
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",

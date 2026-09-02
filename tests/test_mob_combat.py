@@ -897,6 +897,442 @@ class MobCombatTests(unittest.TestCase):
         self.assertEqual(
             caught.exception.args[0], mob_loot.REFUSE_COMPOSED_BYTES_OFF_PIN)
 
+    # -- the gate the fourth carrier needs (round suovqw) ------------------
+
+    def _reset_liveness_reports(self):
+        before = set(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED)
+        mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear()
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear(),
+                mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.update(
+                    before)))
+
+    def test_the_bar_and_the_dead_frame_did_not_move_one_byte(self):
+        """The default is TODAY.  ``COO-DECISION 1044`` item 4 ordered bar ->
+        dying -> dead to preserve unconditionally, and adding a gate for a
+        FOURTH carrier may not quietly narrow those three."""
+        entries = [self._one_entry()]
+        self.assertEqual(
+            mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR),
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, entries))
+        pc, _frame = bar_frames(
+            self.legacy, self.mob, self.mob.max_hp - 100)
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[offset + 1], 0x0A)
+
+    def test_a_count_of_zero_sends_the_bytes_the_server_sends_today(self):
+        entries = [self._one_entry(), self._one_entry()]
+        printed, real_print = self._capture_print()
+        self._reset_liveness_reports()
+        try:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                ground_rows_left=0)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(
+            printed, [],
+            "an empty floor is an ordinary frame, not a console event")
+
+    def test_a_count_above_zero_keeps_the_ground_on_the_fourth_carrier(self):
+        entries = [self._one_entry()]
+        answer = mob_combat.remote_actors_preserving_the_ground(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            ground_rows_left=3)
+        self.assertEqual(
+            answer,
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, entries))
+
+    def test_an_unreadable_count_is_said_once_per_site_and_never_per_click(self):
+        """A cell that never reached the call site is a WIRING hole a tester
+        reading GT-204 has to see -- and one that would otherwise print a
+        line on every click of the session."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for _click in range(5):
+                answer = mob_combat.remote_actors_preserving_the_ground(
+                    self.legacy, entries,
+                    mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                    ground_rows_left=mob_loot.GROUND_LIVENESS_UNKNOWN)
+            other = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR,
+                ground_rows_left="not a count")
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(
+            other, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(len(printed), 2, printed)
+        self.assertTrue(printed[0].startswith(
+            mob_combat.GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN + " "))
+        self.assertIn(
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, printed[0])
+        self.assertIn(mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR, printed[1])
+
+    def test_a_console_that_refuses_the_line_loses_the_line_not_the_frame(self):
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+
+        def refuse(*_args, **_kwargs):
+            raise ValueError("I/O operation on closed file")
+
+        real_print = builtins.print
+        builtins.print = refuse
+        try:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                ground_rows_left=mob_loot.GROUND_LIVENESS_UNKNOWN)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        # ...and the report was NOT spent on a write that never landed: the
+        # next call, with a console that works, still says it.
+        printed, real_print = self._capture_print()
+        try:
+            mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                ground_rows_left=mob_loot.GROUND_LIVENESS_UNKNOWN)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(len(printed), 1, printed)
+
+    def test_a_site_name_the_bridge_console_cannot_encode_still_reports(self):
+        # cp874 with errors='strict': one unmappable character inside print
+        # raises, and the raise would come from the branch whose whole job is
+        # to keep the frame.
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, "lane_hooks.\u4e2d\u0e04",
+                ground_rows_left=mob_loot.GROUND_LIVENESS_UNKNOWN)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(len(printed), 1, printed)
+        self.assertEqual(printed[0], printed[0].encode(
+            "ascii", "strict").decode("ascii"))
+
+    def test_none_is_not_a_count_here_either(self):
+        """pf-adversary D2.  ``None`` used to mean "preserve unconditionally"
+        in this function and "today's bytes" in the sibling three lines of
+        docstring away -- so a lane wiring the click responder without a cell
+        yet would have shipped the never-observed shape on 97 actors of every
+        click, silently.  The default is a SENTINEL now."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                ground_rows_left=None)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("not_a_count", printed[0])
+
+    def test_the_wrapper_never_disagrees_with_the_composer_it_ships(self):
+        """One gate, not two implementations of one gate (pf-adversary D13):
+        for every value, what comes out of this wrapper is what comes out of
+        the sibling -- the sentinel default being the one exception, which is
+        the bar / dying / dead behaviour this round may not move."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for value in (0, 1, 5, -1, mob_loot.GROUND_LIVENESS_NO_CELL,
+                          mob_loot.GROUND_LIVENESS_CELL_REFUSED, None, True,
+                          "3", 2.0, object()):
+                with self.subTest(value=repr(value)):
+                    self.assertEqual(
+                        mob_combat.remote_actors_preserving_the_ground(
+                            self.legacy, entries, "lane_hooks.agreement",
+                            ground_rows_left=value),
+                        (mob_loot
+                         .preserve_ground_in_runtime_res_remote_actors_when_live(
+                             self.legacy, entries, ground_rows_left=value)))
+        finally:
+            builtins.print = real_print
+
+    def test_each_responder_gets_its_own_report_and_so_does_each_cause(self):
+        """pf-adversary D3 and D4.  LANE-A has four responders; one shared
+        site literal let the first to fire silence the other three forever.
+        And a site whose cause changes has a second thing to say."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for scene_id in (1, 2, 14, 4001):
+                mob_combat.remote_actors_preserving_the_ground(
+                    self.legacy, entries, mob_combat.choose_npc_site(scene_id),
+                    ground_rows_left=mob_loot.GROUND_LIVENESS_NO_CELL)
+            # the same site again, same cause: silent
+            mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, mob_combat.choose_npc_site(2),
+                ground_rows_left=mob_loot.GROUND_LIVENESS_NO_CELL)
+            # the same site, a DIFFERENT cause: it may say so
+            mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, mob_combat.choose_npc_site(2),
+                ground_rows_left=mob_loot.GROUND_LIVENESS_CELL_REFUSED)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(len(printed), 5, printed)
+        for scene_id in (1, 2, 14, 4001):
+            self.assertTrue(
+                any("scene_%d " % scene_id in line for line in printed),
+                (scene_id, printed))
+        self.assertTrue(any(line.endswith("cell_refused")
+                            for line in printed), printed)
+
+    def test_the_wrapper_composes_through_the_sibling_not_its_own_copy(self):
+        """N10, the one mutant the two-file battery let live: replacing the
+        delegation with a second ``make_runtime_remote_actors`` call is
+        byte-identical TODAY and is exactly the divergence D13 named (it also
+        re-adds a call site the static verifier pins).  Pinned here so the
+        two gates cannot drift apart in this file's own suite."""
+        from unittest import mock
+        entries = [self._one_entry()]
+        sentinel = ("pc", "frame")
+        self._reset_liveness_reports()
+        with mock.patch.object(
+                mob_loot,
+                "preserve_ground_in_runtime_res_remote_actors_when_live",
+                return_value=sentinel) as gate:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, "lane_hooks.delegation",
+                ground_rows_left=0)
+        self.assertIs(answer, sentinel)
+        self.assertEqual(gate.call_count, 1)
+        self.assertEqual(gate.call_args.kwargs["ground_rows_left"], 0)
+
+    def test_the_reporter_says_whether_it_was_the_one_that_printed(self):
+        # Its docstring claims the return value is what a test can drive, so
+        # a test drives it (pf-adversary D5/M17).
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            first = mob_combat._report_liveness_unknown_once(
+                "lane_hooks.probe", "no_cell")
+            again = mob_combat._report_liveness_unknown_once(
+                "lane_hooks.probe", "no_cell")
+            other = mob_combat._report_liveness_unknown_once(
+                "lane_hooks.probe", "cell_refused")
+        finally:
+            builtins.print = real_print
+        self.assertEqual((first, again, other), (True, False, True))
+        self.assertEqual(len(printed), 2, printed)
+
+        def refuse(*_args, **_kwargs):
+            raise ValueError("I/O operation on closed file")
+
+        real_print = builtins.print
+        builtins.print = refuse
+        try:
+            self.assertFalse(mob_combat._report_liveness_unknown_once(
+                "lane_hooks.other", "no_cell"))
+        finally:
+            builtins.print = real_print
+
+    def test_a_caller_that_names_a_site_per_click_cannot_grow_the_set(self):
+        """"Once per site" is only bounded while the sites are literals.  A
+        site string built per click would otherwise print every click AND
+        leak a key for each one, for the life of the process."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for click in range(
+                    mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP + 40):
+                mob_combat.remote_actors_preserving_the_ground(
+                    self.legacy, entries, "lane_hooks.click_%d" % click,
+                    ground_rows_left=mob_loot.GROUND_LIVENESS_UNKNOWN)
+        finally:
+            builtins.print = real_print
+        # the cap is pinned as a LITERAL, not against itself: a round that
+        # quietly lowers the reporting budget to 2 must go red here
+        # (pf-adversary, second pass, D3).
+        self.assertEqual(
+            mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP, 32)
+        self.assertEqual(len(printed), 33)
+        self.assertEqual(
+            len([line for line in printed if line.startswith(
+                mob_combat.GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN + " ")]), 32)
+        # ...and silence past the cap is ANNOUNCED, exactly once, so nobody
+        # reads "no more lines" as "no more wiring holes".
+        self.assertEqual(
+            printed[-1], "%s 32" % (
+                mob_combat.GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN,))
+        self.assertEqual(
+            len(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED), 33)
+
+    def test_a_site_whose_own_str_raises_is_still_reported(self):
+        """pf-adversary, second pass, D5: a hole that cannot print its own
+        name is still a hole, and reporting nothing for it hides it for the
+        session."""
+        class BadSite:
+            def __str__(self):
+                raise ValueError("cp874")
+
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, BadSite(),
+                ground_rows_left=mob_loot.GROUND_LIVENESS_NO_CELL)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("site_unprintable", printed[0])
+        self.assertIn("BadSite", printed[0])
+
+    def test_an_unhashable_count_costs_the_mask_and_not_the_frame(self):
+        """pf-adversary, second pass, D14.  ``dict.get`` RAISES for a key it
+        cannot hash, and the cause lookup runs outside every ``try`` on this
+        path -- so a list or a dict in that keyword took the whole frame."""
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for value in ([1], {"rows": 1}, {1}, bytearray(b"1"), (1,)):
+                with self.subTest(value=repr(value)):
+                    self.assertEqual(
+                        mob_combat.remote_actors_preserving_the_ground(
+                            self.legacy, entries, "lane_hooks.unhashable",
+                            ground_rows_left=value),
+                        self.legacy.make_runtime_remote_actors(entries))
+        finally:
+            builtins.print = real_print
+        self.assertEqual(len(printed), 1, "one site, one cause, one line")
+        self.assertIn("not_a_count", printed[0])
+
+    def test_a_frame_the_player_never_got_does_not_spend_the_report(self):
+        """pf-adversary, second pass, D6: compose FIRST, print SECOND -- the
+        same ordering rule the refusal path below states three times.  A
+        carrier that is down raises its own exception, and the one line the
+        site will ever get must still be there for the call that works."""
+        class DownCarrier:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def make_runtime_remote_actors(self, entries):
+                raise RuntimeError("carrier is down")
+
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            with self.assertRaises(RuntimeError):
+                mob_combat.remote_actors_preserving_the_ground(
+                    DownCarrier(self.legacy), entries, "lane_hooks.down",
+                    ground_rows_left=mob_loot.GROUND_LIVENESS_NO_CELL)
+            self.assertEqual(printed, [], "the frame was lost, not the count")
+            answer = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries, "lane_hooks.down",
+                ground_rows_left=mob_loot.GROUND_LIVENESS_NO_CELL)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertEqual(len(printed), 1, printed)
+        self.assertIn("no_cell", printed[0])
+
+    def test_a_count_that_is_an_int_subclass_is_a_count(self):
+        """pf-adversary, second pass, D2: ``type(x) is int`` cleared the loot
+        of a responder counting rows with an ``IntEnum`` AND printed a
+        wiring-hole line about a call site that was wired correctly."""
+        import enum
+
+        class Rows(enum.IntEnum):
+            THREE = 3
+
+        class Count(int):
+            pass
+
+        entries = [self._one_entry()]
+        preserved = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, entries)
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            for value in (Rows.THREE, Count(2)):
+                with self.subTest(value=repr(value)):
+                    self.assertEqual(
+                        mob_combat.remote_actors_preserving_the_ground(
+                            self.legacy, entries, "lane_hooks.subclass",
+                            ground_rows_left=value),
+                        preserved)
+            for value in (Count(0), Rows.THREE - 3):
+                with self.subTest(value=repr(value)):
+                    self.assertEqual(
+                        mob_combat.remote_actors_preserving_the_ground(
+                            self.legacy, entries, "lane_hooks.subclass",
+                            ground_rows_left=value),
+                        self.legacy.make_runtime_remote_actors(entries))
+        finally:
+            builtins.print = real_print
+        self.assertEqual(printed, [], "a real count is not a wiring hole")
+        # ...and bool is still not a count, which is the reason the naive
+        # isinstance() check was refused in the first place.
+        self.assertFalse(mob_loot.ground_liveness_is_readable(True))
+        self.assertFalse(mob_loot.ground_liveness_is_readable(False))
+
+    def test_a_refusal_on_the_live_path_still_falls_back_with_its_own_line(self):
+        # The gate must not swallow the refusal path the wrapper existed for.
+        class MovedSerializer:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                if value == 0 and tag == mob_loot.ELEMENT_LIST_COUNT_TAG:
+                    raise RuntimeError("ground record refused")
+                return self._real.u16tag(tag, value)
+
+        entries = [self._one_entry()]
+        self._reset_liveness_reports()
+        printed, real_print = self._capture_print()
+        try:
+            pc, _frame = mob_combat.remote_actors_preserving_the_ground(
+                MovedSerializer(self.legacy), entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                ground_rows_left=2)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            pc, self.legacy.make_runtime_remote_actors(entries)[0])
+        self.assertEqual(len(printed), 1, printed)
+        self.assertTrue(printed[0].startswith(
+            mob_combat.GROUND_ACTORS_PRESERVE_REFUSED_TOKEN + " "))
+
     def test_the_announce_frame_refuses_a_mismatched_mob(self):
         ledger = open_ledger()
         _, outcome = apply_hit(ledger, PERFORMER, self.mob.actor_identity, 10)
