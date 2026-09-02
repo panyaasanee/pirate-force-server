@@ -37,19 +37,45 @@ WHAT IS MEASURED HERE, on a flagless boot with no scenario of any kind:
     crossing, because no crossing ever had a row to carry.  Now one does.
 
 WHAT IS NOT MEASURED HERE, and no line of this file may be read as it:
-NOBODY HAS SEEN ANY OF THIS ON A SCREEN.  Whether a client draws a ground
-generation at all, whether it draws one delivered at a scene boundary, and
-what a re-announcement does to an already-drawn label (NONCLAIM 12) are all
-open.  ``GT-204`` is the measurement point on the screen and this file does
-not stand in for it.  Wire/DB layer only.
 
-MUTATION-PROOF ON PURPOSE.  Move the boundary flush back to the end of the
-dispatch sum and ``test_the_boundary_generation_lands_before_the_kill_
-across_a_real_crossing`` fails on the index order.  Drop the drop frame from
-the kill burst and ``test_a_bg0002_kill_composes_a_real_drop_frame_last``
-fails on a three-action burst.  Make the kill publish only its own rows
-instead of the live floor and ``test_the_kills_generation_carries_the_whole_
-floor_not_just_this_kills_rows`` fails on ``live_2``.
+  * NOBODY HAS SEEN ANY OF THIS ON A SCREEN.  Whether a client draws a
+    ground generation at all, whether it draws one delivered at a scene
+    boundary, and what a re-announcement does to an already-drawn label
+    (NONCLAIM 12) are all open.  ``GT-204`` is the measurement point on the
+    screen and this file does not stand in for it.
+  * THIS FILE MEASURES LIST ORDER.  Wire order and client-apply order are
+    two further things, and only the first of the three has ever been
+    watched (pf-adversary, round ihbal8, the question it left open).  v141
+    sends the returned list serially against a cumulative deadline
+    (``current/pf_login_game_server_v141.py`` ~7746) and ``break``s on a send
+    error, so a hiccup inside the 0.7 s hold leaves a client holding the
+    BOUNDARY generation and never the kill's -- the erasure step 6 exists to
+    prevent, reachable through the correct ordering.  Raised with the COO in
+    pf_bridge notes_to_chief/20260902_16xx_LANE-B-ASK-COO-*; not this file's
+    to answer, and not a reason to prefer the inverted order.
+  * The delays asserted below are the ones the burst is QUEUED with, read
+    off the returned tuples.  No send is observed here.
+
+MUTATION-PROOF ON PURPOSE, each one run rather than asserted in prose.  Move
+the boundary flush to the end of the dispatch sum and ``test_the_boundary_
+generation_lands_before_the_kill_across_a_real_crossing`` fails on the index
+order; move it to the FRONT, ahead of the census, and the same test fails on
+the census index (that half was unpinned in the whole repository until this
+round -- pf-adversary D3).  Drop the drop frame from the kill burst and
+``test_a_bg0002_kill_composes_a_real_drop_frame_last`` fails.  Make the kill
+publish only its own rows instead of the live floor and ``test_the_kills_
+generation_carries_the_whole_floor_not_just_this_kills_rows`` fails on the
+live count of the second kill.
+
+WHAT WAS ALREADY COVERED, said here so this file does not overclaim
+(pf-adversary D10): the #572 inversion was NOT invisible to the repo.
+``tests/test_mob_loot_scene_boundary_wiring.py::test_the_flush_rides_after_
+the_census_and_before_the_kill`` fails under it today, with a stubbed combat
+lane and a synthetic ``(b"pc", b"frame")`` stash.  What no test had was the
+same order out of a REAL crossing carrying a REAL row, which is the gap
+chief's 20260902_1345 item four 1 named and this file closes.  That sibling
+still asserts only the second half of its own name; the census half is
+pinned here instead, because this file owns a real census to pin it against.
 """
 from __future__ import annotations
 
@@ -68,6 +94,7 @@ from pirateforce_foundation import field_mob_tables                # noqa: E402
 from pirateforce_foundation import field_mobs                      # noqa: E402
 from pirateforce_foundation import mob_combat                      # noqa: E402
 from pirateforce_foundation import mob_combat_membership           # noqa: E402
+from pirateforce_foundation import mob_death                       # noqa: E402
 from pirateforce_foundation import mob_drop_presence               # noqa: E402
 from pirateforce_foundation import mob_loot                        # noqa: E402
 from pirateforce_foundation import world_scene_travel              # noqa: E402
@@ -90,22 +117,34 @@ from pirateforce_foundation.store import SQLiteStore               # noqa: E402
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 #: The scene the drop table can actually pay out in.  ``Bg0002`` is
-#: addressed by scene id 2 (``world_scene_folder``), and every one of its
-#: twelve rows rolls an item on ~77% of seeds -- re-derived, not assumed, by
-#: :meth:`RosterDropRatesTests.test_bg0001_cannot_drop_and_bg0002_can`.
+#: addressed by scene id 2 (``world_scene_folder``), and its twelve rows roll
+#: an ITEM on 252 of 360 (70.0%) row/seed pairs -- re-derived, not assumed,
+#: by :meth:`RosterDropRatesTests.test_the_two_rosters_drop_rates`.
 DESTINATION_SCENE_ID = 2
 DESTINATION_FOLDER = "Bg0002"
 
-#: A seed measured to pay out on both of the two rows this file kills.  If a
-#: table edit ever moves the roll, the drop assertions fail loudly rather
-#: than quietly measuring nothing -- which is exactly the failure mode that
-#: made the pins in ``test_mob_combat_dispatch.py`` hollow for four days.
+#: A seed measured to yield an ITEM on both of the two rows this file kills.
+#: If a table edit ever moves the roll, the drop assertions fail loudly
+#: rather than quietly measuring nothing -- which is exactly the failure mode
+#: that made the pins in ``test_mob_combat_dispatch.py`` hollow for four days.
 DROP_SEED = 1
 
 #: How many seeds the roster-rate re-derivation spends per row.  chief's
-#: measurement used 30 for bg0001; kept identical so the two numbers are
-#: comparable.
+#: measurement used 30 for bg0001; kept identical so the two rosters are
+#: measured with the same spend.
 SEEDS_PER_ROW = 30
+
+#: MEASURED at ``2da358a``, 12 rows x 30 seeds.  A roll that yields MONEY
+#: ONLY is counted apart from a roll that yields an item, and that
+#: distinction is the point (pf-adversary D1): ``mob_loot`` records money and
+#: never emits it (``money_element`` refuses by name,
+#: ``REFUSE_MONEY_HAS_NO_ELEMENT``), so a money-only kill composes NO
+#: ``MOB_LOOT_DROP`` frame at all.  A control that counted money as "drops"
+#: would stay green through exactly the table edit that breaks the burst
+#: assertions below, which is the one job it has.
+BG0002_ITEM_ROLLS = 252
+BG0002_MONEY_ONLY_ROLLS = 24
+BG0002_EMPTY_ROLLS = 84
 
 
 def _legacy():
@@ -120,34 +159,54 @@ class RosterDropRatesTests(unittest.TestCase):
     Pure table work: no dispatcher, no store, no legacy image.
     """
 
-    def test_bg0001_cannot_drop_and_bg0002_can(self):
-        bg0001_hits = sum(
-            1
-            for mob in field_mobs.load_roster(field_mob_tables.SCENE)
-            for seed in range(SEEDS_PER_ROW)
-            if _rolls_something(mob, seed)
-        )
+    def test_the_two_rosters_drop_rates(self):
+        bg0001 = field_mobs.load_roster(field_mob_tables.SCENE)
         self.assertEqual(
-            bg0001_hits, 0,
-            "bg0001 now drops something -- the pins in "
+            _tally(bg0001), (0, 0, len(bg0001) * SEEDS_PER_ROW),
+            "bg0001 now rolls something -- the pins in "
             "tests/test_mob_combat_dispatch.py are no longer hollow and the "
             "reason this file exists has changed; say so in a round file "
             "before editing this number",
         )
         bg0002 = field_mobs.load_roster(DESTINATION_FOLDER)
         self.assertTrue(bg0002, "the Bg0002 roster is empty")
-        for mob in bg0002:
+        self.assertEqual(
+            _tally(bg0002),
+            (BG0002_ITEM_ROLLS, BG0002_MONEY_ONLY_ROLLS, BG0002_EMPTY_ROLLS),
+            "the Bg0002 drop table moved; the burst assertions in this file "
+            "read off it, so re-measure before editing the constants",
+        )
+
+    def test_the_seed_this_file_kills_with_yields_an_item_on_every_row(self):
+        """An ITEM, never money: a money-only roll composes no frame, and
+        the whole file would then measure a three-action burst it does not
+        assert (pf-adversary D1, driven end to end with seed 5)."""
+        for mob in field_mobs.load_roster(DESTINATION_FOLDER):
             with self.subTest(placement=mob.placement_index):
                 self.assertTrue(
-                    _rolls_something(mob, DROP_SEED),
-                    "placement %d stopped dropping on the seed this file "
-                    "kills with" % mob.placement_index,
+                    _rolls_an_item(mob, DROP_SEED),
+                    "placement %d no longer yields an ITEM on the seed this "
+                    "file kills with" % mob.placement_index,
                 )
 
 
-def _rolls_something(mob, seed):
-    roll = mob_loot.roll_drops(mob, random.Random(seed))
-    return bool(roll.items or roll.money)
+def _rolls_an_item(mob, seed):
+    return bool(mob_loot.roll_drops(mob, random.Random(seed)).items)
+
+
+def _tally(roster):
+    """(rolls with an item, rolls with money only, rolls with nothing)."""
+    items = money_only = empty = 0
+    for mob in roster:
+        for seed in range(SEEDS_PER_ROW):
+            roll = mob_loot.roll_drops(mob, random.Random(seed))
+            if roll.items:
+                items += 1
+            elif roll.money:
+                money_only += 1
+            else:
+                empty += 1
+    return items, money_only, empty
 
 
 class Bg0002KillDispatchTests(unittest.TestCase):
@@ -174,8 +233,21 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         self.second_target = self.roster[1].actor_identity
         # An injected clock, for one reason only: two kills in one test are
         # 600 ms apart in ATTACK_CADENCE_MS_PROVISIONAL terms and a test
-        # must not sleep.  It gates nothing (production passes the real
-        # monotonic clock through the same argument).
+        # must not sleep.  Production passes the real monotonic clock through
+        # the same argument, so it is an injection point and not a flag.
+        #
+        # TWO CLOCKS, NOT ONE (pf-adversary D9), because the sentence "it
+        # gates nothing" would otherwise be read wider than it is measured:
+        # (a) the same clock feeds the move-authority gate and the HYP-PF-009
+        # pulse, both scenario-gated OFF on the flagless boot this file
+        # drives -- true of this configuration, not of every one; and (b)
+        # DropLedgerCell builds its OWN clock (mob_loot, `time.monotonic`
+        # when none is passed, and runtime.py passes none), so
+        # DROP_LIFETIME_SECONDS runs on real wall time while cadence runs on
+        # this counter.  A row must therefore still be alive between two
+        # kills of one test; a >120 s real-time stall between them (a
+        # breakpoint, a badly loaded runner) expires it and the floor
+        # assertions fail for a reason that is not the runtime's.
         self.clock_ms = 0
 
     # ----- harness -------------------------------------------------------
@@ -277,21 +349,28 @@ class Bg0002KillDispatchTests(unittest.TestCase):
 
         ``_sync_combat_scene_state`` is called here for the same reason
         ``_dispatch_mob_combat`` calls it as its own first step: after a
-        crossing the ledger still belongs to the scene the session left, and
-        a balance written into that ledger would be thrown away by the
-        rebuild.  Calling it changes nothing else -- it is idempotent once
-        the folder matches, which is exactly the state the dispatch below
-        finds it in.
+        crossing the ledger still belongs to the scene the session left.
+        It is LOAD-BEARING, not a tidy-up -- measured by removing it
+        (pf-adversary D8): without it there is no Bg0002 balance row to write
+        at all and every test in this class errors with
+        ``target_not_in_ledger``.  What it does not do is change the answer:
+        the dispatch below calls it again and finds the folder already
+        matching.
         """
         state._sync_combat_scene_state()
         row = state.mob_combat_ledger.balance_of(target_identity)
         state.mob_combat_ledger = state.mob_combat_ledger.with_balance(
             mob_combat.MobBalance(target_identity, row.max_hp, 1)
         )
-        # The announced-census membership guard, seeded directly (same note
-        # as tests/test_mob_combat_dispatch.py: this file isolates the kill
-        # from census composition, which test_mob_combat_census_wiring.py
-        # owns).
+        # The announced-census membership guard, seeded directly -- and
+        # MEASURED TO BE A NO-OP HERE (pf-adversary D8): delete these lines
+        # and all three tests still pass, because the real Bg0002 arrival
+        # census announces 97 actors and admits both targets on its own.  It
+        # is kept for the shape tests/test_mob_combat_dispatch.py uses, so a
+        # future kill in a scene whose census this file does not drive is not
+        # refused for a reason that has nothing to do with what it measures.
+        # It is NOT masking a production refusal, and the comment says so
+        # rather than claiming an isolation that is not happening.
         state.mob_combat_announced_membership = (
             mob_combat_membership.build_membership(
                 state.foundation.selected.position.scene_id,
@@ -317,27 +396,52 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         """The pin ``test_mob_combat_dispatch.py`` could not make.
 
         [MEASURED HERE] the burst of a killing blow in Bg0002 is FOUR
-        actions -- announce (0.0), dying (0.0), dead (0.7), drop (0.0) --
-        and the drop frame really is the last of them, with a row behind it.
-        The adjacency the other file could only read off a queue delay is a
-        fact of the returned list here.
+        actions -- announce (0.0), dying (0.0), dead (hold_ms), drop (0.0) --
+        and the drop action really is the last of them, with a row behind it.
+
+        [NOT MEASURED HERE, and the first draft of this docstring implied
+        otherwise -- pf-adversary D2] that the dead FRAME reaches a client
+        before the drop frame, or after it.  The delays below are what the
+        burst is queued with; v141 walks the list in order against a
+        cumulative deadline, so on the wire the drop follows the dead frame
+        rather than preceding it -- which REFUTES the adjacency
+        ``test_mob_combat_dispatch.py`` inferred from the same numbers
+        ("the dead frame arrives 0.7 s AFTER the drop frame of the same
+        kill").  List order is what is pinned here.
         """
         state = self._state("bg2-kill-drops")
         self._warp(state, DESTINATION_SCENE_ID)
         actions = self._kill(state, self.first_target)
 
+        # Sliced from the announce rather than off the end of the list: two
+        # terms of runtime.py's return sum (columbus, the UI-A notice) trail
+        # the combat lane and are merely empty for this frame TODAY
+        # (pf-adversary D7).  The day one is not, this test must still be
+        # about the kill burst.
+        labels = self._labels(actions)
+        start = labels.index("MOB_COMBAT_ANNOUNCE")
         self.assertEqual(
-            self._labels(actions)[-4:],
+            labels[start:start + 4],
             ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD",
              mob_drop_presence.ACTION_LABEL],
             "the kill burst is not [announce, dying, dead, drop]: %r"
-            % (self._labels(actions),),
+            % (labels,),
         )
-        self.assertEqual([delay for *_r, delay in actions][-4:],
-                         [0.0, 0.0, 0.7, 0.0])
+        self.assertEqual(
+            [delay for *_r, delay in actions][start:start + 4],
+            [0.0, 0.0, mob_death.DEATH_TASK_HOLD_MS / 1000.0, 0.0],
+        )
         drop = self._ground(actions)
-        self.assertEqual(len(drop), 1, self._labels(actions))
-        self.assertTrue(drop[0][1], "the drop frame carries no bytes")
+        self.assertEqual(len(drop), 1, labels)
+        # BOTH slots, in the order the tuple declares them.  The pc alone was
+        # the first draft's check, and mob_drop_presence's own docstring
+        # records a pc/frame swap that "kept the whole suite green while
+        # every ground drop would have gone out with the 44-byte pc in the
+        # frame slot" (pf-adversary D4).  The swap itself is owned at the
+        # unit layer by test_mob_drop_presence.py's M_A mutant; what this
+        # asserts is only that neither slot of a shipped drop is empty.
+        self.assertTrue(drop[0][1], "the drop action carries no pc")
+        self.assertTrue(drop[0][2], "the drop action carries no frame")
 
         # And the row behind it is this kill's, in the scene it fell in.
         rows = state.mob_loot_cell.ledger.drops
@@ -360,15 +464,30 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         self._warp(state, DESTINATION_SCENE_ID)
         self._kill(state, self.first_target)
         self.assertIn("mob_drop_presence_sustained_live_1", state.events)
+        floor_before = len(state.mob_loot_cell.ledger.drops)
+        self.assertEqual(floor_before, 1)
 
+        # The event list is CUMULATIVE, so an absence assertion over the
+        # whole of it accuses the runtime of a bug the seed caused: the day
+        # kill 1 rolls two rows, "live_2" is in the list because of kill 1
+        # (pf-adversary D6).  Read only what the second kill appended.
+        watermark = len(state.events)
         second = self._kill(state, self.second_target)
+        appended = state.events[watermark:]
+
+        rows = state.mob_loot_cell.ledger.drops
         self.assertEqual(
-            [row.mob_identity for row in state.mob_loot_cell.ledger.drops],
+            [row.mob_identity for row in rows],
             [self.first_target, self.second_target, self.second_target],
         )
-        self.assertIn("mob_drop_presence_sustained_live_3", state.events)
+        self.assertIn(
+            "mob_drop_presence_sustained_live_%d" % len(rows), appended,
+            "the kill did not publish the live floor (%d rows): %r"
+            % (len(rows), appended),
+        )
         self.assertNotIn(
-            "mob_drop_presence_sustained_live_2", state.events,
+            "mob_drop_presence_sustained_live_%d"
+            % (len(rows) - floor_before), appended,
             "the second kill published only its own rows -- the floor the "
             "player already earned is not in the generation",
         )
@@ -385,13 +504,22 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         flushes it and kills again.
 
         [MEASURED HERE] the order of that dispatch is
-        ``[... census, MOB_LOOT_DROP(boundary), MOB_COMBAT_ANNOUNCE,
+        ``[census, census, MOB_LOOT_DROP(boundary), MOB_COMBAT_ANNOUNCE,
         MOB_DEATH_DYING, MOB_DEATH_DEAD, MOB_LOOT_DROP(the kill)]``.  The
         boundary bytes are the ones stashed at the crossing, byte for byte,
-        and they land AHEAD of the kill -- MOB_LOOT_WIRING step 6.  Inverted
-        (the shape #572 shipped for one commit), the older, smaller
-        generation would be the last word on the floor and the two rows this
-        kill just paid out would vanish from the client.
+        and they land AFTER the arrival census and AHEAD of the kill --
+        MOB_LOOT_WIRING step 6, both halves.  Inverted (the shape #572
+        shipped for one commit), the older, smaller generation would be the
+        last word on the floor and the rows this kill just paid out would
+        vanish from the client.  Ahead of the census instead, the hold that
+        ``_mob_loot_cross_scene_boundary`` exists to implement is undone --
+        and until this round NOTHING in the repository failed when the flush
+        was moved there (pf-adversary D3, measured by moving it).
+
+        ``frames_1`` below counts FRAMES, not rows: one generation can carry
+        up to the per-frame element cap.  The row count is asserted
+        separately, off the cell's own ledger, so the two are not glossed
+        into each other.
         """
         state = self._state("bg2-boundary-before-kill")
         self._warp(state, DESTINATION_SCENE_ID)
@@ -409,10 +537,16 @@ class Bg0002KillDispatchTests(unittest.TestCase):
             % ([e for e in state.events if "mob_loot_boundary" in e],),
         )
         stashed = state.mob_loot_boundary_frames_pending
-        self.assertEqual(len(stashed), 1)
+        self.assertEqual(len(stashed), 1, "frames, not rows")
         self.assertEqual(
             state.mob_loot_boundary_frames_scene,
             mob_loot.scene_key(DESTINATION_FOLDER),
+        )
+        # ROWS, said separately: the floor the crossing found is the one row
+        # the first kill left standing in this scene.
+        self.assertEqual(
+            [row.mob_identity for row in state.mob_loot_cell.ledger.drops],
+            [self.first_target],
         )
 
         actions = self._kill(state, self.second_target)
@@ -432,7 +566,25 @@ class Bg0002KillDispatchTests(unittest.TestCase):
             "inverted, and the player's newest drop is the one it erases: %r"
             % (labels,),
         )
-        self.assertEqual(kill_index, len(labels) - 1, labels)
+        # The other half of step 6's rule, which nothing pinned before
+        # (pf-adversary D3): held AT the crossing precisely so it lands
+        # AFTER the arrival census rather than in front of it.
+        census_at = [
+            index for index, label in enumerate(labels)
+            if label.startswith("WORLD_CENSUS")
+        ]
+        self.assertTrue(census_at, labels)
+        self.assertLess(
+            max(census_at), boundary_index,
+            "the boundary generation overtook the arrival census -- the hold "
+            "in _mob_loot_cross_scene_boundary is what stops exactly this: %r"
+            % (labels,),
+        )
+        # The kill's generation is the last GROUND word of the dispatch.
+        # Stated as "last ground action", not "last action": two terms of the
+        # return sum trail the combat lane and are only empty today
+        # (pf-adversary D7).
+        self.assertEqual(kill_index, max(ground_at), labels)
         self.assertIn("mob_loot_boundary_flushed_frames_1", state.events)
 
         # The frame that landed IS the stash, not a recomposition of it.
