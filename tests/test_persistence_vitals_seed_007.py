@@ -954,6 +954,101 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
                 % (column, value, after.get(column)),
             )
 
+    def test_a_repeated_create_changes_no_row_in_any_table(self):
+        """*** THE PROPERTY THE RETRY DOOR ACTUALLY NEEDS, and the one the
+        test above walks past on every column it does not name.
+
+        `test_a_repeated_create_returns_the_same_row_and_changes_nothing`
+        grades ONE row, THREE columns, inside ONE account.  A `pf-adversary`
+        pass measured what that leaves open on the retry branch, with the
+        plugs installed rather than imagined, and every one of these was
+        GREEN at `7243 passed, 323 skipped` -- the identical figure the round
+        that added the narrow test offered as its evidence of a clean tree:
+
+        * a retry plug that also resets every OTHER account's veteran to
+          `1, 100/100` and moves every character 1000 units in `z`
+        * a retry plug that also stamps `speed_walk`, `cash` and `experience`
+          -- the first of which is the very column
+          `COO-DECISION 20260902_1043` ruled must NOT be written at birth
+        * a retry plug using `COALESCE(col, ?)`, the defensible "only fill
+          what is NULL" shape, which turns a raw `level 9, hp_max 500,
+          hp_current NULL` row into `hp 100/500` -- exactly the outcome
+          `MigrationIsNarrowTests` forbids for 007 itself
+
+        So the rule is stated the only way that covers them, and on this door
+        it is both STRONGER and SIMPLER than the birth-door version: a
+        repeated create returns a character that already exists, so it adds
+        no rows either.  The whole database must come back BYTE-FOR-BYTE
+        identical -- not "no row was lost", but "nothing changed at all".
+
+        The world is built to have something to lose, and deliberately
+        outside the retried account: a second account's veteran, a
+        soft-deleted row, positions and backpacks for everyone, a
+        `speed_walk` no store method would rewrite, and one half-filled HP
+        pair set by raw SQL so the COALESCE shape has a NULL to find.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        mine = store.ensure_account("retry-mine")
+        theirs = store.ensure_account("retry-theirs")
+
+        # EVERY CREATION FIRST, EVERY DISTINGUISHING VALUE AFTERWARDS -- the
+        # same interval bug the birth-door test above documents: a plug whose
+        # damage lands before the `before` dump is taken looks like a no-op.
+        retried = store.create_character(
+            mine, "Retried", "retried", "fingerprint-retry-subject",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        neighbour = store.create_character(
+            theirs, "Neighbour", "neighbour", "fingerprint-retry-neighbour",
+            _build_wire_offset(0x60000001),
+            Position(3, 0, 4.0, 5.0, 6.0, heading=0.0))
+        doomed = store.create_character(
+            mine, "Doomed", "doomed", "fingerprint-retry-doomed",
+            _build_wire_offset(0x70000001),
+            Position(3, 0, 7.0, 8.0, 9.0, heading=0.0))
+        sid = store.open_session(mine)
+        store.soft_delete_character(sid, doomed.selector)
+
+        store.write_typed_attributes(
+            retried.id, {"level": 9, "hp_current": 480, "hp_max": 500,
+                         "speed_walk": 620.5, "experience": 123456,
+                         "cash": 99999})
+        store.write_typed_attributes(
+            neighbour.id, {"level": 7, "hp_current": 210, "hp_max": 300,
+                           "speed_walk": 380.25})
+        self._set(doomed.id, level=4, hp_current=40, hp_max=60)
+        self._set(retried.id, avatar_typed_json='{"lane":"db"}')
+        # a HALF-FILLED pair, written by raw SQL because no store method will
+        # leave one: this is the NULL a `COALESCE` retry plug fills in.
+        self._set(neighbour.id, hp_current=None)
+
+        before = self._dump_every_table()
+        self.assertTrue(any(before[t] for t in
+                            ("characters", "character_positions",
+                             "character_backpacks")),
+                        "the world this test is about was never built")
+
+        again = store.create_character(
+            mine, "Retried", "retried", "fingerprint-retry-subject",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        # load-bearing: without this the equality below could hold because
+        # the retry branch was never taken at all.
+        self.assertEqual(again.id, retried.id)
+
+        after = self._dump_every_table()
+        self.assertEqual(sorted(after), sorted(before),
+                         "a table appeared or vanished")
+        for table in sorted(before):
+            self.assertEqual(
+                before[table], after[table],
+                "a repeated create with the same fingerprint CHANGED table "
+                "`%s`.  The retry branch returns a character that already "
+                "exists: it adds nothing and it may not rewrite a single row "
+                "in any table, including rows of accounts and characters "
+                "nobody was creating.  before=%r after=%r"
+                % (table, before[table], after[table]),
+            )
+
     def test_creating_a_character_does_not_touch_any_other_row(self):
         """The veteran-reset defect, as the test that fails on it.
 

@@ -37,7 +37,7 @@ WHAT IT DOES NOT DO.
   module still seeds nothing itself, and a character created after 008 still
   arrives with ``speed_walk`` NULL.
 * It does not know whether ``speed_walk`` really is the PLAYER's walk speed.
-  The column serves BasicAttr+0x54 (x=7).  ``gm/attr_wire.py:173`` calls it
+  The column serves BasicAttr+0x54 (x=7).  ``gm/attr_wire.py:221`` calls it
   ``basic_f32_54``, ``known=False``, and the Codex corpus scopes its row to
   ``CNetNPC`` -- but ``docs/FUNCTIONAL_COVERAGE.json`` grades
   ``npc_locomotion_presentation`` ``runtime_pass`` on the same bit (0x0040)

@@ -349,8 +349,16 @@ CLIENT_CONSTRUCTION_DEFAULTS: dict[int, ClientConstructionDefault] = {
 # finishing a job.  The second limit: point 4 of `0742` forbids
 # any code reading this column off a row onto the wire on the strength of the
 # migration; sending a speed is GM-B's decision (`COO-DECISION 20260902_0345`).
-# A built column is still NOT a supplied value for the other twenty: with
-# nothing seeded there, they gap as `server_owned_value_not_supplied`.
+# A BUILT COLUMN IS STILL NOT A SUPPLIED VALUE, and that includes x=7
+# itself -- a `pf-adversary` pass caught an earlier draft of this sentence
+# implying otherwise.  Measured at HEAD rather than counted by hand, because
+# the draft it replaces carried a hardcoded "twenty" with three defensible
+# derivations and no pin: `block_gaps({})` reports
+# `server_owned_value_not_supplied` for **22** fields, one per row of the
+# table below, and x=7 IS one of them.  Seeding a cohort in SQL does not make
+# a field supplied at the compose layer: this module reads no database, so a
+# caller that names no value still gaps here even for a column 008 has
+# written.  Two layers agreeing is not one layer proving the other.
 _SERVER_OWNED_ROWS = (
     (1, "name", True, False),
     (7, "speed_walk", True, True),
