@@ -288,6 +288,18 @@ PICKUP_REQUEST_PRODUCER_SOURCE = (
 # non-ASCII byte in a token is a red gate, not a cosmetic problem.
 MOB_PICKUP_REQUEST_DECODED_TOKEN = "MOB_PICKUP_REQUEST_DECODED"
 MOB_PICKUP_REQUEST_REFUSED_TOKEN = "MOB_PICKUP_REQUEST_REFUSED"
+#: ROUND lh21ua.  The three outcomes of the removal publisher, one ASCII line
+#: each, so an operator watching a cp874 console can tell them apart without a
+#: debugger.  PUBLISHED: the scene's remaining rows went out and the client's
+#: list loses the taken key by omission (RE-082).  HELD: nothing remained, so
+#: the only available generation is the empty one, which RE-082 measured as a
+#: client no-op -- the last object keeps today's behaviour and RE-208 owns the
+#: question.  REFUSED: the publication itself could not be composed; the
+#: pickup still stands, because the item is in the bag and in the database
+#: before this runs, and a floor that redraws late is not worth undoing that.
+MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_PUBLISHED"
+MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT"
+MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
 
 ACCEPTED = "exact_pickup_request"
 
@@ -543,8 +555,13 @@ def read_inbound_pickup_request(
                 "MOB-PICKUP-REQUEST-001 classifier returned an "
                 "unregistered reason")
         read = PickupRequestRead(False, reason, None)
-    if echo:
-        print(pickup_request_console_line(read))
+    # ROUND lh21ua: through _say, not print.  This line sits inside the
+    # never-raises path too, and the bridge console is cp874 with
+    # errors='strict' -- a print() is a statement that can throw.  MEASURED
+    # this round by a test that drives a stdout which refuses every write:
+    # before this change the decode line took the whole inbound dispatch down
+    # with it, which is the one thing this lane promised it would never do.
+    _say(echo, pickup_request_console_line(read))
     return read
 
 
@@ -575,6 +592,18 @@ class PickupRequestOutcome:
     from this lane's own registry, or, unchanged and unwrapped, from the
     transaction lanes underneath.  ``delta`` is the (pc, frame) pair to send
     the claimant, and is None unless ``handled``.
+
+    ``ground_after`` (round lh21ua) is the REMOVAL PUBLICATION: the (pc,
+    frame) pairs that tell the client the taken object is gone, by publishing
+    the scene's remaining rows without it (RE-082: a nonempty generation
+    erases the keys it omits).  It is ``()`` on every refusal, ``()`` when the
+    taken row was the scene's LAST one -- the hole RE-208 is open on, where no
+    known message removes one object and an empty generation is a measured
+    client no-op -- and ``()`` when the publication itself refused, which
+    never undoes the pickup.  ``ground_rows_left`` is how many rows the scene
+    has after the take, and ``-1`` when nothing was taken: read WITH
+    ``ground_after`` it separates "nothing left to say" (0, ()) from "could
+    not say it" (>0, ()).
     """
 
     handled: bool
@@ -582,6 +611,8 @@ class PickupRequestOutcome:
     read: PickupRequestRead
     result: Any = None
     delta: Any = None
+    ground_after: tuple = ()
+    ground_rows_left: int = -1
 
 
 def dispatch_inbound_pickup_request(
@@ -628,8 +659,81 @@ def dispatch_inbound_pickup_request(
     except (mob_pickup.MobPickupContractError,
             mob_pickup_persist.MobPickupPersistError) as exc:
         return _refused_after_read(read, str(exc.args[0]), echo)
+    rows_left, ground_after = _ground_after_the_take(
+        legacy, drop_ledger_cell, read.fields.object_ref_u32, echo)
     return PickupRequestOutcome(
-        True, ACCEPTED, read, result, result.outcome.delta)
+        True, ACCEPTED, read, result, result.outcome.delta,
+        ground_after, rows_left)
+
+
+def _ground_after_the_take(
+        legacy: Any, drop_ledger_cell: Any, taken_key: Any, echo: bool
+) -> tuple:
+    """The removal publication for a pickup that already succeeded.
+
+    ROUND lh21ua, COO-DECISION 2026-09-02T02:53+07:00 (the removal publisher)
+    in the order COO-DECISION 2026-09-02T10:44+07:00 set: carrier composer,
+    THEN this, then the bag delta.
+
+    AFTER THE TRANSACTION, NEVER INSIDE IT, and the order is the content: the
+    item is in the bag and in the database by the time this runs, so nothing
+    here can cost a player their item.  The reverse order -- compose the
+    floor, then transact -- would compose a generation for a take that had
+    not happened yet, which is the one thing
+    ``DropLedgerCell.frames_after_a_row_left`` refuses by name.
+
+    IT CANNOT RAISE, and that is not politeness: this sits under
+    :func:`dispatch_inbound_pickup_request`, whose never-raises promise is
+    what lets the chief's branch sit under a stranger's frame.  A publication
+    that cannot be composed costs a redraw, and the console says which of the
+    three things happened.  ``Exception`` is caught rather than the two named
+    contract errors, because ``legacy`` is a module this lane does not own:
+    ``AttributeError`` out of a moved serializer is exactly the case that
+    must not reach the session.
+    """
+    try:
+        rows_left, frames = drop_ledger_cell.frames_after_a_row_left(
+            legacy, taken_key)
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        _say(echo, "%s reason=%s" % (
+            MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+            mob_pickup_persist.console_safe(str(
+                exc.args[0] if exc.args else type(exc).__name__))[:120]))
+        return -1, ()
+    if frames:
+        _say(echo, "%s key=0x%X rows_left=%d frames=%d" % (
+            MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            taken_key, rows_left, len(frames)))
+    else:
+        # rows_left == 0 is the only way a composed publication is empty:
+        # frames_after_a_row_left raises rather than returning () for every
+        # other case.  RE-208 is open on this one.
+        _say(echo, "%s key=0x%X rows_left=%d" % (
+            MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, taken_key, rows_left))
+    return rows_left, tuple(frames)
+
+
+def _say(echo: bool, line: str) -> bool:
+    """Print one line, and LOSE THE LINE rather than the frames if it fails.
+
+    The bridge console is cp874 with ``errors='strict'``, so a ``print`` is a
+    statement that can raise -- and this one sits inside a function whose
+    whole promise is that it does not.  ``console_safe`` already makes the
+    text ASCII; this covers what it cannot: a closed, redirected or broken
+    stdout, which is a property of the process and not of the string.  The
+    sibling lane learned this on its own PRESERVE fall back in round jysbar:
+    a console that cannot be written to costs a LINE, never a FRAME.
+
+    Returns whether the line was printed, so a test can prove the loss is the
+    line rather than assume it.
+    """
+    if not echo:
+        return False
+    try:
+        print(line)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+    return True
 
 
 def _refused_after_read(
@@ -641,8 +745,7 @@ def _refused_after_read(
     without this second line an operator watching the console would see an
     accepted read and no outcome at all.
     """
-    if echo:
-        print("%s reason=%s" % (MOB_PICKUP_REQUEST_REFUSED_TOKEN, reason))
+    _say(echo, "%s reason=%s" % (MOB_PICKUP_REQUEST_REFUSED_TOKEN, reason))
     return PickupRequestOutcome(False, reason, read)
 
 
@@ -693,7 +796,28 @@ MOB_PICKUP_REQUEST_WIRING = (
     "      if outcome.delta is None:\n"
     "          return []   # no reply, exactly as an unknown vital gets\n"
     "      then send outcome.delta -- the (pc, frame) pair the transaction "
-    "already composed and validated -- and nothing else.\n"
+    "already composed and validated -- ~~and nothing else~~.\n"
+    "  ROUND lh21ua ADDS EXACTLY ONE THING TO SEND, and it is the only line "
+    "this lane asks the chief for this round (COO-DECISION 2026-09-02T02:53"
+    "+07:00, the removal publisher; ordered second by COO-DECISION "
+    "2026-09-02T10:44+07:00).  After the delta, send the ground publication "
+    "the same outcome carries -- the scene's REMAINING rows, which is what "
+    "removes the taken object from the client's list (RE-082: a nonempty "
+    "generation erases the keys it omits).  It is composed inside the "
+    "never-raises call, it is ALREADY EMPTY whenever there is nothing to "
+    "send, so the call site needs no condition of its own:\n"
+    "      out = [(\"MOB_PICKUP_REQUEST_DELTA\", pc, frame, 0.0)]\n"
+    "      out += [(\"MOB_PICKUP_GROUND_AFTER\", gpc, gframe, 0.0)\n"
+    "              for gpc, gframe in outcome.ground_after]\n"
+    "      return out\n"
+    "  ORDER MATTERS ONE WAY ONLY: the ground publication must not be sent "
+    "BEFORE the delta, because the delta is the answer to the click and the "
+    "floor is the consequence of it.  Both carry delay 0.0 and ride the same "
+    "return, so nothing else about the ordering is this lane's to promise.\n"
+    "  WITHOUT THAT LINE the item is in the bag and in the database and the "
+    "LABEL IS STILL ON THE FLOOR until the next kill or the next scene entry "
+    "publishes that ground -- a wait with no upper bound, which is what P-1 "
+    "is about.\n"
     "  ONE CALL, AND THE GUARDS ARE INSIDE IT.  The readiness check (no "
     "bag cell before character select, no ground cell for the scene), the "
     "refusal path, the order of precheck/dispatch/persist and the catch of "
@@ -709,10 +833,23 @@ MOB_PICKUP_REQUEST_WIRING = (
     "are the claimant's own actor identity and position as this session "
     "already knows them -- NOT anything out of the request, which carries "
     "no position at all.\n"
-    "  WHAT THIS BRANCH MUST NOT DO: answer the request with a frame of "
-    "its own, delete a ground object (the floating label expires by itself "
-    "and taking the row through the cell stops the ground lane re-emitting "
-    "it), or write a row of its own.\n"
+    "  WHAT THIS BRANCH MUST NOT DO: COMPOSE a frame of its own, delete a "
+    "ground object, or write a row of its own.  ~~'the floating label "
+    "expires by itself and taking the row through the cell stops the ground "
+    "lane re-emitting it'~~ IS STRUCK, round lh21ua: not re-emitting a row "
+    "is not the same as removing it.  WHAT IS MEASURED, on this side of the "
+    "wire, is that the transaction lanes compose ONE thing, the bag delta, "
+    "and it carries no ground key at all -- so until this round a successful "
+    "pickup said nothing about that floor until the next kill or scene entry "
+    "(tests/test_mob_pickup_request.py::TheGroundAfterTheTakeTests::"
+    "test_the_transaction_alone_says_nothing_about_the_floor drives the real "
+    "transaction and reads what came out).  "
+    "WHAT THE CLIENT DOES WITH A LABEL NOBODY WITHDREW IS "
+    "NOT MEASURED -- RE-082 says a nonempty generation erases the keys it "
+    "omits, which is why the fix takes this shape.  The publication above is "
+    "the "
+    "answer, and the branch only FORWARDS it -- every byte of it is composed "
+    "in this lane, behind the same never-raises promise.\n"
     "  WHY THE SIBLING LANE'S OWN HEADLINE IS NOT THE ONE PUBLISHED HERE: "
     "COO-DECISION 20260902_0254 named the dispatch-only call, and this lane "
     "publishes the persist-and-dispatch one instead, because the "
