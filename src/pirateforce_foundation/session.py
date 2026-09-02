@@ -4,6 +4,8 @@ import sys
 import threading
 
 from . import bag_admission
+from . import login_speed
+from . import player_wire
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
 )
@@ -150,6 +152,71 @@ class FoundationSession:
             raise PermissionError(
                 "HYP-PF-008 post-state requires its explicit opt-in scenario"
             )
+        # CORE-REQUEST `pf_bridge/notes_to_chief/20260902_2010` (COO-DECISION
+        # 20260902_1846 point 3): the ONE place the row is read for a login's
+        # movement speed.  It happens here, and not in the projector or in
+        # player_wire, because this is the last layer that still holds both a
+        # store and a character id; below this the composers are pure.
+        #
+        # The value is attached to the selected character rather than passed
+        # as an argument.  `start_game` is called up to three MORE times per
+        # production login by runtime.py -- the faction recompose runs on
+        # EVERY flagless login and replaces pc/frame outright -- and each of
+        # those passes `self.foundation.selected`.  Threading the speed only
+        # into the call below would therefore have been a change the very
+        # next recompose puts straight back to 400.0: visible in a unit test,
+        # invisible on the wire.  (R309's lesson, written into that round
+        # file: a call site that seizes the frame has to be asked who it is
+        # taking that frame away from.)
+        #
+        # Nothing here can fail a login.  `resolve_for_character` answers with
+        # the constant -- exactly what main sends today -- for a read that
+        # raises, a column with no value, or a value the wire validator
+        # refuses, and it names which of those happened on the console.
+        #
+        # !! BOTH LOOKUPS GO THROUGH `getattr`, AND THAT IS NOT DEFENSIVE
+        # HABIT -- pf-adversary measured the direct form killing three
+        # existing tests and, in production, the listener thread.  Before
+        # this change `select_and_start` asked `lifecycle` for `select`
+        # and `backpack` only, and asked `selected` for nothing at all;
+        # `self.lifecycle.store.…` and `selected.id` silently widened both
+        # contracts ONE LINE ABOVE the try that is supposed to make this
+        # non-fatal.  `AttributeError` is exactly the class runtime.py's
+        # START_GAME_REQ handler does not catch (it catches KeyError,
+        # PermissionError, ValueError, RuntimeError), and v141 wraps the
+        # per-connection loop in try/finally with no except at all -- so
+        # the thread unwinds with the client parked on "connecting".
+        # `None` here reaches `resolve_for_character`'s own try and comes
+        # back as ROW_COULD_NOT_BE_READ carrying the constant, which is
+        # the behaviour this whole seam promises for a read it cannot do.
+        resolved = login_speed.resolve_for_character(
+            getattr(self.lifecycle, "store", None),
+            getattr(selected, "id", None),
+            fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED,
+        )
+        # SAY IT ON THE WAY THROUGH, NOT ONLY ON THE WAY OUT.  The first
+        # draft printed refusals only, which put a token on the console for
+        # the non-goal and none on the goal -- and the goal is precisely
+        # what `gm/speed_wire.py`'s SPEED_LOGIN_READ_LANDED gate wants
+        # somebody to be able to point at on `main`.  A refusal that says
+        # nothing is equally useless (R309 defect D3), so BOTH are printed:
+        # one ASCII line per login, wrapped for the same reason every other
+        # print in this file is -- a closed or broken stderr must not
+        # become this login's exception (R309 defect D4).
+        try:
+            print(resolved.console_line(), file=sys.stderr)
+        except Exception:
+            pass
+        # `replace` needs a dataclass, which is the third contract this
+        # seam must not silently widen: a stub `selected` in somebody
+        # else's test raises TypeError here just as surely as the two
+        # lookups above did.  Falling back to the unmodified object gives
+        # that caller main's behaviour instead of a crash.
+        if resolved.came_from_the_row:
+            try:
+                selected = replace(selected, movement_speed=resolved.value)
+            except TypeError:
+                pass
         self.selected = selected
         self.backpack = backpack
         return self.selected, self.projector.start_game(
@@ -290,7 +357,29 @@ class ReadOnlyFoundationSession:
         matches = [character for character in self.characters if character.selector == selector]
         if len(matches) != 1:
             raise KeyError(selector)
-        self.selected = matches[0]
+        # !! THIS SESSION DOES **NOT** READ THE ROW'S SPEED, AND THAT IS A
+        # MEASURED DECISION RATHER THAN AN OVERSIGHT.  A pf-adversary pass
+        # raised the inconsistency correctly -- this class holds `self.store`
+        # and the character's id, so the same character could compose two
+        # different ActorAttrs depending on whether the server was booted
+        # with `--scene-load`, and that is a real cost.  It was implemented,
+        # and then `tests/test_action_ack.py::test_port_royal_faction1_start_
+        # game_projection_is_allowed_end_to_end` went red and named the
+        # bigger cost: that test guards this milestone by snapshotting the
+        # database file AND ITS SIDECARS around a StartGame and requiring
+        # them byte-identical.  `store.read_typed_attributes` opens its own
+        # connection, so merely READING creates `-wal` and `-shm` where
+        # there were none.  "Read-only" here means the process leaves no
+        # trace on disk, not just that it issues no UPDATE.
+        #
+        # So the divergence stays, and it is a NONCLAIM rather than a
+        # silence: a `--scene-load` boot composes the constant even when the
+        # row holds another number.  Closing it needs a read that does not
+        # open a connection (the caller handing the value in, or a
+        # store-level cache), which is a different change with a different
+        # owner -- not something to sneak in behind a scenario flag.
+        selected = matches[0]
+        self.selected = selected
         # PF-HYPOTHESIS-LEDGER: HYP-PF-001 frozen
         # PF-HYPOTHESIS-LEDGER: HYP-PF-007 frozen
         # PF-HYPOTHESIS-LEDGER: GEO-PF-002 frozen
