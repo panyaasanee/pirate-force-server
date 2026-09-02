@@ -291,6 +291,57 @@ def shape_cleared(sections) -> bool:
     return tuple(sections) in SHAPES_CLEARED_BY_A_REAL_CLIENT
 
 
+# THE SECOND LOCK, AND IT IS OUTSIDE THE SHAPE QUESTION ENTIRELY --
+# COO-DECISION 2026-09-02T18:47+07:00 (`pf_bridge/notes_to_chief/
+# 20260902_1847_COO-DECISION-lane-gm-stop-sending-speed-as-an-attr-frame-
+# now.md`): "`/speed <value>` must not put `LANE_GM_CHAT_SPEED_UPDATE_ATTR_
+# VITAL` on the wire again UNTIL THE LOGIN-READ OF `speed_walk` IS ON
+# `main`", and the route answers with a printed `SPEED DEFERRED` instead.
+#
+# WHY IT IS A SECOND LOCK RATHER THAN A WIDER SHAPE HOLD.  The two gates
+# answer different questions and neither implies the other:
+#
+#   * `SHAPES_CLEARED_BY_A_REAL_CLIENT` above asks "has a real client been
+#     measured accepting THIS shape?"  It is about the bytes.
+#   * this one asks "does the number the client would paint survive the next
+#     login?"  It is about the DATABASE, and it is the half `GT-193` measured
+#     from the other side: `persistence_attr_compose.py:289` composes a
+#     hardcoded `400.0` at login because `speed_walk` has no login read yet
+#     (LANE-DB owns the fix -- COO-DECISION `20260902_1846`, NOT this lane).
+#     A door that painted a number the next login silently discards is a door
+#     that lies to a tester even on a shape a client accepts.
+#
+# So a round that measures a safe shape STILL does not reopen the wire, and
+# the round that lands the login read STILL does not either.  Both edits are
+# required, they are owned by two different lanes, and that is on purpose:
+# whichever lane moves first cannot cost an attended round by moving alone.
+#
+# HOW IT IS FLIPPED, said plainly so nobody flips it by accident: one line,
+# here, by the round that can point at the login read ON `main` -- the same
+# "name your evidence in the comment" rule the clearance set above states.
+# It is deliberately NOT auto-detected from LANE-DB's module: a heuristic
+# that guesses "the login read looks landed" and guesses wrong reopens the
+# exact door that locked a real client out of an attended round, and this
+# lane does not guess (`COO-DECISION 1847`: "do not guess which field killed
+# the client and then fix your guess").
+SPEED_LOGIN_READ_LANDED: bool = False
+
+
+def send_deferred() -> bool:
+    """Is every `/speed` frame held, whatever its shape? -- COO `1847`.
+
+    Read through a function for the reason `shape_cleared()` and
+    `shared_vital_version_confirmed()` are: the gate re-reads the module
+    attribute live, so the round that flips the constant above edits one line
+    and no call site.
+
+    FAIL-CLOSED BY CONSTRUCTION: the deferral is the DEFAULT and the landing
+    is what has to be proven, so a module half-edited by a later round holds
+    the frame rather than sends it.
+    """
+    return not SPEED_LOGIN_READ_LANDED
+
+
 def declared_empty_sections(
     legacy, identity_lo: int, identity_hi: int, value: float,
 ) -> tuple[str, ...]:

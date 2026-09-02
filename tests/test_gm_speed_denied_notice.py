@@ -167,6 +167,20 @@ class _Case(unittest.TestCase):
         )
         _shape_cleared.start()
         self.addCleanup(_shape_cleared.stop)
+        # AND THE SECOND LOCK, WHICH LANDED ABOVE THAT ONE: COO-DECISION
+        # 2026-09-02T18:47+07:00 defers EVERY frame of this door -- whatever
+        # its shape -- until LANE-DB lands the `speed_walk` login read on
+        # `main` (`speed_wire.send_deferred`).  It sits between the DB write
+        # and the shape gate, so without this second patch nothing in this
+        # file reaches the composer either.  Also a TEST-ONLY simulation: the
+        # shipped default is pinned deferred by
+        # `tests/test_gm_speed_deferred.py`, and nothing here is evidence that
+        # LANE-DB's login read exists.
+        _deferral_lifted = mock.patch.object(
+            speed_wire, "SPEED_LOGIN_READ_LANDED", True
+        )
+        _deferral_lifted.start()
+        self.addCleanup(_deferral_lifted.stop)
 
     def act(self, session, text="/speed 400"):
         """Run the whole production path, not just the handler.
@@ -373,8 +387,21 @@ class TheNineRefusalPathsTests(_Case):
         line is not an `ast.Call` in a `return` at all.
 
         Counting the two spellings in the function's own source is blind to
-        neither: the ONE legitimate `_Verdict(` in `_speed_action` is the
-        success path, and every refusal reads `_speed_denied(`.
+        neither: the legitimate `_Verdict(` calls in `_speed_action` are named
+        one by one below, and every refusal reads `_speed_denied(`.
+
+        TWO ARE LEGITIMATE SINCE COO-DECISION `20260902_1847`, not one.  That
+        decision ordered `/speed` to put NO byte on the wire until LANE-DB
+        lands the `speed_walk` login read -- "no byte" including the notice
+        this file exists to guard -- and to answer on the CONSOLE instead
+        (`SPEED DEFERRED`).  So this count rises from 1 to 2 and the identity
+        of both is pinned by name in
+        `tests/test_gm_speed_denied_nine_paths.py::NoRefusalMayGoOutSilent
+        Tests::test_the_bare_verdicts_are_the_success_path_and_coo_1847s_
+        deferral`, which walks the AST and requires the second one to return
+        `None` with `OUTCOME_SPEED_DEFERRED` and a `line_printed=` argument.
+        A THIRD would be the silent refusal COO `0345` closed, and this
+        assertion is still what catches it.
         """
         import inspect
 
@@ -382,11 +409,12 @@ class TheNineRefusalPathsTests(_Case):
         body = source[source.index('"""', source.index('"""') + 3) + 3:]
         self.assertEqual(
             body.count("_Verdict("),
-            1,
+            2,
             "_speed_action builds a _Verdict directly somewhere other than "
-            "its success path. Every refusal must go through _speed_denied, "
-            "or it is SILENT on the client -- the exact gap COO-DECISION "
-            "20260902_0345 closed. Found %d." % body.count("_Verdict("),
+            "its success path and COO 1847's deferral. Every OTHER refusal "
+            "must go through _speed_denied, or it is SILENT on the client -- "
+            "the exact gap COO-DECISION 20260902_0345 closed. Found %d."
+            % body.count("_Verdict("),
         )
         self.assertEqual(
             body.count("_speed_denied("),

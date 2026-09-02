@@ -442,9 +442,27 @@ def _has_embedded_manifest(
     A /MD VC9 build binds to the MSVCR90 side-by-side assembly, and without
     the manifest the loader answers LoadLibraryW with 14001 and the plug-in
     never runs a single instruction -- indistinguishable on screen from the
-    DLL not being there at all. build_vs2008.bat never invokes mt.exe and
-    install.bat copies one file, so this is a live failure mode for this
-    package, not a hypothetical.
+    DLL not being there at all.
+
+    ~~"build_vs2008.bat never invokes mt.exe and install.bat copies one file,
+    so this is a live failure mode for this package"~~ -- STRUCK as of round
+    `hj2cry`: `pf_bridge/patches/gm_plugin/build_vs2008.bat` revision 5 embeds
+    the manifest and `install.bat` refuses to copy a DLL without one
+    (COO-DECISION `20260902_1948` item 2, from ka1-A's attended measurement of
+    exactly the failure this function names).  It was live for every build
+    that script made before that round, which is why the check exists at all
+    and why it stays.
+
+    !! IT ANSWERS "AN RT_MANIFEST EXISTS", NOT "THE ONE THE LOADER READS"
+    (pf-adversary, round `hj2cry`, D13).  Any resource id satisfies this,
+    while a DLL's activation context comes from id **2** -- so a manifest
+    embedded at id 1 (the EXE id, an easy slip when someone hand-runs
+    `mt.exe -outputresource:GameMaster.dll;1`) reports `image_ok` here and
+    still answers 14001 at load.  Reported rather than tightened in that
+    round: this function's verdict vocabulary is read by an attended ticket,
+    and narrowing a verdict is a change that needs its own round and its own
+    letter.  `build_vs2008.bat` embeds at `;#2` and re-reads at `;#2`, so the
+    scripted path is not exposed to the gap; a hand-embed is.
     """
     rva, _size = _directory(
         data, directories_offset, directory_count, _DIRECTORY_RESOURCE

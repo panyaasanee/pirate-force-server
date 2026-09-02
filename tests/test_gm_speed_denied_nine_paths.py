@@ -132,6 +132,38 @@ REFUSAL_PATHS = (
 )
 EXPECTED_PATH_COUNT = len(REFUSAL_PATHS)
 
+# 🔴 THE ELEVENTH NO-BYTES EXIT IS DELIBERATELY NOT IN THE TUPLE ABOVE, and
+# saying so is the whole point of this block (pf-adversary, round `hj2cry`,
+# D3: an exclusion nobody wrote down is a skip nobody counts).
+#
+# COO `1847`'s deferral -- `withheld_speed_deferred_login_read` -- is not a
+# REFUSAL PATH in this file's sense.  Every entry above goes through
+# `_speed_denied` and therefore ships the 12-character `SPEED DENIED` notice
+# that letter `0311` and COO-DECISION `0345` are about; the deferral sends
+# NOTHING, on purpose, and answers on the console instead.  Adding it here
+# would make `test_every_path_prints_both_console_lines` assert a notice frame
+# that must not exist.
+#
+# WHAT THAT COSTS, STATED RATHER THAN HIDDEN: this file's contract now covers
+# ten exits and misses THE ONE THE SHIPPED DEFAULT REACHES.  The cover for it
+# lives in `tests/test_gm_speed_deferred.py`, which runs against the shipped
+# default and pins the console line, its fields, the audit word, the event and
+# the undo.  A reader who changes the deferral must go there; a reader who
+# adds an eleventh path that DOES notify adds it to the tuple above.
+DEFERRAL_IS_NOT_A_NOTICE_PATH = "withheld_speed_deferred_login_read"
+
+# The exits of `_speed_action` that build a `_Verdict` DIRECTLY instead of
+# going through `_speed_denied`.  Two since COO-DECISION `20260902_1847`, and
+# each one is identified by what it returns rather than by its position:
+#   1. the composed command -- an action tuple led by `SPEED_ACTION_LABEL`;
+#   2. COO 1847's deferral -- NO action at all (not even the notice), because
+#      that decision's own test requirement is "pin that no bytes go out on
+#      this route".  It answers on the console instead, and the guard below
+#      makes the console half mandatory.
+# Raising this number is how a silent refusal would get in, so it is spelled
+# here with the reason each exit earns its place.
+EXPECTED_BARE_VERDICT_COUNT = 2
+
 CANONICAL_DB_FILENAME = "pirateforce.sqlite3"
 RUN_COPY_DB_FILENAME = "pirateforce_lane_gm_20260902_0617.sqlite3"
 
@@ -299,6 +331,20 @@ class _Case(unittest.TestCase):
         )
         _shape_cleared.start()
         self.addCleanup(_shape_cleared.stop)
+        # AND THE SECOND LOCK, WHICH LANDED ABOVE THAT ONE: COO-DECISION
+        # 2026-09-02T18:47+07:00 defers EVERY frame of this door -- whatever
+        # its shape -- until LANE-DB lands the `speed_walk` login read on
+        # `main` (`speed_wire.send_deferred`).  It sits between the DB write
+        # and the shape gate, so without this second patch nothing in this
+        # file reaches the composer either.  Also a TEST-ONLY simulation: the
+        # shipped default is pinned deferred by
+        # `tests/test_gm_speed_deferred.py`, and nothing here is evidence that
+        # LANE-DB's login read exists.
+        _deferral_lifted = mock.patch.object(
+            speed_wire, "SPEED_LOGIN_READ_LANDED", True
+        )
+        _deferral_lifted.start()
+        self.addCleanup(_deferral_lifted.stop)
         # 🔴 ABSOLUTE, AND INSIDE THIS TEST'S OWN TEMP DIRECTORY.  The
         # run-copy gate resolves `os.path.dirname(store.path)` against the
         # PROCESS CWD and fails closed when it cannot ask, so a relative
@@ -644,10 +690,48 @@ class TheNinePathsShipTheLineTests(_Case):
     def test_path_10_shape_hold_not_cleared(self):
         # The tenth path had no per-path test of its own for one round; it was
         # walked only through `drivers()` (pf-adversary, round `et2ux4`, D9).
-        # It belongs with paths 1-7: nothing may be written.
+        #
+        # ~~"It belongs with paths 1-7: nothing may be written."~~ STRUCK: it
+        # belongs with paths 8-9 now.  COO-DECISION `20260902_1847` moved the
+        # shape hold BELOW the DB write ("the DB write continues as before;
+        # what has to stop is the outbound frame, and only that"), so this
+        # path refuses with the row already moved -- which is exactly what
+        # `assertTheRowMoved` is for and why paths 8 and 9 have always used
+        # it.  The screen half is unchanged: the notice still goes out.
         action, store = self.path_10_shape_hold_not_cleared()
         self.assertNoticeCarriesTheMeasuredLine(action, "path 10 (shape hold)")
-        self.assertNothingWasWritten(store, "path 10 (shape hold)")
+        self.assertEqual(
+            len(store.calls),
+            1,
+            "path 10 (shape hold) refused without writing the row; COO 1847 "
+            "requires the write to continue and only the frame to stop",
+        )
+
+
+class TheExcludedEleventhExitTests(_Case):
+    """The exclusion above, made a test rather than a comment.
+
+    Without this, `REFUSAL_PATHS` could quietly grow the deferral (and turn
+    `test_every_path_prints_both_console_lines` into an assertion about a
+    notice that must not exist), or the deferral's word could drift away from
+    the constant this file names it by, and nothing here would notice.
+    """
+
+    def test_the_deferral_word_is_the_modules_own(self):
+        self.assertEqual(
+            DEFERRAL_IS_NOT_A_NOTICE_PATH,
+            chat_command_action.OUTCOME_SPEED_DEFERRED,
+        )
+
+    def test_it_is_not_one_of_the_notice_paths(self):
+        self.assertNotIn(DEFERRAL_IS_NOT_A_NOTICE_PATH, REFUSAL_PATHS)
+        for path in REFUSAL_PATHS:
+            with self.subTest(path=path):
+                self.assertFalse(
+                    DEFERRAL_IS_NOT_A_NOTICE_PATH.startswith(path),
+                    "the deferral matches refusal path %r, so a driver for "
+                    "that path could be measuring the deferral instead" % path,
+                )
 
 
 class ThePathsAreDistinctTests(_Case):
@@ -829,32 +913,136 @@ class NoRefusalMayGoOutSilentTests(_Case):
         )
         self.assertEqual(
             len(composed),
-            1,
+            EXPECTED_BARE_VERDICT_COUNT,
             "_speed_action builds %d verdicts of its own (lines %r). Exactly "
-            "one is allowed: the composed command. Every refusal goes through "
-            "`_speed_denied`, or it goes out silent." % (len(composed), composed),
+            "%d are allowed: the composed command, and COO 1847's deferral "
+            "(which answers on the CONSOLE instead of the screen -- see "
+            "`test_the_bare_verdicts_are_the_success_path_and_coo_1847s_"
+            "deferral`). Every OTHER refusal goes through `_speed_denied`, or "
+            "it goes out silent."
+            % (len(composed), composed, EXPECTED_BARE_VERDICT_COUNT),
         )
 
-    def test_the_one_bare_verdict_is_the_success_path(self):
-        for node in ast.walk(self._speed_action_node()):
+    def test_the_bare_verdicts_are_the_success_path_and_coo_1847s_deferral(self):
+        """The narrowing this file took when COO 1847 landed, said exactly.
+
+        Before that decision every exit of `_speed_action` either sent the
+        command or sent the `SPEED DENIED` notice, and this test said "the one
+        bare verdict is the success path".  COO `1847` added a SECOND bare
+        verdict on purpose: the deferral returns NO action at all, not even
+        the notice, because its own test requirement is "pin that no bytes go
+        out on this route".
+
+        So the guard is narrowed rather than loosened.  A bare verdict is
+        allowed to be exactly one of two things, each identified by what it
+        returns, and anything else is still the silent refusal COO `0345`
+        closed:
+
+          * the composed command (an action TUPLE led by `SPEED_ACTION_LABEL`);
+          * the deferral (action `None`, the audit word
+            `OUTCOME_SPEED_DEFERRED`, and a `line_printed=` argument -- silent
+            on the screen is only acceptable while it is LOUD on the console).
+        """
+        found = []
+        # ONE parse, reused: `_speed_action_node()` re-parses the module on
+        # every call, so nodes from two calls are different objects and an
+        # identity test against them silently finds nothing.
+        function = self._speed_action_node()
+        for node in ast.walk(function):
             if not isinstance(node, ast.Return) or node.value is None:
                 continue
             call = node.value
             if getattr(getattr(call, "func", None), "id", None) != "_Verdict":
                 continue
             first = call.args[0]
+            if isinstance(first, ast.Tuple):
+                self.assertEqual(
+                    getattr(first.elts[0], "id", None),
+                    "SPEED_ACTION_LABEL",
+                    "the bare verdict at line %d returns an action tuple that "
+                    "is not the composed command" % node.lineno,
+                )
+                found.append("composed")
+                continue
             self.assertIsInstance(
                 first,
-                ast.Tuple,
-                "the one bare verdict at line %d no longer returns an action "
-                "tuple, so a refusal may be hiding in it" % node.lineno,
-            )
-            self.assertEqual(
-                getattr(first.elts[0], "id", None),
-                "SPEED_ACTION_LABEL",
-                "the one bare verdict at line %d is not the composed command"
+                ast.Constant,
+                "the bare verdict at line %d returns neither an action tuple "
+                "nor a literal None, so a refusal may be hiding in it"
                 % node.lineno,
             )
+            self.assertIsNone(
+                first.value,
+                "the bare verdict at line %d returns a literal that is not "
+                "None" % node.lineno,
+            )
+            self.assertEqual(
+                getattr(call.args[1], "id", None),
+                "OUTCOME_SPEED_DEFERRED",
+                "the action-less bare verdict at line %d is not COO 1847's "
+                "deferral; every other refusal owes the GM a notice and must "
+                "go through `_speed_denied`" % node.lineno,
+            )
+            self.assertIn(
+                "line_printed",
+                [kw.arg for kw in call.keywords],
+                "COO 1847's deferral at line %d sends nothing to the screen, "
+                "so it must report whether it reached the CONSOLE -- without "
+                "`line_printed` a dead stderr makes it wholly silent"
+                % node.lineno,
+            )
+            found.append("deferred")
+            self._assert_the_deferral_branch_holds_one_reason(function, node)
+        self.assertEqual(sorted(found), ["composed", "deferred"], found)
+
+    def _assert_the_deferral_branch_holds_one_reason(self, function, return_node):
+        """The hole the 1 -> 2 loosening opened, closed (pf-adversary D6).
+
+        The guards above count `Return` nodes and `_Verdict(` spellings, and a
+        next-round silent refusal that adds neither is invisible to both: fold
+        a second reason into the EXISTING deferral condition --
+
+            if speed_wire.send_deferred() or <anything at all>:
+
+        -- and the whole speed suite stays green.  pf-adversary wrote that
+        mutant and measured 276 passed.  Worse than invisible: `send_deferred()`
+        is unconditional today, so Python SHORT-CIRCUITS the right-hand side on
+        every default-path run.  No test that does not lift the deferral could
+        ever observe it, and it would arm itself on the day LANE-DB lands the
+        login read -- the exact day the gate above it opens.
+
+        So the condition guarding the action-less verdict must be ONE call and
+        nothing else.  A second reason to withhold `/speed` is a refusal of its
+        own: it gets its own branch, its own audit word and its own console
+        sentence, or it goes through `_speed_denied`.  It does not ride this
+        one, whose word names LANE-DB's login read and would then be printed
+        for something with nothing to do with it.
+        """
+        owner = None
+        for node in ast.walk(function):
+            if isinstance(node, ast.If) and return_node in node.body:
+                owner = node
+                break
+        self.assertIsNotNone(
+            owner,
+            "the action-less verdict at line %d is not the body of an `if` "
+            "any more; this guard cannot see what withholds it"
+            % return_node.lineno,
+        )
+        self.assertIsInstance(
+            owner.test,
+            ast.Call,
+            "the deferral condition at line %d is not a single call -- a "
+            "second reason folded in here is a silent refusal wearing COO "
+            "1847's audit word (pf-adversary D6)" % owner.lineno,
+        )
+        self.assertEqual(
+            getattr(owner.test.func, "attr", None),
+            "send_deferred",
+            "the deferral at line %d is guarded by something other than "
+            "`speed_wire.send_deferred()`" % owner.lineno,
+        )
+        self.assertEqual(owner.test.args, [], owner.lineno)
 
     def test_the_dispatcher_branch_only_calls_speed_action(self):
         """One `def` up, where a refusal is cheapest to add and invisible to

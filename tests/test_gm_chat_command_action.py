@@ -1300,6 +1300,15 @@ class EventNameContractTests(_Case):
             "gm_chat_action_speed_withheld_sparse_shape_not_cleared_by_a_"
             "real_client"
         ),
+        # COO-DECISION `20260902_1847`: every frame of this door is held --
+        # whatever its shape -- until LANE-DB lands the `speed_walk` login
+        # read on `main`.  Its own name rather than a reuse of the shape word
+        # above, because a replay tool reading `session.events` has to be able
+        # to separate the project-wide deferral from the shape question.  This
+        # is the event the SHIPPED default fires today; the shape one below is
+        # unreachable until the deferral lifts.  See
+        # `tests/test_gm_speed_deferred.py`.
+        "EVENT_SPEED_DEFERRED": "gm_chat_action_speed_deferred_login_read",
         # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
         # `store.write_typed_attributes_and_compose_sparse` was live on
         # `main`.  All four are NO-FRAME outcomes: DB first, wire second, a
