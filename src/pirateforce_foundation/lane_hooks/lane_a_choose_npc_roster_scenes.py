@@ -23,8 +23,9 @@ its names, levels and HP intact.
     ten islands rather than 62 across one.
 
     ELEVEN SCENES SINCE ROUND `4uztfj`, AND THE ELEVENTH IS NOT AN ISLAND.
-    Scene 126 (Bg3001, "Atlantis") is an ocean panel: 36 shippable
-    placements of 38, ships and islands-as-actors rather than townspeople,
+    Scene 126 (Bg3001, "Atlantis") is an ocean panel: ~~36~~ 37 shippable
+    placements of 38 (round `gx7xtp`, COO-DECISION 20260902_2146 shape 1),
+    ships and islands-as-actors rather than townspeople,
     built and wired the same round.  Its registry door is SHUT and this
     round did not touch it (``COO-DECISION 20260829_1444`` wants an
     attended var2 test before any flip), so the click this answers there is
@@ -302,6 +303,7 @@ from .. import world_bg0010_identity
 from .. import world_bg0011_identity
 from .. import world_bg3001_identity
 from .. import world_bg4001_identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_may_be_populated
 
 # SHIPPABLE, FOR THE SCENES THE GATES BELOW ADMIT AND NO OTHERS.  Every
@@ -456,6 +458,7 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
         last_target_pos: tuple[float, float, float, float] | None,
         scene_id: int = scene_n_id,
         scene_entry_registry: Any = None,
+        mob_loot_cell: Any = None,
         **_ignored: Any,
     ) -> "lane_hooks.ChooseNpcResponse | None":
         """Answer one ChooseNPC click for this scene, or decline.
@@ -558,7 +561,17 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
                 continue  # pragma: no cover - unreachable while
                 # population_indices and by_idx come from one table; the
                 # loop above only skips indices that table lacks.
-            pc, frame = legacy.make_runtime_remote_actors(entries)
+            # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+            # call-site half COO-DECISION 20260902_1946 approved).  Same
+            # bytes as ``legacy.make_runtime_remote_actors`` whenever no
+            # row is standing in THIS scene, which includes every boot
+            # where chief has not passed a cell yet.  The scene naming
+            # and the fail-closed path live in one module for all four
+            # responders - see ``lane_a_ground_preserve``, including why
+            # the letter's own ``scene_id`` argument had to be resolved
+            # to a scene FOLDER before it could gate anything.
+            pc, frame = compose_answer(
+                legacy, entries, scene_id, mob_loot_cell)
             console_lines = (
                 f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
                 f"placement={selected_idx} visible={len(entries)} "

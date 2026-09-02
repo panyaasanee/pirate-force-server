@@ -1,8 +1,10 @@
 """Atlantis's cast as ONE census collection - LANE-A, scene 126.
 
 The census half of round ``4uztfj``'s pair; ``world_bg3001_identity`` is
-the identity half and holds every table row this file sends.  36 of the
-scene's 38 native placements, COUNTED BY PLACEMENT AND NOT BY NAME (an
+the identity half and holds every table row this file sends.  ~~36~~ 37
+of the scene's 38 native placements (the 37th is the Thai-named row
+``COO-DECISION 20260902_2146`` put back, round ``gx7xtp``), COUNTED BY
+PLACEMENT AND NOT BY NAME (an
 earlier draft of this paragraph listed "ten ships" and added up to 27 --
 pf-adversary; a ticket quoted it and would have sent an attended tester
 counting the wrong number on the screen):
@@ -16,7 +18,10 @@ counting the wrong number on the screen):
     10 invisible weather markers: 4 named Tornado and 6 nameless
      4 islands-as-actors (``MAP_ISLAND_01``): Mad Sand Island, Pirate
        Lair, Blood Blade Island, Lonely Island
-     2 creatures: Jellyfish King (level 60), Sea Monster Fish
+     3 creatures: Jellyfish King (level 60), Sea Monster Fish, and the
+       level-60 ``M081_000_000_N`` row whose name is Thai and therefore
+       is not written here -- the evidence layer prints it as
+       ``name_cp874_hex=<hex>`` (see ``actor_lines``)
 
 the cast of an ``n_SCENE_TYPE 8`` OCEAN PANEL rather than of a town.
 
@@ -24,7 +29,7 @@ THE SIBLING PATTERN, NOT A FORK.  ``world_population`` builds bg0001's
 census and refuses anywhere but scene 1; ``world_population_bg0002``,
 ``world_population_bg0015`` and the eight island composers are the same
 shape for their own scenes.  This is the twelfth: it refuses anywhere but
-scene 126, over ``world_bg3001_identity``'s 36 shippable placements of 38.
+scene 126, over ``world_bg3001_identity``'s 37 shippable placements of 38.
 Every wire call below is the exact frozen serializer the other eleven
 already use (``legacy.make_npc_attr`` via ``world_census_level`` /
 ``make_remote_movement_attr`` / ``make_remote_actor_entry`` /
@@ -153,13 +158,13 @@ def _require_actor_count(actor_count: Any) -> int:
 def census_order(
     player_xyz: tuple[float, float, float],
 ) -> tuple[identity.Bg3001Placement, ...]:
-    """The 36 shippable placements, nearest the anchor first.
+    """The 37 shippable placements, nearest the anchor first.
 
     Nearest-first is the same order every other composer uses, and it is
     what makes a truncated count (a caller asking for fewer than the whole
     roster) show the player the actors around them rather than an arbitrary
     slice of the ocean.  ``shippable_placements`` has already dropped the
-    2 with no identity; this only orders what it returned.
+    ~~2~~ 1 with no identity; this only orders what it returned.
     """
     x, y, z = _require_anchor(player_xyz)
     ordered = sorted(
@@ -338,8 +343,10 @@ def dispatch_report(generation: Bg3001PopulationGeneration) -> dict:
 def census_console_line(generation: Bg3001PopulationGeneration) -> str:
     """The one grep-able ``WORLD_CENSUS_BG3001`` line a boot in this scene
     prints.  ``assembled=N/38`` against the scene's REAL placement count, not
-    against the 36 that happen to resolve.  ASCII only (bridge console is
-    cp874).
+    against the 37 that happen to resolve.  ASCII only (bridge console is
+    cp874) - and it stays ASCII after the Thai name landed, because no name
+    appears on THIS line at all; see ``actor_lines`` for the layer that
+    does print one.
     """
     report = dispatch_report(generation)
     return (
@@ -361,11 +368,19 @@ def census_console_line(generation: Bg3001PopulationGeneration) -> str:
 
 
 def actor_lines(generation: Bg3001PopulationGeneration) -> tuple[str, ...]:
-    """One ASCII line per actor: ``n_ID name lv%d hp%d @x,y,z``.
+    """One ASCII line per actor: ``placement=N n_ID=N name lv%d hp%d @x,y,z``.
 
     The headless half of the two-layer evidence rule: a grader can read who
-    this census says is standing where, without a client.  Every name in the
-    shipped table is ASCII by ``world_bg3001_identity._self_check``.
+    this census says is standing where, without a client.
+
+    THE LINE IS STILL ASCII AFTER THE THAI NAME LANDED.  ``COO-DECISION
+    20260902_2146`` shape 1 put a non-ASCII display name on the wire and
+    kept this layer ASCII, so the name is printed through
+    ``identity.evidence_name``: an ASCII name prints as itself (every
+    earlier grep still matches), and a non-ASCII one prints as
+    ``name_cp874_hex=<hex>``.  ``placement=<n>`` leads every line - the
+    decision's own pairing requirement - so a tester reading a hex token
+    can still say which row of the scene's 38 it means.
     """
     if type(generation) is not Bg3001PopulationGeneration:
         raise Bg3001CensusError("actor lines need a Bg3001PopulationGeneration")
@@ -375,8 +390,9 @@ def actor_lines(generation: Bg3001PopulationGeneration) -> tuple[str, ...]:
     for index in generation.placement_indices:
         placement = placements[index]
         lines.append(
-            "n_ID=%d %s lv%d hp%d @(%.3f,%.3f,%.3f)"
-            % (placement.n_id, placement.display_name,
+            "placement=%d n_ID=%d %s lv%d hp%d @(%.3f,%.3f,%.3f)"
+            % (placement.placement_index, placement.n_id,
+               identity.evidence_name(placement.identity),
                placement.identity.level, placement.max_hp,
                placement.x, placement.y, placement.z))
     return tuple(lines)

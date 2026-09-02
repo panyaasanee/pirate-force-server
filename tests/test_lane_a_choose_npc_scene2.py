@@ -499,7 +499,8 @@ class TheAnswerCarriesTheWholeIslandTests(unittest.TestCase):
         )
         volcano = len(world_bg0015_identity.shippable_placements())
         # 692 IS THE ISLANDS, and round `4uztfj` added a scene that is not
-        # one (126, the ocean panel, 36 actors) -- so the islands are
+        # one (126, the ocean panel, ~~36~~ 37 actors since round `gx7xtp`
+        # landed COO-DECISION 20260902_2146 shape 1) -- so the islands are
         # counted on their own here and the panel is named beside them,
         # rather than letting a new scene quietly move a number three
         # letters and a round file quote.
@@ -511,7 +512,7 @@ class TheAnswerCarriesTheWholeIslandTests(unittest.TestCase):
         ocean_panel = len(
             roster._IDENTITY_OF_SCENE[126].shippable_placements())
         self.assertEqual((island_total, volcano, ROSTER_COUNT, ocean_panel),
-                         (692, 81, 97, 36))
+                         (692, 81, 97, 37))
         self.assertEqual(island_total + volcano + ROSTER_COUNT, 870)
         self.assertEqual(roster_total, island_total + ocean_panel)
 
