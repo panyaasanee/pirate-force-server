@@ -1445,16 +1445,28 @@ class BagCell:
           lying untouched on another map is the same class of lie round
           0n9inw removed between expiry and pickup.
         """
+        # ONE ACQUISITION for the scene and that scene's rows
+        # (``cell.publication()``), then ONE more only on the miss path,
+        # where the question is "is this key standing somewhere else" and a
+        # cell that moved between the two can only change WHICH scene name
+        # the message prints.  pf-adversary (round 4e9r7g) is why this is
+        # written down rather than left as three reads: the presence module
+        # got ``publication()`` for exactly this reason and this seam had
+        # quietly re-introduced the split read.
         try:
-            scene_view = ledger_cell.scene_ledger()
-        except mob_loot.MobLootContractError as exc:
-            if exc.args[0] == mob_loot.REFUSE_NO_SCENE_TO_PUBLISH:
-                raise MobPickupContractError(
-                    REFUSE_CELL_HAS_NO_SCENE,
-                    "this ground cell does not know which scene it is in, so "
-                    "a claim cannot be resolved against the claimant's own "
-                    "scene; nothing was taken (%s)" % exc.args[0]) from None
-            raise
+            scene, scene_view, _elsewhere = ledger_cell.publication()
+        except mob_loot.MobLootContractError as exc:      # pragma: no cover
+            raise MobPickupContractError(
+                REFUSE_CELL_HAS_NO_SCENE,
+                "this ground cell could not answer which scene it is in "
+                "(%s); nothing was taken" % exc.args[0]) from None
+        if scene is None:
+            raise MobPickupContractError(
+                REFUSE_CELL_HAS_NO_SCENE,
+                "this ground cell does not know which scene it is in, so a "
+                "claim cannot be resolved against the claimant's own scene; "
+                "nothing was taken.  runtime.py calls cell.enter_scene() at "
+                "the scene boundary and a kill sets it too")
         reference = getattr(claim, "object_ref_u32", None)
         if type(reference) is int and not any(
                 row.drop_key == reference for row in scene_view.drops):
@@ -1465,7 +1477,7 @@ class BagCell:
                         "drop 0x%X is on the ground in scene %s and the claim "
                         "comes from scene %s; it was NOT taken and it is "
                         "still standing where it fell"
-                        % (reference, row.scene, ledger_cell.current_scene))
+                        % (reference, row.scene, scene))
         return scene_view
 
     def commit_pickup(self, ledger_cell: Any, claim: Any,

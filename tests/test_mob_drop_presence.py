@@ -1059,30 +1059,36 @@ class ScenePublicationTests(PresenceTestBase):
 
     OTHER_SCENE = "bg0001"
 
-    def _kill_elsewhere(self):
-        """One kill declared into another scene, same tables, new identity."""
-        from dataclasses import replace
+    def _rows_left_in_another_scene(self, count=2):
+        """Put ``count`` rows of ANOTHER scene into the cell, without a kill.
 
-        mob, seed = self.dropping[0]
-        stranger = replace(
-            mob, scene=self.OTHER_SCENE,
-            placement_index=mob.placement_index + 40)
-        roll = mob_loot.roll_drops(mob, random.Random(seed))
-        roll = mob_loot.DropRoll(
-            stranger.template_id, stranger.actor_identity,
-            roll.items, roll.money, roll.draws, roll.refusals)
-        self.token += 1
-        drops = self.cell.loot_a_kill(
-            stranger, DeathRecord(
-                stranger.actor_identity, KILLER, stranger.max_hp),
-            roll, kill_token=self.token)
-        self.assertTrue(drops)
-        return drops
+        NOT through ``loot_a_kill``, and the reason is a guard added in this
+        same round: a cell DECLARED into one scene refuses a kill whose mob
+        belongs to another (``kill_in_another_scene``), because
+        ``FieldMob.scene`` has a default and one hand-built record could
+        otherwise move a whole session's ground.  That refusal has its own
+        test in ``tests/test_mob_loot.py``.  What these tests need is the
+        STATE it leaves behind -- a ledger holding two scenes, which is what
+        a player who crosses a boundary produces -- so the rows are placed as
+        ledger state and the cell is rebuilt around them.
+        """
+        live = self.cell.ledger
+        base = live.issued_through
+        rows = tuple(
+            mob_loot.GroundDrop(
+                base + index, 2200201, 1, 0.0, 0.0, 0.0, 0x201F, KILLER,
+                self.OTHER_SCENE)
+            for index in range(count))
+        self.cell = mob_loot.DropLedgerCell(
+            mob_loot.DropLedger(
+                tuple(sorted(live.drops + rows, key=lambda r: r.drop_key)),
+                live.generation + 1, base + count, live.looted),
+            clock=self.clock, scene=field_mobs.BG0002_SCENE)
+        return rows
 
     def test_the_generation_is_this_scenes_whole_ledger_and_no_more(self):
         here = self.kill(0)
-        there = self._kill_elsewhere()      # this also moves the cell's scene
-        self.cell.enter_scene(field_mobs.BG0002_SCENE)
+        there = self._rows_left_in_another_scene()
         step = sustain_a_kill(self.cell, self.legacy, ())
         self.assertEqual(step.state, STATE_SUSTAINED)
         self.assertEqual(
@@ -1096,8 +1102,7 @@ class ScenePublicationTests(PresenceTestBase):
 
     def test_the_console_line_says_which_scene_and_how_many_stand_elsewhere(self):
         self.kill(0)
-        there = self._kill_elsewhere()
-        self.cell.enter_scene(field_mobs.BG0002_SCENE)
+        there = self._rows_left_in_another_scene()
         line = describe_presence(sustain_a_kill(self.cell, self.legacy, ()))
         self.assertIn("scene=%s" % field_mobs.BG0002_SCENE, line)
         self.assertIn("elsewhere=%d" % len(there), line)
@@ -1113,13 +1118,46 @@ class ScenePublicationTests(PresenceTestBase):
         self.assertEqual(step.frames, ())
         self.assertIn("enter_scene", step.detail)
 
+    def test_the_trim_never_reaches_into_another_scenes_rows(self):
+        """pf-adversary mutant A5 survived the first draft: the cap-trim is
+        the ONLY branch in this round's code that deletes rows, and a version
+        of it that took rows from other scenes broke nothing, because no trim
+        test had ever put a second scene in the cell -- the exact state way 1
+        creates.  Deleting another scene's row here would break COO-DECISION
+        2026-09-02T02:53+07:00 from inside the one place deletion is legal.
+        """
+        cap = mob_drop_presence._current_frame_cap()
+        here = tuple(
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + index, 2200201, 1, 0.0, 0.0, 0.0,
+                0x201F, KILLER, field_mobs.BG0002_SCENE)
+            for index in range(cap + 3))
+        there = tuple(
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + cap + 3 + index, 2200201, 1,
+                0.0, 0.0, 0.0, 0x201F, KILLER, self.OTHER_SCENE)
+            for index in range(4))
+        ledger = mob_loot.DropLedger(
+            here + there, generation=1,
+            issued_through=mob_loot.DROP_KEY_BASE + cap + 7)
+        cell = mob_loot.DropLedgerCell(
+            ledger=ledger, clock=self.clock, scene=field_mobs.BG0002_SCENE)
+        step = sustain_a_kill(cell, self.legacy, ())
+        self.assertEqual(step.state, STATE_TRIMMED_TO_FIT)
+        self.assertEqual(step.trimmed, 3)
+        survivors = {drop.drop_key for drop in cell.ledger.drops}
+        self.assertEqual(
+            survivors & {row.drop_key for row in there},
+            {row.drop_key for row in there},
+            "the trim took a row belonging to a scene it is not publishing")
+        self.assertEqual(step.elsewhere, len(there))
+
     def test_a_snapshot_shows_the_whole_ground_and_says_what_is_not_here(self):
         """The asymmetry with the publication, on purpose: an operator asking
         what is on the ground wants the true total, and the scene/elsewhere
         pair keeps that from reading as 'these all travel'."""
         here = self.kill(0)
-        there = self._kill_elsewhere()
-        self.cell.enter_scene(field_mobs.BG0002_SCENE)
+        there = self._rows_left_in_another_scene()
         step = presence_snapshot(self.cell)
         self.assertEqual(step.state, STATE_SNAPSHOT)
         self.assertEqual(step.live, len(here) + len(there))

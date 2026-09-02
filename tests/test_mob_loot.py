@@ -2245,6 +2245,19 @@ class PreserveGroundHeartbeatTests(unittest.TestCase):
         self.assertLess(len(pc), DROP_PC_SIZE)
 
 
+class _StepClock:
+    """A clock that only moves when a test says so (round 4e9r7g)."""
+
+    def __init__(self):
+        self._now = 1000.0
+
+    def __call__(self):
+        return self._now
+
+    def advance(self, seconds):
+        self._now += float(seconds)
+
+
 class SceneOwnershipWayOneTests(unittest.TestCase):
     """COO-DECISION 2026-09-02T02:52+07:00, WAY 1: a drop owns the scene it
     fell in, a publication carries only that scene's rows, and NOTHING is
@@ -2299,13 +2312,16 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
 
     def _kill(self, mob):
         """One kill of ``mob`` through the cell, exactly as dispatch does."""
+        return self._kill_through(self.cell, mob)
+
+    def _kill_through(self, cell, mob):
         _template, seed = self.pair
         self.token += 1
         roll = mob_loot.roll_drops(mob, random.Random(seed))
         roll = mob_loot.DropRoll(
             mob.template_id, mob.actor_identity,
             roll.items, roll.money, roll.draws, roll.refusals)
-        drops = self.cell.loot_a_kill(
+        drops = cell.loot_a_kill(
             mob, DeathRecord(mob.actor_identity, KILLER, mob.max_hp),
             roll, kill_token=self.token)
         self.assertTrue(drops, "this test needs a kill with rows")
@@ -2344,8 +2360,11 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
             inspect.signature(mob_loot.place_drops).parameters)
 
     def test_a_ground_drop_refuses_a_scene_that_is_not_a_scene(self):
+        # The control characters are pf-adversary's (round 4e9r7g): the first
+        # list only had "\n", which the WHITESPACE check already catches, so
+        # the isprintable() guard was a line no test could kill.
         bad = (None, b"bg0001", "", " ", "bg 0001", "bg0001\n", "x" * 33,
-               "bg0001\u00e9", 1)
+               "bg0001\u00e9", 1, "bg0001\x01", "\x7f", "bg\x000001")
         for value in bad:
             with self.subTest(scene=value):
                 with self.assertRaises(MobLootContractError) as caught:
@@ -2436,8 +2455,10 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
         in_a = self._kill(self._mob_in(self.SCENE_A))
         self.cell.enter_scene(self.SCENE_B)
         self._kill(self._mob_in(self.SCENE_B, index_offset=40))
-        previous, current, elsewhere = self.cell.enter_scene(self.SCENE_A)
-        self.assertEqual((previous, current), (self.SCENE_B, self.SCENE_A))
+        previous, current, elsewhere, expired = self.cell.enter_scene(
+            self.SCENE_A)
+        self.assertEqual((previous, current, expired),
+                         (self.SCENE_B, self.SCENE_A, 0))
         self.assertEqual(elsewhere, len(self.cell.ledger.drops) - len(in_a))
         rows = self.cell.scene_ledger().drops
         self.assertEqual(
@@ -2470,9 +2491,10 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
     def test_entering_the_scene_it_is_already_in_is_a_no_op_that_answers(self):
         self._kill(self._mob_in(self.SCENE_A))
         before = self.cell.ledger.drops
-        previous, current, elsewhere = self.cell.enter_scene(self.SCENE_A)
-        self.assertEqual((previous, current, elsewhere),
-                         (self.SCENE_A, self.SCENE_A, 0))
+        previous, current, elsewhere, expired = self.cell.enter_scene(
+            self.SCENE_A)
+        self.assertEqual((previous, current, elsewhere, expired),
+                         (self.SCENE_A, self.SCENE_A, 0, 0))
         self.assertEqual(self.cell.ledger.drops, before)
 
     def test_a_cell_that_does_not_know_its_scene_refuses_by_name(self):
@@ -2504,6 +2526,72 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
                 mob, DeathRecord(0x9999, KILLER, mob.max_hp), roll,
                 kill_token=1)
         self.assertEqual(self.cell.current_scene, self.SCENE_A)
+
+    def test_entering_a_scene_reports_the_rows_its_own_sweep_collected(self):
+        """pf-adversary (round 4e9r7g) measured the first draft's headline
+        false: ``enter_scene`` sweeps, so crossing a boundary after being
+        away longer than the lifetime is the call that removes the rows --
+        and ``elsewhere`` read 0 there, which is the same 0 an empty ground
+        reads.  A state reading standing in for a comparison.  The fourth
+        element is the comparison."""
+        clock = _StepClock()
+        cell = DropLedgerCell(clock=clock)
+        in_a = self._kill_through(cell, self._mob_in(self.SCENE_A))
+        clock.advance(mob_loot.DROP_LIFETIME_SECONDS + 1.0)
+        previous, current, elsewhere, expired = cell.enter_scene(self.SCENE_B)
+        self.assertEqual((previous, current), (self.SCENE_A, self.SCENE_B))
+        self.assertEqual(elsewhere, 0)          # nothing is standing...
+        self.assertEqual(expired, len(in_a))    # ...because THIS call swept
+        self.assertEqual(cell.ledger.drops, ())
+
+    def test_a_kill_may_not_overrule_a_scene_the_boundary_declared(self):
+        """pf-adversary (round 4e9r7g), and the principle is
+        ``mob_ledger_admission``'s own: an explicit disagreement is never
+        overruled by a membership coincidence.
+
+        ``FieldMob.scene`` HAS a default, so before this refusal one
+        hand-built record could move the whole session's scene, drop the
+        player's own rows out of the publication (RE-130 erases them on the
+        client) and then answer their pickup with 'that is in another
+        scene'.  A cell nobody declared still takes its scene from the kill."""
+        cell = DropLedgerCell(scene=self.SCENE_A)
+        self._kill_through(cell, self._mob_in(self.SCENE_A))
+        with self.assertRaises(MobLootContractError) as caught:
+            self._kill_through(cell, self._mob_in(self.SCENE_B, 40))
+        self.assertEqual(caught.exception.args[0], "kill_in_another_scene")
+        # A refusal leaves the cell exactly as it was, scene included.
+        self.assertEqual(cell.current_scene, self.SCENE_A)
+        self.assertEqual(len(cell.ledger.drops), 1)
+        # ...and an UNDECLARED cell accepts the same kill and infers from it.
+        undeclared = DropLedgerCell()
+        self._kill_through(undeclared, self._mob_in(self.SCENE_B, 40))
+        self.assertEqual(undeclared.current_scene, self.SCENE_B)
+
+    def test_place_drops_refuses_a_mob_that_carries_no_scene(self):
+        """pf-adversary mutant A6 survived the first draft: defaulting a
+        missing scene to bg0001 instead of refusing broke nothing.  The
+        refusal is the whole reason the field has no default."""
+        mob, seed = self.pair
+        roll = mob_loot.roll_drops(mob, random.Random(seed))
+        record = DeathRecord(mob.actor_identity, KILLER, mob.max_hp)
+
+        class _NoScene:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                if name == "scene":
+                    raise AttributeError(name)
+                return getattr(self._inner, name)
+
+        for scene in (None, ""):
+            with self.subTest(scene=scene):
+                with self.assertRaises(MobLootContractError) as caught:
+                    mob_loot.place_drops(
+                        replace(mob, scene=scene), record, roll,
+                        DROP_KEY_BASE)
+                self.assertEqual(
+                    caught.exception.args[0], "scene_not_a_scene")
 
     def test_the_superseded_reconcile_is_named_as_superseded(self):
         """It is KEPT (this lane strikes through, it does not erase) and it is
