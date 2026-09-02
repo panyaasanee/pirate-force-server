@@ -31,6 +31,7 @@ import ast
 import builtins
 import json
 import sys
+import tempfile
 import threading
 from pathlib import Path
 import unittest
@@ -85,6 +86,150 @@ from pirateforce_foundation.mob_combat import (
 
 
 PERFORMER = 0x750059
+
+#: The composer whose call sites
+#: ``mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS`` reports on.
+UNDER_PUBLICATION_COMPOSER = (
+    "remote_actors_preserving_the_ground_under_publication")
+
+
+def call_site_status_of_source(source: str) -> str:
+    """Which of the three registered words ONE file's source earns.
+
+    THE SHAPES, WEAKEST FIRST, and why the middle one exists at all
+    (LANE-A's letter ``20260903_0320``): a lane that must import on a tree
+    where this composer does not exist yet cannot write its name in an
+    ``import`` or a call -- it writes ``getattr(mob_combat, NAME)`` and calls
+    the local it got back.  Matching the function's own name finds NOTHING
+    there, and the constant then tells an operator "nothing is wired" about a
+    process that composes every ChooseNPC answer through it.  So the lookup
+    is a shape this scan knows, reported in a WEAKER word than a direct call
+    because that is what it is: evidence that somebody fetches it, not that a
+    frame goes through it.  What settles that is
+    ``GROUND_UNDER_PUBLICATION_CALL_SITE_REACHED`` on the console.
+
+    A CALL OR A LOOKUP, NEVER A SUBSTRING: a comment or a docstring naming
+    the function sends no bytes and earns nothing here.
+    """
+    tree = ast.parse(source)
+    if not _is_production_module(tree):
+        # A module that declares itself out of production is not a production
+        # call site (pf-adversary, this round, D5: a test-only module calling
+        # it in a fixture scored "called" and would have put the strongest
+        # word on an operator's console for a path no player reaches).
+        return "composed_not_called"
+    #: ``import X as Y`` defeated the name match once; it is resolved.
+    names = {UNDER_PUBLICATION_COMPOSER}
+    #: ...and a module-level ``NAME = "remote_actors_..."`` is how the
+    #: string reaches ``getattr`` in the hook that does this today.
+    spellings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if (alias.name == UNDER_PUBLICATION_COMPOSER
+                        and alias.asname):
+                    names.add(alias.asname)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            spellings.update(_names_bound_to_the_composer(node))
+    status = "composed_not_called"
+    for node in ast.walk(tree):
+        # AN ATTRIBUTE REFERENCE IS EVIDENCE TOO, not only a Call: the
+        # nearest refactor of the hook that owns this today is
+        # ``if hasattr(mob_combat, NAME): return mob_combat.<name>``, which
+        # reproduces LANE-A's original complaint one round later in a new
+        # spelling (pf-adversary, this round, D5).  It is the WEAK word: a
+        # name that is fetched is not a frame that goes through.
+        if (isinstance(node, ast.Attribute)
+                and node.attr == UNDER_PUBLICATION_COMPOSER):
+            status = "wired_by_name_lookup"
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = getattr(func, "attr", None) or getattr(func, "id", None)
+        if name in names:
+            return "called"                       # the strongest evidence
+        if name != "getattr" or len(node.args) < 2:
+            continue
+        wanted = node.args[1]
+        if (isinstance(wanted, ast.Constant)
+                and wanted.value == UNDER_PUBLICATION_COMPOSER):
+            status = "wired_by_name_lookup"
+        elif isinstance(wanted, ast.Name) and wanted.id in spellings:
+            status = "wired_by_name_lookup"
+    return status
+
+
+def _is_production_module(tree: ast.Module) -> bool:
+    """Does this module claim to run in production?
+
+    The two convention markers every module in ``src/`` carries.  Absent, a
+    module counts as production: the markers are what an author writes to opt
+    OUT, and a missing marker must never be read as an opt-out.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if (target.id == "production_allowed"
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is False):
+                return False
+            if (target.id == "test_only"
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is True):
+                return False
+    return True
+
+
+def _names_bound_to_the_composer(node) -> set:
+    """Every local name this assignment binds to the composer's own string.
+
+    TUPLE TARGETS ARE UNPACKED, and that is not a nicety (pf-adversary, this
+    round, D4): the hook that owns this shape today may write
+
+        ``COMPOSER, _OTHER = "remote_actors_..._publication", "..."``
+
+    which is a spelling change with identical behaviour, blessed by its own
+    lane's suite -- and a scan that skipped it would have turned ``main`` red
+    from another lane's entitled edit.  This lane's guard must not be a trap
+    laid in somebody else's file.
+    """
+    value = node.value
+    targets = (node.targets if isinstance(node, ast.Assign)
+               else [node.target])
+    bound = set()
+    for target in targets:
+        if (isinstance(target, (ast.Tuple, ast.List))
+                and isinstance(value, (ast.Tuple, ast.List))
+                and len(target.elts) == len(value.elts)):
+            for one, item in zip(target.elts, value.elts):
+                if (isinstance(one, ast.Name)
+                        and isinstance(item, ast.Constant)
+                        and item.value == UNDER_PUBLICATION_COMPOSER):
+                    bound.add(one.id)
+        elif (isinstance(target, ast.Name)
+                and isinstance(value, ast.Constant)
+                and value.value == UNDER_PUBLICATION_COMPOSER):
+            bound.add(target.id)
+    return bound
+
+
+def call_site_status_of_tree(paths) -> str:
+    """The strongest word any production file earns.  ``mob_combat.py``
+    itself is skipped: it is where the composer is DEFINED."""
+    rank = mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUSES
+    best = rank[0]
+    for path in sorted(paths):
+        if path.name == "mob_combat.py":
+            continue
+        got = call_site_status_of_source(path.read_text(encoding="utf-8"))
+        if rank.index(got) > rank.index(best):
+            best = got
+        if best == rank[-1]:
+            break
+    return best
 
 
 class MobCombatTests(unittest.TestCase):
@@ -1872,6 +2017,29 @@ class TheGateReadsAndComposesUnderOnePublicationTests(unittest.TestCase):
                 mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.clear(),
                 mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.extend(
                     said)))
+        # ...and the same for the line that reports a caller ARRIVING here.
+        # SAVED AND EMPTIED, never pre-marked: pre-marking is how the guard
+        # that the PLAIN path stays silent came out vacuously true
+        # (pf-adversary, this round, D1 -- a mutant that reported an arrival
+        # from the bar frame survived the whole file).
+        arrivals = set(mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED)
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        # ONE SITE IS PRE-MARKED, NOT THE WHOLE FAMILY: the tests in this
+        # class that assert an empty console drive the ChooseNPC site, so
+        # that one arrival is declared already reported -- which is what a
+        # process that has been up for an hour looks like.  Marking the
+        # family as a whole is what made the plain-path guard vacuous
+        # (pf-adversary, this round, D1): every OTHER site, the bar frame's
+        # included, still reports here, so a report from the wrong path is
+        # still caught.
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.add(
+            mob_combat._reached_site_field(
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC))
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear(),
+                mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.update(
+                    arrivals)))
         moved = set(mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED)
         mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED.clear()
         self.addCleanup(
@@ -2116,50 +2284,25 @@ class TheGateReadsAndComposesUnderOnePublicationTests(unittest.TestCase):
 
         Zero ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines is what a closed window
         and an UNWIRED closure both look like on a console.  This constant is
-        the difference, and it is re-derived from ``runtime.py``'s own AST
-        here so it cannot drift in either direction -- as red for a status
-        left at "called" after the line is reverted as for one left at
-        "composed_not_called" after it lands.  A CALL, not a substring: a
-        comment naming the function satisfies a substring and sends nothing.
+        the difference, and it is re-derived from ``src/``'s own AST here so
+        it cannot drift in either direction -- as red for a status left too
+        high after a call site is reverted as for one left too low after it
+        lands.  A CALL or a NAME LOOKUP, never a substring: a comment naming
+        the function satisfies a substring and sends nothing.
         """
         # EVERY PRODUCTION FILE, not runtime.py alone (pf-adversary, second
         # pass, R1): the site this closure is FOR is a ChooseNPC responder,
         # and those live in ``lane_hooks/``.  A guard that watched one file
         # stayed green with the closure wired in another -- measured, by
-        # wiring it into lane_a_choose_npc_scene14.py.  Aliased imports are
-        # resolved too, because ``import X as Y`` defeated the name match.
-        wanted = "remote_actors_preserving_the_ground_under_publication"
-        called = False
-        for path in sorted(
-                (ROOT / "src/pirateforce_foundation").rglob("*.py")):
-            if path.name == "mob_combat.py":
-                continue                          # where it is DEFINED
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            names = {wanted}
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    for alias in node.names:
-                        if alias.name == wanted and alias.asname:
-                            names.add(alias.asname)
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                name = getattr(func, "attr", None) or getattr(
-                    func, "id", None)
-                if name in names:
-                    called = True
-                    break
-            if called:
-                break
+        # wiring it into lane_a_choose_npc_scene14.py.
         self.assertEqual(
             mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS,
-            "called" if called else "composed_not_called",
+            call_site_status_of_tree(
+                (ROOT / "src/pirateforce_foundation").rglob("*.py")),
             "src/ and GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS disagree "
-            "about whether any production call site reads and composes "
-            "under one publication.  Either the wiring landed and the "
-            "constant was not moved, or the constant claims a closure "
-            "nothing uses.")
+            "about how a production call site reaches the closed path.  "
+            "Either wiring landed and the constant was not moved, or the "
+            "constant claims a closure nothing uses.")
 
     # -- condition b ------------------------------------------------------
 
@@ -2547,6 +2690,203 @@ class TheGateReadsAndComposesUnderOnePublicationTests(unittest.TestCase):
         self.assertEqual(len(status), 1, printed)
         self.assertIn(
             mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS, status[0])
+        # ...and the plain path never claims a caller ARRIVED at the closed
+        # one.  This is the half that must stay silent on a build where
+        # nothing is wired, or the runtime line is worth nothing.
+        self.assertEqual(
+            [line for line in printed if line.startswith(
+                mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN)],
+            [], printed)
+
+    def test_a_caller_that_reaches_the_closed_path_is_said_once_with_its_site(
+            self):
+        """LANE-A ``20260903_0320``: the source scan cannot see a call made
+        through a name lookup and a local variable, so the console says the
+        arrival itself -- once, with the site, and after the status line so
+        an operator reads what the tree allows above what the process did."""
+        mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.clear()
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+        for _call in range(3):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
+        reached = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]
+        self.assertEqual(len(reached), 1, printed)
+        # ...and a SECOND site is not silenced by the first (pf-adversary,
+        # this round, D12): the site names are per scene, and the one an
+        # operator most wants to see arrive is whichever landed last.
+        mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries, "another_site", cell=None)
+        self.assertEqual(
+            [line.split()[1] for line in printed if line.startswith(
+                mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")],
+            [mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+             "another_site"], printed)
+        self.assertEqual(
+            reached[0].split(),
+            [mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN,
+             mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC],
+            "the reached line is read as exactly two fields")
+        status = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN + " ")]
+        self.assertEqual(len(status), 1, printed)
+        self.assertLess(
+            printed.index(status[0]), printed.index(reached[0]),
+            "the status line is forced out before the arrival it explains")
+
+    def test_a_site_carrying_a_space_still_leaves_two_fields(self):
+        """``site`` is caller data.  A third field on this line would make
+        the token's own grep -- the site is the second field -- wrong."""
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+        mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries, "a site with spaces", cell=None)
+        reached = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]
+        self.assertEqual(len(reached), 1, printed)
+        self.assertEqual(len(reached[0].split()), 2, reached)
+
+    def test_the_arrival_is_said_even_when_the_composition_then_fails(self):
+        """It reports the CALL, not the frame: a call site that fired and
+        then lost its frame is still a call site an operator must know
+        about, and the loss has console lines of its own."""
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        printed = self._capture_print()
+
+        class Exploding:
+            def make_runtime_remote_actors(self, *_a, **_k):
+                raise ValueError("v141 is gone")
+
+        with self.assertRaises(Exception):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                Exploding(), [self._one_entry()],
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
+        self.assertEqual(
+            len([line for line in printed if line.startswith(
+                mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]),
+            1, printed)
+
+    def test_a_site_carrying_any_whitespace_still_leaves_two_fields(self):
+        """Not just the space (pf-adversary, this round, D8): a tab, a
+        vertical tab, a form feed and the ASCII separators are all ASCII, so
+        they survive the console fold, and all of them split."""
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        entries = [self._one_entry()]
+        for i, gap in enumerate([" ", "\t", "\x0b", "\x0c", "\x1c",
+                                 "\x1d", "\x1e", "\x1f"]):
+            with self.subTest(gap=repr(gap)):
+                printed = self._capture_print()
+                mob_combat.remote_actors_preserving_the_ground_under_publication(
+                    self.legacy, entries, "site%s%d" % (gap, i), cell=None)
+                reached = [line for line in printed if line.startswith(
+                    mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]
+                self.assertEqual(len(reached), 1, printed)
+                self.assertEqual(len(reached[0].split()), 2, reached)
+
+    def test_a_site_whose_str_raises_is_named_by_its_type_not_dropped(self):
+        """pf-adversary, this round, D7, and this file's own prior finding
+        sixty lines up: reporting NOTHING for it is how a hole stays
+        invisible for a session."""
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        class Nasty:
+            def __str__(self):
+                raise RuntimeError("boom")
+
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+        answer = (
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                self.legacy, entries, Nasty(), cell=None))
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries),
+            "a site that cannot be printed cost the frame")
+        reached = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]
+        self.assertEqual(len(reached), 1, printed)
+        self.assertEqual(reached[0].split()[1], "site_unprintable_Nasty")
+
+    def test_one_refused_write_does_not_delete_the_evidence_forever(self):
+        """pf-adversary, this round, D6.  A bridge console detached at boot
+        is one failed write; recording the site before the print spent the
+        only runtime evidence of a wired call site on it, for the life of
+        the process."""
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        printed = self._capture_print()
+        # WRAPPED AROUND THE CAPTURE, not installed before it: the capture
+        # replaces ``print`` itself, so a refusing print installed first is
+        # never called and this test would prove nothing (it did, for one
+        # commit -- the lossy mutant survived it).
+        recorder = builtins.print
+        self.addCleanup(lambda: setattr(builtins, "print", recorder))
+        failures = [True, True]
+
+        def flaky(*args, **kwargs):
+            if failures:
+                failures.pop()
+                raise OSError("console detached")
+            return recorder(*args, **kwargs)
+
+        builtins.print = flaky
+        entries = [self._one_entry()]
+        for _call in range(4):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
+        self.assertEqual(
+            len([line for line in printed if line.startswith(
+                mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]),
+            1, printed)
+
+    def test_the_arrival_family_is_capped_and_says_so_in_its_own_name(self):
+        """``site`` is caller data, so the set is bounded -- and the line
+        that announces the bound is this family's own, never the liveness
+        family's (pf-adversary, round t8z97r, D11)."""
+        mob_combat._GROUND_UNDER_PUBLICATION_REACHED_REPORTED.clear()
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+        for i in range(mob_combat.GROUND_UNDER_PUBLICATION_REACHED_SITE_CAP
+                       + 5):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                self.legacy, entries, "site_%d" % i, cell=None)
+        reached = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN + " ")]
+        self.assertEqual(
+            len(reached),
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_SITE_CAP, printed)
+        self.assertEqual(
+            len([line for line in printed if line.startswith(
+                mob_combat.GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED_TOKEN
+                + " ")]),
+            1, printed)
+
+    def test_the_two_tokens_are_the_words_an_operator_greps_for(self):
+        """pf-adversary, this round, D2 and D3.  Every other assertion in
+        this file compares the token with itself, so a rename to garbage
+        stayed green -- and the first spelling of the arrival token was the
+        status token plus a suffix, so one line greppedas two."""
+        self.assertEqual(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN,
+            "GROUND_UNDER_PUBLICATION_CALL_SITE")
+        self.assertEqual(
+            mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN,
+            "GROUND_UNDER_PUBLICATION_REACHED")
+        self.assertEqual(
+            mob_combat.GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED_TOKEN,
+            "GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED")
+        family = [mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN,
+                  mob_combat.GROUND_UNDER_PUBLICATION_REACHED_TOKEN,
+                  mob_combat.GROUND_UNDER_PUBLICATION_ARRIVALS_SUPPRESSED_TOKEN]
+        for one in family:
+            for other in family:
+                if one is other:
+                    continue
+                self.assertFalse(
+                    other.startswith(one),
+                    "%s greps as %s" % (other, one))
+            self.assertTrue(one.startswith("GROUND_UNDER_PUBLICATION"))
 
     def test_a_console_that_refuses_the_lines_loses_them_not_the_frame(self):
         real_print = builtins.print
@@ -2556,12 +2896,197 @@ class TheGateReadsAndComposesUnderOnePublicationTests(unittest.TestCase):
 
         builtins.print = refuse
         self.addCleanup(lambda: setattr(builtins, "print", real_print))
+        # BOTH ONCE-PER-PROCESS LINES ARE ARMED HERE, not left marked said by
+        # setUp: a refusing console must be driven through every line this
+        # path can write, and the arrival line is one of them.
+        mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.clear()
         entries = [self._one_entry()]
         answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
             self.legacy, entries,
             mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
         self.assertEqual(
             answer, self.legacy.make_runtime_remote_actors(entries))
+
+
+class TheCallSiteScanKnowsTheShapesItClaimsToKnowTests(unittest.TestCase):
+    """The scan behind ``GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS``, driven
+    on SOURCE THIS TEST WRITES.
+
+    ON PURPOSE, and it is the rule the COO approved on 2026-09-03T00:55 as
+    house rule b: a test that pins another lane's file as its baseline dies
+    when that lane moves a line it is entitled to move.  ``lane_hooks/
+    lane_a_ground_preserve.py`` is where the name-lookup shape lives today,
+    and it is LANE-A's to rewrite; what this lane owes is a scan that reads
+    the SHAPE, and a shape can be written down here.  The one test that does
+    read the real tree is the guard above, whose whole job is to be red when
+    ``src/`` and the constant disagree.
+    """
+
+    WANTED = UNDER_PUBLICATION_COMPOSER
+
+    def test_a_direct_call_is_called(self):
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "def answer(a, b):\n"
+                "    return mob_combat.%s(a, b, 's', cell=None)\n"
+                % self.WANTED),
+            "called")
+
+    def test_an_aliased_import_is_called(self):
+        self.assertEqual(
+            call_site_status_of_source(
+                "from ..mob_combat import %s as compose\n"
+                "def answer(a, b):\n"
+                "    return compose(a, b, 's', cell=None)\n" % self.WANTED),
+            "called")
+
+    def test_a_name_lookup_through_a_module_constant_is_seen(self):
+        """LANE-A's shape, and the whole reason for the middle word: their
+        module must import on a tree where the composer does not exist."""
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "COMPOSER = (\n    \"%s\")\n"
+                "def composer():\n"
+                "    return getattr(mob_combat, COMPOSER, None)\n"
+                % self.WANTED),
+            "wired_by_name_lookup")
+
+    def test_a_name_lookup_through_a_literal_is_seen(self):
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "def composer():\n"
+                "    return getattr(mob_combat, \"%s\", None)\n"
+                % self.WANTED),
+            "wired_by_name_lookup")
+
+    def test_a_tuple_assignment_binds_the_name_too(self):
+        """pf-adversary, this round, D4, and it is the one that would have
+        turned ``main`` red from ANOTHER lane's entitled edit: pairing the
+        constant with a second one is a spelling change with identical
+        behaviour, and the scan used to see nothing in it."""
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "COMPOSER, OTHER = (\n"
+                "    \"%s\",\n"
+                "    \"remote_actors_preserving_the_ground\")\n"
+                "def composer():\n"
+                "    return getattr(mob_combat, COMPOSER, None)\n"
+                % self.WANTED),
+            "wired_by_name_lookup")
+
+    def test_fetching_the_attribute_without_calling_it_is_seen(self):
+        """The nearest refactor of the hook that owns this shape today:
+        ``if hasattr(...): return mob_combat.<name>``.  It reproduces the
+        letter's own complaint in a new spelling, so it is the WEAK word --
+        a name that is fetched is not a frame that goes through."""
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "def composer():\n"
+                "    if hasattr(mob_combat, \"%s\"):\n"
+                "        return mob_combat.%s\n"
+                "    return None\n" % (self.WANTED, self.WANTED)),
+            "wired_by_name_lookup")
+
+    def test_a_module_that_declares_itself_out_of_production_is_skipped(self):
+        """A fixture is not a production call site.  Both markers, because
+        both are this project's convention and either one is an opt-out."""
+        body = ("from .. import mob_combat\n"
+                "%s\n"
+                "def answer(a, b):\n"
+                "    return mob_combat.%s(a, b, 's', cell=None)\n")
+        for marker in ("production_allowed = False", "test_only = True"):
+            with self.subTest(marker=marker):
+                self.assertEqual(
+                    call_site_status_of_source(
+                        body % (marker, self.WANTED)),
+                    "composed_not_called")
+        # ...and a module with no marker at all counts as production: the
+        # marker is what an author writes to opt OUT.
+        self.assertEqual(
+            call_site_status_of_source(body % ("X = 1", self.WANTED)),
+            "called")
+
+    def test_a_name_lookup_for_some_other_attribute_is_nothing(self):
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "OTHER = \"remote_actors_preserving_the_ground\"\n"
+                "def composer():\n"
+                "    return getattr(mob_combat, OTHER, None)\n"),
+            "composed_not_called")
+
+    def test_naming_it_in_a_comment_or_a_docstring_is_nothing(self):
+        """A substring sends no bytes.  This is the defect the first version
+        of the guard was written against and it must stay closed."""
+        self.assertEqual(
+            call_site_status_of_source(
+                "\"\"\"One day this module will call %s.\"\"\"\n"
+                "# %s is not called here\n"
+                "X = 1\n" % (self.WANTED, self.WANTED)),
+            "composed_not_called")
+
+    def test_a_direct_call_wins_over_a_lookup_in_the_same_file(self):
+        self.assertEqual(
+            call_site_status_of_source(
+                "from .. import mob_combat\n"
+                "COMPOSER = \"%s\"\n"
+                "def fetched():\n"
+                "    return getattr(mob_combat, COMPOSER, None)\n"
+                "def answer(a, b):\n"
+                "    return mob_combat.%s(a, b, 's', cell=None)\n"
+                % (self.WANTED, self.WANTED)),
+            "called")
+
+    def test_the_three_words_are_the_registered_ones_weakest_first(self):
+        """The scan's vocabulary is the module's, not a second copy: a word
+        this file invented would be a word no console ever prints."""
+        self.assertEqual(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUSES,
+            ("composed_not_called", "wired_by_name_lookup", "called"))
+        self.assertIn(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS,
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUSES)
+
+    def test_the_strongest_word_of_a_tree_is_the_answer(self):
+        """Across FILES, not just inside one: a lookup in one file and a
+        direct call in another is a tree with a direct call in it."""
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        root = Path(holder.name)
+        (root / "lookup.py").write_text(
+            "from .. import mob_combat\n"
+            "COMPOSER = \"%s\"\n"
+            "def fetched():\n"
+            "    return getattr(mob_combat, COMPOSER, None)\n"
+            % self.WANTED, encoding="utf-8")
+        (root / "quiet.py").write_text("X = 1\n", encoding="utf-8")
+        self.assertEqual(
+            call_site_status_of_tree(root.rglob("*.py")),
+            "wired_by_name_lookup")
+        (root / "direct.py").write_text(
+            "from .. import mob_combat\n"
+            "def answer(a, b):\n"
+            "    return mob_combat.%s(a, b, 's', cell=None)\n"
+            % self.WANTED, encoding="utf-8")
+        self.assertEqual(
+            call_site_status_of_tree(root.rglob("*.py")), "called")
+
+    def test_the_file_that_defines_it_is_not_its_own_call_site(self):
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        root = Path(holder.name)
+        (root / "mob_combat.py").write_text(
+            "def %s(a, b, site, cell=None):\n"
+            "    return %s(a, b, site, cell=cell)\n"
+            % (self.WANTED, self.WANTED), encoding="utf-8")
+        self.assertEqual(
+            call_site_status_of_tree(root.rglob("*.py")),
+            "composed_not_called")
 
 
 if __name__ == "__main__":
