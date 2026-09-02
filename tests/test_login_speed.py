@@ -588,10 +588,28 @@ class TheRealLoginPathTests(_LegacyCase):
         # VALUES, and what this test needs is the ABSENCE of one.  Emptying
         # the column is also the only way to reach this branch now that 009
         # fills it at birth.
-        with sqlite3.connect(self.path) as db:
+        # NOT `with sqlite3.connect(...) as db:`.  That form commits and does
+        # NOT close, the surviving handle is invisible on Linux, and on the
+        # Windows gate `TemporaryDirectory.cleanup` then raises
+        # `PermissionError: [WinError 32]` at teardown.  It is what took this
+        # whole change down once already as `#610` (`1 failed / 7148 passed`,
+        # the pull request closed by the workflow, the diff lost, and `main`
+        # left red for every lane meanwhile) after `#495` before it.
+        # Nothing on Linux fails when this line is written the wrong way --
+        # measured this round: with the `with` form restored and no other
+        # change, this file reports 32 passed here and dies on the gate.  A
+        # runtime guard that makes it visible on Linux is a SEPARATE change
+        # on purpose (`COO-DECISION 20260903_0052` point 1 forbids attaching
+        # anything to a red-main recovery); until it lands, this comment is
+        # the only thing standing between the next reader and a lost round.
+        db = sqlite3.connect(self.path)
+        try:
             db.execute(
                 "UPDATE characters SET speed_walk = NULL WHERE id = ?",
                 (character.id,))
+            db.commit()
+        finally:
+            db.close()
         self.assertIsNone(
             self.store.read_typed_attributes(character.id).get(
                 login_speed.COLUMN),
