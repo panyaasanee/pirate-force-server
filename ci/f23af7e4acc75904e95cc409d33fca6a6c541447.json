@@ -1,1 +1,1 @@
-{"sha":"f23af7e4acc75904e95cc409d33fca6a6c541447","conclusion":"failure","event":"push","ref":"refs/heads/claude/awesome-thompson-7ajuur","run_id":"33658273041","utc":"2026-09-02T17:13:02Z"}
+{"sha":"f23af7e4acc75904e95cc409d33fca6a6c541447","conclusion":"failure","event":"pull_request","ref":"refs/pull/608/merge","run_id":"33658312756","utc":"2026-09-02T17:15:55Z"}
