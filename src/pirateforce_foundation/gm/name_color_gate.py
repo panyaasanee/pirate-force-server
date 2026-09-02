@@ -1,101 +1,100 @@
 """Refuse P-2 monster-name-colour wiring until its measured precondition holds.
 
-THIS MODULE WRITES NO COLOUR, HOLDS NO RGB VALUE, AND SENDS NO BYTE.
-It is a read-only predicate.  Its whole job is to make one already-measured
-bounded negative *executable*, so that a later round cannot wire the P-2
-colour rule on a premise the client image has already refuted, and so that
-the refusal names its own evidence instead of being prose in a letter that
-nobody re-reads.
+THIS MODULE WRITES NO COLOUR, CARRIES NO STYLE ID IN CODE, AND SENDS NO BYTE.
+It is a read-only refusal.  Its whole job is to make one already-measured
+bounded negative *executable*, so a later round cannot wire the P-2 colour
+rule on a premise the client image has already refuted, and so the refusal
+names its own evidence instead of being prose in a letter nobody re-reads.
 
-Where the two halves of the evidence come from
-----------------------------------------------
-1. ``RE-191`` (DONE/PASS, Codex static RE, bridge letter
-   ``notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md``,
-   consumed by LANE-GM round ``r2jfjm``) closed the *palette* question --
-   which RGBA each FontStyleID resolves to.  Those numbers are DELIBERATELY
-   NOT COPIED HERE: that ticket's own "ข้อห้าม" section forbids writing any
-   monster-colour code from it, and a constant table in this package would
-   be exactly the hardcoded palette its last paragraph tells implementers
-   not to build ("อย่า hardcode สีหรือส่ง style ID ตรง ๆ").  Read the
-   letter when a human needs the numbers.
-2. ``RE-195`` (DONE/BOUNDED-NEGATIVE, bridge letter
-   ``notes_to_chief/20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md``,
-   opened for this lane by chief out of ``CORE-REQUEST-GM-048``) closed the
-   *reachability* question, and its answer is negative: with the identity
-   scheme this server ships today, the branch that would render the
-   "fighting" style is never entered, so binding a colour rule to faction,
-   to a template flag, or to emitting a hit would produce a rule that can
-   never fire and that no screen test could distinguish from a bug.
+Evidence
+--------
+1. ``RE-191`` (DONE/PASS at the conditional-static + DATA layer; runtime
+   pixels still open) closed the PALETTE question.  Its numbers are
+   deliberately NOT here: that ticket's own forbidden-actions section rules
+   out writing monster-colour code from it, and ``NOW.md`` P-2 adds
+   "ห้าม hardcode FontStyleID" (``CODEX_URGENT 20260901_1627``).  Read the
+   letter when a human needs a number.
+2. ``RE-195`` (DONE/BOUNDED-NEGATIVE, opened for this lane out of
+   ``CORE-REQUEST-GM-048``) closed the REACHABILITY question, negatively.
 
-What RE-195 measured, in the only form this module encodes
-----------------------------------------------------------
-The client's canonical selector span ``[0x00443F50,0x004443C5)``
-(``span_sha256`` below) splits on the SIGN of the actor identity dword
-before it can reach the typed ``CNetNPC`` tail that owns style 61:
+What RE-195 measured, and the ONE direction it measured it in
+-------------------------------------------------------------
+The client's canonical selector splits on the identity before it can reach
+the typed ``CNetNPC`` tail that owns the "fighting" style.  RE-195 measured
+one direction of that split and only one:
 
-    signed-nonpositive identity  ->  style 60 / the typed CNetNPC 61 tail
-    positive identity            ->  the 56 / 58 / 59 family, and the
-                                     typed 61 tail is bypassed entirely
+    a POSITIVE identity with a zero high dword  ==>  enters the
+    positive-identity family the selector table names, and BYPASSES the
+    typed CNetNPC tail entirely.
 
 ``field_mobs.FieldMob.actor_identity`` composes ``0x2000 + placement_index
-+ 1``.  Every value it can produce is positive, so every mob this server
-ships today lands in the family that cannot reach style 61.  RE-195 checked
-the two escape routes a lane might reach for and closed both: the faction
-comparator ``0x004A1D50`` is called from ONE site (``0x0043C5E0``) and only
-as a *fallback* inside the relationship predicate -- earlier exits bypass it
--- and ``CHitResult``'s ``+0x70 & 0x100`` writers require a signed-NEGATIVE
-target identity, which the current positive identities fail before the bit
-can ever be set.
++ 1``; every row that comes through ``load_roster`` (whose table parser
+bounds the index to ``[0, 0xDFFE]``) lands in exactly that measured class.
+RE-195 then closed the two escape routes a lane might reach for: the faction
+comparator is called from ONE conditional fallback site inside the
+relationship predicate, so earlier exits bypass it and faction alone cannot
+force a style; and the ``CHitResult`` writers of the relevant bit require a
+signed-NEGATIVE target identity, which the current positive identities fail
+before the bit can be set.
 
-What this module does NOT claim
--------------------------------
-* It does not say what colour any style is.  See RE-191's letter.
-* It does not classify styles 62 / 63.  RE-195's matrix covers 56..61 only;
-  RE-191 places 63 on a ``CNetNPC`` vslot ``+0x3C`` lane inside a pinned
-  scope.  Whether the identity-sign gate sits upstream of 62/63 the same way
-  it sits upstream of 61 is NOT measured, so this module answers UNKNOWN for
-  them rather than guessing -- and the verdict stays blocked either way.
-* It does not claim any style reaches a rendered pixel.  Controller
-  allocation, lookup, local vslots and delivery order are all client-side
-  gates RE-191 lists and neither ticket walked.
-* It is not a GM feature.  Nothing here grants, checks, or implies GM
-  status, and no account changes state because of it.
+!! THE CONVERSE IS NOT MEASURED, AND THIS MODULE MUST NEVER IMPLY IT.
+"Not in the measured bypass class" does NOT mean the typed tail is
+reachable.  ``CODEX_URGENT 20260901_1627`` records that the tail also
+depends on death / offensive / bit / linked-actor / local-state gates that
+nobody has walked, and RE-195's own closing line asks for "a coherent
+nonpositive identity mapping PLUS a typed/live gate proof".  The first draft
+of this module shipped ``typed_style61_tail_reachable()`` returning True for
+any nonpositive identity -- affirming the consequent, and the precise thing
+``NOW.md`` P-2 bans as "ห้ามเดา identity ติดลบโดยไม่ปิด uniqueness/registry".
+pf-adversary (round ``wggs0i``, D2) killed it.  The public predicate below is
+one-sided on purpose: it answers only the direction RE-195 walked, and
+raises on every identity class RE-195 did not.
+
+Scope this module does NOT cover
+--------------------------------
+* Which side of the split a zero identity sits on is inherited from a column
+  label ("signed_nonpositive"), not from a quoted compare instruction --
+  ``[PROPOSED]``.  Nothing here depends on it: ``0x2000 + idx + 1`` is never
+  zero, and zero is outside the measured class, so it raises.
+* Which dword of the identity PAIR the selector tests.  The wire quantity is
+  a qword (``field_mobs`` writes ``qwordtag(0x32, actor_identity)``) and the
+  selector table names an ``identity_pair``; RE-195 says only that today's
+  value is "positive, high dword zero".  So the measured class is bounded on
+  BOTH ends -- ``0 < identity < 2**32`` -- and a 64-bit value with a set high
+  dword is refused rather than guessed (pf-adversary D9).
+* Whether any style reaches a rendered pixel.  Controller allocation,
+  lookup, local vslots and delivery order are all client gates neither
+  ticket walked.
+* Anything about GM status.  Nothing here grants, checks, or implies it.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
-# Provenance.  Every constant below is a citation, not a tuning knob.
+# Provenance.  Every constant below is a TRANSCRIPTION from a bridge letter,
+# not something this repository can re-derive (the client image is not here).
+# The test pins each one by value so a silent edit shows up as a test diff.
 # ---------------------------------------------------------------------------
 
-#: The client image both tickets were re-derived against (RE-195 rehashed it
-#: before and after its analysis and it did not change).
+#: The client image both tickets were re-derived against.
 CLIENT_IMAGE_SHA256 = (
     "9627211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623"
 )
 CLIENT_IMAGE_BYTES = 14_759_424
 
-#: The canonical FontStyleID selector span RE-195 joined its matrix to.
+#: The canonical selector span RE-195 joined its matrix to.
 SELECTOR_SPAN = (0x00443F50, 0x004443C5)
 SELECTOR_SPAN_SHA256 = (
     "ee845ee6ef6337ea41ae57a5a4df8af5a8a8ac00e458ea1ce3e587aff1f9cdf9"
 )
 
 #: The relationship predicate, and the faction comparator it calls at ONE
-#: conditional fallback site.  RE-195's whole-image E8 census found exactly
-#: one direct caller of the comparator.
+#: conditional fallback site (RE-195's whole-image E8 census found exactly
+#: one direct caller).
 RELATIONSHIP_PREDICATE_SPAN = (0x0043C380, 0x0043C63C)
 FACTION_COMPARATOR_VA = 0x004A1D50
 FACTION_COMPARATOR_SOLE_CALL_SITE_VA = 0x0043C5E0
-
-#: ``src/pirateforce_foundation/field_mobs.py`` as RE-195 measured it.  The
-#: test that pins this lane's conclusion recomputes the file's hash and, when
-#: it differs, tells the reader to re-derive rather than silently trusting a
-#: bounded negative measured against a different file.
-FIELD_MOBS_SHA256_AT_RE195 = (
-    "a4fc6eaee6351d10e7bb44abb527db51966f217d474318a92078811bb79bb865"
-)
 
 RE_191_RESULT_LETTER = (
     "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"
@@ -106,98 +105,97 @@ RE_195_RESULT_LETTER = (
 )
 
 # ---------------------------------------------------------------------------
-# Identity lanes.  Opaque names on purpose: these are the two sides of a sign
-# test in the client's selector, NOT gameplay nouns.  Nothing here is called
-# "hostile", "fighting", "dead", or a colour.
+# The measured identity class.  Opaque name on purpose: this is one side of a
+# split in the client's selector, NOT a gameplay noun, and NOT a style id.
+#
+# NO FontStyleID NUMBER APPEARS IN THIS MODULE'S CODE, and the round that
+# wrote it kept them out of its prose too.  NOW.md P-2 forbids hardcoding
+# one (a test below enforces the code half), and gm/attr_wire.py
+# already keeps its own FontStyleID domain out of code for the same reason.
+# The styles RE-195's matrix covers, and the further ones that
+# CODEX_URGENT 20260901_1627 places behind the SAME identity lane (the first
+# draft of this module wrongly called those "unmeasured" -- pf-adversary D5),
+# are named ONLY in the letters and in PF_ATTR_NAME_COLOR_SELECTOR.tsv.
 # ---------------------------------------------------------------------------
 
-IDENTITY_LANE_POSITIVE = "positive_identity"
-IDENTITY_LANE_SIGNED_NONPOSITIVE = "signed_nonpositive_identity"
+IDENTITY_CLASS_MEASURED_BYPASS = "positive_identity_high_dword_zero"
 
-#: Which lane the typed ``CNetNPC`` tail that owns style 61 sits behind.
-TYPED_STYLE61_TAIL_REQUIRES_LANE = IDENTITY_LANE_SIGNED_NONPOSITIVE
+#: Half-open bounds of the identity class RE-195 actually measured.
+MEASURED_BYPASS_IDENTITY_RANGE = (1, 2 ** 32)
 
-#: Styles RE-195's matrix actually covers.  62 and 63 are absent on purpose.
-STYLES_COVERED_BY_RE195 = (56, 58, 59, 60, 61)
-
-_INT32_MIN = -(2 ** 31)
-_INT32_MAX = 2 ** 31 - 1
+#: Widest value this module will even look at: a 64-bit wire quantity in
+#: either signed or unsigned spelling.
+_ACCEPTED_MIN = -(2 ** 63)
+_ACCEPTED_MAX = 2 ** 64 - 1
 
 
 class NameColorGateError(ValueError):
     """An input does not have the shape this module requires.
 
-    Same "regardless of source" posture the rest of this package takes (see
-    ``gm/commands.py::GmCommandArgsError``): a caller that hands this module
-    a ``bool``, a float that happens to compare, or an out-of-range value
-    gets a module-specific error, never a quiet answer.  A gate that answers
-    quietly on junk is worse than no gate, because the answer it gives on
-    junk is the permissive one people remember.
+    ``ValueError`` to match this package's own house style
+    (``gm/commands.py::GmCommandArgsError``, ``gm/attr_wire.py::AttrWireError``).
+    Callers must catch THIS class, not bare ``ValueError``: a generic
+    input-validation handler swallowing a refusal is the failure mode this
+    whole module exists to prevent.
     """
 
 
-def _require_identity_dword(value: object, label: str) -> int:
-    # bool is an int subclass, and ``True`` would otherwise classify as the
-    # positive lane and read like a deliberate answer.
+class NameColorGateUnmeasured(NameColorGateError):
+    """The input is well-formed, but RE-195 did not measure its class.
+
+    Separate from a shape error so a caller cannot conflate "you passed
+    junk" with "nobody has measured this yet".  There is no answer to give
+    here, and inventing one is exactly the overclaim pf-adversary killed.
+    """
+
+
+def _require_identity(value: object) -> int:
+    # bool is an int subclass, and ``True`` would otherwise classify as a
+    # positive identity and read like a deliberate answer.
     if isinstance(value, bool) or type(value) is not int:
         raise NameColorGateError(
-            f"{label} must be a plain int actor identity, got {type(value).__name__}"
+            f"identity must be a plain int, got {type(value).__name__}"
         )
-    if not (_INT32_MIN <= value <= _INT32_MAX):
+    if not (_ACCEPTED_MIN <= value <= _ACCEPTED_MAX):
         raise NameColorGateError(
-            f"{label} does not fit the signed dword the selector tests: {value}"
+            f"identity does not fit a 64-bit wire quantity: {value}"
         )
     return value
 
 
-def identity_lane(identity: int) -> str:
-    """Name the side of the selector's sign test this identity lands on.
+def is_measured_bypass_identity(identity: int) -> bool:
+    """True iff this identity is in the class RE-195 measured as bypassing.
 
-    This is the ONE fact RE-195 measured that a server-side caller can act
-    on, and it is deliberately a classification, not a permission.
+    The ONLY affirmative answer this module gives, and it is affirmative
+    about a bypass -- never about reachability.  Anything well-formed but
+    outside the measured class raises :class:`NameColorGateUnmeasured`
+    rather than returning False, because False here would read as "does not
+    bypass", which a caller would then read as "reaches the tail".
     """
-    value = _require_identity_dword(identity, "identity")
-    if value <= 0:
-        return IDENTITY_LANE_SIGNED_NONPOSITIVE
-    return IDENTITY_LANE_POSITIVE
-
-
-def typed_style61_tail_reachable(identity: int) -> bool:
-    """Can the typed ``CNetNPC`` style-61 tail be entered for this identity?
-
-    False for every identity ``field_mobs`` composes today.  This answers
-    reachability of a client BRANCH, never whether a colour is drawn.
-    """
-    return identity_lane(identity) == TYPED_STYLE61_TAIL_REQUIRES_LANE
-
-
-def style_lane_is_measured(style_id: int) -> bool:
-    """Did RE-195's matrix cover this style id at all?
-
-    62 and 63 return False: RE-191 placed them on a different, separately
-    pinned lane and nobody has measured whether the identity-sign gate sits
-    upstream of them.  A caller that wants to reason about them must open a
-    ticket, not read an answer out of this module.
-    """
-    if isinstance(style_id, bool) or type(style_id) is not int:
-        raise NameColorGateError(
-            f"style_id must be a plain int, got {type(style_id).__name__}"
-        )
-    return style_id in STYLES_COVERED_BY_RE195
+    value = _require_identity(identity)
+    low, high = MEASURED_BYPASS_IDENTITY_RANGE
+    if low <= value < high:
+        return True
+    raise NameColorGateUnmeasured(
+        f"identity {value} is outside the class RE-195 measured "
+        f"({IDENTITY_CLASS_MEASURED_BYPASS}, {low} <= v < {high}); "
+        "RE-195 measured the bypass direction only -- see "
+        f"{RE_195_RESULT_LETTER} and do not infer reachability from this"
+    )
 
 
 # ---------------------------------------------------------------------------
-# The verdict.  Fail-closed: the only way ``allowed`` becomes True is for
-# every blocker below to be retired by a ticket that says so, and no argument
-# to this function can retire one.
+# The verdict.  Fail-closed: no argument flips it, and the dataclass that
+# carries the permission cannot be minted in the allowed state either
+# (pf-adversary D8: the first draft's frozen dataclass was public and
+# unvalidated, so a caller could build its own allowed verdict).
 # ---------------------------------------------------------------------------
 
 #: The three routes RE-195 checked and closed, in its own terms.  Each string
-#: is what a future round has to defeat WITH EVIDENCE before P-2 colour code
-#: may be written -- not a TODO a round may delete.
+#: is what a future round has to defeat WITH EVIDENCE -- not a TODO to delete.
 P2_COLOR_WIRING_BLOCKERS = (
     "identity_scheme_is_positive: field_mobs composes 0x2000+placement+1, "
-    "so every shipped mob bypasses the typed CNetNPC style-61 tail "
+    "so every roster row bypasses the typed CNetNPC tail "
     f"(RE-195, {RE_195_RESULT_LETTER})",
     "faction_is_a_fallback_operand_only: BasicAttr+0x68 reaches the relation "
     f"comparator {hex(FACTION_COMPARATOR_VA)} from one conditional fallback "
@@ -211,27 +209,34 @@ P2_COLOR_WIRING_BLOCKERS = (
 
 @dataclass(frozen=True)
 class P2ColorWiringVerdict:
-    """Whether P-2 colour code may be written today, and why not."""
+    """Whether P-2 colour code may be written today, and why not.
+
+    ``allowed`` exists so a call site reads honestly, not so it can be set:
+    constructing this class with ``allowed=True`` raises.  When a round
+    believes the blockers are retired it changes THIS class against a named
+    ticket result, in one reviewable diff, and takes the tests with it.
+    """
 
     allowed: bool
     blockers: tuple[str, ...]
     evidence: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if self.allowed is not False:
+            raise NameColorGateError(
+                "P2ColorWiringVerdict cannot be constructed in the allowed "
+                "state while RE-195's bounded negative stands; retire the "
+                "blockers in this module against a ticket result instead"
+            )
+        if not self.blockers:
+            raise NameColorGateError("a refusal with no blocker names nothing")
+
     def reason(self) -> str:
-        if self.allowed:
-            return "allowed"
         return " | ".join(self.blockers)
 
 
 def p2_color_wiring_verdict() -> P2ColorWiringVerdict:
-    """Refuse P-2 colour wiring, and say exactly what would have to change.
-
-    There is no argument that flips this to allowed, and that is the point:
-    the premise it refuses lives in the client image and in ``field_mobs``,
-    not in a caller's opinion.  When a round believes a blocker is retired,
-    it changes THIS function against a named ticket result and takes the
-    test below red with it, in one reviewable diff.
-    """
+    """Refuse P-2 colour wiring, and say exactly what would have to change."""
     return P2ColorWiringVerdict(
         allowed=False,
         blockers=P2_COLOR_WIRING_BLOCKERS,
