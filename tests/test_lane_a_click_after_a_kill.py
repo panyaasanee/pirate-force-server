@@ -372,6 +372,26 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
         self.assertIn("dead_at_ceiling=0", response.console_lines[0])
         self.assertIn("dead_as_corpse=1", response.console_lines[0])
 
+    def test_that_corpse_is_the_census_overrides_own_entry(self) -> None:
+        """THE STRONGEST STATEMENT THIS ROUND CAN MAKE, and it is an
+        equality rather than an argument: a click does not invent a body
+        for a dead monster, it sends the SAME entry ``mob_death.
+        corpse_override`` hands the arrival census for that identity --
+        the bytes this client has already accepted once for this scene."""
+        state, target = self._killed_session()
+        override = mob_death.corpse_override(
+            self.legacy, tuple(self.roster), state.mob_death_register)
+        self.assertIn(
+            target, override,
+            "the census override does not even hold this grave",
+        )
+        response, _stderr = self._click(
+            state, self._civilian_index(), with_register=True)
+        self.assertIn(
+            override[target], response.frame,
+            "the corpse in the click's frame is not the census's corpse",
+        )
+
     def test_the_whole_island_is_still_in_the_corpse_answer(self) -> None:
         """``RE-092``: an omitted row is a DELETED actor.  A corpse answer
         that shipped 96 of 97 would clear somebody off the screen."""
