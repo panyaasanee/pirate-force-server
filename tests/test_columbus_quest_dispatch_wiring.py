@@ -729,6 +729,161 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         self.assertIn(line, state.events)
 
 
+class ColumbusSceneGuardTests(unittest.TestCase):
+    """CORE-REQUEST (LANE-A, pf_bridge notes_to_chief 20260902_1207): the
+    Columbus branch must ask WHICH SCENE the session stands in before it
+    reads ``population_indices``.
+
+    ``population_indices`` is a placement-index space with no scene inside
+    it, and an actor identity on the wire is ``0x2000 + placement_index + 1``
+    -- so placement index 1 is ``0x2002`` on Columbus's island AND on the
+    nine other roster islands that have an index 1.  Without the guard, one
+    ChooseNPC click on one of those islands answers with Columbus's
+    conversation, and the QuestOperateVital behind it teleports the player
+    into scene 17, which the registry marks ``login_entry_allowed: false``.
+
+    MUTATION-PROOF: delete the ``position.scene_id == HOME_SCENE_ID``
+    conjunct from ``_dispatch_columbus_quest3021``'s guard and
+    ``test_a_choose_npc_from_a_non_home_scene_composes_no_columbus_frame``
+    fails on an assertion about a frame that WOULD then be composed -- not
+    by going quiet.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+
+    def _real_state(self, token):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        state.dispatch(self.legacy.parse_outer(_target_pos_pc(self.legacy)))
+        return state
+
+    def _stand_in_scene(self, state, scene_id):
+        from dataclasses import replace
+
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected, position=replace(selected.position, scene_id=scene_id),
+        )
+
+    def test_a_choose_npc_from_a_non_home_scene_composes_no_columbus_frame(self):
+        """The collision LANE-A measured, driven end to end.
+
+        The census is armed in the home scene (that is the only place this
+        harness can arm it today), then the session is moved to scene 4 --
+        the in-memory shape a GM warp or a travel-gate crossing leaves
+        behind -- and the SAME identity is clicked.  Before the guard this
+        composed Columbus's conversation from scene 4.
+        """
+        state = self._real_state("tok-columbus-scene-guard")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        self.assertIn(
+            columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX,
+            state.population_indices or (),
+            "the census must be armed, or this test proves nothing",
+        )
+        self._stand_in_scene(state, 4)
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        labels = [action[0] for action in actions]
+        self.assertNotIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE", labels,
+        )
+        self.assertNotIn(
+            "core_request_014_columbus_npc_conversation_sent_once",
+            state.events,
+        )
+        self.assertFalse(state.columbus_quest3021_conversation_sent)
+
+    def test_every_roster_scene_that_shares_columbus_placement_index_is_refused(self):
+        """Not one scene: all nine LANE-A named, one subtest each.
+
+        The nine are the letter's own measured list (4, 5, 6, 7, 8, 9, 10,
+        11, 130).  Scene 3 is excluded there because it has no placement
+        index 1 at all.
+        """
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        for scene_id in (4, 5, 6, 7, 8, 9, 10, 11, 130):
+            with self.subTest(scene_id=scene_id):
+                state = self._real_state("tok-guard-%d" % scene_id)
+                self._stand_in_scene(state, scene_id)
+                actions = state.dispatch(self.legacy.parse_outer(
+                    _choose_npc_pc(self.legacy, columbus_identity)
+                ))
+                labels = [action[0] for action in actions]
+                self.assertNotIn(
+                    "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE",
+                    labels,
+                )
+                self.assertFalse(state.columbus_quest3021_conversation_sent)
+
+    def test_the_home_scene_still_answers_the_same_click(self):
+        """The guard must not cost the scene it was written to protect."""
+        state = self._real_state("tok-guard-home")
+        self.assertEqual(
+            state.foundation.selected.position.scene_id,
+            world_scene_travel.HOME_SCENE_ID,
+        )
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        labels = [action[0] for action in actions]
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE", labels,
+        )
+        self.assertTrue(state.columbus_quest3021_conversation_sent)
+
+    def test_the_guard_reads_the_scene_and_not_only_the_selected_object(self):
+        """A session with no selected character composes nothing and does
+        not raise -- the house fail-closed rule, asserted rather than
+        assumed."""
+        state = self._real_state("tok-guard-no-selected")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.foundation.selected = None
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        labels = [action[0] for action in actions]
+        self.assertNotIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE", labels,
+        )
+
+
 class CrossingHandoffQueuedWiringTests(unittest.TestCase):
     """CORE-REQUEST (LANE-A round czoo9t) wired by chief round R250/65etwo:
     ``world_m2_crossing_handoff.crossing_handoff()`` is now actually QUEUED
