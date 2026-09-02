@@ -1,1 +1,1 @@
-{"sha":"d934e3d7fd7b020dc88201cb6636e481e76bc2d0","conclusion":"failure","event":"push","ref":"refs/heads/claude/laughing-archimedes-4uztfj","run_id":"33643007656","utc":"2026-09-02T14:54:23Z"}
+{"sha":"d934e3d7fd7b020dc88201cb6636e481e76bc2d0","conclusion":"failure","event":"pull_request","ref":"refs/pull/601/merge","run_id":"33643027576","utc":"2026-09-02T14:54:42Z"}
