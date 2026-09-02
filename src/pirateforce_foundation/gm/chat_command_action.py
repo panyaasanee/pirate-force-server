@@ -656,6 +656,25 @@ STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 # -- the COMMAND put nothing on the wire, and a sentence about that went out.
 NOTICE_CONSOLE_TOKEN = "GM_CHAT_NOTICE_SENT"
 
+# The line COO-DECISION 2026-09-02T18:47+07:00 asked for BY ITS EXACT FIRST
+# TWO WORDS: "the `route=action` path must refuse and print one pure-ASCII
+# line: `SPEED DEFERRED` (a short reason may follow, but the prefix must be
+# those two words)".  Spelled as one constant so a test can pin the prefix
+# and an attended tester can grep for it without knowing this module.
+#
+# A THIRD TOKEN RATHER THAN A REUSE OF `WITHHELD_CONSOLE_TOKEN`, and the
+# reason is the decision itself: an attended round that types `/speed` needs
+# to tell "this lane is holding every frame on purpose, project-wide, until
+# LANE-DB lands the login read" apart from "your value/session/DB was
+# refused by one of the eight gates above".  Both print no bytes; only one of
+# them is a state the tester can do nothing about.  Grepping `GM_CHAT_NO_
+# BYTES_SENT` and reading `why=` would answer it too, and that is exactly the
+# indirection COO's "print these two words" removes.
+#
+# ASCII BY CONSTRUCTION (a space, no punctuation): the bridge console is
+# cp874 and this line is read there.
+SPEED_DEFERRED_CONSOLE_TOKEN = "SPEED DEFERRED"
+
 # What each no-bytes outcome is waiting on, as fixed sentences this lane
 # wrote -- never a string built from anything a client typed.  Keyed on the
 # audit outcome so the ndjson word and the console line cannot drift apart:
@@ -845,6 +864,11 @@ EVENT_SPEED_WITHHELD_NO_VERSION = (
 # read and the version-gate read above -- see `_speed_action`'s own
 # docstring for what this filename heuristic does and does not prove.
 EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
+# The event trail's half of `SPEED_DEFERRED_CONSOLE_TOKEN` above.  Its own
+# name, not a reuse of the shape-hold event beneath it, for the reason the
+# console token is its own: a replay tool reading `session.events` must be
+# able to separate the project-wide deferral from the shape question.
+EVENT_SPEED_DEFERRED = "gm_chat_action_speed_deferred_login_read"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 # GT-193 [FAIL] (attended R303, 2026-09-02): this door's frame went to a real
@@ -1039,6 +1063,12 @@ OUTCOME_SPEED_WITHHELD_NO_VERSION = (
 # `_speed_db_is_canonical`'s pattern for its own send site would need its
 # own outcome word rather than colliding with this one.
 OUTCOME_SPEED_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}speed_canonical_db"
+# COO-DECISION `1847`'s deferral, as the word the audit row carries.  A
+# `withheld_` word rather than a `refused_` one, matching this module's own
+# split: `refused_` means "this command was wrong", `withheld_` means "this
+# command was fine and this lane did not send it".  A `/speed` that reaches
+# this point parsed, authorized, passed every gate and WROTE ITS ROW.
+OUTCOME_SPEED_DEFERRED = f"{OUTCOME_WITHHELD_PREFIX}speed_deferred_login_read"
 OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
     f"{OUTCOME_REFUSED_PREFIX}speed_no_selected_character"
 )
@@ -1150,6 +1180,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_NO_SELECTED_CHARACTER: (
         "this connection has no selected character to read identity_lo/hi"
         " from"
+    ),
+    OUTCOME_SPEED_DEFERRED: (
+        "COO-DECISION 1847 holds every /speed frame until LANE-DB lands the"
+        " speed_walk login read on main; the row was written, the frame was"
+        " not sent"
     ),
     OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED: (
         "GT-193 sent this frame shape and the character died and the client"
@@ -2795,6 +2830,65 @@ def _print_staged_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
+def _print_speed_deferred(session: object, token: str, command_name: object) -> bool:
+    """Print COO-DECISION `1847`'s line and say whether it reached the stream.
+
+    RETURNS WHETHER IT PRINTED, unlike every other printer in this module,
+    and the caller puts that answer in `_Verdict.line_printed` so the backstop
+    is not suppressed by a line that never appeared.
+
+    ~~"a console this line could not reach falls back to
+    `GM_CHAT_NO_BYTES_SENT ...` instead of leaving an accepted command
+    silent"~~ -- STRUCK IN THE ROUND THAT WROTE IT, because pf-adversary (D4)
+    measured that the fallback does not exist for the two ways `printed`
+    actually becomes False in production.  Both printers read the SAME
+    `sys.stderr` through the same helpers, so a `None` stream returns from
+    both and a raising stream raises in both: the measured result is ZERO
+    console lines and two `console_write_failed_*` events, not a second line.
+
+    So what this return value really buys is narrower, and it is worth having
+    for that alone: the honest report keeps `_announce_console_outcome` from
+    treating an unwritten line as spoken, which matters the moment either
+    printer stops sharing a stream with the other, and it puts the failure on
+    the EVENT TRAIL under a name a replay tool can find (`session.events`),
+    which is the only record that survives a dead console at all.
+
+    THE PREFIX IS THE CONTRACT.  `SPEED_DEFERRED_CONSOLE_TOKEN` leads the
+    line, unconditionally, before any field -- COO's wording is "the prefix
+    must be those two words".  The fields after it are the same lane-authored
+    ones `_print_no_bytes_way_out` carries, built by the SAME
+    `_identity_fields` builder for the reason that builder exists: two lines
+    naming the same row must not drift into two spellings of it.
+
+    NOTHING TYPED IS EVER PRINTED -- the property every printer in this
+    module holds.  The command NAME is rendered only when it is one of
+    `commands.COMMAND_NAMES`, and `session.token` names a process, not a
+    person (see `_print_no_bytes_way_out`).
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH: a `None` stderr and a stream that
+    raises both cost this line and nothing else.  The frame is held either
+    way -- the hold is decided by `speed_wire.send_deferred()` before this
+    function is reached, never by whether the console accepted a line.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return False
+    try:
+        name = command_name if command_name in COMMAND_NAMES else "unnamed"
+        print(
+            f"{SPEED_DEFERRED_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"command={name} why={OUTCOME_SPEED_DEFERRED} "
+            f"{_identity_fields(session, stream)}",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the last paragraph above
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
+
+
 def _print_notice_sent(
     session: object, token: str, command_name: object,
 ) -> None:
@@ -2879,8 +2973,33 @@ def _announce_console_outcome(
     if verdict.audit_outcome in STAGED_OUTCOMES and audited:
         _print_staged_way_out(session, token, command, verdict.audit_outcome)
         return
-    if verdict.line_printed:
+    if verdict.line_printed and audited:
         # A handler already said it, in a vocabulary built for that refusal.
+        return
+    if verdict.line_printed:
+        # ...BUT ONLY WHEN THE AUDIT ROW LANDED, and `and audited` is a fix,
+        # not a nicety (pf-adversary, round `hj2cry`, D1, measured on three
+        # runs).  A handler's line explains the REFUSAL; it cannot know that
+        # the outcome row failed to append afterwards, because it returned
+        # before the write.  With a bare `if verdict.line_printed: return`,
+        # `SPEED DEFERRED` printed byte-identical output in all three of:
+        # the row written and kept, the row written then REVERTED by the
+        # undo, and the row written and NOT revertable -- while
+        # `WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT`, a constant that exists
+        # because pf-adversary D4 measured exactly that state one round
+        # earlier, became unreachable on the only route the shipped default
+        # takes.  So when the audit failed, the backstop speaks BESIDE the
+        # handler's line rather than instead of it: two lines, one about the
+        # refusal and one about the row, which is two facts, not a
+        # duplicate.
+        _print_no_bytes_way_out(
+            session,
+            token,
+            getattr(command, "name", None),
+            WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT
+            if reverted is False
+            else WHY_AUDIT_ROW_NOT_WRITTEN,
+        )
         return
     if audited:
         why = verdict.audit_outcome
@@ -3204,7 +3323,19 @@ def _speed_undo(store: object, character_id: int) -> object:
     nothing to put back.  A character `/speed` had already written keeps what
     it held -- the predicate skips it -- and a character created afterwards
     still reaches this undo NULL, because `SQLiteStore.create_character`
-    writes no typed column at all today.
+    does not write THIS column.
+
+    ~~"because `SQLiteStore.create_character` writes no typed column at all
+    today"~~ -- STRUCK, and the correction is COO-DECISION `20260902_1948`
+    item 3, which is right: LANE-DB's birth plug `009` landed on `main` and
+    `store.py:create_character`'s INSERT now carries `level, hp_current,
+    hp_max` (read at HEAD, not quoted from a letter).  `speed_walk` is NOT
+    among them, so THE CONCLUSION ABOVE IS UNCHANGED -- a character created
+    today still reaches this undo with the column NULL.  The reason had to be
+    corrected anyway, and COO named the exact hazard of leaving it: the next
+    reader adds `speed_walk` to that INSERT believing this docstring already
+    describes their change, and this undo silently stops being the "nothing
+    to put back" case it documents.
 
     The event names `_make_action` writes still say `STAGE` -- they were
     minted for the staged-login-scene undo and are pinned by the event-name
@@ -3447,22 +3578,32 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     dispatch is answering.  It moves nobody -- `x=7` is a single BasicAttr
     field, not a position.
 
-    !! AND SINCE GT-193 IT WITHHOLDS THE FRAME BY DEFAULT.  Attended round
-    R303 (2026-09-02) typed `/speed 300` on a real client: this function's
-    frame went out, the character showed HP 0 and money 0 and DIED, and the
-    client then answered nothing at all (426 inbound frames, zero of them
+    !! AND SINCE GT-193 IT SENDS NOTHING AT ALL.  Attended round R303
+    (2026-09-02) typed `/speed 300` on a real client: this function's frame
+    went out, the character showed HP 0 and money 0 and DIED, and the client
+    then answered nothing at all (426 inbound frames, zero of them
     non-heartbeat -- the revive buttons never reached the server).  The run DB
     was healthy throughout, so the client reacted to BYTES THIS LANE SENT.
-    The gate below asks one question -- has a real client been measured
-    accepting THIS shape (`speed_wire.shape_cleared`, keyed on the signature
-    `declared_empty_sections` returns; today that set is empty, so the answer
-    is always no) -- and it fires BEFORE the DB write, so a held frame never
-    leaves a moved row behind it.  Which byte killed the character is NOT known
-    and this function does not pretend it is (the tester's own nonclaim); the
-    hold is what a measured client lockout earns until an RE result or a later
-    attended round clears a shape by name.  See
-    `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` and
-    `tests/test_gm_speed_shape_hold.py`.
+    Which byte killed the character is NOT known and this function does not
+    pretend it is (the tester's own nonclaim).  TWO gates stand between the
+    read-back and the composer now, both below the DB write:
+
+      * COO-DECISION `20260902_1847` -- every frame of this door is DEFERRED,
+        whatever its shape, until LANE-DB lands the `speed_walk` login read on
+        `main` (`speed_wire.send_deferred`).  Unconditional today.  The route
+        prints `SPEED DEFERRED` and returns no action.
+      * the GT-193 shape hold -- has a real client been measured accepting
+        THIS shape (`speed_wire.shape_cleared`, keyed on the signature
+        `declared_empty_sections` returns; today that set is empty, so the
+        answer is always no).
+
+    ~~"it fires BEFORE the DB write, so a held frame never leaves a moved row
+    behind it"~~ -- STRUCK: COO `1847` ruled the other way in the same letter
+    ("the DB write continues as before; what has to stop is the outbound
+    frame, and only that"), so both gates moved below the write.  See
+    `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT`,
+    `speed_wire.SPEED_LOGIN_READ_LANDED`, `tests/test_gm_speed_shape_hold.py`
+    and `tests/test_gm_speed_deferred.py`.
 
     !! IT NOW WRITES A DB ROW.  ~~"writes no DB row: this composes a WIRE
     FRAME only, never touching `store`/`characters`"~~ -- struck, not
@@ -3574,39 +3715,6 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}",
         )
 
-    # ---- THE SHAPE GT-193 MEASURED -----------------------------------
-    # Fired BEFORE the row is written, on purpose.  A withheld frame plus a
-    # written row is precisely the screen-disagrees-with-the-database case the
-    # DB-FIRST ordering below exists to prevent: the row would hold a number
-    # no client was ever told about, and the next login would paint the old
-    # one anyway (GT-193 measured that half too -- `speed_walk` has no login
-    # read yet, LANE-DB's CORE-REQUEST).
-    #
-    # EVERY send needs a clearance, and the shape's signature is the key --
-    # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is empty today, so every
-    # send is held.  It is NOT "hold only while a section is empty": that was
-    # this round's first draft, and pf-adversary measured what it meant (D6) --
-    # a lane that filled the section would have shipped a new, never-measured
-    # shape to an attended tester without any clearance at all.  The shape is
-    # measured, not hardcoded, so a future round clears exactly the shape it
-    # measured and no other.  A composer that raises here is a shape this lane
-    # cannot measure, which is not a shape it may put in front of a tester
-    # either: that path holds too, rather than falling through to the send.
-    try:
-        shape = speed_wire.declared_empty_sections(
-            legacy, identity_lo, identity_hi, value
-        )
-    except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
-        # `None`, not "an empty section": a shape that could not be measured
-        # is never cleared, whatever the clearance set holds -- nothing here
-        # knows which shape it would have been.
-        shape = None
-    if not speed_wire.shape_cleared(shape):
-        _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
-        return _speed_denied(
-            session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED
-        )
-
     # ---- DB FIRST ----------------------------------------------------
     # Everything from here to the compose below is the persistence half.
     # Read the `EVENT_SPEED_NO_STORE` comment block for the ordering
@@ -3660,6 +3768,100 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         _note(session, EVENT_SPEED_PERSIST_READBACK_UNUSABLE)
         return _speed_denied(
             session, legacy, OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE, undo
+        )
+
+    # ---- COO 1847: THE ROW IS WRITTEN, THE FRAME IS NOT SENT ---------
+    # THE FIRST GATE ON THIS SIDE OF THE WRITE, AND IT IS UNCONDITIONAL
+    # TODAY.  COO-DECISION 2026-09-02T18:47+07:00 after the R303 attended
+    # round: `/speed 300` went out of this function, the character showed
+    # HP 0 and money 0 and DIED, and the client then LOCKED ITSELF -- 426
+    # inbound frames, not one of them a click, the revive buttons never
+    # sending a byte.  The price of leaving it live is one whole attended
+    # round every time the owner types the command, and an attended round is
+    # the most expensive resource this project has.
+    #
+    # WHAT THAT DECISION MOVED, SAID EXACTLY, BECAUSE IT REVERSED THIS
+    # FUNCTION'S OWN EARLIER ORDERING.  ~~"Fired BEFORE the row is written,
+    # on purpose ... a withheld frame plus a written row is precisely the
+    # screen-disagrees-with-the-database case the DB-FIRST ordering exists
+    # to prevent."~~  STRUCK, not deleted, because it was this function's
+    # reasoning for the shape hold one round ago and a reader of that round
+    # needs to see when it stopped being the ordering.  COO `1847` ruled the
+    # other way, in one sentence: "THE DB WRITE CONTINUES AS BEFORE -- the DB
+    # is already clean; what has to stop is the OUTBOUND FRAME, and only
+    # that."  So both gates now stand BELOW the write, and the withheld
+    # frame/written row disagreement the struck paragraph feared is accepted
+    # deliberately: `speed_walk` has no login read yet either way, so the row
+    # is what a later login-read can honour and the frame is what killed a
+    # client.  Keeping the row also keeps `GT-193` step 6 (diff the row)
+    # gradeable at all.
+    #
+    # IT IS NOT A GUESS ABOUT WHICH BYTE KILLED THE CHARACTER, and COO `1847`
+    # forbids making one: "do not guess which field killed the client and
+    # then fix your guess -- your job here is to STOP SENDING, not to repair
+    # the frame".  Nothing below composes a different frame; the door holds.
+    if speed_wire.send_deferred():
+        _note(session, EVENT_SPEED_DEFERRED)
+        # `line_printed` carries the printer's OWN answer: a console this
+        # line could not reach falls through to `GM_CHAT_NO_BYTES_SENT`
+        # rather than leaving an accepted command silent.
+        printed = _print_speed_deferred(
+            session,
+            getattr(session, "token", None),
+            getattr(command, "name", None),
+        )
+        # No notice action, and that is the one thing here this lane decided
+        # rather than was told -- COO `1847` says "refuse AND PRINT" and its
+        # test requirement is "pin that NO BYTES go out on this route", while
+        # COO `0345` had ordered refusals to reach the screen through
+        # `_speed_denied`'s local-talk notice.  Read together, the narrower
+        # reading (zero bytes) is the one that cannot cost an attended round
+        # if it is wrong: the GM loses an on-screen sentence, the console
+        # still says `SPEED DEFERRED`.  The other reading risks the thing the
+        # decision exists to stop.  [ASSUMPTION OF LANE-GM, AWAITING COO --
+        # `pf_bridge/notes_to_chief/20260902_2038_LANE-GM-ASK-COO-speed-
+        # deferral-drops-the-on-screen-notice.md`]
+        return _Verdict(None, OUTCOME_SPEED_DEFERRED, undo, line_printed=printed)
+
+    # ---- THE SHAPE GT-193 MEASURED -----------------------------------
+    # THE SECOND LOCK, and unreachable today because the first one above is
+    # unconditional -- kept, and kept BELOW the write with it, because the
+    # two answer different questions and the round that lifts one must not
+    # inherit the other by accident (`speed_wire.send_deferred`'s own comment
+    # spells the split: this one is about the BYTES, that one is about
+    # whether the number survives the next login).
+    #
+    # EVERY send needs a clearance, and the shape's signature is the key --
+    # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is empty today, so every
+    # send is held.  It is NOT "hold only while a section is empty": that was
+    # an earlier round's first draft, and pf-adversary measured what it meant
+    # (D6) -- a lane that filled the section would have shipped a new,
+    # never-measured shape to an attended tester without any clearance at
+    # all.  The shape is measured, not hardcoded, so a future round clears
+    # exactly the shape it measured and no other.  A composer that raises
+    # here is a shape this lane cannot measure, which is not a shape it may
+    # put in front of a tester either: that path holds too, rather than
+    # falling through to the send.
+    #
+    # COMPOSED FROM `stored`, NOT FROM `value`, now that it stands below the
+    # read-back: the shape is measured off the very number the frame beneath
+    # it would carry, which is strictly closer to the shipped frame than the
+    # typed value was.  `declared_empty_sections`' own docstring says the
+    # shape does not depend on the value and pins it with a test; this
+    # ordering no longer has to lean on that pin.
+    try:
+        shape = speed_wire.declared_empty_sections(
+            legacy, identity_lo, identity_hi, stored
+        )
+    except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
+        # `None`, not "an empty section": a shape that could not be measured
+        # is never cleared, whatever the clearance set holds -- nothing here
+        # knows which shape it would have been.
+        shape = None
+    if not speed_wire.shape_cleared(shape):
+        _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
+        return _speed_denied(
+            session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED, undo
         )
 
     try:

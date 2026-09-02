@@ -203,6 +203,20 @@ class _Case(unittest.TestCase):
         )
         _shape_cleared.start()
         self.addCleanup(_shape_cleared.stop)
+        # AND THE SECOND LOCK, WHICH LANDED ABOVE THAT ONE: COO-DECISION
+        # 2026-09-02T18:47+07:00 defers EVERY frame of this door -- whatever
+        # its shape -- until LANE-DB lands the `speed_walk` login read on
+        # `main` (`speed_wire.send_deferred`).  It sits between the DB write
+        # and the shape gate, so without this second patch nothing in this
+        # file reaches the composer either.  Also a TEST-ONLY simulation: the
+        # shipped default is pinned deferred by
+        # `tests/test_gm_speed_deferred.py`, and nothing here is evidence that
+        # LANE-DB's login read exists.
+        _deferral_lifted = mock.patch.object(
+            speed_wire, "SPEED_LOGIN_READ_LANDED", True
+        )
+        _deferral_lifted.start()
+        self.addCleanup(_deferral_lifted.stop)
 
     def act(self, session, text):
         return chat_command_action.make_gm_chat_command_action(

@@ -22,10 +22,26 @@ WHAT IS PINNED HERE, AND WHAT IS DELIBERATELY NOT
 PINNED: the production default is HELD, and held for EVERY shape (the
 clearance set is empty, and a shape that merely fills both sections is not a
 cleared shape -- pf-adversary D6); the signature is measured off the composer
-rather than hardcoded; the hold fires BEFORE the DB write; the refusal is
-answered to the connection the same way every other refusal in this module is;
-and the exact byte tail GT-193 shipped, so a future edit that changes the shape
-cannot do it quietly.
+rather than hardcoded; the refusal is answered to the connection the same way
+every other refusal in this module is; and the exact byte tail GT-193 shipped,
+so a future edit that changes the shape cannot do it quietly.
+
+~~"the hold fires BEFORE the DB write"~~ -- STRUCK, and the reason is
+COO-DECISION 2026-09-02T18:47+07:00 (`pf_bridge/notes_to_chief/20260902_1847_
+COO-DECISION-lane-gm-stop-sending-speed-as-an-attr-frame-now.md`): "the DB
+write continues as before -- the DB is already clean; what has to stop is the
+outbound frame, and only that."  So this hold now stands BELOW the write, with
+COO `1847`'s own deferral above it, and `NothingMovesWhileHeldTests` below
+pins the new ordering instead of the old one.
+
+THIS FILE NO LONGER TESTS THE SHIPPED DEFAULT ROUTE, and that is the biggest
+thing to know before reading it.  On `main` today every `/speed` stops one
+gate EARLIER than the one here, at COO `1847`'s deferral, so the tests that
+exercise the shape gate through the real dispatch lift that deferral first
+(`_Case.deferral_lifted`, a test-only patch).  What the shipped route does is
+pinned in `tests/test_gm_speed_deferred.py`, and this file's own
+`TheDeferralStandsAboveThisHoldTests` pins the ORDER of the two so neither
+file can quietly become the only one that runs.
 
 WHAT "ANSWERED TO THE CONNECTION" DOES AND DOES NOT MEAN (pf-adversary D8).
 These tests assert that the action returned is the `SPEED DENIED` LocalTalk
@@ -115,11 +131,14 @@ class FakeSelected:
 class FakeStore:
     """Records every write, because "was the row written?" is half the claim.
 
-    The hold fires above the DB write, so a test that only looked at the
-    returned action could not tell a held send from a send whose row moved
-    first -- which is exactly the screen-disagrees-with-the-row case GT-193
-    also measured (the client painted 400 after a re-login while the row held
-    300, because `speed_walk` has no login read yet -- LANE-DB's own item).
+    Since COO `1847` the hold fires BELOW the DB write, so "was the row
+    written?" is no longer the same question as "was the frame sent?" -- and
+    recording the calls is what lets this file assert BOTH halves of the new
+    ordering rather than inferring one from the other.  The row moving while
+    the frame is held is the state GT-193 also measured from the other side
+    (the client painted 400 after a re-login while the row held 300, because
+    `speed_walk` has no login read yet -- LANE-DB's own item), and COO `1847`
+    accepted it deliberately.
     """
 
     def __init__(self, path):
@@ -220,6 +239,18 @@ class _Case(unittest.TestCase):
                 out.append(outcome)
         return out
 
+    def deferral_lifted(self):
+        """A TEST-ONLY simulation of LANE-DB landing the `speed_walk` login read.
+
+        COO `1847` defers every frame of this door until that read is on
+        `main`, which is a gate ABOVE the one this file is about.  Tests that
+        want to reach the shape gate through the real dispatch have to lift it
+        first; nothing here is evidence that the login read landed, and
+        `TheDeferralStandsAboveThisHoldTests` pins that the shipped default
+        still stops above.
+        """
+        return mock.patch.object(speed_wire, "SPEED_LOGIN_READ_LANDED", True)
+
     def cleared(self, *shapes):
         """A TEST-ONLY simulation of a future attended clearance.
 
@@ -309,20 +340,19 @@ class TheShapeIsMeasuredNotHardcodedTests(_Case):
         attended tester.  Filling the section is not evidence about a client.
         """
         store = self.store()
-        with mock.patch.object(
+        with self.deferral_lifted(), mock.patch.object(
             speed_wire, "declared_empty_sections", return_value=()
         ):
             action = self.act(self.session(store))
         self.assertEqual(
             action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
         )
-        self.assertEqual(store.calls, [])
 
     def test_that_same_door_sends_once_its_own_shape_is_cleared(self):
         # The control for the test above: `()` is not un-clearable, it is
         # merely uncleared.  A round that measures it clears it by name.
         store = self.store()
-        with mock.patch.object(
+        with self.deferral_lifted(), mock.patch.object(
             speed_wire, "declared_empty_sections", return_value=()
         ), self.cleared(()):
             action = self.act(self.session(store))
@@ -372,7 +402,8 @@ class TheHoldAnswersTheConnectionTests(_Case):
 
     def test_a_healthy_speed_line_is_withheld_by_default(self):
         session = self.session()
-        action = self.act(session)
+        with self.deferral_lifted():
+            action = self.act(session)
         self.assertIsNotNone(
             action, "a held /speed must still answer the connection"
         )
@@ -381,7 +412,8 @@ class TheHoldAnswersTheConnectionTests(_Case):
         )
 
     def test_the_audit_names_the_hold(self):
-        self.act(self.session())
+        with self.deferral_lifted():
+            self.act(self.session())
         self.assertIn(
             chat_command_action.OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED,
             self.audit_outcomes(),
@@ -389,7 +421,8 @@ class TheHoldAnswersTheConnectionTests(_Case):
 
     def test_the_session_event_names_the_hold(self):
         session = self.session()
-        self.act(session)
+        with self.deferral_lifted():
+            self.act(session)
         self.assertIn(
             chat_command_action.EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED,
             session.events,
@@ -403,21 +436,30 @@ class TheHoldAnswersTheConnectionTests(_Case):
 
 
 class NothingMovesWhileHeldTests(_Case):
-    def test_the_row_is_not_written(self):
+    """~~"nothing moves"~~ -- THE ROW MOVES NOW, by COO `1847`, and only the
+    frame is held.  The class name is kept rather than renamed so a reader of
+    the round that wrote it can still find it; what it pins is now the new
+    ordering, stated by each test's own name.
+    """
+
+    def test_the_row_is_written_before_the_hold(self):
         store = self.store()
-        self.act(self.session(store))
+        with self.deferral_lifted():
+            self.act(self.session(store))
         self.assertEqual(
-            store.calls,
-            [],
-            "the hold fired but the row moved anyway -- a held frame plus a "
-            "written row is the screen-disagrees-with-the-database case the "
-            "DB-FIRST ordering exists to prevent",
+            len(store.calls),
+            1,
+            "COO 1847 requires the DB write to continue as before and only "
+            "the outbound frame to stop; a hold that skipped the write would "
+            "leave GT-193 step 6 (diff the row) ungradeable",
         )
-        self.assertEqual(store.stored, {})
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 400.0
+        )
 
     def test_the_composer_is_never_reached(self):
         store = self.store()
-        with mock.patch.object(
+        with self.deferral_lifted(), mock.patch.object(
             speed_wire,
             "compose_sparse_speed_update",
             side_effect=AssertionError("composed while held"),
@@ -431,7 +473,7 @@ class NothingMovesWhileHeldTests(_Case):
         # Fail-closed: a composer that raises is a shape this lane cannot
         # measure, and an unmeasurable shape is not one it may ship.
         store = self.store()
-        with self.cleared(), mock.patch.object(
+        with self.deferral_lifted(), self.cleared(), mock.patch.object(
             speed_wire,
             "declared_empty_sections",
             side_effect=ValueError("cannot measure"),
@@ -440,7 +482,41 @@ class NothingMovesWhileHeldTests(_Case):
         self.assertEqual(
             action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
         )
-        self.assertEqual(store.calls, [])
+
+
+class TheDeferralStandsAboveThisHoldTests(_Case):
+    """The ORDER of the two gates, pinned here as well as in the deferral file.
+
+    Without this class, a future round could lift COO `1847`'s deferral and
+    every test above would still pass -- they all lift it themselves.
+    """
+
+    def test_the_shipped_default_stops_at_the_deferral_not_here(self):
+        session = self.session()
+        self.assertIsNone(self.act(session))
+        self.assertIn(chat_command_action.EVENT_SPEED_DEFERRED, session.events)
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED,
+            session.events,
+        )
+
+    def test_clearing_the_shape_alone_does_not_send(self):
+        # The one that matters: an attended round that measures a safe shape
+        # clears it here, and the frame is STILL held, because the number it
+        # would paint does not survive the next login yet.
+        store = self.store()
+        with self.cleared():
+            self.assertIsNone(self.act(self.session(store)))
+
+    def test_lifting_the_deferral_alone_does_not_send_either(self):
+        # And the mirror: LANE-DB landing the login read does not reopen this
+        # door by itself.  Two lanes, two edits, neither sufficient alone.
+        store = self.store()
+        with self.deferral_lifted():
+            action = self.act(self.session(store))
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
 
 
 class TheControlTests(_Case):
@@ -448,16 +524,17 @@ class TheControlTests(_Case):
 
     def test_the_same_line_composes_once_the_shape_is_cleared(self):
         store = self.store()
-        with self.cleared():
+        with self.deferral_lifted(), self.cleared():
             action = self.act(self.session(store))
         self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
         self.assertEqual(len(store.calls), 1)
 
     def test_clearing_the_shape_is_the_only_difference(self):
         held_store = self.store()
-        held = self.act(self.session(held_store))
+        with self.deferral_lifted():
+            held = self.act(self.session(held_store))
         open_store = self.store()
-        with self.cleared():
+        with self.deferral_lifted(), self.cleared():
             opened = self.act(self.session(open_store))
         self.assertNotEqual(held[0], opened[0])
 
@@ -465,13 +542,17 @@ class TheControlTests(_Case):
 class TheShapeDoesNotDependOnIdentityOrValueTests(_Case):
     """The pin `declared_empty_sections`'s docstring names (pf-adversary D5).
 
-    `_speed_action` checks the shape BEFORE the store write, using the parsed
-    value, while the frame that actually ships is composed AFTER the write from
-    the store's read-back (`400.1` goes in and `400.1000061035156` comes back).
-    That is only legitimate while the signature cannot depend on the value or
-    the identity.  These tests are what makes it legitimate; a field whose
-    presence depends on the value turns them red, and the check then has to
-    move below the read-back.
+    ~~"`_speed_action` checks the shape BEFORE the store write, using the
+    parsed value"~~ -- STRUCK: since COO `1847` moved both gates below the
+    write, the shape is measured off `stored`, the same read-back the frame
+    beneath it is composed from, so the divergence this class was written to
+    make safe is no longer taken at all.
+
+    THE PINS ARE KEPT ANYWAY, and not out of sentiment: they are what makes
+    the signature a stable KEY for `SHAPES_CLEARED_BY_A_REAL_CLIENT`.  A field
+    whose presence depended on the value or the identity would mean a
+    clearance recorded for "the shape" was really a clearance for one call --
+    which is the D6 hazard again, one level down.  These turn red first.
     """
 
     VALUES = (0.0, 1, 5.0, 300.0, 400.1, 400.1000061035156, -12.5, 1e30)

@@ -7625,3 +7625,81 @@ importer sees it, and duplicated rather than moved so a redirected `*>` capture 
 (b) The "a skipped scene is not an empty scene" warning lived in the module docstring, which a
 tester does not open. It now rides the existing `NOTE` framing line, with the map number and its
 actor count read off the row rather than typed in.
+
+## Round `hj2cry` (2026-09-02T20:38+07:00) -- `/speed` stops sending, and the manifest step the plug-in build never had
+
+### `SPEED DEFERRED`: the door is shut from a second, independent side
+
+`COO-DECISION 20260902_1847` (`pf_bridge/notes_to_chief/20260902_1847_COO-DECISION-lane-gm-stop-
+sending-speed-as-an-attr-frame-now.md`), after `GT-193` locked the owner's client out of an attended
+round: **`/speed` may not put `LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL` on the wire until LANE-DB lands
+the `speed_walk` login read on `main`.** The route refuses and prints one pure-ASCII line whose
+first two words are `SPEED DEFERRED`. **The DB write continues as before** -- the decision is
+explicit that only the outbound frame stops.
+
+`speed_wire.SPEED_LOGIN_READ_LANDED` / `send_deferred()` is that gate, and it is deliberately NOT
+the shape hold widened. The two answer different questions and neither implies the other:
+
+| gate | question | owner |
+|---|---|---|
+| `SHAPES_CLEARED_BY_A_REAL_CLIENT` | has a real client been measured accepting **this shape**? | LANE-GM (an attended round or an RE result) |
+| `SPEED_LOGIN_READ_LANDED` | does the number the client would paint **survive the next login**? | LANE-DB (`COO-DECISION 20260902_1846`) |
+
+Both must open for a byte to leave, they are owned by different lanes, and each is pinned open and
+shut by a test in both directions. Whichever lane moves first cannot cost an attended round alone.
+
+**It is not auto-detected**, and that is the decision this round most wants read: a heuristic that
+guesses "LANE-DB's login read looks landed" and guesses wrong reopens the exact door that locked a
+real client. `COO 1847` forbids guessing in the same letter ("do not guess which field killed the
+client and then fix your guess"), so it is a literal a round edits with its evidence named.
+
+### What moved, and the reasoning that was struck to move it
+
+~~"the shape hold fires **before** the DB write, so a held frame never leaves a moved row behind
+it"~~ -- **struck**, one round after it was written, by `COO 1847`'s third item. Both gates now
+stand **below** the write. The screen-disagrees-with-the-row state that paragraph feared is now
+accepted deliberately: `speed_walk` has no login read either way, so the row is what a later
+login-read can honour, and the frame is what killed a client. It also keeps `GT-193` step 6 (diff
+the row) gradeable at all.
+
+The shape check is now measured off `stored` -- the store's own read-back, the very number the frame
+beneath it would carry -- rather than off the typed value, so it no longer leans on the
+"the signature cannot depend on the value" pin to be legitimate. That pin is kept anyway, because it
+is what makes the signature a stable **key** for the clearance set.
+
+### The one thing this lane decided rather than was told
+
+`COO 1847` says "refuse and print", and its test requirement is "pin that **no bytes** go out on
+this route". `COO-DECISION 0345` had ordered every `/speed` refusal to reach the screen through the
+`SPEED DENIED` LocalTalk notice -- **and a notice is bytes**. The deferral path returns no action at
+all, notice included, tagged `[ASSUMPTION OF LANE-GM, AWAITING COO]` in the source and asked back in
+`pf_bridge/notes_to_chief/20260902_2038_LANE-GM-ASK-COO-speed-deferral-drops-the-on-screen-
+notice.md`. The narrower reading is the one that cannot cost an attended round if it is wrong: the
+GM loses one on-screen sentence, and the console still says `SPEED DEFERRED`.
+
+The AST guards that forbid a silent refusal were **narrowed, not loosened**: a `_Verdict` built
+outside `_speed_denied` is allowed to be exactly two things, and the action-less one must carry
+`OUTCOME_SPEED_DEFERRED` **and** a `line_printed=` argument -- silent on the screen is only
+acceptable while it is loud on the console. A third still turns red.
+
+### `mt.exe`: every DLL this repo's build script produced was unloadable
+
+`COO-DECISION 20260902_1948` item 2, from ka1-A's measurement in attended R304: `patches/gm_plugin/
+build_vs2008.bat` never called `mt.exe`, so its DLL had no embedded `RT_MANIFEST` while importing
+`MSVCR90.dll`. Windows answers `LoadLibraryW` with **14001** for that combination and nothing in the
+plug-in runs -- button visible, click silent, **indistinguishable from the bug the plug-in exists to
+fix**. The `GT-207` PASS was on a build a human patched by hand.
+
+New `patches/gm_plugin/find_mt.bat` searches PATH, `%WindowsSdkDir%`, both `Microsoft SDKs\Windows`
+trees and `%VCINSTALLDIR%bin`, and **fails loudly naming every place it looked** -- never quietly,
+because a quiet skip ships the unloadable DLL. `build_vs2008.bat` embeds before every check (the
+checks and the SHA256 must describe the image that gets installed), adds `check 0/4` that reads
+`RT_MANIFEST #2` back **out of the built DLL** (`mt.exe` exiting 0 is not the claim that matters),
+and deletes a stale `GameMaster.dll.manifest` first so an old one cannot be embedded into a new DLL
+against the wrong CRT assembly. `install.bat` refuses to copy a DLL with no embedded manifest.
+
+**NONCLAIM, and it is the important line of this section: none of those three scripts has ever been
+run.** This clone has no cmd, no VC9, no `mt.exe` and no Windows. What is claimed is "the step
+ka1-A measured as missing is now in the script", not "the build is green". `P-3` therefore does NOT
+move to "waiting for Panya to tick": `COO 1948` sets that bar at *the script in the repo producing a
+loadable file by itself*, and only the owner's machine can show that.
