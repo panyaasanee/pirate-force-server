@@ -75,6 +75,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed_attrs  # noqa: E402,E501
+from pirateforce_foundation import store as store_module  # noqa: E402
 from pirateforce_foundation.store import Position, SQLiteStore  # noqa: E402
 
 import pf_birth_state as birth_state  # noqa: E402
@@ -597,6 +598,306 @@ class BeginImmediateHoldsTheHealLockTests(unittest.TestCase):
                 "SELECT hp_current FROM characters WHERE id=?",
                 (self.character.id,)).fetchone()[0]
         self.assertEqual(stored, self.THREADS * self.HEALS)
+
+
+class _RefusingConnection:
+    """The smallest thing `_begin_immediate_under_contention` can be run on.
+
+    It counts `BEGIN IMMEDIATE` attempts and can refuse a chosen number of
+    them with a chosen error -- which is how the retry rule is measured
+    without asking a real SQLite connection to produce an error on demand.
+    """
+
+    def __init__(self, error, refusals=None, pragma_error=None):
+        self.error = error
+        self.refusals = refusals
+        self.pragma_error = pragma_error
+        self.begins = 0
+        self.pragmas = []
+
+    def execute(self, sql, *args, **kwargs):
+        if sql.startswith("PRAGMA"):
+            self.pragmas.append(sql)
+            if self.pragma_error is not None:
+                raise self.pragma_error
+            return self
+        if sql.startswith("BEGIN IMMEDIATE"):
+            self.begins += 1
+            if self.error is not None and (
+                    self.refusals is None or self.begins <= self.refusals):
+                raise self.error
+            return self
+        raise AssertionError("unexpected statement: %r" % (sql,))
+
+
+class _ContendedHealWorkspace(unittest.TestCase):
+    """One character on a real file database, plus a way to hold its write
+    lock from another connection for a measured length of time."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        account_id = self.store.ensure_account("heal-contention")
+        sid = self.store.open_session(account_id)
+        self.character = self.store.create_character(
+            account_id, "Contended", "contended", "fingerprint-contended",
+            _build_wire, Position(1, 0, 0.0, 0.0, 0.0, heading=0.0),
+        )
+        self.store.select_character(sid, self.character.selector)
+        self.store.write_typed_attributes(self.character.id, {
+            "level": 1, "hp_current": 10, "hp_max": 100,
+        })
+
+    def _hp(self):
+        with raw(self.path) as db:
+            return db.execute(
+                "SELECT hp_current FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()[0]
+
+    @contextlib.contextmanager
+    def _write_lock_held_for(self, seconds):
+        """Another connection holds the database's write lock for `seconds`.
+
+        A real `BEGIN IMMEDIATE` on a second connection, exactly what a
+        concurrent heal does -- not a mock, because the thing under test is
+        SQLite's own busy handler.
+        """
+        released = threading.Event()
+        holding = threading.Event()
+
+        def hold():
+            db = sqlite3.connect(str(self.path))
+            try:
+                db.execute("PRAGMA busy_timeout=5000")
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    "UPDATE characters SET updated_at=updated_at WHERE id=?",
+                    (self.character.id,))
+                holding.set()
+                released.wait(seconds)
+                db.rollback()
+            finally:
+                db.close()
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        self.assertTrue(holding.wait(10), "the competitor never took the lock")
+        try:
+            yield
+        finally:
+            released.set()
+            thread.join(20)
+            self.assertFalse(thread.is_alive())
+
+    @contextlib.contextmanager
+    def _counted_sleeps(self):
+        """Count the retries, by counting the waits between them.
+
+        `store.time` is replaced with a shim rather than patching the real
+        `time.sleep`, so nothing else running in this process is affected.
+        """
+        import time as real_time
+
+        class _Clock:
+            def __init__(self):
+                self.sleeps = 0
+
+            def monotonic(self):
+                return real_time.monotonic()
+
+            def sleep(self, seconds):
+                self.sleeps += 1
+                real_time.sleep(seconds)
+
+        clock = _Clock()
+        with mock.patch.object(store_module, "time", clock):
+            yield clock
+
+
+class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
+    """`COO-DECISION 20260902_1646`, and the four repairs it forbids.
+
+    THE DEFECT IT REPAIRS IS NOT IN THE LOCK.  `BeginImmediateHoldsTheHealLock
+    Tests` above proves the lock is right and still fails if it is removed.
+    What was wrong is that the healing path could LOSE ON TIME: LANE-B
+    measured (`pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`) a
+    thread waiting 5,054ms against `PRAGMA busy_timeout=5000` at 8 threads x
+    60 heals with a ~40ms transaction, and the resulting
+    `OperationalError('database is locked')` closed `server#582`, a pull
+    request from another lane whose diff touched neither this file nor
+    `store.py`.  SQLite's busy handler makes no fairness guarantee, so the
+    5-second ceiling is a bet on machine speed, not a property.
+
+    WHAT MAY NOT BE DONE ABOUT IT, from that letter, so a later reader does
+    not undo the repair by "simplifying" it: `BEGIN IMMEDIATE` may not be
+    weakened or removed, `THREADS`/`HEALS` may not be lowered, the test may
+    never be skipped, xfailed or labelled flaky, and no green counts without a
+    test proving no heal is lost and none is counted twice.  Those four are
+    what these tests exist to keep.
+    """
+
+    def test_a_heal_survives_a_competitor_that_outlasts_the_busy_timeout(self):
+        """The repair itself, measured on the RETRY rather than on the bigger
+        timeout: the per-attempt ceiling is patched down to 20ms, far below
+        the 300ms the competitor holds the lock, so the only thing that can
+        make this heal land is the bounded retry."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 20):
+            with self._counted_sleeps() as clock:
+                with self._write_lock_held_for(0.3):
+                    outcome = self.store.apply_hp_heal(self.character.id, 5)
+        self.assertGreater(clock.sleeps, 0,
+                           "the heal never had to retry; this test measured "
+                           "nothing about contention")
+        self.assertEqual(outcome.hp_before, before)
+        self.assertEqual(outcome.hp_after, before + 5)
+        # ONCE, not once per attempt.  The retry is on `BEGIN IMMEDIATE`, so
+        # a retried call must land exactly one heal.
+        self.assertEqual(self._hp(), before + 5)
+
+    def test_many_retries_still_apply_the_heal_exactly_once(self):
+        """The write-once property under a LOT of retries, which is the half
+        `COO-DECISION 20260902_1646` point 4 will not accept a green without.
+        The competitor is held long enough to force many attempts."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 5):
+            with mock.patch.object(
+                    store_module, "HEAL_LOCK_RETRY_BACKOFF_S", 0.001):
+                with self._counted_sleeps() as clock:
+                    with self._write_lock_held_for(0.5):
+                        self.store.apply_hp_heal(self.character.id, 7)
+        self.assertGreater(clock.sleeps, 2, clock.sleeps)
+        self.assertEqual(self._hp(), before + 7)
+
+    def test_when_the_budget_is_spent_it_says_so_and_writes_nothing(self):
+        """The control that makes the test above mean something, and the
+        error LANE-B asked for: how long it waited, instead of a bare
+        `database is locked`."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 5):
+            with mock.patch.object(store_module, "HEAL_LOCK_TOTAL_WAIT_S", 0.0):
+                with self._write_lock_held_for(0.4):
+                    with self.assertRaises(
+                            store_module.WriteLockTimeout) as caught:
+                        self.store.apply_hp_heal(self.character.id, 5)
+        message = str(caught.exception)
+        self.assertIn("attempt", message)
+        self.assertIn("ms", message)
+        self.assertIn("busy_timeout", message)
+        self.assertEqual(self._hp(), before, "a refused heal wrote anyway")
+
+    def test_the_timeout_is_an_operational_error_so_no_caller_breaks(self):
+        """A caller that already handles `sqlite3.OperationalError` keeps
+        working: the new type is a subclass, not a replacement."""
+        self.assertTrue(issubclass(store_module.WriteLockTimeout,
+                                   sqlite3.OperationalError))
+
+    def test_only_a_locked_database_is_retried(self):
+        """Every other `OperationalError` propagates on the FIRST attempt.
+
+        Retrying "no such table" would turn a schema defect into a two-minute
+        hang, which is a worse failure than the one being repaired.  Measured
+        on the helper itself with a stub connection, because
+        `sqlite3.Connection.execute` is an immutable type's attribute and
+        cannot be patched -- and because a stub is the only way to produce
+        this error deterministically at exactly this statement.
+        """
+        attempts = _RefusingConnection(sqlite3.OperationalError(
+            "no such table: characters"))
+        with self._counted_sleeps() as clock:
+            with self.assertRaises(sqlite3.OperationalError) as caught:
+                SQLiteStore._begin_immediate_under_contention(attempts)
+        self.assertNotIsInstance(caught.exception, store_module.WriteLockTimeout)
+        self.assertEqual(attempts.begins, 1, "a non-contention error was retried")
+        self.assertEqual(clock.sleeps, 0)
+
+    def test_a_locked_database_is_retried_until_it_lets_go(self):
+        """The other half of the same measurement, on the same stub: a
+        `database is locked` really is retried, and the helper stops the
+        moment the lock is granted."""
+        connection = _RefusingConnection(
+            sqlite3.OperationalError("database is locked"), refusals=3)
+        with mock.patch.object(store_module, "HEAL_LOCK_RETRY_BACKOFF_S", 0.0):
+            with self._counted_sleeps() as clock:
+                SQLiteStore._begin_immediate_under_contention(connection)
+        self.assertEqual(connection.begins, 4)
+        self.assertEqual(clock.sleeps, 3)
+
+    def test_a_pragma_a_connection_refuses_does_not_stop_the_heal(self):
+        """The per-path `busy_timeout` is an improvement, not a requirement.
+
+        A connection that refuses the pragma still gets its attempts -- it
+        just makes them at whatever timeout it already has.  Without this the
+        helper would turn a harmless refusal into a failed heal.
+        """
+        connection = _RefusingConnection(None, pragma_error=sqlite3.Error("no"))
+        SQLiteStore._begin_immediate_under_contention(connection)
+        self.assertEqual(connection.begins, 1)
+
+    def test_eight_threads_lose_no_heal_even_at_a_ceiling_they_all_hit(self):
+        """The original failure, reproduced and then measured green.
+
+        `BeginImmediateHoldsTheHealLockTests` runs the same eight threads at
+        the real ceiling, where on this machine they do not starve -- which is
+        exactly why it passed here and closed a pull request on a Windows
+        runner.  This one makes the machine irrelevant: the per-attempt
+        ceiling is cut to 25ms, far below what eight threads contending on one
+        file need, so EVERY thread hits it repeatedly.  Before the retry that
+        is `1 failed`; with it, no heal is lost and none is counted twice.
+
+        The thread and heal counts are the ones `COO-DECISION 20260902_1646`
+        forbids lowering, and the lock is untouched.
+        """
+        threads_count, heals = 8, 20
+        errors = []
+
+        def worker():
+            for _ in range(heals):
+                try:
+                    self.store.apply_hp_heal(self.character.id, 1)
+                except Exception as exc:  # noqa: BLE001 - reported, not hidden
+                    errors.append(exc)
+
+        # A bar tall enough that the ceiling is never what stops a heal --
+        # otherwise this measures `apply_heal`'s overheal clamp instead of the
+        # lock, and would be green with half the heals lost.
+        self.store.write_typed_attributes(self.character.id, {
+            "level": 1, "hp_current": 0, "hp_max": 100000,
+        })
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 25):
+            threads = [threading.Thread(target=worker)
+                       for _ in range(threads_count)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual([], [repr(e) for e in errors])
+        self.assertEqual(self._hp(), before + threads_count * heals)
+
+    def test_the_retry_helper_still_asks_for_an_immediate_transaction(self):
+        """The forbidden repair, pinned at the source.
+
+        `BEGIN` or `BEGIN DEFERRED` would make every test in this class pass
+        and `BeginImmediateHoldsTheHealLockTests` fail; this says the same
+        thing where a reader of the retry loop can see it, because the retry
+        loop is exactly where someone would be tempted to relax the lock to
+        reduce contention.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation" / "store.py"
+                  ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_begin_immediate_under_contention")
+        statements = ast.dump(function)
+        self.assertIn("BEGIN IMMEDIATE", statements)
+        self.assertNotIn("'BEGIN'", statements)
+        self.assertNotIn("BEGIN DEFERRED", statements)
 
 
 class NothingIsWiredTests(unittest.TestCase):

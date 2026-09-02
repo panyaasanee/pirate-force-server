@@ -1,6 +1,8 @@
+import random
 import sqlite3
 import hashlib
 import math
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +22,59 @@ from .model import Character, Position
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+#: How long ONE `BEGIN IMMEDIATE` in the healing path may block on a database
+#: another connection is writing, before SQLite gives up on that attempt.
+#:
+#: WHY THIS EXISTS AND WHY IT IS NOT `connect`'s 5000.  `COO-DECISION
+#: 20260902_1646`: the eight-thread lock test in
+#: `tests/test_persistence_vitals_heal.py` closed a pull request belonging to
+#: ANOTHER lane -- `server#582`, gate run 33613043185 -- whose diff touched
+#: neither `store.py` nor that test.  LANE-B measured the mechanism on the
+#: same primitives this method uses (WAL, `synchronous=FULL`,
+#: `busy_timeout=5000`, `BEGIN IMMEDIATE`, a fresh connection per call) and
+#: reported it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`:
+#: at 8 threads x 60 heals, a transaction taking ~40ms makes a thread wait
+#: 5,054ms and die with `OperationalError('database is locked')`.  SQLite's
+#: busy handler makes no fairness guarantee, so the ceiling has to grow with
+#: competitors x transaction time, and a Windows runner under load is exactly
+#: where it does not.  The test was losing on TIME, not on logic.
+#:
+#: `SQLiteStore.connect` is NOT touched: it is an existing method and this
+#: lane's charter (`COO-DECISION 20260901_1100`) forbids changing the
+#: behaviour of one, and raising the number for every path in the server to
+#: fix one path would be a change nobody measured.  This pragma is applied to
+#: THIS path's own connection, after `connect` has opened it.
+HEAL_LOCK_BUSY_TIMEOUT_MS = 30000
+
+#: Total wall-clock budget for ACQUIRING the healing lock, across retries.
+#: A bound, not a promise of success: when it is spent the call raises
+#: `WriteLockTimeout` saying how long it waited and how many attempts it made,
+#: instead of a bare `database is locked` that names nothing.
+HEAL_LOCK_TOTAL_WAIT_S = 120.0
+
+#: Backoff between attempts: a random wait in [0, HEAL_LOCK_RETRY_BACKOFF_S *
+#: 2**min(attempt, 5)).  Randomised on purpose -- a fixed sleep re-synchronises
+#: the very threads that just collided, which is the shape that starves one of
+#: them.
+HEAL_LOCK_RETRY_BACKOFF_S = 0.01
+
+#: The message SQLite produces for the contention this retries, and NOTHING
+#: else.  Every other `OperationalError` -- a missing table, a read-only
+#: database, a corrupt file -- is re-raised on the first attempt.
+_LOCKED = "database is locked"
+
+
+class WriteLockTimeout(sqlite3.OperationalError):
+    """A write lock could not be acquired inside the budget, said in full.
+
+    Subclasses `sqlite3.OperationalError` deliberately: a caller that already
+    handles that type keeps working unchanged, and one that wants the detail
+    (how long, how many attempts) can ask for this type by name.  Nothing has
+    been written when it is raised -- it is raised at `BEGIN IMMEDIATE`, so
+    the transaction never opened.
+    """
 
 class SQLiteStore:
     def __init__(self, path: str | Path, migrations: str | Path):
@@ -1276,6 +1331,66 @@ class SQLiteStore:
                     )
         return outcome
 
+    @staticmethod
+    def _begin_immediate_under_contention(db):
+        """`BEGIN IMMEDIATE`, kept waiting instead of allowed to starve.
+
+        WHAT IT IS FOR.  `COO-DECISION 20260902_1646` -- and the measurement
+        behind it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`
+        -- named the defect: the healing lock is correct and the test that
+        proves it was losing on TIME on a loaded runner, taking another lane's
+        pull request down with it.  Four repairs were forbidden by name
+        (weakening or removing `BEGIN IMMEDIATE`, shrinking the test's thread
+        or heal counts, skipping or xfailing it, and any green that comes
+        without a test proving no heal is lost or double-counted).  This is
+        the fifth: tolerate contention.
+
+        WHY RETRYING HERE CANNOT DOUBLE-APPLY A HEAL, which is the only reason
+        a retry is safe at all.  The only statement retried is `BEGIN
+        IMMEDIATE` itself, and only when SQLite refused it with
+        `database is locked`.  A refused `BEGIN IMMEDIATE` has opened no
+        transaction, so the read, the plan and the guarded `UPDATE` above have
+        not run and there is nothing to repeat.  A lock lost or an error
+        raised at any LATER statement is not retried by this method at all --
+        it propagates, and the caller's `connect()` rolls back.  The
+        write-once property therefore rests where it always rested: on
+        `BEGIN IMMEDIATE` plus the `hp_current=?` predicate in the UPDATE.
+
+        Raises `WriteLockTimeout` when the budget is spent, saying how long it
+        waited and how many attempts it made -- the thing a bare
+        `database is locked` never said, and the reason a reader of a red gate
+        could not tell contention from a real defect.
+        """
+        deadline = time.monotonic() + HEAL_LOCK_TOTAL_WAIT_S
+        try:
+            db.execute("PRAGMA busy_timeout=%d" % HEAL_LOCK_BUSY_TIMEOUT_MS)
+        except sqlite3.Error:
+            # A connection that will not accept the pragma still gets its
+            # attempts; it just makes them at whatever timeout it has.
+            pass
+        attempts = 0
+        started = time.monotonic()
+        while True:
+            attempts += 1
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                return attempts
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WriteLockTimeout(
+                        "could not take the write lock for this character's "
+                        "healing after %d attempt(s) over %.0f ms (budget "
+                        "%.0f ms, per-attempt busy_timeout %d ms): %s"
+                        % (attempts, (time.monotonic() - started) * 1000.0,
+                           HEAL_LOCK_TOTAL_WAIT_S * 1000.0,
+                           HEAL_LOCK_BUSY_TIMEOUT_MS, error)
+                    ) from error
+                window = HEAL_LOCK_RETRY_BACKOFF_S * (2 ** min(attempts, 5))
+                time.sleep(min(random.random() * window, remaining))
+
     def _apply_hp_transition(self, character_id: int, plan):
         """The shared transactional body of the two HEALING doors below.
 
@@ -1339,7 +1454,7 @@ class SQLiteStore:
 
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            self._begin_immediate_under_contention(db)
             vitals.verify_schema(db)
             row = db.execute(
                 f"SELECT {','.join(columns)} FROM characters "
