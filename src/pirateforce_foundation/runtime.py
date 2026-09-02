@@ -1303,6 +1303,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # name.
                 self.mob_loot_cell = mob_loot.DropLedgerCell()
                 self.mob_loot_rng = random.Random()
+                # CORE-REQUEST (LANE-B v2, pf_bridge notes_to_chief
+                # 20260902_1052): the ground generation composed at a scene
+                # crossing, HELD until the arrival census has committed --
+                # see ``_gm_warp_resync_selected_scene`` and the flush at the
+                # end of ``_dispatch_with_lanes``.  A tuple of (pc, frame)
+                # pairs, empty when there is nothing owed.
+                self.mob_loot_boundary_frames_pending = ()
                 # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING step 0:
                 # this session's claim against the server-wide
                 # mob_pickup_registry (built once above).  None until
@@ -5012,6 +5019,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 )
                                 drops = ()
                                 break
+                            if (
+                                error.args[0]
+                                == mob_loot.REFUSE_KILL_IN_ANOTHER_SCENE
+                            ):
+                                # ARMED BY THIS ROUND'S BOUNDARY WIRING, and
+                                # handled here for that reason (pf-static-re,
+                                # round g7yvo2): before
+                                # ``_mob_loot_cross_scene_boundary`` existed
+                                # nothing ever DECLARED the cell's scene, so
+                                # this refusal could not be raised and an
+                                # escape here was harmless.  It is not
+                                # harmless now: this call sits in the listener
+                                # thread, whose caller in v141 has no
+                                # ``except``, so an unhandled contract error
+                                # kills the connection over a scene-label
+                                # disagreement.  The kill still counted and
+                                # the mob still died -- only its loot is
+                                # refused, by name, with no drops.  Do NOT
+                                # retry: the disagreement is a state fact, not
+                                # a race, so a second attempt refuses
+                                # identically.
+                                self.events.append(
+                                    "mob_loot_refused_kill_in_another_scene_"
+                                    "no_drops"
+                                )
+                                drops = ()
+                                break
                             raise
                         break
                     else:
@@ -5743,6 +5777,121 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"gm_warp_cross_scene_census_latch_cleared_{target.scene_id}"
             )
+            self._mob_loot_cross_scene_boundary(target.scene_id)
+
+        def _mob_loot_cross_scene_boundary(self, scene_id) -> None:
+            """CORE-REQUEST (LANE-B v2, pf_bridge notes_to_chief
+            20260902_1052): tell the drop cell the session crossed into a
+            scene, and HOLD the generation it composes until the arrival
+            census has committed.
+
+            WHY THIS IS THE ONLY CALLER TODAY, stated so nobody reads a
+            narrower wiring than the letter asked for.  The letter asks for
+            "wherever the session learns its scene changed because of walking
+            or a warp".  Measured this round: three lines in this file change
+            ``selected.position.scene_id`` -- the GM warp (above), the GM
+            login-scene override, and the travel-gate crossing.  The crossing
+            is UNREACHABLE on a flagless boot: ``travel_gate_debug_enabled``
+            defaults False (``make_state_class``), so
+            ``world_travel_gate.lane_reason`` returns
+            ``DEBUG_LANE_DISABLED_REASON`` and ``observe()`` returns None
+            before it can report a departure.  So on a production boot the GM
+            warp is the ONLY way a player changes scene, and this is the only
+            place the boundary exists to be wired.  The day the travel gate
+            ships unflagged, that crossing calls this method too.
+
+            WHY THE FRAMES ARE HELD RATHER THAN SENT HERE, and this is the
+            half LANE-B's letter could not see from its side.  This method
+            runs from ``_gm_warp_note_position_pending``, which ``dispatch``
+            calls AFTER ``_dispatch_with_lanes`` has already returned -- so
+            the arrival census for the scene just entered is not composed in
+            this dispatch at all; it composes one client poll later, when the
+            latch cleared just above is re-armed.  Sending the ground
+            generation now would put it on the wire BEFORE that census.  Held
+            and flushed at the end of the next dispatch instead, it lands
+            AFTER ``census_actions`` in the same batch, which is the order
+            ``runtime.py``'s own return statement already uses for the kill
+            path's ``MOB_LOOT_DROP``.
+
+            NOT CLAIMED, and pf-adversary struck a wider claim of mine to get
+            here: the ground list (derived bit 0x08, object +0x20) and the
+            actor list the census rides (bit 0x02, object +0x1C) are SEPARATE
+            client-side collections with separate codecs and key shapes --
+            ``RE-092`` T0 says in terms that one's answer may not be borrowed
+            for the other.  So this ordering is NOT protection against the
+            census erasing the ground through the actor list; it is the
+            conservative order for the one thing that IS read the same way
+            twice (RE-130 within the ground list) and it costs nothing.
+            Whether the client draws a ground generation delivered at a scene
+            boundary at all is UNMEASURED -- ``mob_loot.enter_scene_frames``
+            labels it an assumption of LANE B, and NONCLAIM 12 (what a
+            re-announcement does to an already-drawn label) is open.
+
+            FAIL-CLOSED, BY NAME, NEVER BY EXCEPTION (pf-adversary D7): the
+            composer can refuse for reasons that have nothing to do with the
+            warp -- an unmined item id in a standing row, a duplicate key, a
+            serializer handle that is not the frozen one -- and this method
+            is called outside every ``try`` in ``dispatch``, whose own caller
+            in v141 has no ``except``.  An escape here would kill the
+            listener thread DURING a warp.  Every refusal is an event and no
+            frames, exactly like ``mob_combat.remote_actors_preserving_the_
+            ground`` does at its own site.
+            """
+            folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+            if folder is None:
+                # An unaddressed scene id is a refusal in
+                # world_scene_folder's own contract, not an absence of data:
+                # ship no boundary generation and say so.
+                self.events.append(
+                    f"mob_loot_boundary_scene_{scene_id}_unaddressed_no_frames"
+                )
+                return
+            try:
+                _prev, _now, _elsewhere, _expired, ground = (
+                    self.mob_loot_cell.enter_scene_frames(legacy, folder)
+                )
+            except Exception as error:      # noqa: BLE001 - see docstring
+                self.events.append(
+                    "mob_loot_boundary_compose_refused_"
+                    f"{type(error).__name__}"
+                )
+                return
+            self.mob_loot_boundary_frames_pending = tuple(ground)
+            self.events.append(
+                f"mob_loot_boundary_entered_{folder}_frames_"
+                f"{len(self.mob_loot_boundary_frames_pending)}"
+            )
+
+        def _mob_loot_boundary_flush(self):
+            """The held boundary generation, once the arrival census is in.
+
+            Returns the action tuples to put LAST in this dispatch's sum, or
+            ``[]``.  ``MOB_LOOT_DROP`` is deliberately the same label the kill
+            path uses: it is the same generation shape on the same list, and
+            a new label would break the four order pins in
+            ``tests/test_mob_combat_dispatch.py`` for no gain.
+
+            THE GATE IS THE CENSUS, not a timer and not the crossing itself.
+            While ``world_census_sent`` is False the arrival generation has
+            not committed, so the frames wait -- one more poll costs nothing
+            and the alternative is publishing the ground of a scene the
+            client has not been given yet.  ``world_census_refused`` releases
+            them too: a census that refused by name is never coming, and
+            holding the ground hostage to it would mean a warp into a scene
+            with a broken census silently loses its ground forever.
+            """
+            if not self.mob_loot_boundary_frames_pending:
+                return []
+            if not (self.world_census_sent or self.world_census_refused):
+                return []
+            frames = self.mob_loot_boundary_frames_pending
+            self.mob_loot_boundary_frames_pending = ()
+            self.events.append(
+                f"mob_loot_boundary_flushed_frames_{len(frames)}"
+            )
+            return [
+                ("MOB_LOOT_DROP", pc, frame, 0.0) for pc, frame in frames
+            ]
 
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
@@ -9135,7 +9284,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # button (subcode 1) by the module's own standing-down rule,
             # which exists so `GT-194`'s evidence cannot move under the
             # owner's feet.
+            # CORE-REQUEST (LANE-B v2): the ground generation held at the last
+            # scene crossing, released now that the arrival census has
+            # committed.  LAST in the sum on purpose -- see
+            # ``_mob_loot_boundary_flush``.  Empty on every dispatch that owes
+            # nothing, which is nearly all of them.
+            boundary_ground_actions = self._mob_loot_boundary_flush()
             return (actions + arena_actions + ground_loot_actions
                     + nameprop_actions + census_actions + mob_combat_actions
-                    + columbus_quest_actions + uia_notice_actions)
+                    + columbus_quest_actions + uia_notice_actions
+                    + boundary_ground_actions)
     return PersistentGameSessionState
