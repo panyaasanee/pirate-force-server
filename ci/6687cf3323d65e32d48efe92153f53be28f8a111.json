@@ -1,1 +1,1 @@
-{"sha":"6687cf3323d65e32d48efe92153f53be28f8a111","conclusion":"failure","event":"push","ref":"refs/heads/claude/lucid-gauss-di7ers","run_id":"33653851251","utc":"2026-09-02T16:29:27Z"}
+{"sha":"6687cf3323d65e32d48efe92153f53be28f8a111","conclusion":"failure","event":"pull_request","ref":"refs/pull/607/merge","run_id":"33654024111","utc":"2026-09-02T16:35:37Z"}
