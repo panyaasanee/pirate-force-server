@@ -821,19 +821,14 @@ class NothingIsWiredTests(unittest.TestCase):
         # in a test is an exercise, not a wiring; nothing in that file is on
         # a send path and nothing there composes a frame.
         "tests/test_persistence_boot_006_to_008.py",
-        # LANE-DB round dgx8e5: the birth-hole pin `COO-DECISION 20260902_1546`
-        # ordered.  It reads `read_character_vitals` and
-        # `vitals_seeding_census` on a character it just created on a FRESH
-        # INSTALL, to say out loud that the newborn holds nothing -- the two
-        # doors are what makes "holds nothing" cost something a reader can
-        # see (three named gaps rather than three zeros, and a census of
-        # 0/0/0) instead of an empty dict.  An exercise of the doors, not a
-        # wiring: nothing in that file is on a send path, it composes no
-        # frame, and it is imported by nothing.  It is also the file that
-        # RETIRES first -- the day chief's birth insertion point lands, the
-        # pin fails once with the instruction to delete it, and this entry
-        # goes with it.
-        "tests/test_persistence_birth_hole_pin.py",
+        # RETIRED 2026-09-02 (chief, R308): the entry that stood here was
+        # `tests/test_persistence_birth_hole_pin.py`, LANE-DB's birth-hole pin
+        # from round dgx8e5.  The plug it was waiting for landed in
+        # `SQLiteStore.create_character` this round, the pin failed once with
+        # its own retirement instruction, and both halves of that instruction
+        # were carried out: the file is deleted and this entry went with it.
+        # LANE-DB wrote the permission for both into the pin's own failure
+        # message and into this comment before either was needed.
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
@@ -1435,7 +1430,11 @@ class NewCharacterVitalsTests(unittest.TestCase):
             # that the call, once there, is really this function and not an
             # inlined literal is graded by
             # `SeedsACohortNotADatabaseTests.
-            #  test_a_birth_seed_must_come_from_new_character_vitals`
+            #  test_the_numbers_on_a_newborn_row_came_from_the_call_itself`
+            # (chief R308 corrected the name: the test this used to cite,
+            # `test_a_birth_seed_must_come_from_new_character_vitals`, does
+            # not exist anywhere in the repository and never did, so the only
+            # pointer to the mechanism guard led nowhere)
             "src/pirateforce_foundation/store.py",
             "src/pirateforce_foundation/persistence_vitals.py",
             "tests/test_persistence_vitals.py",
@@ -1458,6 +1457,18 @@ class NewCharacterVitalsTests(unittest.TestCase):
             # that reason; a scan cannot tell a mention from a call, so the
             # entry is here and the discipline is in the file.
             "tests/test_persistence_boot_006_to_008.py",
+            # chief R308: the branchless pin on the ordered call site itself
+            # (`tests/test_birth_vitals_plug_is_pinned.py`).  It names this
+            # function twice and for opposite reasons, neither of which is a
+            # second source of birth values: once to compare a newborn's row
+            # against what this function adjudicates, and once to PATCH it,
+            # so that the row can be checked against numbers nobody could
+            # type by accident.  It writes no birth number of its own.  It
+            # exists because a `pf-adversary` pass measured that a full
+            # revert of the plug left the whole suite green -- every guard
+            # that looked like it covered the plug branches on "or it is not
+            # in yet", which was correct until the day it landed.
+            "tests/test_birth_vitals_plug_is_pinned.py",
         }
         callers = []
         for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",

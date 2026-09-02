@@ -8549,6 +8549,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             last_target_pos=self.last_target_pos,
                             scene_id=self.foundation.selected.position.scene_id,
                             scene_entry_registry=scene_entry_registry,
+                            # NOT PASSED, AND THE OMISSION IS A DECISION.
+                            # CORE-REQUEST (LANE-A, 20260902_1735) asks for
+                            # `mob_combat_ledger=` here so a responder can
+                            # answer a click with a wounded monster's real
+                            # HP instead of the table's ceiling.  R308 wrote
+                            # that keyword, measured what it does, and took
+                            # it back out; the answer is in
+                            # notes_to_chief/20260902_19xx_CHIEF-TO-LANE-A-*.
+                            #
+                            # WHAT IT DOES TODAY, driven end to end through
+                            # this dispatcher with real frames (kill in
+                            # scene 2, then click): the scene-2 responder's
+                            # dead-row branch refuses the WHOLE click -- it
+                            # loops over all 97 members, and the first
+                            # hostile whose ledger row reads current_hp == 0
+                            # returns a decline for every one of them.  So
+                            # one kill turns every click in the scene, on
+                            # civilians included, into no bytes at all, and
+                            # it survives a warp out and back (the ledger
+                            # rehydrates deaths from mob_death_register at
+                            # runtime.py:4245-4255).  Only a reconnect
+                            # clears it.  A scene whose purpose is killing
+                            # things would stop answering clicks after the
+                            # first kill.
+                            #
+                            # A stale full bar until the next combat frame
+                            # is a worse-looking bug than it is a bug; a
+                            # scene that silently stops answering is
+                            # indistinguishable from a dead server.  So the
+                            # keyword lands the round the dead path answers
+                            # with a body instead of with silence -- which
+                            # needs `mob_death_register` at this same call
+                            # site, and lane A offered that swap in the
+                            # request itself.  This comment is the record so
+                            # the next round does not re-derive it.
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down
