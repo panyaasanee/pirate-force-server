@@ -714,6 +714,159 @@ def apply_damage(hp_current: int, hp_max: int, amount: int) -> DamageOutcome:
     )
 
 
+@dataclass(frozen=True)
+class HealOutcome:
+    """What one application of healing did to a character's HP.
+
+    Deliberately NOT a ``DamageOutcome`` with a negative ``applied``.  The
+    two are read by different callers asking different questions, and a
+    single struct whose sign carries the meaning is how a heal ends up in a
+    damage log.  ``requested`` is the amount this heal was FOR and
+    ``applied`` is what the bar could actually absorb; on the
+    :func:`heal_to_full` path ``requested`` is derived from the row rather
+    than asked for by anybody, so a log line reading it as a caller's
+    request would be reading it wrong; they differ when the heal would
+    overflow ``hp_max``, and both are reported because throwing the
+    difference away is how an overheal silently becomes a full heal.
+    """
+
+    hp_before: int
+    hp_after: int
+    hp_max: int
+    requested: int
+    applied: int
+    revived: bool
+    was_already_full: bool
+
+
+def apply_heal(hp_current: int, hp_max: int, amount: int) -> HealOutcome:
+    """Add ``amount`` to ``hp_current``, with a ceiling of ``hp_max``.
+
+    THE MIRROR ``apply_damage`` NAMED AND DID NOT HAVE.  That function's own
+    docstring refuses a negative amount with the words "healing is not damage
+    with a minus sign and does not go through this function" -- and until
+    this one landed, the sentence pointed at nothing.  A repository whose
+    STORED HP can go down and not up has exactly one way to bring a
+    character back on disk: an ``UPDATE`` written by hand at the call site,
+    past every rule in this module.  This is that door, with the same guards
+    on it.
+
+    THE SCOPE OF THAT CLAIM IS THE DISK, AND THE NARROWING IS MEASURED, not
+    modesty.  A ``pf-adversary`` pass read an earlier draft's "the server had
+    no way to put HP back" against ``docs/FUNCTIONAL_COVERAGE.json``
+    (``hp_death_and_respawn``, ``runtime_pass``) and refuted it: the server
+    has SENT an ``HP_RESTORED`` frame carrying ``hp_current = 100`` on a real
+    attended screen (``scenarios/hp_death_hypothesis_death_sweep.json:21``,
+    ``tools/verify_hp_death_encoder.py:580``), and that path writes no row at
+    all.  A character has stood back up in this game already.  What did not
+    exist is a way for that to SURVIVE a logout, which is this lane's half.
+
+    Pure arithmetic over three validated integers -- no database, no clock,
+    no randomness -- so it can be tested exhaustively at the edges.
+
+    Refused, each because the alternative is a silent wrong number:
+
+    * a ``bool`` amount (``True`` is ``1`` in python and would land as a heal
+      for one point with no complaint);
+    * a negative amount, which would be DAMAGE wearing healing's name: the
+      clamp here is a CEILING and has no floor under it, so ``min(-10, 50)``
+      is ``-10`` and the arithmetic would hand back a negative
+      ``hp_after``.  It would not reach the column -- ``store.py``'s
+      ``typed_attrs.validate`` refuses a negative for a ``u32`` -- but it
+      would be refused there as a type error at a call site instead of as a
+      wrong REQUEST here, and every caller holding the outcome would have
+      read a negative HP first;
+    * an amount wider than the ``u32`` the HP columns hold, for the same
+      reason ``apply_damage`` refuses one: ``applied`` is clamped, but
+      ``requested`` is handed back to a caller as a quantity of healing, and
+      a number wider than the field is not one;
+    * an inconsistent input pair (``hp_current`` above ``hp_max``, or a zero
+      maximum), so this function cannot be used to launder a state the read
+      path would have refused.
+
+    ``amount = 0`` is allowed: a resisted or fully wasted heal is a real
+    event, and it produces an outcome with ``applied = 0`` rather than an
+    error.  Healing a character who is at zero is likewise ALLOWED and
+    REPORTED (``revived``) rather than refused -- whether a corpse may be
+    healed, and whether respawn goes through healing at all, is LANE-B's
+    rule, not this file's, exactly as ``apply_damage`` leaves hitting one to
+    LANE-B.  What this file refuses to do is decide that question by
+    accident, in either direction.
+    """
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        raise VitalsError(
+            f"heal amount must be an int, got {type(amount).__name__}"
+        )
+    if amount < 0:
+        raise VitalsError(
+            f"heal amount {amount} is negative; damage is not healing with "
+            "a minus sign and does not go through this function"
+        )
+    if amount > typed_attrs.KIND_STORAGE["u32"][2]:
+        raise VitalsError(
+            f"heal amount {amount} is wider than the u32 the HP columns "
+            "hold; it is not a quantity of healing this wire can describe"
+        )
+    before = _as_stored_int(HP_CURRENT_COLUMN, hp_current)
+    maximum = _as_stored_int(HP_MAX_COLUMN, hp_max)
+    gaps = _consistency_gaps({
+        HP_CURRENT_COLUMN: before, HP_MAX_COLUMN: maximum,
+    })
+    if gaps:
+        raise VitalsError(
+            "cannot heal an inconsistent state: "
+            + "; ".join(f"{g.column} [{g.reason}] {g.detail}" for g in gaps)
+        )
+    applied = min(amount, maximum - before)
+    after = before + applied
+    return HealOutcome(
+        hp_before=before,
+        hp_after=after,
+        hp_max=maximum,
+        requested=amount,
+        applied=applied,
+        revived=after > 0 and before == 0,
+        was_already_full=before == maximum,
+    )
+
+
+def heal_to_full(hp_current: int, hp_max: int) -> HealOutcome:
+    """``apply_heal`` for the whole of the missing bar -- the respawn shape.
+
+    The amount is DERIVED from the pair rather than passed in, because the
+    caller that wants "full" should not have to write ``hp_max -
+    hp_current`` itself: that subtraction, written at a call site over a
+    state nobody validated, is how a negative amount is born.
+
+    IT RUNS ITS OWN COPY OF THE GUARDS, it does not "go through
+    ``apply_heal``'s".  An earlier draft of this line said the latter and a
+    ``pf-adversary`` pass showed the difference is the whole point: the
+    subtraction happens HERE, so the pair must be converted and checked HERE,
+    before it.  Delete the two calls below and ``heal_to_full("50", 100)``
+    stops raising ``VitalsError`` and starts raising ``TypeError`` from the
+    subtraction -- an exception type no caller of this module is written to
+    catch, since the module's whole contract is ``VitalsError``
+    (``_as_stored_int``).  ``heal_to_full(120, 100)`` likewise stops naming
+    the column that is wrong and starts complaining about a negative amount
+    nobody passed in.  Both are pinned by name in
+    ``tests/test_persistence_vitals_heal.py``.
+
+    It does NOT claim respawn is a full heal -- that is a game rule this lane
+    does not own.  It is the arithmetic for one, named once.
+    """
+    before = _as_stored_int(HP_CURRENT_COLUMN, hp_current)
+    maximum = _as_stored_int(HP_MAX_COLUMN, hp_max)
+    gaps = _consistency_gaps({
+        HP_CURRENT_COLUMN: before, HP_MAX_COLUMN: maximum,
+    })
+    if gaps:
+        raise VitalsError(
+            "cannot heal an inconsistent state: "
+            + "; ".join(f"{g.column} [{g.reason}] {g.detail}" for g in gaps)
+        )
+    return apply_heal(before, maximum, maximum - before)
+
+
 def census_sql() -> str:
     """The one query that answers "is anything seeded", against the DATABASE.
 
