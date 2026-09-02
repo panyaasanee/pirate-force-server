@@ -25,6 +25,9 @@ lying to a tester.
 """
 
 import ast
+import contextlib
+import dataclasses
+import io
 import pathlib
 import sys
 import unittest
@@ -41,6 +44,9 @@ from pirateforce_foundation import (  # noqa: E402
     world_scene_travel,
 )
 from pirateforce_foundation.gm import warp_chain_preflight as preflight  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_a_scene_census,
+)
 from pirateforce_foundation.gm.warp_executor import (  # noqa: E402
     warp_no_coords_live_target,
 )
@@ -80,17 +86,29 @@ class TheChainIsTheOwnersOwnListTests(unittest.TestCase):
         )
 
     def test_the_gate_this_module_asks_is_the_production_gate(self):
-        """Not a list in the module.  The day LANE-A opens a scene, this
-        covers it without an edit -- and the day one closes, no row here
-        describes a map nobody can reach."""
-        self.assertEqual(
-            preflight.reachable_scene_ids(),
-            tuple(
-                scene_id
-                for scene_id in preflight.scene_catalog.SCENE_ID_TO_GM_NAME
-                if warp_no_coords_live_target(scene_id) is not None
-            ),
-        )
+        """Not a list in the module -- proved by MOVING the gate.
+
+        The first version of this test re-typed the function's own
+        comprehension and compared the result to itself; pf-adversary (D7)
+        replaced the whole function body with a hardcoded thirteen-id tuple
+        and it stayed green, along with every other test here.  A test that
+        cannot tell "asks the gate" from "does not ask the gate" is not
+        testing the sentence its name makes.
+
+        So: shut one scene AT THE GATE and require the answer to follow.
+        """
+        real = preflight.warp_no_coords_live_target
+        closed = []
+        try:
+            preflight.warp_no_coords_live_target = (
+                lambda scene_id: None if scene_id == 130 else real(scene_id)
+            )
+            closed = list(preflight.reachable_scene_ids())
+        finally:
+            preflight.warp_no_coords_live_target = real
+        self.assertNotIn(130, closed)
+        self.assertIn(130, preflight.reachable_scene_ids())
+        self.assertEqual(len(closed) + 1, len(preflight.reachable_scene_ids()))
 
     def test_scene_one_is_last_because_a_session_boots_there(self):
         rows = preflight.preflight_chain(legacy=_legacy())
@@ -148,29 +166,62 @@ class TheSceneTwoTrapTests(unittest.TestCase):
         way ``runtime.py`` does.  ``runtime.py`` is chief's file; this lane
         cannot stop it changing, but it can stop the change being silent.
         """
-        tree = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
+        source_text = RUNTIME_PATH.read_text(encoding="utf-8")
+        # NAME COUNT FIRST, before any AST shape.  pf-adversary (D2b) added a
+        # SECOND call site through a local alias -- `_b2 = ...
+        # build_bg0002_population` then `_b2(legacy, anchor, 7, ...)` -- and
+        # the first version of this guard, which counted only
+        # `ast.Attribute` calls, stayed green while the wire shipped 7.
+        self.assertEqual(
+            source_text.count("build_bg0002_population"), 1,
+            "runtime.py names build_bg0002_population more than once; an "
+            "alias or a second call site can move scene 2's roster without "
+            "this tool noticing",
+        )
+        tree = ast.parse(source_text)
         calls = [
             node
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "build_bg0002_population"
+            and (
+                (isinstance(node.func, ast.Attribute)
+                 and node.func.attr == "build_bg0002_population")
+                or (isinstance(node.func, ast.Name)
+                    and node.func.id == "build_bg0002_population")
+            )
         ]
         self.assertEqual(
             len(calls), 1,
             "runtime.py no longer has exactly one bg0002 build call; this "
             "tool's scene-2 prediction is derived from that one call site",
         )
-        keywords = {kw.arg for kw in calls[0].keywords}
-        self.assertIn("scene_id", keywords)
-        self.assertIn("count_source", keywords)
-        source = ast.unparse(calls[0])
-        self.assertIn("COUNT_SOURCE_FULL_ROSTER", source, source)
+        call = calls[0]
+        # THE SUBSTANTIVE CHECK, and the one the first version of this test
+        # did not make.  `actor_count` is the THIRD POSITIONAL parameter of
+        # `build_bg0002_population`, so `legacy, anchor, 12, scene_id=...`
+        # changes the roster from 97 to 12 while every keyword this test used
+        # to read stays exactly as it was -- measured by pf-adversary (D2),
+        # green on both test files, wire shipping 12.
+        self.assertEqual(
+            len(call.args), 2,
+            "the runtime passes a third positional argument to the bg0002 "
+            "arm; that position is actor_count, and this tool predicts the "
+            "DEFAULT, so its scene-2 number is now wrong: "
+            + ast.unparse(call),
+        )
+        keywords = {kw.arg for kw in call.keywords}
         self.assertNotIn(
             "actor_count", keywords,
             "the runtime now passes an explicit actor_count; this tool "
             "predicts the default and would now be wrong",
         )
+        self.assertIn("scene_id", keywords)
+        # `count_source` is a LABEL the arm records, not a count selector --
+        # `build_bg0002_population` computes the count from `actor_count`
+        # regardless of it.  Pinned because a change here still means someone
+        # rethought this call, but named as the weaker check it is so a later
+        # reader does not mistake it for the one that protects the 97.
+        self.assertIn("count_source", keywords)
 
 
 class TheOneMapThatIsEmptyOnPurposeTests(unittest.TestCase):
@@ -190,14 +241,21 @@ class TheOneMapThatIsEmptyOnPurposeTests(unittest.TestCase):
 
     def test_the_summary_separates_by_design_from_unexplained(self):
         lines = preflight.render(preflight.preflight_chain(legacy=_legacy()))
-        summary = [line for line in lines if " chain=" in line]
+        summary = [line for line in lines if " chain_scenes=" in line]
         self.assertEqual(len(summary), 1, lines)
-        self.assertIn("empty_by_design=1", summary[0])
-        self.assertIn("empty_unexplained=none", summary[0])
+        self.assertIn("empty_until_you_step=[1]", summary[0])
+        self.assertIn("shut_on_purpose=[]", summary[0])
+        self.assertIn("empty_unexplained=[]", summary[0])
 
 
 class TheCountsComeOffTheSeamTests(unittest.TestCase):
     def test_every_lane_composed_row_matches_an_independent_seam_read(self):
+        # STILL WORTH ASSERTING, but it is no longer this file's proof of
+        # correctness: pf-adversary (D1) measured that the seam and the
+        # composer disagree exactly when a scene is shut, and the tool now
+        # takes the composer's route.  Agreement here means every door is
+        # open today, which is a fact worth pinning, not an independence
+        # claim.
         rows = preflight.preflight_chain(legacy=_legacy())
         composed = [r for r in rows if r.source == preflight.SOURCE_LANE_COMPOSER]
         self.assertGreaterEqual(
@@ -241,32 +299,22 @@ class ItFailsClosedAndNamedTests(unittest.TestCase):
                 )
                 self.assertFalse(row.on_arrival)
 
-    def test_a_non_census_handoff_is_absence_not_a_count_of_zero(self):
-        """``_lane_count``'s own guard, driven with a REAL non-census scene.
+    def test_a_composer_that_raises_is_not_reported_as_a_decline(self):
+        """The runtime does not treat these as one event and neither may this.
 
-        No reachable scene reaches this branch through ``preflight_for``
-        today -- scene 2 is special-cased above it and every other scene
-        answers ``census`` -- so it is prospective, and a prospective branch
-        with no test that kills it is not a branch.  Measured here against
-        the one scene whose seam really does answer ``clear``: the guard must
-        say "no number", never ``0``.  ``0`` would render as an empty map and
-        a tester would grade a scene nobody had measured as a FAIL.
+        A DECLINE latches ``world_census_sent`` for that map alone; a RAISE
+        latches ``world_census_refused``, which silences EVERY REMAINING MAP
+        of the login until the next hop clears it.  An earlier version
+        swallowed the exception type and printed the harmless word for both
+        (pf-adversary D5).
         """
-        scene_id = world_population_bg0002.SCENE2_N_ID
-        anchor = world_scene_travel.spawn_position(
-            world_scene_travel.destination(scene_id)
-        )
-        self.assertEqual(
-            world_population_handoff.handoff_for_arrival(
-                _legacy(), scene_id, anchor,
-            ).kind,
-            world_population_handoff.KIND_CLEAR,
-        )
-        self.assertIsNone(
-            preflight._lane_count(scene_id, anchor, legacy=_legacy()),
-            "a clear handoff produced a number; every caller of this helper "
-            "turns a number into 'the tester will see actors here'",
-        )
+        row = preflight.preflight_for(3, legacy=_Raises())
+        self.assertEqual(row.source, preflight.SOURCE_NOTHING)
+        self.assertIsNone(row.actor_count)
+        self.assertIn("raised", row.note)
+        self.assertIn("RuntimeError", row.note)
+        self.assertIn("world_census_refused", row.note)
+        self.assertNotEqual(row.source, preflight.SOURCE_SHUT_TO_PLAYERS)
 
     def test_no_row_ever_reports_zero_in_place_of_unknown(self):
         for legacy in (_legacy(), _Raises()):
@@ -303,21 +351,43 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
         """
         rows = preflight.preflight_chain(legacy=_legacy())
         lines = preflight.render(row for row in rows)
-        self.assertEqual(len(lines), len(rows) + 2)
-        summary = [line for line in lines if " chain=" in line]
-        self.assertEqual(summary[0].split("chain=")[1].split()[0], str(len(rows)))
+        self.assertEqual(len(lines), len(rows) + 3)
+        summary = [line for line in lines if " chain_scenes=" in line]
+        self.assertEqual(
+            summary[0].split("chain_scenes=")[1].split()[0], str(len(rows))
+        )
         self.assertEqual(lines, preflight.render(rows))
 
     def test_an_integer_scene_id_never_raises_however_odd(self):
-        for scene_id in (True, False, -1, 10 ** 9, 0):
+        for scene_id in (-1, 10 ** 9, 0):
             with self.subTest(scene=scene_id):
                 row = preflight.preflight_for(scene_id, legacy=_legacy())
                 self.assertEqual(row.source, preflight.SOURCE_NOTHING)
                 self.assertIsNone(row.actor_count)
 
-    def test_one_line_per_scene_plus_summary_plus_note(self):
+    def test_a_bool_is_refused_by_type_and_never_answered_as_port_royal(self):
+        """``True`` used to reach the registry and come back as Port Royal
+        with "the registry does not pin a spawn" -- the one scene whose spawn
+        is most certainly pinned, rendered as an unexplained empty map, while
+        ``preflight_for(1)`` said 108 (pf-adversary D6).  Two entry points,
+        opposite verdicts, one scene."""
+        for scene_id in (True, False):
+            with self.subTest(scene=scene_id):
+                row = preflight.preflight_for(scene_id, legacy=_legacy())
+                self.assertEqual(row.source, preflight.SOURCE_NOTHING)
+                self.assertIsNone(row.actor_count)
+                self.assertIn("must be an int", row.note)
+                self.assertNotEqual(row.gm_name, "Port Royal")
+        for scene_id in ("1", 1.0, b"1"):
+            with self.subTest(scene=scene_id):
+                self.assertIn(
+                    "must be an int",
+                    preflight.preflight_for(scene_id, legacy=_legacy()).note,
+                )
+
+    def test_a_precondition_line_plus_one_per_scene_plus_summary_plus_note(self):
         rows = preflight.preflight_chain(legacy=_legacy())
-        self.assertEqual(len(preflight.render(rows)), len(rows) + 2)
+        self.assertEqual(len(preflight.render(rows)), len(rows) + 3)
 
 
 class ItGrantsNobodyAnythingTests(unittest.TestCase):
@@ -339,6 +409,205 @@ class ItGrantsNobodyAnythingTests(unittest.TestCase):
             self.assertNotIn(forbidden, imported, forbidden)
         for forbidden in ("def send", "sendall", "production_allowed = True"):
             self.assertNotIn(forbidden, source, forbidden)
+
+
+
+class TheThirdGateTests(unittest.TestCase):
+    """pf-adversary D1: the gate the first version of this module skipped.
+
+    The runtime asks THREE things before it ships a lane census -- a
+    registered composer, ``module_production_allowed``, and the composer's
+    own admission check ``lane_a_scene_census.scene_is_open_to_players``,
+    which reads that scene's ``login_entry_allowed``.  The first version
+    asked the first two and reached its number through
+    ``handoff_for_arrival``, a route that never sees the third.  With scene
+    10 shut it printed ``94 actors`` while the real dispatcher shipped
+    nothing: a tester sent into a map closed ON PURPOSE, seeing the empty
+    screen the design intends, and told by this tool's own NOTE line to file
+    it as a real finding.
+
+    That is not hypothetical.  Scenes 17 and 126 are ``login_entry_allowed:
+    false`` in the shipped registry right now, and
+    ``lane_a_scene_census.py``'s own docstring records scenes 4 and 10
+    sitting shut for rounds.
+    """
+
+    @staticmethod
+    def _registry_with_scene_shut(scene_id):
+        registry = world_scene_travel.load_scene_registry()
+        destinations = tuple(
+            dataclasses.replace(value, login_entry_allowed=False)
+            if getattr(value, "n_id", None) == scene_id else value
+            for value in registry.destinations
+        )
+        return dataclasses.replace(registry, destinations=destinations)
+
+    def test_a_scene_shut_to_players_is_its_own_answer_not_a_count(self):
+        shut = self._registry_with_scene_shut(10)
+        self.assertFalse(lane_a_scene_census.scene_is_open_to_players(10, shut))
+        row = preflight.preflight_for(
+            10, legacy=_legacy(), scene_entry_registry=shut,
+        )
+        self.assertEqual(row.source, preflight.SOURCE_SHUT_TO_PLAYERS)
+        self.assertIsNone(row.actor_count)
+        self.assertFalse(row.on_arrival)
+        self.assertIn("SHUT ON PURPOSE", row.note)
+
+    def test_the_seam_would_still_have_answered_with_a_roster(self):
+        """The premise of D1, measured: the two routes really do disagree,
+        and only for a shut scene.  If this ever stops being true the special
+        handling is dead weight and should be deleted, not left asserting."""
+        shut = self._registry_with_scene_shut(10)
+        anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(10)
+        )
+        handoff = world_population_handoff.handoff_for_arrival(
+            _legacy(), 10, anchor,
+        )
+        self.assertEqual(handoff.kind, world_population_handoff.KIND_CENSUS)
+        self.assertGreater(int(handoff.actor_count), 0)
+        self.assertIsNone(
+            preflight.preflight_for(
+                10, legacy=_legacy(), scene_entry_registry=shut,
+            ).actor_count,
+            "the tool followed the seam instead of the composer",
+        )
+
+    def test_a_shut_scene_is_not_swept_into_empty_unexplained(self):
+        shut = self._registry_with_scene_shut(10)
+        lines = preflight.render(
+            preflight.preflight_chain(legacy=_legacy(), scene_entry_registry=shut)
+        )
+        summary = [line for line in lines if " chain_scenes=" in line][0]
+        self.assertIn("shut_on_purpose=[10]", summary)
+        self.assertIn("empty_unexplained=[]", summary)
+        scene_line = [line for line in lines if " scene=10 " in line][0]
+        self.assertIn("SHUT_ON_PURPOSE", scene_line)
+
+    def test_the_count_is_read_off_the_composed_bytes_not_off_the_label(self):
+        """A label is an integer a lane handed over; the runtime's own
+        comment at that hand-off calls it untrusted."""
+        composer = lane_hooks.scene_census_composer(3)
+        anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(3)
+        )
+        result = composer.compose(
+            legacy=_legacy(), anchor=anchor, scene_id=3,
+            scene_entry_registry=world_scene_travel.load_scene_registry(),
+        )
+        self.assertEqual(
+            preflight.preflight_for(3, legacy=_legacy()).actor_count,
+            world_population_handoff.wire_count_of(result.pc),
+        )
+
+
+class ThePreconditionThatCanInvalidateEveryRowTests(unittest.TestCase):
+    """pf-adversary D3.  A boot that fails it ships no census on ANY map."""
+
+    def test_the_precondition_leads_the_output(self):
+        lines = preflight.render(preflight.preflight_chain(legacy=_legacy()))
+        self.assertTrue(lines[0].startswith(preflight.CONSOLE_TOKEN))
+        self.assertIn("PRECONDITION", lines[0])
+        self.assertIn("second_password_mode=required", lines[0])
+        self.assertIn("that is the boot, not a bug", lines[0])
+
+    def test_the_condition_it_names_is_the_one_runtime_actually_applies(self):
+        """READ FROM SOURCE.  If chief changes the arming condition, this
+        goes red rather than the tool reassuring a tester about a boot rule
+        that no longer exists."""
+        source = RUNTIME_PATH.read_text(encoding="utf-8")
+        self.assertIn("world_census_enabled = (", source)
+        armed = source.split("world_census_enabled = (", 1)[1].split(")", 1)[0]
+        self.assertIn("not active_lanes", armed)
+        self.assertIn('second_password_mode == "required"', armed)
+        self.assertIn("and", armed)
+
+
+class TheEntryPointAHumanActuallyRunsTests(unittest.TestCase):
+    """pf-adversary D8: ``main()`` was the only thing anyone runs, untested."""
+
+    @staticmethod
+    def _run(argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = preflight.main(argv)
+        return code, out.getvalue().splitlines()
+
+    def test_no_arguments_runs_the_whole_reachable_world(self):
+        code, lines = self._run([])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(lines), len(preflight.reachable_scene_ids()) + 3)
+        for line in lines:
+            line.encode("cp874")
+            self.assertTrue(line.startswith(preflight.CONSOLE_TOKEN))
+
+    def test_positional_scene_ids_run_a_custom_chain(self):
+        code, lines = self._run(["3", "14"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(lines), 5)
+        self.assertIn(" scene=3 ", lines[1])
+        self.assertIn(" scene=14 ", lines[2])
+
+    def test_a_junk_argument_is_refused_by_name_and_not_a_traceback(self):
+        """It used to die with a bare ``ValueError`` from ``int()`` and print
+        zero lines -- a fail-closed promise that stopped at the front door."""
+        code, lines = self._run(["abc"])
+        self.assertNotEqual(code, 0)
+        self.assertTrue(lines)
+        self.assertIn("abc", lines[0])
+        self.assertTrue(lines[0].startswith(preflight.CONSOLE_TOKEN))
+
+    def test_an_exit_code_a_wrapper_can_gate_on(self):
+        """``main()`` returned 0 whether every scene resolved or none did, so
+        nothing could gate on it (D8)."""
+        self.assertEqual(self._run(["3"])[0], 0)
+        self.assertNotEqual(
+            self._run(["278"])[0], 0,
+            "a chain whose every scene is unexplained still exits 0",
+        )
+
+
+class TheBranchesThatHadNeverRunTests(unittest.TestCase):
+    """pf-adversary D8: two fail-closed arms with no test at all, in a file
+    that argues at ``_composed_count`` that a branch no test kills is not a
+    branch."""
+
+    def test_a_composer_whose_module_is_not_production_allowed(self):
+        composer = lane_hooks.scene_census_composer(3)
+        replaced = composer._replace(module="pirateforce_foundation.nope")
+        real = lane_hooks.scene_census_composer
+        try:
+            lane_hooks.scene_census_composer = (
+                lambda scene_id: replaced if scene_id == 3 else real(scene_id)
+            )
+            preflight.lane_hooks.scene_census_composer = (
+                lane_hooks.scene_census_composer
+            )
+            row = preflight.preflight_for(3, legacy=_legacy())
+        finally:
+            lane_hooks.scene_census_composer = real
+            preflight.lane_hooks.scene_census_composer = real
+        self.assertEqual(row.source, preflight.SOURCE_NOTHING)
+        self.assertIsNone(row.actor_count)
+        self.assertIn("not production-allowed", row.note)
+
+    def test_a_reachable_scene_no_arm_claims(self):
+        real = lane_hooks.scene_census_composer
+        try:
+            lane_hooks.scene_census_composer = (
+                lambda scene_id: None if scene_id == 3 else real(scene_id)
+            )
+            preflight.lane_hooks.scene_census_composer = (
+                lane_hooks.scene_census_composer
+            )
+            row = preflight.preflight_for(3, legacy=_legacy())
+        finally:
+            lane_hooks.scene_census_composer = real
+            preflight.lane_hooks.scene_census_composer = real
+        self.assertEqual(row.source, preflight.SOURCE_NOTHING)
+        self.assertIsNone(row.actor_count)
+        self.assertIn("no lane composer claims it", row.note)
+
 
 
 if __name__ == "__main__":
