@@ -200,6 +200,41 @@ def a_ground_cell(*drops):
         DropLedger(tuple(drops), 1, issued, ()), scene=SCENE)
 
 
+class _TakenRow:
+    """The shape ``_ground_after_the_take`` reads out of a transaction.
+
+    ROUND veby94.  Two attributes deep and nothing else, because the two
+    cases this stands in for -- a key from another scene, and a cell whose
+    scene name cannot be read -- are both unreachable through the real
+    transaction lane on this tree (see the tests that use it).  A stub is the
+    only way to drive them at all, and a stub that carried more than the
+    composer reads would start describing a transaction instead of a row.
+    """
+
+    def __init__(self, drop_key, scene):
+        self.outcome = self
+        self.drop = self
+        self.drop_key = drop_key
+        self.scene = scene
+
+
+class _TakenRowWhoseSceneRaises:
+    """ROUND veby94, pf-adversary D1: a row whose ``.scene`` is a property
+    that raises.  Unreachable through the real transaction (``GroundDrop`` is
+    a frozen dataclass with a plain ``scene: str``), and the whole point of
+    the test that uses it is that an unreachable raise in a CONSOLE read must
+    still not be able to cost the caller its frames."""
+
+    def __init__(self, drop_key):
+        self.outcome = self
+        self.drop = self
+        self.drop_key = drop_key
+
+    @property
+    def scene(self):
+        raise ValueError("scene not loaded")
+
+
 class LegacyFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1195,7 +1230,7 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
         runtime = (
             ROOT / "src/pirateforce_foundation/runtime.py"
         ).read_text(encoding="utf-8")
-        # 🔴 AN AST, NOT A SUBSTRING, and that was measured rather than
+        # !! AN AST, NOT A SUBSTRING, and that was measured rather than
         # preferred (pf-adversary D1, round g1y1yc).  This test read
         # `"ground_after" in runtime` until R304 landed the call site -- and
         # the call site arrived with a COMMENT that explains itself using
@@ -1319,6 +1354,241 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
         self.assertIn("IS STRUCK, round lh21ua", note)
         self.assertIn("RE-082", note)
         self.assertIn("outcome.ground_after", note)
+
+
+class TheRemovalLineNamesItsGroundTests(TheWiringHarness):
+    """ROUND veby94: the key and the count are about two different grounds.
+
+    The chief's letter 2026-09-02T15:35+07:00, item (b), measured in this
+    lane's files and paid here: ``DropLedgerCell.take`` cuts by KEY across
+    the whole register while ``frames_after_a_row_left`` publishes
+    ``current_scene`` only, so ``key=0x... rows_left=0`` was a line whose two
+    halves were never stated to be about the same floor.  A GT round grades
+    on console lines; ``HELD_LAST_OBJECT rows_left=0`` about a scene the
+    taken row was never in is a false negative waiting for a reader.
+
+    NOTHING ON THE WIRE CHANGES AND NO TEST HERE CLAIMS OTHERWISE.  These
+    tests read stdout.
+    """
+
+    def _ground(self, *offsets):
+        return a_ground_cell(*[a_drop(offset) for offset in offsets])
+
+    def _removal_lines(self, console):
+        """Every console line this publisher owns, whichever token fired."""
+        owned = (
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN,
+        )
+        return [line for line in console.splitlines()
+                if line.startswith(owned)]
+
+    def test_every_line_that_carries_a_count_names_the_ground_it_counted(self):
+        """The rule, over both shapes, rather than one example of it.
+
+        Driven twice through the published branch: a scene with a row left
+        (the publication) and a scene with none (the hold).  Both lines carry
+        ``rows_left``; neither may carry it without saying which floor it is
+        about and which floor the key left.
+        """
+        for label, offsets in (("published", (0, 1)), ("held", (0,))):
+            with self.subTest(line=label):
+                self.registry.release(self.character.id)
+                outcome, console = self._run(self._namespace(
+                    ground_cell=self._ground(*offsets)))
+                self.assertTrue(outcome.handled)
+                lines = self._removal_lines(console)
+                self.assertEqual(
+                    len(lines), 1,
+                    "one take, one removal line: %r" % (console,))
+                self.assertIn("rows_left=", lines[0])
+                self.assertIn("taken_scene=%s" % (SCENE,), lines[0])
+                self.assertIn("scene=%s" % (SCENE,), lines[0])
+
+    def test_the_cross_scene_line_is_not_printed_when_they_agree(self):
+        """The named disagreement is a disagreement, not decoration.
+
+        A line that fires on every pickup would be read as noise within one
+        GT round and stop being read at all -- which is the failure mode this
+        token exists to avoid.
+        """
+        _, console = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console)
+
+    def test_a_key_from_another_scene_is_named_rather_than_implied(self):
+        """!! THE COMPOSER IS DRIVEN DIRECTLY, AND THAT IS THE CLAIM'S LIMIT.
+
+        This case is UNREACHABLE through ``dispatch_inbound_pickup_request``
+        on this tree and this test does not pretend otherwise: the pickup
+        path refuses a claim on a row standing in another scene BEFORE the
+        take (``mob_pickup.REFUSE_DROP_IS_IN_ANOTHER_SCENE``) and the session
+        is strictly serial, so no dispatch arrives here holding a row from
+        one scene with its cell pointed at another.  What is pinned is that
+        the day one does -- a second pickup door, a second cell, a boundary
+        crossing inside one dispatch -- the console says so by name instead
+        of printing one true half next to another true half.
+        """
+        cell = self._ground(0, 1)
+        elsewhere = "Bg0015"
+        self.assertNotEqual(elsewhere.casefold(), SCENE.casefold())
+        transacted = _TakenRow(mob_loot.DROP_KEY_BASE + 99, elsewhere)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            rows_left, frames = mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        console = buffer.getvalue()
+        self.assertEqual(rows_left, 2)
+        self.assertTrue(frames)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console)
+        for line in self._removal_lines(console):
+            self.assertIn("taken_scene=%s" % (elsewhere,), line)
+            self.assertIn("scene=%s" % (SCENE,), line)
+
+    def test_the_token_literal_is_pinned_here_and_not_only_referenced(self):
+        """pf-adversary D2.  The deliverable of this round is a string an
+        operator and a GT round GREP for, and every other test in this file
+        reaches it through the module constant -- so renaming the constant's
+        VALUE, or making it collide with the HELD token's prefix, was
+        invisible to the whole suite.  Measured: a mutant renaming it to
+        MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT_ALSO stayed green."""
+        self.assertEqual(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            "MOB_PICKUP_GROUND_REMOVAL_KEY_IS_ANOTHER_SCENES")
+        for other in (
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN,
+                mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN):
+            with self.subTest(other=other):
+                self.assertFalse(
+                    other.startswith(mob_pickup_request
+                                     .MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN)
+                    or mob_pickup_request
+                    .MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN
+                    .startswith(other),
+                    "one removal token is a prefix of another: a console "
+                    "reader who greps a prefix would match both")
+
+    def test_a_case_only_difference_is_one_scene_and_fires_nothing(self):
+        """!! THE .casefold() IS THE WHOLE TOKEN, and pf-adversary D3 killed
+        a mutant that dropped it while the suite stayed green.
+
+        ``DropLedger.for_scene`` keeps rows whose ``scene_key`` -- a
+        casefold -- equals the cell's, so ``bg0001`` and ``Bg0001`` are ONE
+        ground and the pickup is ordinary.  Without the fold this token would
+        fire on that ordinary pickup, and the day one roster module spells a
+        folder differently from another it would fire on EVERY pickup -- the
+        noise its own docstring says it must never become.  Driven through
+        the real branch, not the composer.
+        """
+        other_case = SCENE.upper()
+        self.assertNotEqual(other_case, SCENE)
+        self.assertEqual(other_case.casefold(), SCENE.casefold())
+        drop = a_drop(0)
+        cell = DropLedgerCell(
+            DropLedger((drop,), 1, drop.drop_key + 1, ()), scene=other_case)
+        outcome, console = self._run(self._namespace(ground_cell=cell))
+        self.assertTrue(
+            outcome.handled,
+            "a case-only difference refused the take; this test's premise "
+            "is wrong: %r" % (console,))
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console)
+        for line in self._removal_lines(console):
+            self.assertIn("same_ground=1", line)
+
+    def test_the_verdict_is_on_the_line_and_not_left_to_the_reader(self):
+        """pf-adversary D3b: the comparison is casefolded and the two words
+        printed are RAW, so an operator reading the line sees two visibly
+        different spellings on a same-ground take.  ``same_ground`` is the
+        verdict itself, and ``?`` is its third state -- a name that could not
+        be read is not a disagreement."""
+        _, console = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        for line in self._removal_lines(console):
+            self.assertIn("same_ground=1", line)
+        cell = self._ground(0, 1)
+        transacted = _TakenRow(mob_loot.DROP_KEY_BASE + 99, "Bg0015")
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        for line in self._removal_lines(buffer.getvalue()):
+            self.assertIn("same_ground=0", line)
+        transacted = _TakenRowWhoseSceneRaises(mob_loot.DROP_KEY_BASE + 99)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        for line in self._removal_lines(buffer.getvalue()):
+            self.assertIn("same_ground=?", line)
+
+    def test_a_raising_scene_name_costs_the_word_and_not_the_frames(self):
+        """!! pf-adversary D1, and it changed BYTES rather than a line.
+
+        The first draft of this round read the taken row's ``.scene`` inside
+        the guard whose ``except`` returns ``(-1, ())``.  Measured against
+        the same input on ``origin/main``: ``rows_left`` 1 -> -1 and one
+        composed frame -> zero, which downstream flips
+        ``_the_delta_that_matches_the_floor`` to the CLEARING delta and drops
+        the removal actions the chief's branch sends.  A console name may
+        never cost a frame, so the read now sits below the publication in its
+        own guard -- and this test is what says so.
+        """
+        cell = self._ground(0, 1)
+        transacted = _TakenRowWhoseSceneRaises(mob_loot.DROP_KEY_BASE + 99)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            rows_left, frames = mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        console = buffer.getvalue()
+        self.assertEqual(rows_left, 2, console)
+        self.assertTrue(frames, "the floor was lost to a console name")
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+            console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console,
+            "a name that could not be read is not a disagreement")
+
+    def test_an_unreadable_scene_name_costs_the_word_and_not_the_frames(self):
+        """A console name may never cost a floor.
+
+        Everything read before the publication returns is inside the guard
+        that answers a failure with ``(-1, ())``; the standing scene's name
+        is read after it, so a cell whose ``current_scene`` raises still
+        hands the caller the frames it composed.  Measured with a cell that
+        raises on exactly that property and nothing else.
+        """
+        cell = self._ground(0, 1)
+        transacted = _TakenRow(mob_loot.DROP_KEY_BASE + 99, SCENE)
+        original = DropLedgerCell.current_scene
+
+        def explode(self):
+            raise RuntimeError("current_scene is not readable in this test")
+
+        DropLedgerCell.current_scene = property(explode)
+        self.addCleanup(setattr, DropLedgerCell, "current_scene", original)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            rows_left, frames = mob_pickup_request._ground_after_the_take(
+                self.legacy, cell, transacted, True)
+        console = buffer.getvalue()
+        self.assertEqual(rows_left, 2)
+        self.assertTrue(frames, "the floor was lost to a console name")
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+            console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN,
+            console,
+            "a name that could not be read is not a disagreement")
 
 
 class PinnedNumbersAreHardPinnedEverywhereTests(unittest.TestCase):
