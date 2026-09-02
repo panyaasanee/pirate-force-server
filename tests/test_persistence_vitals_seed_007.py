@@ -1286,7 +1286,8 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             _store, _character_id, stored = self._newborn("mechanism")
 
         if not any(column in stored for column in SEEDED):
-            # The plug is not in yet; there is no birth write to trace.
+            # The plug is not in and the database is below 009; there is no
+            # birth write to trace.
             return
         self.assertEqual(
             {column: stored[column] for column in SEEDED}, sentinel,
@@ -1297,14 +1298,37 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             "2 rule out all three.  Measured at runtime, not read off source.",
         )
 
+    # WHY THIS IS STILL ONE EQUALITY AFTER `migrations/009`.  An earlier draft
+    # of this round widened it into a two-branch acceptance -- sentinel OR the
+    # schema defaults -- on the reasoning that `COO-DECISION 20260902_1607`
+    # made a DEFAULT a legitimate second source.  A `pf-adversary` pass
+    # measured what that cost: it patched `create_character` to write the
+    # literals `1, 100, 100` -- the exact third source both decisions forbid --
+    # and the widened test PASSED while its own docstring above still said
+    # "a literal returns 1/100/100 and is red here".  The widening was
+    # unnecessary as well as wrong: chief's insertion point landed on `main`
+    # in the same hour (commit `b9e11059`), so `create_character` NAMES the
+    # three columns and their values really do come from the call.  The
+    # DEFAULT for those three is a backstop no creation path reaches, and the
+    # one column 009 alone supplies -- `speed_walk` -- is not in `SEEDED` and
+    # is graded next door in `test_persistence_birth_defaults_009.py`.
+
     def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
-        """`COO-DECISION 20260901_1447` point 2 -- no value is adjudicated for
-        `speed_walk` or the other seventeen -- holds in both branches, so this
-        one is not conditional at all."""
+        """The seventeen columns with no adjudicated value hold nothing.
+
+        This used to be eighteen: `COO-DECISION 20260901_1447` point 2 kept
+        `speed_walk` out of a birth as well, until `RE-194` settled the number
+        and `COO-DECISION 20260902_1607` made it one of the four
+        `migrations/009_character_birth_defaults.sql` supplies.  The rule the
+        test enforces is unchanged and is the owner's own (`COO-DECISION
+        20260901_1059`): a column whose value nobody has measured is never
+        guessed -- it stays NULL and reaches the compose gate as absent.
+        """
         _store, _character_id, stored = self._newborn("no-extras")
-        for column in typed.TYPED_COLUMNS:
-            if column in SEEDED:
-                continue
+        unadjudicated = [column for column in typed.TYPED_COLUMNS
+                         if column not in birth_state.BIRTH_COLUMNS]
+        self.assertEqual(len(unadjudicated), 17)
+        for column in unadjudicated:
             self.assertNotIn(column, stored, column)
 
     def test_the_birth_values_are_the_same_three_007_wrote(self):
