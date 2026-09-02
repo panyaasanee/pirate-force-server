@@ -1,7 +1,12 @@
-"""The UI-A button stops being a dead click: it answers where she is looking.
+"""Both HOME-menu buttons stop being dead clicks: they answer where she looks.
 
 WHAT THE PLAYER GETS FROM THIS FILE
 -----------------------------------
+Round `1d6rta` (2026-09-02) extended this file from ONE button to BOTH.  The
+paragraphs below are the UI-A half as it was written in round `od1xso`; the
+UI-B half is described under "THE SECOND BUTTON" further down, and point 3 of
+the nonclaims carries the struck sentence it replaced.
+
 Today, on a default boot with no scenario flag, clicking the HOME menu's
 "back to character select" button (`LogoutVital 0x1B40` subcode 3) produces
 NOTHING: no reply frame, no console line, no pixel.  The owner measured
@@ -37,15 +42,64 @@ WHAT THIS FILE DOES NOT CLAIM
    state this module fires in.  `GT-205` is the entry that decides it, and
    a negative there is a finding about the dialog and about this channel,
    not proof the composer is wrong.
-3. It does NOT send bytes for the UI-B ("exit game", subcode 1) button.
+3. ~~It does NOT send bytes for the UI-B ("exit game", subcode 1) button.
    That path has a live ticket of its own (`GT-194`) whose bytes must not
    change under it, so subcode 1 gets `None` -- pinned by a test.  It DOES
    print one console line for that click, which is itself evidence a
-   reader of `GT-194`'s log will see; "nothing" would be the wrong word.
+   reader of `GT-194`'s log will see; "nothing" would be the wrong word.~~
+   SUPERSEDED, round `1d6rta`, by COO-DECISION `20260902_1145` (`NOW.md`
+   queue item UI-B: "LANE-A starts next round, same pattern as UI-A").
+   Subcode 1 now composes `EXIT REFUSED` on a DEFAULT boot only.  Why
+   `GT-194`'s evidence still cannot move: that ticket needs
+   `_dispatch_logout_hypothesis` to answer, which only happens with a
+   logout scenario loaded, and `runtime.py`'s call site composes NOTHING
+   and prints `LANE_A_UIA_NOTICE_NOT_THIS_BOOT` whenever
+   `logout_hypothesis_scenario is not None`.  The two tickets are on
+   disjoint boots by construction, and a wiring test pins that branch.
+
 4. It sends nothing and closes nothing.  It composes bytes and hands them
    back, the same posture as `gm/say_wire.py` and `gm/warp_executor.py`.
    The one line that calls it lives in `runtime.py`, which is chief's file
-   (CORE-REQUEST in this round's PR body).
+   (it is already there, from round `od1xso`'s CORE-REQUEST; this round
+   asks chief for no new line at all -- see "NO NEW WIRING" below).
+5. It does NOT perform a logout.  `NOW.md` states the owner's requirement
+   in her own words -- a REAL logout button, not closing the window with
+   the X -- and a receipt is not that.  `GT-033` measured both response
+   shapes this project owns (ack+close; `0x709E`+ack+close) leaving the
+   real client on the same map for 50-77 seconds across three attended
+   rounds, and `RE-189` (result `20260901_1008`) found the one writer of
+   the field the client's own transition gate requires is LOCAL UI
+   BINDING, with no inbound frame able to reach it.  So UI-B is not
+   solved here; what changes is that the click answers.
+
+THE SECOND BUTTON (UI-B, "exit game", subcode 1)
+------------------------------------------------
+Same measurement, same silence: on the owner's flagless capture
+(`gt192_20260901_184254`, frame `[G< #1402]`) the client sent a real
+119-byte subcode-1 frame -- the button carries three other vitals with it,
+two `0x1EB4` and one `0x2A90`, which is why it is 119 bytes and not 34 --
+and the server said nothing back.  What this file delivers is the same
+twelve-character receipt UI-A got, so the click stops being
+indistinguishable from a broken mouse.
+
+The two buttons are told apart by SUBCODE, which is in the request itself
+(`RE-197` closed the pre-click discriminator: the 268-byte frame that
+precedes the dialog is byte-identical for both, so nothing can tell them
+apart before the click -- but nothing needs to, because the click says).
+
+NO NEW WIRING
+-------------
+`runtime.py`'s 0x1B40 branch already calls `observe_parsed` and already
+sends whatever notice comes back, for ANY button, because round `od1xso`
+wrote the call site around the return value rather than around UI-A.  So
+this round ships a player-visible change with no chief-owned line to wait
+for.  One cosmetic mismatch is left behind and is reported rather than
+edited around: the action label and event name at that call site read
+`LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE` /
+`lane_a_uia_back_refused_notice_composed`, which now also carry the
+`EXIT REFUSED` frame.  The BYTES are correct either way (the label is not
+on the wire); the names are chief's to rename, and this round's PR body
+carries the one-line request.
 
 ONE ENTRY POINT, ON PURPOSE
 ---------------------------
@@ -63,11 +117,13 @@ WHY THE CLASSIFICATION GOES THROUGH `logout_hypothesis`
 `classify_logout_attempt` is the function the scenario-gated logout
 dispatch itself branches on (`runtime.py:1860`).  Reusing it means this
 lane cannot answer a click that dispatch would have called `wrong_payload`.
-STATED EXACTLY, because pf-adversary caught the softer version: on a
-DEFAULT boot nothing calls that function today (its only call site sits
-behind `logout_hypothesis_scenario is not None`), so the call site this
-round asks for would be its first production-mode caller.  The claim is
-"one reader of these bytes, not two", not "already proven live".
+STATED EXACTLY, because pf-adversary caught the softer version: before
+round `od1xso` wired this module, nothing on a DEFAULT boot called that
+function at all (its other call site sits behind
+`logout_hypothesis_scenario is not None`), so the call site chief added is
+its first production-mode caller and still has not been watched running on
+a real client.  The claim is "one reader of these bytes, not two", not
+"already proven live".
 
 `logout_request_envelope` is imported for its two subcode CONSTANTS only --
 same reason: one spelling of `1` and `3` in the tree, not three.
@@ -158,8 +214,49 @@ production_allowed = True
 # chief-owned queue file only editable from a cloud clone through a PR.
 UIA_NOTICE_TEXT = "BACK REFUSED"
 
+# THE UI-B BODY.  Twelve printable ASCII characters, the same pinned length
+# (`say_wire.NOTICE_TEXT_EXACT_LENGTH`) and the same house pattern as
+# `SPEED DENIED` / `TYPO REFUSED` / `BACK REFUSED`.
+#
+# WHY THIS SPELLING AND NOT A REUSE OF `BACK REFUSED`: a tester (and the
+# owner) must be able to tell WHICH button she clicked from the screen
+# alone.  Two buttons answering with one sentence would make the screen
+# half of the evidence unable to distinguish them, which is the exact
+# defect COO-DECISION `20260902_0147` set out to avoid for the GM commands.
+#
+# WHY `EXIT REFUSED` IS AVAILABLE: COO-DECISION `20260902_0943` refused it
+# *as UI-A's wording*, with the reason "it collides with the UI-B button".
+# That is a statement about which button owns the words, not a ban on the
+# words -- so this round claims them for the button they name.  It is still
+# a reading of someone else's sentence rather than a ruling, so:
+#
+# [assumption of lane A - awaiting COO confirmation]
+# the letter carrying it, one topic per letter as the lane charter asks:
+# pf_bridge/notes_to_chief/20260902_1341_LANE-A-ASK-COO-uib-notice-wording.md
+#
+# WHAT CHANGING THE SPELLING COSTS, counted rather than guessed: this
+# constant, the two test lines that pin the literal, the two prose lines in
+# this file that quote it, and the console line a tester copies by hand in
+# `GT-211`.  No byte of the composer moves.
+#
+# WHAT IT DOES NOT SAY: `EXIT REFUSED` does not mean the server decided the
+# player may not leave.  It means this server cannot yet PERFORM the exit
+# (`GT-033` measured both response shapes this project owns leaving the
+# real client on the same map for 50-77 s, three attended rounds), so it
+# answers instead of dropping the click.  Nonclaim 8 states it again.
+UIB_NOTICE_TEXT = "EXIT REFUSED"
+
 BUTTON_CHARACTER_SELECT = "BACK_TO_CHARSELECT"
 BUTTON_EXIT_GAME = "EXIT_GAME"
+
+# The one place a button is mapped to what the screen will say.  A button
+# that is NOT in this table composes nothing and stands down -- fail-closed
+# is the default for a shape nobody has measured, not an answer invented on
+# the spot.
+NOTICE_TEXT_BY_BUTTON = {
+    BUTTON_CHARACTER_SELECT: UIA_NOTICE_TEXT,
+    BUTTON_EXIT_GAME: UIB_NOTICE_TEXT,
+}
 
 # ASCII console tokens (the bridge console is cp874; nothing Thai here).
 # A human reading a capture log next to a screenshot lines the two up by
@@ -289,26 +386,45 @@ def classify_parsed(legacy: object, parsed: object) -> ButtonClassification | No
     return None
 
 
-def make_uia_notice(
+def notice_text_for(classification: ButtonClassification | None) -> str | None:
+    """What the screen says for this button, or `None` if nothing does.
+
+    One table, read by both the composer and `observe_parsed`, so the line
+    printed and the bytes sent can never name two different sentences
+    (round `1d6rta`: the same discipline that made the classification a
+    single computation in `observe_parsed`).
+    """
+
+    if classification is None:
+        return None
+    return NOTICE_TEXT_BY_BUTTON.get(classification.button)
+
+
+def make_button_notice(
     legacy: object, parsed: object
 ) -> LogoutButtonNotice | None:
-    """Compose the on-screen receipt for the UI-A button, or `None`.
+    """Compose the on-screen receipt for either HOME-menu button, or `None`.
+
+    Renamed from `make_uia_notice` in round `1d6rta`, when the UI-B button
+    stopped standing down: a function whose name says UI-A while it answers
+    both buttons is the kind of lie a later reader pays for.  Nothing
+    outside this module and its tests ever called the old name (`runtime.py`
+    calls `observe_parsed` only), so nothing was left pointing at it.
 
     `None` means "this lane has nothing to send for this click", for every
-    reason: an unrecognised frame, the UI-B button, a withdrawn module, or
-    a composer that refused.  `observe_parsed` is the entry point that also
-    says WHICH.
+    reason: an unrecognised frame, a button with no text in the table, a
+    withdrawn module, or a composer that refused.  `observe_parsed` is the
+    entry point that also says WHICH.
     """
 
     if production_allowed is not True:
         return None
     classification = classify_parsed(legacy, parsed)
-    if classification is None or not classification.is_character_select:
+    text = notice_text_for(classification)
+    if text is None:
         return None
     try:
-        pc, wire_frame = say_wire.make_local_talk_notice_frame(
-            legacy, UIA_NOTICE_TEXT
-        )
+        pc, wire_frame = say_wire.make_local_talk_notice_frame(legacy, text)
     except Exception:  # noqa: BLE001 - includes NoticeWireError
         # A courtesy that cannot be composed is dropped, never raised: the
         # same standing rule `gm/chat_command_action.py` applies to the
@@ -316,7 +432,7 @@ def make_uia_notice(
         return None
     return LogoutButtonNotice(
         classification=classification,
-        text=UIA_NOTICE_TEXT,
+        text=text,
         pc=pc,
         frame=wire_frame,
     )
@@ -332,11 +448,22 @@ def observe_parsed(
     bytes still produces a line an attended tester can line up against a
     screenshot:
 
-    * `LANE_A_UIA_NOTICE_COMPOSED` -- UI-A, and `notice` carries bytes.
-    * `LANE_A_UIA_STOOD_DOWN`      -- UI-B, no bytes on purpose.
-    * `LANE_A_UIA_WITHDRAWN`       -- UI-A, but this module is switched off.
-    * `LANE_A_UIA_NOTICE_FAILED`   -- UI-A, and the composer refused (a bug
-                                      to chase, never this lane's decision).
+    * `LANE_A_UIA_NOTICE_COMPOSED` -- a known button, and `notice` carries
+                                      bytes.  The `text=` field says which
+                                      sentence, so UI-A and UI-B are told
+                                      apart on the SAME token rather than
+                                      by two tokens.
+    * `LANE_A_UIA_STOOD_DOWN`      -- a LogoutVital this lane recognises but
+                                      has no sentence for.  No subcode maps
+                                      here today (round `1d6rta` gave UI-B
+                                      its own text); it is the fail-closed
+                                      landing for a third button, and a test
+                                      pins that it still lands there.
+    * `LANE_A_UIA_WITHDRAWN`       -- a known button, but this module is
+                                      switched off.
+    * `LANE_A_UIA_NOTICE_FAILED`   -- a known button, and the composer
+                                      refused (a bug to chase, never this
+                                      lane's decision).
     * `LANE_A_LOGOUT_FRAME_UNCLASSIFIED` -- not a LogoutVital this lane
                                       answers; carries the live classifier's
                                       own verdict word so the reason is in
@@ -354,22 +481,21 @@ def observe_parsed(
             _safe_verdict(legacy, parsed),
         )
 
-    if not classification.is_character_select:
+    text = notice_text_for(classification)
+    if text is None:
         return None, classification.console_line(TOKEN_STOOD_DOWN)
 
     if production_allowed is not True:
         return None, classification.console_line(TOKEN_WITHDRAWN)
 
     try:
-        pc, wire_frame = say_wire.make_local_talk_notice_frame(
-            legacy, UIA_NOTICE_TEXT
-        )
+        pc, wire_frame = say_wire.make_local_talk_notice_frame(legacy, text)
     except Exception:  # noqa: BLE001 - includes NoticeWireError
         return None, classification.console_line(TOKEN_NOTICE_FAILED)
 
     composed = LogoutButtonNotice(
         classification=classification,
-        text=UIA_NOTICE_TEXT,
+        text=text,
         pc=pc,
         frame=wire_frame,
     )

@@ -208,12 +208,51 @@ class ObserveIsTheOneDoorTests(unittest.TestCase):
         ):
             self.assertIn(field, line)
 
-    def test_the_uib_click_yields_no_bytes_but_still_a_full_line(self):
+    def test_the_uib_click_yields_bytes_and_names_its_own_sentence(self):
+        # Round `1d6rta`: UI-B stopped standing down.  ~~The struck version
+        # of this test asserted `TOKEN_STOOD_DOWN` and no bytes.~~  What
+        # must stay true is that the line carries every field a tester
+        # copies, and that the sentence is the EXIT one, not UI-A's.
         composed, line = self._observe(UIB_REQUEST_FRAME)
+        self.assertIsNotNone(composed)
+        self.assertTrue(line.startswith(notice.TOKEN_NOTICE_COMPOSED), line)
+        self.assertTrue(composed.classification.is_exit_game)
+        for field in (
+            "button=EXIT_GAME",
+            "subcode=1",
+            "vitals=4",
+            "trailing=85",
+            "text=EXIT REFUSED",
+        ):
+            self.assertIn(field, line)
+        self.assertNotIn(notice.UIA_NOTICE_TEXT, line)
+
+    def test_the_two_buttons_answer_with_two_different_sentences(self):
+        # The screen half of the evidence has to tell the buttons apart on
+        # its own; if both said the same twelve characters, a screenshot
+        # could not say which button produced it.
+        uia, uia_line = self._observe(UIA_REQUEST_FRAME)
+        uib, uib_line = self._observe(UIB_REQUEST_FRAME)
+        self.assertNotEqual(uia.text, uib.text)
+        self.assertNotEqual(uia.pc, uib.pc)
+        self.assertNotEqual(uia_line, uib_line)
+
+    def test_a_button_with_no_sentence_stands_down_instead_of_guessing(self):
+        # `TOKEN_STOOD_DOWN` is not dead code: it is where a third button
+        # would land.  Measured by emptying the table rather than by
+        # inventing a subcode the client never sends.
+        original = dict(notice.NOTICE_TEXT_BY_BUTTON)
+        try:
+            notice.NOTICE_TEXT_BY_BUTTON.pop(notice.BUTTON_EXIT_GAME)
+            composed, line = self._observe(UIB_REQUEST_FRAME)
+        finally:
+            notice.NOTICE_TEXT_BY_BUTTON.clear()
+            notice.NOTICE_TEXT_BY_BUTTON.update(original)
         self.assertIsNone(composed)
         self.assertTrue(line.startswith(notice.TOKEN_STOOD_DOWN), line)
-        for field in ("button=EXIT_GAME", "subcode=1", "vitals=4", "trailing=85"):
-            self.assertIn(field, line)
+        self.assertIn("button=EXIT_GAME", line)
+        # And the table is whole again, so this patch is not a one-way door.
+        self.assertIsNotNone(self._observe(UIB_REQUEST_FRAME)[0])
 
     def test_the_composed_token_never_appears_without_bytes(self):
         # The token is the proof GT-205 reads. It must be impossible to
@@ -249,11 +288,35 @@ class ObserveIsTheOneDoorTests(unittest.TestCase):
         self.assertNotIn(notice.TOKEN_NOTICE_FAILED, line)
         # And the flag is back on, so the module ships live by default.
         self.assertIs(notice.production_allowed, True)
-        self.assertIsNone(
-            notice.make_uia_notice(
+        self.assertIsNotNone(
+            notice.make_button_notice(
                 self.legacy, self.legacy.parse_outer(UIB_REQUEST_FRAME)
             )
         )
+
+    def test_a_withdrawn_module_composes_for_neither_button(self):
+        # The gate is the module's, not one button's: an earlier shape of
+        # this file could have been switched off for UI-A while still
+        # composing for UI-B, which is exactly the drift a per-button text
+        # table invites.
+        original = notice.production_allowed
+        try:
+            notice.production_allowed = False
+            for frame in (UIA_REQUEST_FRAME, UIB_REQUEST_FRAME):
+                with self.subTest(frame=len(frame)):
+                    composed, line = self._observe(frame)
+                    self.assertIsNone(composed)
+                    self.assertTrue(
+                        line.startswith(notice.TOKEN_WITHDRAWN), line
+                    )
+                    self.assertIsNone(
+                        notice.make_button_notice(
+                            self.legacy, self.legacy.parse_outer(frame)
+                        )
+                    )
+        finally:
+            notice.production_allowed = original
+        self.assertIs(notice.production_allowed, True)
 
     def test_an_unclassified_frame_carries_the_live_verdict_word(self):
         composed, line = self._observe(SYNTHETIC_NON_LOGOUT_FRAME)
@@ -328,41 +391,58 @@ class NoticeCompositionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.legacy = load_legacy(LEGACY_PATH)
 
-    def test_the_uia_click_composes_exactly_the_say_wire_notice(self):
-        composed = notice.make_uia_notice(
-            self.legacy, self.legacy.parse_outer(UIA_REQUEST_FRAME)
-        )
-        self.assertIsNotNone(composed)
-        expected_pc, expected_frame = say_wire.make_local_talk_notice_frame(
-            self.legacy, notice.UIA_NOTICE_TEXT
-        )
-        # Byte equality against the proven composer: this lane adds no wire
-        # knowledge of its own and must not be able to drift from it.
-        self.assertEqual(composed.pc, expected_pc)
-        self.assertEqual(composed.frame, expected_frame)
-        self.assertEqual(composed.text, notice.UIA_NOTICE_TEXT)
+    def test_each_click_composes_exactly_the_say_wire_notice(self):
+        for frame, text in (
+            (UIA_REQUEST_FRAME, notice.UIA_NOTICE_TEXT),
+            (UIB_REQUEST_FRAME, notice.UIB_NOTICE_TEXT),
+        ):
+            with self.subTest(text=text):
+                composed = notice.make_button_notice(
+                    self.legacy, self.legacy.parse_outer(frame)
+                )
+                self.assertIsNotNone(composed)
+                expected_pc, expected_frame = (
+                    say_wire.make_local_talk_notice_frame(self.legacy, text)
+                )
+                # Byte equality against the proven composer: this lane adds
+                # no wire knowledge of its own and must not drift from it.
+                self.assertEqual(composed.pc, expected_pc)
+                self.assertEqual(composed.frame, expected_frame)
+                self.assertEqual(composed.text, text)
 
     def test_the_notice_text_really_is_in_the_bytes_that_go_out(self):
         # A second, independent reading: not "the composer agrees with
         # itself" but "the twelve characters are actually in the frame".
-        composed = notice.make_uia_notice(
+        for frame, text in (
+            (UIA_REQUEST_FRAME, notice.UIA_NOTICE_TEXT),
+            (UIB_REQUEST_FRAME, notice.UIB_NOTICE_TEXT),
+        ):
+            with self.subTest(text=text):
+                composed = notice.make_button_notice(
+                    self.legacy, self.legacy.parse_outer(frame)
+                )
+                ascii_body = text.encode("ascii")
+                utf16_body = text.encode("utf-16-le")
+                self.assertTrue(
+                    ascii_body in composed.frame
+                    or utf16_body in composed.frame,
+                    composed.frame.hex(),
+                )
+
+    def test_the_two_buttons_do_not_compose_the_same_bytes(self):
+        # ~~GT-194 is live on this exact frame; no byte from this lane may
+        # appear in the middle of that ticket's evidence.~~  SUPERSEDED,
+        # round `1d6rta`: GT-194 needs a logout-scenario boot and the call
+        # site composes nothing on those (pinned in the wiring suite), so
+        # the two tickets are on disjoint boots.  What is pinned here is
+        # what remains true: two buttons, two frames.
+        uia = notice.make_button_notice(
             self.legacy, self.legacy.parse_outer(UIA_REQUEST_FRAME)
         )
-        ascii_body = notice.UIA_NOTICE_TEXT.encode("ascii")
-        utf16_body = notice.UIA_NOTICE_TEXT.encode("utf-16-le")
-        self.assertTrue(
-            ascii_body in composed.frame or utf16_body in composed.frame,
-            composed.frame.hex(),
+        uib = notice.make_button_notice(
+            self.legacy, self.legacy.parse_outer(UIB_REQUEST_FRAME)
         )
-
-    def test_the_uib_click_composes_nothing_at_all(self):
-        # GT-194 is live on this exact frame; no byte from this lane may
-        # appear in the middle of that ticket's evidence.
-        self.assertIsNone(
-            notice.make_uia_notice(
-                self.legacy, self.legacy.parse_outer(UIB_REQUEST_FRAME)
-            )
-        )
+        self.assertNotEqual(uia.frame, uib.frame)
 
 
 class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
@@ -386,12 +466,23 @@ class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
             Path(__file__).resolve().parents[1]
             / "src/pirateforce_foundation/world_logout_button_notice.py"
         ).read_text(encoding="utf-8")
+        #
+        # Round `1d6rta` widened the rule rather than dropping it: a LIVE
+        # assumption is legitimate (UI-B's wording is one), a RETIRED one
+        # must be struck, and the two must be distinguishable ON the line.
+        # So a live label must use the exact house marker below, and its
+        # letter must be named in the file -- an "awaiting COO" line that
+        # matches neither shape is the drift this test still catches.
+        live_label = "[assumption of lane A - awaiting COO confirmation]"
         for line in source.splitlines():
             if "awaiting COO" in line:
-                self.assertIn("~~", line, msg=(
-                    "a live-looking 'awaiting COO' label is back on this "
-                    "line; retire it with ~~...~~ plus RULED instead"
+                self.assertTrue("~~" in line or live_label in line, msg=(
+                    "an 'awaiting COO' label on this line is neither struck "
+                    "nor the exact live marker; retire it with ~~...~~ plus "
+                    "RULED, or write the live marker verbatim: " + line
                 ))
+        if live_label in source:
+            self.assertIn("LANE-A-ASK-COO-uib-notice-wording.md", source)
         self.assertIn("RULED, round 8z9h9n", source)
         self.assertIn("20260902_0943_COO-DECISION", source)
         # The alternative COO never adjudicated must stay visible: it is
@@ -399,12 +490,41 @@ class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
         # performable, and the ask letter offered four options, not two.
         self.assertIn("BACK NOT YET", source)
 
-    def test_the_text_is_twelve_printable_ascii_characters(self):
-        text = notice.UIA_NOTICE_TEXT
-        self.assertEqual(len(text), say_wire.NOTICE_TEXT_EXACT_LENGTH)
-        self.assertEqual(len(text), 12)
-        self.assertTrue(text.isascii())
-        self.assertTrue(text.isprintable())
+    def test_the_uib_text_is_exactly_the_twelve_characters_gt211_asks_for(self):
+        # Same reason as the UI-A pin above: `GT-211` asks a human to read
+        # one exact spelling off the screen, so a one-character edit must
+        # be a red test rather than an unmeetable entry.
+        self.assertEqual(notice.UIB_NOTICE_TEXT, "EXIT REFUSED")
+
+    def test_every_button_sentence_is_twelve_printable_ascii_characters(self):
+        for text in (notice.UIA_NOTICE_TEXT, notice.UIB_NOTICE_TEXT):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    len(text), say_wire.NOTICE_TEXT_EXACT_LENGTH
+                )
+                self.assertEqual(len(text), 12)
+                self.assertTrue(text.isascii())
+                self.assertTrue(text.isprintable())
+
+    def test_the_table_covers_both_buttons_and_nothing_else(self):
+        self.assertEqual(
+            notice.NOTICE_TEXT_BY_BUTTON,
+            {
+                notice.BUTTON_CHARACTER_SELECT: notice.UIA_NOTICE_TEXT,
+                notice.BUTTON_EXIT_GAME: notice.UIB_NOTICE_TEXT,
+            },
+        )
+
+    def test_no_two_refusals_in_this_house_share_a_sentence(self):
+        # Four refusals now reach the same chat channel.  If any two shared
+        # a body, a screenshot could not say which subsystem answered.
+        sentences = [
+            notice.UIA_NOTICE_TEXT,
+            notice.UIB_NOTICE_TEXT,
+            say_wire.SPEED_DENIED_NOTICE_TEXT,
+            say_wire.TYPO_REFUSED_NOTICE_TEXT,
+        ]
+        self.assertEqual(len(set(sentences)), len(sentences), sentences)
 
     def test_the_pin_is_not_vacuous(self):
         # Mutation control: if the constant changed, the composed bytes
@@ -462,9 +582,20 @@ class ThisModuleOnlyComposesTests(unittest.TestCase):
         }
         self.assertEqual(
             public,
-            {"classify_parsed", "make_uia_notice", "observe_parsed"},
+            {
+                "classify_parsed",
+                "make_button_notice",
+                "notice_text_for",
+                "observe_parsed",
+            },
             sorted(public),
         )
+        # And the door `runtime.py` actually uses is still the one that
+        # answers WHICH outcome happened, so a call site can never get
+        # bytes without a line (round `1d6rta` renamed a function; it did
+        # not add a second acceptance set -- every public function above
+        # classifies through `classify_parsed` and nothing else).
+        self.assertIn("observe_parsed", public)
 
     def test_the_source_is_ascii(self):
         # The bridge console is cp874; a stray Thai character in a module
