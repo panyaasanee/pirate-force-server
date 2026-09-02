@@ -238,6 +238,37 @@ def corpse_body_for(
         return None
 
 
+def hp_token(
+    live_hostile_bodies: int, bodies_read_from_the_ledger: int,
+) -> str:
+    """What the ``hp=`` field of an ANSWERED line may honestly say.
+
+    FOUND BY THIS ROUND'S OWN ADVERSARIAL PROBE, AND IT IS THE DEFECT
+    SHAPE pf-adversary D8 NAMED IN ROUND ``cu1il6``: report the OUTCOME,
+    not the argument.  Both responders used to print ``hp=ceiling``
+    whenever no body had been read from the ledger -- true while every
+    hostile body in a frame was a live one, and FALSE the moment corpses
+    entered the picture.  Bury all twelve of scene 2's hostile rows and
+    the frame contains no ceiling at all, yet the old expression still
+    announced one, because a corpse takes its HP from neither source.
+
+    So the three values mean exactly this, and nothing wider:
+
+    * ``ledger``   -- at least one LIVE hostile body carried HP this
+      responder read out of the admitted ledger.  It is still NOT
+      evidence that a wound survived (``COO-DECISION 20260902_1945``
+      item 4.3): only ``wounded=`` is.
+    * ``ceiling``  -- there are live hostile bodies and every one of them
+      carries its table ceiling.
+    * ``no_live_body`` -- there is no live hostile body in this frame to
+      describe.  Either the scene has no hostile rows at all, or every
+      one of them is in the answer as a corpse (``dead_as_corpse=``).
+    """
+    if live_hostile_bodies <= 0:
+        return "no_live_body"
+    return "ledger" if bodies_read_from_the_ledger else "ceiling"
+
+
 def hp_for_a_body_that_is_not_the_click(
     mob: Any, ledger: Any
 ) -> tuple[int, bool, bool]:

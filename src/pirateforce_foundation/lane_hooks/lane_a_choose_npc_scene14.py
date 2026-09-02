@@ -393,6 +393,9 @@ def respond(
         hostile_wounded = 0
         dead_bodies_at_ceiling = 0
         dead_bodies_as_corpses = 0
+        # LIVE hostile bodies only -- a corpse takes its HP from neither
+        # the ledger nor the table, so it may not vote on ``hp=``.
+        hostile_live_sent = 0
         ceiling_placements: list[tuple[int, int]] = []
         for idx in population_indices:
             placement = by_idx.get(idx)
@@ -433,6 +436,7 @@ def respond(
                     lane_a_click_hp.hp_for_a_body_that_is_not_the_click(
                         hostile_mob, admitted_ledger)
                 )
+                hostile_live_sent += 1
                 hostile_from_ledger += int(from_ledger)
                 if was_dead:
                     # Not the clicked body, and no register could bury it:
@@ -519,7 +523,8 @@ def respond(
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
             f"placement={selected_idx} visible={len(entries)} "
             f"omitted={omitted} "
-            f"hp={'ledger' if hostile_from_ledger else 'ceiling'} "
+            "hp=" + lane_a_click_hp.hp_token(
+                hostile_live_sent, hostile_from_ledger) + " "
             f"from_ledger={hostile_from_ledger} "
             f"wounded={hostile_wounded} "
             f"dead_at_ceiling={dead_bodies_at_ceiling} "
