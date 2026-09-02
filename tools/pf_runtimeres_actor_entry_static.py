@@ -1211,6 +1211,17 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # re-derivation of the same body, which is how it can say where the derived
 # change mask sits without reading the end of a buffer.  That call is a real
 # call site and is counted here as one.
+# 26 -> 26 in round 9jrsei (LANE-B), and the NUMBER not moving is exactly why
+# this line is here: mob_combat's call site did not disappear, it MOVED.  On
+# the healthy path ``announce_frames`` now composes through
+# mob_loot.preserve_ground_in_runtime_res_vitals; its own
+# ``make_runtime_vitals`` call is the REFUSAL FALL BACK inside
+# ``runtime_vitals_preserving_the_ground``.  One site out, one site in, census
+# unchanged by coincidence.  Read that way, the round-7ptoku sentence above --
+# "MOB-COMBAT-001 ships its CHitResult announce frame over this carrier" -- is
+# no longer true of the path a player's hit takes, and this note is here
+# because a census that quietly changes MEANING stops being a census just as
+# surely as one that quietly widens (pf-adversary, round 9jrsei, D6).
 guard(SRC_VITAL_STREAM_SITES == 26,
       "src/ sends the VitalData carrier (make_runtime_vitals) at 26 call sites")
 guard(_count(r"make_runtime_remote_actors\(",

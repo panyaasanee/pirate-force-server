@@ -524,6 +524,130 @@ class MobCombatTests(unittest.TestCase):
             announce_frames(self.legacy, PERFORMER, self.mob, outcome),
             (expected_pc, expected_frame))
 
+    def test_the_console_line_is_the_four_fields_the_ruling_names(self):
+        """pf-adversary 9jrsei D3: renaming the token to XYZZY, freezing the
+        site, hardcoding the exception name and blanking the detail all left
+        the whole suite green -- so the line the operator is promised was
+        four fields nothing checked.  It is checked here, literally, and the
+        two variable fields are driven by TWO different exceptions so a
+        constant cannot satisfy both."""
+        self.assertEqual(
+            mob_combat.GROUND_VITALS_PRESERVE_REFUSED_TOKEN,
+            "GROUND_VITALS_PRESERVE_REFUSED")
+        self.assertEqual(
+            mob_combat.GROUND_VITALS_PRESERVE_SITE,
+            "mob_combat.announce_frames")
+
+        class Boom(Exception):
+            pass
+
+        class Shim:
+            def __init__(self, real, raiser):
+                self._real = real
+                self._raiser = raiser
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                raise self._raiser("wire is on fire")
+
+        seen = []
+        for raiser in (Boom, TypeError):
+            printed = []
+            real_print = builtins.print
+            builtins.print = lambda *a, **k: printed.append(
+                " ".join(str(x) for x in a))
+            try:
+                pc, frame = mob_combat.runtime_vitals_preserving_the_ground(
+                    Shim(self.legacy, raiser),
+                    [(CHIT_RESULT_VITAL_ID, 2, b"\x00")])
+            finally:
+                builtins.print = real_print
+            self.assertEqual(len(printed), 1)
+            fields = printed[0].split(" ", 3)
+            self.assertEqual(fields[0], "GROUND_VITALS_PRESERVE_REFUSED")
+            self.assertEqual(fields[1], raiser.__name__)
+            self.assertEqual(fields[2], "mob_combat.announce_frames")
+            self.assertIn("wire is on fire", fields[3])
+            seen.append(fields[1])
+            self.assertEqual(
+                (pc, frame),
+                self.legacy.make_runtime_vitals(
+                    [(CHIT_RESULT_VITAL_ID, 2, b"\x00")]))
+        self.assertEqual(len(set(seen)), 2, "the exception name is a constant")
+
+    def test_the_console_line_cannot_cost_the_damage_number(self):
+        """pf-adversary 9jrsei D2, measured twice on this project already
+        (rounds 86 and 142): the bridge console is cp874 strict, and a
+        console that raises inside the branch whose whole job is to keep the
+        damage number would take the damage number with it."""
+        class Nasty(Exception):
+            pass
+
+        class Shim:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                raise Nasty("bad detail \u4e2d\u6587 and\na newline")
+
+        vitals = [(CHIT_RESULT_VITAL_ID, 2, b"\x00")]
+        # (a) an unmappable character never reaches the encoder
+        printed = []
+        real_print = builtins.print
+        builtins.print = lambda *a, **k: printed.append(
+            " ".join(str(x) for x in a))
+        try:
+            first = mob_combat.runtime_vitals_preserving_the_ground(
+                Shim(self.legacy), vitals)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(len(printed), 1)
+        self.assertTrue(printed[0].isascii())
+        self.assertNotIn("\n", printed[0])
+        printed[0].encode("cp874")            # the real encoder, not a StringIO
+        # (b) a console that refuses every write costs the line, not the frame
+        def refuse(*_args, **_kwargs):
+            raise ValueError("I/O operation on closed file")
+
+        builtins.print = refuse
+        try:
+            second = mob_combat.runtime_vitals_preserving_the_ground(
+                Shim(self.legacy), vitals)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(first, second)
+        self.assertEqual(second, self.legacy.make_runtime_vitals(vitals))
+
+    def test_a_dead_vitals_composer_is_not_reported_as_a_ground_refusal(self):
+        """pf-adversary 9jrsei D4.  The preserve composer DRIVES
+        make_runtime_vitals, so a composer that is down raises through the
+        same except -- and the first draft printed 'only the ground list was
+        lost' at the exact moment the damage number was being lost."""
+        class Dead:
+            def __getattr__(self, name):
+                def boom(*_a, **_k):
+                    raise RuntimeError("v141 vitals composer down")
+                return boom
+
+        printed = []
+        real_print = builtins.print
+        builtins.print = lambda *a, **k: printed.append(
+            " ".join(str(x) for x in a))
+        try:
+            with self.assertRaises(RuntimeError):
+                mob_combat.runtime_vitals_preserving_the_ground(
+                    Dead(), [(CHIT_RESULT_VITAL_ID, 2, b"\x00")])
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            printed, [],
+            "a lost damage number was reported as a ground-list refusal")
+
     def test_the_fall_back_does_not_swallow_a_broken_vitals_composer(self):
         # The one exception the site must NOT absorb: if make_runtime_vitals
         # itself fails there is no damage number to ship, and answering with

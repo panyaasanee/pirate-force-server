@@ -44,6 +44,7 @@ from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
+from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
@@ -259,6 +260,35 @@ class MobCombatDispatchTests(unittest.TestCase):
         )
         self.assertGreater(balance.current_hp, 0)
         self.assertEqual(state.mob_death_register.records, ())
+
+    def test_what_the_burst_says_about_the_ground_pool_frame_by_frame(self):
+        """ROUND 9jrsei, and it exists because the round that opted the
+        announce frame in to the PRESERVE composer claimed something this
+        harness refutes (pf-adversary D1).
+
+        The announce frame now carries the ground list PRESENT with count 0.
+        The frame sent beside it at the same 0.0 s delay does NOT: the bar
+        refresh rides ``make_runtime_remote_actors``, which writes the same
+        envelope slot with bit 0x08 clear.  So "a hit no longer wipes the
+        loot" is NOT true of the burst, only of one frame in it.
+
+        This test states the burst as it actually is.  When a PRESERVE
+        composer for the remote-actors carrier lands, this is the test that
+        has to be updated -- deliberately, with a measurement -- rather than
+        a claim in a PR body that nothing checks.
+        """
+        state = self._state("mc_ground_bits")
+        actions = self._attack(state, CONTROL_TARGET)
+        preserve_tail = mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN
+        carries = {
+            label: pc.endswith(preserve_tail)
+            for label, pc, _frame, _delay in actions
+        }
+        self.assertEqual(
+            carries,
+            {"MOB_COMBAT_ANNOUNCE": True, "MOB_COMBAT_BAR": False},
+            "the ground-pool bit of this burst is not what the lane says it is",
+        )
 
     def test_a_target_that_is_not_a_field_mob_sends_nothing(self):
         state = self._state("mc_not_a_mob")
