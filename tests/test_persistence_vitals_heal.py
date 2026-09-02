@@ -1091,17 +1091,25 @@ class NothingIsWiredTests(unittest.TestCase):
             # excluded -- excluding a file is how the `store.py` hole above
             # happened.
             "tests/test_persistence_login_vitals.py",
+            "tests/test_persistence_vitals_heal.py",
         ),
         # Still nobody's.  The door exists so the first call site that needs
         # it does not write its own UPDATE past every rule in this lane.
-        "apply_hp_heal": (),
+        # Nobody's, in production.  The door exists so the first call site
+        # that needs it does not write its own UPDATE past every rule in this
+        # lane; the only calls are this file's, which drives it.
+        "apply_hp_heal": ("tests/test_persistence_vitals_heal.py",),
         # The two arithmetic doors, called by the store methods that own them
         # and by nothing else.  Pinned rather than skipped -- see
         # `_calls_by_door`.
-        "heal_to_full": ("src/pirateforce_foundation/store.py",),
+        "heal_to_full": (
+            "src/pirateforce_foundation/store.py",
+            "tests/test_persistence_vitals_heal.py",
+        ),
         "apply_heal": (
             "src/pirateforce_foundation/persistence_vitals.py",
             "src/pirateforce_foundation/store.py",
+            "tests/test_persistence_vitals_heal.py",
         ),
     }
 
@@ -1109,7 +1117,18 @@ class NothingIsWiredTests(unittest.TestCase):
 
     #: Directories the scan skips outright.  Named, so that a directory
     #: joining this list is a visible decision rather than an omission.
-    SKIPPED = (".git", "__pycache__", ".venv", "venv", "node_modules")
+    SKIPPED = (
+        ".git", "__pycache__", ".venv", "venv", "node_modules",
+        # !! EVERY ORDINARY PLACE A THIRD PARTY'S CODE LANDS.  A
+        # `pf-adversary` pass dropped `return target.heal_to_full()` into
+        # `env/lib/python3.11/site-packages/thirdparty/potions.py` -- an
+        # untracked virtualenv, not this repository -- and this lane's file
+        # went red for code nobody here wrote.  A scan that grades the
+        # working directory charges another lane's `pip install` to whoever
+        # is standing nearest.
+        "env", ".env", ".tox", "build", "dist", ".eggs",
+        "site-packages", ".mypy_cache", ".pytest_cache", ".idea", ".vscode",
+    )
 
     #: Every python-ish suffix, not just `.py`.  A `pf-adversary` pass got a
     #: real wiring past an `rglob("*.py")` scan by naming the file `.pyw`.
@@ -1230,40 +1249,72 @@ class NothingIsWiredTests(unittest.TestCase):
             if name in doors:
                 called.add(name)
             if name == "getattr" and len(node.args) >= 2:
-                target = node.args[1]
-                if (isinstance(target, ast.Constant)
-                        and target.value in doors):
-                    called.add(target.value)
+                spelled = cls._string_value(node.args[1])
+                if spelled in doors:
+                    called.add(spelled)
         return called
 
-    #: The one file left out of the call map, and why: grading these doors is
-    #: its job, so its own calls are tests rather than wiring.  A PRODUCTION
-    #: caller hiding in a test file is still caught by the textual scan
-    #: above, which admits only `ALLOWED_TO_NAME_THEM`.
-    GRADES_THE_DOORS = "tests/test_persistence_vitals_heal.py"
+    @staticmethod
+    def _string_value(node):
+        """The string this expression spells, or `None` if it is computed.
+
+        `"restore_hp_to" + "_full"` is a `BinOp` that no `Constant` check
+        sees -- a `pf-adversary` pass planted exactly that in `session.py`
+        and watched both scans stay green, because the regex sees no whole
+        door name either.  Adjacent literals (`"a" "b"`) are folded by the
+        parser and need nothing; `+` is folded here.
+        """
+        if isinstance(node, ast.Constant):
+            return node.value if isinstance(node.value, str) else None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = NothingIsWiredTests._string_value(node.left)
+            right = NothingIsWiredTests._string_value(node.right)
+            if left is not None and right is not None:
+                return left + right
+        return None
+
+    #: `_calls_by_door`'s answer, computed once per process.  Parsing ~600
+    #: files takes ~4s and three tests ask the same question; the cache is
+    #: keyed by nothing because the repository does not change mid-run.
+    _CALL_MAP_CACHE = None
 
     def _calls_by_door(self):
         """`doors_called_in` over every python file in the repository.
 
-        !! THE TWO DEFINING MODULES ARE WALKED, NOT SKIPPED.  A first draft
-        skipped them as "owners" and a `pf-adversary` pass planted a second
-        production caller of `restore_hp_to_full` inside `store.py` and
-        watched the suite stay green.  Their real call sites are pinned in
-        `AUTHORISED_CALLS` instead.
+        !! NOTHING IS EXCLUDED, INCLUDING THIS FILE, AND BOTH HALVES OF THAT
+        ARE MEASURED.  A first draft skipped the two defining modules as
+        "owners", and a `pf-adversary` pass planted a second production
+        caller of `restore_hp_to_full` inside `store.py` and watched the
+        suite stay green.  The draft after it still skipped THIS file as the
+        one that grades the doors -- and the same pass planted
+        `store.apply_hp_heal(...)` here and got eleven green tests, with the
+        map still saying that door has no callers at all.  A file listed in
+        `AUTHORISED_CALLS` is a file whose calls somebody counted; a file
+        skipped is a hole, and this class had already written that sentence
+        about `store.py` before applying it to itself.
         """
+        if NothingIsWiredTests._CALL_MAP_CACHE is not None:
+            return NothingIsWiredTests._CALL_MAP_CACHE
         found = {door: set() for door in self.AUTHORISED_CALLS}
         for relative, path in self._scanned_files():
-            if relative == self.GRADES_THE_DOORS:
-                continue
             text = path.read_text(encoding="utf-8", errors="replace")
             for door in self.doors_called_in(text):
                 found[door].add(relative)
+        NothingIsWiredTests._CALL_MAP_CACHE = found
         return found
 
     def test_the_only_call_sites_are_the_ones_a_decision_authorised(self):
         """`restore_hp_to_full` has exactly one caller and `apply_hp_heal`
         has none.  Both halves matter: the first pins WHO revives, the second
         says the other door is still a door nobody opened."""
+        # THE LIMIT OF THIS ASSERTION, NAMED: it compares SETS, so a second
+        # call to an already-listed door inside an already-listed file is
+        # invisible.  A `pf-adversary` pass measured that and it is a licence
+        # rather than a hole -- the listed files are the two owning modules
+        # and the two test files that drive the doors, and a PRODUCTION
+        # wiring cannot land in any of them without also changing what those
+        # files are.  Counting call sites per file would go red on every
+        # test this lane adds.
         found = self._calls_by_door()
         for door, authorised in self.AUTHORISED_CALLS.items():
             with self.subTest(door=door):
@@ -1285,6 +1336,8 @@ class NothingIsWiredTests(unittest.TestCase):
                 ("attribute call", "store.%s(cid)" % door),
                 ("bare call", "%s(1, 2)" % door),
                 ("getattr", 'getattr(store, "%s")(cid)' % door),
+                ("concatenated getattr",
+                 'getattr(store, "%s" + "%s")(cid)' % (door[:4], door[4:])),
                 ("split literal getattr",
                  'getattr(store, "%s" "%s")(cid)' % (door[:3], door[3:])),
             ):

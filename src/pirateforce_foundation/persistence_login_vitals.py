@@ -117,9 +117,8 @@ WHAT THIS DOES NOT CLAIM
   that go out are read back from the row afterwards, so a login that reports
   `ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN` sends what the database holds.  The
   one path where they can still differ has its own name and its own shouted
-  line (`REVIVE_WROTE_BUT_ROW_NOT_READ_BACK`): a write that returned while
-  the row could not be confirmed sends the caller's literals rather than a
-  number nobody read.  What is still NOT claimed is that any of it is observable: nothing
+  line (`REVIVE_NOT_CONFIRMED`): when the row cannot be read back at all, the
+  caller's literals go out rather than a number nobody read.  What is still NOT claimed is that any of it is observable: nothing
   calls this module, so no player has been revived by it, and "beaten to 0,
   logged out, back on your feet" reaches a screen only in the round that
   lands the seam.
@@ -182,45 +181,56 @@ ROW_HP_NOT_POSITIVE = "row_hp_current_not_positive"
 #: is lowercase and a single capitalised member would be a second convention;
 #: `console_line` shouts the failure token below in the decision's own case.
 ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN = "row_hp_not_positive_revived_on_login"
-#: The row said the character was dead and THE WRITE DOOR REFUSED: it raised,
-#: so `store.restore_hp_to_full`'s own contract ("nothing is written when
-#: anything is refused") says the row is untouched.  The literals go out --
-#: point 4 of the decision, a login is never failed for this -- and the
-#: failure is SHOUTED rather than filed under the reason for a successful
-#: revive.
+#: The revive did not take: THE ROW WAS READ BACK AND IT STILL SAYS THE
+#: CHARACTER IS DEAD.  The literals go out -- point 4 of the decision, a login
+#: is never failed for this -- and the failure is SHOUTED rather than filed
+#: under the reason for a successful revive.
+#:
+#: !! THIS TOKEN IS DECIDED BY THE ROW, NOT BY THE WRITE DOOR, AND THAT IS THE
+#: SECOND `pf-adversary` PASS'S CORRECTION.  The first draft answered it
+#: whenever `restore_hp_to_full` RAISED, on the strength of that method's
+#: sentence "nothing is written when anything is refused" -- which is about a
+#: REFUSAL (`KeyError`, `VitalsError`) and says nothing about an exception
+#: raised after the `UPDATE` committed.  Measured on a real database: a store
+#: that forwards the write and then raises left `hp_current` at 250 on disk
+#: while this module printed "the row still says hp_current=0".  A module that
+#: has the store in its hand may not assert what the database holds without
+#: looking.
 #:
 #: THE CITATION FOR "A LOGIN IS NEVER FAILED" IS TAGGED BY LAYER, because a
 #: `pf-adversary` pass measured an earlier draft over-claiming it as a
 #: client-observable measurement of THIS path.  What `D1` of
-#: `20260903_0115` measured is source-layer: `runtime.py`'s START_GAME_REQ
-#: handler catches `KeyError`, `PermissionError`, `ValueError` and
-#: `RuntimeError` and lets a `TypeError` escape, and `v141` wraps its
+#: `pf_bridge/notes_to_chief/20260903_0115_...` -- IN THE OTHER REPOSITORY,
+#: UNOPENABLE FROM HERE -- measured is source-layer: `runtime.py`'s
+#: START_GAME_REQ handler catches `KeyError`, `PermissionError`, `ValueError`
+#: and `RuntimeError` and lets a `TypeError` escape, and `v141` wraps its
 #: per-connection loop with no `except` at all.  "The client parks on
 #: connecting" is `runtime.py`'s own recorded observation about a DIFFERENT
 #: refusal.  Consistent, not proven, and named that way.
 REVIVE_WRITE_FAILED = "revive_write_failed"
-#: !! THE THIRD STATE, AND IT IS THE ONE THE DECISION DID NOT NAME.  The
-#: write door returned without raising -- so something may well have been
-#: written -- AND the row could not be confirmed afterwards: the read-back
-#: raised, or it came back refused by the gate, or it still says the
-#: character is dead.
+#: !! THE THIRD STATE, AND IT IS THE ONE THE DECISION DID NOT NAME: THE ROW
+#: COULD NOT BE CONFIRMED.  The read-back raised, or it came back refused by
+#: the vitals gate -- so this module does not know whether the character is
+#: alive on disk, and it says exactly that instead of guessing either way.
 #:
-#: A `pf-adversary` pass measured what folding this into `REVIVE_WRITE_FAILED`
-#: costs, on a real database: the write landed (`hp_current` went 0 -> 250 on
-#: disk), the read-back hit a locked database, and the login reported "the
-#: write did not happen" while the row said it had.  That is the wire-versus-
-#: row disagreement `COO-DECISION 20260903_0250` exists to end, arriving
-#: through the token meant to prevent it.
+#: Two `pf-adversary` passes shaped this token.  The first measured what
+#: folding "unconfirmable" into `REVIVE_WRITE_FAILED` costs: the write landed
+#: (`hp_current` 0 -> 250 on disk), the read-back hit a locked database, and
+#: the login reported "the write did not happen".  The second measured the
+#: mirror mistake in the answer to the first -- a row that read back CLEANLY
+#: and still said dead was reported as unconfirmable, promising a repair at a
+#: next login that would never come.  So the rule is now one rule: after any
+#: write attempt, only what the row SAYS goes out, and this token is reserved
+#: for the case where the row says nothing readable.
 #:
-#: WHAT GOES OUT IS STILL THE CALLER'S LITERALS, and that is the safe half
-#: rather than a guess: the module cannot see the row, so it may not claim
-#: to be sending it, and the literals are byte-for-byte what `main` sends
-#: today.  The wire may therefore disagree with the row until the next login
-#: -- WHICH THE CONSOLE LINE SAYS, IN CAPITALS -- and the next login repairs
-#: it, because a row that is still dead is revived again and a row that was
-#: healed reads back as `FROM_ROW`.  Reported to COO as an extension of the
-#: decision the same round it landed.
-REVIVE_WROTE_BUT_ROW_NOT_READ_BACK = "revive_wrote_but_row_not_read_back"
+#: WHAT GOES OUT IS THE CALLER'S LITERALS, and that is the safe half rather
+#: than a guess: the module cannot see the row, so it may not claim to be
+#: sending it, and the literals are byte-for-byte what `main` sends today.
+#: Reported to COO as an extension of the decision, in
+#: `pf_bridge/notes_to_chief/20260903_0325_LANE-DB-REPORT-COO-the-dead-row-
+#: revive-landed.md` -- ALSO IN THE OTHER REPOSITORY AND UNOPENABLE FROM
+#: HERE.
+REVIVE_NOT_CONFIRMED = "revive_not_confirmed"
 
 #: Every reason this module can return.  A console reader (and the tests) may
 #: treat a token outside this set as a bug rather than as news.
@@ -233,7 +243,7 @@ REASONS = frozenset({
     ROW_HP_NOT_POSITIVE,
     ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN,
     REVIVE_WRITE_FAILED,
-    REVIVE_WROTE_BUT_ROW_NOT_READ_BACK,
+    REVIVE_NOT_CONFIRMED,
 })
 
 #: The reasons whose three numbers are the ROW's and therefore go out on the
@@ -256,7 +266,7 @@ WIRE_TAKES_THE_ROWS_NUMBERS = frozenset({
 #: it may not read like the five ordinary refusals above it.
 LOUD_REASONS = frozenset({
     REVIVE_WRITE_FAILED,
-    REVIVE_WROTE_BUT_ROW_NOT_READ_BACK,
+    REVIVE_NOT_CONFIRMED,
 })
 
 #: WHY A DEAD ROW SENDS THE LITERALS, AND WHY THAT IS A QUESTION AND NOT AN
@@ -361,11 +371,11 @@ class ResolvedLoginVitals:
         so the wire may not go on carrying the literals as if it had not.
         THE TWO FAILURE TOKENS RETURN `{}` FOR TWO DIFFERENT REASONS, and
         the difference is why there are two of them.  `REVIVE_WRITE_FAILED`
-        means the write door raised, so nothing was written and the wire may
-        not claim otherwise.  `REVIVE_WROTE_BUT_ROW_NOT_READ_BACK` means
-        something may well have been written and this module CANNOT SEE THE
-        ROW -- so it sends the caller's literals precisely because it has no
-        row to send, and says so in capitals on the console.
+        means the row was READ BACK and still says the character is dead, so
+        there is nothing alive to send.  `REVIVE_NOT_CONFIRMED` means the row
+        could not be read back at all -- so this module has no row to send,
+        which is a different thing from having a dead one, and it says so in
+        capitals on the console.
         """
         if not self.wire_matches_the_row:
             return {}
@@ -563,16 +573,21 @@ def _revive_on_login(
        -- and the message, not only the class, so an operator can tell a
        locked database from a missing migration.
     """
+    # ONE RULE FOR BOTH OUTCOMES OF THE WRITE ATTEMPT, AND THE SECOND
+    # `pf-adversary` PASS IS WHY.  The first draft branched here: a write
+    # that RETURNED had to be confirmed against the row, while a write that
+    # RAISED was answered with "the row still says hp_current=0" on the
+    # strength of another module's sentence about refusals.  Measured on a
+    # real database, a store that forwards the write and then raises leaves
+    # the row healed and this module announcing that it is not.  So the
+    # attempt is only ever DESCRIBED, and what goes out is decided by reading
+    # the row -- once, on both paths.
     try:
         outcome = store.restore_hp_to_full(character_id)
     except Exception as exc:   # noqa: BLE001 -- a login outranks a bad write
-        return _fallback(
-            REVIVE_WRITE_FAILED,
-            f"the revive write raised {type(exc).__name__}: {exc}; "
-            f"the row still says {refusal.detail}",
-            fallback_level, fallback_hp_current, fallback_hp_max,
-        )
-    reported = _what_the_write_reported(outcome)
+        attempt = f"the write raised ({_describe(exc)})"
+    else:
+        attempt = f"the write returned ({_what_the_write_reported(outcome)})"
     try:
         after = resolve(
             store.read_character_vitals(character_id),
@@ -582,19 +597,33 @@ def _revive_on_login(
         )
     except Exception as exc:   # noqa: BLE001 -- a login outranks a bad read
         return _fallback(
-            REVIVE_WROTE_BUT_ROW_NOT_READ_BACK,
-            f"THE WRITE RETURNED ({reported}) AND THE ROW COULD NOT BE READ "
-            f"BACK ({type(exc).__name__}: {exc}) -- the wire carries the "
-            f"caller's literals and may disagree with the row until the next "
-            f"login",
+            REVIVE_NOT_CONFIRMED,
+            f"{attempt} AND THE ROW COULD NOT BE READ BACK "
+            f"({_describe(exc)}) -- THIS LOGIN DOES NOT KNOW WHETHER THE "
+            f"CHARACTER IS ALIVE ON DISK, so it sends the caller's literals "
+            f"and the wire may disagree with the row",
+            fallback_level, fallback_hp_current, fallback_hp_max,
+        )
+    if after.reason == ROW_HP_NOT_POSITIVE:
+        # READ BACK, CLEANLY, AND STILL DEAD.  This is the one state that is
+        # really "the revive did not take", and it is decided by the row
+        # rather than by whether the door raised.  A `pf-adversary` pass
+        # measured the cost of calling it "unconfirmed" instead: a store
+        # whose write is a no-op printed "may disagree until the next login"
+        # on EVERY login, promising a repair that never arrives.
+        return _fallback(
+            REVIVE_WRITE_FAILED,
+            f"{attempt} AND THE ROW WAS READ BACK AND STILL SAYS THE "
+            f"CHARACTER IS DEAD ({after.detail}) -- the revive did not take, "
+            f"and the login sends the caller's literals",
             fallback_level, fallback_hp_current, fallback_hp_max,
         )
     if after.reason != FROM_ROW:
         return _fallback(
-            REVIVE_WROTE_BUT_ROW_NOT_READ_BACK,
-            f"THE WRITE RETURNED ({reported}) AND THE ROW READ BACK AS "
-            f"{after.reason}: {after.detail} -- the wire carries the caller's "
-            f"literals and may disagree with the row until the next login",
+            REVIVE_NOT_CONFIRMED,
+            f"{attempt} AND THE ROW READ BACK AS {after.reason}: "
+            f"{after.detail} -- THIS LOGIN CANNOT USE THAT ROW, so it sends "
+            f"the caller's literals and the wire may disagree with the row",
             fallback_level, fallback_hp_current, fallback_hp_max,
         )
     from . import persistence_vitals as vitals
@@ -611,7 +640,7 @@ def _revive_on_login(
     return ResolvedLoginVitals(
         after.level, after.hp_current, after.hp_max,
         ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN,
-        f"the row said {refusal.detail}; the write reported {reported}; the "
+        f"the row said {refusal.detail}; {attempt}; the "
         f"row now holds level={after.level!r} hp={after.hp_current!r}/"
         f"{after.hp_max!r}"
         + (
@@ -623,6 +652,49 @@ def _revive_on_login(
     )
 
 
+#: The longest a described value may be before it is cut.  A `pf-adversary`
+#: pass fed a 500 KB field through an earlier draft and measured a 500,394
+#: character console line; the bridge console is one line per event and an
+#: operator scrolling past half a megabyte has been told nothing.
+_FRAGMENT_LIMIT = 160
+
+
+def _ascii_fragment(text) -> str:
+    """One short ASCII run, whatever was handed in.
+
+    `console_line` filters the finished line too, and this is deliberately
+    not "the same check twice": a `pf-adversary` pass measured that anything
+    reading `detail` or `repr()` DIRECTLY -- a log line, a debugger, a
+    `print` in a tool -- gets the raw bytes, and a byte outside cp874 kills
+    the bridge console mid-report.  Filtering at the source makes every
+    reader safe, not only the one that remembers to ask.
+    """
+    try:
+        rendered = str(text)
+    except Exception:   # noqa: BLE001 -- a login outranks an unprintable value
+        return "<a value that could not be rendered>"
+    if len(rendered) > _FRAGMENT_LIMIT:
+        rendered = rendered[:_FRAGMENT_LIMIT] + "...<cut>"
+    return "".join(c if 32 <= ord(c) < 127 else "?" for c in rendered)
+
+
+def _describe(exc) -> str:
+    """An exception as one ASCII fragment: the class AND the message.
+
+    The message, not only the class, for the reason the read path already
+    records: a database missing migration 006 ("no such column: hp_current")
+    and a WAL lock timeout ("database is locked") are both
+    `OperationalError`.  Never raises -- a `pf-adversary` pass measured an
+    exception whose own `__str__` raises escaping an earlier draft of this
+    module THROUGH the handler that existed to stop it.
+    """
+    try:
+        name = type(exc).__name__
+    except Exception:   # noqa: BLE001
+        name = "<an exception with no readable class>"
+    return f"{name}: {_ascii_fragment(exc)}"
+
+
 def _what_the_write_reported(outcome) -> str:
     """The write's own account of itself, in one ASCII fragment, never raising.
 
@@ -632,18 +704,21 @@ def _what_the_write_reported(outcome) -> str:
     same character wins the `BEGIN IMMEDIATE` race, and the loser's write is
     a no-op reporting `was_already_full`.  Read through `getattr` and wrapped,
     because a store handed to a seam is not always this repository's.
+
+    THE FIELD NAMES ARE PINNED AGAINST THE REAL `HealOutcome` by
+    `tests/test_persistence_login_vitals.py`, because a `pf-adversary` pass
+    measured that reading `hp_start`/`hp_end` -- names that dataclass does
+    not have -- left every test green while every production revive printed
+    `None`.
     """
     try:
-        return (
+        return _ascii_fragment(
             f"hp_before={getattr(outcome, 'hp_before', None)!r} "
             f"hp_after={getattr(outcome, 'hp_after', None)!r} "
             f"was_already_full={getattr(outcome, 'was_already_full', None)!r}"
         )
     except Exception as exc:   # noqa: BLE001 -- a login outranks a bad report
-        return (
-            f"an outcome that could not be described "
-            f"({type(exc).__name__}: {exc})"
-        )
+        return f"an outcome that could not be described ({_describe(exc)})"
 
 
 def resolve_for_character(

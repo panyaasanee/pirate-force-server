@@ -96,11 +96,21 @@ from test_persistence_typed_attr_columns import (  # noqa: E402
 MIGRATIONS = ROOT / "migrations"
 MODULE_SOURCE = ROOT / "src" / "pirateforce_foundation" / "persistence_login_vitals.py"
 
-#: Every tree a seam could land in, matching the sibling caller scan in
-#: `tests/test_persistence_vitals.py` rather than inventing a shorter list.
-SEAM_SCAN_TREES = (
-    ROOT / "src", ROOT / "tools", ROOT / "scenarios", ROOT / "current",
-    ROOT / "tests", ROOT / "drafts", ROOT / "reports",
+#: Directories the seam scan skips, and NOTHING ELSE IS SKIPPED.
+#:
+#: !! IT WALKS FROM `ROOT`, NOT A LIST OF TREES, AND THE LIST IS WHY.  This
+#: file carried seven named trees -- the sibling scan's list -- and a
+#: `pf-adversary` pass planted a real caller at `./login_seam.py` and at
+#: `rounds/seam_under_rounds.py` and watched "nothing calls this module" stay
+#: green.  `tests/test_persistence_vitals_heal.py` had already moved to a
+#: full walk for exactly those two dodges, in this same lane, and this scan
+#: -- the one defending the module's central nonclaim -- had not.  The
+#: skip list matches that file's, third-party trees included, so an untracked
+#: virtualenv cannot turn this red for code nobody here wrote.
+SEAM_SCAN_SKIPPED = (
+    ".git", "__pycache__", ".venv", "venv", "node_modules",
+    "env", ".env", ".tox", "build", "dist", ".eggs",
+    "site-packages", ".mypy_cache", ".pytest_cache", ".idea", ".vscode",
 )
 
 #: The files that name this module because grading it is their job.  Guarded
@@ -200,6 +210,44 @@ DISTINCT = dict(
     fallback_level=3, fallback_hp_current=11, fallback_hp_max=22)
 
 
+def _module_imports_in(source):
+    """Every import of this module in `source`, however it is spelled.
+
+    PARSED, NOT GREPPED, and a `pf-adversary` pass is why: the substring
+    version missed the plain dotted `import pirateforce_foundation.
+    persistence_login_vitals`, `importlib.import_module("pirateforce_"
+    "foundation.persistence_login_vitals")` (a split literal, the very dodge
+    a sibling scan in this lane had already been fixed for) and
+    `__import__(...)`.  Enumerating spellings is how a guard rots; asking the
+    parser is not.
+    """
+    import ast
+
+    name = "persistence_login_vitals"
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return [name] if name in source else []
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found += [a.name for a in node.names if name in a.name]
+        elif isinstance(node, ast.ImportFrom):
+            if name in (node.module or ""):
+                found.append(node.module)
+            found += [a.name for a in node.names if name in a.name]
+        elif isinstance(node, ast.Call):
+            called = getattr(node.func, "attr", None) or getattr(
+                node.func, "id", None)
+            if called in ("import_module", "__import__"):
+                for argument in node.args:
+                    if (isinstance(argument, ast.Constant)
+                            and isinstance(argument.value, str)
+                            and name in argument.value):
+                        found.append(argument.value)
+    return found
+
+
 def _build_wire(selector):
     return b"wire-%d" % selector, b"avatar", 0x30000001 + selector, 0
 
@@ -279,6 +327,27 @@ class _BlindAfterWriteStore:
 
     def restore_hp_to_full(self, character_id):
         return self._store.restore_hp_to_full(character_id)
+
+
+class _WritesThenRaisesStore:
+    """The real store, whose write door lands the write AND THEN raises.
+
+    `SQLiteStore.connect()` commits when its `with` block exits and can still
+    raise from the close that follows; a retrying or tracing store wrapped
+    around a seam does the same trivially.  A `pf-adversary` pass used this
+    shape to reproduce the round's own high defect after its first fix.
+    """
+
+    def __init__(self, store, error):
+        self._store = store
+        self._error = error
+
+    def read_character_vitals(self, character_id):
+        return self._store.read_character_vitals(character_id)
+
+    def restore_hp_to_full(self, character_id):
+        self._store.restore_hp_to_full(character_id)
+        raise self._error
 
 
 class _ReviveStoreStub:
@@ -866,6 +935,10 @@ class AgainstARealDatabaseTests(
             after[vitals.HP_MAX_COLUMN], dead[vitals.HP_MAX_COLUMN],
             "the revive moved hp_max, so 'its own maximum' is not what "
             "happened")
+        self.assertIn(
+            "hp_before=%d" % dead[vitals.HP_CURRENT_COLUMN], resolved.detail,
+            "the detail does not carry what the REAL HealOutcome reported, "
+            "so a renamed field would print None on every login unnoticed")
 
     def test_the_revived_numbers_are_the_rows_and_not_the_literals(self):
         """The measurement the natural path above CANNOT make.
@@ -1106,11 +1179,11 @@ class AgainstARealDatabaseTests(
 
         self.assertEqual(
             resolved.reason,
-            login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
+            login_vitals.REVIVE_NOT_CONFIRMED)
         self.assertNotEqual(
             resolved.reason, login_vitals.REVIVE_WRITE_FAILED,
-            "the row on disk was healed and the login says the write never "
-            "happened")
+            "the row on disk was healed and the login says the row was read "
+            "back and found dead")
         on_disk = self._row_vitals(character.id)
         self.assertEqual(
             on_disk[vitals.HP_CURRENT_COLUMN], ROW_HP_MAX,
@@ -1122,6 +1195,39 @@ class AgainstARealDatabaseTests(
             "the module sent numbers it could not read")
         self.assertEqual(resolved.wire_kwargs(), {})
         self.assertTrue(resolved.console_line().startswith("!! LOGIN_VITALS "))
+
+    def test_a_write_that_lands_then_raises_is_read_from_the_row(self):
+        """!! THE SECOND PASS'S REPRODUCTION, ON THIS DATABASE.  The write
+        reaches disk and the door raises afterwards -- a post-commit failure,
+        or any wrapping store a seam is handed.  The first draft answered
+        "the row still says hp_current=0" about a row holding 250."""
+        character = self._born("lv14")
+        self._write_row(
+            character.id,
+            **{vitals.LEVEL_COLUMN: ROW_LEVEL,
+               vitals.HP_CURRENT_COLUMN: 0,
+               vitals.HP_MAX_COLUMN: ROW_HP_MAX})
+        store = _WritesThenRaisesStore(
+            self.store, sqlite3.OperationalError("database is locked"))
+
+        resolved = login_vitals.resolve_for_character(
+            store, character.id, **FALLBACKS)
+
+        on_disk = self._row_vitals(character.id)
+        self.assertEqual(
+            on_disk[vitals.HP_CURRENT_COLUMN], ROW_HP_MAX,
+            "this test needs the write to have LANDED before the raise")
+        self.assertEqual(
+            resolved.reason,
+            login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN)
+        self.assertEqual(
+            (resolved.level, resolved.hp_current, resolved.hp_max),
+            (ROW_LEVEL, ROW_HP_MAX, ROW_HP_MAX),
+            "the login sent literals over a row that is alive on disk")
+        self.assertNotIn(
+            "still says", resolved.detail,
+            "the answer asserts something about the database that the "
+            "database does not say")
 
     def test_the_next_login_repairs_the_wire_after_a_blind_write(self):
         """The claim the token's comment makes, measured: the disagreement
@@ -1138,7 +1244,7 @@ class AgainstARealDatabaseTests(
         first = login_vitals.resolve_for_character(
             blind, character.id, **FALLBACKS)
         self.assertEqual(
-            first.reason, login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
+            first.reason, login_vitals.REVIVE_NOT_CONFIRMED)
 
         second = login_vitals.resolve_for_character(
             self.store, character.id, **FALLBACKS)
@@ -1224,10 +1330,12 @@ class ReviveOnLoginTests(unittest.TestCase):
         that is the wire-versus-row disagreement the decision ended."""
         store = _ReviveStoreStub(_resolution(**self.DEAD), after=None)
         resolved = self._resolve(store)
-        self.assertEqual(
-            resolved.reason,
-            login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
-        self.assertIn(login_vitals.ROW_HP_NOT_POSITIVE, resolved.detail)
+        self.assertEqual(resolved.reason, login_vitals.REVIVE_WRITE_FAILED)
+        self.assertIn("STILL SAYS THE CHARACTER IS DEAD", resolved.detail)
+        self.assertNotIn(
+            "until the next login", resolved.detail,
+            "a row that was read back and is still dead was promised a "
+            "repair at a next login that will do exactly the same thing")
         self.assertEqual(
             (resolved.level, resolved.hp_current, resolved.hp_max),
             (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX))
@@ -1238,15 +1346,15 @@ class ReviveOnLoginTests(unittest.TestCase):
             _resolution(**self.DEAD),
             _resolution(level=ROW_LEVEL, hp_current=90, hp_max=10))
         resolved = self._resolve(store)
-        self.assertEqual(
-            resolved.reason,
-            login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
+        self.assertEqual(resolved.reason, login_vitals.REVIVE_NOT_CONFIRMED)
         self.assertIn(
             login_vitals.ROW_REFUSED_BY_VITALS_GATE, resolved.detail,
             "the failure line does not say what the row read back as, so an "
             "operator cannot tell a lost write from a broken row")
 
-    def test_a_write_that_raises_is_not_a_failed_login(self):
+    def test_a_write_that_raises_over_a_row_that_is_still_dead(self):
+        """The door raised AND the row confirms nothing changed.  Only both
+        halves together are `REVIVE_WRITE_FAILED`."""
         store = _ReviveStoreStub(
             _resolution(**self.DEAD),
             write_raises=sqlite3.OperationalError("database is locked"))
@@ -1256,9 +1364,38 @@ class ReviveOnLoginTests(unittest.TestCase):
         self.assertIn(
             "OperationalError", resolved.detail,
             "the class was dropped, so two different faults read alike")
+        self.assertIn("READ BACK", resolved.detail)
         self.assertEqual(
             (resolved.level, resolved.hp_current, resolved.hp_max),
             (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX))
+        self.assertEqual(
+            store.reads, 2,
+            "the module decided what the database holds without reading it")
+
+    def test_a_write_that_raises_after_it_landed_is_not_called_a_failure(self):
+        """!! THE DEFECT THE SECOND `pf-adversary` PASS REPRODUCED.
+
+        A store that forwards the write and then raises -- a failure after
+        the commit, or any wrapping/retrying store a seam is handed -- left
+        the first draft printing "the row still says hp_current=0" about a
+        row holding its maximum.  The rule is now that the ROW decides, on
+        both paths, so this is a revive: the character is alive on disk.
+        """
+        store = _ReviveStoreStub(
+            _resolution(**self.DEAD), _resolution(**self.HEALED),
+            write_raises=sqlite3.OperationalError("database is locked"))
+        resolved = self._resolve(store)
+        self.assertEqual(
+            resolved.reason,
+            login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN)
+        self.assertEqual(
+            (resolved.level, resolved.hp_current, resolved.hp_max),
+            (ROW_LEVEL, ROW_HP_MAX, ROW_HP_MAX),
+            "the wire does not carry the row the database actually holds")
+        self.assertIn(
+            "the write raised", resolved.detail,
+            "the answer hides that the write door raised, so an operator "
+            "never learns their database is throwing")
 
     def test_a_read_back_that_raises_is_not_a_failed_login(self):
         """!! AND IT IS NOT `REVIVE_WRITE_FAILED` EITHER.  A `pf-adversary`
@@ -1271,13 +1408,16 @@ class ReviveOnLoginTests(unittest.TestCase):
             _resolution(**self.DEAD),
             read_back_raises=sqlite3.OperationalError("no such column: hp_max"))
         resolved = self._resolve(store)
-        self.assertEqual(
-            resolved.reason,
-            login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
+        self.assertEqual(resolved.reason, login_vitals.REVIVE_NOT_CONFIRMED)
         self.assertNotEqual(
             resolved.reason, login_vitals.REVIVE_WRITE_FAILED,
-            "a write that returned is being reported as a write that never "
-            "happened, which is a false statement about the database")
+            "a row nobody could read is being reported as a row that was "
+            "read and found dead, which is a false statement about the "
+            "database")
+        self.assertIn(
+            "DOES NOT KNOW WHETHER THE CHARACTER IS ALIVE", resolved.detail,
+            "the shouted warning this token exists for is not in the line an "
+            "operator reads")
         self.assertIn("no such column", resolved.detail)
         self.assertEqual(resolved.wire_kwargs(), {})
         self.assertEqual(
@@ -1291,17 +1431,18 @@ class ReviveOnLoginTests(unittest.TestCase):
         """One says the door refused, the other says the door returned.  A
         module that answers both with one token tells an operator to go
         looking for a write that did happen."""
-        raised = self._resolve(_ReviveStoreStub(
+        confirmed_dead = self._resolve(_ReviveStoreStub(
             _resolution(**self.DEAD),
             write_raises=sqlite3.OperationalError("database is locked")))
-        returned = self._resolve(_ReviveStoreStub(
+        unreadable = self._resolve(_ReviveStoreStub(
             _resolution(**self.DEAD),
             read_back_raises=sqlite3.OperationalError("database is locked")))
-        self.assertEqual(raised.reason, login_vitals.REVIVE_WRITE_FAILED)
         self.assertEqual(
-            returned.reason,
-            login_vitals.REVIVE_WROTE_BUT_ROW_NOT_READ_BACK)
-        self.assertNotEqual(raised.reason, returned.reason)
+            confirmed_dead.reason, login_vitals.REVIVE_WRITE_FAILED)
+        self.assertEqual(
+            unreadable.reason, login_vitals.REVIVE_NOT_CONFIRMED)
+        self.assertNotEqual(confirmed_dead.reason, unreadable.reason)
+        raised, returned = confirmed_dead, unreadable
         for resolved in (raised, returned):
             self.assertEqual(resolved.wire_kwargs(), {})
             self.assertNotIn(
@@ -1407,6 +1548,97 @@ class ReviveOnLoginTests(unittest.TestCase):
         self.assertIn(
             login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN, line)
         self.assertIn("hp=%d/%d" % (ROW_HP_MAX, ROW_HP_MAX), line)
+
+    def test_the_reported_fields_are_the_ones_HealOutcome_really_has(self):
+        """!! THE MUTANT: read `hp_start`/`hp_end`, names the dataclass does
+        not have, and every test stayed green while every production revive
+        printed `None`.  The fragment is tied to the real class here."""
+        for field in ("hp_before", "hp_after", "was_already_full"):
+            with self.subTest(field=field):
+                self.assertIn(
+                    field, vitals.HealOutcome.__annotations__,
+                    "%s is not a field of persistence_vitals.HealOutcome, so "
+                    "the write report reads None on every login" % field)
+        store = _ReviveStoreStub(
+            _resolution(**self.DEAD), _resolution(**self.HEALED),
+            outcome=_HealOutcomeStub(
+                hp_before=0, hp_after=ROW_HP_MAX, was_already_full=False))
+        detail = self._resolve(store).detail
+        for expected in ("hp_before=0", "hp_after=%d" % ROW_HP_MAX,
+                         "was_already_full=False"):
+            self.assertIn(
+                expected, detail,
+                "the write's own account of itself is not in the answer")
+
+    def test_a_hostile_outcome_cannot_kill_the_console_or_the_login(self):
+        """The bridge console is cp874 and one byte outside it kills the tool
+        mid-report.  `detail` is filtered AT THE SOURCE, not only inside
+        `console_line`, because a log line or a debugger reads `detail`
+        directly."""
+        class _Unprintable:
+            def __str__(self):
+                raise RuntimeError("this value refuses to be rendered")
+
+        cases = {
+            "non ascii": _HealOutcomeStub(hp_before="\u0e44\u0e21\u00e9"),
+            "enormous": _HealOutcomeStub(hp_before="x" * 500_000),
+            "unrenderable": _HealOutcomeStub(hp_before=_Unprintable()),
+        }
+        for label, outcome in cases.items():
+            with self.subTest(label):
+                resolved = self._resolve(_ReviveStoreStub(
+                    _resolution(**self.DEAD), _resolution(**self.HEALED),
+                    outcome=outcome))
+                self.assertEqual(
+                    resolved.reason,
+                    login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN)
+                for text in (resolved.detail, resolved.console_line(),
+                             repr(resolved)):
+                    text.encode("cp874")
+                    self.assertEqual(
+                        text,
+                        "".join(
+                            c if 32 <= ord(c) < 127 else "?" for c in text),
+                        "a byte outside the console's page reached a reader "
+                        "of this answer")
+                self.assertLess(
+                    len(resolved.detail), 2000,
+                    "one console event grew past what an operator can read")
+
+    def test_an_exception_that_cannot_be_printed_does_not_escape(self):
+        """A `pf-adversary` pass drove an exception whose own `__str__`
+        raises straight THROUGH the handler written to stop it."""
+        class _Unspeakable(Exception):
+            def __str__(self):
+                raise RuntimeError("even the message refuses")
+
+        resolved = self._resolve(_ReviveStoreStub(
+            _resolution(**self.DEAD), write_raises=_Unspeakable()))
+        self.assertIn(resolved.reason, login_vitals.REASONS)
+        self.assertIn("_Unspeakable", resolved.detail)
+
+    def test_every_shouted_answer_says_what_the_operator_must_do_about_it(self):
+        """The capitals are the claim this round leads with, so they are
+        graded.  Mutants that lowercase the warning or delete it survived
+        until this test."""
+        unreadable = self._resolve(_ReviveStoreStub(
+            _resolution(**self.DEAD),
+            read_back_raises=sqlite3.OperationalError("database is locked")))
+        failed = self._resolve(_ReviveStoreStub(
+            _resolution(**self.DEAD),
+            write_raises=sqlite3.OperationalError("database is locked")))
+        self.assertIn(
+            "THE ROW COULD NOT BE READ BACK", unreadable.detail)
+        self.assertIn(
+            "the wire may disagree with the row", unreadable.detail)
+        self.assertIn("STILL SAYS THE CHARACTER IS DEAD", failed.detail)
+        for resolved in (unreadable, failed):
+            self.assertTrue(
+                resolved.console_line().startswith("!! LOGIN_VITALS "))
+            self.assertIn(
+                resolved.reason.upper(), resolved.console_line(),
+                "the shouted line no longer carries the token an operator "
+                "greps for")
 
     def test_neither_new_answer_ever_carries_a_zero(self):
         """`PANYA-DECISION 20260901_1059` still holds over the new branch."""
@@ -1562,18 +1794,25 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
         charged to whichever lane is standing nearest.
         """
         importers = []
-        for tree in SEAM_SCAN_TREES:
-            if not tree.exists():
+        seen = 0
+        for path in sorted(ROOT.rglob("*")):
+            if not path.is_file() or path.suffix not in (".py", ".pyw", ".pyi"):
                 continue
-            for path in tree.rglob("*.py"):
-                relative = path.relative_to(ROOT).as_posix()
-                if relative in NAMES_THE_MODULE_BY_CONSTRUCTION:
-                    continue
-                if path.resolve() == MODULE_SOURCE.resolve():
-                    continue
-                if "persistence_login_vitals" in path.read_text(
-                        encoding="utf-8", errors="replace"):
-                    importers.append(relative)
+            relative = path.relative_to(ROOT).as_posix()
+            if any(part in SEAM_SCAN_SKIPPED for part in relative.split("/")):
+                continue
+            seen += 1
+            if relative in NAMES_THE_MODULE_BY_CONSTRUCTION:
+                continue
+            if path.resolve() == MODULE_SOURCE.resolve():
+                continue
+            if "persistence_login_vitals" in path.read_text(
+                    encoding="utf-8", errors="replace"):
+                importers.append(relative)
+        self.assertGreater(
+            seen, 100,
+            "the walk found almost nothing, so a green result here would "
+            "mean the scan is broken rather than that nothing calls it")
         self.assertEqual(
             sorted(importers), [],
             "a seam now names this module, so the round file's 'nothing "
@@ -1591,6 +1830,10 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
             with self.subTest(path=relative):
                 text = (ROOT / relative).read_text(
                     encoding="utf-8", errors="replace")
+                self.assertEqual(
+                    [], _module_imports_in(text),
+                    "%s is allowed to NAME this module and IMPORTS it, so "
+                    "the allowlist is hiding a caller" % relative)
                 for spelling in (
                     # A `pf-adversary` pass drove the dotted spelling
                     # (`import pirateforce_foundation.persistence_login_
