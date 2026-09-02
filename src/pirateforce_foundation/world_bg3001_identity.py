@@ -68,14 +68,36 @@ both level 110, both with NO ``MOBS_TIP`` row at all (the two sea-weather
 markers ``world_m2_sea_destination`` named in August, thunderstorm / dead
 calm).  THE RULE THIS ROUND TAKES: ship the FIRST leg, keep the whole
 string in ``MULTI_SET_PLACEMENTS``, and never let a raw ``|`` reach the
-shipped column (``_self_check`` refuses at import if one does).  [LANE-A
-ASSUMPTION - AWAITING COO/OWNER CONFIRMATION.]  What makes the assumption
-cheap rather than load-bearing: BOTH legs are invisible, unnamed and
-identical on every column this module ships except the MOBS id, so picking
-the other leg changes no pixel and no label - it changes one number in the
-console evidence.  Set 54 is therefore a key CLINE HAS that no shipped row
-uses, recorded in ``SECOND_LEG_ONLY`` rather than left to look like an
-omission - the same shape bg0011's untouched key 106 carries.
+shipped column (``_self_check`` refuses at import if one does).  ~~[LANE-A ASSUMPTION -
+AWAITING COO/OWNER CONFIRMATION.]~~  **CONFIRMED, ``COO-DECISION
+20260902_2146`` shape 2**, and with a gate attached, because the ruling
+turns on the REASON and not on the rule: what makes the first leg safe
+here is that BOTH legs are invisible, unnamed and identical on every
+column this module ships except the MOBS id - NOT that "the first leg
+wins".  This shape has 98 placements across 16 scenes; left as a bare rule
+it would one day swallow a visible monster in silence.
+
+So ``MULTI_SET_GATE`` (executable, run by ``_self_check``, refuses at
+import) rejects a multi-set placement when EITHER:
+
+1. the legs disagree on any column this module ships except the MOBS id,
+   or a leg's identity is not in this table at all - unknown is not equal;
+   or
+2. any leg is not ``INVISIBLE``, or any leg HAS a ``MOBS_TIP`` row (a body
+   that can be seen, or a name plate that can be read).
+
+A rejected placement must NOT quietly ship its first leg: it goes to
+``UNRESOLVED`` and the COO gets a letter.  Measured for this scene:
+53 -> CLINE 60452 -> MOBS 8167 and 54 -> CLINE 60453 -> MOBS 8171 are both
+``INVISIBLE``, level 110, rank 0, usage 7, HP 260787, with NO ``MOBS_TIP``
+row on either - so all six placements pass the gate rather than being
+exempt from it.  ``COO-DECISION 20260902_2146`` also bars applying the
+first-leg rule to the other 16 scenes until this gate is on ``main``.
+
+Set 54 is therefore a key CLINE HAS that no shipped row uses, recorded in
+``SECOND_LEG_ONLY`` rather than left to look like an omission - the same
+shape bg0011's untouched key 106 carries, and now carrying the second
+leg's full shipped columns so the gate can COMPARE rather than assert.
 
 TWO SETS DO NOT RESOLVE (COST 2 PLACEMENTS), TWO DIFFERENT SHAPES.
 
@@ -83,7 +105,7 @@ TWO SETS DO NOT RESOLVE (COST 2 PLACEMENTS), TWO DIFFERENT SHAPES.
   the only zero-leader row in the block (measured, and the same row
   ``world_m2_sea_destination`` flagged in August).  Costs placement 28.
   Same "leader is literally 0" shape bg0007's set 111 carries.
-* Set 56 -> CLINE row 60455 -> MOBS 8180, a real bodied row
+* ~~Set 56 -> CLINE row 60455 -> MOBS 8180, a real bodied row
   (``M081_000_000_N``, level 60) whose ``MOBS_TIP.s_NAME`` is THAI, not
   ASCII.  A NEW failure shape for this lane: every earlier drop of this
   kind was CJK, which ``cp874`` cannot encode at all, while Thai is
@@ -91,9 +113,41 @@ TWO SETS DO NOT RESOLVE (COST 2 PLACEMENTS), TWO DIFFERENT SHAPES.
   narrower reason that this lane's evidence layer - ``actor_lines``, the
   census console line, the ticket a tester copies - is ASCII by contract,
   and shipping a name the headless proof cannot print is how a shortfall
-  becomes invisible.  [LANE-A ASSUMPTION - AWAITING COO CONFIRMATION]: the
-  letter asking whether a cp874-representable Thai display name may ship
-  is this round's ``LANE-A-ASK-COO`` on the mailbox.  Costs placement 37.
+  becomes invisible.  Costs placement 37.~~  **STRUCK, round ``gx7xtp``:
+  ``COO-DECISION 20260902_2146`` shape 1 OVERRULED this drop.**  Set 56
+  SHIPS.  The ruling and its reason: this is a Thai game, the table
+  encodes, the client draws - the only layer that could not print the name
+  was OUR console, and cutting a real actor out of a real scene because
+  the evidence layer cannot print it is the tool commanding the game.  The
+  ASCII contract is not loosened, it is SPLIT (see THE TWO NAME LAYERS).
+  Costs placement 37 nothing; this scene now ships 37 of 38.
+
+THE TWO NAME LAYERS, SPLIT BY ``COO-DECISION 20260902_2146`` SHAPE 1.
+One name, two contracts, and neither is weakened:
+
+* THE SHIPPED COLUMN carries the real ``MOBS_TIP.s_NAME``, Thai included.
+  What actually reaches the client is measured, not assumed: the frozen
+  serializer's ``wstr_tag`` puts a display name on the wire as
+  **UTF-16LE**, not as cp874 bytes - so the wire never had a cp874 problem
+  to begin with.  ~~the shipped column is cp874 bytes~~ is the one premise
+  of that decision this round had to correct; it changes no row, because
+  cp874 still decides MEMBERSHIP (below), just not the transport.  The
+  correction went to the COO in this round's letter.
+* THE EVIDENCE LAYER - ``actor_lines``, the census console line, the
+  ticket a tester copies - stays ASCII, and ``isascii()`` is NOT loosened
+  anywhere it already stood.  A non-ASCII name prints as
+  ``name_cp874_hex=<hex>`` beside ``placement=<n>``, so a tester can still
+  copy the whole ticket out of a cp874 console AND still say which row is
+  meant.  ``evidence_name`` is the one function that does this.
+
+THE MEMBERSHIP GATE THAT COMES WITH SHIPPING A NAME.  A display name may
+ship only if it round-trips through **cp874**, and the source of this
+module stays pure ASCII (house rule), so a non-ASCII name is pinned as its
+cp874 bytes in ``NAME_CP874_HEX`` and decoded at import by ``_cp874``.
+That single mechanism enforces the decision's own exception: bg0006's CJK
+names cannot be expressed at all this way, so they still land in
+``UNRESOLVED``, exactly as the decision requires.  A name that IS ASCII
+must be written as the literal - the hex form is for names that need it.
 
 NO EMPTY-``s_OUTFIT`` FAMILY HERE, which is worth naming because every
 island scene had one: this scene's placements never touch a 101+ block, so
@@ -249,20 +303,20 @@ SOURCE_SHA256 = {
 }
 
 # Mob-Set numbers whose CLINE leader has no shippable identity, as
-# set number -> (CLINE row n_ID, leader n_ID, why).  Costs 2 of the 38
-# placements (indices 28 and 37) - see the module docstring for both
-# shapes, which are different from each other.
+# set number -> (CLINE row n_ID, leader n_ID, why).  Costs 1 of the 38
+# placements (index 28).  Set 56 used to be the second entry here and is
+# now SHIPPED - ``COO-DECISION 20260902_2146`` shape 1, round ``gx7xtp``;
+# the struck paragraph in the module docstring keeps why it was dropped.
 UNRESOLVED = {
     16: (60415, 0, 'CLINE row carries leader 0, no CONSTDATA MOBS row'),
-    56: (60455, 8180,
-         'MOBS_TIP name is Thai, not ASCII; this lane ships an ASCII '
-         'evidence layer'),
 }
 
 # Placements whose ``template_ids`` column names TWO Mob-Set numbers, as
 # placement index -> the whole raw string.  The table below ships the FIRST
-# leg; ``_self_check`` refuses if a raw '|' ever reaches a shipped column.
-# [LANE-A ASSUMPTION - AWAITING COO/OWNER CONFIRMATION]
+# leg; ``_self_check`` refuses if a raw '|' ever reaches a shipped column,
+# and ``MULTI_SET_GATE`` (below) refuses if the legs are not the
+# interchangeable pair that makes shipping the first one safe.
+# Confirmed by ``COO-DECISION 20260902_2146`` shape 2, with that gate.
 MULTI_SET_PLACEMENTS = {
     30: '53|54',
     31: '53|54',
@@ -274,9 +328,34 @@ MULTI_SET_PLACEMENTS = {
 
 # The second legs of the rows above: real CLINE keys, resolvable, never
 # shipped under the first-leg rule.  Recorded so the key looks like a
-# decision rather than an omission.  set -> (CLINE row n_ID, leader n_ID).
-SECOND_LEG_ONLY = {
-    54: (60453, 8171),
+# decision rather than an omission - and carried in the SAME ten-column
+# row shape as ``_RESOLVED_ROWS`` so ``MULTI_SET_GATE`` can compare the
+# legs column by column instead of asserting they match.  Re-derived off
+# the tables this round (``gx7xtp``), not copied from the first-leg row.
+_SECOND_LEG_ROWS = (
+    (54, 60453, 8171, 'INVISIBLE', '', '', 110, 0, 260787, 7),
+)
+
+# Whether each leg of a multi-set placement has a ``TEXTDATA_TH__MOBS_TIP``
+# row at all - measured, because "no name" and "no name plate" are
+# different facts and the gate turns on the second one.  Both legs of this
+# scene's only multi-set pair have NO tip row (checked this round against
+# ``TEXTDATA_TH__MOBS_TIP.tsv`` by MOBS.n_ID: 8167 absent, 8171 absent).
+MULTI_SET_LEG_HAS_TIP_ROW = {
+    53: False,
+    54: False,
+}
+
+# Display names this table ships that are not ASCII, as Mob-Set number ->
+# the ``MOBS_TIP.s_NAME`` bytes in cp874, hex.  The bytes rather than the
+# characters because every committed file in this lane is ASCII (the
+# bridge console is cp874 and a source file has to survive being opened
+# there); ``_cp874`` decodes and round-trips them at import.  cp874 is
+# also the MEMBERSHIP test ``COO-DECISION 20260902_2146`` set: a name that
+# cannot be expressed here - bg0006's CJK - cannot ship.
+#   56: MOBS_TIP[8180].s_NAME, 5 bytes, Thai.
+NAME_CP874_HEX = {
+    56: 'a1c3d0b7a7',
 }
 
 # Placement index -> how many EXTRA xyz triples that row carries beyond its
@@ -308,6 +387,55 @@ EXTRA_TRIPLES_NOT_SHIPPED = {
 }
 
 
+class Bg3001IdentityError(ValueError):
+    """A refusal from this module, always with a reason in the message."""
+
+
+# The one encoding that decides whether a display name may ship at all.
+# Not the transport - the wire carries a name as UTF-16LE (`wstr_tag`) -
+# but the client's own locale, which is what makes a Thai name renderable
+# and a CJK one not.  See THE MEMBERSHIP GATE in the module docstring.
+NAME_ENCODING = "cp874"
+
+
+def _cp874(hex_bytes: str) -> str:
+    """Decode a pinned non-ASCII display name, refusing at import if the
+    pin is not what it claims to be.
+
+    Three refusals, all fail-closed, all at import time:
+
+    * bytes that are not valid ``cp874`` - the membership gate itself;
+    * bytes that do not round-trip (``cp874`` maps several undefined
+      positions lossily, and a name that comes back different is a name
+      the client would not draw);
+    * a pin whose text is ASCII after all - that row must carry the
+      literal, so the table stays readable to the next person.
+    """
+    if type(hex_bytes) is not str:
+        raise Bg3001IdentityError("a pinned name must be a hex str")
+    try:
+        raw = bytes.fromhex(hex_bytes)
+    except ValueError as exc:
+        raise Bg3001IdentityError(
+            "pinned name %r is not hex: %s" % (hex_bytes, exc)) from exc
+    if not raw:
+        raise Bg3001IdentityError("pinned name %r is empty" % hex_bytes)
+    try:
+        text = raw.decode(NAME_ENCODING)
+    except UnicodeDecodeError as exc:
+        raise Bg3001IdentityError(
+            "pinned name %r is not %s: %s" % (hex_bytes, NAME_ENCODING, exc)
+        ) from exc
+    if text.encode(NAME_ENCODING, "strict") != raw:
+        raise Bg3001IdentityError(
+            "pinned name %r does not round-trip through %s"
+            % (hex_bytes, NAME_ENCODING))
+    if text.isascii():
+        raise Bg3001IdentityError(
+            "pinned name %r is ASCII - write it as the literal" % hex_bytes)
+    return text
+
+
 @dataclass(frozen=True)
 class SceneIdentity:
     """One resolved actor: who it is, what it wears, what its label says."""
@@ -327,7 +455,7 @@ class SceneIdentity:
 # (Mob-Set number, CLINE row n_ID, MOBS.n_ID, shipped s_OUTFIT,
 #  MOBS_TIP.s_NAME, MOBS_TIP.s_TITLE, MOBS.n_LEVEL_MIN, MOBS.n_RANK,
 #  STANDARD_MOB[level].n_HPMAX, MOBS.n_MOB_USAGE)
-# 23 rows: every first-leg Mob-Set number this scene's placements use that
+# 24 rows: every first-leg Mob-Set number this scene's placements use that
 # CLINE type 3001 resolves to a shippable body.
 _RESOLVED_ROWS = (
     (2, 60401, 8001, 'SP_001_000_000_N', 'Intrepid', '', 1, 0, 106, 7),
@@ -361,9 +489,33 @@ _RESOLVED_ROWS = (
     (51, 60450, 3222, 'MAP_ISLAND_01', 'Lonely Island', '', 1, 0, 106, 2),
     (53, 60452, 8167, 'INVISIBLE', '', '', 110, 0, 260787, 7),
     (55, 60454, 8173, 'SP_001_000_000_N', 'Repair ship', '', 1, 0, 106, 7),
+    # The Thai name COO-DECISION 20260902_2146 shape 1 put back on the
+    # wire.  MOBS 8180 is a real bodied row - it was never the body that
+    # was in doubt, only whether our console could print the label.
+    (56, 60455, 8180, 'M081_000_000_N', _cp874(NAME_CP874_HEX[56]), '',
+     60, 1, 43275, 1),
 )
 
 IDENTITIES = {row[0]: SceneIdentity(*row) for row in _RESOLVED_ROWS}
+
+# The second legs, in the same object shape as ``IDENTITIES`` so the gate
+# compares like with like.  Never merged into ``IDENTITIES``: these keys
+# are deliberately not shippable.
+SECOND_LEG_IDENTITIES = {
+    row[0]: SceneIdentity(*row) for row in _SECOND_LEG_ROWS
+}
+
+# Backwards-compatible view of the same rows: set -> (CLINE row, leader).
+SECOND_LEG_ONLY = {row[0]: (row[1], row[2]) for row in _SECOND_LEG_ROWS}
+
+# The columns this module SHIPS, minus the MOBS id.  ``COO-DECISION
+# 20260902_2146`` shape 2 names exactly this set: the legs of a multi-set
+# placement may differ on the MOBS number and on nothing else.  The CLINE
+# row id is a locator, not a shipped column - two legs are two CLINE rows
+# by definition, so comparing it would refuse every pair that exists.
+SHIPPED_COLUMNS_EXCEPT_MOBS_ID = (
+    "outfit", "name", "title", "level", "rank", "max_hp", "mob_usage",
+)
 
 # The one set this scene ships with an empty display name, and the outfit
 # that makes it legal.  Named rather than left to a bare ``or ''``: an
@@ -458,10 +610,6 @@ _PLACEMENT_ROWS = (
 PLACEMENT_COUNT = len(_PLACEMENT_ROWS)
 
 
-class Bg3001IdentityError(ValueError):
-    """A refusal from this module, always with a reason in the message."""
-
-
 def identity_for(template_id: int) -> SceneIdentity | None:
     """The identity of a Mob-Set number, or ``None`` if it cannot be shipped.
 
@@ -509,6 +657,109 @@ def unshippable_placements() -> tuple[dict, ...]:
     return tuple(out)
 
 
+def evidence_name(identity: SceneIdentity) -> str:
+    """The ASCII token the evidence layer prints for this actor's name.
+
+    ``COO-DECISION 20260902_2146`` shape 1 split one name into two
+    contracts, and this is the second one.  An ASCII name prints as
+    itself, so every grep, ticket and console line that worked before this
+    round still works.  A name that is not ASCII prints as
+    ``name_cp874_hex=<hex>`` - the bytes, in a form a cp874 console can
+    show and a tester can copy - and callers pair it with ``placement=<n>``
+    so the row is still identifiable.
+
+    Never raises on a shipped row: every name in this table either is
+    ASCII or is pinned in ``NAME_CP874_HEX``, and ``_self_check`` refuses
+    at import if that stops being true.
+    """
+    if type(identity) is not SceneIdentity:
+        raise Bg3001IdentityError("evidence_name needs a SceneIdentity")
+    if identity.name.isascii():
+        return identity.name
+    return "name_cp874_hex=%s" % (
+        identity.name.encode(NAME_ENCODING, "strict").hex(),)
+
+
+def multi_set_placement_refusals() -> tuple[dict, ...]:
+    """``MULTI_SET_GATE``, executable.  Empty tuple means every multi-set
+    placement is the interchangeable pair that makes shipping the first leg
+    safe; anything in it must NOT ship.
+
+    The two conditions are ``COO-DECISION 20260902_2146`` shape 2, in
+    order: (1) the legs disagree on a shipped column other than the MOBS
+    id, or a leg is not in this module's tables at all - unknown is not
+    equal, and (2) a leg is visible or carries a name plate.  A refusal
+    carries the placement, the legs and which condition fired, because the
+    decision requires the case to reach the COO as a letter rather than to
+    ship quietly.
+    """
+    out = []
+    for index in sorted(MULTI_SET_PLACEMENTS):
+        raw = MULTI_SET_PLACEMENTS[index]
+        legs = []
+        malformed = False
+        for text in raw.split("|"):
+            if not text.isdigit():
+                # NOT skipped.  ``_self_check`` refuses a malformed raw
+                # column before it ever reaches here, but this function is
+                # also called on its own (by tests, and by anything that
+                # wants the refusals without the ImportError), and a gate
+                # that drops what it cannot parse is a gate that passes
+                # the case it was written for.
+                out.append({
+                    "placement_index": index, "raw": raw, "leg": text,
+                    "condition": 1,
+                    "reason": "leg %r is not a Mob-Set number" % text,
+                })
+                malformed = True
+                continue
+            legs.append(int(text))
+        if malformed:
+            continue
+        known = []
+        for leg in legs:
+            found = IDENTITIES.get(leg) or SECOND_LEG_IDENTITIES.get(leg)
+            if found is None:
+                out.append({
+                    "placement_index": index, "raw": raw, "leg": leg,
+                    "condition": 1,
+                    "reason": "leg %d has no identity in this table" % leg,
+                })
+            else:
+                known.append((leg, found))
+        if len(known) != len(legs):
+            continue
+        first_leg, first = known[0]
+        for leg, other in known[1:]:
+            for column in SHIPPED_COLUMNS_EXCEPT_MOBS_ID:
+                mine = getattr(first, column)
+                theirs = getattr(other, column)
+                if mine != theirs:
+                    out.append({
+                        "placement_index": index, "raw": raw, "leg": leg,
+                        "condition": 1,
+                        "reason": "legs %d and %d disagree on %s"
+                                  % (first_leg, leg, column),
+                    })
+        for leg, found in known:
+            if found.outfit != INVISIBLE_OUTFIT:
+                out.append({
+                    "placement_index": index, "raw": raw, "leg": leg,
+                    "condition": 2,
+                    "reason": "leg %d is visible (outfit %s)"
+                              % (leg, found.outfit),
+                })
+            if MULTI_SET_LEG_HAS_TIP_ROW.get(leg, True):
+                out.append({
+                    "placement_index": index, "raw": raw, "leg": leg,
+                    "condition": 2,
+                    "reason": "leg %d has a MOBS_TIP row (a name plate), or "
+                              "this table does not know whether it does"
+                              % leg,
+                })
+    return tuple(out)
+
+
 def no_set_number_is_shipped_as_identity() -> bool:
     """Control 3, executable.  No resolved row ships its own Mob-Set number
     as its identity - it catches a future regeneration that falls back to
@@ -522,14 +773,14 @@ def _self_check() -> None:
     module docstring claims.  Fail-closed: a bad table must not reach a
     census builder at all, and an ImportError names the file.
     """
-    if len(_RESOLVED_ROWS) != 23:
+    if len(_RESOLVED_ROWS) != 24:
         raise Bg3001IdentityError(
-            "expected 23 resolved sets, found %d" % len(_RESOLVED_ROWS))
+            "expected 24 resolved sets, found %d" % len(_RESOLVED_ROWS))
     if len(IDENTITIES) != len(_RESOLVED_ROWS):
         raise Bg3001IdentityError("duplicate Mob-Set number in the table")
-    if len(UNRESOLVED) != 2:
+    if len(UNRESOLVED) != 1:
         raise Bg3001IdentityError(
-            "expected 2 unresolved sets, found %d" % len(UNRESOLVED))
+            "expected 1 unresolved set, found %d" % len(UNRESOLVED))
     if set(IDENTITIES) & set(UNRESOLVED):
         raise Bg3001IdentityError("a set is both resolved and unresolved")
     if set(IDENTITIES) & set(SECOND_LEG_ONLY):
@@ -592,9 +843,30 @@ def _self_check() -> None:
         if not outfit or not outfit.isascii():
             raise Bg3001IdentityError(
                 "set %d has an empty or non-ASCII outfit" % template_id)
-        if not name.isascii() or not title.isascii():
+        # NAMES.  ``COO-DECISION 20260902_2146`` shape 1 replaced the flat
+        # "names are ASCII" rule with a membership test plus a declaration:
+        # a non-ASCII name must round-trip through cp874 AND be pinned as
+        # bytes in ``NAME_CP874_HEX``, so a name can never arrive here by
+        # some other route.  TITLES are untouched and still ASCII - no
+        # decision has been taken on a non-ASCII title, and this table
+        # ships none.
+        if not title.isascii():
             raise Bg3001IdentityError(
-                "set %d has a non-ASCII name or title" % template_id)
+                "set %d has a non-ASCII title" % template_id)
+        if not name.isascii():
+            pinned = NAME_CP874_HEX.get(template_id)
+            if pinned is None:
+                raise Bg3001IdentityError(
+                    "set %d has a non-ASCII name that is not pinned in "
+                    "NAME_CP874_HEX" % template_id)
+            if _cp874(pinned) != name:
+                raise Bg3001IdentityError(
+                    "set %d ships a name that is not its own pin"
+                    % template_id)
+        elif template_id in NAME_CP874_HEX:
+            raise Bg3001IdentityError(
+                "set %d is pinned in NAME_CP874_HEX but ships an ASCII name"
+                % template_id)
         if not name and not (
             template_id in NAMELESS_INVISIBLE_SETS
             and outfit == INVISIBLE_OUTFIT
@@ -606,10 +878,29 @@ def _self_check() -> None:
                 "INVISIBLE set" % template_id)
         if max_hp < 1 or level < 1:
             raise Bg3001IdentityError("set %d has a bad level/HP" % template_id)
-    if len(shippable_placements()) != 36:
-        raise Bg3001IdentityError("expected 36 shippable placements")
-    if len(unshippable_placements()) != 2:
-        raise Bg3001IdentityError("expected 2 unshippable placements")
+    # MULTI_SET_GATE.  Fail-closed and BEFORE the counts below, so a pair
+    # that stops being interchangeable cannot reach a census builder even
+    # if the row count still looks right.
+    refusals = multi_set_placement_refusals()
+    if refusals:
+        raise Bg3001IdentityError(
+            "multi-set placements refused by the gate (COO-DECISION "
+            "20260902_2146 shape 2): %s"
+            % "; ".join(
+                "placement %d: %s" % (row["placement_index"], row["reason"])
+                for row in refusals))
+    if set(SECOND_LEG_IDENTITIES) != set(SECOND_LEG_ONLY):
+        raise Bg3001IdentityError("the second-leg views disagree")
+    for index, raw in MULTI_SET_PLACEMENTS.items():
+        for leg in raw.split("|"):
+            if int(leg) not in MULTI_SET_LEG_HAS_TIP_ROW:
+                raise Bg3001IdentityError(
+                    "leg %s of placement %d has no measured MOBS_TIP answer"
+                    % (leg, index))
+    if len(shippable_placements()) != 37:
+        raise Bg3001IdentityError("expected 37 shippable placements")
+    if len(unshippable_placements()) != 1:
+        raise Bg3001IdentityError("expected 1 unshippable placement")
     ids = [p.actor_identity for p in shippable_placements()]
     if len(ids) != len(set(ids)):
         raise Bg3001IdentityError("actor identities collide within this table")

@@ -226,9 +226,33 @@ class TheShippedTableMatchesTheSource(unittest.TestCase):
                     self.assertNotIn(str(leader), self.mobs)
                     self.assertIn("leader 0", reason)
                 else:
-                    tip = self.tip.get(str(leader), {})
-                    self.assertFalse((tip.get("s_NAME") or "").isascii())
-                    self.assertIn("Thai", reason)
+                    # ~~a non-ASCII MOBS_TIP name is a drop reason~~
+                    # STRUCK, round `gx7xtp`: COO-DECISION 20260902_2146
+                    # shape 1 ships a cp874-representable name, so the
+                    # only drop shape this scene has left is leader 0.
+                    # A future non-zero drop must still name a leader the
+                    # table really has, and say why in ASCII.
+                    self.assertIn(str(leader), self.mobs)
+                    self.assertTrue(reason)
+                    self.assertTrue(reason.isascii())
+
+    def test_the_thai_name_is_the_tables_own_bytes(self) -> None:
+        """Shape 1 of ``COO-DECISION 20260902_2146``, re-derived.
+
+        The pin in ``NAME_CP874_HEX`` is not trusted: it is rebuilt here
+        from ``TEXTDATA_TH__MOBS_TIP`` and compared, so a hand-typed hex
+        digit cannot put a name on the wire that the table never had.
+        """
+        for template_id, pinned in sorted(identity.NAME_CP874_HEX.items()):
+            with self.subTest(set=template_id):
+                row = identity.IDENTITIES[template_id]
+                tip = self.tip[str(row.mobs_n_id)]
+                source = tip["s_NAME"]
+                self.assertFalse(source.isascii())
+                self.assertEqual(source.encode("cp874").hex(), pinned)
+                self.assertEqual(row.name, source)
+                self.assertEqual(
+                    identity.evidence_name(row), "name_cp874_hex=%s" % pinned)
 
     def test_the_second_leg_is_real_and_never_shipped(self) -> None:
         for template_id, (cline_row_id, leader) in sorted(
@@ -239,6 +263,39 @@ class TheShippedTableMatchesTheSource(unittest.TestCase):
                 self.assertEqual(int(cline_row["n_ID"]), cline_row_id)
                 self.assertEqual(int(cline_row["n_LEADER_BK1"]), leader)
                 self.assertNotIn(template_id, identity.IDENTITIES)
+
+    def test_every_second_leg_column_is_the_tables_own(self) -> None:
+        """``MULTI_SET_GATE`` compares the legs column by column, so the
+        second leg's columns have to be MINED and not copied from the
+        first - a leg transcribed from its own partner would make the gate
+        agree with itself no matter what the table says."""
+        for template_id, row in sorted(
+            identity.SECOND_LEG_IDENTITIES.items()
+        ):
+            with self.subTest(set=template_id):
+                cline_row = self.keys[template_id]
+                self.assertEqual(int(cline_row["n_ID"]), row.cline_row_id)
+                leader = int(cline_row["n_LEADER_BK1"])
+                self.assertEqual(leader, row.mobs_n_id)
+                mob = self.mobs[str(leader)]
+                self.assertEqual(mob["s_OUTFIT"], row.outfit)
+                self.assertEqual(int(mob["n_LEVEL_MIN"]), row.level)
+                self.assertEqual(int(mob["n_RANK"]), row.rank)
+                self.assertEqual(int(mob["n_MOB_USAGE"]), row.mob_usage)
+                self.assertEqual(
+                    int(self.standard[mob["n_LEVEL_MIN"]]["n_HPMAX"]),
+                    row.max_hp)
+
+    def test_the_tip_row_answer_each_leg_carries_is_measured(self) -> None:
+        """Condition 2 of the gate turns on whether a leg HAS a MOBS_TIP
+        row, which is not the same fact as having an empty name.  Re-derive
+        the answer for every leg the scene's multi-set placements name."""
+        for template_id, has_tip in sorted(
+            identity.MULTI_SET_LEG_HAS_TIP_ROW.items()
+        ):
+            with self.subTest(set=template_id):
+                leader = int(self.keys[template_id]["n_LEADER_BK1"])
+                self.assertEqual(str(leader) in self.tip, has_tip)
 
     def test_the_docstrings_measured_numbers_are_still_true(self) -> None:
         """The counts the module docstring states, re-derived here so a
