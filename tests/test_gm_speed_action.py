@@ -928,7 +928,14 @@ class SpeedPersistenceTests(_Case):
 
     def test_an_unparseable_value_writes_nothing(self):
         session = FakeSession()
-        self.assertIsNone(self.act(session, "/speed fast"))
+        action = self.act(session, "/speed fast")
+        # NOT `assertIsNone` since COO-DECISION `0647`: `/speed fast` is
+        # refused by the GRAMMAR, and that layer now answers with the
+        # `TYPO REFUSED` notice.  The claim in the test's NAME -- that
+        # nothing is written -- is the line below, and it is unchanged.
+        self.assertEqual(
+            action[0], chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL
+        )
         self.assertEqual(self.store_of(session).calls, [])
 
 
@@ -1280,7 +1287,22 @@ class TheRefusalNamesThisConnectionTests(_Case):
                 gm_dispatch.reset_rate_limit_state_for_tests()
                 session = FakeSession(selected=self.selected())
                 action, err = self.say(session, typed)
-                self.assertIsNone(action)
+                # ~~`assertIsNone(action)`~~ -- struck, not deleted, exactly
+                # as `assertRefusalWentToTheScreen` records the same move for
+                # the DB layer.  It was true until COO-DECISION
+                # 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_chief/consumed/
+                # 20260902_0647_COO-DECISION-typo-layer-notice-is-TYPO-
+                # REFUSED-12-ascii-after-p1.md`) gave the syntax layer its own
+                # twelve-character sentence, `TYPO REFUSED`.  What this test
+                # was really pinning is untouched and asserted below: no
+                # `UpdateAttrVital` goes out, the console tokens still tell
+                # the two states apart, and nothing typed is echoed.
+                self.assertEqual(
+                    action[0],
+                    chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL,
+                    "a mistyped /speed sent something other than the typo "
+                    "notice: %r" % (action[0] if action else None),
+                )
                 self.assertEqual(
                     [
                         line

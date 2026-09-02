@@ -486,19 +486,48 @@ class WhatTheNoticeDoesNotFixTests(_Case):
             "assert the new one -- do not simply delete it.",
         )
 
-    def test_a_typo_is_still_silent_because_it_is_refused_one_layer_up(self):
-        """D6: `/speed fast` never reaches the nine paths.
+    def test_a_typo_still_never_says_SPEED_DENIED_it_says_TYPO_REFUSED(self):
+        """D6, ANSWERED: `/speed fast` never reaches the nine paths.
 
-        `parse_gm_command` applies the same finite-number check at GRAMMAR
-        time, so the commonest GM mistake is refused above `_speed_action`
-        and gets no sentence. COO-DECISION `0147` wants a tester to tell
-        typo / DB-rejected / sent apart from the screen; today that is two of
-        three. Chief asked COO for the second 12-character string rather than
-        inventing one, because sending `SPEED DENIED` for a mistyped `/warp`
-        would be a lie.
+        ~~"and gets no sentence ... today that is two of three"~~ -- struck,
+        not deleted, because this class's own docstring says that is what
+        pinning a reported behaviour is for.  `parse_gm_command` applies the
+        same finite-number check at GRAMMAR time, so the commonest GM mistake
+        is still refused above `_speed_action` and still takes none of the
+        nine paths -- that half is unchanged and is what the label assertion
+        below pins.  What changed is the ruling chief asked for in the same
+        breath: COO-DECISION 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_
+        chief/consumed/20260902_0647_COO-DECISION-typo-layer-notice-is-TYPO-
+        REFUSED-12-ascii-after-p1.md`) supplied the second 12-character
+        string, `TYPO REFUSED`, for the syntax layer of EVERY command.  So
+        COO-DECISION `0147`'s three states are now three different things on
+        screen, and this test pins the one thing that would still be a lie:
+        a mistyped command must never claim the SPEED subsystem refused it.
+
+        The full proof of the typo layer (bytes decoded, every command name,
+        the excluded refusals, `queued` never armed) lives in
+        `tests/test_gm_typo_refused_notice.py`; this stays here because it is
+        the boundary between the two files' subjects.
         """
         session = FakeSession()
-        self.assertIsNone(self.act(session, "/speed fast"))
+        action = self.act(session, "/speed fast")
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            action[0], chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL
+        )
+        self.assertNotEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
+        self.assertEqual(
+            [
+                event
+                for event in session.events
+                if event.startswith("gm_chat_action_speed_")
+            ],
+            [],
+            "a mistyped /speed reached one of the nine DB-layer paths: %s"
+            % session.events,
+        )
 
 
 class TheAuditFailureBranchTests(_Case):
