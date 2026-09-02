@@ -65,6 +65,7 @@ from pirateforce_foundation import persistence_attr_compose as compose  # noqa: 
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation.gm.attr_wire import BY_X  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
@@ -88,6 +89,98 @@ def _statements(sql: str) -> list[str]:
         line for line in sql.splitlines() if not line.lstrip().startswith("--")
     )
     return [s.strip() for s in body.split(";") if s.strip()]
+
+
+def unseed(path, character_id=None):
+    """NULL the three vital columns, so that "no typed value at all" is a
+    state this test CONSTRUCTS rather than one it inherits.
+
+    Most of the classes below are about a character whose typed columns have
+    never been written, and until now that state arrived for free:
+    `create_character` named none of the twenty-one columns and `006` gave
+    them no DEFAULT.  `COO-DECISION 20260902_0443` point 1 ends that for three
+    of them -- chief's `0444` line makes every newborn character carry
+    `persistence_vitals.new_character_vitals()` -- so a test that wants an
+    unwritten row has to say so.
+
+    MEASURED, not anticipated: a `pf-adversary` pass applied chief's line to a
+    worktree and this file went to 18 failures while the two files that had
+    been made transition-safe stayed green.  Sixteen of them were this, and
+    the fix is one call in four places.  Written against
+    `persistence_vitals.VITAL_COLUMNS` so a rename moves it too.
+
+    A THIRD COPY of the same eight lines (the others are in
+    `tests/test_persistence_vitals.py` and
+    `tests/test_persistence_vitals_seed_007.py`) rather than a shared import:
+    a test module importing another test module is a collection hazard, and
+    the only non-test helper in `tests/` (`pf_preconditions`) is chief's.
+    """
+    sets = ", ".join("%s=NULL" % column for column in vitals.VITAL_COLUMNS)
+    db = sqlite3.connect(str(path))
+    try:
+        if character_id is None:
+            db.execute("UPDATE characters SET " + sets)
+        else:
+            db.execute("UPDATE characters SET " + sets + " WHERE id=?",
+                       (character_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def insert_character_pre_006(store, path, login, name, fingerprint, position,
+                             stamp="2026-09-01T15:00:00Z", selector=1):
+    """One character row, with its position and backpack, on a PRE-006 schema.
+
+    🔴 WHY THIS EXISTS AND WHY IT IS NOT A CONVENIENCE.  Both call sites used
+    `SQLiteStore.create_character`, which is the right way to make a row and
+    was the whole point ("a real character made by the real writer").  A
+    `pf-adversary` pass measured what chief's `0444` line does to them:
+
+        sqlite3.OperationalError: table characters has no column named level
+
+    raised from inside `create_character`.  An INSERT that names `level`,
+    `hp_current` and `hp_max` cannot run against a schema older than 006, and
+    these two tests exist precisely to exercise a schema older than 006.  So
+    after `0444`, `create_character` REQUIRES schema >= 006.  In a running
+    server that is always true (`app.py` migrates to head before it serves),
+    which is why this is a narrowing rather than a break -- but it is a
+    narrowing of a shipped method's contract, it is not written down anywhere
+    in `store.py`, and it was raised to chief and COO in writing the round
+    this landed rather than absorbed silently here.
+
+    The raw INSERT mirrors what `create_character` writes at 005, column for
+    column, and the backpack goes through `store._insert_initial_backpack` --
+    the store's own writer, reached privately on purpose -- so that the
+    `character_backpacks` row this test compares byte for byte across 006 is
+    the real one and not a hand-typed imitation.  The private call is what
+    keeps this helper from quietly weakening the test it serves.
+    """
+    account_id = store.ensure_account(login)
+    actor, avatar, identity_lo, identity_hi = _build_wire(selector)
+    db = sqlite3.connect(str(path))
+    try:
+        db.execute("PRAGMA foreign_keys=ON")
+        cursor = db.execute(
+            "INSERT INTO characters(account_id,selector,name,name_key,"
+            "create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,"
+            "identity_lo,identity_hi,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (account_id, selector, name, name.lower(), fingerprint, actor,
+             avatar, None, identity_lo, identity_hi, stamp, stamp),
+        )
+        character_id = int(cursor.lastrowid)
+        db.execute(
+            "INSERT INTO character_positions(character_id,scene_id,scene_seq,"
+            "x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
+            (character_id, position.scene_id, position.scene_seq, position.x,
+             position.y, position.z, stamp, position.heading),
+        )
+        store._insert_initial_backpack(db, character_id, stamp)
+        db.commit()
+    finally:
+        db.close()
+    return character_id
 
 
 class MigrationShapeTests(unittest.TestCase):
@@ -349,12 +442,10 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
     def test_existing_rows_survive_006_unchanged_and_the_new_columns_are_null(self):
         old_store = SQLiteStore(self.path, self.older)
         old_store.migrate()
-        account_id = old_store.ensure_account("typed-attr-006")
         home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
-        old_store.create_character(
-            account_id, "TypedAttrOne", "typedattrone",
-            "fingerprint-typed-attr-006", _build_wire, home,
-        )
+        insert_character_pre_006(
+            old_store, self.path, "typed-attr-006", "TypedAttrOne",
+            "fingerprint-typed-attr-006", home)
         before = {t: self._dump(t) for t in
                   ("characters", "character_positions", "character_backpacks")}
         self.assertEqual(len(before["characters"]), 1)
@@ -452,12 +543,10 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         store = SQLiteStore(self.path, self.older)
         store.migrate()
         if not keep_wal_hot:
-            account_id = store.ensure_account("boot-snapshot-006")
-            store.create_character(
-                account_id, "SnapshotOne", "snapshotone",
-                "fingerprint-boot-snapshot-006", _build_wire,
-                Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
-            )
+            insert_character_pre_006(
+                store, self.path, "boot-snapshot-006", "SnapshotOne",
+                "fingerprint-boot-snapshot-006",
+                Position(3, 0, 44.0, 55.0, 66.0, heading=0.25))
             return store
 
         holder = sqlite3.connect(str(self.path))
@@ -681,6 +770,9 @@ class StoreRoundTripTests(unittest.TestCase):
             "fingerprint-typed-attr-store", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # Every test in this class measures what IT wrote onto a row that
+        # started with nothing written.  See `unseed`.
+        unseed(self.path, self.character.id)
 
     def test_a_fresh_character_has_no_typed_values_at_all(self):
         # NOT `{column: 0 for ...}`: the whole rule in one assertion.
@@ -739,6 +831,7 @@ class StoreRoundTripTests(unittest.TestCase):
             self.account_id, "TypedAttrTwo", "typedattrtwo",
             "fingerprint-typed-attr-store-2", _build_wire, self.home,
         )
+        unseed(self.path, second.id)
         self.store.write_typed_attributes(second.id, {"level": 9})
         self.store.soft_delete_character(self.sid, second.selector)
         with self.assertRaises(KeyError):
@@ -875,6 +968,9 @@ class TheGateStillRefusesTests(unittest.TestCase):
             "fingerprint-typed-attr-gate", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
+        # See `unseed`: this class measures what IT
+        # writes onto a row that started empty.
+        unseed(self.path, self.character.id)
 
     def _typed_values(self):
         """What the database really knows, in the gate's `{x: value}` shape."""
@@ -1123,6 +1219,9 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             "fingerprint-sparse-send", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
+        # See `unseed`: this class measures what IT
+        # writes onto a row that started empty.
+        unseed(self.path, self.character.id)
 
     def test_a_speed_write_comes_back_as_the_one_field_block(self):
         block = self.store.write_typed_attributes_and_compose_sparse(

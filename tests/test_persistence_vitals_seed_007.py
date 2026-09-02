@@ -38,7 +38,10 @@ row-touching migration survivable at all, and neither is visible from the SQL:
   is a rule about the owner's only copy of the world; a test that asserted
   the mechanism exists somewhere would not be about that.
 """
+import inspect
+import io
 import re
+import tokenize
 import shutil
 import sqlite3
 import sys
@@ -70,6 +73,107 @@ REQUIRED_HEADER_TAG = (
 
 #: What 007 seeds, and the ONLY thing it may seed.
 SEEDED = {"level": 1, "hp_current": 100, "hp_max": 100}
+
+
+def create_character_writes_vitals() -> bool:
+    """Does ``SQLiteStore.create_character`` write the three vital columns?
+
+    Read from the METHOD'S SOURCE, on purpose, so that it is an independent
+    signal from the rows the method actually produces.  The tests below assert
+    both halves against each other: source says yes and the row is NULL is a
+    broken write, source says no and the row is seeded is something else
+    seeding behind this lane's back.  Either way a test goes red.
+
+    WHY A BRANCH AT ALL.  ``COO-DECISION 20260902_0443`` split the close in
+    two: ``new_character_vitals()`` is this lane's (point 1, first half) and
+    the INSERT line is chief's (letter ``0444``), and they cannot land in the
+    same pull request because they are in different write zones.  Between the
+    two landings this repository really is in the unseeded world and after it
+    really is in the seeded one, so a test that hard-codes either is wrong for
+    half the time it exists -- and the wrong half is the one where it turns
+    somebody else's correct change red.
+
+    THREE THINGS A ``pf-adversary`` PASS BROKE IN THE FIRST VERSION, each
+    fixed here rather than written down as a caveat:
+
+    1. **A COMMENT flipped it.**  The pass added the most likely two lines
+       anyone writes while ``0444`` is pending -- ``# TODO (letter 0444):
+       level, hp_current and hp_max are not written here yet`` -- and this
+       function answered "seeded", producing three red tests whose message
+       said the row SHOULD be seeded and was not, blaming a write that did not
+       exist.  Comments and the docstring are now stripped before the scan.
+    2. **The message did not say which.**  The pass quoted this docstring's
+       own "either way a test goes red and SAYS WHICH" back at it: the
+       assertions carried a bare ``0 != 1``.  ``describe()`` below is what the
+       assertions now print, in both directions.
+    3. **Nothing checked the write came from ONE function.**  The pass
+       implemented chief's line as a bare SQL literal -- ``VALUES
+       (?,...,?,1,100,100)`` -- that never imports or calls
+       ``new_character_vitals()``, and all 113 tests passed.  That is the
+       decision's whole stated benefit ("one file changes on the day the
+       numbers change") going ungraded, so the call is now part of what is
+       scanned for and a literal write is refused by name.
+    """
+    source = inspect.getsource(SQLiteStore.create_character)
+    body = _source_without_comments(source)
+    named = [c for c in vitals.VITAL_COLUMNS
+             if re.search(r"\b%s\b" % re.escape(c), body)]
+    calls = bool(re.search(r"\bnew_character_vitals\b", body))
+    if named and len(named) != len(vitals.VITAL_COLUMNS):
+        raise AssertionError(
+            "create_character names %r of the three vital columns: a "
+            "half-written birth is the state persistence_vitals refuses to "
+            "read, written at the one moment nothing can refuse it" % (named,)
+        )
+    if named and not calls:
+        raise AssertionError(
+            "create_character writes %s but never calls "
+            "new_character_vitals(): the values are a literal in store.py "
+            "again, which is the one thing COO-DECISION 20260902_0443 point 1 "
+            "chose against -- the day an RE replaces the numbers, two files "
+            "have to change and nothing goes red if only one of them does"
+            % (", ".join(named),)
+        )
+    if calls and not named:
+        raise AssertionError(
+            "create_character calls new_character_vitals() but names none of "
+            "%s in its own body: this scan cannot see what it writes, so no "
+            "test below can grade the birth values.  Name the columns in the "
+            "INSERT list rather than splatting them in from a helper."
+            % (", ".join(vitals.VITAL_COLUMNS),)
+        )
+    return bool(named)
+
+
+def _source_without_comments(source: str) -> str:
+    """``source`` with ``#`` comments and string literals removed.
+
+    Tokenised rather than regexed: a ``#`` inside a string literal is not a
+    comment, and the SQL in ``create_character`` is one long string literal
+    that legitimately names the columns.  So the scan needs the code MINUS
+    comments but WITH strings -- except that a docstring is a string too.
+    ``tokenize`` separates all three cleanly; ``COMMENT`` and ``NL`` are
+    dropped and everything else is kept verbatim.
+    """
+    kept = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT,):
+            continue
+        kept.append(token.string)
+    return "\n".join(kept)
+
+
+def describe_world() -> str:
+    """One line naming which world this repository is in, for an assertion
+    message.  A red test that only prints ``0 != 1`` costs the reader the
+    whole investigation this function does in one call."""
+    if create_character_writes_vitals():
+        return ("create_character NAMES the three vital columns, so every "
+                "newborn character must hold new_character_vitals() == %r"
+                % (vitals.new_character_vitals(),))
+    return ("create_character names NONE of the three vital columns (chief's "
+            "letter 0444 has not landed), so every newborn character must "
+            "hold NULL in all three")
 
 
 def _build_wire(selector):
@@ -125,7 +229,33 @@ class _MigratedWorkspace(unittest.TestCase):
                 "fingerprint-007-%s" % name.lower(), _build_wire, home,
             )
             ids.append(character.id)
+        self._unseed()
         return ids
+
+    def _unseed(self):
+        """NULL the three vital columns on every row just created.
+
+        THE PRE-007 WORLD IS WHAT THIS WORKSPACE RECONSTRUCTS, and until now
+        it arrived for free: `create_character` named none of the three
+        columns and `006` gave them no DEFAULT, so a character created on the
+        pre-007 schema had NULL vitals by accident of the writer rather than
+        by construction.  `COO-DECISION 20260902_0443` point 1 ends that --
+        chief's `0444` line makes every newborn character carry
+        `new_character_vitals()` -- and a character born already holding
+        `level 1, hp 100/100` is not the character 007 was written to seed.
+
+        So the precondition is now stated.  Today this UPDATE changes no row;
+        after `0444` it makes these tests keep measuring 007 rather than
+        quietly measuring `create_character` instead.  Written against
+        `vitals.VITAL_COLUMNS` so a rename moves it too.
+        """
+        sets = ", ".join("%s=NULL" % column for column in vitals.VITAL_COLUMNS)
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute("UPDATE characters SET " + sets)
+            db.commit()
+        finally:
+            db.close()
 
     def _apply_007(self):
         SQLiteStore(self.path, MIGRATIONS).migrate()
@@ -388,9 +518,30 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         its HP is unseeded.  Seeding the pair into it would make it COMPLETE
         -- `require()` accepts it, `apply_hp_damage` runs on it -- around a
         level of zero nobody adjudicated, which is this migration turning a
-        fail-closed row into an accepted one.  `persistence_vitals` refuses
-        `hp_max = 0` and has no rule at all about `level = 0`, so nothing
-        downstream would catch it either.
+        fail-closed row into an accepted one.
+
+        When this test was written `persistence_vitals` refused `hp_max = 0`
+        and had no rule at all about `level = 0`, so 007's own WHERE clause
+        was the only net.  `COO-DECISION 20260902_0443` point 4 added the
+        rule, and this test is deliberately UNCHANGED by it: the row is still
+        refused after 007, and it is still refused because 007 declined to
+        write its HP.
+
+        WHAT THIS TEST DOES AND DOES NOT GRADE, measured rather than assumed.
+        An earlier draft of this docstring claimed "delete either one and this
+        test still has to go red".  A `pf-adversary` pass deleted each in turn
+        and the claim is FALSE in one direction:
+
+        * delete 007's `AND (level IS NULL OR level > 0)` -> three tests in
+          this file go red, including this one.
+        * delete the `level == 0` rule in `persistence_vitals`
+          `_consistency_gaps` -> this test PASSES and this whole file passes.
+
+        Because the row is refused here purely for its unseeded HP; the python
+        rule contributes nothing to THIS refusal.  The rule is graded, but in
+        `tests/test_persistence_vitals.py` `ResolveTests` (four tests go red
+        without it), not here.  Two guards, graded in two files -- which is
+        fine, and is not the same sentence as the one that was written.
         """
         ids = self._make(["Levelless"])
         self._set(ids[0], level=0)
@@ -675,17 +826,37 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
     before, and on a FRESH INSTALL -- where 007 runs against an empty table --
     the census reads 0/0/0 for all three columns while reporting success.
 
-    Nothing in this lane can close that: `create_character` is an existing
-    method and the charter (`COO-DECISION 20260901_1100`) forbids changing
-    one.  Closing it needs either a `DEFAULT` on the three columns (a table
-    rebuild, since SQLite cannot add a default to an existing column) or a
-    write at character creation -- both of them decisions, not edits.  Raised
-    to COO the same round this landed.
+    Nothing in this lane can close that on its own: `create_character` is an
+    existing method and the charter (`COO-DECISION 20260901_1100`) forbids
+    changing one.  Raised to COO the same round this landed and answered by
+    `COO-DECISION 20260902_0443`: the write at character creation (point 1),
+    not a `DEFAULT` on the three columns (point 2, rejected -- SQLite cannot
+    add a default to an existing column, so it means rebuilding `characters`
+    around three numbers whose provenance is OPEN).  The decision splits
+    across two write zones: `persistence_vitals.new_character_vitals()` is
+    this lane's, the INSERT line is chief's (letter `0444`), and they land in
+    separate pull requests.
 
-    These tests exist so that the day it IS closed, they go red and say so.
+    So these tests no longer assert the limitation -- they MEASURE which of
+    the two worlds this repository is in, from `create_character`'s source,
+    and assert the whole of that world.  Before chief's line: absent columns
+    and a refusing `require()`.  After it: the three values, equal to
+    `new_character_vitals()`, accepted.  The point is unchanged; what changed
+    is that closing the hole is now the expected event rather than the one
+    that turns this file red.
     """
 
-    def test_a_character_created_after_007_has_no_vitals_at_all(self):
+    def test_a_character_born_after_007_carries_exactly_what_it_was_born_with(self):
+        """The cohort limitation, and the close of it, in one measurement.
+
+        Before chief's `0444` line lands this asserts the limitation exactly
+        as the previous version of this test did -- three columns absent,
+        `require()` refusing.  After it lands the same test asserts the close:
+        the three values present and equal to `new_character_vitals()`, and a
+        state `require()` accepts.  `create_character_writes_vitals()` decides
+        which, from the method's SOURCE, so the row and the source are graded
+        against each other rather than one of them being assumed.
+        """
         store = SQLiteStore(self.path, MIGRATIONS)
         store.migrate()
         account_id = store.ensure_account("after-007")
@@ -693,14 +864,63 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             account_id, "Newborn", "newborn", "fingerprint-newborn",
             _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
         stored = store.read_typed_attributes(character.id)
-        for column in SEEDED:
-            self.assertNotIn(column, stored, column)
-        with self.assertRaises(vitals.VitalsError):
-            store.read_character_vitals(character.id).require()
+        why = describe_world()
+        if create_character_writes_vitals():
+            born = vitals.new_character_vitals()
+            self.assertEqual(
+                {c: stored.get(c) for c in born}, born,
+                "the row does not hold new_character_vitals()'s numbers; "
+                + why)
+            state = store.read_character_vitals(character.id).require()
+            self.assertEqual(state.level, born["level"])
+            self.assertTrue(state.alive)
+        else:
+            for column in SEEDED:
+                self.assertNotIn(column, stored, "%s: %s" % (column, why))
+            with self.assertRaises(vitals.VitalsError):
+                store.read_character_vitals(character.id).require()
 
-    def test_on_a_fresh_install_the_census_reads_zero_after_a_successful_007(self):
+    def test_a_newborn_holds_what_the_migrated_cohort_holds(self):
+        """Whichever world this repository is in, the two answers must agree.
+
+        A database holding one set of numbers for the cohort the migrations
+        seeded and a different set for everyone born afterwards is the
+        split-brain `COO-DECISION 20260902_0443` exists to prevent, and it
+        would be invisible in a running server.
+
+        MEASURED FROM THE DATABASE, not from 007's text, and that is the
+        correction rather than a detail.  The first version of this assertion
+        compared `new_character_vitals()` with a constant and its sibling in
+        `tests/test_persistence_vitals.py` grepped 007's SQL body for
+        `level = 1`.  A `pf-adversary` pass showed what that builds in: 007
+        may never be edited (`COO-DECISION 20260902_0250` point 3), so on the
+        day an RE answers the OPEN provenance question and the constants
+        change, a test pinned to 007's text can only be made green by editing
+        an immutable file or by editing the test -- the round had written down
+        that the question was open and simultaneously made answering it a red
+        suite.
+
+        Asking the DATABASE removes that.  A later migration that re-seeds the
+        cohort moves this expectation with it automatically, because what is
+        read here is the row the whole `migrations/` directory produced, not
+        the statement any one file contains.
+        """
+        ids = self._make(["Cohort"])
+        self._apply_007()
+        row = self._rows()[0]
+        cohort = {column: row[column] for column in vitals.VITAL_COLUMNS}
+        self.assertEqual(
+            vitals.new_character_vitals(), cohort,
+            "a character born today would differ from the cohort the "
+            "migrations seeded; %s" % (describe_world(),))
+        self.assertEqual(int(ids[0]), int(row["id"]))
+
+    def test_on_a_fresh_install_the_census_counts_what_creation_writes(self):
         """The sentence a round file must never write about a fresh install:
-        "007 applied, every character seeded"."""
+        "007 applied, every character seeded".  On a fresh install 007 runs
+        against an EMPTY table and seeds nothing at all -- so whatever the
+        census counts here was written by `create_character`, not by 007.
+        """
         store = SQLiteStore(self.path, MIGRATIONS)
         self.assertIsNone(store.migrate_with_backup(
             backups_root=self.root / "backups"))
@@ -710,8 +930,11 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
         census = store.vitals_seeding_census()
         self.assertEqual(census["characters_any"], 1)
+        expected = 1 if create_character_writes_vitals() else 0
+        why = describe_world()
         for column in SEEDED:
-            self.assertEqual(census["%s_seeded_any" % column], 0, column)
+            self.assertEqual(census["%s_seeded_any" % column], expected,
+                             "%s: %s" % (column, why))
 
     def test_the_migration_header_states_this_limitation(self):
         """A limitation a reader has to run a test to discover is not stated.

@@ -44,6 +44,38 @@ know the HP of.  So:
   per-column CHECK can catch.  [สมมติของสาย DB] this rule is about PLAYER
   characters, which are the only rows in ``characters``; nothing here claims a
   mob or an NPC may not have a zero maximum somewhere else in this repository.
+* ``level = 0`` is refused as a stored state, for the same second reason and
+  by the same argument.  ``006``'s CHECK allows it (``BETWEEN 0 AND 65535``)
+  and until now this module had no rule about it at all -- which
+  ``migrations/007_character_vitals_seed.sql`` had to work around in SQL, by
+  declining to complete the HP pair of a ``level = 0`` row so that seeding
+  could not turn a refused row into an accepted one.  ``COO-DECISION
+  20260902_0443`` point 4 moves that guard to where it belongs: 007's SQL
+  predicate stays as it is and is now a second net rather than the only one.
+
+  *** WHAT THIS RULE IS NOT, corrected after a ``pf-adversary`` pass refuted
+  the sentence that used to stand here ("a refusal being added, not a
+  behaviour being changed: every state accepted before is still accepted").
+  It is NOT symmetric between the read path and the write path, and the
+  asymmetry is measurable today::
+
+      write_typed_attributes(cid, {"level": 0, "hp_current": 100,
+                                   "hp_max": 100})   -> SUCCEEDS, persisted
+      read_character_vitals(cid).require()           -> VitalsError
+      apply_hp_damage(cid, 1)                        -> VitalsError
+
+  So a ``level = 0`` written through ``SQLiteStore.write_typed_attributes``
+  -- a shipped public method, already reached by name at
+  ``gm/chat_command_action.py:3033`` -- reports success and leaves a row this
+  server can no longer read or damage, with nothing refusing at the door that
+  let it in.  Before this rule that state round-tripped.  Nothing writes
+  ``level`` today (only ``speed_walk`` is written by any command, grepped
+  across ``src/``, ``tools/`` and ``current/``), so this is a latent hole
+  rather than a live one -- but it is a hole, it is the opposite of this
+  module's own fail-closed-at-the-front-door doctrine, and closing it means
+  changing an existing store method, which this lane's charter
+  (``COO-DECISION 20260901_1100``) forbids.  Raised to COO in writing the
+  round this landed rather than decided here.
 * ``hp_current > hp_max`` is refused.  Two per-column CHECKs cannot express a
   relation between two columns, so SQLite cannot catch this and something has
   to.
@@ -54,7 +86,13 @@ know the HP of.  So:
 ## WHAT IT DOES NOT DO
 
 * **It does not seed.**  Nothing in this file writes a value into a column
-  that had none.  Whether anything ELSE has seeded them is not asserted here
+  that had none.  ``new_character_vitals()`` is not a counter-example and the
+  distinction is the whole of ``COO-DECISION 20260902_0443``: it RETURNS three
+  numbers and touches no database, no row and no connection.  The write is
+  ``SQLiteStore.create_character``'s INSERT, which is chief's line in chief's
+  file; this module is where the numbers are decided and where they can be
+  corrected in one place on the day an RE replaces them.
+  Whether anything ELSE has seeded them is not asserted here
   and is not knowable from this file: it is a question about a database, and
   ``census_sql`` / ``SQLiteStore.vitals_seeding_census`` ask it there.
   Seeding is a write on live rows and therefore a migration, and that
@@ -84,9 +122,13 @@ know the HP of.  So:
   already puts on the wire rather than a new number.  That was the position
   the question was asked from, and ``COO-DECISION 20260902_0250`` answered it.
   THIS MODULE still seeds nothing and is still fail-closed, which is the
-  sentence that matters here: a migration wrote those rows, this file did not,
-  and a character created after that migration reaches ``resolve()`` carrying
-  the same three gaps as before.
+  sentence that matters here: a migration wrote those rows and this file did
+  not.  What a character created AFTER that migration carries is no longer a
+  claim this module can make on its own -- ``COO-DECISION 20260902_0443``
+  point 1 puts the values in ``new_character_vitals()`` below and the WRITE in
+  ``SQLiteStore.create_character``, so the answer depends on a line in another
+  lane's file.  ``tests/test_persistence_vitals_seed_007.py`` measures which
+  answer is true at head rather than either file asserting it.
 * **It sends nothing and is wired to nothing.**  No frame, no encoder, no
   socket, no call site.  Composing an attribute block from these values is
   still ``persistence_attr_compose``'s decision and still refuses today.
@@ -146,6 +188,7 @@ REASON_NOT_SEEDED = "vital_column_not_seeded"
 REASON_HP_PAIR_INCOMPLETE = "hp_pair_incomplete"
 REASON_HP_ABOVE_MAX = "hp_current_above_hp_max"
 REASON_HP_MAX_ZERO = "hp_max_zero_is_never_alive"
+REASON_LEVEL_ZERO = "level_zero_is_not_an_adjudicated_level"
 
 
 def _verify_binding() -> None:
@@ -379,6 +422,17 @@ def _consistency_gaps(present: Mapping[str, int]) -> tuple[VitalGap, ...]:
     not-seeded gaps before these run.
     """
     gaps: list[VitalGap] = []
+    # `level = 0` FIRST, so that the early return on a half-written HP pair
+    # below cannot swallow it: a row can be broken in both ways at once and a
+    # caller reading the message deserves both reasons.
+    level = present.get(LEVEL_COLUMN)
+    if level is not None and level == 0:
+        gaps.append(VitalGap(
+            LEVEL_COLUMN, REASON_LEVEL_ZERO,
+            "a level of 0 is not a level any decision in this repository "
+            "adjudicated; it is the shape a guessed-zero seed leaves behind "
+            "(COO-DECISION 20260902_0443 point 4)",
+        ))
     hp_current = present.get(HP_CURRENT_COLUMN)
     hp_max = present.get(HP_MAX_COLUMN)
     if (hp_current is None) != (hp_max is None):
@@ -426,6 +480,106 @@ def resolve(stored: Mapping[str, object]) -> VitalsResolution:
         present[column] = _as_stored_int(column, stored[column])
     gaps.extend(_consistency_gaps(present))
     return VitalsResolution(present=dict(present), gaps=tuple(gaps))
+
+
+#: The provenance label ``COO-DECISION 20260902_0250`` point 3 fixed for the
+#: three numbers below, and the same string
+#: ``migrations/007_character_vitals_seed.sql`` carries in its header.  Written
+#: in ASCII (``--`` for the em dash) for the same reason 007 is: a Thai-locale
+#: console reading a traceback out of this module is a person, not a scanner.
+#:
+#: It is a LIMIT, not a boast.  It says these numbers are a transcription of
+#: what this server already puts on the wire for every character at every
+#: login -- and says, in the same breath, that what the ORIGINAL game gives a
+#: newborn character is OPEN and not claimed here.
+NEW_CHARACTER_VITALS_PROVENANCE = (
+    "TRANSCRIBED from player_wire hardcode -- original game default OPEN"
+)
+
+#: The three numbers themselves, as literals rather than as an import from
+#: ``player_wire``.  Deliberately: an import would make every character born
+#: after an unrelated edit to ``PLAYER_LOGIN_LEVEL`` silently differ from the
+#: cohort ``007`` already seeded, with nothing going red.  The equality with
+#: ``player_wire`` and with ``007``'s own SQL is a claim, so it is graded by a
+#: test that re-derives both at head
+#: (``tests/test_persistence_vitals.py``, ``NewCharacterVitalsTests``) rather
+#: than trusted here.
+NEW_CHARACTER_LEVEL = 1
+NEW_CHARACTER_HP_CURRENT = 100
+NEW_CHARACTER_HP_MAX = 100
+
+
+def new_character_vitals() -> dict[str, int]:
+    """The vitals a character is born holding, as ``{column: value}``.
+
+    WHY THIS EXISTS.  ``migrations/007_character_vitals_seed.sql`` seeds a
+    COHORT, not a database: it writes the characters that exist the moment it
+    runs and, because the ledger stops it running twice and ``006`` added the
+    columns with no DEFAULT, a character created afterwards carries three
+    NULLs forever.  On a fresh install 007 runs against an empty table and
+    seeds nothing at all.  ``COO-DECISION 20260902_0443`` closed that, and
+    chose between the two ways of closing it:
+
+    * **rejected (point 2)** -- a ``DEFAULT`` on the three columns.  SQLite
+      cannot add a default to a column that exists, so it means rebuilding
+      ``characters``; and it would bury three numbers whose provenance is
+      ``OPEN`` inside a permanent schema, to be rebuilt again the day an RE
+      answers the open question.
+    * **chosen (point 1)** -- write the values at ``create_character``, from
+      ONE function, in the module that already owns what these three columns
+      mean.  One file changes on the day the numbers change.
+
+    So this function is that one function.  It is the DECISION; the WRITE is
+    three columns added to ``SQLiteStore.create_character``'s INSERT, which is
+    an existing method and therefore chief's line under this lane's charter
+    (``COO-DECISION 20260901_1100``), commissioned separately as ``0444``.
+
+    WHAT IT GUARANTEES.  The returned mapping is keyed by real column names
+    (from ``VITAL_COLUMNS``, so a rename in ``persistence_typed_attrs`` moves
+    the keys with it) and has been through this module's own front door before
+    it is handed back: ``resolve(...).require()`` runs on it, which re-validates
+    every value against its column's wire kind and applies every cross-column
+    rule -- including the ``level = 0`` refusal added by point 4 of the same
+    decision.  A newborn character therefore cannot be born into a state the
+    read path would refuse, and if a later edit to the three constants above
+    creates one, this function raises ``VitalsError`` at the call rather than
+    letting the row reach the database.
+
+    A FRESH ``dict`` EACH CALL, not a module-level constant handed out by
+    reference: the caller is a store method building an INSERT and has every
+    right to mutate what it was given.
+
+    WHAT IT DOES NOT CLAIM.  Not that 1 and 100/100 are what the original game
+    gives a new character -- see ``NEW_CHARACTER_VITALS_PROVENANCE``.  Not that
+    anything calls it: on the day it lands nothing does, and
+    ``tests/test_persistence_vitals_seed_007.py`` measures which of the two
+    worlds this repository is in rather than assuming either.
+    """
+    born = {
+        LEVEL_COLUMN: NEW_CHARACTER_LEVEL,
+        HP_CURRENT_COLUMN: NEW_CHARACTER_HP_CURRENT,
+        HP_MAX_COLUMN: NEW_CHARACTER_HP_MAX,
+    }
+    state = resolve(born).require()
+    if not state.alive:
+        # `resolve` CANNOT catch this and must not: `hp_current = 0` is a
+        # legitimate stored state -- it is a corpse, and a database is allowed
+        # to remember one (`test_zero_current_hp_is_a_usable_state_and_reads_
+        # as_not_alive`).  It is only at BIRTH that it is nonsense, so the rule
+        # belongs here and nowhere else.
+        #
+        # A `pf-adversary` pass set `NEW_CHARACTER_HP_CURRENT = 0` and watched
+        # `resolve(born).require()` wave it through, while the docstring above
+        # promised that a broken constant raises at the call.  Zero HP is the
+        # exact value this module's opening paragraph calls the worst case on
+        # this wire -- not "unknown", DEAD -- so a newborn holding it was the
+        # one shape the self-check had to catch and did not.
+        raise VitalsError(
+            "a character cannot be born dead: %s = %d would make every new "
+            "character a corpse at creation" % (
+                HP_CURRENT_COLUMN, born[HP_CURRENT_COLUMN])
+        )
+    return born
 
 
 @dataclass(frozen=True)

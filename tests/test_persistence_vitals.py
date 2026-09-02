@@ -36,7 +36,10 @@ canonical database.
 """
 import ast
 import contextlib
+import inspect
+import io
 import re
+import tokenize
 import sqlite3
 import sys
 import tempfile
@@ -55,6 +58,107 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
 MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
+
+
+def create_character_writes_vitals() -> bool:
+    """Does ``SQLiteStore.create_character`` write the three vital columns?
+
+    Read from the METHOD'S SOURCE, on purpose, so that it is an independent
+    signal from the rows the method actually produces.  The tests below assert
+    both halves against each other: source says yes and the row is NULL is a
+    broken write, source says no and the row is seeded is something else
+    seeding behind this lane's back.  Either way a test goes red.
+
+    WHY A BRANCH AT ALL.  ``COO-DECISION 20260902_0443`` split the close in
+    two: ``new_character_vitals()`` is this lane's (point 1, first half) and
+    the INSERT line is chief's (letter ``0444``), and they cannot land in the
+    same pull request because they are in different write zones.  Between the
+    two landings this repository really is in the unseeded world and after it
+    really is in the seeded one, so a test that hard-codes either is wrong for
+    half the time it exists -- and the wrong half is the one where it turns
+    somebody else's correct change red.
+
+    THREE THINGS A ``pf-adversary`` PASS BROKE IN THE FIRST VERSION, each
+    fixed here rather than written down as a caveat:
+
+    1. **A COMMENT flipped it.**  The pass added the most likely two lines
+       anyone writes while ``0444`` is pending -- ``# TODO (letter 0444):
+       level, hp_current and hp_max are not written here yet`` -- and this
+       function answered "seeded", producing three red tests whose message
+       said the row SHOULD be seeded and was not, blaming a write that did not
+       exist.  Comments and the docstring are now stripped before the scan.
+    2. **The message did not say which.**  The pass quoted this docstring's
+       own "either way a test goes red and SAYS WHICH" back at it: the
+       assertions carried a bare ``0 != 1``.  ``describe()`` below is what the
+       assertions now print, in both directions.
+    3. **Nothing checked the write came from ONE function.**  The pass
+       implemented chief's line as a bare SQL literal -- ``VALUES
+       (?,...,?,1,100,100)`` -- that never imports or calls
+       ``new_character_vitals()``, and all 113 tests passed.  That is the
+       decision's whole stated benefit ("one file changes on the day the
+       numbers change") going ungraded, so the call is now part of what is
+       scanned for and a literal write is refused by name.
+    """
+    source = inspect.getsource(SQLiteStore.create_character)
+    body = _source_without_comments(source)
+    named = [c for c in vitals.VITAL_COLUMNS
+             if re.search(r"\b%s\b" % re.escape(c), body)]
+    calls = bool(re.search(r"\bnew_character_vitals\b", body))
+    if named and len(named) != len(vitals.VITAL_COLUMNS):
+        raise AssertionError(
+            "create_character names %r of the three vital columns: a "
+            "half-written birth is the state persistence_vitals refuses to "
+            "read, written at the one moment nothing can refuse it" % (named,)
+        )
+    if named and not calls:
+        raise AssertionError(
+            "create_character writes %s but never calls "
+            "new_character_vitals(): the values are a literal in store.py "
+            "again, which is the one thing COO-DECISION 20260902_0443 point 1 "
+            "chose against -- the day an RE replaces the numbers, two files "
+            "have to change and nothing goes red if only one of them does"
+            % (", ".join(named),)
+        )
+    if calls and not named:
+        raise AssertionError(
+            "create_character calls new_character_vitals() but names none of "
+            "%s in its own body: this scan cannot see what it writes, so no "
+            "test below can grade the birth values.  Name the columns in the "
+            "INSERT list rather than splatting them in from a helper."
+            % (", ".join(vitals.VITAL_COLUMNS),)
+        )
+    return bool(named)
+
+
+def _source_without_comments(source: str) -> str:
+    """``source`` with ``#`` comments and string literals removed.
+
+    Tokenised rather than regexed: a ``#`` inside a string literal is not a
+    comment, and the SQL in ``create_character`` is one long string literal
+    that legitimately names the columns.  So the scan needs the code MINUS
+    comments but WITH strings -- except that a docstring is a string too.
+    ``tokenize`` separates all three cleanly; ``COMMENT`` and ``NL`` are
+    dropped and everything else is kept verbatim.
+    """
+    kept = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT,):
+            continue
+        kept.append(token.string)
+    return "\n".join(kept)
+
+
+def describe_world() -> str:
+    """One line naming which world this repository is in, for an assertion
+    message.  A red test that only prints ``0 != 1`` costs the reader the
+    whole investigation this function does in one call."""
+    if create_character_writes_vitals():
+        return ("create_character NAMES the three vital columns, so every "
+                "newborn character must hold new_character_vitals() == %r"
+                % (vitals.new_character_vitals(),))
+    return ("create_character names NONE of the three vital columns (chief's "
+            "letter 0444 has not landed), so every newborn character must "
+            "hold NULL in all three")
 
 
 def _build_wire(selector):
@@ -84,6 +188,28 @@ def raw(path):
         db.commit()
     finally:
         db.close()
+
+
+def unseed(path, character_id=None):
+    """NULL the three vital columns, so that "unseeded" is a state this test
+    CONSTRUCTS rather than one it inherits from `create_character`.
+
+    Most of the tests below are about a character whose vitals were never
+    written, and until now that state arrived for free: `create_character`
+    named none of the three columns and `006` gave them no DEFAULT.
+    `COO-DECISION 20260902_0443` point 1 ends that -- chief's `0444` line
+    makes every newborn character carry `new_character_vitals()` -- so a test
+    that wants an unseeded row has to say so.  Written against
+    `vitals.VITAL_COLUMNS` rather than three literals, so a rename in
+    `persistence_typed_attrs` moves it too.
+    """
+    sets = ", ".join("%s=NULL" % column for column in vitals.VITAL_COLUMNS)
+    with raw(path) as db:
+        if character_id is None:
+            db.execute("UPDATE characters SET " + sets)
+        else:
+            db.execute("UPDATE characters SET " + sets + " WHERE id=?",
+                       (character_id,))
 
 
 class BindingTests(unittest.TestCase):
@@ -252,6 +378,50 @@ class ResolveTests(unittest.TestCase):
             [vitals.REASON_HP_MAX_ZERO],
         )
 
+    def test_a_zero_level_is_refused(self):
+        # COO-DECISION 20260902_0443 point 4.  `006`'s CHECK allows it
+        # (`BETWEEN 0 AND 65535`) and until this rule landed nothing in the
+        # python layer had an opinion about it, which is why
+        # `007_character_vitals_seed.sql` had to carry the guard in its own
+        # WHERE clause.
+        resolution = vitals.resolve(
+            {"level": 0, "hp_current": 100, "hp_max": 100})
+        self.assertFalse(resolution.complete)
+        self.assertEqual(
+            [gap.reason for gap in resolution.gaps],
+            [vitals.REASON_LEVEL_ZERO],
+        )
+
+    def test_the_zero_level_refusal_names_the_column_when_require_raises(self):
+        with self.assertRaises(vitals.VitalsError) as caught:
+            vitals.resolve(
+                {"level": 0, "hp_current": 100, "hp_max": 100}).require()
+        message = str(caught.exception)
+        self.assertIn(vitals.LEVEL_COLUMN, message)
+        self.assertIn(vitals.REASON_LEVEL_ZERO, message)
+
+    def test_a_zero_level_is_reported_beside_a_broken_hp_pair_not_instead(self):
+        # The pair rule returns early once it fires.  A row can be broken in
+        # both ways at once and a caller reading the message deserves both
+        # reasons, so the level rule runs first.
+        resolution = vitals.resolve({"level": 0, "hp_current": 50})
+        reasons = [gap.reason for gap in resolution.gaps]
+        self.assertIn(vitals.REASON_LEVEL_ZERO, reasons)
+        self.assertIn(vitals.REASON_HP_PAIR_INCOMPLETE, reasons)
+
+    def test_a_level_of_one_is_still_accepted(self):
+        # The control: the rule refuses exactly the zero, not every low level.
+        state = vitals.resolve(
+            {"level": 1, "hp_current": 100, "hp_max": 100}).require()
+        self.assertEqual(state.level, 1)
+
+    def test_the_level_rule_does_not_reach_apply_damage(self):
+        # `apply_damage` runs the same cross-column check over an HP-only
+        # mapping.  A rule keyed on a column that is not in that mapping must
+        # stay silent there rather than refusing every hit.
+        outcome = vitals.apply_damage(100, 100, 10)
+        self.assertEqual(outcome.hp_after, 90)
+
     def test_a_hand_built_resolution_raises_a_vitals_error_not_a_keyerror(self):
         # `VitalsResolution` is public and can be built with an empty
         # `present` and no gaps.  A `pf-adversary` pass did that and got
@@ -346,6 +516,217 @@ class ApplyDamageTests(unittest.TestCase):
             vitals.apply_damage(0, 0, 1)
 
 
+class NewCharacterVitalsTests(unittest.TestCase):
+    """The three numbers a character is BORN with (COO-DECISION 20260902_0443
+    point 1), and the two claims made about where they come from.
+
+    Both claims are re-derived at head rather than compared against a copy of
+    themselves.  That is the lesson `migrations/007`'s own header records: a
+    `pf-adversary` pass moved the cited lines in `player_wire.py` with an
+    unrelated edit and every test in this lane stayed green, because the test
+    was comparing a string in one file with a string in another.
+    """
+
+    def test_the_mapping_is_keyed_by_the_three_real_column_names(self):
+        born = vitals.new_character_vitals()
+        self.assertEqual(sorted(born), sorted(vitals.VITAL_COLUMNS))
+        for column in born:
+            self.assertIn(column, typed.TYPED_COLUMNS, column)
+
+    def test_the_constants_match_player_wire_s_source_not_its_bytes(self):
+        """A SOURCE-LAYER fact, and the name says so because the first version
+        of this test claimed to be the measurement behind the TRANSCRIBED
+        label and was not.
+
+        A `pf-adversary` pass changed `make_actor_attr_with_name_and_class`'s
+        default from `level: int = PLAYER_LOGIN_LEVEL` to `level: int = 5` --
+        the login wire then carried 5 while the database seeded 1, the exact
+        split-brain this round says it exists to prevent -- and this test
+        stayed GREEN, because it asserts that a substring exists in a function
+        body and that a symbol equals 1 without ever connecting the two.
+
+        What actually catches that is
+        `tests/test_persistence_vitals_seed_007.py`'s
+        `WireEqualityTests::test_those_bytes_really_are_the_ones_the_login_
+        frame_carries`, which encodes the stored values and finds the result
+        inside the frame `player_wire` really builds.  That test went red in
+        the same run.  This one is kept as the cheap early warning it is --
+        it names the symbol and the emitting expression, so a rename is caught
+        here first -- and must not be cited as wire evidence.
+        """
+        from pirateforce_foundation import player_wire  # noqa: PLC0415
+        source = Path(player_wire.__file__).read_text(encoding="utf-8")
+        start = source.index("def _make_actor_attr_with_name_and_class")
+        body = source[start:source.index("\ndef ", start + 1)]
+        born = vitals.new_character_vitals()
+        self.assertIn("legacy.u16tag(0x12, level)", body)
+        self.assertEqual(body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        self.assertEqual(player_wire.PLAYER_LOGIN_LEVEL,
+                         born[vitals.LEVEL_COLUMN])
+        self.assertEqual(born[vitals.HP_CURRENT_COLUMN], 100)
+        self.assertEqual(born[vitals.HP_MAX_COLUMN], 100)
+
+    def test_the_provenance_label_is_the_one_007_carries(self):
+        sql = (ROOT / "migrations" / "007_character_vitals_seed.sql").read_text(
+            encoding="utf-8")
+        self.assertIn(vitals.NEW_CHARACTER_VITALS_PROVENANCE, sql)
+        self.assertIn("OPEN", vitals.NEW_CHARACTER_VITALS_PROVENANCE)
+
+    def test_the_returned_state_passes_this_module_s_own_front_door(self):
+        born = vitals.new_character_vitals()
+        state = vitals.resolve(born).require()
+        self.assertTrue(state.alive)
+        self.assertEqual(
+            (state.level, state.hp_current, state.hp_max), (1, 100, 100))
+
+    def test_a_broken_constant_raises_at_the_call_instead_of_reaching_a_row(self):
+        """The guarantee that makes `resolve(...).require()` inside the
+        function worth its cost: an edit to the constants that produces a
+        state the READ path refuses fails here, not in the database."""
+        with mock.patch.object(vitals, "NEW_CHARACTER_HP_MAX", 0):
+            with self.assertRaises(vitals.VitalsError):
+                vitals.new_character_vitals()
+        with mock.patch.object(vitals, "NEW_CHARACTER_LEVEL", 0):
+            with self.assertRaises(vitals.VitalsError) as caught:
+                vitals.new_character_vitals()
+        self.assertIn(vitals.REASON_LEVEL_ZERO, str(caught.exception))
+
+    def test_each_call_returns_a_fresh_mapping_the_caller_may_mutate(self):
+        first = vitals.new_character_vitals()
+        first[vitals.LEVEL_COLUMN] = 99
+        self.assertEqual(vitals.new_character_vitals()[vitals.LEVEL_COLUMN], 1)
+
+    def test_the_function_names_no_sqlite_identifier(self):
+        """A NAME BLACKLIST, and the name of this test says so because the
+        first version of it did not.
+
+        It was called `test_the_function_touches_no_database` and its
+        docstring said "nothing here may open a connection".  A
+        `pf-adversary` pass put a body into `new_character_vitals()` that
+        opened a real sqlite file and inserted a row -- through
+        `sqlite3.Connection(...)` and `.executescript(...)`, neither of which
+        is in the list -- and this test passed, the whole lane passed, and the
+        rows were on disk.  A blacklist of five identifiers is worth having as
+        a cheap tripwire and is worth nothing as a guarantee, so it now claims
+        only what it checks.
+
+        What actually holds the "it is a DECISION, not a write" line is the
+        `persistence_vitals` module having no connection to open: it imports
+        no `sqlite3` and takes no `db`, which
+        `ModuleImportsNoDatabaseTests` below asserts about the whole file
+        rather than about one function's identifiers.
+        """
+        source = ast.parse(MODULE.read_text(encoding="utf-8"))
+        function = next(
+            node for node in ast.walk(source)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "new_character_vitals")
+        names = {node.attr for node in ast.walk(function)
+                 if isinstance(node, ast.Attribute)}
+        names |= {node.id for node in ast.walk(function)
+                  if isinstance(node, ast.Name)}
+        for forbidden in ("connect", "execute", "commit", "cursor", "db",
+                          "Connection", "executescript", "executemany"):
+            self.assertNotIn(forbidden, names, forbidden)
+
+
+class ModuleImportsNoDatabaseTests(unittest.TestCase):
+    """The half of "this module writes nothing" that a blacklist cannot give.
+
+    A function can only reach a database through something the module can
+    name, so the check that holds is at the MODULE's import boundary rather
+    than inside one function body.  `verify_schema` takes a `db` a caller
+    hands it and never opens one, so the rule is about IMPORTS, not about the
+    identifier `db`.
+    """
+
+    def setUp(self):
+        self.tree = ast.parse(MODULE.read_text(encoding="utf-8"))
+
+    def test_the_module_imports_no_database_driver(self):
+        imported = set()
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
+        for driver in ("sqlite3", "sqlalchemy", "psycopg2", "os", "pathlib",
+                       "shutil", "subprocess"):
+            self.assertNotIn(
+                driver, imported,
+                "persistence_vitals imports %s: this module is the DECISION "
+                "layer and has no business reaching a database, a file or a "
+                "process -- the write is a store method's" % (driver,))
+
+    def test_new_character_vitals_calls_nothing_outside_this_module(self):
+        """Every call it makes is one a reader of this file can follow.
+
+        The adversary's injected write reached `sqlite3` through a name the
+        module would have had to import.  This is the complementary check at
+        the call level: the function may call only things defined here.
+        """
+        function = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "new_character_vitals")
+        called = set()
+        for node in ast.walk(function):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    called.add(func.id)
+                elif isinstance(func, ast.Attribute):
+                    called.add(
+                        "%s.%s" % (getattr(func.value, "id", "?"), func.attr))
+        self.assertEqual(
+            called, {"resolve", "?.require", "VitalsError"},
+            "new_character_vitals() calls %r; every one of them has to be "
+            "readable in this file, or 'it touches no database' is a promise "
+            "nobody can check" % (sorted(called),))
+
+
+class CensusOfANewbornTests(unittest.TestCase):
+    """What the census reads over a character that was just CREATED and never
+    written to afterwards -- the one question `SeedingCensusTests` cannot ask,
+    because its `setUp` clears the row on purpose."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("newborn-census")
+        self.home = Position(1, 0, 1.0, 2.0, 3.0, heading=0.0)
+        self.character = self.store.create_character(
+            self.account_id, "NewbornChar", "newbornchar",
+            "fingerprint-newborn-census", _build_wire, self.home,
+        )
+
+    def test_the_census_counts_exactly_what_creation_wrote(self):
+        """The character in `setUp` is created AFTER every migration has run,
+        so 007 never sees it and whatever the census counts here was written
+        by `create_character` or by nothing at all.
+
+        Branching rather than hard-coding zero, for the reason
+        `create_character_writes_vitals` records: `COO-DECISION 20260902_0443`
+        splits the birth write across two write zones, this lane's
+        `new_character_vitals()` and chief's INSERT line, and between the two
+        landings both worlds are correct.
+        """
+        census = self.store.vitals_seeding_census()
+        self.assertEqual(census["characters_any"], 1)
+        self.assertEqual(census["characters_live"], 1)
+        self.assertEqual(census["database"], str(self.path))
+        expected = 1 if create_character_writes_vitals() else 0
+        why = describe_world()
+        for column in vitals.VITAL_COLUMNS:
+            self.assertEqual(census[column + "_seeded_any"], expected,
+                             "%s: %s" % (column, why))
+            self.assertEqual(census[column + "_seeded_live"], expected,
+                             "%s: %s" % (column, why))
+
+
 class SeedingCensusTests(unittest.TestCase):
     """"Is anything seeded" is asked of the DATABASE, and could not be asked
     of the migration text.
@@ -370,15 +751,9 @@ class SeedingCensusTests(unittest.TestCase):
             self.account_id, "CensusChar", "censuschar",
             "fingerprint-census", _build_wire, self.home,
         )
-
-    def test_the_repository_as_it_stands_has_seeded_nothing(self):
-        census = self.store.vitals_seeding_census()
-        self.assertEqual(census["characters_any"], 1)
-        self.assertEqual(census["characters_live"], 1)
-        self.assertEqual(census["database"], str(self.path))
-        for column in vitals.VITAL_COLUMNS:
-            self.assertEqual(census[column + "_seeded_any"], 0, column)
-            self.assertEqual(census[column + "_seeded_live"], 0, column)
+        # Every test in this class writes the seed it wants to count, so the
+        # row starts with nothing in it.  See `unseed`.
+        unseed(self.path, self.character.id)
 
     def test_a_default_on_add_column_seeds_every_row_and_is_counted(self):
         # The shape 006's own header invites ("a rename is a later, cheap
@@ -426,10 +801,14 @@ class SeedingCensusTests(unittest.TestCase):
             self.character.id, {"level": 9, "hp_current": 50, "hp_max": 50})
         sid = self.store.open_session(self.account_id)
         self.store.soft_delete_character(sid, self.character.selector)
-        self.store.create_character(
+        fresh = self.store.create_character(
             self.account_id, "FreshChar", "freshchar", "fingerprint-fresh",
             _build_wire, self.home,
         )
+        # The live row in this scenario is the UNSEEDED one -- that is what
+        # makes the live counts read "one character, nothing seeded" while
+        # the `_any` counts see the deleted row's values.  See `unseed`.
+        unseed(self.path, fresh.id)
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_live"], 1)
         self.assertEqual(census["characters_any"], 2)
@@ -574,6 +953,10 @@ class StoreVitalsTests(unittest.TestCase):
             "fingerprint-vitals", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # The subject of this class is a character whose vitals the database
+        # does not know.  See `unseed`: after chief's `0444` line that is no
+        # longer what a newborn character is, so it is constructed here.
+        unseed(self.path, self.character.id)
 
     def _hp_on_disk(self):
         with raw(self.path) as db:
