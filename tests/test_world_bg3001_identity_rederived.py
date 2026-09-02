@@ -20,10 +20,17 @@ the shipped literal FIELD BY FIELD -- and skips, loudly and by name, when
 they are not.  A skip is honest; a green suite that never opened the
 source is not.
 
-WHERE IT LOOKS, in order: ``$PF_BRIDGE_GAMEDATA``, then ``../pf_bridge/
-gamedata`` beside this repository (the layout both the bridge machine and
-the cloud clones use).  Nothing here writes, and nothing here reads the
-canonical DB.
+WHERE IT LOOKS: ``tests/pf_preconditions.BRIDGE_GAMEDATA`` -- the house
+answer to "what does this clone not have", NOT a bare ``skipUnless`` of
+this file's own.  A bare one is what the Windows gate rejected this round
+("UNDECLARED SKIP"): Panya's 2026-08-20 ruling is that every skip carries
+a ``[precondition:<key>]`` token and a pinned count, so a real test cannot
+drift into the skip pile unseen.  This file's six skips are pinned in
+``docs/PYTEST_SKIP_PINS.json`` under that key.  ``$PF_BRIDGE_GAMEDATA`` is
+still honoured for a checkout that keeps the bridge somewhere else, and
+when it points at real tables the guard is a no-op and every assertion
+below runs at full strength.  Nothing here writes, and nothing here reads
+the canonical DB.
 """
 from __future__ import annotations
 
@@ -36,14 +43,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
 
+from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 from pirateforce_foundation import world_bg3001_identity as identity  # noqa: E402
 
 
 def _gamedata_root() -> Path | None:
+    """The tables, from the env override or the house precondition's path."""
     named = os.environ.get("PF_BRIDGE_GAMEDATA")
     candidates = [Path(named)] if named else []
-    candidates.append(ROOT.parent / "pf_bridge" / "gamedata")
+    # The precondition names ``<sibling>/pf_bridge/gamedata/tables``; this
+    # file wants the directory above it, so the scene folder resolves too.
+    candidates.extend(path.parent for path in BRIDGE_GAMEDATA.paths)
     for candidate in candidates:
         if (candidate / "tables" / "CONSTDATA_TH__CLINE.tsv").is_file():
             return candidate
@@ -58,11 +70,7 @@ def _rows(path: Path) -> list[dict]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-@unittest.skipIf(
-    GAMEDATA is None,
-    "the bridge gamedata tables are not reachable from this checkout; set "
-    "PF_BRIDGE_GAMEDATA or clone pf_bridge beside this repository",
-)
+@BRIDGE_GAMEDATA.skip_unless_present()
 class TheShippedTableMatchesTheSource(unittest.TestCase):
     """Field by field, against the files ``SOURCE_SHA256`` names."""
 

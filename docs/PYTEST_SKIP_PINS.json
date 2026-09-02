@@ -46,29 +46,203 @@
   ],
   "preconditions": [
     {
+      "key": "audit_head_history",
+      "module": "tests/test_multiplayer_readiness_audit.py",
+      "count": 3,
+      "tests": [
+        "VerifierRunsCleanTests::test_the_verifier_exits_zero_as_a_subprocess",
+        "VerifierRunsCleanTests::test_the_json_mode_is_valid_json_and_hides_private_keys",
+        "HistoricalSuiteSizeTests::test_the_pin_is_re_derived_from_the_commit_it_names"
+      ],
+      "note": "All three run tools/pf_multiplayer_readiness_audit.py, which re-derives its published suite size from commit 5cc0eda and fails its own historical pin when git cannot hand that commit over.  Separate key from original_schema_history because a clone can hold one commit and not the other: measured 2026-08-21, a clone of the cloud round's own shape held 5cc0eda and not 5c200e2, so one shared key would have skipped these three where they could run.  Do not read a fixed distance out of this note - where a given --depth grafts moves with every commit on main, and the day 5cc0eda falls outside a cloud clone these three skip for a measured reason instead of running, which is the design and not a surprise.  test_two_runs_produce_identical_output stays unguarded on purpose, but not because it is strong: it compares the tool's stdout across two runs and asserts nothing about the exit code, so it is equally green over a tool that fails identically twice.  It is unguarded because it is true everywhere, not because it is evidence."
+    },
+    {
+      "key": "backups_tree",
+      "module": "tests/test_population.py",
+      "count": 1,
+      "tests": [
+        "PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only"
+      ],
+      "note": "Reads two v94 capture files under backups/.  test_the_v94_provenance_paths_are_declared_machine_local keeps a real assertion on the same golden data everywhere."
+    },
+    {
+      "key": "backups_tree",
+      "module": "tests/test_teleportcheck_0x4477_corpus.py",
+      "count": 1,
+      "tests": [
+        "RealCorpusTests::test_the_wire_guards_all_pass_on_the_real_corpus"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "bridge_attr_corpus",
+      "module": "tests/test_world_avatar_attr.py",
+      "count": 1,
+      "tests": [
+        "AvatarAttrCheckTest::test_the_transcription_matches_the_corpus_file_when_it_is_here"
+      ],
+      "note": "round a2nvx9 (LANE-A): the AvatarAttr check-first module re-derives FIELDS from the corpus TSV instead of trusting its own transcription, so that ONE test can only run where the bridge sibling carries notes_to_chief/reference_codex_attr/PF_ATTR_FIELD_SEMANTICS.tsv.  Round qtxdpr shipped it with a BARE self.skipTest, the Windows gate reported UNDECLARED SKIP (1 test), RESULT: FAIL, and merge-claude-pr closed PR #545 unmerged with the work intact on its branch.  Converted to BRIDGE_ATTR_CORPUS.require(self) and pinned in the same commit as that conversion.  Its own key rather than bridge_sibling because ../pf_bridge can exist WITHOUT the mirrored corpus directory, and the broader key would let the re-derivation start and die on a missing path instead of skipping - the opposite direction from the false SKIP that bridge_serializer_table was split out to stop, not the same argument.  WHAT THE SKIP COSTS, stated because a count of skips is not a count of ungraded claims: with this test skipped, the bit->name assignment would be graded by nothing on the gate, so class FieldTableIsPinnedOnEveryMachineTests in the same module carries the 21 rows a second time WITHOUT a precondition and runs there.  pf-adversary measured the hole first: permuting n_SLOT_RHAND/n_SLOT_LHAND left a gate-shaped run byte-identical at 6174 passed, 72 skipped, exit 0."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0002.py",
+      "count": 4,
+      "tests": [
+        "Bg0002RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0002RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0002RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata",
+        "Bg0002RegenerateAndDiffTest::test_template_27_fails_only_the_outfit_ambiguity_half_of_selection"
+      ],
+      "note": "round y7koj9 (LANE-B): field_mob_tables_bg0002.py is GENERATED prep data for PANYA-DECISION 2026-08-27T20:10+07:00's M1-P (Prison Exile / Bg0002 identity-first priority, M2 paused) item 3 - widen death scope toward bg0002 without merging it into bg0001's roster in one load_roster() call. These four re-run tools/pf_mine_scene_mob_roster.py --scene Bg0002 against the bridge clone's gamedata so the committed module cannot drift unnoticed, and confirm template 27 (Mountain Deer, the owner's ADDENDUM 20:18 pick for GT-114/DIAG-001) is correctly absent from this generated roster (outfit-ambiguous, not hostile-predicate-failing) rather than silently missing for the wrong reason. Pinned in the same commit as the test, per the exact defect shape pf-adversary already caught twice (test_pf_scan_field_scene_candidates.py round ctflxc, test_field_mob_tables_bg0015.py round 2vxlx2) and a third time in this round's own first draft."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0015.py",
+      "count": 4,
+      "tests": [
+        "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
+        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_twelve_from_live_gamedata",
+        "Bg0015RegenerateAndDiffTest::test_this_scene_agrees_with_the_legacy_rule_on_nothing"
+      ],
+      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mobs.py",
+      "count": 2,
+      "tests": [
+        "Bg0001RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_bg0001_module",
+        "Bg0001RegenerateAndDiffTest::test_the_scene_is_fully_accounted_for"
+      ],
+      "note": "round 0n9inw (LANE-B): this class re-runs tools/pf_mine_scene_mob_roster.py --scene bg0001 against the bridge clone's gamedata so the committed module cannot drift unnoticed - the control bg0002 and bg0015 already had. It shipped in round szdkgs with a BARE unittest.SkipTest in setUpClass, which pf_preconditions' own header names as the exact shape it exists to stop: undeclared, uncounted, invisible to this census. LANE-A measured it on a fresh Linux clone (status letter 20260829_1050 section 3) - tools/pf_pytest_precondition_census.py reported UNDECLARED SKIP (2 tests), RESULT: FAIL - and stated plainly they could not reproduce a red gate and did not claim one; the skip was undeclared either way. Converted to BRIDGE_GAMEDATA.skip_unless_present() and pinned in the same commit as that conversion, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_mob_loot.py",
+      "count": 1,
+      "tests": [
+        "MobLootTests::test_the_generator_reproduces_the_shipped_table_when_it_can_run"
+      ],
+      "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_pf_scan_field_scene_candidates.py",
+      "count": 3,
+      "tests": [
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
+        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
+      ],
+      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_scene_identity_rule.py",
+      "count": 9,
+      "tests": [
+        "TheCommittedCopyIsTheRealTable::test_the_source_digest_matches_the_file_the_blocks_came_from",
+        "TheCommittedCopyIsTheRealTable::test_both_blocks_re_derive_exactly",
+        "TheCommittedCopyIsTheRealTable::test_the_two_readings_of_set_103_re_derive_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_display_names_re_derive_from_the_TIP_table_not_from_mobs",
+        "TheCommittedCopyIsTheRealTable::test_the_scene_cline_type_re_derives_from_scene_name",
+        "TheCommittedCopyIsTheRealTable::test_the_cline_type_column_is_not_the_id_column_in_general",
+        "TheCommittedCopyIsTheRealTable::test_the_rules_reach_is_nineteen_scenes_of_two_hundred_seventy_one",
+        "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
+        "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
+      ],
+      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_world_bg3001_identity_rederived.py",
+      "count": 6,
+      "tests": [
+        "TheShippedTableMatchesTheSource::test_every_source_digest_is_the_file_that_is_there",
+        "TheShippedTableMatchesTheSource::test_every_shipped_row_matches_the_table_chain",
+        "TheShippedTableMatchesTheSource::test_every_placement_row_matches_the_scene_file",
+        "TheShippedTableMatchesTheSource::test_every_dropped_set_is_dropped_for_the_reason_given",
+        "TheShippedTableMatchesTheSource::test_the_second_leg_is_real_and_never_shipped",
+        "TheShippedTableMatchesTheSource::test_the_docstrings_measured_numbers_are_still_true"
+      ],
+      "note": "round 4uztfj (LANE-A): world_bg3001_identity.py's rows are MINED from the bridge clone's gamedata, and pf-adversary measured that ten single-value mutations of them - a wrong MOBS.n_ID on the wire among them - left the whole lane suite green, because nothing had ever hashed SOURCE_SHA256 against anything. This class re-derives the crosswalk field by field and hashes all six pinned digests, so it can only run where the tables are. It shipped its first draft with a BARE unittest.skipIf and the Windows gate's skip census caught it as an UNDECLARED SKIP - the same trap tests/test_field_mobs.py's own note records."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_world_columbus_m2_crosswalk.py",
+      "count": 7,
+      "tests": [
+        "ColumbusM2CrosswalkTest::test_provenance_hashes_match_the_pinned_tables",
+        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_quest_begin_contains_3021",
+        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_does_not_require_3023",
+        "ColumbusM2CrosswalkTest::test_quest_3021_destination_scene_is_17",
+        "ColumbusM2CrosswalkTest::test_quest_3023_destination_scene_is_19_not_17",
+        "ColumbusM2CrosswalkTest::test_scene_17_is_bg1001_and_is_a_sea_scene",
+        "ColumbusM2CrosswalkTest::test_bg1001_placements_hold_no_player_arrival_spawn"
+      ],
+      "note": "round 8pfksm (LANE-A): pins the Columbus M2 identity/quest/scene crosswalk (MOBS 156 -> quest 3021 -> scene 17, not the 3023/scene-19 conflation an earlier status letter made) against the bridge gamedata TSVs. A clone without pf_bridge beside it cannot re-check the tables, so the skip is declared here - pf-adversary caught this module shipping with no matching pin, same defect shape as test_pf_scan_field_scene_candidates.py (round ctflxc) and test_field_mob_tables_bg0015.py (round 2vxlx2)."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_world_scene_folder_on_the_bridge.py",
+      "count": 2,
+      "tests": [
+        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_copy_is_what_the_client_files_produce",
+        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_pinned_source_digests_match_the_files_on_the_bridge"
+      ],
+      "note": "round yam18f (LANE-A): COO-DECISION 20260829_0848 item 3 ordered the scene_id -> scene name reader; world_scene_folder.py pins 16 scene-id/folder rows and the totals of the two client files they come from, and these two are the bridge-only hops the gate cannot make - re-curating world_data/world_scene_folder_crosswalk.json from the client's own bytes, and comparing the two pinned source sha256 against the files themselves. A clone without pf_bridge beside it cannot answer. PINNED IN THE SAME COMMIT AS THE TEST, and the reason this file exists at all is that the round's first draft wrote the same check as a conditional 'if not exists: return' INSIDE tests/test_world_scene_folder.py, which pf-adversary showed reports 1 PASSED on a machine with no bridge - an uncounted, unnamed no-op invisible to this census, which is the precise failure the 'why' block above describes. The gate-side half of the same work is tests/test_world_scene_folder.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_world_scene_marker.py",
+      "count": 2,
+      "tests": [
+        "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree",
+        "MarkerReverificationOnTheBridgeTest::test_the_committed_copy_is_what_the_client_tables_produce"
+      ],
+      "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'. ROUND i8timv MOVED THIS COUNT FROM 1 TO 2, in the same commit as the test that moved it, exactly as the 'why' block above demands: COO-DECISION 20260829_0941 ordered the used rows of the client tables committed as data, and the second test is the bridge-only hop that check cannot make - it re-curates world_data/world_marker_crosswalk.json from the client's own bytes and compares. It was added as a second method INSIDE the already-pinned class rather than as a new class, so this remains one precondition. The gate-side half of the same ruling is tests/test_world_marker_copy.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
+    },
+    {
+      "key": "bridge_serializer_table",
+      "module": "tests/test_mob_pickup_request.py",
+      "count": 3,
+      "tests": [
+        "DeliveryTableCrossCheckTests::test_the_table_still_carries_four_symmetric_rows",
+        "DeliveryTableCrossCheckTests::test_every_pinned_number_is_the_tables_number",
+        "DeliveryTableCrossCheckTests::test_the_seven_byte_size_is_the_labelled_inference_it_claims_to_be"
+      ],
+      "note": "round okdfge (LANE-B): mob_pickup_request.py transcribes its pins (object ref tag 0x14 at +0x14, cell tag 0x08 at +0x18, seven-byte body) by hand out of PF_SERIALIZER_FIELDS.tsv; this class re-reads that table itself so the transcription cannot drift, and a clone without the sibling table cannot answer. Pinned here because round h6bl53 shipped the same class with a BARE skipTest in setUp and the Windows gate's skip census closed pull request #540 for it - 'UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)' - the same defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud, and that round szdkgs shipped again before round 0n9inw converted it. THE KEY IS THE ONE FILE, NOT THE EIGHT: a first draft of this pin guarded the class with external_re_tables, and pf-adversary measured a sibling holding seven of the eight tables (only PF_TAG_CENSUS.tsv missing) skipping this cross-check with a reason whose own tail said the table it reads was present - so bridge_serializer_table names exactly PF_SERIALIZER_FIELDS.tsv. The half of the same check that CAN run on the gate is PinnedNumbersAreHardPinnedEverywhereTests in the same module, which carries no precondition and must never appear in this file."
+    },
+    {
+      "key": "canonical_db",
+      "module": "tests/test_damage_hp_link_dispatch.py",
+      "count": 2,
+      "tests": [
+        "HeadlessReplayToolTests::test_the_replay_tool_runs_clean_against_the_real_dispatcher",
+        "HeadlessReplayToolTests::test_the_replay_tools_output_is_pure_ascii"
+      ],
+      "note": "Both run the replay tool with no --db, so the tool falls back to the canonical database and exits 2 without it.  test_the_replay_tool_refuses_a_missing_database_in_pure_ascii covers the cp874 and exit-code contract on every machine and must never be added to this list."
+    },
+    {
+      "key": "capture_v141",
+      "module": "tests/test_capture_corpus.py",
+      "count": 5,
+      "tests": [
+        "LiveFileExclusionTests::test_the_live_tails_still_match_the_pattern",
+        "PinnedFilesTests::test_every_pinned_capture_is_present_and_byte_identical",
+        "PinnedFilesTests::test_hashes_are_reproducible",
+        "PinnedFilesTests::test_no_capture_exists_outside_the_pinned_set",
+        "PinnedFilesTests::test_no_pinned_capture_has_vanished"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
       "key": "client_image",
       "module": "tests/test_action_consumer_probe.py",
       "count": 1,
       "tests": [
         "ConsumerProbeTests::test_exact_real_binary_guards_both_profiles"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "game_install_tree",
-      "module": "tests/test_action_consumer_probe.py",
-      "count": 1,
-      "tests": [
-        "ConsumerProbeTests::test_safe_output_and_runtime_options"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "game_install_tree",
-      "module": "tests/test_action_producer_probe.py",
-      "count": 1,
-      "tests": [
-        "ActionProducerProbeTests::test_runtime_options_and_output_path_are_strict"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
@@ -142,19 +316,6 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "capture_v141",
-      "module": "tests/test_capture_corpus.py",
-      "count": 5,
-      "tests": [
-        "LiveFileExclusionTests::test_the_live_tails_still_match_the_pattern",
-        "PinnedFilesTests::test_every_pinned_capture_is_present_and_byte_identical",
-        "PinnedFilesTests::test_hashes_are_reproducible",
-        "PinnedFilesTests::test_no_capture_exists_outside_the_pinned_set",
-        "PinnedFilesTests::test_no_pinned_capture_has_vanished"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_chat_channel_family_static.py",
       "count": 11,
@@ -170,16 +331,6 @@
         "ChatChannelFamilyStaticTests::test_seventeen_name_literals_and_one_registration_block",
         "ChatChannelFamilyStaticTests::test_vtable_slots_and_two_converging_name_paths",
         "ChatChannelFamilyStaticTests::test_whisper_is_the_only_channel_with_a_recipient_field"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "game_install_tree",
-      "module": "tests/test_client_ui_asset_inventory.py",
-      "count": 2,
-      "tests": [
-        "RealAssetTests::test_the_published_negative_still_holds",
-        "RealAssetTests::test_the_two_old_denominators_really_did_differ"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
@@ -245,16 +396,6 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "canonical_db",
-      "module": "tests/test_damage_hp_link_dispatch.py",
-      "count": 2,
-      "tests": [
-        "HeadlessReplayToolTests::test_the_replay_tool_runs_clean_against_the_real_dispatcher",
-        "HeadlessReplayToolTests::test_the_replay_tools_output_is_pure_ascii"
-      ],
-      "note": "Both run the replay tool with no --db, so the tool falls back to the canonical database and exits 2 without it.  test_the_replay_tool_refuses_a_missing_database_in_pure_ascii covers the cp874 and exit-code contract on every machine and must never be added to this list."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_delete_refresh_static.py",
       "count": 8,
@@ -280,111 +421,12 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "game_install_tree",
-      "module": "tests/test_equip_state_static.py",
-      "count": 4,
-      "tests": [
-        "EquipStateStaticTests::test_character_equipment_ui_requests_collection_bag_not_equipped_bag",
-        "EquipStateStaticTests::test_item_operate_result_optional_bag_is_plain_not_collection",
-        "EquipStateStaticTests::test_registered_equipped_bag_has_only_the_shared_itembag_shape",
-        "EquipStateStaticTests::test_startgame_imports_all_attrs_but_has_no_equipped_specific_lookup"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "external_re_tables",
-      "module": "tests/test_external_registry.py",
-      "count": 26,
-      "tests": [
-        "DeliverableSnapshotTests::test_census_widths_match_every_row_that_carries_the_tag",
-        "DeliverableSnapshotTests::test_cli_stats_and_message_exit_zero",
-        "DeliverableSnapshotTests::test_cross_check_holds_and_summary_matches_the_letter",
-        "DeliverableSnapshotTests::test_golden_trigger_cast_skill_vital",
-        "DeliverableSnapshotTests::test_the_late_tables_are_internally_consistent",
-        "DeliverableSnapshotTests::test_the_priority_open_set_is_a_projection_of_field_offset",
-        "MutationRefusalTests::test_a_duplicate_evidence_id_is_refused",
-        "MutationRefusalTests::test_a_garbage_field_offset_is_refused",
-        "MutationRefusalTests::test_a_lower_cased_evidence_digest_is_refused",
-        "MutationRefusalTests::test_a_membership_swap_in_the_priority_open_set_is_refused",
-        "MutationRefusalTests::test_a_new_semantic_claim_in_the_census_is_refused",
-        "MutationRefusalTests::test_a_relabelled_nonstandard_grammar_row_is_refused",
-        "MutationRefusalTests::test_an_open_row_with_no_blocker_is_refused",
-        "MutationRefusalTests::test_broken_name_join_is_refused",
-        "MutationRefusalTests::test_census_frequency_drifting_from_the_row_count_is_refused",
-        "MutationRefusalTests::test_census_width_disagreeing_with_a_field_row_is_refused",
-        "MutationRefusalTests::test_changing_an_unknown_reason_desyncs_priority_and_is_refused",
-        "MutationRefusalTests::test_claim_moved_outside_its_span_is_refused",
-        "MutationRefusalTests::test_dropped_row_fails_the_row_pin",
-        "MutationRefusalTests::test_evidence_digest_not_matching_inventory_is_refused",
-        "MutationRefusalTests::test_garbage_hex_in_an_undelta_column_is_refused",
-        "MutationRefusalTests::test_non_ascii_byte_is_refused",
-        "MutationRefusalTests::test_non_integer_order_is_a_refusal_not_a_traceback",
-        "MutationRefusalTests::test_renamed_header_column_is_refused",
-        "MutationRefusalTests::test_sha_pin_catches_any_edit_when_active",
-        "MutationRefusalTests::test_unmutated_copy_still_passes_without_sha"
-      ],
-      "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
-    },
-    {
-      "key": "bridge_serializer_table",
-      "module": "tests/test_mob_pickup_request.py",
-      "count": 3,
-      "tests": [
-        "DeliveryTableCrossCheckTests::test_the_table_still_carries_four_symmetric_rows",
-        "DeliveryTableCrossCheckTests::test_every_pinned_number_is_the_tables_number",
-        "DeliveryTableCrossCheckTests::test_the_seven_byte_size_is_the_labelled_inference_it_claims_to_be"
-      ],
-      "note": "round okdfge (LANE-B): mob_pickup_request.py transcribes its pins (object ref tag 0x14 at +0x14, cell tag 0x08 at +0x18, seven-byte body) by hand out of PF_SERIALIZER_FIELDS.tsv; this class re-reads that table itself so the transcription cannot drift, and a clone without the sibling table cannot answer. Pinned here because round h6bl53 shipped the same class with a BARE skipTest in setUp and the Windows gate's skip census closed pull request #540 for it - 'UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)' - the same defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud, and that round szdkgs shipped again before round 0n9inw converted it. THE KEY IS THE ONE FILE, NOT THE EIGHT: a first draft of this pin guarded the class with external_re_tables, and pf-adversary measured a sibling holding seven of the eight tables (only PF_TAG_CENSUS.tsv missing) skipping this cross-check with a reason whose own tail said the table it reads was present - so bridge_serializer_table names exactly PF_SERIALIZER_FIELDS.tsv. The half of the same check that CAN run on the gate is PinnedNumbersAreHardPinnedEverywhereTests in the same module, which carries no precondition and must never appear in this file."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_field_mob_tables_bg0002.py",
-      "count": 4,
-      "tests": [
-        "Bg0002RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
-        "Bg0002RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
-        "Bg0002RegenerateAndDiffTest::test_hostile_roster_count_is_seventeen_from_live_gamedata",
-        "Bg0002RegenerateAndDiffTest::test_template_27_fails_only_the_outfit_ambiguity_half_of_selection"
-      ],
-      "note": "round y7koj9 (LANE-B): field_mob_tables_bg0002.py is GENERATED prep data for PANYA-DECISION 2026-08-27T20:10+07:00's M1-P (Prison Exile / Bg0002 identity-first priority, M2 paused) item 3 - widen death scope toward bg0002 without merging it into bg0001's roster in one load_roster() call. These four re-run tools/pf_mine_scene_mob_roster.py --scene Bg0002 against the bridge clone's gamedata so the committed module cannot drift unnoticed, and confirm template 27 (Mountain Deer, the owner's ADDENDUM 20:18 pick for GT-114/DIAG-001) is correctly absent from this generated roster (outfit-ambiguous, not hostile-predicate-failing) rather than silently missing for the wrong reason. Pinned in the same commit as the test, per the exact defect shape pf-adversary already caught twice (test_pf_scan_field_scene_candidates.py round ctflxc, test_field_mob_tables_bg0015.py round 2vxlx2) and a third time in this round's own first draft."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_field_mob_tables_bg0015.py",
-      "count": 4,
-      "tests": [
-        "Bg0015RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_module_byte_for_byte",
-        "Bg0015RegenerateAndDiffTest::test_the_predicate_census_matches_the_recorded_finding",
-        "Bg0015RegenerateAndDiffTest::test_hostile_roster_count_is_twelve_from_live_gamedata",
-        "Bg0015RegenerateAndDiffTest::test_this_scene_agrees_with_the_legacy_rule_on_nothing"
-      ],
-      "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
-    },
-    {
-      "key": "original_schema_history",
-      "module": "tests/test_foundation.py",
-      "count": 1,
-      "tests": [
-        "FoundationTests::test_upgrade_from_original_foundation_schema"
-      ],
-      "note": "The first entry whose artifact is inside git rather than beside it: the test reads migrations/001_initial.sql out of commit 5c200e2, which a shallow clone does not carry.  Measured 2026-08-21 (round 118): a cloud clone failed it with a bare CalledProcessError, which reads as a red main on a tree nobody touched; the same commit was 1206 passed / 4 skipped after git fetch --unshallow.  The gate checks out with fetch-depth: 0 and the bridge holds the whole history, so on both machines that decide anything this expects ZERO skips and the assertions run at full strength.  The guard names the BLOB and not only the commit, because a partial clone has the commit and not the blob."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_hit_result_probe.py",
       "count": 2,
       "tests": [
         "HitResultProbeTests::test_hook_spans_do_not_overlap_pe_relocations",
         "HitResultProbeTests::test_real_binary_guards_both_profiles"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "game_install_tree",
-      "module": "tests/test_hit_result_probe.py",
-      "count": 1,
-      "tests": [
-        "HitResultProbeTests::test_safe_output"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
@@ -426,30 +468,11 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "game_install_tree",
-      "module": "tests/test_item_move_consumer_static.py",
-      "count": 2,
-      "tests": [
-        "ItemMoveConsumerStaticTests::test_result_routes_by_identity_and_incoming_slot_not_old_quantity",
-        "ItemMoveConsumerStaticTests::test_slot_payload_is_replaced_with_a_complete_itemattr_clone"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_item_order_static.py",
       "count": 1,
       "tests": [
         "ItemOrderStaticTests::test_exact_original_and_local_spans_are_identical"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "game_install_tree",
-      "module": "tests/test_item_order_static.py",
-      "count": 1,
-      "tests": [
-        "ItemOrderStaticTests::test_item_identity_is_the_tree_key_and_writer_uses_successor_order"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
@@ -495,15 +518,6 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_mob_loot.py",
-      "count": 1,
-      "tests": [
-        "MobLootTests::test_the_generator_reproduces_the_shipped_table_when_it_can_run"
-      ],
-      "note": "round g627j0 (LANE-B): field_drop_tables.py is GENERATED, and this is the test that re-runs its generator with --check so the shipped table cannot drift from the bridge clone's gamedata unnoticed. A clone without pf_bridge beside it cannot answer, so the skip is declared rather than hand-written - the first draft wrote a bare skipTest and the gate's skip census caught it."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_move_authority_targetpos_static.py",
       "count": 8,
@@ -520,26 +534,6 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "audit_head_history",
-      "module": "tests/test_multiplayer_readiness_audit.py",
-      "count": 3,
-      "tests": [
-        "VerifierRunsCleanTests::test_the_verifier_exits_zero_as_a_subprocess",
-        "VerifierRunsCleanTests::test_the_json_mode_is_valid_json_and_hides_private_keys",
-        "HistoricalSuiteSizeTests::test_the_pin_is_re_derived_from_the_commit_it_names"
-      ],
-      "note": "All three run tools/pf_multiplayer_readiness_audit.py, which re-derives its published suite size from commit 5cc0eda and fails its own historical pin when git cannot hand that commit over.  Separate key from original_schema_history because a clone can hold one commit and not the other: measured 2026-08-21, a clone of the cloud round's own shape held 5cc0eda and not 5c200e2, so one shared key would have skipped these three where they could run.  Do not read a fixed distance out of this note - where a given --depth grafts moves with every commit on main, and the day 5cc0eda falls outside a cloud clone these three skip for a measured reason instead of running, which is the design and not a surprise.  test_two_runs_produce_identical_output stays unguarded on purpose, but not because it is strong: it compares the tool's stdout across two runs and asserts nothing about the exit code, so it is equally green over a tool that fails identically twice.  It is unguarded because it is true everywhere, not because it is evidence."
-    },
-    {
-      "key": "login_req_capture",
-      "module": "tests/test_multiplayer_readiness_audit.py",
-      "count": 1,
-      "tests": [
-        "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
-      ],
-      "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_names_fold003_thunk_census.py",
       "count": 5,
@@ -551,26 +545,6 @@
         "ToolRunTests::test_thunk_verifier_still_reproduces_the_three_round62_pins"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_pf_scan_field_scene_candidates.py",
-      "count": 3,
-      "tests": [
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_regenerating_reproduces_the_committed_report_byte_for_byte",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_scene_278_scans_as_zero_hostile_under_the_shipped_tables",
-        "FieldSceneCandidatesRegenerateAndDiffTest::test_control_scene_refusal_fires_on_a_tampered_mobs_row"
-      ],
-      "note": "round ctflxc (LANE-B): tools/pf_scan_field_scene_candidates.py is the census behind the BUILD-004 field-scene blocker, and these three re-run it against the bridge clone's gamedata so docs/FIELD_SCENE_CANDIDATES.json cannot drift unnoticed and the scene-278-is-empty finding stays checked. pf-adversary caught the first draft shipping this test file with no matching pin, which would have failed this exact census on any machine without pf_bridge beside it."
-    },
-    {
-      "key": "backups_tree",
-      "module": "tests/test_population.py",
-      "count": 1,
-      "tests": [
-        "PopulationTransitionTests::test_natural_v94_provenance_is_exact_and_read_only"
-      ],
-      "note": "Reads two v94 capture files under backups/.  test_the_v94_provenance_paths_are_declared_machine_local keeps a real assertion on the same golden data everywhere."
     },
     {
       "key": "client_image",
@@ -686,16 +660,6 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "game_install_tree",
-      "module": "tests/test_split_operate_verb_panels_static.py",
-      "count": 2,
-      "tests": [
-        "SplitOperateVerbPanelsStaticTests::test_the_caption_text_table_is_packed_and_not_statically_readable",
-        "SplitOperateVerbPanelsStaticTests::test_the_numeric_dialog_is_a_generic_reusable_control"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
       "key": "client_image",
       "module": "tests/test_stats_progression_static.py",
       "count": 22,
@@ -722,25 +686,6 @@
         "StatsProgressionStatic::test_static_data_schema_declares_exactly_five_primary_attributes",
         "StatsProgressionStatic::test_type_nodes_name_the_classes_and_encode_the_hierarchy",
         "StatsProgressionStatic::test_vtables_carry_cohort_const_getid_sizeof_and_serializer"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "evidence_tree",
-      "module": "tests/test_structural_corpus_audit.py",
-      "count": 2,
-      "tests": [
-        "StructuralCorpusAuditTests::test_exact_guarded_corpus_and_determinism",
-        "StructuralCorpusAuditTests::test_zip_member_guard_and_safe_output"
-      ],
-      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
-    },
-    {
-      "key": "backups_tree",
-      "module": "tests/test_teleportcheck_0x4477_corpus.py",
-      "count": 1,
-      "tests": [
-        "RealCorpusTests::test_the_wire_guards_all_pass_on_the_real_corpus"
       ],
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
@@ -821,75 +766,144 @@
       "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_world_columbus_m2_crosswalk.py",
-      "count": 7,
-      "tests": [
-        "ColumbusM2CrosswalkTest::test_provenance_hashes_match_the_pinned_tables",
-        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_quest_begin_contains_3021",
-        "ColumbusM2CrosswalkTest::test_port_royal_columbus_mobs_156_does_not_require_3023",
-        "ColumbusM2CrosswalkTest::test_quest_3021_destination_scene_is_17",
-        "ColumbusM2CrosswalkTest::test_quest_3023_destination_scene_is_19_not_17",
-        "ColumbusM2CrosswalkTest::test_scene_17_is_bg1001_and_is_a_sea_scene",
-        "ColumbusM2CrosswalkTest::test_bg1001_placements_hold_no_player_arrival_spawn"
-      ],
-      "note": "round 8pfksm (LANE-A): pins the Columbus M2 identity/quest/scene crosswalk (MOBS 156 -> quest 3021 -> scene 17, not the 3023/scene-19 conflation an earlier status letter made) against the bridge gamedata TSVs. A clone without pf_bridge beside it cannot re-check the tables, so the skip is declared here - pf-adversary caught this module shipping with no matching pin, same defect shape as test_pf_scan_field_scene_candidates.py (round ctflxc) and test_field_mob_tables_bg0015.py (round 2vxlx2)."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_world_scene_marker.py",
+      "key": "evidence_tree",
+      "module": "tests/test_structural_corpus_audit.py",
       "count": 2,
       "tests": [
-        "MarkerReverificationOnTheBridgeTest::test_the_reverification_script_runs_against_the_bridge_tree",
-        "MarkerReverificationOnTheBridgeTest::test_the_committed_copy_is_what_the_client_tables_produce"
+        "StructuralCorpusAuditTests::test_exact_guarded_corpus_and_determinism",
+        "StructuralCorpusAuditTests::test_zip_member_guard_and_safe_output"
       ],
-      "note": "round vyi2ud (LANE-A): world_scene_marker.py pins 13 MARKER rows and the totals of the two client tables they come from, and this test runs the module's own re-derivation script against the bridge clone's gamedata so neither the rows nor the sha256 pins can drift unnoticed. A clone without pf_bridge beside it cannot answer. Pinned here because the first draft wrote a bare skipTest and the Windows gate's skip census closed pull request #231 for it - the same defect shape as rounds ctflxc, 2vxlx2 and y7koj9, which is why the note in each of those says 'pinned in the same commit as the test'. ROUND i8timv MOVED THIS COUNT FROM 1 TO 2, in the same commit as the test that moved it, exactly as the 'why' block above demands: COO-DECISION 20260829_0941 ordered the used rows of the client tables committed as data, and the second test is the bridge-only hop that check cannot make - it re-curates world_data/world_marker_crosswalk.json from the client's own bytes and compares. It was added as a second method INSIDE the already-pinned class rather than as a new class, so this remains one precondition. The gate-side half of the same ruling is tests/test_world_marker_copy.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_world_scene_folder_on_the_bridge.py",
-      "count": 2,
+      "key": "external_re_tables",
+      "module": "tests/test_external_registry.py",
+      "count": 26,
       "tests": [
-        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_copy_is_what_the_client_files_produce",
-        "FolderCrosswalkReverificationOnTheBridgeTest::test_the_pinned_source_digests_match_the_files_on_the_bridge"
+        "DeliverableSnapshotTests::test_census_widths_match_every_row_that_carries_the_tag",
+        "DeliverableSnapshotTests::test_cli_stats_and_message_exit_zero",
+        "DeliverableSnapshotTests::test_cross_check_holds_and_summary_matches_the_letter",
+        "DeliverableSnapshotTests::test_golden_trigger_cast_skill_vital",
+        "DeliverableSnapshotTests::test_the_late_tables_are_internally_consistent",
+        "DeliverableSnapshotTests::test_the_priority_open_set_is_a_projection_of_field_offset",
+        "MutationRefusalTests::test_a_duplicate_evidence_id_is_refused",
+        "MutationRefusalTests::test_a_garbage_field_offset_is_refused",
+        "MutationRefusalTests::test_a_lower_cased_evidence_digest_is_refused",
+        "MutationRefusalTests::test_a_membership_swap_in_the_priority_open_set_is_refused",
+        "MutationRefusalTests::test_a_new_semantic_claim_in_the_census_is_refused",
+        "MutationRefusalTests::test_a_relabelled_nonstandard_grammar_row_is_refused",
+        "MutationRefusalTests::test_an_open_row_with_no_blocker_is_refused",
+        "MutationRefusalTests::test_broken_name_join_is_refused",
+        "MutationRefusalTests::test_census_frequency_drifting_from_the_row_count_is_refused",
+        "MutationRefusalTests::test_census_width_disagreeing_with_a_field_row_is_refused",
+        "MutationRefusalTests::test_changing_an_unknown_reason_desyncs_priority_and_is_refused",
+        "MutationRefusalTests::test_claim_moved_outside_its_span_is_refused",
+        "MutationRefusalTests::test_dropped_row_fails_the_row_pin",
+        "MutationRefusalTests::test_evidence_digest_not_matching_inventory_is_refused",
+        "MutationRefusalTests::test_garbage_hex_in_an_undelta_column_is_refused",
+        "MutationRefusalTests::test_non_ascii_byte_is_refused",
+        "MutationRefusalTests::test_non_integer_order_is_a_refusal_not_a_traceback",
+        "MutationRefusalTests::test_renamed_header_column_is_refused",
+        "MutationRefusalTests::test_sha_pin_catches_any_edit_when_active",
+        "MutationRefusalTests::test_unmutated_copy_still_passes_without_sha"
       ],
-      "note": "round yam18f (LANE-A): COO-DECISION 20260829_0848 item 3 ordered the scene_id -> scene name reader; world_scene_folder.py pins 16 scene-id/folder rows and the totals of the two client files they come from, and these two are the bridge-only hops the gate cannot make - re-curating world_data/world_scene_folder_crosswalk.json from the client's own bytes, and comparing the two pinned source sha256 against the files themselves. A clone without pf_bridge beside it cannot answer. PINNED IN THE SAME COMMIT AS THE TEST, and the reason this file exists at all is that the round's first draft wrote the same check as a conditional 'if not exists: return' INSIDE tests/test_world_scene_folder.py, which pf-adversary showed reports 1 PASSED on a machine with no bridge - an uncounted, unnamed no-op invisible to this census, which is the precise failure the 'why' block above describes. The gate-side half of the same work is tests/test_world_scene_folder.py, which carries NO skip and therefore must never appear in this file - a test there asserts that too."
+      "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     },
     {
-      "key": "bridge_gamedata",
-      "module": "tests/test_scene_identity_rule.py",
-      "count": 9,
-      "tests": [
-        "TheCommittedCopyIsTheRealTable::test_the_source_digest_matches_the_file_the_blocks_came_from",
-        "TheCommittedCopyIsTheRealTable::test_both_blocks_re_derive_exactly",
-        "TheCommittedCopyIsTheRealTable::test_the_two_readings_of_set_103_re_derive_from_mobs",
-        "TheCommittedCopyIsTheRealTable::test_the_display_names_re_derive_from_the_TIP_table_not_from_mobs",
-        "TheCommittedCopyIsTheRealTable::test_the_scene_cline_type_re_derives_from_scene_name",
-        "TheCommittedCopyIsTheRealTable::test_the_cline_type_column_is_not_the_id_column_in_general",
-        "TheCommittedCopyIsTheRealTable::test_the_rules_reach_is_nineteen_scenes_of_two_hundred_seventy_one",
-        "TheCommittedCopyIsTheRealTable::test_no_shipped_control_was_measured_on_the_scene_it_ships_under",
-        "TheCommittedCopyIsTheRealTable::test_cline_resolves_set_103_to_the_id_this_module_committed"
-      ],
-      "note": "round ua236k (LANE-B): COO-DECISION 20260829_0345 made cline the project's one identity rule and ordered the 35/35 equality pinned by a test. scene_identity_rule.py commits the CLINE blocks for the two scene types in play because CONSTDATA_TH__CLINE.tsv lives on the bridge clone, not here; these re-derive those blocks, both disputed readings of Mob-Set 103, SCENE_CLINE_TYPE itself (the crosswalk's entry point, which nothing re-derived before pf-adversary's review), the n_ID-vs-n_CLINE_TYPE control, the rule's 19/271 reach, and the gap that Bg0015 ships under controls measured on another scene type. Pinned in the same commit as the test, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
-    },
-    {
-      "key": "bridge_gamedata",
-      "module": "tests/test_field_mobs.py",
-      "count": 2,
-      "tests": [
-        "Bg0001RegenerateAndDiffTest::test_regenerating_reproduces_the_committed_bg0001_module",
-        "Bg0001RegenerateAndDiffTest::test_the_scene_is_fully_accounted_for"
-      ],
-      "note": "round 0n9inw (LANE-B): this class re-runs tools/pf_mine_scene_mob_roster.py --scene bg0001 against the bridge clone's gamedata so the committed module cannot drift unnoticed - the control bg0002 and bg0015 already had. It shipped in round szdkgs with a BARE unittest.SkipTest in setUpClass, which pf_preconditions' own header names as the exact shape it exists to stop: undeclared, uncounted, invisible to this census. LANE-A measured it on a fresh Linux clone (status letter 20260829_1050 section 3) - tools/pf_pytest_precondition_census.py reported UNDECLARED SKIP (2 tests), RESULT: FAIL - and stated plainly they could not reproduce a red gate and did not claim one; the skip was undeclared either way. Converted to BRIDGE_GAMEDATA.skip_unless_present() and pinned in the same commit as that conversion, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
-    },
-    {
-      "key": "bridge_attr_corpus",
-      "module": "tests/test_world_avatar_attr.py",
+      "key": "game_install_tree",
+      "module": "tests/test_action_consumer_probe.py",
       "count": 1,
       "tests": [
-        "AvatarAttrCheckTest::test_the_transcription_matches_the_corpus_file_when_it_is_here"
+        "ConsumerProbeTests::test_safe_output_and_runtime_options"
       ],
-      "note": "round a2nvx9 (LANE-A): the AvatarAttr check-first module re-derives FIELDS from the corpus TSV instead of trusting its own transcription, so that ONE test can only run where the bridge sibling carries notes_to_chief/reference_codex_attr/PF_ATTR_FIELD_SEMANTICS.tsv.  Round qtxdpr shipped it with a BARE self.skipTest, the Windows gate reported UNDECLARED SKIP (1 test), RESULT: FAIL, and merge-claude-pr closed PR #545 unmerged with the work intact on its branch.  Converted to BRIDGE_ATTR_CORPUS.require(self) and pinned in the same commit as that conversion.  Its own key rather than bridge_sibling because ../pf_bridge can exist WITHOUT the mirrored corpus directory, and the broader key would let the re-derivation start and die on a missing path instead of skipping - the opposite direction from the false SKIP that bridge_serializer_table was split out to stop, not the same argument.  WHAT THE SKIP COSTS, stated because a count of skips is not a count of ungraded claims: with this test skipped, the bit->name assignment would be graded by nothing on the gate, so class FieldTableIsPinnedOnEveryMachineTests in the same module carries the 21 rows a second time WITHOUT a precondition and runs there.  pf-adversary measured the hole first: permuting n_SLOT_RHAND/n_SLOT_LHAND left a gate-shaped run byte-identical at 6174 passed, 72 skipped, exit 0."
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_action_producer_probe.py",
+      "count": 1,
+      "tests": [
+        "ActionProducerProbeTests::test_runtime_options_and_output_path_are_strict"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_client_ui_asset_inventory.py",
+      "count": 2,
+      "tests": [
+        "RealAssetTests::test_the_published_negative_still_holds",
+        "RealAssetTests::test_the_two_old_denominators_really_did_differ"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_equip_state_static.py",
+      "count": 4,
+      "tests": [
+        "EquipStateStaticTests::test_character_equipment_ui_requests_collection_bag_not_equipped_bag",
+        "EquipStateStaticTests::test_item_operate_result_optional_bag_is_plain_not_collection",
+        "EquipStateStaticTests::test_registered_equipped_bag_has_only_the_shared_itembag_shape",
+        "EquipStateStaticTests::test_startgame_imports_all_attrs_but_has_no_equipped_specific_lookup"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_hit_result_probe.py",
+      "count": 1,
+      "tests": [
+        "HitResultProbeTests::test_safe_output"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_item_move_consumer_static.py",
+      "count": 2,
+      "tests": [
+        "ItemMoveConsumerStaticTests::test_result_routes_by_identity_and_incoming_slot_not_old_quantity",
+        "ItemMoveConsumerStaticTests::test_slot_payload_is_replaced_with_a_complete_itemattr_clone"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_item_order_static.py",
+      "count": 1,
+      "tests": [
+        "ItemOrderStaticTests::test_item_identity_is_the_tree_key_and_writer_uses_successor_order"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "game_install_tree",
+      "module": "tests/test_split_operate_verb_panels_static.py",
+      "count": 2,
+      "tests": [
+        "SplitOperateVerbPanelsStaticTests::test_the_caption_text_table_is_packed_and_not_statically_readable",
+        "SplitOperateVerbPanelsStaticTests::test_the_numeric_dialog_is_a_generic_reusable_control"
+      ],
+      "note": "R121: guarded via tests/pf_preconditions.py so a fresh clone skips instead of failing; assertions unchanged where the artifact is present."
+    },
+    {
+      "key": "login_req_capture",
+      "module": "tests/test_multiplayer_readiness_audit.py",
+      "count": 1,
+      "tests": [
+        "ExactCountTests::test_the_login_capture_guard_reproduces_where_the_capture_exists"
+      ],
+      "note": "test_the_login_capture_guard_states_which_machine_it_is_on asserts on BOTH machines - 'reproduced' where the capture exists, exactly 'skipped (untracked capture absent)' where it does not - so nothing goes silent here."
+    },
+    {
+      "key": "original_schema_history",
+      "module": "tests/test_foundation.py",
+      "count": 1,
+      "tests": [
+        "FoundationTests::test_upgrade_from_original_foundation_schema"
+      ],
+      "note": "The first entry whose artifact is inside git rather than beside it: the test reads migrations/001_initial.sql out of commit 5c200e2, which a shallow clone does not carry.  Measured 2026-08-21 (round 118): a cloud clone failed it with a bare CalledProcessError, which reads as a red main on a tree nobody touched; the same commit was 1206 passed / 4 skipped after git fetch --unshallow.  The gate checks out with fetch-depth: 0 and the bridge holds the whole history, so on both machines that decide anything this expects ZERO skips and the assertions run at full strength.  The guard names the BLOB and not only the commit, because a partial clone has the commit and not the blob."
     }
   ],
   "windows_gate_excluded_modules": {
