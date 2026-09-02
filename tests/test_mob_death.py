@@ -47,6 +47,7 @@ from pirateforce_foundation import (
     field_mobs,
     mob_combat,
     mob_death,
+    mob_loot,
     runtimeres_death_hypothesis,
 )
 from pirateforce_foundation import world_population
@@ -393,8 +394,26 @@ class MobDeathTests(unittest.TestCase):
             mob_death.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
             [(mob_death.NPC_ATTR_ID, body)])
         pc, _ = dead_frames(self.legacy, self.mob)
+        # ROUND jysbar: ~~compared against make_runtime_remote_actors' own
+        # bytes~~ IS STRUCK, by measurement (COO-DECISION 2026-09-02T10:44,
+        # items 3 and 4): this frame now goes out through the PRESERVE
+        # composer for the same carrier, so it is v141's bytes with the
+        # ground-list bit set in the derived mask and one empty ground record
+        # appended.  What this test pins is UNCHANGED and is asserted below:
+        # ONE corpse entry, not zero, not the roster, and the entry itself
+        # still v141's own bytes at v141's own offset.
+        composed = self.legacy.make_runtime_remote_actors([one_entry])[0]
         self.assertEqual(
-            pc, self.legacy.make_runtime_remote_actors([one_entry])[0])
+            pc,
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, [one_entry])[0])
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[:offset], composed[:offset])
+        self.assertEqual(pc[offset + 2:len(composed)], composed[offset + 2:])
+        self.assertEqual(pc[len(composed):],
+                         mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+        self.assertEqual(pc[offset + 2:offset + 5],
+                         self.legacy.u16tag(0x12, 1))
 
     def test_the_constants_are_the_proven_ones(self):
         probe = runtimeres_death_hypothesis
@@ -1220,7 +1239,17 @@ class MobDeathTests(unittest.TestCase):
         register = death.register
         # death.dead_pc IS mob_death.death_frames' one-entry output for this
         # corpse (dead_frames -> death_frames; see mob_death.kill).
-        solo_entry = death.dead_pc[world_population.WIRE_HEADER_BYTES:]
+        # ROUND jysbar: the solo frame is now composed through the PRESERVE
+        # composer, so its pc is the same collection with one empty ground
+        # record after it (mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN).
+        # The equivalence this test exists for is about the ENTRY, so the
+        # appended record is cut off HERE -- and cut off by asserting it is
+        # there first, rather than by a bare negative index that would keep
+        # passing if the shape changed underneath.
+        ground = mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN
+        self.assertTrue(death.dead_pc.endswith(ground))
+        solo_entry = death.dead_pc[
+            world_population.WIRE_HEADER_BYTES:len(death.dead_pc) - len(ground)]
         composed_pc, composed_frame = hostile_census_frames(
             self.legacy, self.REAL_CENSUS_ANCHOR, 115, self.roster, register,
             ledger=step.ledger)

@@ -423,7 +423,29 @@ MOB_COMBAT_NONCLAIMS = (
     "dying/dead frames after it, ride make_runtime_remote_actors "
     "(v141:1280-1283), which writes the same envelope slot with bit 0x08 "
     "CLEAR.  Under this lane's own premise the frame beside this one undoes "
-    "it.  A PRESERVE composer for that carrier does not exist yet",
+    "it.  ~~A PRESERVE composer for that carrier does not exist yet~~ IS "
+    "STRUCK, round jysbar (COO-DECISION 2026-09-02T10:44+07:00): it exists "
+    "(mob_loot.preserve_ground_in_runtime_res_remote_actors) and bar_frames / "
+    "mob_death.death_frames compose through it, so on the path where those "
+    "functions' own bytes reach the wire the burst no longer clears the "
+    "pool.  WHAT IS STILL TRUE OF THIS SENTENCE: after a real arrival those "
+    "three frames are REPLACED by a whole-scene recompose (108 actors, "
+    "~20 KB) which still writes bit 0x08 clear, and that recompose is on the "
+    "map side of the same ruling's fence, so a drop is still cleared on the "
+    "ordinary post-arrival path",
+    "THE ACTORS CARRIER NOW SETS TWO DERIVED BITS AT ONCE (0x02 | 0x08) AND "
+    "NO CLIENT HAS EVER BEEN SHOWN THAT SHAPE.  Round jysbar.  Each field "
+    "alone is measured -- the actor collection in every census this server "
+    "sends, the ground list alone in the production heartbeat -- and the two "
+    "together are this lane's assumption that the client reads +0x1C before "
+    "+0x20.  IT FAILS SILENTLY IF IT IS WRONG: a client reading them the "
+    "other way round gets a well-formed frame meaning the opposite, with no "
+    "ErrorData, no refusal and no console line, because every check in this "
+    "repo compares bytes to bytes.  The fall back covers a composer that is "
+    "down, not a composer that is understood backwards.  NOTHING IS "
+    "SCHEDULED TO WATCH THIS ON A SCREEN; the round letter asks the COO for "
+    "one attended step (hit one monster before the arrival census) and until "
+    "that runs this is PROPOSED, not measured",
     "~~GT-204 is where this tail gets watched~~ IS STRUCK the round it was "
     "written (pf-adversary 9jrsei D8): GT-204 belongs to the chief, is "
     "currently scoped to loot on the ground / left click / into the bag, and "
@@ -1347,6 +1369,80 @@ def runtime_vitals_preserving_the_ground(
         return composed
 
 
+# ---------------------------------------------------------------------------
+# THE SAME OPT-IN FOR THE OTHER CARRIER (COO-DECISION 2026-09-02T10:44+07:00,
+# item 4: bar -> dying -> dead, in that order, and the arrival census NOT).
+#
+# The frame table above is why this exists: the announce frame preserves the
+# ground pool and the three frames beside it clear it again, two of them at the
+# same 0.0 s and the third 0.7 s later -- after the drop frame of the same
+# kill.  ``mob_loot.preserve_ground_in_runtime_res_remote_actors`` composes the
+# same actor collection with the ground bit set as well; this is the fall back
+# around it, and it is the SAME shape as the vitals one directly above,
+# deliberately: compose the fall back FIRST, print SECOND, so a carrier that is
+# down raises its own exception instead of a line whose meaning is "only the
+# ground list was lost".
+#
+# WHAT THIS IS NOT WIRED TO, AND WHY THAT IS A RULING AND NOT AN OVERSIGHT.
+# The arrival census rides this same carrier, and so -- measured this round --
+# do the RECOMPOSED bar/dying/dead frames on the post-arrival path, which are
+# whole-scene generations of 108 actors (~20 KB) composed through
+# ``mob_scene_recompose.recompose_frames``.  COO-DECISION 1044 item 4 fences
+# the shared census off until an attended round has seen a client accept the
+# preserve tail once, because a mask the client cannot parse there costs every
+# NPC on the map rather than one monster's corpse.  Those recomposed frames sit
+# on the map side of that fence by the fence's own reason, so this round wires
+# the lane's OWN one-entry composers and reports the rest to the COO instead of
+# widening on an assumption.  See the round file for the measurement.
+# ---------------------------------------------------------------------------
+GROUND_ACTORS_PRESERVE_REFUSED_TOKEN = "GROUND_ACTORS_PRESERVE_REFUSED"
+GROUND_ACTORS_PRESERVE_SITE_BAR = "mob_combat.bar_frames"
+GROUND_ACTORS_PRESERVE_SITE_DEATH = "mob_death.death_frames"
+
+
+def remote_actors_preserving_the_ground(
+    legacy: Any, entries: Any, site: str,
+) -> tuple[bytes, bytes]:
+    """``(pc, frame)`` for this actor collection with the ground list kept.
+
+    Same arguments and same return shape as ``legacy.make_runtime_remote_
+    actors``, plus the name of the call site for the console line.  On ANY
+    refusal from the preserve composer this returns exactly what that
+    composer's argument would have returned -- v141's own bytes -- after
+    printing one bounded ASCII line naming the exception type, the site and
+    the reason.  The breadth of the ``except`` is COO-DECISION 0646 item 4's
+    own shape and the reason is the same as the vitals wrapper's: a preserve
+    composer driven by a legacy handle can fail as a contract refusal, as an
+    AttributeError against a shim or as a TypeError against a moved
+    signature, and in every one of those the right answer for the player is
+    the frame that worked yesterday -- a monster whose bar still moves and
+    whose corpse still appears, without the ground list.
+
+    The fall back is composed BEFORE the line is printed.  If v141's own
+    composer answers, the ground list is the only thing lost and the line
+    says so truthfully.  If it does not, this raises ITS exception and prints
+    NOTHING: a lost bar frame is not a ground-list refusal and must not be
+    reported as one.
+    """
+    entries = list(entries)
+    try:
+        return mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            legacy, entries)
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        name = _console_safe_one_line(type(exc).__name__)
+        detail = _console_safe_one_line(exc.args[0] if exc.args else "")
+        composed = legacy.make_runtime_remote_actors(entries)
+        try:
+            print("%s %s %s %s" % (
+                GROUND_ACTORS_PRESERVE_REFUSED_TOKEN, name,
+                _console_safe_one_line(site), detail))
+        except Exception:                        # noqa: BLE001
+            # A console that cannot be written to at all is a reason to lose
+            # the LINE, never a reason to lose the FRAME.
+            pass
+        return composed
+
+
 def announce_frames(
     legacy: Any,
     performer_identity: int,
@@ -1500,7 +1596,11 @@ def bar_frames(
         ))
     entry = legacy.make_remote_actor_entry(
         NPC_STYLE_ACTOR_TYPE, mob.actor_identity, attrs)
-    pc, frame = legacy.make_runtime_remote_actors([entry])
+    # ROUND jysbar, COO-DECISION 1044 item 4, the FIRST of bar -> dying ->
+    # dead: this frame used to write the ground-list bit clear and undo, 0.0 s
+    # later, what the announce frame beside it had just preserved.
+    pc, frame = remote_actors_preserving_the_ground(
+        legacy, [entry], GROUND_ACTORS_PRESERVE_SITE_BAR)
     if frame != legacy.frame_pc(pc):
         raise MobCombatContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN, "bar frame drift")

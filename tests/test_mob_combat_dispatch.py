@@ -68,6 +68,24 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 
 
+def _ground_bit_is_set(pc: bytes) -> bool:
+    """Does this RuntimeRes say the ground pool is PRESENT?
+
+    ROUND jysbar.  The two carriers say it in two different places, so a
+    single ``endswith(tail)`` -- what round 9jrsei used -- answers False for
+    an actor collection that DOES carry the bit.  ``make_runtime_vitals``
+    ends on its derived mask, so the vitals form is the pinned tail; ``make_
+    runtime_remote_actors`` writes its derived mask at a fixed offset before
+    the actor collection, so the actors form is that byte.
+    """
+    if pc.endswith(mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN):
+        return True
+    offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+    if len(pc) > offset + 1 and pc[offset] == mob_loot.ELEMENT_MASK_TAG:
+        return bool(pc[offset + 1] & mob_loot.RUNTIME_DERIVED_BIT_GROUND_LIST)
+    return False
+
+
 def _legacy():
     if not hasattr(_legacy, "cached"):
         _legacy.cached = load_legacy(LEGACY_PATH)
@@ -279,16 +297,112 @@ class MobCombatDispatchTests(unittest.TestCase):
         """
         state = self._state("mc_ground_bits")
         actions = self._attack(state, CONTROL_TARGET)
-        preserve_tail = mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN
         carries = {
-            label: pc.endswith(preserve_tail)
+            label: _ground_bit_is_set(pc)
             for label, pc, _frame, _delay in actions
         }
         self.assertEqual(
             carries,
-            {"MOB_COMBAT_ANNOUNCE": True, "MOB_COMBAT_BAR": False},
+            {"MOB_COMBAT_ANNOUNCE": True, "MOB_COMBAT_BAR": True},
             "the ground-pool bit of this burst is not what the lane says it is",
         )
+
+    def test_the_kill_burst_frame_by_frame_and_the_frame_that_ends_it(self):
+        """ROUND jysbar, and it is the answer to COO-DECISION 1044 item 5:
+        WHICH frame is the last one the client sees after a drop lands, and
+        does IT carry bit 0x08?
+
+        [MEASURED HERE] the burst this driver puts on the wire for a killing
+        blow is THREE frames -- announce (0.0), dying (0.0), dead (0.7) --
+        and after this round all three say the pool is present.  So the last
+        frame of a kill is the DEAD frame, at 0.7 s.
+
+        [NOT MEASURED HERE, AND THE FIRST DRAFT OF THIS DOCSTRING SAID IT
+        WAS -- pf-adversary, round jysbar, rank 2] the drop frame.  The
+        control row this harness kills rolls no loot: forty consecutive kills
+        in this exact harness composed ZERO MOB_LOOT_DROP frames, so the
+        adjacency "the dead frame arrives 0.7 s AFTER the drop frame of the
+        same kill" is read off the DELAY the drop frame is queued with
+        (mob_drop_presence.ACTION_LABEL, appended at 0.0 by the call site
+        that ships it) and not watched here.  The assertion below therefore
+        covers whatever frames the burst really contains, drop frames
+        included if a roll ever produces one in this harness, and the
+        ordering claim stays [PROPOSED] until a kill that drops is driven
+        end to end.
+
+        What comes after the burst is the ~2 s heartbeat, which has carried
+        the pool-present record on every flagless boot since app.py's
+        install; there is no standing census cadence behind it (world_
+        population.INITIAL_REAPPLY_MS is a one-shot re-apply tied to
+        ARRIVAL, not a repeat).  That is what makes the site-by-site opt-in
+        COO-DECISION 0646 ordered reach the end of the sequence at all.
+        """
+        state = self._state("mc_kill_ground_bits")
+        self._set_balance(state, CONTROL_TARGET, 500)
+        actions = self._attack(state, CONTROL_TARGET)
+        labels = [label for label, *_rest in actions]
+        self.assertEqual(
+            labels[:3],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_DEATH_DYING", "MOB_DEATH_DEAD"])
+        self.assertEqual([delay for *_r, delay in actions][:3], [0.0, 0.0, 0.7])
+        for label, pc, _frame, _delay in actions:
+            self.assertTrue(
+                _ground_bit_is_set(pc),
+                "%s clears the ground pool the frame beside it just kept"
+                % label)
+
+    def test_the_post_arrival_recompose_is_still_outside_this_opt_in(self):
+        """The fence COO-DECISION 1044 item 4 drew, stated as a measurement
+        rather than as a promise.
+
+        After a real arrival the bar/dying/dead frames are no longer this
+        lane's one-entry collections: runtime.py recomposes them into
+        whole-scene generations (108 actors, ~20 KB) through
+        mob_scene_recompose.  Those ride the same carrier and still write the
+        ground bit CLEAR, because the ruling keeps the shared census out of
+        the opt-in until an attended round has seen a client accept the
+        preserve shape once -- a mask the client cannot parse there costs
+        every NPC on the map, not one corpse.
+
+        This test exists so that fence cannot be crossed by accident: the day
+        somebody widens the opt-in, this goes red and they have to say why.
+
+        WHAT IT DOES NOT COVER (pf-adversary, round jysbar, rank 5, measured
+        by widening it in a scratch copy): the scene-2 path.  This driver
+        boots into scene 1, so the tripwire watches the delegated scene-1
+        composer only; opting mob_scene_recompose's own Bg0002 splice in
+        leaves this green.  Named here rather than left for a reader to
+        discover, and it is the next thing to pin if the fence has to hold
+        for both scenes.
+        """
+        state = self._state("mc_ground_bits_after_arrival")
+        self._arrive(state)
+        actions = self._attack(state, CONTROL_TARGET)
+        self.assertEqual(
+            {label: _ground_bit_is_set(pc)
+             for label, pc, _frame, _delay in actions},
+            {"MOB_COMBAT_ANNOUNCE": True, "MOB_COMBAT_BAR": False})
+        # And it really is the wide generation, not the one-entry frame.
+        bar_pc = next(pc for label, pc, _f, _d in actions
+                      if label == "MOB_COMBAT_BAR")
+        self.assertGreater(len(bar_pc), 10000)
+        # The DEATH half of the same fence, which the first draft of this
+        # test left uncovered (pf-adversary, round jysbar, rank 5): the
+        # comment beside the opt-in says the recomposed dying/dead frames
+        # were measured this round, so they are pinned here rather than
+        # asserted in prose.
+        killer = self._state("mc_ground_bits_after_arrival_kill")
+        self._arrive(killer)
+        self._set_balance(killer, CONTROL_TARGET, 500)
+        death_actions = self._attack(killer, CONTROL_TARGET)
+        self.assertEqual(
+            {label: _ground_bit_is_set(pc)
+             for label, pc, _frame, _delay in death_actions},
+            {"MOB_COMBAT_ANNOUNCE": True,
+             "MOB_DEATH_DYING": False, "MOB_DEATH_DEAD": False})
+        for label, pc, _frame, _delay in death_actions:
+            if label.startswith("MOB_DEATH_"):
+                self.assertGreater(len(pc), 10000)
 
     def test_a_target_that_is_not_a_field_mob_sends_nothing(self):
         state = self._state("mc_not_a_mob")
