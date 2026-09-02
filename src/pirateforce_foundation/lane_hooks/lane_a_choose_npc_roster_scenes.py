@@ -1,33 +1,49 @@
 """LANE-A (WORLD): the ChooseNPC responder for the roster islands.
 
 WHAT A PLAYER SEES BECAUSE OF THIS FILE, STATED HONESTLY AND FIRST.
-Yesterday: a player who reached Spice Paradise saw that island's 62-strong
-crowd standing there and could CLICK NONE OF THEM.  The click went out on
-the wire and the server said nothing back -- no name, no HP, no turn toward
-the player.  Today the same click gets the same answer Port Royal (scene 1)
-and Hell Volcano Island (scene 14) have already been giving: the clicked
-actor turns to face the player and the whole roster is re-sent with its
-names, levels and HP intact.
+Yesterday: a player who reached ANY of the ten roster islands saw that
+island's crowd standing there and could CLICK NONE OF THEM -- except Spice
+Paradise (scene 3), which this file opened one round ago.  The click went
+out on the wire and the server said nothing back -- no name, no HP, no turn
+toward the player.  Today the same click gets the same answer Port Royal
+(scene 1) and Hell Volcano Island (scene 14) have already been giving: the
+clicked actor turns to face the player and the whole roster is re-sent with
+its names, levels and HP intact.
 
-    ONE SCENE TODAY, NINE HELD BACK BEHIND A NAMED GATE, AND THAT IS THE
-    MOST IMPORTANT PARAGRAPH IN THIS FILE.  The round that wrote it started
-    out registering all ten islands with rosters (scenes 3, 4, 5, 6, 7, 8,
-    9, 10, 11 and 130 -- 692 actors).  ``pf-adversary`` measured, on the
-    real dispatcher, that nine of those ten would ALSO have opened Port
-    Royal's Columbus quest on the wrong island.  See THE COLUMBUS
-    PLACEMENT-INDEX COLLISION below: it is not a hazard this file could
-    write around, so it registers only the scene that is provably clear of
-    it and refuses the other nine, loudly, until a one-line scene guard
-    lands in ``runtime.py`` (chief's file, CORE-REQUEST from this round).
+    TEN SCENES TODAY, 692 ACTORS, AND THE NINE THAT JOINED ARE ON LOAN.
+    The round that wrote this file (`326kf4`) started out registering all
+    ten islands with rosters (scenes 3, 4, 5, 6, 7, 8, 9, 10, 11 and 130
+    -- 692 actors).  ``pf-adversary`` measured, on the real dispatcher,
+    that nine of those ten would ALSO have opened Port Royal's Columbus
+    quest on the wrong island, so that round shipped scene 3 alone (62
+    actors) and refused the other nine, loudly, until a one-line scene
+    guard landed in ``runtime.py`` (chief's file, CORE-REQUEST from that
+    round).  Round `gwwpmr` is the round after the guard landed: the nine
+    are registered, and the number a player can now click is 692 across
+    ten islands rather than 62 across one.
+
+    "ON LOAN" IS NOT A FIGURE OF SPEECH, AND IT IS THE MOST IMPORTANT
+    SENTENCE IN THIS FILE.  Nothing about the index space was fixed.  The
+    nine are clickable-without-opening-Port-Royal's-conversation because
+    one conjunct in another lane's file asks which scene the session
+    stands in; delete it and one click on nine islands opens that
+    conversation again.  The word "safe" is deliberately NOT used here:
+    the quest's SECOND frame is gated by a session latch that outlives a
+    scene change, is reachable from every scene on ``main`` with or
+    without this file, and is not this lane's to fix.  See THE COLUMBUS
+    PLACEMENT-INDEX COLLISION below for what is measured, what is
+    borrowed, what is still open, and which test goes red.  Do not
+    "tidy" this paragraph by dropping the qualification.
 
     WHAT THIS DOES NOT CLAIM.  This is WIRE/DB evidence only.  Nobody has
-    yet clicked an NPC on scene 3 with a real client and reported what
-    rendered -- scene 14's own equivalent step is still waiting on
-    ``GT-134``, and this file does not shortcut that ticket for another
-    scene.  What is measured is that the click now produces a composed,
-    byte-checked answer frame where it produced nothing at all, and that
-    the bodies in it are the same bodies the arrival census sent.  Whether
-    the client draws it is ``GT-210``, not a claim made here.
+    yet clicked an NPC on scene 3 -- or on any of the nine -- with a real
+    client and reported what rendered; scene 14's own equivalent step is
+    still waiting on ``GT-134``, and this file does not shortcut that
+    ticket for another scene.  What is measured is that the click now
+    produces a composed, byte-checked answer frame where it produced
+    nothing at all, and that the bodies in it are the same bodies the
+    arrival census sent.  Whether the client draws it is ``GT-210`` for
+    scene 3 and ``GT-212`` for the nine, not a claim made here.
 
 WHY A TABLE AND NOT ONE FILE PER SCENE.  Every one of
 ``world_bg0003_identity`` ... ``world_bg4001_identity`` exposes
@@ -38,7 +54,8 @@ would be ten places for the next defect to hide in nine of.  So the table
 is the module, ``_make_responder`` is called once per row that passes the
 gates, and the gates are what decide which rows those are.
 
-THE COLUMBUS PLACEMENT-INDEX COLLISION (the gate that fires today).
+THE COLUMBUS PLACEMENT-INDEX COLLISION (the gate that USED to fire
+here, and the borrowed conjunct that replaced it).
 Actor identity on this wire is ``0x2000 + placement_index + 1`` with NO
 scene component, so ``population_indices`` is a scene-blind index space
 that eleven different tables now write into.  ``runtime.py``'s
@@ -64,18 +81,73 @@ false``.  Two client frames, on nine islands, to a door the registry has
 shut.
 
 ``_columbus_collision_scenes()`` below computes the collision from the
-identity tables rather than hardcoding a list, and ``_register_all``
-refuses to register those scenes.  Today that is scenes 4, 5, 6, 7, 8, 9,
-10, 11 and 130; scene 3's own table has no placement at index 1, so it is
-clear by measurement rather than by luck being assumed.
+identity tables rather than hardcoding a list.  ~~and ``_register_all``
+refuses to register those scenes~~ -- it no longer refuses them; see the
+struck paragraph below for the round that changed that and why.  The
+scenes it names are 4, 5, 6, 7, 8, 9, 10, 11 and 130; scene 3's own table
+has no placement at index 1, so it is clear by measurement rather than by
+luck being assumed.
 
-    THE FIX IS ONE LINE AND IT IS NOT IN THIS LANE'S ZONE: the branch at
+    ~~THE FIX IS ONE LINE AND IT IS NOT IN THIS LANE'S ZONE: the branch at
     ``runtime.py:5100`` needs to ask whether the session is standing in
     Columbus's own scene before reading a scene-blind index.  Until that
     lands, flipping the nine rows on is a regression, not a feature.  A
     round that lands the guard can delete
     ``_columbus_collision_scenes`` from ``_SKIP_RULES`` and get nine
-    scenes at once; nothing else here has to change.
+    scenes at once; nothing else here has to change.~~ THE GUARD LANDED,
+    and this round is the one that opened the nine.  chief shipped it in
+    ``runtime.py`` (PR #570, answering this lane's ``CORE-REQUEST``
+    ``pf_bridge/notes_to_chief/20260902_1207_LANE-A-CORE-REQUEST-columbus-
+    branch-needs-a-scene-guard.md``): the branch now requires
+    ``self.foundation.selected is not None`` AND
+    ``self.foundation.selected.position.scene_id ==
+    world_scene_travel.HOME_SCENE_ID`` before it reads the index space.
+    So THE CONVERSATION HALF of the collision is no longer reachable from
+    any of the nine, and ``_skip_reason_for`` no longer refuses them.
+
+    THE CONVERSATION HALF IS NOT THE WHOLE HARM, AND SAYING OTHERWISE
+    WOULD HAVE BEEN THE FALSE SENTENCE OF THIS ROUND (pf-adversary D1,
+    round `gwwpmr`, MEASURED end to end on the real dispatcher).  The
+    harm this file was written about is TWO HOPS: ChooseNPC opens the
+    conversation, and the ``QuestOperateVital`` behind it teleports.
+    chief's conjunct guards hop 1.  Hop 2 is a SEPARATE ``if`` whose only
+    gate is the session-sticky flag
+    ``columbus_quest3021_conversation_sent`` -- set once, never cleared
+    on a scene change.  So a player who opens the quest at Port Royal
+    (the ordinary case: it is the introductory quest) and then reaches
+    ANY other scene can still send that frame, be teleported into scene
+    17, and have the position report after it write a durable row
+    labelling scene-17 coordinates as the scene the session believes it
+    is in.
+
+    WHAT THAT DOES AND DOES NOT SAY ABOUT THIS ROUND.  Hop 2 reads no
+    index space at all, so it is reachable from every scene on ``main``
+    with or without this file: registering these nine does not create it,
+    and closing them again would not remove it.  What this round owes is
+    this paragraph, plus the letter handing the hop-2 gap to the lane
+    whose file it is -- ``pf_bridge/notes_to_chief``, round `gwwpmr`'s
+    CORE-REQUEST about the Columbus quest latch outliving the scene.
+
+    WHAT THIS ROUND DID **NOT** DO: it did not make the index space
+    scene-aware.  ``population_indices`` still carries no scene, the
+    identity ``0x2000 + placement_index + 1`` still collides across
+    islands, and this lane is now standing on ONE conjunct in another
+    lane's file.  ``_columbus_collision_scenes()`` therefore stays --
+    demoted from a gate to the named list of scenes whose safety is on
+    loan -- and ``tests/test_lane_a_choose_npc_roster_scenes.py``'s
+    ``TheNineAreSafeOnlyBecauseTheRuntimeGuardStandsTests`` drives the
+    real dispatcher on scene 4 and fails the moment that conjunct goes.
+    The design question (an index space with a scene in it) is
+    ``pf_bridge/notes_to_chief/20260902_1535_LANE-A-DESIGN-population-
+    indices-has-no-scene-in-it.md``,
+    opened under COO-DECISION ``20260902_1347`` item 4.
+
+    WHAT PROTECTS PRODUCTION IS THE GUARD, NOT THAT TEST.  Stated the
+    honest way round: the test is what stops a guard removal from
+    MERGING (both this file's test and chief's own
+    ``ColumbusSceneGuardTests`` go red, and every PR runs the full
+    suite).  It is not a runtime check, and nothing here re-closes the
+    nine on a tree where someone has deleted the guard locally.
 
 THE SPLICE GATE (the second gate; it does not fire today).  This responder
 rebuilds a roster from the identity table on every click, but a scene's
@@ -98,14 +170,15 @@ a change of quote style or a line break defeats) and fails if the two sets
 disagree; and it drives ``_register_all`` itself, so deleting the refusal
 turns a test red rather than leaving it green.
 
-    NOT A CLAIM THAT EITHER GATE IS SUFFICIENT.  A splice applied somewhere
+    NOT A CLAIM THAT THIS GATE IS SUFFICIENT.  A splice applied somewhere
     other than a comparison against ``composer.source`` in
     ``world_population_handoff`` is seen by neither the constant nor the
     test.  A scene-blind consumer of ``population_indices`` OTHER than the
-    Columbus branch would not be caught either -- and nothing in
-    ``lane_hooks`` has anywhere to state that invariant.  Both gates close
-    the one case each was measured on, and this file says so rather than
-    implying coverage it does not have.
+    Columbus branch is not caught either -- and nothing in ``lane_hooks``
+    has anywhere to state that invariant, which is exactly why round
+    `gwwpmr` opened the design letter rather than calling the collision
+    solved.  This gate closes the one case it was measured on, and this
+    file says so rather than implying coverage it does not have.
 
 WHY SCENES 1, 2 AND 14 ARE NOT IN THE TABLE, STATED AS MEASURED.
 ``lane_hooks`` imports in filename-sort order, so THIS module imports
@@ -132,9 +205,13 @@ out loud rather than left for a reader to notice.
 
 THE FIRST CLICK AFTER A WARP DECLINES, AND THAT IS NOT A BUG HERE.
 ``runtime.py``'s cross-scene GM-warp resync sets ``last_target_pos = None``
-(``runtime.py:5684``) along with the rest of the old scene's index space,
-on purpose: those fields describe placements in the map the player just
-left.  The census re-arms ``population_indices`` for the new scene on
+(``runtime.py:5758`` when this paragraph was written -- LINE PINS IN THIS
+FILE ROT, and pf-adversary caught three of them stale in round `gwwpmr`
+because PR #570 moved them; grep the token, do not trust the number)
+along with the rest of the old scene's index space, on purpose: those
+fields describe placements in the map the player just left.
+
+The census re-arms ``population_indices`` for the new scene on
 arrival, but ``last_target_pos`` stays ``None`` until the player's own next
 ``TargetPosVital`` -- so a click taken the instant a ``/warp`` lands has no
 player position to compute a heading from, and this responder declines it.
@@ -142,21 +219,35 @@ ONE STEP (any movement) fills the field and the next click is answered.
 Written down rather than worked around: inventing a position to face would
 be the kind of made-up coordinate the arrival-point rule forbids, and a
 tester who does not know this would read silence as failure.  ``GT-210``
-carries the step as a numbered instruction for that reason.
+(scene 3) and ``GT-212`` (the nine) carry the step as a numbered
+instruction for that reason.
+
+    AND THE DECLINE IS NOW LOUD (round `gwwpmr`, pf-adversary D7).  It
+    used to be a return of ``None`` with no printed line at all: chief's
+    call site appends ``scene_choose_npc_responder_declined``, which names
+    neither the scene nor the reason, and this round multiplied that
+    silence by nine.  ``_decline`` below prints
+    ``LANE_A_CHOOSE_NPC_SCENE<n>_DECLINED reason=<reason>`` to stderr on
+    every refusal, which is the same discipline this file's own
+    ``LANE_A_CHOOSE_NPC_ROSTER_SKIPPED`` uses at import: a silent refusal
+    and a broken build look identical to a tester, and only one of them is
+    correct behaviour.
 
 WHAT FLIPPING A RESPONDER FLAG CLAIMS, WHICH IS MORE THAN ANSWERING A
-CLICK.  ``runtime.py:7520-7533`` states the obligation in its own words: a
+CLICK.  ``runtime.py:7904-7922`` (a pin that rots; grep
+``TWO gaps a lane MUST read``) states the obligation in its own words: a
 registered, allowed responder CLAIMS the whole ``TARGET_VITAL`` /
 ``CHOOSE_NPC`` family for that scene, so v141's own arming of
 ``action_target_last_identity`` / ``_last_kind`` /
 ``p30_action_target_armed`` is skipped for every frame this branch takes,
 and "a future scene whose players use melee/skill targeting on the SAME
 connection a responder claims must re-check this before flipping its flag".
-THIS ROUND HAS NOT DISCHARGED THAT for scene 3: no melee or skill targeting
-path is wired for these scenes today, and no test here measures one.  It is
-recorded as an open obligation, not as a cleared one.  The multi-select gap
-``runtime.py:7535-7548`` names (one answer per frame, first named identity
-wins) is inherited from the sibling responder unchanged and untested here.
+NEITHER ROUND HAS DISCHARGED THAT, and round `gwwpmr` widened it from one
+scene to ten: no melee or skill targeting path is wired for these scenes
+today, and no test here measures one.  It is recorded as an open
+obligation, not as a cleared one.  The multi-select gap the same block
+names (one answer per frame, first named identity wins) is inherited from
+the sibling responder unchanged and untested here.
 
 WHY THIS READS THE IDENTITY MODULES AND NOT THE POPULATION BUILDERS.  Same
 reason ``lane_a_choose_npc_scene14.py`` gives: every
@@ -176,6 +267,8 @@ not caught, the same named hole ``lane_hooks/__init__.py`` and
 ``world_logout_button_notice.py`` both state.
 """
 from __future__ import annotations
+
+import sys
 
 from typing import Any, Callable
 
@@ -206,9 +299,12 @@ from .lane_a_scene_census import scene_is_open_to_players
 # also ARMS that scene's ``population_indices`` (see
 # ``lane_a_scene_census._membership_if_answerable``), and other, scene-blind
 # readers of that field then become reachable on that scene -- one of which,
-# ``runtime.py``'s Columbus branch, opens a quest that teleports the player
-# to a scene the registry has shut.  So this flag CAN open a door, and the
-# gates in ``_register_all`` below are what keep it from doing so.  The
+# ``runtime.py``'s Columbus branch, opened a quest that teleports the player
+# to a scene the registry has shut.  So this flag CAN open a door.  Round
+# `gwwpmr` did not make that stop being true: it stopped being REACHABLE,
+# because chief's scene conjunct landed.  The splice gate in
+# ``_register_all`` below is the only gate still standing here, and it is
+# not the one that was keeping the nine shut.  The
 # registry pin is still the outer door, and ``scene_is_open_to_players``
 # still asks it on every single click -- see lane_a_scene_census.py's THE
 # ADMISSION CHECK for why per call rather than once at import.
@@ -293,6 +389,35 @@ def _placements_by_index(identity: Any) -> dict[int, Any]:
     return {p.placement_index: p for p in identity.shippable_placements()}
 
 
+def _decline(scene_id: int, reason: str) -> None:
+    """Print one named refusal to stderr and return nothing.
+
+    WHY A REFUSAL IS PRINTED AT ALL (pf-adversary D7, round `gwwpmr`).
+    Returning ``None`` used to be completely silent from this module:
+    chief's call site appends ``scene_choose_npc_responder_declined``,
+    which names neither the scene nor the reason, and nothing is printed.
+    Round `326kf4` accepted that for one scene; round `gwwpmr` multiplied
+    it by nine, and the commonest first experience of a newly opened
+    island is the pre-movement click this responder refuses.  A tester
+    then cannot tell "declined on purpose" from "the build has no
+    responder", which is exactly the confusion ``_register_all``'s own
+    ``LANE_A_CHOOSE_NPC_ROSTER_SKIPPED`` line exists to prevent at import.
+
+    NOT AN ANSWER AND NOT A FRAME: this prints and returns ``None``, so
+    the call site's own decline path is unchanged byte-for-byte.  Written
+    through ``lane_hooks.console_safe`` because the bridge console is
+    cp874 and a raw ``print`` of a non-encodable string there raises
+    inside the listener thread.
+    """
+    print(
+        lane_hooks.console_safe(
+            f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_DECLINED reason={reason}"
+        ),
+        file=sys.stderr,
+    )
+    return None
+
+
 def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
     """Build the responder for ONE scene, closing over its identity module.
 
@@ -324,12 +449,20 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
             # this cannot happen from production today.  Kept because the
             # sibling responder keeps it for the same reason: a responder
             # that trusts its caller to have looked up the right scene
-            # delivers one island's crowd into another.
-            return None
+            # delivers one island's crowd into another.  pf-adversary D2
+            # (round `gwwpmr`) measured that deleting this branch was
+            # invisible to the whole suite; a test now drives it.
+            return _decline(
+                scene_id, f"wrong_scene_this_responder_is_{scene_n_id}")
         if not scene_is_open_to_players(scene_id, scene_entry_registry):
-            return None
-        if population_indices is None or last_target_pos is None:
-            return None
+            return _decline(scene_id, "registry_door_shut")
+        if population_indices is None:
+            return _decline(scene_id, "membership_not_armed")
+        if last_target_pos is None:
+            # The pre-movement click.  ONE STEP fixes it -- see THE FIRST
+            # CLICK AFTER A WARP in this module's docstring, and the
+            # numbered step in `GT-210` / `GT-212`.
+            return _decline(scene_id, "no_player_position_walk_one_step")
         by_idx = _placements_by_index(identity)
         player_x, player_y = last_target_pos[0], last_target_pos[1]
         for actor_identity in dict.fromkeys(chosen_identities):
@@ -392,7 +525,9 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
                     _NPC_STYLE_ACTOR_TYPE, placement.actor_identity, attrs,
                 ))
             if not entries:
-                continue
+                continue  # pragma: no cover - unreachable while
+                # population_indices and by_idx come from one table; the
+                # loop above only skips indices that table lacks.
             pc, frame = legacy.make_runtime_remote_actors(entries)
             console_lines = (
                 f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
@@ -405,7 +540,7 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
                 ),
                 pc=pc, frame=frame, delay=0.0, console_lines=console_lines,
             )
-        return None
+        return _decline(scene_id, "no_named_identity_this_scene_can_answer")
 
     respond.__name__ = f"respond_scene{scene_n_id}"
     respond.__qualname__ = respond.__name__
@@ -415,12 +550,22 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
 def _columbus_collision_scenes() -> frozenset[int]:
     """Scenes whose own table has an actor at Columbus's placement index.
 
-    THE GATE THAT FIRES TODAY -- read THE COLUMBUS PLACEMENT-INDEX COLLISION
-    in this module's docstring before touching it.  ``runtime.py``'s
-    Columbus branch asks whether ``COLUMBUS_PLACEMENT_INDEX`` is in
-    ``population_indices`` and asks nothing about the scene, so arming that
-    field for a scene that HAS such a placement makes Port Royal's quest
-    reachable on the wrong island.
+    ~~THE GATE THAT FIRES TODAY~~ -- NO LONGER A GATE, round `gwwpmr`.
+    Read THE COLUMBUS PLACEMENT-INDEX COLLISION in this module's docstring
+    before touching it.  ``runtime.py``'s Columbus branch used to ask
+    whether ``COLUMBUS_PLACEMENT_INDEX`` is in ``population_indices`` and
+    ask nothing about the scene, so arming that field for a scene that HAS
+    such a placement made Port Royal's quest reachable on the wrong
+    island.  chief's guard (PR #570) added the scene conjunct, so these
+    scenes are now registered like any other.
+
+    WHAT THIS FUNCTION IS FOR NOW: it is the LIST OF SCENES WHOSE SAFETY
+    IS ON LOAN from one conjunct in another lane's file.  The collision
+    itself did not go away -- the index space still has no scene in it --
+    so the nine keep a name here, and this lane's own test drives the real
+    dispatcher on one of them and goes red if the conjunct is deleted.
+    Do not delete this because "the gate is gone": deleting it deletes the
+    only place that records which scenes depend on that guard.
 
     COMPUTED, NEVER A HARDCODED LIST: the collision is a fact about each
     scene's own placement table, so a table that gains or loses index 1
@@ -450,10 +595,14 @@ def _skip_reason_for(scene_id: int) -> str | None:
         return "no_census_sources_row"
     if source in _SPLICED_SOURCES:
         return f"spliced_source_{source}"
-    if scene_id in _columbus_collision_scenes():
-        return (
-            "columbus_placement_index_collision_needs_runtime_scene_guard"
-        )
+    # ~~if scene_id in _columbus_collision_scenes(): return
+    # "columbus_placement_index_collision_needs_runtime_scene_guard"~~
+    # RETIRED, round `gwwpmr`: chief's scene guard is on main (see THE
+    # COLUMBUS PLACEMENT-INDEX COLLISION in this module's docstring), so
+    # the nine scenes this rule refused now register.  The struck line is
+    # kept rather than deleted -- house rule -- because it is the one
+    # place that says WHY the nine were ever dark, and the collision it
+    # names is still real; only its reachability changed.
     return None
 
 

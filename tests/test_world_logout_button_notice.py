@@ -485,6 +485,24 @@ class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
             self.assertIn("LANE-A-ASK-COO-uib-notice-wording.md", source)
         self.assertIn("RULED, round 8z9h9n", source)
         self.assertIn("20260902_0943_COO-DECISION", source)
+        # Round `gwwpmr`: UI-B's own label retired on COO-DECISION
+        # 20260902_1445.  Pinned by the SAME test rather than a new one --
+        # the loop above already refuses an unstruck "awaiting COO" line,
+        # and what this adds is that the retirement names its ruling, so a
+        # strikethrough with no decision behind it cannot pass for one.
+        #
+        # WHAT THESE THREE ASSERTIONS DO NOT DO (pf-adversary D6): they
+        # grep a comment against itself.  The decision lives in the
+        # separate `pf_bridge` repository, which no test in this tree can
+        # open, so nothing here can check that it exists or that it ruled
+        # the way the comment says.  They stop a strikethrough from
+        # appearing with no citation at all; they are not corroboration.
+        self.assertIn("RULED, round `gwwpmr`", source)
+        self.assertIn("20260902_1445_COO-DECISION", source)
+        # The option COO refused by name stays readable, same rule as
+        # `BACK NOT YET` above: a later round must be able to see that it
+        # was considered and rejected rather than never asked.
+        self.assertIn("EXIT NOT YET", source)
         # The alternative COO never adjudicated must stay visible: it is
         # the wording a later round would need if the transition becomes
         # performable, and the ask letter offered four options, not two.
