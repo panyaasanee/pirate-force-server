@@ -1068,3 +1068,340 @@ def test_cli_is_green_when_the_install_is_the_build(tmp_path: Path, capsys) -> N
 def test_cli_needs_at_least_one_target() -> None:
     with pytest.raises(SystemExit):
         pic.main([])
+
+
+# --- the exact CLI contract `patches/gm_plugin/install.bat` depends on ------
+#
+# install.bat revision 3 (COO-DECISION `20260902_2342` item 3) no longer just
+# recommends this tool -- it RUNS it, and decides whether to copy a DLL into
+# the owner's client folder from the tokens below, read with `findstr /c:`.
+# `findstr /c:` is a SUBSTRING match with no anchoring, and the batch cannot
+# import anything from this module, so every one of these assertions is the
+# only thing standing between a rename here and a silent regression there:
+# a changed token sends install.bat down its "no verdict line" branch, which
+# WARNS AND CONTINUES. The failure would be invisible on both sides.
+
+
+def test_the_cli_prints_the_exact_token_install_bat_greps_for(
+    tmp_path: Path, capsys
+) -> None:
+    good = _write(tmp_path, _build_pe())
+
+    assert pic.main(["--dll", str(good)]) == 0
+    out = capsys.readouterr().out
+
+    # Byte for byte what install.bat passes to `findstr /c:`.
+    assert "GM_PLUGIN_IMAGE build verdict=" in out
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+
+
+def test_a_manifest_at_the_exe_id_makes_the_cli_refuse_by_token_and_by_code(
+    tmp_path: Path, capsys
+) -> None:
+    """The one failure the `.rsrc` check in install.bat cannot see.
+
+    A manifest embedded at `;#1` leaves an `.rsrc` section in the image, so
+    `dumpbin /headers | findstr .rsrc` says [ok] and the DLL still answers
+    LoadLibraryW with 14001. install.bat's refusal for this shape rests
+    entirely on the two facts asserted here.
+    """
+    bad = _write(tmp_path, _build_pe(manifest_resource_ids=(1,)))
+
+    exit_code = pic.main(["--dll", str(bad)])
+    out = capsys.readouterr().out
+
+    assert exit_code != 0
+    assert "GM_PLUGIN_IMAGE build verdict=manifest_missing" in out
+
+
+def _every_blocking_verdict() -> tuple[str, ...]:
+    """Read the blocking verdicts off the module, never off a hand list.
+
+    pf-adversary, round `b8xrod`, M2: the first version of the test below
+    hand-listed eight shapes, claimed in its own docstring to cover "every
+    blocking verdict", and missed three. Mutants that planted the string
+    `verdict=image_ok` in the `export_forwarded` and `unreadable` messages
+    both survived the whole suite.
+    """
+    return tuple(
+        getattr(pic, name)
+        for name in sorted(dir(pic))
+        if name.startswith("VERDICT_") and getattr(pic, name) != pic.VERDICT_IMAGE_OK
+    )
+
+
+def _refusal_cases(tmp_path: Path) -> dict[str, list[str]]:
+    """One CLI invocation per blocking verdict. Keys are checked for coverage."""
+    absent = tmp_path / "gone" / "GameMaster.dll"
+    no_dir = tmp_path / "not-a-client-folder"
+    shapes = {
+        pic.VERDICT_MANIFEST_MISSING: _build_pe(manifest_resource_ids=(1,)),
+        pic.VERDICT_EXPORT_DECORATED: _build_pe(exports=("_CreateGameMaster",)),
+        pic.VERDICT_EXPORT_FORWARDED: _build_pe(
+            forwarders=(pic.REQUIRED_EXPORT,)
+        ),
+        pic.VERDICT_EXPORT_MISSING: _build_pe(exports=("SomethingElse",)),
+        pic.VERDICT_NO_EXPORTS: _build_pe(with_export_dir=False),
+        pic.VERDICT_WRONG_MACHINE: _build_pe(machine=0x8664, pe32=False),
+        pic.VERDICT_NOT_A_DLL: _build_pe(is_dll=False),
+        pic.VERDICT_NOT_PE: b"not a PE at all, just text",
+    }
+    cases: dict[str, list[str]] = {}
+    for verdict, image in shapes.items():
+        path = _write(tmp_path, image, name="GameMaster_%s.dll" % verdict)
+        cases[verdict] = ["--dll", str(path)]
+    cases[pic.VERDICT_MISSING] = ["--dll", str(absent)]
+    cases[pic.VERDICT_NO_SUCH_DIR] = ["--client-dir", str(no_dir)]
+    # `unreadable` needs the open to fail, which no file shape can arrange
+    # under a test run as root; the caller patches `read_bytes` for it.
+    cases[pic.VERDICT_UNREADABLE] = ["--dll", str(_write(tmp_path, _build_pe()))]
+    return cases
+
+
+def test_the_refusal_case_table_covers_every_blocking_verdict(
+    tmp_path: Path,
+) -> None:
+    """The coverage claim itself, so it cannot rot silently again."""
+    missing = set(_every_blocking_verdict()) - set(_refusal_cases(tmp_path))
+    assert not missing, "no refusal case for: %s" % sorted(missing)
+
+
+def test_a_refused_image_never_prints_the_substring_that_would_install_it(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """`findstr /c:` matches anywhere on any line, including inside prose.
+
+    If any advisory, detail or remedy string ever contained the words
+    `verdict=image_ok`, install.bat would copy a DLL this tool just refused.
+    Checked for EVERY blocking verdict, derived from the module.
+    """
+    cases = _refusal_cases(tmp_path)
+    for verdict, argv in cases.items():
+        if verdict == pic.VERDICT_UNREADABLE:
+            def _boom(self, *args, **kwargs):
+                raise OSError(13, "permission denied")
+
+            monkeypatch.setattr(Path, "read_bytes", _boom)
+        exit_code = pic.main(argv)
+        out = capsys.readouterr().out
+        monkeypatch.undo()
+
+        assert exit_code != 0, verdict
+        assert "GM_PLUGIN_IMAGE" in out, verdict
+        assert "verdict=%s" % verdict in out, (verdict, out)
+        assert "verdict=image_ok" not in out, (verdict, out)
+
+
+def test_asking_only_about_the_build_is_green_with_no_install_anywhere(
+    tmp_path: Path, capsys
+) -> None:
+    """Why install.bat passes `--dll` alone and must never add `--client-dir`.
+
+    It runs BELOW the [STOP] guard, which has already proved the target folder
+    holds no GameMaster.dll. Adding `--client-dir "%TARGET%"` there would read
+    `verdict=missing` and exit 1 on every clean folder -- a permanent refusal
+    to install, on exactly the folder an install is for. This test pins the
+    other half: with `--dll` alone the tool is green and invents no report
+    about a client directory it was not asked about.
+    """
+    good = _write(tmp_path, _build_pe())
+
+    assert pic.main(["--dll", str(good)]) == 0
+    out = capsys.readouterr().out
+
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+    assert "GM_PLUGIN_IMAGE install" not in out
+    assert "verdict=missing" not in out
+    assert "same_bytes" not in out
+
+
+def test_the_client_dir_flag_would_refuse_the_very_folder_installs_are_for(
+    tmp_path: Path, capsys
+) -> None:
+    """The negative half of the rule above, measured rather than asserted.
+
+    Kept as a test so that anyone who "helpfully" adds `--client-dir` to
+    install.bat has this failure written down before they spend an attended
+    round on it.
+    """
+    build_dir = tmp_path / "build"
+    clean_target = tmp_path / "client"
+    build_dir.mkdir()
+    clean_target.mkdir()
+    _write(build_dir, _build_pe())
+
+    exit_code = pic.main(
+        [
+            "--dll",
+            str(build_dir / "GameMaster.dll"),
+            "--client-dir",
+            str(clean_target),
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "GM_PLUGIN_IMAGE install verdict=missing" in out
+
+
+def test_every_console_line_encodes_on_a_thai_console_even_from_a_latin_path(
+    tmp_path: Path, capsys
+) -> None:
+    """pf-adversary, round `b8xrod`, M1 -- a measured false-green, not a nit.
+
+    `install.bat` redirects this tool's output to a file, so on a Thai Windows
+    `sys.stdout` is a cp874 stream. `path=` is the only field carrying text
+    this module did not author and it sits on the verdict line itself, so one
+    character outside cp874 in the folder name used to raise UnicodeEncodeError
+    on the FIRST line: the batch then found a traceback with no verdict token,
+    took its "the checker said nothing" branch, and COPIED THE DLL UNCHECKED.
+
+    The older `test_every_console_line_survives_the_bridge_console` cannot see
+    this: pytest's `tmp_path` is always ASCII, so it is green by construction.
+    """
+    latin = tmp_path / "José"
+    latin.mkdir()
+    report = pic.inspect_plugin_file(_write(latin, _build_pe()))
+
+    for line in pic.console_lines(report, "build"):
+        line.encode("cp874")  # raises UnicodeEncodeError if this ever regresses
+        assert line.isascii()
+
+    assert pic.main(["--dll", str(latin / "GameMaster.dll")]) == 0
+    out = capsys.readouterr().out
+    out.encode("cp874")
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+
+
+def test_the_report_names_which_rules_this_copy_of_the_module_enforces(
+    tmp_path: Path, capsys
+) -> None:
+    """pf-adversary, round `b8xrod`, H2.
+
+    `install.bat` finds this module by guessing folder names. A checkout older
+    than round `selrsl` prints `verdict=image_ok` and exits 0 for a manifest at
+    resource id 1 -- see `test_a_manifest_at_the_exe_id_is_not_a_manifest_for_a
+    _dll`, which says exactly that in its docstring -- so the verdict token
+    alone cannot tell an enforcing copy from a permissive one. This line can,
+    by being absent from the old one.
+    """
+    assert "manifest_id2" in pic.CONSOLE_RULES
+
+    assert pic.main(["--dll", str(_write(tmp_path, _build_pe()))]) == 0
+    out = capsys.readouterr().out
+
+    assert "GM_PLUGIN_IMAGE build rules=" in out
+    for rule in pic.CONSOLE_RULES:
+        assert rule in out
+
+
+def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> None:
+    """A caller must be able to attribute a REFUSAL as well as a pass."""
+    bad = _write(tmp_path, _build_pe(manifest_resource_ids=(1,)))
+
+    assert pic.main(["--dll", str(bad)]) != 0
+
+    assert "GM_PLUGIN_IMAGE build rules=" in capsys.readouterr().out
+
+
+# --- the other half of the contract: read install.bat itself ---------------
+#
+# pf-adversary, round `b8xrod`, M3: every assertion above pins the module and
+# none of them opens the batch file, so renaming the literal inside
+# `findstr /c:"..."` leaves the whole suite green while every install silently
+# falls into warn-and-copy. These read the batch.
+#
+# `pf_bridge` is a SEPARATE repository and the Windows gate clones this one
+# alone, so these tests skip there. The skip is named and counted below, never
+# silent (a bare skip is what closed #601 with 3,534 lines of work in it).
+
+
+def _install_bat() -> Path | None:
+    """`../pf_bridge/patches/gm_plugin/install.bat`, or None.
+
+    One relative candidate and no absolute fallback, deliberately: the two
+    repositories sit side by side both on the bridge
+    (`...\\Pirate Force\\pf_bridge` beside `...\\Pirate Force\\Pirate Force
+    ServerProject`) and in every cloud clone, so an absolute path would only
+    hide the skip from a rehearsal of the machine that actually skips.
+    """
+    candidate = (
+        Path(__file__).resolve().parents[2]
+        / "pf_bridge"
+        / "patches"
+        / "gm_plugin"
+        / "install.bat"
+    )
+    return candidate if candidate.is_file() else None
+
+
+INSTALL_BAT_TESTS = 3
+"""How many tests in this file skip together when pf_bridge is not beside us."""
+
+
+def _install_bat_text() -> str:
+    path = _install_bat()
+    if path is None:
+        pytest.skip(
+            "pf_bridge is not checked out beside this repository, so the "
+            "install.bat side of this contract cannot be read here. "
+            "%d tests in tests/test_gm_plugin_image_check.py skip together "
+            "for this reason, by design, and they run on the bridge."
+            % INSTALL_BAT_TESTS
+        )
+    return path.read_text(encoding="ascii").replace("\r\n", "\n")
+
+
+def test_install_bat_greps_for_the_tokens_this_module_actually_prints(
+    tmp_path: Path,
+) -> None:
+    text = _install_bat_text()
+    lines = pic.console_lines(pic.inspect_plugin_file(_write(tmp_path, _build_pe())), "build")
+
+    verdict_line = next(line for line in lines if " verdict=" in line)
+    pass_token = verdict_line.split(" path=")[0]
+    assert pass_token == "GM_PLUGIN_IMAGE build verdict=image_ok"
+
+    # The three literals the batch's decision rests on, derived here.
+    assert 'findstr /c:"GM_PLUGIN_IMAGE build verdict="' in text
+    assert 'findstr /c:"%s"' % pass_token in text
+    assert 'findstr /c:"GM_PLUGIN_IMAGE build rules="' in text
+    assert 'findstr /c:"manifest_id2"' in text
+    assert any(line.startswith("GM_PLUGIN_IMAGE build rules=") for line in lines)
+
+
+def test_install_bat_never_asks_about_a_client_dir_when_it_installs() -> None:
+    """It runs below the [STOP] guard, on a folder proven to hold no plug-in.
+
+    `--client-dir` there reads `verdict=missing` and exits 1 every time: a
+    permanent refusal to install, on exactly the clean folder an install is
+    for. Written down here so the next person to "helpfully" add the flag has
+    to delete a test that says why.
+    """
+    text = _install_bat_text()
+    invocations = [
+        line
+        for line in text.splitlines()
+        if "-m pirateforce_foundation.gm.plugin_image_check" in line
+        and not line.strip().upper().startswith(("REM", "ECHO"))
+    ]
+
+    assert len(invocations) == 1, invocations
+    assert "--dll" in invocations[0]
+    assert "--client-dir" not in invocations[0]
+
+
+def test_install_bat_refuses_rather_than_warns_when_the_checker_answers_no() -> None:
+    """The fail-closed half of COO-DECISION `20260902_2342` item 3.
+
+    A refusal must end the script, not fall through to the copy. Checked by
+    reading the batch's own control flow: the refusal label exists and its
+    block contains `exit /b 1` before any `goto do_copy`.
+    """
+    text = _install_bat_text()
+    assert "\n:pfgm_refuse\n" in text
+
+    block = text.split("\n:pfgm_refuse\n", 1)[1]
+    block = block.split("\n:", 1)[0]
+    assert "exit /b 1" in block
+    assert "goto do_copy" not in block

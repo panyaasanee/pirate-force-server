@@ -39,6 +39,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dataclasses import replace  # noqa: E402
 
+from pirateforce_foundation import login_speed, player_wire  # noqa: E402
+
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_scene_entry  # noqa: E402
 from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
@@ -208,7 +210,41 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
 
         stored = self.store.get_character(state.foundation.selected.id)
         self.assertEqual(state.foundation.selected.position, stored.position)
-        self.assertEqual(state.foundation.selected, stored)
+
+        # ~~self.assertEqual(state.foundation.selected, stored)~~ -- STRUCK,
+        # not deleted, in round `b8xrod`.  It was red on `main` (30e150a) as
+        # written, and NOT because of anything this file's fix does: a login
+        # now resolves `movement_speed` through
+        # `pirateforce_foundation.login_speed`, whose whole purpose is to put
+        # a value on `selected` that `store.get_character()` never carries
+        # (the column is read through the typed-attribute path, not the
+        # character row).  `stored.movement_speed` is therefore None on every
+        # login, overridden or not, and comparing the two dataclasses whole
+        # can only ever fail from here on.
+        #
+        # The property this test is actually for -- "an un-overridden login
+        # changes NO field of selected" -- is kept exactly, by naming the one
+        # field the seam is allowed to fill and comparing everything else.
+        # Written as an exclusion rather than a field list so that a NEW field
+        # appearing on the dataclass is still caught.
+        composed = state.foundation.selected
+        self.assertEqual(
+            replace(composed, movement_speed=stored.movement_speed),
+            stored,
+            "a login with no GM override changed a field other than the one "
+            "login_speed resolves",
+        )
+        # And the excluded field is pinned rather than waved through, so this
+        # test still fails if that seam starts sending something arbitrary.
+        self.assertEqual(
+            composed.movement_speed,
+            login_speed.resolve_for_character(
+                self.store,
+                composed.id,
+                fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED,
+            ).value,
+        )
+
         self.assertEqual(
             [event for event in state.events
              if event.startswith("gm_login_scene_override_")],
