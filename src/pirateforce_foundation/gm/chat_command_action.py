@@ -847,6 +847,18 @@ EVENT_SPEED_WITHHELD_NO_VERSION = (
 EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
+# GT-193 [FAIL] (attended R303, 2026-09-02): the shape this door composed
+# was measured on a real client -- HP 0, money 0, the character dead, and 426
+# inbound frames afterwards with ZERO non-heartbeat among them (the client
+# locked itself out and the round lost it until a re-login).  The hold that
+# fires this event is keyed on the EMPTY SECTION the frame announces, not on
+# the command name -- see `speed_wire.declared_empty_sections` and the block
+# comment above `SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` for what was and was
+# not proven.  `withheld`, not `refused`: nothing about the GM's line was
+# wrong, this lane is holding its own frame.
+EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED = (
+    "gm_chat_action_speed_withheld_sparse_shape_not_cleared_by_a_real_client"
+)
 # The on-screen notice for a refused `/speed` (COO-DECISION `0345`).  Two
 # events, because "the sentence went out" and "the sentence could not even be
 # built" are different facts and a refusal that silently loses its notice is
@@ -1030,6 +1042,13 @@ OUTCOME_SPEED_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}speed_canonical
 OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
     f"{OUTCOME_REFUSED_PREFIX}speed_no_selected_character"
 )
+# GT-193's hold.  See the matching `EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED`
+# comment above.  Named after the SHAPE rather than after `/speed`, because a
+# second door that ships an equally empty section earns the same hold and
+# should be able to reuse this word instead of inventing a near-duplicate.
+OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED = (
+    f"{OUTCOME_WITHHELD_PREFIX}sparse_shape_empty_section"
+)
 # The persistence half's four named refusals.  See the matching
 # `EVENT_SPEED_*` block above for why all four withhold the frame too.
 OUTCOME_SPEED_NO_STORE = f"{OUTCOME_REFUSED_PREFIX}speed_no_store"
@@ -1131,6 +1150,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_NO_SELECTED_CHARACTER: (
         "this connection has no selected character to read identity_lo/hi"
         " from"
+    ),
+    OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED: (
+        "GT-193 measured this frame shape killing a real character and"
+        " locking the client out; the empty ActorAttr section it announces"
+        " is held until an attended round or an RE result clears it"
     ),
     OUTCOME_SPEED_NO_STORE: (
         "session.foundation.lifecycle.store is unreadable, so /speed has no"
@@ -3423,6 +3447,22 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     dispatch is answering.  It moves nobody -- `x=7` is a single BasicAttr
     field, not a position.
 
+    !! AND SINCE GT-193 IT WITHHOLDS THE FRAME BY DEFAULT.  Attended round
+    R303 (2026-09-02) typed `/speed 300` on a real client: this function's
+    frame went out, the character showed HP 0 and money 0 and DIED, and the
+    client then answered nothing at all (426 inbound frames, zero of them
+    non-heartbeat -- the revive buttons never reached the server).  The run DB
+    was healthy throughout, so the client reacted to BYTES THIS LANE SENT.
+    The gate below is keyed on the SHAPE `speed_wire.declared_empty_sections`
+    measures -- today an ActorAttr section announced with a zero mask and no
+    fields, which is what the tester's tally called "trailing zero fields" --
+    and it fires BEFORE the DB write, so a held frame never leaves a moved row
+    behind it.  Which byte killed the character is NOT known and this function
+    does not pretend it is (the tester's own nonclaim); the hold is what a
+    measured client lockout earns until an RE result or a later attended round
+    clears the shape.  See `speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT`
+    and `tests/test_gm_speed_shape_hold.py`.
+
     !! IT NOW WRITES A DB ROW.  ~~"writes no DB row: this composes a WIRE
     FRAME only, never touching `store`/`characters`"~~ -- struck, not
     deleted, because it was true of every earlier round of this function and
@@ -3531,6 +3571,37 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             session,
             legacy,
             f"{OUTCOME_REFUSED_PREFIX}speed_{type(error).__name__}",
+        )
+
+    # ---- THE SHAPE GT-193 MEASURED -----------------------------------
+    # Fired BEFORE the row is written, on purpose.  A withheld frame plus a
+    # written row is precisely the screen-disagrees-with-the-database case the
+    # DB-FIRST ordering below exists to prevent: the row would hold a number
+    # no client was ever told about, and the next login would paint the old
+    # one anyway (GT-193 measured that half too -- `speed_walk` has no login
+    # read yet, LANE-DB's CORE-REQUEST).
+    #
+    # The shape is MEASURED on the frame this call is about to compose -- real
+    # identity, real value -- not hardcoded, so a future door that fills the
+    # section opens this gate by itself.  `declared_empty_sections` composes,
+    # and a composer that raises here is a shape this lane cannot measure,
+    # which is not a shape it may put in front of a tester: that path holds
+    # too, rather than falling through to the send.
+    try:
+        empty_sections = speed_wire.declared_empty_sections(
+            legacy, identity_lo, identity_hi, value
+        )
+    except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
+        # `None`, not "an empty section": a shape that could not be measured
+        # is held EVEN IF a future round has cleared the shape it expected to
+        # see, because nothing here knows the two are the same shape.
+        empty_sections = None
+    if empty_sections is None or (
+        empty_sections and not speed_wire.sparse_shape_cleared()
+    ):
+        _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
+        return _speed_denied(
+            session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED
         )
 
     # ---- DB FIRST ----------------------------------------------------

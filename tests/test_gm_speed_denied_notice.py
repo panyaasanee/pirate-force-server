@@ -152,6 +152,20 @@ class _Case(unittest.TestCase):
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
+        # GT-193's shape hold (`speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_
+        # CLIENT`) sits ABOVE every path this file exercises: with it shut --
+        # which is the production default, pinned as the default by
+        # `tests/test_gm_speed_shape_hold.py` -- `/speed` never reaches the DB
+        # write or the composer at all.  These tests are about what happens
+        # BELOW that gate, so they open it explicitly.  Opening it here is a
+        # TEST-ONLY simulation of a future attended clearance; it is not
+        # evidence that any client has ever accepted this frame shape.
+        _shape_hold_opened = mock.patch.object(
+            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+        )
+        _shape_hold_opened.start()
+        self.addCleanup(_shape_hold_opened.stop)
+
     def act(self, session, text="/speed 400"):
         """Run the whole production path, not just the handler.
 
@@ -374,11 +388,13 @@ class TheNineRefusalPathsTests(_Case):
         )
         self.assertEqual(
             body.count("_speed_denied("),
-            9,
+            10,
             "the number of refusal paths in _speed_action changed (%d found, "
-            "9 expected). That is not a failure by itself -- add or remove a "
+            "10 expected). That is not a failure by itself -- add or remove a "
             "test above to match, and re-read COO-DECISION 20260902_0345, "
-            "whose condition is stated over ALL refusal paths."
+            "whose condition is stated over ALL refusal paths. ~~9~~ became "
+            "10 in round `et2ux4`: GT-193's shape hold is a refusal like any "
+            "other and goes out through the same notice."
             % body.count("_speed_denied("),
         )
 

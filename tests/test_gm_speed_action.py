@@ -188,6 +188,20 @@ class _Case(unittest.TestCase):
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
+        # GT-193's shape hold (`speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_
+        # CLIENT`) sits ABOVE every path this file exercises: with it shut --
+        # which is the production default, pinned as the default by
+        # `tests/test_gm_speed_shape_hold.py` -- `/speed` never reaches the DB
+        # write or the composer at all.  These tests are about what happens
+        # BELOW that gate, so they open it explicitly.  Opening it here is a
+        # TEST-ONLY simulation of a future attended clearance; it is not
+        # evidence that any client has ever accepted this frame shape.
+        _shape_hold_opened = mock.patch.object(
+            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+        )
+        _shape_hold_opened.start()
+        self.addCleanup(_shape_hold_opened.stop)
+
     def act(self, session, text):
         return chat_command_action.make_gm_chat_command_action(
             session,

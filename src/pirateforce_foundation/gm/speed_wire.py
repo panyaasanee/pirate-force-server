@@ -189,3 +189,113 @@ def compose_sparse_speed_update(
     return attr_wire.make_update_attr_frame(
         legacy, identity_lo, identity_hi, {SPEED_FIELD_X: fvalue}
     )
+
+
+# ---------------------------------------------------------------------------
+# GT-193 [FAIL]: THE SHAPE THIS DOOR ACTUALLY SHIPPED TO A REAL CLIENT
+# ---------------------------------------------------------------------------
+# Attended round R303 (2026-09-02 16:10 -> 17:49 +07:00, owner at the keyboard,
+# results letter `pf_bridge/notes_to_chief/20260902_1755_KA1A-R303-RESULTS-
+# gt205-pass-gt193-fail-gt204-full-chain-pass-and-the-pickup-path-measured-end-
+# to-end.md`) typed `/speed 300` on a real client for the first time.  What was
+# measured, quoting the tester's own wire tally rather than paraphrasing it:
+#
+#   * `LANE_GM_CHAT_ACTION speed route=action` then `[G>]
+#     LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL (74 bytes)` -- this door's frame,
+#     composed and sent;
+#   * "the frame carried `00 00 96 43` = 300.0 followed by trailing zero
+#     fields";
+#   * the character immediately showed HP 0, money 0 AND DIED;
+#   * after that frame: 426 inbound frames, ZERO of them non-heartbeat.  The
+#     revive buttons produced no server traffic at all -- the client locked
+#     ITSELF out, and the attended round lost the client until a re-login;
+#   * the run DB was healthy afterwards (`characters.speed_walk = 300.0`,
+#     hp 100/100): the damage was never persisted, so this is a CLIENT-SIDE
+#     reaction to bytes this lane put on the wire, not a server state bug.
+#
+# WHAT THE TESTER DID NOT PROVE, IN HER OWN WORDS: "I did NOT prove the client
+# death is caused by the trailing zero fields.  I proved the frame carries them
+# and that the client died on receiving it."  So the constant below is NOT a
+# root-cause claim and this module must never be read as making one.
+#
+# THE "TRAILING ZERO FIELDS", NAMED EXACTLY, FROM THIS CLONE'S OWN COMPOSER:
+# `encode_block` always emits BOTH sections of the DBAttribute body -- a
+# BasicAttr u16 mask followed by its set fields, then an ActorAttr u64 mask, a
+# group-flag tag, and its set fields.  A door that sets one BasicAttr field and
+# nothing else therefore announces an ActorAttr section that is EMPTY: measured
+# on this clone, `/speed 300.0` composes a 74-byte body ending
+# `... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00` --
+# the `32` tag plus eight zero bytes IS the ActorAttr mask, and `cash`
+# (offset 0x0A8, mask 1<<11) is one of the fields that section carries.  Money
+# went to 0 on the screen.  That correlation is why the hold below is keyed on
+# the empty section rather than on the command name.
+#
+# WHY A HOLD AND NOT A FIX.  The safe shape is unknown and this lane may not
+# guess it: whether the client treats a zero ActorAttr mask as "change nothing"
+# or as "zero everything", and whether a body with the section OMITTED is even
+# parseable, are questions about the client's deserializer -- LANE-RE's work,
+# asked for in this round's letter to chief.  The one shape this lane could
+# ship instead (both sections carrying the character's real current values)
+# needs a captured baseline `attr_wire.RawBlockCache` still has no seed source
+# for (that module's own open question 2).  Until one of those answers lands,
+# the fail-closed reading of GT-193 is: do not put this shape in front of a
+# tester again.  A refused `/speed` costs her one chat line; this shape cost
+# her a dead character, a locked client and a re-login.
+# [ASSUMPTION OF LANE-GM, AWAITING COO] -- this round's letter
+# `20260902_1841_LANE-GM-ASK-COO-hold-the-speed-shape-that-locked-a-client.md`.
+SPARSE_SHAPE_MEASURED_BY = "GT-193 attended round R303 2026-09-02"
+
+# Flip this to True only when a real client has been measured accepting the
+# shape this door composes -- an attended round or an RE result, named in the
+# comment above the flip, the same discipline
+# `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` records for its own byte.
+# Nothing has cleared it: GT-193 is the only measurement that exists and it is
+# a [FAIL].
+SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT = False
+
+SECTION_BASIC_ATTR = "basic_attr"
+SECTION_ACTOR_ATTR = "actor_attr"
+
+
+def sparse_shape_cleared() -> bool:
+    """Has a real client been measured accepting this door's frame shape?
+
+    Read through a function, never by importing the constant into a caller's
+    own namespace, for the same reason `shared_vital_version_confirmed()`
+    exists: a future round that clears the shape edits ONE line here, and
+    every gate re-reads it live.
+    """
+    return bool(SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT)
+
+
+def declared_empty_sections(
+    legacy, identity_lo: int, identity_hi: int, value: float,
+) -> tuple[str, ...]:
+    """Which DBAttribute sections this door ANNOUNCES WITH NOTHING IN THEM.
+
+    Measures the frame that is about to be sent instead of hardcoding the
+    answer, which is the whole point: today a `/speed` send always returns
+    `("actor_attr",)`, because `SPEED_FIELD_X` is a BasicAttr field and this
+    door sets no other field.  A future round that gives the door an
+    ActorAttr value to carry gets an EMPTY tuple back from this function
+    without anyone remembering to edit a gate -- the hold opens itself for a
+    shape it was never measured against, rather than blocking work it has no
+    evidence about.
+
+    Composes through `encode_block` (not `compose_sparse_speed_update`), so
+    the masks are read from the composer's own return value rather than
+    re-derived by parsing bytes back out of a frame.
+    """
+    # The value is passed THROUGH, not coerced: this function measures the
+    # frame the caller is about to send, and a caller whose value the encoder
+    # would refuse must see that refusal here rather than have it papered over
+    # by a `float()` this function invented.
+    _body, basic_mask, actor_mask = attr_wire.encode_block(
+        legacy, identity_lo, identity_hi, {SPEED_FIELD_X: value}
+    )
+    empty = []
+    if not basic_mask:
+        empty.append(SECTION_BASIC_ATTR)
+    if not actor_mask:
+        empty.append(SECTION_ACTOR_ATTR)
+    return tuple(empty)

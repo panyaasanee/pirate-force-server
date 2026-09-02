@@ -74,8 +74,40 @@ wherever this tool predicts nothing, never ``0``.
 from __future__ import annotations
 
 import pathlib
+import sys
 from dataclasses import dataclass
 from typing import Any
+
+# THESE TWO CONSTANTS LIVE ABOVE THE PACKAGE IMPORTS ON PURPOSE, and the
+# stderr line under them is the reason.  chief's ask (a) of `pf_bridge/
+# notes_to_chief/20260902_1712_CHIEF-TO-LANE-GM-gt192-debt-paid-all-five-
+# proposals-landed.md`: the PRECONDITION is stdout line 1 and the tester
+# still meets it at roughly line 29, because importing the package below
+# registers the lane hooks and writes 28 lines to STDERR first -- both
+# streams land in one console and stderr gets there first.  Printed HERE it
+# is the first line her eye actually reaches.  Guarded on `__main__` so an
+# importer (every test in this repo, and any future caller) never sees it,
+# and DUPLICATED rather than moved: stdout keeps its line 1, so a redirected
+# `*> file` capture is byte-for-byte what it was.
+
+# Every line this module prints starts with this, for the same reason every
+# other console token in this lane does: a tester greps for it, and a
+# diagnostic that cannot be found is a diagnostic that was not written.
+CONSOLE_TOKEN = "GM_WARP_PREFLIGHT"
+
+# `runtime.py:993`.  Printed with every run, because a boot that fails this
+# ships no census on any map and would otherwise read as thirteen bugs.
+BOOT_PRECONDITION = (
+    "census ships ONLY on a boot with no scenario/lane object AND "
+    "second_password_mode=required (runtime.py:993); otherwise every map "
+    "below is empty and that is the boot, not a bug"
+)
+
+if __name__ == "__main__":  # pragma: no cover - the script entry only
+    print(
+        "%s PRECONDITION %s" % (CONSOLE_TOKEN, BOOT_PRECONDITION),
+        file=sys.stderr,
+    )
 
 from .. import (
     lane_hooks,
@@ -86,11 +118,6 @@ from .. import (
 )
 from . import scene_catalog
 from .warp_executor import warp_no_coords_live_target
-
-# Every line this module prints starts with this, for the same reason every
-# other console token in this lane does: a tester greps for it, and a
-# diagnostic that cannot be found is a diagnostic that was not written.
-CONSOLE_TOKEN = "GM_WARP_PREFLIGHT"
 
 # Where a scene's arrival roster comes from.  Four answers, not two: the
 # difference between "nothing, and that is the bug" and "nothing until you
@@ -140,14 +167,6 @@ ROUTE_LEGEND = (
     "position you STEPPED TO while this tool composes it at the pinned spawn "
     "(measured: the count does not move with the anchor today, only the "
     "order)"
-)
-
-# `runtime.py:993`.  Printed with every run, because a boot that fails this
-# ships no census on any map and would otherwise read as thirteen bugs.
-BOOT_PRECONDITION = (
-    "census ships ONLY on a boot with no scenario/lane object AND "
-    "second_password_mode=required (runtime.py:993); otherwise every map "
-    "below is empty and that is the boot, not a bug"
 )
 
 LEGACY_RELATIVE_PATH = pathlib.PurePosixPath("current/pf_login_game_server_v141.py")
@@ -536,10 +555,36 @@ def render(rows: Any) -> tuple[str, ...]:
             _joined(mirrored),
         )
     )
+    # chief's ask (b) of `pf_bridge/notes_to_chief/20260902_1712_CHIEF-TO-
+    # LANE-GM-gt192-debt-paid-all-five-proposals-landed.md`: this warning
+    # lived in this module's DOCSTRING, which a tester at a console does not
+    # open.  Her console during `GT-192` prints `LANE_A_CENSUS_SKIPPED
+    # scene=2` -- correctly, that scene has no lane composer -- and nothing
+    # on her screen said this is NOT a licence for map 2 to come up empty.
+    #
+    # It rides the EXISTING note rather than a line of its own, for two
+    # reasons that are both about not breaking what already works: `render`
+    # ships exactly four framing lines and this module's test file asserts
+    # each appears exactly once, and a fifth line would have to be printed
+    # even for a chain that contains no mirrored scene at all to keep that
+    # count honest.  The map number and its count are read off the ROW, never
+    # typed in here, so they cannot drift from the table above.
+    mirrored_arm = [
+        (row.scene_id, _on_arrival(row))
+        for row in rows
+        if row.source == SOURCE_RUNTIME_BG0002_ARM
+    ]
+    skipped_clause = "".join(
+        "; the LANE_A_CENSUS_SKIPPED line your server console prints for map "
+        "%d is NOT a licence for an empty map there -- its %s actors ship "
+        "from the runtime's own arm, not from a lane hook" % (scene_id, count)
+        for scene_id, count in mirrored_arm
+    )
     lines.append(
         "%s NOTE this predicts what the SERVER composes, never what the "
         "client draws; an empty screen on a scene listed above with actors "
-        "is a real finding for GT-192, not a preflight error" % CONSOLE_TOKEN
+        "is a real finding for GT-192, not a preflight error%s"
+        % (CONSOLE_TOKEN, skipped_clause)
     )
     return tuple(lines)
 
@@ -628,8 +673,6 @@ def main(argv: Any = None) -> int:
     this tool could NOT explain.  A map held until the player steps, and a
     map shut on purpose, are explanations -- they do not make it non-zero.
     """
-    import sys
-
     from ..legacy_bridge import load_legacy
 
     args = list(sys.argv[1:] if argv is None else argv)
