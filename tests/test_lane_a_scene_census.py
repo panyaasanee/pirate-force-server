@@ -93,6 +93,7 @@ from pirateforce_foundation import world_population_bg0009  # noqa: E402
 from pirateforce_foundation import world_population_bg0011  # noqa: E402
 from pirateforce_foundation import world_population_bg0010  # noqa: E402
 from pirateforce_foundation import world_population_bg0015  # noqa: E402
+from pirateforce_foundation import world_population_bg3001  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_entry  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
@@ -176,6 +177,14 @@ DEATH_CITY_SEA_ROSTER_COUNT = 57
 # scene 10).
 DEEP_SEA_TEMPLE_FLOOR2 = 11
 DEEP_SEA_TEMPLE_FLOOR2_ROSTER_COUNT = 51
+# ADDED round 4uztfj (LANE-A): the ocean panel, the twelfth composer and the
+# first scene this lane composes for whose ORDINARY LOGIN DOOR IS SHUT and
+# stays shut.  What admits it is the second arm,
+# ``scene_is_sanctioned_for_a_gm_entry`` -- see
+# ``TheSecondAdmissionArmTests`` below, which drives both arms rather than
+# reading the boolean back.
+ATLANTIS = 126
+ATLANTIS_ROSTER_COUNT = 36
 
 
 def _legacy():
@@ -225,6 +234,26 @@ def _registry_with_door_open(work: Path, scene_id=VOLCANO):
 def _registry_with_door_shut(work: Path, scene_id=VOLCANO):
     """The registry as it read before round vvy6q7: this scene refused."""
     return _registry_with_door(work, scene_id, allowed=False)
+
+
+def _registry_without_scene(work: Path, scene_id):
+    """A loaded registry with ``scene_id``'s row REMOVED entirely.  Temp only.
+
+    ADDED round 4uztfj for the one scene whose door is already shut on the
+    repository's file: removing the row is the only state in which BOTH
+    admission arms refuse (no row to read, and the GM lane's own predicate
+    answers ``lane_a_registry_row_missing``), so it is what the door-shut
+    property has to be driven against there.
+    """
+    raw = json.loads(
+        world_scene_travel.REGISTRY_PATH.read_text(encoding="ascii"))
+    raw["destinations"] = [
+        row for row in raw["destinations"] if row["n_id"] != scene_id
+    ]
+    path = work / f"registry_scene_{scene_id}_absent.json"
+    path.write_text(
+        json.dumps(raw, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
+    return world_scene_travel.load_scene_registry(path), path
 
 
 class RegistrationTests(unittest.TestCase):
@@ -360,15 +389,28 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
         # Every scene this lane registers a composer for, asked with that
         # scene's own door shut.  If any of these returns a result, the
         # admission check has stopped being a check.
+        #
+        # SCENE 126 IS ASKED DIFFERENTLY, AND NOT MORE WEAKLY.  Its door is
+        # ALREADY shut on the repository's own file, so "shut the door" is
+        # not a change of state for it at all -- the arm that admits it is
+        # the GM lane's sanctioned single-use predicate, and the honest
+        # version of this property for that scene is "with NEITHER arm
+        # saying yes, nothing composes".  A registry with no row for it at
+        # all is exactly that state: the first arm cannot find the row and
+        # the second answers BLOCKER_NO_REGISTRY_ROW.
         for scene_id in lane_a.scenes_this_lane_composes_for():
             with self.subTest(scene=scene_id):
-                shut, _ = _registry_with_door_shut(
-                    Path(self._work.name), scene_id)
+                if scene_id == ATLANTIS:
+                    refusing, _ = _registry_without_scene(
+                        Path(self._work.name), scene_id)
+                else:
+                    refusing, _ = _registry_with_door_shut(
+                        Path(self._work.name), scene_id)
                 self.assertIsNone(lane_a._compose_for_scene(scene_id)(
                     legacy=self.legacy,
                     anchor=self.anchor,
                     scene_id=scene_id,
-                    scene_entry_registry=shut,
+                    scene_entry_registry=refusing,
                 ))
 
     def test_the_registered_composer_object_declines_too(self):
@@ -1733,6 +1775,196 @@ class DeepSeaTempleFloor2RegistrationTests(unittest.TestCase):
             for line in result.console_lines:
                 with self.subTest(line=line[:40]):
                     line.encode("ascii")
+
+
+class TheSecondAdmissionArmTests(unittest.TestCase):
+    """Scene 126: what admits it, what it cannot do, and how it fails.
+
+    THE PROPERTY THIS CLASS EXISTS FOR.  Round `4uztfj` added a second
+    admission arm to a file whose whole reason for existing is the first
+    one, so the arm is driven from four directions rather than asserted:
+    it admits exactly the scene the GM lane's own predicate admits, it
+    admits it for the RIGHT reason (the registry pin is still false), it
+    admits NO other scene, and it fails closed when the predicate it asks
+    cannot answer.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(ATLANTIS))
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+
+    def test_the_registry_pin_for_this_scene_is_still_shut(self):
+        # The round's own claim, read off the repository's file: this round
+        # did NOT flip the door COO-DECISION 20260829_1444 pinned shut.
+        self.assertFalse(lane_a.scene_is_open_to_players(ATLANTIS))
+
+    def test_the_gm_arm_admits_this_scene_and_the_pair_does_too(self):
+        self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
+
+    def test_the_gm_arm_admits_no_other_scene_this_lane_touches(self):
+        # Every other scene this lane composes for, plus the two sea scenes
+        # whose doors are shut and which NOTHING sanctions.
+        others = [
+            scene_id for scene_id in lane_a.scenes_this_lane_composes_for()
+            if scene_id != ATLANTIS
+        ] + [17, 278, 997]
+        for scene_id in others:
+            with self.subTest(scene=scene_id):
+                self.assertFalse(
+                    lane_a.scene_is_sanctioned_for_a_gm_entry(scene_id))
+
+    def test_the_arm_answers_the_gm_lanes_own_predicate_not_a_copy(self):
+        # If the GM lane ever stops admitting this scene, this arm stops
+        # too -- driven by making that predicate say no rather than by
+        # reading its source.
+        from pirateforce_foundation.gm import login_scene_admission
+        original = login_scene_admission.single_use_entry_is_admissible
+        login_scene_admission.single_use_entry_is_admissible = (
+            lambda *a, **k: False)
+        try:
+            self.assertFalse(
+                lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+            self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS))
+        finally:
+            login_scene_admission.single_use_entry_is_admissible = original
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS))
+
+    def test_this_lane_finds_out_if_the_gm_lane_retires_the_sanction(self):
+        """pf-adversary D8, round `4uztfj`: this arm is a RUNTIME COUPLING
+        to another lane's table.  If LANE-GM ever drops 126 from
+        ``SANCTIONED_BARRED_SCENES`` -- for any reason other than the door
+        opening -- this scene's census goes dark and the only signal in
+        production is a ``..._declined`` latch nobody is watching.  So the
+        dependency is pinned HERE, in this lane's own suite, where it goes
+        red on the commit that removes it rather than on the boot that
+        needed it."""
+        from pirateforce_foundation.gm import login_scene_admission
+        self.assertIn(
+            ATLANTIS, login_scene_admission.SANCTIONED_BARRED_SCENES,
+            "the GM lane no longer sanctions scene 126: either its door "
+            "opened (then this lane's first admission arm covers it and "
+            "this test should be deleted) or the census just went dark",
+        )
+
+    def test_the_arm_fails_closed_when_the_predicate_raises(self):
+        from pirateforce_foundation.gm import login_scene_admission
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("registry on fire")
+
+        original = login_scene_admission.single_use_entry_is_admissible
+        login_scene_admission.single_use_entry_is_admissible = boom
+        try:
+            self.assertFalse(
+                lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+        finally:
+            login_scene_admission.single_use_entry_is_admissible = original
+
+    def test_the_arm_cannot_admit_a_scene_with_no_row(self):
+        absent, _ = _registry_without_scene(Path(self._work.name), ATLANTIS)
+        self.assertFalse(
+            lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS, absent))
+        self.assertFalse(lane_a.scene_may_be_populated(ATLANTIS, absent))
+
+    def test_the_ordinary_login_path_still_refuses_this_scene(self):
+        """The sentence the round file and the PR body both make: this arm
+        opens no door.  ``resolve_entry(..., via_login=True)`` is the
+        ordinary login, and it must still refuse scene 126 with the pin
+        this round did not touch.
+
+        WIDENED ROUND ``l6at2v`` to be condition 1 of ``COO-DECISION
+        20260902_2145`` exactly as that letter words it: the refusal and
+        the census arm's ``True`` are asserted IN THE SAME TEST, on the
+        same process state, against a session that holds no GM grant.
+        Split across two tests -- which is how round ``4uztfj`` left it --
+        the pair proves each half separately and nothing about the pair,
+        and the pair is the whole claim: the arm may answer yes while the
+        door stays shut.  The reason is read off the module's own
+        constant rather than retyped, so renaming the token moves this
+        test with it instead of leaving it green on a string nothing
+        raises any more.
+        """
+        # No grant is staged anywhere in this test: this is the ordinary
+        # login path, and the arm below is answering about a scene it
+        # cannot put anybody into.
+        self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+
+        emitted = []
+        with self.assertRaises(world_scene_entry.SceneEntryRefused) as raised:
+            world_scene_entry.resolve_entry(
+                Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
+                emit=emitted.append,
+                via_login=True,
+            )
+        self.assertIn(
+            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+            str(raised.exception),
+        )
+        # And the refusal is silent on the wire: a census line for this
+        # scene reaching a client that was never admitted is the failure
+        # this condition exists to make impossible.
+        self.assertEqual(
+            [], [line for line in emitted if str(ATLANTIS) in str(line)
+                 and "CENSUS" in str(line).upper()],
+        )
+        # The arm still says yes AFTER the refusal, so the refusal is the
+        # door doing its job rather than the arm having quietly flipped.
+        self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+
+
+class AtlantisRegistrationTests(unittest.TestCase):
+    """The ocean panel's census, composed through the registered composer."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls.anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(ATLANTIS))
+
+    def test_the_scene_is_registered_in_both_tables(self):
+        self.assertEqual(
+            world_scene_travel.CENSUS_SOURCES[ATLANTIS], "bg3001_roster")
+        self.assertIn("bg3001_roster", lane_a._CONSOLE_LINES_OF)
+        self.assertIn(ATLANTIS, lane_a.scenes_this_lane_composes_for())
+        composer = lane_hooks.scene_census_composer(ATLANTIS)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.module, lane_a.__name__)
+
+    def test_the_real_registry_composes_the_whole_ocean_panel(self):
+        result = lane_hooks.scene_census_composer(ATLANTIS).compose(
+            legacy=self.legacy,
+            anchor=self.anchor,
+            scene_id=ATLANTIS,
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_count, ATLANTIS_ROSTER_COUNT)
+        self.assertTrue(
+            result.console_lines[0].startswith("WORLD_POP_HANDOFF scene=126 "),
+            result.console_lines[0])
+        self.assertTrue(
+            any(line.startswith("WORLD_CENSUS_BG3001 ")
+                for line in result.console_lines))
+        unshipped = [
+            line for line in result.console_lines
+            if line.startswith("BG3001_UNSHIPPED ")
+        ]
+        self.assertEqual(
+            len(unshipped), len(world_population_bg3001.unresolved_lines()))
+        self.assertEqual(len(unshipped), 2)
+        for line in result.console_lines:
+            with self.subTest(line=line[:40]):
+                line.encode("ascii")
+
+    def test_the_census_arms_membership_because_a_responder_answers(self):
+        result = lane_hooks.scene_census_composer(ATLANTIS).compose(
+            legacy=self.legacy, anchor=self.anchor, scene_id=ATLANTIS,
+        )
+        self.assertIsNotNone(result.membership)
 
 
 if __name__ == "__main__":

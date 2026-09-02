@@ -41,7 +41,7 @@ SCENE_SEQUENCE = 0
 # list.  bg0001/bg0002 are deliberately absent -- see those tests.
 WIRED_SCENES = (
     "bg0003", "bg0004", "bg0005", "bg0006", "bg0007", "bg0008",
-    "bg0009", "bg0010", "bg0011", "bg0015", "bg4001",
+    "bg0009", "bg0010", "bg0011", "bg0015", "bg3001", "bg4001",
 )
 
 # bg0001 and bg0002 are wired too but are not in the loop above: bg0002's
@@ -77,6 +77,12 @@ CENSUS_SOURCE_COMPOSERS = {
     "bg0010_roster": "world_population_bg0010",
     "bg0011_roster": "world_population_bg0011",
     "bg0015_roster": "world_population_bg0015",
+    # ADDED round 4uztfj (LANE-A): scene 126, the ocean panel.  Its level
+    # column is mined the same way every island's is (MOBS.n_LEVEL_MIN ->
+    # STANDARD_MOB), so it belongs in the map above rather than in
+    # CENSUS_SOURCES_WITHOUT_A_MINED_LEVEL below -- its levels really do
+    # vary (1, 5, 60, 110, 120), which the cross-scene loop asserts.
+    "bg3001_roster": "world_population_bg3001",
     "bg4001_roster": "world_population_bg4001",
 }
 

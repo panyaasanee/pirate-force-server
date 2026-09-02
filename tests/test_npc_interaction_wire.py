@@ -364,6 +364,12 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         "runtime.py": {"quest"},
         "world_port_royal_identity.py": {"shop"},
         "trade_session_membership.py": {"trade"},
+        # ADDED round 4uztfj (LANE-A): scene 126's crosswalk table holds
+        # three rows whose MINED MOBS_TIP NAME is "Merchant marine Trade
+        # Ship".  It is mined data in a name column, not a promise of trade
+        # behaviour, and the test below proves that for every hit in the
+        # file rather than taking this comment's word for it.
+        "world_bg3001_identity.py": {"trade"},
     }
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
@@ -415,6 +421,33 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             if hits:
                 offenders[path.name] = sorted(hits)
         self.assertEqual(offenders, {})
+
+    def test_the_ocean_panels_trade_hits_are_all_mined_npc_name_data(self):
+        """The premise of the newest exemption above, checked not argued.
+
+        Every line of world_bg3001_identity.py containing "trade" must be a
+        row of that scene's crosswalk table with the word inside its QUOTED
+        NAME field - the mined ``MOBS_TIP.s_NAME`` of three placements.  If
+        the word ever appears in code, in a function name, or in a docstring
+        promising behaviour, this goes red and the exemption is re-argued.
+        """
+        path = (
+            ROOT / "src/pirateforce_foundation/world_bg3001_identity.py"
+        )
+        hits = [
+            line for line in path.read_text(encoding="utf-8").splitlines()
+            if re.search(r"\btrade\b", line.lower())
+        ]
+        self.assertTrue(hits)
+        for line in hits:
+            with self.subTest(line=line.strip()[:60]):
+                quoted = re.findall(r"'([^']*)'", line)
+                self.assertTrue(
+                    any("trade" in field.lower() for field in quoted),
+                    "the word is outside every quoted data field",
+                )
+                without_data = re.sub(r"'[^']*'", "''", line)
+                self.assertNotRegex(without_data.lower(), r"\btrade\b")
 
     def test_store5_open_packet_is_a_harness_with_no_product_list(self):
         pc, _ = self.v.make_trade_zoom_store5()
