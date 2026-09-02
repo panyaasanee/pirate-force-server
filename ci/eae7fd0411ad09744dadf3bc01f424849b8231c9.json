@@ -1,1 +1,1 @@
-{"sha":"eae7fd0411ad09744dadf3bc01f424849b8231c9","conclusion":"failure","event":"push","ref":"refs/heads/claude/relaxed-planck-gop8qq","run_id":"33669327538","utc":"2026-09-02T19:01:29Z"}
+{"sha":"eae7fd0411ad09744dadf3bc01f424849b8231c9","conclusion":"failure","event":"pull_request","ref":"refs/pull/614/merge","run_id":"33669366788","utc":"2026-09-02T19:07:00Z"}
