@@ -114,6 +114,25 @@ _RT_MANIFEST = 24
 _MANIFEST_ID_EXE = 1
 _MANIFEST_ID_DLL = 2
 
+# Which rules THIS revision of the module actually enforces, printed on every
+# report so a caller can refuse an answer from an older copy of this file.
+#
+# WHY A CALLER WOULD NEED THAT (pf-adversary, round `b8xrod`, H2):
+# `patches/gm_plugin/install.bat` revision 3 decides whether to copy a DLL
+# into the owner's client folder from this module's console output, and it
+# finds the module by LOOKING FOR A FOLDER -- `%PF_SERVER_REPO%\\src`, then two
+# guessed sibling checkouts. Any checkout older than round `selrsl` prints
+# `verdict=image_ok` AND exits 0 for a manifest embedded at resource id 1
+# (see `test_a_manifest_at_the_exe_id_is_not_a_manifest_for_a_dll`, which says
+# so in its own docstring), so the two tokens the batch reads cannot tell a
+# module that enforces the id-2 rule from one that does not. This line can:
+# an old checkout does not print it at all, and the batch refuses to proceed
+# on an answer it cannot attribute.
+#
+# APPEND-ONLY, and never rename an entry: a reader older than a new rule must
+# still find the rule names it knows.
+CONSOLE_RULES = ("pe32_dll", "export_exact", "manifest_id2")
+
 _DIRECTORY_EXPORT = 0
 _DIRECTORY_IMPORT = 1
 _DIRECTORY_RESOURCE = 2
@@ -840,9 +859,30 @@ def same_bytes(left: PluginImageReport, right: PluginImageReport) -> bool:
     return left.sha256 == right.sha256
 
 
+def _console_safe(line: str) -> str:
+    """Escape anything a cp874 console cannot encode.
+
+    !! THIS IS A FALSE-GREEN FIX, not tidiness (pf-adversary, round `b8xrod`,
+    M1).  `path=` is the ONLY field on these lines carrying text this module
+    did not author, it sits on the VERDICT LINE ITSELF, and `install.bat`
+    redirects this output to a file -- which on a Thai Windows makes
+    `sys.stdout` a cp874 stream.  One character outside cp874 in the path (an
+    accented folder name, a pasted en dash) made `print()` raise
+    UnicodeEncodeError on the FIRST line, leaving the batch with a file that
+    holds a traceback and no verdict token at all -- which is exactly the
+    branch that WARNS AND COPIES.  A DLL could not reach that branch through
+    its bytes (50,000 fuzzed images, zero escapes); it reached it through its
+    own path.  Escaping here closes it for every caller instead of asking each
+    one to remember.
+    """
+    return line.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def console_lines(report: PluginImageReport, label: str) -> list[str]:
     """Grep-able console output, one token per line, cp874-safe ASCII."""
     lines = [
+        "GM_PLUGIN_IMAGE %s rules=%s" % (label, ",".join(CONSOLE_RULES)),
+
         "GM_PLUGIN_IMAGE %s verdict=%s path=%s" % (label, report.verdict, report.path)
     ]
     if report.sha256:
@@ -885,9 +925,11 @@ def console_lines(report: PluginImageReport, label: str) -> list[str]:
     if report.ok:
         lines.append(
             "GM_PLUGIN_IMAGE %s nonclaim=file-level only; this says nothing "
-            "about whether the GM window opens" % label
+            "about whether the GM window opens, and nothing about whether the "
+            "manifest at id 2 CONTAINS a usable assembly reference -- an "
+            "empty or wrong-version manifest still answers 14001" % label
         )
-    return lines
+    return [_console_safe(line) for line in lines]
 
 
 def main(argv: list[str] | None = None) -> int:
