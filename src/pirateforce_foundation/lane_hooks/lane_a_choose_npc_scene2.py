@@ -233,9 +233,9 @@ from typing import Any
 from .. import field_mobs
 from .. import lane_a_click_hp
 from .. import lane_hooks
-from .lane_a_ground_preserve import compose_answer
 from .. import scene2_prison_exile_tables as tables
 from .. import world_census_level
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
 # WHY THIS IS True.  Nothing about this flag opens a door that was shut:
@@ -620,7 +620,7 @@ def respond(
             entries.append(legacy.make_remote_actor_entry(
                 _NPC_STYLE_ACTOR_TYPE, placement.actor_identity, attrs,
             ))
-                # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
         # call-site half COO-DECISION 20260902_1946 approved).  Same
         # bytes as ``legacy.make_runtime_remote_actors`` whenever no
         # row is standing in THIS scene, which includes every boot
