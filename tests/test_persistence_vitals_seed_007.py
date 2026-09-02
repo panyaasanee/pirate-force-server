@@ -885,6 +885,75 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
                 store.read_typed_attributes(first.id),
                 store.read_typed_attributes(second.id))
 
+    def _retried_birth(self, first_vitals):
+        """Create ONE character, level it up, then create it AGAIN with the
+        SAME fingerprint -- the retransmitted-create-packet path.
+
+        *** THE SECOND DOOR INTO THE SAME ROOM.  `_second_birth` above closed
+        the door where creating character N+1 damages character N, and its
+        docstring names the damage exactly: "a veteran at `level 9, hp
+        480/500` came out of the NEXT character's creation at `1, 100/100`".
+        `SQLiteStore.create_character` has a SECOND way to reach an existing
+        character -- the `create_fingerprint` retry branch, which returns the
+        character that already exists instead of making a second one, and
+        which exists for a retransmitted create packet from a lagging or
+        reconnecting client.  Nothing in this file looked at it.
+
+        Measured, on `main` at `064d9e37`, with a plug that is correct in
+        every way `_second_birth` checks (right values, right function, right
+        `WHERE id`) and that ALSO seeds on the retry branch:
+
+            veteran before duplicate create: level 9, hp 480/500
+            veteran AFTER  duplicate create: level 1, hp 100/100
+
+        `pytest` over this lane's four files: **230 passed, 0 failed**.  A
+        real player's character silently reset to a newborn by a repeated
+        packet, and the whole lane green.  Found by a `pf-adversary` pass on
+        LANE-DB round `5w9ly0`.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("retried-birth")
+        home = Position(3, 0, 1.0, 2.0, 3.0, heading=0.0)
+        first = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        store.write_typed_attributes(first.id, dict(first_vitals))
+        before = store.read_typed_attributes(first.id)
+        again = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        return store, first, again, before, store.read_typed_attributes(first.id)
+
+    def test_a_repeated_create_returns_the_same_row_and_changes_nothing(self):
+        """The retry door, closed.
+
+        Two assertions, and both are needed: that the repeat did not make a
+        second character -- the store's existing promise, without which the
+        second half would be vacuous -- and that it did not rewrite the
+        vitals of the character it returned.  The count is taken by raw SQL
+        rather than through the store, so the reader being graded is not the
+        reader supplying the evidence.
+        """
+        veteran = {"level": 9, "hp_current": 480, "hp_max": 500}
+        _store, first, again, before, after = self._retried_birth(veteran)
+        self.assertEqual(again.id, first.id)
+        with raw_rows(self.path) as db:
+            live = db.execute(
+                "SELECT COUNT(*) FROM characters WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+        self.assertEqual(live, 1)
+        for column, value in veteran.items():
+            self.assertEqual(before.get(column), value, column)
+            self.assertEqual(
+                after.get(column), value,
+                "a repeated create with the same fingerprint rewrote %s of an "
+                "EXISTING character from %r to %r.  The retry branch of "
+                "create_character returns a character that already exists; it "
+                "must not seed it as if it were being born."
+                % (column, value, after.get(column)),
+            )
+
     def test_creating_a_character_does_not_touch_any_other_row(self):
         """The veteran-reset defect, as the test that fails on it.
 

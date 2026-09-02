@@ -328,15 +328,29 @@ CLIENT_CONSTRUCTION_DEFAULTS: dict[int, ClientConstructionDefault] = {
 # column is renamed -- goes red rather than turning into a false reason in a
 # letter.  `persistence_typed_attrs` is the runtime side of the same list.
 # x=7 (walk speed) is the first one this lane was ordered to build
-# (COO-ORDER 20260901_1101); its seed at character creation is the client's own
-# proven 400.0 above -- a value with provenance, not a server invention -- and
-# that seed is NOT written yet.  It no longer waits on the snapshot mechanism
-# (`app.py:784`/`:787` call `SQLiteStore.migrate_with_backup`; CORE-REQUEST-DB
-# -001 is answered on main).  It waits on the NUMBER: `COO-DECISION
-# 20260901_1447` point 2 forbids seeding this column with 400.0 or with the
-# 150.0 proven on the wire for NPCs until an RE says which a player uses.
-# A built column is therefore NOT a supplied value: with nothing seeded, every
-# one of these fields still gaps, now as `server_owned_value_not_supplied`.
+# (COO-ORDER 20260901_1101).  Its wait for a NUMBER is over: `COO-DECISION
+# 20260901_1447` point 2 forbade seeding this column while 400.0 and the
+# 150.0 proven on the wire for NPCs were two candidates, `RE-194` closed that
+# by decoding the client's constructor chain (the store at `0x00464AF2` cited
+# in the table above is unconditional, and 150.0 is a later wire write), and
+# `COO-DECISION 20260902_0742` lifted the ban and approved
+# `migrations/008_character_speed_walk_seed.sql`.  So the EXISTING rows this
+# lane seeds now carry the client's own proven 400.0.
+# Two limits stay, and both are the decision's own words rather than caution:
+# 008 seeds a cohort and not a database -- a character born afterwards still
+# has NULL here, because `COO-DECISION 20260902_0443` answered the birth
+# question for the three vital columns only.  That asymmetry is not an
+# oversight waiting to be tidied: this lane reported it and offered to close
+# it at birth, and `COO-DECISION 20260902_1043` chose to LEAVE IT, on the
+# reasoning that nothing reads the column to send it yet, so the difference is
+# not one a player can see -- and ruled that the birth-side function opens by
+# itself the day a letter orders the column SENT.  Until such a letter exists,
+# a round that seeds this column at creation is undoing a decision, not
+# finishing a job.  The second limit: point 4 of `0742` forbids
+# any code reading this column off a row onto the wire on the strength of the
+# migration; sending a speed is GM-B's decision (`COO-DECISION 20260902_0345`).
+# A built column is still NOT a supplied value for the other twenty: with
+# nothing seeded there, they gap as `server_owned_value_not_supplied`.
 _SERVER_OWNED_ROWS = (
     (1, "name", True, False),
     (7, "speed_walk", True, True),
