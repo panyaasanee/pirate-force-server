@@ -39,23 +39,44 @@ WHAT THIS FILE DOES NOT CLAIM
    ON A DEFAULT BOOT.  The twelve-character length comes from `GT-006`/
    `GT-009`, where what rendered was the client's OWN echoed text behind a
    scenario flag -- and with the logout dialog closed, which is not the
-   state this module fires in.  `GT-205` is the entry that decides it, and
-   a negative there is a finding about the dialog and about this channel,
-   not proof the composer is wrong.
+   state this module fires in.  `GT-205` is the entry that decides it for
+   UI-A and `GT-211` (opened round `1d6rta`) for UI-B -- named separately
+   because `GT-205` was amended in that same round to say the exit line is
+   NOT its evidence, so citing it alone would point a reader at a ticket
+   that disclaims the question (pf-adversary D8).  A negative in either is
+   a finding about the dialog and about this channel, not proof the
+   composer is wrong.
 3. ~~It does NOT send bytes for the UI-B ("exit game", subcode 1) button.
    That path has a live ticket of its own (`GT-194`) whose bytes must not
    change under it, so subcode 1 gets `None` -- pinned by a test.  It DOES
    print one console line for that click, which is itself evidence a
    reader of `GT-194`'s log will see; "nothing" would be the wrong word.~~
    SUPERSEDED, round `1d6rta`, by COO-DECISION `20260902_1145` (`NOW.md`
-   queue item UI-B: "LANE-A starts next round, same pattern as UI-A").
-   Subcode 1 now composes `EXIT REFUSED` on a DEFAULT boot only.  Why
-   `GT-194`'s evidence still cannot move: that ticket needs
+   queue item UI-B, quoted whole because the second half is a constraint
+   on how this round was allowed to work: "LANE-A starts next round, same
+   pattern as UI-A - THE FIRST DELIVERABLE IS EVIDENCE OF WHAT FRAME THE
+   BUTTON SENDS, NOT CODE".  The evidence half is
+   `pf_bridge/FINDINGS_A_1d6rta_UI_B_LOGOUT_BUTTON_FRAME_EVIDENCE.md`, and
+   it was measured before this file was touched.)
+
+   Subcode 1 now composes `EXIT REFUSED` on any boot that has NOT loaded a
+   LOGOUT scenario.  STATED THAT WAY BECAUSE THE WIDER VERSION WAS FALSE
+   (pf-adversary D4, MEASURED): an earlier draft of this comment said
+   "on a DEFAULT boot only", but `runtime.py`'s guard reads
+   `logout_hypothesis_scenario is not None`, and there are around
+   twenty-eight other scenario keywords on `make_state_class`.  A boot
+   carrying, say, the chat-echo scenario DOES compose this notice.  That
+   is the real behaviour, it is pinned by a test, and any ticket that
+   boots a non-logout scenario and clicks this button will see the frame.
+
+   Why `GT-194`'s evidence still cannot move: that ticket needs
    `_dispatch_logout_hypothesis` to answer, which only happens with a
    logout scenario loaded, and `runtime.py`'s call site composes NOTHING
    and prints `LANE_A_UIA_NOTICE_NOT_THIS_BOOT` whenever
    `logout_hypothesis_scenario is not None`.  The two tickets are on
-   disjoint boots by construction, and a wiring test pins that branch.
+   disjoint boots THROUGH THAT ONE FLAG -- not through session state,
+   which this branch never consults -- and a wiring test drives the UI-B
+   frame down that branch to pin it.
 
 4. It sends nothing and closes nothing.  It composes bytes and hands them
    back, the same posture as `gm/say_wire.py` and `gm/warp_executor.py`.
@@ -77,10 +98,10 @@ THE SECOND BUTTON (UI-B, "exit game", subcode 1)
 Same measurement, same silence: on the owner's flagless capture
 (`gt192_20260901_184254`, frame `[G< #1402]`) the client sent a real
 119-byte subcode-1 frame -- the button carries three other vitals with it,
-two `0x1EB4` and one `0x2A90`, which is why it is 119 bytes and not 34 --
-and the server said nothing back.  What this file delivers is the same
-twelve-character receipt UI-A got, so the click stops being
-indistinguishable from a broken mouse.
+two `COnLandVital` (`0x1EB4`) and one `TargetPosVital` (`0x2A90`), which is
+why it is 119 bytes and not 34 -- and the server said nothing back.  What
+this file delivers is the same twelve-character receipt UI-A got, so the
+click stops being indistinguishable from a broken mouse.
 
 The two buttons are told apart by SUBCODE, which is in the request itself
 (`RE-197` closed the pre-click discriminator: the 268-byte frame that
@@ -93,13 +114,30 @@ NO NEW WIRING
 sends whatever notice comes back, for ANY button, because round `od1xso`
 wrote the call site around the return value rather than around UI-A.  So
 this round ships a player-visible change with no chief-owned line to wait
-for.  One cosmetic mismatch is left behind and is reported rather than
-edited around: the action label and event name at that call site read
+for.
+
+ONE MISMATCH IS LEFT BEHIND, AND IT IS NOT COSMETIC.  The action label and
+event name at that call site read
 `LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE` /
-`lane_a_uia_back_refused_notice_composed`, which now also carry the
-`EXIT REFUSED` frame.  The BYTES are correct either way (the label is not
-on the wire); the names are chief's to rename, and this round's PR body
-carries the one-line request.
+`lane_a_uia_back_refused_notice_composed`, and they now carry the
+`EXIT REFUSED` frame too.  ~~An earlier draft of this paragraph called that
+cosmetic because "the label is not on the wire".~~  MEASURED, pf-adversary
+D1: the label is not on the wire, but it IS in the evidence.  The frozen
+sender writes it into all three artifacts an attended ticket keeps and
+shas (`current/pf_login_game_server_v141.py:7755-7776`): the console line
+`[G>] <label> (N bytes; ...)`, the live log `SENT label=<label> ...`, and
+the exported events file.  Both sentences are twelve characters, so both
+receipts are `pc=56 frame=66` -- which makes the two clicks' `SENT` lines
+BYTE-IDENTICAL in `GAME_LIVE.txt`.  The one place the capture tells them
+apart is this module's own `LANE_A_UIA_NOTICE_COMPOSED ... button=...`
+print, which is why `GT-211` grades on that line and says so.
+
+The names are chief's to rename (`runtime.py` is his file); the request is
+in this round's PR body and in
+`pf_bridge/notes_to_chief/20260902_1341_LANE-A-TO-CHIEF-*`, upgraded there
+from "cosmetic, whenever" to "the capture layer of `GT-211` reads better
+with it".  It blocks nothing: the bytes the player receives are correct
+either way, and the console line already disambiguates.
 
 ONE ENTRY POINT, ON PURPOSE
 ---------------------------
@@ -243,7 +281,7 @@ UIA_NOTICE_TEXT = "BACK REFUSED"
 # player may not leave.  It means this server cannot yet PERFORM the exit
 # (`GT-033` measured both response shapes this project owns leaving the
 # real client on the same map for 50-77 s, three attended rounds), so it
-# answers instead of dropping the click.  Nonclaim 8 states it again.
+# answers instead of dropping the click.  Nonclaim 5 states it again.
 UIB_NOTICE_TEXT = "EXIT REFUSED"
 
 BUTTON_CHARACTER_SELECT = "BACK_TO_CHARSELECT"
@@ -253,6 +291,13 @@ BUTTON_EXIT_GAME = "EXIT_GAME"
 # that is NOT in this table composes nothing and stands down -- fail-closed
 # is the default for a shape nobody has measured, not an answer invented on
 # the spot.
+#
+# TODAY BOTH KNOWN BUTTONS ARE HERE, so the stand-down branch is
+# unreachable from any frame (pf-adversary D5, and `observe_parsed`'s
+# docstring says it in full).  This table is therefore the thing the
+# stand-down guards: the failure it prevents is a row removed or a button
+# added without a sentence, silently falling back to the OTHER button's
+# twelve characters and putting the wrong word on the owner's screen.
 NOTICE_TEXT_BY_BUTTON = {
     BUTTON_CHARACTER_SELECT: UIA_NOTICE_TEXT,
     BUTTON_EXIT_GAME: UIB_NOTICE_TEXT,
@@ -453,12 +498,25 @@ def observe_parsed(
                                       sentence, so UI-A and UI-B are told
                                       apart on the SAME token rather than
                                       by two tokens.
-    * `LANE_A_UIA_STOOD_DOWN`      -- a LogoutVital this lane recognises but
-                                      has no sentence for.  No subcode maps
-                                      here today (round `1d6rta` gave UI-B
-                                      its own text); it is the fail-closed
-                                      landing for a third button, and a test
-                                      pins that it still lands there.
+    * `LANE_A_UIA_STOOD_DOWN`      -- a button this lane recognises but has
+                                      no sentence for.  STATED EXACTLY,
+                                      because the softer version was wrong
+                                      (pf-adversary D5): NO INPUT CAN REACH
+                                      THIS LINE TODAY.  `classify_parsed`
+                                      can only ever return one of the two
+                                      known buttons, and both are in the
+                                      text table, so a THIRD button would
+                                      land on `UNCLASSIFIED`, not here.
+                                      What this branch really guards is the
+                                      table itself -- a row deleted or a
+                                      button added without a sentence -- and
+                                      the one test that reaches it does so
+                                      by removing a row on purpose.  It is
+                                      the fail-closed default, and it is the
+                                      single test standing between this
+                                      module and a silent fallback to UI-A's
+                                      sentence; it is not a path a player
+                                      can walk.
     * `LANE_A_UIA_WITHDRAWN`       -- a known button, but this module is
                                       switched off.
     * `LANE_A_UIA_NOTICE_FAILED`   -- a known button, and the composer

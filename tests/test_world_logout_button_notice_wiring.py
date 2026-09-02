@@ -1,4 +1,10 @@
-"""LANE-A's UI-A receipt on the REAL dispatcher, not on the module alone.
+"""LANE-A's button receipts on the REAL dispatcher, not on the module alone.
+
+Round `1d6rta` widened this file from one button to two: the UI-B ("exit
+game") click now composes `EXIT REFUSED` through the same call site, and
+the tests that keep `GT-194` measurable -- the two that drive each frame
+down the logout-scenario branch -- live here.  The paragraphs below are the
+UI-A half as round `od1xso` wrote them.
 
 CORE-REQUEST (LANE-A, ``pf_bridge/notes_to_chief/20260902_0905_LANE-A-CORE-
 REQUEST-one-call-site-for-the-uia-button-notice.md``).  The owner's "back to
@@ -44,6 +50,9 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.chat_input_hypothesis import (  # noqa: E402
+    load_chat_input_hypothesis_scenario,
+)
 from pirateforce_foundation.logout_hypothesis import (  # noqa: E402
     load_logout_hypothesis_scenario,
 )
@@ -327,6 +336,17 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # UI-A: a `return` at the composition site would hand back only the
         # receipt and drop the frame's own inherited replies, with every
         # other assertion in this file still green.
+        #
+        # WHAT IT COVERS AND WHAT IT DOES NOT, stated because the first
+        # version of this comment overclaimed (pf-adversary D6, MEASURED):
+        # the three companion actions exist here only because this click is
+        # the SESSION'S FIRST runtime request, so it carries the handshake.
+        # On the owner's real click -- and in the state `GT-194` demands,
+        # after walking or fighting -- the list is exactly `[notice]`, and
+        # in THAT state this assertion cannot tell the mutant apart.  The
+        # coverage is real but it is first-request coverage; nothing here
+        # proves the second click keeps its inherited replies, because on
+        # the second click there are none to keep.
         _state, actions, _out = self._click("uib_last", UIB_REQUEST_FRAME)
         self.assertEqual(actions[-1][0], NOTICE_ACTION_LABEL)
         self.assertGreater(
@@ -336,6 +356,83 @@ class UiaNoticeWiringTests(unittest.TestCase):
         self.assertEqual(
             [a[0] for a in actions].count(NOTICE_ACTION_LABEL), 1,
         )
+
+    def test_a_repeated_click_still_answers_and_answers_only_once(self):
+        # The state the owner and `GT-194` are actually in: the click is
+        # NOT the session's first runtime request.  Measured here rather
+        # than assumed (pf-adversary D6): the handshake companions are
+        # gone, the receipt is still composed, and there is exactly one of
+        # it per click -- this lane does not batch, dedupe or rate-limit,
+        # and a player who clicks a still-dead button ten times gets ten
+        # 66-byte frames.  That is stated as the shipped behaviour, not
+        # defended as a good one; the fix, if it is ever wanted, belongs at
+        # the call site in chief's file, not here.
+        state = self._logged_in_state("uib_repeat")
+        seen = []
+        for _ in range(3):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                actions = state.dispatch(
+                    self.legacy.parse_outer(UIB_REQUEST_FRAME)
+                )
+            seen.append([a[0] for a in actions])
+            self.assertEqual(len(self._notice_actions(actions)), 1, actions)
+            self.assertIn(notice.TOKEN_NOTICE_COMPOSED, buffer.getvalue())
+        # The later clicks carry nothing but the receipt, which is exactly
+        # why the assertion in the test above is first-request-only.
+        self.assertEqual(seen[1], [NOTICE_ACTION_LABEL], seen)
+        self.assertEqual(seen[2], [NOTICE_ACTION_LABEL], seen)
+
+    def test_a_non_logout_scenario_boot_still_composes_the_receipt(self):
+        # MEASURED, and it contradicts the sentence this lane first wrote
+        # (pf-adversary D4): the call site's guard names the LOGOUT
+        # scenario, not "any scenario", so a boot carrying one of the other
+        # scenario keywords composes this notice like a flagless boot does.
+        # Pinned so the next reader learns it from a test instead of from a
+        # surprised tester: `GT-211` asks for a flagless boot, but a ticket
+        # that boots some OTHER scenario and clicks this button WILL see
+        # the frame, and that is not a defect, it is the shape.
+        # A real boot with a real non-logout scenario object, not a source
+        # read: the chat-echo scenario is the cheapest one to load, and any
+        # of the other twenty-seven keywords would behave the same.
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            chat_input_hypothesis_scenario=(
+                load_chat_input_hypothesis_scenario(
+                    ROOT / "scenarios" / "chat_input_hypothesis_echo.json"
+                )
+            ),
+        )
+        state = state_type("uib_nonlogout")
+        legacy = self.legacy
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_client_login_pc("uib_nonlogout")
+            ))
+            state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+            character = self.store.list_characters(
+                state.foundation.account_id
+            )[-1]
+            state.dispatch(legacy.parse_outer(
+                legacy._synthetic_start_game_pc(character.selector)
+            ))
+            buffer.truncate(0)
+            buffer.seek(0)
+            actions = state.dispatch(legacy.parse_outer(UIB_REQUEST_FRAME))
+        out = buffer.getvalue()
+        self.assertEqual(len(self._notice_actions(actions)), 1, actions)
+        self.assertIn(notice.TOKEN_NOTICE_COMPOSED, out)
+        self.assertIn("button=EXIT_GAME", out)
+        self.assertNotIn("LANE_A_UIA_NOTICE_NOT_THIS_BOOT", out)
+        # And the guard really is the logout one, so this behaviour follows
+        # from the branch rather than from this fixture's luck.
+        code = (ROOT / "src/pirateforce_foundation/runtime.py").read_text(
+            encoding="utf-8"
+        )
+        head = code[:code.index("world_logout_button_notice.observe_parsed")]
+        guard = head[head.rindex("elif ("):]
+        self.assertIn("logout_hypothesis_scenario is not None", guard)
 
     def test_the_two_buttons_reach_the_wire_with_different_bytes(self):
         # End to end, through the real dispatch, not through the composer:
