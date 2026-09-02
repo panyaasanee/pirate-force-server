@@ -1286,45 +1286,32 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             _store, _character_id, stored = self._newborn("mechanism")
 
         if not any(column in stored for column in SEEDED):
-            # The plug is not in yet and the database is below 009; there is
-            # no birth write to trace.
+            # The plug is not in and the database is below 009; there is no
+            # birth write to trace.
             return
-        held = {column: stored[column] for column in SEEDED}
-        if held == sentinel:
-            # The numbers came from the call.  This is chief's insertion point
-            # (`COO-DECISION 20260902_0443` point 1) and it is what the patch
-            # above exists to detect.
-            return
-
-        # THE SECOND APPROVED SOURCE, and why this test is no longer a single
-        # equality.  Point 2 of `0443` ruled out a schema DEFAULT; the owner
-        # overruled that herself and `COO-DECISION 20260902_1607` had this
-        # lane install `migrations/009_character_birth_defaults.sql`.  So a
-        # newborn whose numbers are NOT the sentinel is correct exactly when
-        # they are the schema's own defaults, read here from the same database
-        # the row came out of rather than typed in.  What stays refused is the
-        # third source both decisions still forbid: an inline literal or a
-        # trigger, which shows up as numbers that are neither.
-        db = sqlite3.connect(str(self.path))
-        try:
-            defaults = {
-                str(row[1]): row[4]
-                for row in db.execute(
-                    "SELECT * FROM pragma_table_info('characters')")
-                if str(row[1]) in SEEDED}
-        finally:
-            db.close()
         self.assertEqual(
-            held, {column: int(value) for column, value in defaults.items()
-                   if value is not None},
-            "a newborn holds birth vitals that are neither the ones "
-            "new_character_vitals() returned while it was being created nor "
-            "the schema defaults of migrations/009 -- so the numbers came "
-            "from a third source (an inline literal or a trigger), which "
-            "COO-DECISION 20260902_0443 point 2 and COO-DECISION "
-            "20260902_1607 both still rule out.  Measured at runtime, not "
-            "read off source.",
+            {column: stored[column] for column in SEEDED}, sentinel,
+            "a newborn holds birth vitals, but NOT the ones "
+            "new_character_vitals() returned while it was being created -- so "
+            "the numbers came from somewhere else (an inline literal, a schema "
+            "DEFAULT, or a trigger).  COO-DECISION 20260902_0443 points 1 and "
+            "2 rule out all three.  Measured at runtime, not read off source.",
         )
+
+    # WHY THIS IS STILL ONE EQUALITY AFTER `migrations/009`.  An earlier draft
+    # of this round widened it into a two-branch acceptance -- sentinel OR the
+    # schema defaults -- on the reasoning that `COO-DECISION 20260902_1607`
+    # made a DEFAULT a legitimate second source.  A `pf-adversary` pass
+    # measured what that cost: it patched `create_character` to write the
+    # literals `1, 100, 100` -- the exact third source both decisions forbid --
+    # and the widened test PASSED while its own docstring above still said
+    # "a literal returns 1/100/100 and is red here".  The widening was
+    # unnecessary as well as wrong: chief's insertion point landed on `main`
+    # in the same hour (commit `b9e11059`), so `create_character` NAMES the
+    # three columns and their values really do come from the call.  The
+    # DEFAULT for those three is a backstop no creation path reaches, and the
+    # one column 009 alone supplies -- `speed_walk` -- is not in `SEEDED` and
+    # is graded next door in `test_persistence_birth_defaults_009.py`.
 
     def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
         """The seventeen columns with no adjudicated value hold nothing.
