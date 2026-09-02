@@ -1139,7 +1139,22 @@ class SpeedUndoTests(_Case):
             [(1, {chat_command_action.SPEED_TYPED_COLUMN: 100.0})],
         )
 
-    def test_a_first_ever_speed_reports_not_reverted_rather_than_lying(self):
+    def test_a_store_with_no_prior_value_reports_not_reverted_rather_than_lying(
+        self,
+    ):
+        """Was `test_a_first_ever_speed_reports_not_reverted_rather_than_lying`
+        until round `selrsl`, and the old name is now a false claim about the
+        database.  `migrations/009` is on `main` with `speed_walk DEFAULT
+        400.0`, so on a migrated file a first-ever `/speed` READS 400.0 and
+        this branch is not the one it walks (LANE-DB, `20260902_2140`).
+
+        The branch is still reached -- by a store whose read raises, by a row
+        on a file that never ran `009`, by a store that is not `SQLiteStore`
+        -- so what this test pins is the SHAPE, "nothing came back from the
+        read", not the retired cause.  `test_an_unreadable_prior_value_...`
+        below walks a source a 009 database can still produce, so the two are
+        not one test twice.
+        """
         # `write_typed_attributes` refuses `None` outright and this API has no
         # way to clear a column back to NULL, so there is nothing to put back.
         # The honest outcome is `not_reverted`, never a silent success.
@@ -1153,6 +1168,32 @@ class SpeedUndoTests(_Case):
             chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED,
             session.events,
         )
+        self.assertEqual(store.undo_writes, [])
+
+    def test_an_unreadable_prior_value_reports_not_reverted_too(self):
+        """The source of `previous is None` that `009` does NOT retire.
+
+        A read that raises is folded into `previous = None` on purpose (an
+        unreadable prior value is a refused undo, never a crash on the
+        listener thread).  Without this test the whole branch stands on the
+        empty-row shape LANE-DB just measured out of the real database, and
+        a later reader would be right to call it dead code.
+        """
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        patcher, _real = self.break_the_outcome_append()
+        with patcher, mock.patch.object(
+            type(store),
+            "read_typed_attributes",
+            side_effect=RuntimeError("the row cannot be read"),
+        ):
+            self.act(session, "/speed 777.0")
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED,
+            session.events,
+        )
+        # Nothing was put back, and nothing was invented to put back either.
         self.assertEqual(store.undo_writes, [])
 
     def test_a_successful_round_never_runs_the_undo(self):

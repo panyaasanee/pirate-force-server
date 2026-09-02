@@ -7703,3 +7703,31 @@ run.** This clone has no cmd, no VC9, no `mt.exe` and no Windows. What is claime
 ka1-A measured as missing is now in the script", not "the build is green". `P-3` therefore does NOT
 move to "waiting for Panya to tick": `COO 1948` sets that bar at *the script in the repo producing a
 loadable file by itself*, and only the owner's machine can show that.
+
+### Round `selrsl` (2026-09-02T22:2x+07:00) -- the manifest check stops accepting a manifest the loader never reads
+
+`plugin_image_check` used to answer **"an RT_MANIFEST entry exists in the root resource
+directory"**. `pf-adversary` reported in round `hj2cry` (D13) that this is not the question: a DLL's
+activation context is built from resource **id 2** (`ISOLATIONAWARE_MANIFEST_RESOURCE_ID`) and from
+nowhere else, so a manifest embedded at id 1 -- the EXE id, which is what
+`mt.exe -outputresource:GameMaster.dll;1` writes -- reported `image_ok` and still answered
+**14001** at load. That is the worst shape this module can produce: a green light on a file that
+cannot run, pointing a tester at a bug in code that never executed.
+
+Tightened under `COO-DECISION 20260902_2147` item 2. `_manifest_resource_ids` now descends the
+RT_MANIFEST type entry into its id-level subdirectory and returns the ids; `has_embedded_manifest`
+is `2 in ids`. `PeFacts.manifest_resource_ids` carries them so the two shapes say different things
+on screen -- "no manifest, rebuild with revision 5" versus "a manifest at id 1, re-embed at `;#2`"
+-- and the console line now reads `embedded_manifest=no manifest_ids=1`, which is enough to tell
+them apart from a log alone, with no file in hand.
+
+**Why this is not a new false red.** The one DLL anybody has measured LOADING on the owner's machine
+(ka1-A, attended `GT-207`, build 1) was embedded with
+`mt.exe -manifest GameMaster.dll.manifest -outputresource:GameMaster.dll;#2` -- id 2 -- and
+`build_vs2008.bat` revision 5 both embeds at `;#2` and reads back at `;#2`. Every path anyone has
+run stays green; only the hand-embed at the wrong id turns red, and it was already red at load.
+
+**NONCLAIM, unchanged and important:** this reads the resource TREE, not the manifest TEXT. An id-2
+entry whose XML names the wrong assembly version still reads as present here. Nobody has measured
+that shape, so no verdict claims it. And nothing in this module has been run against a real
+`GameMaster.dll` in this clone -- there is no Windows, no VC9 and no PE fixture here.

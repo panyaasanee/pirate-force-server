@@ -107,6 +107,12 @@ _IMAGE_FILE_DLL = 0x2000
 _PE32_MAGIC = 0x010B
 _PE32PLUS_MAGIC = 0x020B
 _RT_MANIFEST = 24
+# Under RT_MANIFEST the resource id selects who the manifest is FOR: 1 is
+# CREATEPROCESS_MANIFEST_RESOURCE_ID (an EXE), 2 is
+# ISOLATIONAWARE_MANIFEST_RESOURCE_ID -- the only one a DLL's activation
+# context is built from.
+_MANIFEST_ID_EXE = 1
+_MANIFEST_ID_DLL = 2
 
 _DIRECTORY_EXPORT = 0
 _DIRECTORY_IMPORT = 1
@@ -153,6 +159,10 @@ class PeFacts:
     forwarded_exports: tuple[str, ...]
     imports: tuple[str, ...]
     has_embedded_manifest: bool
+    # Every id filed under RT_MANIFEST. Kept beside the bool because
+    # "a manifest, at the wrong id" and "no manifest at all" need different
+    # instructions on screen, and the tester cannot see the difference.
+    manifest_resource_ids: tuple[int, ...] = ()
 
     def imports_lowercase(self) -> tuple[str, ...]:
         return tuple(name.lower() for name in self.imports)
@@ -308,7 +318,7 @@ def read_pe_facts(data: bytes) -> PeFacts:
         data, frozen_sections, directories_offset, directory_count
     )
     imports = _read_imports(data, frozen_sections, directories_offset, directory_count)
-    manifest = _has_embedded_manifest(
+    manifest_ids = _manifest_resource_ids(
         data, frozen_sections, directories_offset, directory_count
     )
 
@@ -319,7 +329,8 @@ def read_pe_facts(data: bytes) -> PeFacts:
         exports=exports,
         forwarded_exports=forwarded,
         imports=imports,
-        has_embedded_manifest=manifest,
+        has_embedded_manifest=_MANIFEST_ID_DLL in manifest_ids,
+        manifest_resource_ids=manifest_ids,
     )
 
 
@@ -431,13 +442,13 @@ def _read_imports(
     return tuple(found)
 
 
-def _has_embedded_manifest(
+def _manifest_resource_ids(
     data: bytes,
     sections: tuple[_Section, ...],
     directories_offset: int,
     directory_count: int,
-) -> bool:
-    """True when the resource directory has an RT_MANIFEST (type 24) entry.
+) -> tuple[int, ...]:
+    """Every resource id filed under RT_MANIFEST (type 24), in file order.
 
     A /MD VC9 build binds to the MSVCR90 side-by-side assembly, and without
     the manifest the loader answers LoadLibraryW with 14001 and the plug-in
@@ -453,39 +464,73 @@ def _has_embedded_manifest(
     that script made before that round, which is why the check exists at all
     and why it stays.
 
-    !! IT ANSWERS "AN RT_MANIFEST EXISTS", NOT "THE ONE THE LOADER READS"
-    (pf-adversary, round `hj2cry`, D13).  Any resource id satisfies this,
-    while a DLL's activation context comes from id **2** -- so a manifest
-    embedded at id 1 (the EXE id, an easy slip when someone hand-runs
-    `mt.exe -outputresource:GameMaster.dll;1`) reports `image_ok` here and
-    still answers 14001 at load.  Reported rather than tightened in that
-    round: this function's verdict vocabulary is read by an attended ticket,
-    and narrowing a verdict is a change that needs its own round and its own
-    letter.  `build_vs2008.bat` embeds at `;#2` and re-reads at `;#2`, so the
-    scripted path is not exposed to the gap; a hand-embed is.
+    ~~"IT ANSWERS 'AN RT_MANIFEST EXISTS', NOT 'THE ONE THE LOADER READS'"~~
+    -- STRUCK as of round `selrsl`: this function now returns the ids, and
+    `_verdict_for` requires id 2.  The gap pf-adversary reported in round
+    `hj2cry` (D13) was real: a manifest hand-embedded at id 1 -- the EXE id,
+    an easy slip when someone runs `mt.exe -outputresource:GameMaster.dll;1`
+    -- used to report `image_ok` here and still answer 14001 at load, because
+    a DLL's activation context comes from id 2
+    (ISOLATIONAWARE_MANIFEST_RESOURCE_ID) and from nowhere else.  Tightened
+    under COO-DECISION `20260902_2147` item 2.  `build_vs2008.bat` embeds at
+    `;#2` and re-reads at `;#2`, so the scripted path never depended on the
+    loose reading; a hand-embed did.
+
+    !! THIS READS THE RESOURCE TREE, NOT THE MANIFEST TEXT.  An id-2 entry
+    whose XML names the wrong assembly version still reads as present here.
+    No round has measured that shape, so no verdict claims it.
     """
     rva, _size = _directory(
         data, directories_offset, directory_count, _DIRECTORY_RESOURCE
     )
     if rva == 0:
-        return False
+        return ()
     root = _rva_to_offset(sections, rva)
-    _need(data, root, 16)
-    named = _u16(data, root + 12)
-    by_id = _u16(data, root + 14)
+    for name_field, offset_field in _resource_entries(data, root, root):
+        if name_field & 0x80000000 or name_field != _RT_MANIFEST:
+            # High bit set = a string name; RT_MANIFEST is an integer id.
+            continue
+        if not offset_field & 0x80000000:
+            # A type entry that points straight at data has no id level at
+            # all: mt.exe cannot produce it, and the loader has nothing to
+            # match id 2 against, so it counts as no usable manifest.
+            continue
+        subdir = root + (offset_field & 0x7FFFFFFF)
+        return tuple(
+            name
+            for name, _child in _resource_entries(data, subdir, root)
+            if not name & 0x80000000
+        )
+    return ()
+
+
+def _resource_entries(
+    data: bytes, table: int, root: int
+) -> tuple[tuple[int, int], ...]:
+    """(Name, OffsetToData) of one IMAGE_RESOURCE_DIRECTORY's entries.
+
+    `root` is only used to bound the table: every offset inside the resource
+    section is relative to it, so a table that starts before it is malformed
+    rather than merely empty.
+    """
+    if table < root:
+        raise PluginImageError(
+            VERDICT_NOT_PE, "resource subdirectory points before the root"
+        )
+    _need(data, table, 16)
+    named = _u16(data, table + 12)
+    by_id = _u16(data, table + 14)
     total = named + by_id
     if total > 4096:
         raise PluginImageError(
             VERDICT_NOT_PE, "resource directory claims %d entries" % total
         )
+    entries = []
     for index in range(total):
-        entry = root + 16 + index * 8
+        entry = table + 16 + index * 8
         _need(data, entry, 8)
-        name_field = _u32(data, entry)
-        # High bit set = a string name; RT_MANIFEST is an integer id.
-        if not name_field & 0x80000000 and name_field == _RT_MANIFEST:
-            return True
-    return False
+        entries.append((_u32(data, entry), _u32(data, entry + 4)))
+    return tuple(entries)
 
 
 def _decorated_spellings(exports: tuple[str, ...]) -> tuple[str, ...]:
@@ -598,14 +643,35 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
 
     lowered = pe.imports_lowercase()
     if ADVISORY_IMPORT_CRT in lowered and not pe.has_embedded_manifest:
-        # A side-by-side CRT binding with no manifest: the loader refuses the
-        # module (14001) and nothing this plug-in does ever runs.
-        problems.append(
-            "imports %s but carries no embedded RT_MANIFEST -- the "
-            "side-by-side loader answers LoadLibraryW with 14001 and the "
-            "plug-in never runs (build_vs2008.bat does not call mt.exe, and "
-            "install.bat copies only the .dll)" % ADVISORY_IMPORT_CRT
-        )
+        # A side-by-side CRT binding with no manifest the loader will read:
+        # it refuses the module (14001) and nothing this plug-in does ever
+        # runs. Same verdict either way -- the DLL does not load -- but the
+        # two shapes need different next steps, so they say different things.
+        if pe.manifest_resource_ids:
+            problems.append(
+                "imports %s and carries an RT_MANIFEST at resource id %s, but "
+                "a DLL's activation context is built from id %d alone -- the "
+                "side-by-side loader answers LoadLibraryW with 14001 exactly "
+                "as if there were no manifest. Re-embed with "
+                "`mt.exe -manifest GameMaster.dll.manifest "
+                "-outputresource:GameMaster.dll;#%d` (note the ;#%d, not ;#%d)"
+                % (
+                    ADVISORY_IMPORT_CRT,
+                    ", ".join(str(one) for one in pe.manifest_resource_ids),
+                    _MANIFEST_ID_DLL,
+                    _MANIFEST_ID_DLL,
+                    _MANIFEST_ID_DLL,
+                    _MANIFEST_ID_EXE,
+                )
+            )
+        else:
+            problems.append(
+                "imports %s but carries no embedded RT_MANIFEST -- the "
+                "side-by-side loader answers LoadLibraryW with 14001 and the "
+                "plug-in never runs. Rebuild with build_vs2008.bat revision 5 "
+                "or later, which calls mt.exe and embeds at ;#%d"
+                % (ADVISORY_IMPORT_CRT, _MANIFEST_ID_DLL)
+            )
         first = first or VERDICT_MANIFEST_MISSING
     if ADVISORY_IMPORT_CRT not in lowered:
         advisories.append(
@@ -740,8 +806,13 @@ def console_lines(report: PluginImageReport, label: str) -> list[str]:
             % (label, ",".join(report.pe.imports) or "<none>")
         )
         lines.append(
-            "GM_PLUGIN_IMAGE %s embedded_manifest=%s"
-            % (label, "yes" if report.pe.has_embedded_manifest else "no")
+            "GM_PLUGIN_IMAGE %s embedded_manifest=%s manifest_ids=%s"
+            % (
+                label,
+                "yes" if report.pe.has_embedded_manifest else "no",
+                ",".join(str(one) for one in report.pe.manifest_resource_ids)
+                or "none",
+            )
         )
     lines.append("GM_PLUGIN_IMAGE %s detail=%s" % (label, report.detail))
     # Every blocking problem, not just the first: one attended session cannot

@@ -58,6 +58,8 @@ def _build_pe(
     pe32: bool = True,
     with_export_dir: bool = True,
     with_manifest: bool = True,
+    manifest_resource_id: int = 2,
+    manifest_subdirectory: bool = True,
     export_name_count: int | None = None,
     ordinals_rva: int | None = None,
     names_rva_zero: bool = False,
@@ -131,10 +133,26 @@ def _build_pe(
 
     resource_dir_rva = 0
     if with_manifest:
-        # Root directory: 16-byte header, then one id entry for RT_MANIFEST.
+        # Two levels, the way a real image files a manifest: the root's id
+        # entry for RT_MANIFEST points at a SUBDIRECTORY (high bit set,
+        # offset relative to the root), and that subdirectory's id entry is
+        # the manifest id the loader matches -- 2 for a DLL, 1 for an EXE.
+        # A one-level tree is not a shape mt.exe can produce, so the parser
+        # must not be handed one as if it were the normal case.
+        root_size = 16 + 8
         resource_dir_rva = place(
             struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1)
-            + struct.pack("<II", pic._RT_MANIFEST, 0)
+            + struct.pack(
+                "<II",
+                pic._RT_MANIFEST,
+                (0x80000000 | root_size) if manifest_subdirectory else 0,
+            )
+            + (
+                struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1)
+                + struct.pack("<II", manifest_resource_id, 0)
+                if manifest_subdirectory
+                else b""
+            )
         )
 
     rdata_raw = (len(body) + _FILE_ALIGN - 1) & ~(_FILE_ALIGN - 1) or _FILE_ALIGN
@@ -376,6 +394,65 @@ def test_a_sxs_build_without_a_manifest_never_loads(tmp_path: Path) -> None:
     assert report.verdict == pic.VERDICT_MANIFEST_MISSING
     assert "14001" in report.detail
     assert report.pe is not None and not report.pe.has_embedded_manifest
+
+
+def test_a_manifest_at_the_exe_id_is_not_a_manifest_for_a_dll(tmp_path: Path) -> None:
+    """The gap pf-adversary reported in `hj2cry` D13, now closed.
+
+    `mt.exe -outputresource:GameMaster.dll;1` writes a real RT_MANIFEST that
+    the loader never reads: a DLL's activation context comes from id 2 alone,
+    so the module still answers 14001. Before round `selrsl` this reported
+    `image_ok` and sent a tester to look for a bug that was not in the code.
+    """
+    image = _build_pe(manifest_resource_id=1)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None
+    assert not report.pe.has_embedded_manifest
+    assert report.pe.manifest_resource_ids == (1,)
+    # The tester gets the command that fixes it, not just the diagnosis.
+    assert "id 1" in report.detail and ";#2" in report.detail
+    # And a log alone tells the two shapes apart -- no file needed.
+    assert any(
+        "embedded_manifest=no manifest_ids=1" in line
+        for line in pic.console_lines(report, "build")
+    )
+
+
+def test_a_manifest_at_both_ids_still_loads(tmp_path: Path) -> None:
+    """Kills the "require id 2 to be the ONLY id" mutant.
+
+    Nothing stops an image from carrying both, and the loader reads id 2
+    whatever else sits beside it.
+    """
+    image = _build_pe(manifest_resource_id=2)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_IMAGE_OK
+    assert report.pe is not None and report.pe.has_embedded_manifest
+    assert report.pe.manifest_resource_ids == (2,)
+
+
+def test_a_manifest_type_entry_with_no_id_level_is_not_a_manifest(
+    tmp_path: Path,
+) -> None:
+    """Kills the "treat a leaf type entry as a manifest" mutant.
+
+    A type entry pointing straight at data has no id level for the loader to
+    match id 2 against. mt.exe cannot produce this shape; a hand-built or
+    corrupted resource section can, and reading it as a manifest would put
+    the old loose answer back through the side door.
+    """
+    image = _build_pe(manifest_subdirectory=False)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+    assert "no embedded RT_MANIFEST" in report.detail
 
 
 def test_a_static_crt_build_is_not_failed_for_the_missing_import(tmp_path: Path) -> None:

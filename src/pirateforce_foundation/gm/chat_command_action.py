@@ -3321,9 +3321,29 @@ def _speed_undo(store: object, character_id: int) -> object:
     speed_walk = 400.0 WHERE speed_walk IS NULL`, so a character holding
     NULL at that moment now has this undo restore 400.0 instead of reporting
     nothing to put back.  A character `/speed` had already written keeps what
-    it held -- the predicate skips it -- and a character created afterwards
-    still reaches this undo NULL, because `SQLiteStore.create_character`
-    does not write THIS column.
+    it held -- the predicate skips it.
+
+    ~~"and a character created afterwards still reaches this undo NULL,
+    because `SQLiteStore.create_character` does not write THIS column"~~ --
+    STRUCK in round `selrsl`.  `migrations/009_character_birth_defaults.sql`
+    is on `main` (merge `f5b3fd1`, read there this round, not quoted from a
+    letter) and rebuilds `characters` with `speed_walk` carrying
+    `DEFAULT 400.0`.  `create_character` still names three columns and not
+    this one -- that half of the old sentence is unchanged -- but the column
+    it leaves alone is no longer NULL: SQLite supplies the default.  So on
+    any database that has run `009`, A FIRST-EVER `/speed` NO LONGER REACHES
+    THE NULL BRANCH AT ALL.  LANE-DB said the same thing first, from their
+    own side, in `notes_to_chief/20260902_2140_LANE-DB-NOTICE-lane-gm-your-
+    speed-undo-null-branch-is-unreachable-after-009.md`.
+
+    THE BRANCH STAYS, and it is NOT dead code -- only its most-quoted cause
+    retired.  `previous is None` is still reached by: a store with no
+    `read_typed_attributes` at all; a read that RAISES (caught right below
+    and folded into `previous = None`); a row on a database that never ran
+    `009`, which is every pre-migration file the owner still has on disk; and
+    a store that is not `SQLiteStore`.  What must not happen is a reader
+    deleting the branch on the strength of "009 makes it unreachable": 009
+    makes ONE of its four sources unreachable.
 
     ~~"because `SQLiteStore.create_character` writes no typed column at all
     today"~~ -- STRUCK, and the correction is COO-DECISION `20260902_1948`
