@@ -1375,7 +1375,7 @@ def _install_bat() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-INSTALL_BAT_TESTS = 3
+INSTALL_BAT_TESTS = 4
 """How many tests in this file skip together when pf_bridge is not beside us."""
 
 
@@ -1574,11 +1574,86 @@ class InstallBatContractTests(unittest.TestCase):
         jumps unconditionally, so deleting the `exit /b 1` alone drops control
         into `:pfgm_stale_tool`, which goes straight to `:do_copy`.  That is
         the mutation the string test could not see either.
+
+        REVISION 4 NARROWS THIS, IT DOES NOT DROP IT.  `COO-DECISION
+        20260903_0148` §7 asks the batch to honour `PFGM_FORCE=1` and copy
+        anyway, so "no route at all" is no longer the property -- the property
+        is that EVERY route from the refusal to the copy is conditional on
+        that variable.  An unconditional `goto`, a fall-through, or a jump
+        guarded by anything else still fails here, which is the whole content
+        of "not fail-open": the owner has to type the variable.
         """
         text = _install_bat_text()
         assert "\n:pfgm_refuse\n" in text
-        assert "exit /b 1" in _batch_blocks(text)["pfgm_refuse"]
-        assert "do_copy" not in _labels_reachable_from(text, "pfgm_refuse")
+        block = _batch_blocks(text)["pfgm_refuse"]
+        assert "exit /b 1" in block
+
+        escapes = []
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.upper().startswith(("REM ", "ECHO ", "::")):
+                continue
+            at = stripped.lower().find("goto ")
+            if at == -1:
+                continue
+            target = stripped[at + len("goto "):].split()[0].lstrip(":")
+            if target.lower() != "do_copy" and "do_copy" not in (
+                _labels_reachable_from(text, target.lower())
+            ):
+                continue
+            # Reaching the copy from a refusal is allowed on exactly one
+            # condition, and the line itself has to carry it.
+            assert "PFGM_FORCE" in stripped, stripped
+            assert '=="1"' in stripped.replace(" ", ""), stripped
+            escapes.append(target.lower())
+
+        assert len(escapes) == 1, escapes
+        forced = _batch_blocks(text)[escapes[0]]
+        # A forced install that does not say what was refused is the fail-open
+        # this whole branch was allowed in order to avoid.
+        assert "[FORCED]" in forced
+        assert "%PFGM_VERDICT%" in forced
+        assert "%PFGM_RULES%" in forced
+
+    def test_install_bat_forces_only_the_checker_and_reads_the_real_tokens(
+        self,
+    ) -> None:
+        """The other three things `PFGM_FORCE=1` must not become.
+
+        1. It must name the REAL verdict and the REAL failing rules, which
+           means reading the tokens this module prints rather than a literal
+           re-typed into the batch.  A forced install whose evidence line says
+           `rules=` and nothing after it is a forced install nobody can report.
+        2. It must not reach the `[STOP]` guard on an existing GameMaster.dll.
+           That guard is about destroying the original plug-in, which no
+           environment variable may override.
+        3. Its fallback for an older checker must be a sentence, not an empty
+           value -- and must carry no `<` or `>`, because `echo %VAR%` with an
+           angle bracket in the value REDIRECTS the one line the owner was
+           asked to report.
+        """
+        image = _write(self.tmp_path, _build_pe(manifest_resource_ids=(1,)))
+        lines = pic.console_lines(pic.inspect_plugin_file(image), "build")
+        rules_line = next(line for line in lines if " failed_rules=" in line)
+        assert rules_line == "GM_PLUGIN_IMAGE build failed_rules=manifest_id2"
+
+        text = _install_bat_text()
+        assert 'findstr /c:"GM_PLUGIN_IMAGE build failed_rules="' in text
+        # `failed_rules=manifest_id2` -> `rules=manifest_id2`, derived, so the
+        # printed token cannot drift from the token that was read.
+        assert 'set "PFGM_RULES=%PFGM_RULES:failed_=%"' in text
+
+        stop = text.index("[STOP] A GameMaster.dll ALREADY EXISTS")
+        assert "PFGM_FORCE" not in text[stop:text.index("exit /b 1", stop)]
+
+        for line in text.splitlines():
+            if 'set "PFGM_RULES=rules=' not in line:
+                continue
+            assert "<" not in line and ">" not in line, line
+            assert not line.rstrip().endswith('set "PFGM_RULES=rules="'), line
+            break
+        else:  # pragma: no cover - the fallback is the point of the branch
+            raise AssertionError("no PFGM_RULES fallback for an old checker")
 
 
 # --- what the census tests upstream cannot answer --------------------------

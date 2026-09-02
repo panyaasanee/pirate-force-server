@@ -7750,8 +7750,50 @@ name filters, all three bounds, the id-2 test, the leaf-entry rule, the named-id
 halves of the loud-root/quiet-child split) were applied by hand and every one of them turns a test
 red.
 
-**What still is not wired, said plainly:** no script RUNS this module. `build_vs2008.bat` only
+~~**What still is not wired, said plainly:** no script RUNS this module. `build_vs2008.bat` only
 echoes its command line, and the gates that actually block a build or an install are
 `findstr /c:".rsrc"` -- which, in those scripts' own words, proves an image has A resource
 directory, not a manifest at id 2. So the tightening is real for `GT-207`'s step 0, which a human
-runs by hand, and not yet for the pipeline. Asked in the same letter.
+runs by hand, and not yet for the pipeline. Asked in the same letter.~~ -- **struck in round
+`p7q74c`, not deleted: it stopped being true in `pf_bridge#909`** (round `b8xrod`), where
+`install.bat` revision 3 started RUNNING this module and refusing on its verdict. It is still true
+of `build_vs2008.bat`, which echoes the command line and gates on `.rsrc`.
+
+### Round `p7q74c` (2026-09-03T03:3x+07:00) -- a refusal that can be reported instead of only obeyed
+
+`COO-DECISION 20260903_0148` item 7 revises the same COO's `20260902_2342`: the id-2 rule keeps
+blocking, but `install.bat` must take `PFGM_FORCE=1` and install anyway, printing the real verdict.
+The reason is written into the batch: **this rule has never read a real DLL.** The one DLL this
+project has watched load -- build 1 of `GT-207`, whose GM window opened on screen at 18:54 -- has
+never been past this checker. A rule that refuses that file at two in the morning with no way past
+blocks `P-3` by our own hand, and no lane can help until the next round.
+
+**Why it is not fail-open, in the four properties a test now grades:**
+
+- the variable has no default anywhere in either repository, and only the literal `1` counts, so the
+  owner has to type it;
+- it is reachable from the checker's refusal and from nothing else -- not the `[STOP]` guard about
+  an existing `GameMaster.dll` (that one is about destroying the artifact this project has failed to
+  obtain since 27 Aug, and stays unforceable), not the `.rsrc` `[FAIL]`, not any warn-and-copy
+  branch;
+- it prints `[FORCED] verdict=<real> rules=<the rules that failed>` in capitals, keeps the full
+  report on disk, and repeats the line under the `[OK]`, because the `[OK]` and the SHA256 are what
+  a person screenshots;
+- `tests/test_gm_plugin_image_check.py` walks the batch as a block graph and requires EVERY edge
+  from `:pfgm_refuse` that can reach `:do_copy` to carry `PFGM_FORCE` and `=="1"` -- an
+  unconditional `goto`, a deleted `exit /b 1` that falls through, a jump guarded by some other
+  variable, or a second escape edge each turn it red. The previous version of that test forbade one
+  spelling of one jump; pf-adversary named that gap in round `kv2vjk` (D5) before this feature
+  existed, and this is the shape it asked for.
+
+The two tokens are read from the checker, never re-typed into the batch: `console_lines()` now
+prints `GM_PLUGIN_IMAGE <label> failed_rules=<list>` directly under the verdict, listing EVERY rule
+of `CONSOLE_RULES` the image breaks rather than only the one the verdict names (an image can break
+two), `none` when the file passed, and `none_evaluated` for `missing` / `no_such_dir` /
+`unreadable`, where no byte was read and naming a rule would claim a test that never ran. A checker
+older than this round prints no such line; the batch says so in words instead of printing an empty
+`rules=`.
+
+**NONCLAIM.** Nothing here has been run on Windows, `PFGM_FORCE` has never been set by anyone, and
+no DLL has been forced. `P-3` does not move. What is claimed is that the escape exists, is scoped,
+and cannot be exercised silently.

@@ -153,6 +153,44 @@ VERDICT_EXPORT_MISSING = "export_missing"
 VERDICT_MANIFEST_MISSING = "manifest_missing"
 VERDICT_IMAGE_OK = "image_ok"
 
+# Which entry of CONSOLE_RULES each verdict says NO to.
+#
+# WHY THIS EXISTS AND WHY IT IS NOT DERIVED FROM `problems` TEXT: the
+# PFGM_FORCE escape in `patches/gm_plugin/install.bat` (COO-DECISION
+# `20260903_0148` item 7) copies a DLL this module REFUSED, and the only thing
+# it leaves behind is one printed line naming the verdict and the failing
+# rule. The `problems` strings are written for a person and get reworded every
+# time a failure mode is explained better; a batch file grepping them would go
+# quiet the first time one changed, and a forced install with nothing after
+# `rules=` is a forced install nobody can report.
+#
+# THE THREE FILE-LEVEL VERDICTS ARE ABSENT ON PURPOSE. `missing`,
+# `no_such_dir` and `unreadable` mean no byte was read, so no rule was
+# evaluated -- printing `failed_rules=pe32_dll` there would name a rule this
+# module never got to test.
+_RULES_BY_VERDICT = {
+    VERDICT_NOT_PE: ("pe32_dll",),
+    VERDICT_WRONG_MACHINE: ("pe32_dll",),
+    VERDICT_NOT_A_DLL: ("pe32_dll",),
+    VERDICT_NO_EXPORTS: ("export_exact",),
+    VERDICT_EXPORT_DECORATED: ("export_exact",),
+    VERDICT_EXPORT_FORWARDED: ("export_exact",),
+    VERDICT_EXPORT_MISSING: ("export_exact",),
+    VERDICT_MANIFEST_MISSING: ("manifest_id2",),
+}
+
+# Printed instead of an empty list, because `failed_rules=` with nothing after
+# it reads as a truncated line rather than as an answer. The two words are
+# different answers and must not be collapsed: `none` means every rule ran and
+# passed; `none_evaluated` means no rule ran at all.
+RULES_NONE = "none"
+RULES_NOT_EVALUATED = "none_evaluated"
+
+
+def rules_for_verdict(verdict: str) -> tuple[str, ...]:
+    """The CONSOLE_RULES entries a verdict refuses on. Empty when none ran."""
+    return _RULES_BY_VERDICT.get(verdict, ())
+
 
 class PluginImageError(Exception):
     """The bytes are not a PE32 image this module can read.
@@ -210,6 +248,11 @@ class PluginImageReport:
     pe: PeFacts | None = None
     advisories: tuple[str, ...] = field(default_factory=tuple)
     problems: tuple[str, ...] = field(default_factory=tuple)
+    # EVERY rule this file breaks, in CONSOLE_RULES order -- not just the one
+    # the verdict names. A forced install (install.bat, PFGM_FORCE=1) reports
+    # this line and nothing else, so a second broken rule that only showed up
+    # in `also_problem=` would be a second attended round.
+    failed_rules: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def ok(self) -> bool:
@@ -663,10 +706,15 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
             size_bytes=len(data),
             sha256=digest,
             problems=(error.detail,),
+            failed_rules=rules_for_verdict(error.verdict),
         )
 
     problems: list[str] = []
     advisories: list[str] = []
+    # Parallel to `problems`, one rule name per blocking finding. Collected as
+    # the branches run rather than mapped from the verdict afterwards: the
+    # verdict is only the FIRST failure, and a file can break two rules.
+    broken: list[str] = []
 
     if pe.machine != _IMAGE_FILE_MACHINE_I386 or not pe.is_pe32:
         problems.append(
@@ -674,23 +722,27 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
             "load this" % (pe.machine, "PE32" if pe.is_pe32 else "PE32+")
         )
         first = VERDICT_WRONG_MACHINE
+        broken.append("pe32_dll")
     else:
         first = ""
     if not pe.is_dll:
         problems.append("IMAGE_FILE_DLL is not set in the COFF characteristics")
         first = first or VERDICT_NOT_A_DLL
+        broken.append("pe32_dll")
     if not pe.exports:
         problems.append(
             "the export directory names nothing -- GetProcAddress by name "
             "cannot succeed"
         )
         first = first or VERDICT_NO_EXPORTS
+        broken.append("export_exact")
     elif REQUIRED_EXPORT in pe.forwarded_exports:
         problems.append(
             "%s is a forwarder, not code in this image -- GetProcAddress "
             "returns NULL unless the forward target resolves" % REQUIRED_EXPORT
         )
         first = first or VERDICT_EXPORT_FORWARDED
+        broken.append("export_exact")
     elif REQUIRED_EXPORT not in pe.exports:
         decorated = _decorated_spellings(pe.exports)
         if decorated:
@@ -701,12 +753,14 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
                 % (", ".join(decorated), REQUIRED_EXPORT)
             )
             first = first or VERDICT_EXPORT_DECORATED
+            broken.append("export_exact")
         else:
             problems.append(
                 "no export named %s (exports: %s)"
                 % (REQUIRED_EXPORT, ", ".join(pe.exports) or "<none>")
             )
             first = first or VERDICT_EXPORT_MISSING
+            broken.append("export_exact")
 
     lowered = pe.imports_lowercase()
     if ADVISORY_IMPORT_CRT in lowered and not pe.has_embedded_manifest:
@@ -751,6 +805,7 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
                 % (ADVISORY_IMPORT_CRT, _MANIFEST_ID_DLL)
             )
         first = first or VERDICT_MANIFEST_MISSING
+        broken.append("manifest_id2")
     if ADVISORY_IMPORT_CRT not in lowered:
         advisories.append(
             "does not import %s: not a /MD VC9 build. Revision 2 allocates "
@@ -783,6 +838,13 @@ def inspect_plugin_file(path: str | Path) -> PluginImageReport:
         pe=pe,
         advisories=tuple(advisories),
         problems=tuple(problems),
+        # De-duplicated in CONSOLE_RULES order, not in discovery order: this
+        # line is compared between runs and between machines, and a rule pair
+        # that swapped places because a branch moved would read as a change in
+        # the file.
+        failed_rules=tuple(
+            rule for rule in CONSOLE_RULES if rule in set(broken)
+        ),
     )
 
 
@@ -883,7 +945,16 @@ def console_lines(report: PluginImageReport, label: str) -> list[str]:
     lines = [
         "GM_PLUGIN_IMAGE %s rules=%s" % (label, ",".join(CONSOLE_RULES)),
 
-        "GM_PLUGIN_IMAGE %s verdict=%s path=%s" % (label, report.verdict, report.path)
+        "GM_PLUGIN_IMAGE %s verdict=%s path=%s" % (label, report.verdict, report.path),
+
+        # Directly under the verdict, because the caller that reads it reads
+        # both or neither: install.bat's forced install prints the pair.
+        "GM_PLUGIN_IMAGE %s failed_rules=%s"
+        % (
+            label,
+            ",".join(report.failed_rules)
+            or (RULES_NONE if report.ok else RULES_NOT_EVALUATED),
+        ),
     ]
     if report.sha256:
         lines.append(
