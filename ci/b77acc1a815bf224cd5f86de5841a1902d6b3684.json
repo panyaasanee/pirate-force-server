@@ -1,1 +1,1 @@
-{"sha":"b77acc1a815bf224cd5f86de5841a1902d6b3684","conclusion":"success","event":"push","ref":"refs/heads/claude/elegant-goodall-8x4rv5","run_id":"33605346462","utc":"2026-09-02T08:01:10Z"}
+{"sha":"b77acc1a815bf224cd5f86de5841a1902d6b3684","conclusion":"failure","event":"pull_request","ref":"refs/pull/578/merge","run_id":"33605386033","utc":"2026-09-02T08:03:39Z"}
