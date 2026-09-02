@@ -12,7 +12,7 @@ What it cannot prove, and does not: that a client draws any of it - and on
 this scene that gap is wider than on the islands, because four of the
 shipped bodies are ``INVISIBLE`` weather markers and four more are
 ``MAP_ISLAND_01``, neither of which anyone has watched a client render as
-an actor.  ``GT-216`` is where that is settled.
+an actor.  ``GT-217`` is where that is settled.
 """
 from __future__ import annotations
 

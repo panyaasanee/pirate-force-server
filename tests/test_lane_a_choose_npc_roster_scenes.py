@@ -1091,7 +1091,7 @@ class TheCountsThisRoundClaimsTests(unittest.TestCase):
         )
 
     def test_the_ocean_panel_holds_the_number_round_4uztfj_reports(self):
-        """36 of 38, the number this round's PR body and ``GT-216`` quote."""
+        """36 of 38, the number this round's PR body and ``GT-217`` quote."""
         identity = responder_mod._IDENTITY_OF_SCENE[126]
         self.assertEqual(len(identity.shippable_placements()), 36)
         self.assertEqual(identity.PLACEMENT_COUNT, 38)
