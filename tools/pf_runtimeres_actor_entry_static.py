@@ -978,15 +978,20 @@ guard("make_remote_actor_entry" in _v141,
 # bg0011 before it -- also wired and door-opened in the same round it was
 # built.  UNLIKE bg0011, this is NOT an elevated-risk row.  With this
 # scene, every one of the ten doors round 12lyda surveyed is open.
-guard(SRC_ACTOR_ENTRY_SITES == 28,
-      "src/ builds actor entries at exactly 28 call sites (4 spawns + the "
+# ROUND 4uztfj (lane A): 28 -> 29.  world_population_bg3001.py, the
+# Bg3001 (Atlantis) census, is the FIRST scene outside the ten doors that
+# sequence covered -- an n_SCENE_TYPE 8 ocean panel whose cast is ships and
+# islands.  Same shape as every sibling: one entry builder, one carrier.
+# Its registry door is NOT opened by that round.
+guard(SRC_ACTOR_ENTRY_SITES == 29,
+      "src/ builds actor entries at exactly 29 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002, bg0015, bg0004, "
       "bg0010, bg0005, bg0006, bg0008, bg0003, bg0007, bg0009, bg0011 and "
-      "bg4001 censuses + the jqxe6v Bg0015 hostile-splice proof's civilian "
-      "entry)")
+      "bg4001 and bg3001 censuses + the jqxe6v Bg0015 hostile-splice "
+      "proof's civilian entry)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
@@ -996,9 +1001,14 @@ guard(SRC_ACTOR_ENTRY_SITES == 28,
 # same stream composer and no new actor ENTRY builder.  The wrapper in
 # mob_combat delegates to that function rather than calling the composer a
 # second time, which is why this is +1 and not +2.
-guard(SRC_ACTOR_STREAM_SITES == 38,
-      "src/ sends the actor-entry carrier at exactly 38 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 27
+# ROUND 4uztfj (lane A): 38 -> 39, the Bg3001 (Atlantis) census's own
+# carrier.  BOTH rounds moved this number in the same window and the merge
+# is additive, not a choice between them: lane B's +1 and lane A's +1 are
+# two different call sites, re-counted from src/ after the merge rather
+# than either side's number being kept.
+guard(SRC_ACTOR_STREAM_SITES == 39,
+      "src/ sends the actor-entry carrier at exactly 39 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 28
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
           "field_mobs.py",
@@ -1021,6 +1031,7 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 27
           "world_population_bg0010.py",
           "world_population_bg0011.py",
           "world_population_bg0015.py",
+          "world_population_bg3001.py",
           "world_population_bg4001.py"),
       "27 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))

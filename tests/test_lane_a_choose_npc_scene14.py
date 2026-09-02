@@ -57,6 +57,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mob_hostile_bg0015  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
@@ -878,6 +879,250 @@ class TheGuardAnsweredTheClickInsteadOfCrashingTests(unittest.TestCase):
             "scene_choose_npc_responder_failed_RuntimeError", state.events,
         )
         self.assertIsInstance(later, list)
+
+
+class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
+    """``COO-DECISION 20260902_1945``: both production responders move in
+    ONE commit.
+
+    Until round `4uztfj` this responder swallowed ``mob_combat_ledger`` in
+    ``**_ignored`` and composed every hostile body at ``max_hp``, while
+    scene 2's responder read the same keyword -- so the day the call site
+    started passing it, two production scenes would have answered
+    differently on the same input (chief's letter ``20260902_1918`` item
+    4.2, measured).  These drive the rule, not the wiring: the call site
+    still passes nothing today.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.hostile = {
+            mob.placement_index: mob
+            for mob in field_mob_hostile_bg0015.scene14_hostile_roster()
+        }
+        cls.placements = responder_mod._placements_by_index()
+        cls.population_indices = tuple(sorted(cls.placements))
+        cls.dead_index = sorted(cls.hostile)[0]
+        cls.civilian_index = next(
+            idx for idx in cls.population_indices if idx not in cls.hostile
+        )
+
+    def _ledger(self, identity, current_hp):
+        """A REAL, scene-tagged ledger -- not a duck type.
+
+        pf-adversary D4 (round `4uztfj`) is why: the responders now admit a
+        ledger for their own scene through ``mob_ledger_admission`` before
+        reading it, because scenes 2 and 14 share identity ``0x2058`` and a
+        stale ledger from the other scene dropped a live click.  A stand-in
+        object is refused by that admission, so a test that used one would
+        assert the ledger-less path while claiming to test the ledger one.
+        """
+        # THIS SCENE'S OWN ROSTER SOURCE, measured: ``field_mobs`` names
+        # no scene 14 at all, so its roster helper answers an EMPTY tuple
+        # and a ledger opened from it holds no row for these identities.
+        roster = tuple(
+            field_mob_hostile_bg0015.scene14_hostile_roster())
+        ledger = mob_combat.open_ledger(roster)
+        self.assertEqual(ledger.scene, responder_mod.SCENE_FOLDER)
+        row = ledger.balance_of(identity)
+        return ledger.with_balance(
+            mob_combat.MobBalance(identity, row.max_hp, current_hp))
+
+    def _click(self, index, ledger):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            answer = responder_mod.respond(
+                legacy=self.legacy,
+                chosen_identities=(0x2000 + index + 1,),
+                population_indices=self.population_indices,
+                last_target_pos=(0.0, 0.0, 0.0, 0.0),
+                mob_combat_ledger=ledger,
+            )
+        return answer, err.getvalue()
+
+    def test_no_ledger_still_sends_every_hostile_body_at_its_ceiling(self):
+        answer, _err = self._click(self.civilian_index, None)
+        self.assertIsNotNone(answer)
+        self.assertIn("hp=ceiling", answer.console_lines[0])
+        self.assertIn("wounded=0", answer.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", answer.console_lines[0])
+
+    def test_a_wounded_monster_keeps_its_wound_and_is_counted(self):
+        mob = self.hostile[self.dead_index]
+        wounded_hp = max(1, mob.max_hp - 1)
+        answer, _err = self._click(
+            self.civilian_index,
+            self._ledger(mob.actor_identity, wounded_hp))
+        self.assertIsNotNone(answer)
+        self.assertIn("wounded=1", answer.console_lines[0])
+        self.assertIn(
+            field_mobs.hostile_npc_attr(
+                self.legacy, mob, current_hp=wounded_hp,
+                scene_id=14, scene_sequence=0,
+            ),
+            answer.frame,
+        )
+
+    def test_a_kill_elsewhere_does_not_silence_a_click_on_a_civilian(self):
+        mob = self.hostile[self.dead_index]
+        answer, err = self._click(
+            self.civilian_index, self._ledger(mob.actor_identity, 0))
+        self.assertIsNotNone(
+            answer, "a dead monster silenced a click on someone else")
+        self.assertIn("dead_at_ceiling=1", answer.console_lines[0])
+        self.assertIn("_DEAD_BODY_AT_CEILING placement=", err)
+
+    def test_clicking_the_dead_body_is_refused_by_its_own_placement(self):
+        mob = self.hostile[self.dead_index]
+        answer, err = self._click(
+            self.dead_index, self._ledger(mob.actor_identity, 0))
+        self.assertIsNone(answer)
+        self.assertIn(
+            "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_mob_"
+            f"death_body placement={self.dead_index} identity=0x", err)
+
+    def test_a_packet_naming_a_corpse_AND_a_civilian_is_still_answered(self):
+        """The multi-identity packet, driven here too (pf-adversary D1):
+        turning this responder's per-identity ``continue`` into a ``return``
+        left the whole lane suite green before this test existed."""
+        mob = self.hostile[self.dead_index]
+        ledger = self._ledger(mob.actor_identity, 0)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            answer = responder_mod.respond(
+                legacy=self.legacy,
+                chosen_identities=(
+                    0x2000 + self.dead_index + 1,
+                    0x2000 + self.civilian_index + 1,
+                ),
+                population_indices=self.population_indices,
+                last_target_pos=(0.0, 0.0, 0.0, 0.0),
+                mob_combat_ledger=ledger,
+            )
+        printed = err.getvalue()
+        self.assertIsNotNone(answer)
+        self.assertEqual(
+            answer.label,
+            f"LANE_A_CHOOSE_NPC_SCENE14_FACE_P{self.civilian_index}")
+        self.assertNotIn("_DECLINED", printed)
+        self.assertIn("_IDENTITY_REFUSED", printed)
+
+    def test_a_corpse_is_not_counted_as_a_wound_or_a_ledger_read(self):
+        mob = self.hostile[self.dead_index]
+        answer, _err = self._click(
+            self.civilian_index, self._ledger(mob.actor_identity, 0))
+        line = answer.console_lines[0]
+        self.assertIn("wounded=0", line)
+        self.assertIn("dead_at_ceiling=1", line)
+        self.assertIn(f"from_ledger={len(self.hostile) - 1}", line)
+
+    def test_a_ledger_from_the_other_scene_is_refused_by_name(self):
+        """The same collision scene 2's suite pins from its own side."""
+        from pirateforce_foundation import field_mobs as fm
+        scene2_roster = fm.roster_for_scene_id(2)
+        shared = {mob.actor_identity for mob in scene2_roster} & {
+            mob.actor_identity for mob in self.hostile.values()}
+        self.assertTrue(shared, "the collision this test is about is gone")
+        identity = sorted(shared)[0]
+        foreign = mob_combat.open_ledger(scene2_roster)
+        row = foreign.balance_of(identity)
+        foreign = foreign.with_balance(
+            mob_combat.MobBalance(identity, row.max_hp, 0))
+        clicked = next(
+            index for index, mob in self.hostile.items()
+            if mob.actor_identity == identity
+        )
+        answer, err = self._click(clicked, foreign)
+        self.assertIsNotNone(answer)
+        self.assertIn("hp=ceiling", answer.console_lines[0])
+        self.assertIn("_LEDGER_NOT_ADMITTED", err)
+
+    def test_the_two_responders_answer_the_same_way_on_the_same_input(self):
+        """The property the ruling is actually about: not that either
+        answer is right, but that they cannot diverge again.
+
+        ~~an inspection of ``respond.__code__.co_varnames``~~ REPLACED,
+        pf-adversary D8: that version proved the keyword was NAMED, not
+        that either scene READ it -- the exact shape of test this file's
+        own scar list warns about.  This one drives BOTH responders with
+        the same three ledger states and compares the behaviour."""
+        from pirateforce_foundation import field_mobs as fm
+        from pirateforce_foundation.lane_hooks import (
+            lane_a_choose_npc_scene2 as scene2,
+        )
+        from pirateforce_foundation import (
+            scene2_prison_exile_tables as scene2_tables,
+        )
+
+        scene2_hostile = scene2._hostile_mobs_by_placement_index()
+        scene2_dead_index = sorted(scene2_hostile)[0]
+        scene2_mob = scene2_hostile[scene2_dead_index]
+        scene2_civilian = next(
+            index for index in sorted(
+                p.placement_index
+                for p in scene2_tables.load_known_placements())
+            if index not in scene2_hostile
+        )
+        scene2_roster = fm.roster_for_scene_id(2)
+
+        def scene2_ledger(current_hp):
+            ledger = mob_combat.open_ledger(scene2_roster)
+            row = ledger.balance_of(scene2_mob.actor_identity)
+            return ledger.with_balance(mob_combat.MobBalance(
+                scene2_mob.actor_identity, row.max_hp, current_hp))
+
+        mob14 = self.hostile[self.dead_index]
+        cases = {
+            "dead": (0, "dead_at_ceiling=1"),
+            "wounded": (max(1, mob14.max_hp - 1), "wounded=1"),
+        }
+        for name, (_hp, marker) in cases.items():
+            with self.subTest(case=name):
+                hp14 = 0 if name == "dead" else max(1, mob14.max_hp - 1)
+                hp2 = 0 if name == "dead" else max(
+                    1, scene2_mob.max_hp - 1)
+                answer14, err14 = self._click(
+                    self.civilian_index,
+                    self._ledger(mob14.actor_identity, hp14))
+                with contextlib.redirect_stderr(io.StringIO()) as err2:
+                    answer2 = scene2.respond(
+                        legacy=self.legacy,
+                        chosen_identities=(0x2000 + scene2_civilian + 1,),
+                        population_indices=None,
+                        last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                        scene_id=2,
+                        mob_combat_ledger=scene2_ledger(hp2),
+                    )
+                self.assertIsNotNone(answer14)
+                self.assertIsNotNone(answer2)
+                # Both answer, both carry the same marker, and neither
+                # calls an answered click a refusal.
+                self.assertIn(marker, answer14.console_lines[0])
+                self.assertIn(marker, answer2.console_lines[0])
+                self.assertNotIn("_DECLINED", err14)
+                self.assertNotIn("_DECLINED", err2.getvalue())
+
+        # And the corpse click itself: both refuse the IDENTITY, not the
+        # packet, and both name the placement that was clicked.
+        _dead14, err14 = self._click(
+            self.dead_index, self._ledger(mob14.actor_identity, 0))
+        with contextlib.redirect_stderr(io.StringIO()) as err2:
+            dead2 = scene2.respond(
+                legacy=self.legacy,
+                chosen_identities=(0x2000 + scene2_dead_index + 1,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=2,
+                mob_combat_ledger=scene2_ledger(0),
+            )
+        self.assertIsNone(_dead14)
+        self.assertIsNone(dead2)
+        for printed, index in (
+            (err14, self.dead_index), (err2.getvalue(), scene2_dead_index),
+        ):
+            with self.subTest(printed=printed[:40]):
+                self.assertIn(
+                    "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_"
+                    f"mob_death_body placement={index} identity=0x", printed)
 
 
 if __name__ == "__main__":

@@ -877,7 +877,16 @@ class FieldMobTests(unittest.TestCase):
             # DISPATCHES NOTHING itself: its callers are the three ordinary
             # scene composers (world_population_bg0006/0009/0015), which is
             # a census path, not this module's combat path.
+            # ROUND 4uztfj (lane A) adds lane_a_click_hp.py: it NAMES
+            # ``field_mobs.hostile_npc_attr`` in its prose (the encoder its
+            # callers hand the HP it returns) and imports NOTHING from this
+            # module -- the detector above is textual, which is why a
+            # module that only mentions the name lands here.  IT DISPATCHES
+            # NOTHING: it is a pure rule (an HP and two booleans) called by
+            # the two ChooseNPC responders, and the assertion below still
+            # says no dispatch file picked it up.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
+             "lane_a_click_hp.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_combat_bg0015_gates.py", "mob_death.py",

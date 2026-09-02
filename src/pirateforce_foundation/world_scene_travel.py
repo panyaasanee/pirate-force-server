@@ -133,6 +133,11 @@ VOODOO_ISLAND_SCENE_ID = 7
 DEATH_CITY_SEA_SCENE_ID = 9
 DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID = 11
 NAVY_TRAINING_CAMP_SCENE_ID = 130
+# The ocean panel, NOT an island and NOT a route: see
+# ``world_m2_sea_destination`` for why 126 is the name a Columbus option
+# advertises rather than where it sends you.  Its login door is shut and
+# this constant does not open it.
+ATLANTIS_OCEAN_PANEL_SCENE_ID = 126
 MEASURED_SCENE_IDS = (1, 2)
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
@@ -254,6 +259,23 @@ CENSUS_SOURCE = "bg0001_census"
 # ``the_two_interiors`` landing-geometry flag - see
 # ``world_bg4001_identity.py``'s own docstring for the measurement.  WITH
 # THIS ENTRY, EVERY ONE OF THE TEN DOORS ROUND ``12lyda`` SURVEYED IS OPEN.
+# WIDENED 2026-09-02 (round 4uztfj, LANE-A) with the twelfth composer this
+# lane has shipped, and the FIRST outside those ten doors: "bg3001_roster"
+# is ``world_population_bg3001.py``'s own name for itself, over scene 126
+# (Bg3001, "Atlantis"), an ``n_SCENE_TYPE 8`` OCEAN PANEL whose cast is
+# ships, islands-as-actors and weather markers rather than townspeople.
+# THE DOOR STAYS SHUT: scene 126's registry row still reads
+# ``login_entry_allowed: false`` and this round did not touch it
+# (``COO-DECISION 20260829_1444`` wants an attended var2 test before any
+# flip; ``CHIEF-DECISION 20260829_1603`` item 1 pinned the row shut on
+# purpose).  This row is therefore inert for the ordinary login path -
+# registered, refused by ``lane_hooks/lane_a_scene_census.py``'s admission
+# check on that arm, exactly the way scene 4's and scene 10's rows were
+# inert between their own build and open rounds.  What it is NOT inert for
+# is the ONE session shape that can already stand in scene 126: the GM
+# single-use grant ``CORE-REQUEST-GM-038`` landed for this exact scene id
+# (``gm/login_scene_admission.SANCTIONED_BARRED_SCENES``), which is why the
+# census hook's second admission arm asks that lane's own predicate.
 CENSUS_SOURCES = {
     CENSUS_SCENE_ID: CENSUS_SOURCE,
     PRISON_EXILE_SCENE_ID: "bg0002_roster",
@@ -268,6 +290,7 @@ CENSUS_SOURCES = {
     DEEP_SEA_TEMPLE_SCENE_ID: "bg0010_roster",
     DEEP_SEA_TEMPLE_FLOOR2_SCENE_ID: "bg0011_roster",
     NAVY_TRAINING_CAMP_SCENE_ID: "bg4001_roster",
+    ATLANTIS_OCEAN_PANEL_SCENE_ID: "bg3001_roster",
 }
 CLIENT_REGISTERED_SCENE_COUNT = 271
 

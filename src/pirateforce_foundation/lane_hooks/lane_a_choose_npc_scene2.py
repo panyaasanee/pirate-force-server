@@ -108,10 +108,18 @@ Three things about that, each stated as what it is:
     CORE-REQUEST (``pf_bridge/notes_to_chief/20260902_1735_LANE-A-CORE-
     REQUEST-choosenpc-call-site-passes-the-combat-ledger.md``) asks chief
     for ``mob_combat_ledger=self.mob_combat_ledger`` on that call, which
-    every other responder ignores through its own ``**_ignored``.  The day
-    it lands, wounded monsters stay wounded here with no further change in
-    this lane -- ``tests/test_lane_a_choose_npc_scene2.py`` already drives
-    that path with a real ledger.  THAT PROMISE HAS ONE CONDITION, NAMED
+    every other responder ignores through its own ``**_ignored``.
+    ~~The day it lands, wounded monsters stay wounded here with no further
+    change in this lane~~ -- STRUCK, ROUND ``4uztfj``: chief WROTE that line,
+    measured it, and withdrew it, because the dead guard this file carried
+    refused the whole click and one kill silenced the scene (letter
+    ``20260902_1918``).  The guard was narrowed that round
+    (``COO-DECISION 20260902_1945``), scene 14's responder was moved with it
+    in the same commit, and the promise is true again as written -- but it
+    took a change in this lane, not none, and the sentence is kept so nobody
+    re-derives the withdrawn version.  ``tests/test_lane_a_choose_npc_
+    scene2.py`` and ``tests/test_lane_a_click_after_a_kill.py`` drive that
+    path with a real ledger, the second one after a real kill.  THAT PROMISE HAS ONE CONDITION, NAMED
     HERE RATHER THAN DISCOVERED THEN (pf-adversary D9):
     ``_current_hp_of`` asks the ledger PER IDENTITY inside a bare
     ``except``, where ``mob_census_hostility.hostile_override_for_scene_id``
@@ -120,9 +128,9 @@ Three things about that, each stated as what it is:
     scene 1's and scene 2's rosters share NO identity, so a foreign ledger
     raises per row and answers the ceiling.  If a future scene pair does
     collide, this function would quietly serve another scene's HP -- or
-    another scene's 0-HP row would turn a scene-2 click into
-    ``dead_monster_needs_a_mob_death_body_*``, a dropped click caused by a
-    kill somewhere else.  The day the keyword lands, this should go through
+    another scene's 0-HP row would turn a scene-2 click on THAT identity
+    into ``clicked_body_is_dead_needs_a_mob_death_body_*``, a dropped click
+    caused by a kill somewhere else -- one click now, not the whole scene.  The day the keyword lands, this should go through
     the same admission the census uses.
 
 WHAT CLAIMING THIS SCENE COSTS, RE-CHECKED BECAUSE runtime.py TOLD THIS LANE
@@ -223,6 +231,7 @@ import sys
 from typing import Any
 
 from .. import field_mobs
+from .. import lane_a_click_hp
 from .. import lane_hooks
 from .. import scene2_prison_exile_tables as tables
 from .. import world_census_level
@@ -252,6 +261,12 @@ from .lane_a_scene_census import scene_is_open_to_players
 production_allowed = True
 
 SCENE_N_ID = tables.SCENE_N_ID
+# The folder this scene's monsters are mined from, and the tag its own
+# ledger carries.  Read from ``field_mobs`` rather than typed, and with a
+# literal only as the fallback the day that table stops naming this scene
+# -- which is exactly what it does for scene 14 (measured), and what made
+# the ledger admission refuse everything there until this constant existed.
+SCENE_FOLDER = field_mobs.scene_for_scene_id(SCENE_N_ID) or "Bg0002"
 
 #: The wire shapes, carried from the sibling responders rather than
 #: re-derived: actor type 4 is the NPC style every roster entry in this
@@ -311,29 +326,53 @@ def _current_hp_of(mob: Any, ledger: Any) -> tuple[int | None, bool]:
     sends today.  A raise here would turn a redrawn HP bar into a dropped
     click.
 
-    A DEAD ROW IS THE ONE CASE THAT REFUSES INSTEAD, and it refuses in the
-    caller (``respond`` declines the whole click by name).  ``0`` cannot be
-    sent as an alive body's HP -- ``mob_death`` composes a corpse through a
-    shape this responder does not have -- and the ceiling MUST NOT be sent
-    for it either, because that is a monster standing back up on the
-    player's screen.  Unreachable today (no ledger ever arrives); written
-    now so it cannot arrive later as a resurrection.
+    ~~A DEAD ROW IS THE ONE CASE THAT REFUSES INSTEAD, and it refuses in
+    the caller (``respond`` declines the whole click by name).~~ CORRECTED,
+    ROUND ``4uztfj``, AND THE OLD SENTENCE IS KEPT BECAUSE IT DESCRIBED A
+    MEASURED DEFECT: "the whole click" turned out to mean "every click in
+    the scene until the player reconnects", which chief drove on the real
+    dispatcher (letter ``20260902_1918``).  ``COO-DECISION 20260902_1945``:
+    a dead row refuses ONLY the click that named it, and any other dead
+    body in the same frame is sent at its ceiling, counted and named.  The
+    debt that ceiling represents is written down in ``lane_a_click_hp``.
+    ``0`` still cannot be sent as an alive body's HP -- ``mob_death``
+    composes a corpse through a shape this responder does not have.
     """
-    if ledger is None:
-        return mob.max_hp, False
-    try:
-        balance = ledger.balance_of(mob.actor_identity)
-    except Exception:  # noqa: BLE001 - see the docstring
-        return mob.max_hp, False
-    current = getattr(balance, "current_hp", None)
-    if type(current) is not int or current < 0:
-        # A negative or non-integer HP is a ledger this responder does not
-        # understand, not a wound.  Ceiling, and NOT counted as a ledger
-        # read: the console line must not claim a row it refused.
-        return mob.max_hp, False
-    if current == 0:
-        return None, True
-    return current, True
+    # ONE AUTHORITY SINCE ROUND `4uztfj` (COO-DECISION 20260902_1945): the
+    # rule now lives in ``lane_a_click_hp`` because scene 14's responder
+    # needs the identical one, and the round chief measured had the two
+    # answering DIFFERENTLY on the same input.  This wrapper stays so this
+    # module's own tests and comments keep their name for it.
+    return lane_a_click_hp.current_hp_of(mob, ledger)
+
+
+def _note(token: str, detail: str) -> None:
+    """Print one named OBSERVATION to stderr -- never a refusal.
+
+    THREE TOKENS, AND THE SPLIT IS THE ANSWER TO A QUESTION pf-adversary
+    ASKED THIS ROUND: one ChooseNPC packet can name SEVERAL actors
+    (``v141`` documents "TargetVital followed by one or more ChooseNPC
+    records"), so "the click was refused" and "that identity was refused"
+    are different statements and used to share one token.
+
+    * ``..._DECLINED`` -- THE PACKET got no frame at all.
+    * ``..._IDENTITY_REFUSED`` -- one named identity was skipped; another
+      identity in the SAME packet may still be answered.
+    * ``..._DEAD_BODY_AT_CEILING`` -- an observation about a body inside a
+      frame that IS being sent.
+
+    Measured before the split: a packet naming a corpse and a civilian
+    printed ``..._DECLINED`` and then ``..._ANSWERED``, so a tester
+    grepping the refusal token read "the click was refused" about a click
+    that was answered.
+    """
+    print(
+        lane_hooks.console_safe(
+            f"LANE_A_CHOOSE_NPC_SCENE{SCENE_N_ID}_{token} {detail}"
+        ),
+        file=sys.stderr,
+    )
+    return None
 
 
 def _decline(reason: str) -> None:
@@ -399,6 +438,25 @@ def respond(
     hostile_by_idx = _hostile_mobs_by_placement_index()
     membership = tuple(sorted(by_idx))
     player_x, player_y = last_target_pos[0], last_target_pos[1]
+    # THE LEDGER IS ADMITTED FOR THIS SCENE BEFORE IT IS READ, ONCE PER
+    # PACKET (pf-adversary D4, round `4uztfj`, MEASURED): scene 2's and
+    # scene 14's hostile rosters both hold identity 0x2058, so a stale
+    # scene-14 ledger made a click on scene 2's LIVING placement 87 refuse
+    # itself.  ``lane_a_click_hp.ledger_for_this_scene`` asks the same
+    # ``mob_ledger_admission`` the census path asks; a ledger that is not
+    # this scene's answers None, which means "compose without consulting
+    # HP" -- the ceiling, exactly as a ledger-less boot does today.
+    admitted_ledger = lane_a_click_hp.ledger_for_this_scene(
+        SCENE_N_ID, mob_combat_ledger,
+        field_mobs.roster_for_scene_id(SCENE_N_ID),
+        scene_folder=SCENE_FOLDER,
+    )
+    if mob_combat_ledger is not None and admitted_ledger is None:
+        _note(
+            "LEDGER_NOT_ADMITTED",
+            "reason=not_this_scenes_ledger hp=ceiling",
+        )
+    refused_identities = 0
     for actor_identity in dict.fromkeys(chosen_identities):
         selected_idx = actor_identity - 0x2000 - 1
         if selected_idx not in by_idx:
@@ -409,11 +467,46 @@ def respond(
             # multi-select frame whose first identity is unknown and whose
             # second is not, the drop used to be completely silent while
             # "EVERY REFUSAL NAMED" was stated absolutely.
-            _decline(f"placement_{selected_idx}_not_in_this_scenes_table")
+            _note(
+                "IDENTITY_REFUSED",
+                f"reason=placement_not_in_this_scenes_table "
+                f"placement={selected_idx} identity=0x{actor_identity:04X}",
+            )
+            refused_identities += 1
             continue
+        # THE DEAD GUARD, ON THE CLICKED BODY AND NOTHING ELSE
+        # (COO-DECISION 20260902_1945, correcting 20260902_1843).  It used
+        # to sit inside the 97-actor loop below and ``return`` -- so the
+        # first hostile row the ledger reported dead refused the WHOLE
+        # click, and chief measured what that means on the real dispatcher:
+        # kill one monster and every click in scene 2 goes silent until the
+        # player reconnects (the death is pulled back out of
+        # ``mob_death_register`` on every re-entry).  A click on a corpse
+        # is refused BY NAME; a click on anyone else is answered.
+        clicked_hostile = hostile_by_idx.get(selected_idx)
+        if clicked_hostile is not None:
+            clicked_hp, _clicked_from_ledger = _current_hp_of(
+                clicked_hostile, admitted_ledger)
+            if clicked_hp is None:
+                # NAMES THE PLACEMENT THE PLAYER ACTUALLY CLICKED, which
+                # the old line did not: it printed the first dead hostile
+                # in ``sorted(by_idx)`` order (``placement_50`` for a click
+                # on placement 0), sending a tester to look for a bug at a
+                # placement that had nothing wrong with it (chief's letter
+                # 20260902_1918, item 4.1, measured).
+                _note(
+                    "IDENTITY_REFUSED",
+                    "reason=clicked_body_is_dead_needs_a_mob_death_body "
+                    f"placement={selected_idx} "
+                    f"identity=0x{actor_identity:04X}",
+                )
+                refused_identities += 1
+                continue
         entries = []
         hostile_sent = 0
         hostile_from_ledger = 0
+        hostile_wounded = 0
+        dead_bodies_at_ceiling = 0
         for idx in membership:
             placement = by_idx[idx]
             hostile_mob = hostile_by_idx.get(idx)
@@ -423,18 +516,38 @@ def respond(
                 # splice on the wire the moment ANY of the 97 was clicked
                 # -- the confirmed scene-14 defect, in this scene's
                 # numbers.
-                current_hp, from_ledger = _current_hp_of(
-                    hostile_mob, mob_combat_ledger)
+                current_hp, from_ledger, was_dead = (
+                    lane_a_click_hp.hp_for_a_body_that_is_not_the_click(
+                        hostile_mob, admitted_ledger)
+                )
                 hostile_from_ledger += int(from_ledger)
-                if current_hp is None:
-                    # The ledger says this monster is dead.  See
-                    # _current_hp_of: there is no honest body for it in this
-                    # responder, and both wrong answers (0 HP alive, or the
-                    # ceiling) are worse than no frame.
-                    return _decline(
-                        "dead_monster_needs_a_mob_death_body_"
-                        f"placement_{idx}"
+                if was_dead:
+                    # A body the ledger says is dead that is NOT the one
+                    # clicked.  The frame is still owed to the player, this
+                    # responder has no corpse to put in it (the call site
+                    # passes no death register), and omitting the row would
+                    # DELETE the actor from the client's set (``RE-092``).
+                    # So it carries the ceiling -- which is exactly what
+                    # every click on ``main`` sends for every hostile body
+                    # today -- and it is COUNTED AND NAMED rather than
+                    # left for someone to notice as a monster standing back
+                    # up.  See ``lane_a_click_hp``'s own docstring for the
+                    # ticket that pays this off.
+                    dead_bodies_at_ceiling += 1
+                    # NOT ``_decline``: that prints ``..._DECLINED``, and a
+                    # tester who greps that token reads it as "the click was
+                    # refused" -- which this is not.  The click IS answered;
+                    # one body in the answer is a corpse wearing its ceiling.
+                    # A refusal token on an answered click is exactly the
+                    # kind of console line that sends a reader hunting the
+                    # wrong bug (chief's item 4.1, in a different shape).
+                    _note(
+                        "DEAD_BODY_AT_CEILING",
+                        f"placement={idx} "
+                        f"identity=0x{hostile_mob.actor_identity:04X}",
                     )
+                elif current_hp < hostile_mob.max_hp:
+                    hostile_wounded += 1
                 hostile_sent += 1
                 # SCENE 1, NOT SCENE 2, AND THAT IS NOT A TYPO -- MEASURED
                 # THIS ROUND.  The arrival splice composes these 12 bodies
@@ -511,12 +624,22 @@ def respond(
         # frame carry their table HP because no ledger reached this
         # responder, so a redrawn full bar on a wounded monster is this
         # line's doing and not a combat bug.
+        # ``wounded=`` IS THE NUMBER THAT MAY BE QUOTED AS EVIDENCE, and
+        # ``hp=ledger`` IS NOT (COO-DECISION 20260902_1945, closing chief's
+        # item 4.3): a freshly opened ledger with no combat in it at all
+        # prints ``hp=ledger from_ledger=12`` with all twelve bodies at
+        # their ceiling, so that token proves only that a ledger was
+        # readable.  ``wounded=`` counts the bodies whose HP ON THE WIRE is
+        # BELOW the table ceiling, and ``dead_at_ceiling=`` counts the
+        # corpses this responder cannot compose yet.
         console_lines = (
             f"LANE_A_CHOOSE_NPC_SCENE{SCENE_N_ID}_ANSWERED "
             f"placement={selected_idx} visible={len(entries)} "
             f"hostile={hostile_sent} "
             f"hp={'ledger' if hostile_from_ledger else 'ceiling'} "
-            f"from_ledger={hostile_from_ledger}",
+            f"from_ledger={hostile_from_ledger} "
+            f"wounded={hostile_wounded} "
+            f"dead_at_ceiling={dead_bodies_at_ceiling}",
         )
         return lane_hooks.ChooseNpcResponse(
             label=(
@@ -524,6 +647,12 @@ def respond(
             ),
             pc=pc, frame=frame, delay=0.0, console_lines=console_lines,
         )
+    if refused_identities:
+        # TRUE REASON, not the generic one (pf-adversary D7): every named
+        # identity WAS one this scene can answer for -- each was refused
+        # for its own reason, already printed above with its placement.
+        return _decline(
+            f"every_named_identity_refused count={refused_identities}")
     return _decline("no_named_identity_this_scene_can_answer")
 
 

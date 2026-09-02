@@ -22,6 +22,21 @@ its names, levels and HP intact.
     are registered, and the number a player can now click is 692 across
     ten islands rather than 62 across one.
 
+    ELEVEN SCENES SINCE ROUND `4uztfj`, AND THE ELEVENTH IS NOT AN ISLAND.
+    Scene 126 (Bg3001, "Atlantis") is an ocean panel: 36 shippable
+    placements of 38, ships and islands-as-actors rather than townspeople,
+    built and wired the same round.  Its registry door is SHUT and this
+    round did not touch it (``COO-DECISION 20260829_1444`` wants an
+    attended var2 test before any flip), so the click this answers there is
+    the click of a session a GM single-use grant already put in the scene
+    (``CORE-REQUEST-GM-038``); see
+    ``lane_a_scene_census.scene_is_sanctioned_for_a_gm_entry``, which is
+    the arm that admits it and which cannot move a player.  Its table also
+    carries a placement at ``COLUMBUS_PLACEMENT_INDEX``, so it joins the
+    nine whose safety is ON LOAN from chief's conjunct rather than being
+    clear of the collision the way scene 3 is -- measured this round, not
+    inherited from the paragraph above.
+
     "ON LOAN" IS NOT A FIGURE OF SPEECH, AND IT IS THE MOST IMPORTANT
     SENTENCE IN THIS FILE.  Nothing about the index space was fixed.  The
     nine are clickable-without-opening-Port-Royal's-conversation because
@@ -285,8 +300,9 @@ from .. import world_bg0008_identity
 from .. import world_bg0009_identity
 from .. import world_bg0010_identity
 from .. import world_bg0011_identity
+from .. import world_bg3001_identity
 from .. import world_bg4001_identity
-from .lane_a_scene_census import scene_is_open_to_players
+from .lane_a_scene_census import scene_may_be_populated
 
 # SHIPPABLE, FOR THE SCENES THE GATES BELOW ADMIT AND NO OTHERS.  Every
 # scene in the table below is already open at login (``login_entry_allowed:
@@ -323,6 +339,12 @@ _IDENTITY_OF_SCENE: dict[int, Any] = {
     world_bg0010_identity.SCENE_N_ID: world_bg0010_identity,
     world_bg0011_identity.SCENE_N_ID: world_bg0011_identity,
     world_bg4001_identity.SCENE_N_ID: world_bg4001_identity,
+    # ADDED round 4uztfj (LANE-A): scene 126, the ocean panel.
+    # Its census landed in the same commit; its registry door is
+    # SHUT and stays shut, so the only click this answers today
+    # comes from a GM single-use entry (see the census module's
+    # second admission arm).
+    world_bg3001_identity.SCENE_N_ID: world_bg3001_identity,
 }
 
 # Census sources whose ARRIVAL frame is not the identity table alone --
@@ -454,7 +476,15 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
             # invisible to the whole suite; a test now drives it.
             return _decline(
                 scene_id, f"wrong_scene_this_responder_is_{scene_n_id}")
-        if not scene_is_open_to_players(scene_id, scene_entry_registry):
+        if not scene_may_be_populated(scene_id, scene_entry_registry):
+            # BOTH ADMISSION ARMS, round `4uztfj`: the registry pin, and
+            # the GM lane's own sanctioned single-use predicate.  The
+            # refusal name still says ``registry_door_shut`` because that
+            # is what it means for every scene in this table but 126, and
+            # a tester's grep for it predates this change; the arm that
+            # admits 126 cannot move a player, only answer one who is
+            # already standing there (see ``lane_a_scene_census.
+            # scene_is_sanctioned_for_a_gm_entry``).
             return _decline(scene_id, "registry_door_shut")
         if population_indices is None:
             return _decline(scene_id, "membership_not_armed")

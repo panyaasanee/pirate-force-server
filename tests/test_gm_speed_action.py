@@ -1139,7 +1139,26 @@ class SpeedUndoTests(_Case):
             [(1, {chat_command_action.SPEED_TYPED_COLUMN: 100.0})],
         )
 
-    def test_a_first_ever_speed_reports_not_reverted_rather_than_lying(self):
+    def test_a_store_with_no_prior_value_reports_not_reverted_rather_than_lying(
+        self,
+    ):
+        """Was `test_a_first_ever_speed_reports_not_reverted_rather_than_lying`
+        until round `selrsl`, and the old name over-claims.  `migrations/009`
+        is on `main` with `speed_walk DEFAULT 400.0`, so for a character BORN
+        AFTER `009` a first-ever `/speed` reads 400.0 and does not walk this
+        branch (LANE-DB, `20260902_2140`).
+
+        NOT "on any 009 database", which is what this docstring said when it
+        was written: `009` rebuilds the table with an INSERT that NAMES
+        `speed_walk`, and a DEFAULT applies only to an omitted column, so a
+        row that already held NULL is copied through NULL (pf-adversary,
+        round `selrsl`, D1, measured). A character born between `008` and
+        `009` still reaches this branch on a fully migrated file.
+
+        What this test pins is therefore the SHAPE -- "nothing came back from
+        the read" -- and `test_an_unreadable_prior_value_...` below walks a
+        different source of it, so the two are not one test twice.
+        """
         # `write_typed_attributes` refuses `None` outright and this API has no
         # way to clear a column back to NULL, so there is nothing to put back.
         # The honest outcome is `not_reverted`, never a silent success.
@@ -1153,6 +1172,32 @@ class SpeedUndoTests(_Case):
             chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED,
             session.events,
         )
+        self.assertEqual(store.undo_writes, [])
+
+    def test_an_unreadable_prior_value_reports_not_reverted_too(self):
+        """The source of `previous is None` that `009` does NOT retire.
+
+        A read that raises is folded into `previous = None` on purpose (an
+        unreadable prior value is a refused undo, never a crash on the
+        listener thread).  Without this test the whole branch stands on one
+        empty-row double, and a reader who believed `009` retired that shape
+        entirely would be left calling a live path dead code.
+        """
+        session = FakeSession()
+        store = session.foundation.lifecycle.store
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        patcher, _real = self.break_the_outcome_append()
+        with patcher, mock.patch.object(
+            type(store),
+            "read_typed_attributes",
+            side_effect=RuntimeError("the row cannot be read"),
+        ):
+            self.act(session, "/speed 777.0")
+        self.assertIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_NOT_REVERTED,
+            session.events,
+        )
+        # Nothing was put back, and nothing was invented to put back either.
         self.assertEqual(store.undo_writes, [])
 
     def test_a_successful_round_never_runs_the_undo(self):

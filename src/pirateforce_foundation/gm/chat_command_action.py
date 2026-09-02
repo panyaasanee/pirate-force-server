@@ -3321,19 +3321,56 @@ def _speed_undo(store: object, character_id: int) -> object:
     speed_walk = 400.0 WHERE speed_walk IS NULL`, so a character holding
     NULL at that moment now has this undo restore 400.0 instead of reporting
     nothing to put back.  A character `/speed` had already written keeps what
-    it held -- the predicate skips it -- and a character created afterwards
-    still reaches this undo NULL, because `SQLiteStore.create_character`
-    does not write THIS column.
+    it held -- the predicate skips it.
+
+    ~~"and a character created afterwards still reaches this undo NULL,
+    because `SQLiteStore.create_character` does not write THIS column"~~ --
+    STRUCK in round `selrsl`.  `migrations/009_character_birth_defaults.sql`
+    is on `main` (merge `f5b3fd1`) and rebuilds `characters` with
+    `speed_walk` carrying `DEFAULT 400.0`.  `create_character` still names
+    three columns and not this one -- that half of the old sentence is
+    unchanged -- but for a character born AFTER `009` ran, the column it
+    leaves alone is no longer NULL: SQLite supplies the default.  LANE-DB
+    said it first, from their own side, in `notes_to_chief/20260902_2140_
+    LANE-DB-NOTICE-lane-gm-your-speed-undo-null-branch-is-unreachable-after-
+    009.md`, and their scope is the one that holds: **a character born on a
+    database that already carries `009`**.
+
+    ~~"So on any database that has run `009`, a first-ever `/speed` no longer
+    reaches the NULL branch at all"~~ -- STRUCK IN THE ROUND THAT WROTE IT
+    (pf-adversary, round `selrsl`, D1, measured on sqlite3 rather than read
+    off the migration's prose).  `009` REBUILDS the table and its
+    `INSERT INTO characters_rebuild (...) SELECT ... speed_walk ... FROM
+    characters` NAMES the column, and a `DEFAULT` applies only to a column an
+    INSERT OMITS -- so a row already holding NULL is copied through STILL
+    NULL.  `008` backfilled the cohort alive when `008` ran; a character
+    created after `008` and before `009` holds NULL, survives the rebuild
+    holding NULL, and its first-ever `/speed` walks this branch ON A DATABASE
+    THAT HAS RUN `009`.  The quantifier was the error, not the direction.
+
+    THE BRANCH STAYS, and it is NOT dead code.  `previous is None` is reached
+    by: a character born between `008` and `009` and never `/speed`-ed since
+    (above); a row on a file that never ran `009` at all; a store with no
+    `read_typed_attributes`; a read that RAISES (caught right below and
+    folded into `previous = None`); and a store that is not `SQLiteStore`.
+    What `009` retired is exactly one source -- the first-ever `/speed` of a
+    character born after it -- and a reader deleting the branch on the
+    strength of "009 makes it unreachable" would be deleting a live path.
 
     ~~"because `SQLiteStore.create_character` writes no typed column at all
     today"~~ -- STRUCK, and the correction is COO-DECISION `20260902_1948`
     item 3, which is right: LANE-DB's birth plug `009` landed on `main` and
     `store.py:create_character`'s INSERT now carries `level, hp_current,
     hp_max` (read at HEAD, not quoted from a letter).  `speed_walk` is NOT
-    among them, so THE CONCLUSION ABOVE IS UNCHANGED -- a character created
-    today still reaches this undo with the column NULL.  The reason had to be
-    corrected anyway, and COO named the exact hazard of leaving it: the next
-    reader adds `speed_walk` to that INSERT believing this docstring already
+    among them.  ~~"so THE CONCLUSION ABOVE IS UNCHANGED -- a character
+    created today still reaches this undo with the column NULL"~~ -- STRUCK
+    in round `selrsl`: `009` landed after this paragraph was written and puts
+    `400.0` in that column at birth, so a character created TODAY does not.
+    Read the `009` paragraph above for what is and is not retired; this one
+    is kept only for what it still says truthfully, which is that
+    `create_character` names three columns and none of them is this one.
+    COO's hazard stands and is why nothing here is deleted: the next reader
+    adds `speed_walk` to that INSERT believing this docstring already
     describes their change, and this undo silently stops being the "nothing
     to put back" case it documents.
 
