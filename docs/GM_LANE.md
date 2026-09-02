@@ -7703,3 +7703,55 @@ run.** This clone has no cmd, no VC9, no `mt.exe` and no Windows. What is claime
 ka1-A measured as missing is now in the script", not "the build is green". `P-3` therefore does NOT
 move to "waiting for Panya to tick": `COO 1948` sets that bar at *the script in the repo producing a
 loadable file by itself*, and only the owner's machine can show that.
+
+### Round `selrsl` (2026-09-02T22:2x+07:00) -- the manifest check stops accepting a manifest the loader never reads
+
+`plugin_image_check` used to answer **"an RT_MANIFEST entry exists in the root resource
+directory"**. `pf-adversary` reported in round `hj2cry` (D13) that this is not the question: a DLL's
+activation context is built from resource **id 2** (`ISOLATIONAWARE_MANIFEST_RESOURCE_ID`) and from
+nowhere else, so a manifest embedded at id 1 -- the EXE id, which is what
+`mt.exe -outputresource:GameMaster.dll;1` writes -- reported `image_ok` and still answered
+**14001** at load. That is the worst shape this module can produce: a green light on a file that
+cannot run, pointing a tester at a bug in code that never executed.
+
+Tightened under `COO-DECISION 20260902_2147` item 2. `_manifest_resource_ids` now descends the
+RT_MANIFEST type entry into its id-level subdirectory and returns the ids; `has_embedded_manifest`
+is `2 in ids`. `PeFacts.manifest_resource_ids` carries them so the two shapes say different things
+on screen -- "no manifest, rebuild with revision 5" versus "a manifest at id 1, re-embed at `;#2`"
+-- and the console line now reads `embedded_manifest=no manifest_ids=1`, which is enough to tell
+them apart from a log alone, with no file in hand.
+
+**Why this is not a new false red.** The one DLL anybody has measured LOADING on the owner's machine
+(ka1-A, attended `GT-207`, build 1) was embedded with
+`mt.exe -manifest GameMaster.dll.manifest -outputresource:GameMaster.dll;#2` -- id 2 -- and
+`build_vs2008.bat` revision 5 both embeds at `;#2` and reads back at `;#2`. Every path anyone has
+run stays green; only the hand-embed at the wrong id turns red, and it was already red at load.
+
+**NONCLAIM, unchanged and important:** this reads the resource TREE, not the manifest TEXT. An id-2
+entry whose XML names the wrong assembly version still reads as present here. Nobody has measured
+that shape, so no verdict claims it. And nothing in this module has been run against a real
+`GameMaster.dll` in this clone -- there is no Windows, no VC9 and no PE fixture here.
+
+**The rule itself is unmeasured, and that is stated in the code, not only here.** Nobody in this
+project has embedded a manifest at id 1 and watched a Windows loader decide. It ships as a BLOCKING
+verdict rather than an advisory on a cost argument, not on proof: the remedy it prints (re-embed at
+`;#2`) is correct for a DLL either way and costs one `mt.exe` run, while the false GREEN it replaces
+already cost an attended round. **The negative control that would refute it**: build one DLL
+embedded at `;#1`, load it on the owner's machine, and see whether `LoadLibraryW` succeeds. Put to
+COO in `notes_to_chief/20260902_2252_LANE-GM-ASK-COO-id-2-*`.
+
+**pf-adversary refused this diff twice over, and the second refusal was the important one.** The
+first descent bounded its offsets with `_need`, which bounds the FILE. Given a type-24 entry
+pointing into `.data`, where sixteen planted bytes parse as a directory with an id-2 entry, it
+answered `embedded_manifest=yes manifest_ids=2` for an image carrying no manifest anywhere -- the
+false green this round exists to delete, reintroduced by the deletion. Offsets are now bounded by
+the resource data directory's own Size. Eleven mutants of the new code (type filter, both string
+name filters, all three bounds, the id-2 test, the leaf-entry rule, the named-id message, and both
+halves of the loud-root/quiet-child split) were applied by hand and every one of them turns a test
+red.
+
+**What still is not wired, said plainly:** no script RUNS this module. `build_vs2008.bat` only
+echoes its command line, and the gates that actually block a build or an install are
+`findstr /c:".rsrc"` -- which, in those scripts' own words, proves an image has A resource
+directory, not a manifest at id 2. So the tightening is real for `GT-207`'s step 0, which a human
+runs by hand, and not yet for the pipeline. Asked in the same letter.
