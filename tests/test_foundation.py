@@ -302,14 +302,17 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            # 8 = migrations/008_character_speed_walk_seed.sql (LANE-DB).  This
+            # 9 = migrations/009_character_birth_defaults.sql (LANE-DB).  This
             # pin moves with EVERY new migration file; see the letter
             # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-pins-
             # outside-this-lane.md and chief's reply 20260901_1459, which
             # allows this lane the one-line bump and queues the dynamic pin.
+            # The dynamic version chief agreed to (a glob over migrations/)
+            # is still not in; until it is, every migration this lane writes
+            # costs this line and the one in tests/test_item_move_capture.py.
             self.assertEqual(
                 [int(row[0]) for row in versions],
-                [1, 2, 3, 4, 5, 6, 7, 8])
+                [1, 2, 3, 4, 5, 6, 7, 8, 9])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"
