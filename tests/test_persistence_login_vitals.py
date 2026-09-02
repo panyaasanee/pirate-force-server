@@ -57,15 +57,25 @@ patched.
 
 WHAT THIS FILE DOES NOT PROVE -- AND THE HOLE IS DELIBERATE
 ------------------------------------------------------------
-!! NOTHING HERE DRIVES A LOGIN.  At the commit that adds this file the module
-is not called from anywhere (`grep -rn persistence_login_vitals src/` finds
-the module and nothing else): the two seams the request asks for live in
-`legacy_bridge.start_game` and `session.py`, both OUTSIDE this lane's write
-zone, and they are chief's to write.  That is exactly the gap R309's defect
-D5 warns about -- "every test drove the module and none drove the seam" --
-and this file may not pretend otherwise.  It is named here rather than left
-for a reader to discover, and the seam-level group belongs in the round that
-lands the seam.
+!! NOTHING HERE DRIVES A LOGIN.  At the commit that adds `apply_to_character`
+the module is still not called from anywhere (`grep -rn persistence_login_
+vitals src/` finds the module and nothing else): the seam lives in
+`session.py` and the composer it feeds lives in `player_wire.py`, both OUTSIDE
+this lane's write zone, and they are chief's to write.  That is exactly the
+gap R309's defect D5 warns about -- "every test drove the module and none
+drove the seam" -- and this file may not pretend otherwise.  It is named here
+rather than left for a reader to discover, and the seam-level group belongs in
+the round that lands the seam.
+
+* `ApplyToCharacterTests` -- the seam's own half of `wire_kwargs()`, added so
+                            that landing the seam is one line rather than a
+                            block of fail-closed plumbing written at the call
+                            site.  Mutate it to carry a refused resolution's
+                            literals onto the character, to raise on an object
+                            without the three fields (which is `model.
+                            Character` TODAY), to apply one field without the
+                            other two, or to report a `__post_init__` that
+                            dropped a field as if it had carried it.
 
 Nothing here is client-observable either.  And on a FRESH database no byte
 changes at all: `persistence_vitals.new_character_vitals()` seeds a newborn at
@@ -139,6 +149,62 @@ from pirateforce_foundation.player_wire import PLAYER_LOGIN_LEVEL  # noqa: E402
 #: that one by mistake -- so this file must never grade it.
 LOGIN_COMPOSER = "_make_actor_attr_with_name_and_class"
 
+#: The ONE file a login seam for this module may live in, and the only path
+#: the scan below lets past.  `COO-DECISION 20260903_0447` names the shape --
+#: "one call point at the login path, no second one" -- and `session.py` is
+#: where the sibling seam (`login_speed`) already went, for the reason its own
+#: comment gives: it is the last layer that still holds BOTH a store and a
+#: character id, and it is the object the three `start_game` recomposes in
+#: `runtime.py` all re-read.  A caller anywhere else, or a SECOND caller here,
+#: is what this file refuses -- not a caller as such.  It is written as a path
+#: rather than a basename for the reason the scan below records: `src/
+#: pirateforce_foundation/gm/session.py` is a filename another lane could
+#: write next round.
+THE_ONE_LOGIN_SEAM = "src/pirateforce_foundation/session.py"
+
+
+def _hp_defaults_of(node, ast):
+    """The `hp_current`/`hp_max` defaults a PARAMETERISED composer emits.
+
+    `None` unless BOTH parameters exist with `int` defaults AND the body
+    hands each of them to its own `u32tag(0x14, ...)` -- a parameter that
+    exists and is never emitted is not the number on the wire, and reading
+    its default would be this file inventing a pin.
+    """
+    defaults = {}
+    args = node.args
+    for group, group_defaults in (
+        (args.args + args.posonlyargs, args.defaults),
+        (args.kwonlyargs, args.kw_defaults),
+    ):
+        # `defaults` aligns with the TAIL of the positional list; `kw_
+        # defaults` aligns one-to-one and holds `None` for a required one.
+        if group is args.kwonlyargs:
+            pairs = zip(group, group_defaults)
+        else:
+            pairs = zip(group[len(group) - len(group_defaults):], group_defaults)
+        for arg, default in pairs:
+            if (isinstance(default, ast.Constant)
+                    and isinstance(default.value, int)
+                    and not isinstance(default.value, bool)):
+                defaults[arg.arg] = default.value
+    if not {"hp_current", "hp_max"} <= set(defaults):
+        return None
+    emitted = {
+        call.args[1].id
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "u32tag"
+        and len(call.args) == 2
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == 0x14
+        and isinstance(call.args[1], ast.Name)
+    }
+    if not {"hp_current", "hp_max"} <= emitted:
+        return None
+    return [defaults["hp_current"], defaults["hp_max"]]
+
 
 def _login_hp_literals():
     """The two `u32tag(0x14, N)` numbers `LOGIN_COMPOSER` emits, PARSED.
@@ -168,13 +234,31 @@ def _login_hp_literals():
                 and isinstance(call.args[1], ast.Constant)
                 and isinstance(call.args[1].value, int)
             ]
-            if len(found) != 2:
-                raise AssertionError(
-                    f"{LOGIN_COMPOSER} no longer emits exactly two constant "
-                    f"u32tag(0x14, N) numbers (found {found}); the HP pair "
-                    "this file pins has moved or been parameterised, and the "
-                    "nonclaim below has to be re-read rather than re-run")
-            return found
+            if len(found) == 2:
+                return found
+            parameterised = _hp_defaults_of(node, ast)
+            if parameterised is not None:
+                # !! THIS BRANCH EXISTS SO THIS FILE CANNOT TAKE THE SEAM'S
+                # OWN ROUND DOWN.  The CORE-REQUEST this lane sent chief asks
+                # for exactly this change -- the HP pair becomes two keyword
+                # parameters whose DEFAULTS are the numbers the composer used
+                # to write inline -- and with only the branch above, the day
+                # it lands this file raises at IMPORT time and every test in
+                # it disappears from the run (measured: `1 error during
+                # collection`, 0 of this file's tests executed).  A lane's
+                # own guard erasing that lane's coverage the moment another
+                # lane does what it asked for is the shape `COO-DECISION
+                # 20260903_0447` was already closing one layer down.  The
+                # numbers are still DERIVED, never copied: they are read off
+                # the signature that feeds the same two `u32tag(0x14, ...)`
+                # calls, so a default that drifts moves this file with it.
+                return parameterised
+            raise AssertionError(
+                f"{LOGIN_COMPOSER} emits neither exactly two constant "
+                f"u32tag(0x14, N) numbers (found {found}) nor an "
+                "`hp_current`/`hp_max` parameter pair with int defaults that "
+                "it passes to them; the HP pair this file pins has moved and "
+                "the nonclaim below has to be re-read rather than re-run")
     raise AssertionError(
         f"player_wire no longer defines {LOGIN_COMPOSER}; this file's whole "
         "premise about which composer the login uses needs rereading")
@@ -1761,11 +1845,19 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
             any(isinstance(n, ast.FunctionDef) for n in self._executable_nodes()),
             "the walker excluded everything, so it grades nothing")
 
-    def test_the_module_is_not_wired_in_by_this_lane(self):
-        """This lane's write zone stops at `persistence_*.py`; the seams are
-        chief's.  If this ever fails it is GOOD NEWS -- the seam landed --
-        and the right response is to move the seam's own tests into the round
-        that landed it, not to loosen this.
+    def test_the_module_has_at_most_one_seam_and_it_is_the_login_one(self):
+        """Zero callers or one, and the one may only be `THE_ONE_LOGIN_SEAM`.
+
+        !! THIS USED TO SAY "NOTHING CALLS IT", AND THAT SPELLING WAS ITSELF A
+        TRAP FOR THE ROUND THAT LANDS THE SEAM.  `COO-DECISION 20260903_0447`
+        ordered the seam wired and this file, owned by the lane that wrote the
+        module, would have turned the seam's own landing RED -- a lane holding
+        another lane's work hostage with a test of its own.  So the guard now
+        pins what the decision actually asked for ("one call point at the
+        login path, no second one") instead of the absence that preceded it:
+        a caller at `session.py` passes, a caller anywhere else fails, and two
+        callers fail.  The seam's own tests still belong to the round that
+        lands it -- this only stops being the thing that blocks it.
 
         ALL of `src/`, not one file: a first draft checked `legacy_bridge.py`
         alone, and `session.py` is the likelier landing site (it is where
@@ -1814,9 +1906,11 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
             "the walk found almost nothing, so a green result here would "
             "mean the scan is broken rather than that nothing calls it")
         self.assertEqual(
-            sorted(importers), [],
-            "a seam now names this module, so the round file's 'nothing "
-            "calls it' nonclaim is stale and the seam needs its own tests")
+            sorted(set(importers) - {THE_ONE_LOGIN_SEAM}), [],
+            "this module may be named from exactly one place under `src/` -- "
+            "%s -- and it is named from somewhere else, so the login now has "
+            "a second seam or a seam in the wrong layer (`COO-DECISION "
+            "20260903_0447`: one call point, no second one)" % THE_ONE_LOGIN_SEAM)
 
     def test_no_allowlisted_file_actually_imports_the_module(self):
         """The allowlist is the scan's only hole, so nothing in it may be a
@@ -1873,6 +1967,449 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
                     "%s is allowed to name this module and does not name it, "
                     "so the entry is only widening the scan's blind spot"
                     % relative)
+
+
+class ApplyToCharacterTests(unittest.TestCase):
+    """`apply_to_character` puts the row's numbers on the object, or nothing.
+
+    THE SEAM'S HALF, WRITTEN HERE SO THE SEAM IS ONE LINE.  `COO-DECISION
+    20260903_0447` asked for one call point at the login path; everything that
+    call point has to get right -- refuse a resolution whose numbers are the
+    caller's literals, survive an object without the fields, never raise into
+    a listener thread, and never report a carry it did not verify -- lives in
+    this function instead of being retyped at a seam in another lane's file.
+    """
+
+    def _dataclass_character(self, **overrides):
+        """A frozen dataclass shaped like `model.Character` AFTER the seam.
+
+        Deliberately not `model.Character` itself: that class does not have
+        the three fields today, and a test that needed it to would be a test
+        that cannot run until another lane moves.  The real class is graded
+        by `test_todays_real_character_is_returned_untouched` below, from the
+        other side.
+        """
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class SeamCharacter:
+            id: int = 7
+            name: str = "rowvit"
+            level: int | None = None
+            hp_current: int | None = None
+            hp_max: int | None = None
+
+        return SeamCharacter(**overrides)
+
+    def _row(self, reason=login_vitals.FROM_ROW):
+        """A resolution whose three numbers differ from every login constant.
+
+        `7 / 37 / 250` for the reason `COO-DECISION 20260903_0447` gives in
+        its own words: after `migrations/009` a fixture at the constants
+        cannot tell "read the row" from "send the literal", because they are
+        the same bytes.
+        """
+        return login_vitals.ResolvedLoginVitals(7, 37, 250, reason)
+
+    def test_a_row_resolution_rides_the_character(self):
+        carried = login_vitals.apply_to_character(
+            self._dataclass_character(), self._row())
+        self.assertEqual(
+            (carried.level, carried.hp_current, carried.hp_max),
+            (7, 37, 250))
+
+    def test_the_revived_login_rides_too(self):
+        """`REVIVED_ON_LOGIN` numbers were read BACK off the row, so they are
+        the row's -- `wire_kwargs()` says so and this must agree with it."""
+        carried = login_vitals.apply_to_character(
+            self._dataclass_character(),
+            self._row(login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN))
+        self.assertEqual(
+            (carried.level, carried.hp_current, carried.hp_max),
+            (7, 37, 250))
+
+    def test_every_literal_carrying_reason_leaves_the_object_alone(self):
+        """Not "returns equal" -- returns THE SAME OBJECT.
+
+        Identity, because that is what makes the refusal unmistakable: a copy
+        that happens to be equal today is a copy some later field could make
+        differ, and the promise this function makes about a refusal is that
+        the login composes exactly what `main` composes.
+        """
+        character = self._dataclass_character()
+        for reason in sorted(login_vitals.REASONS):
+            if reason in login_vitals.WIRE_TAKES_THE_ROWS_NUMBERS:
+                continue
+            with self.subTest(reason=reason):
+                resolved = self._row(reason)
+                self.assertEqual(
+                    {}, resolved.wire_kwargs(),
+                    "the fixture no longer reaches the refusing branch")
+                self.assertIs(
+                    character,
+                    login_vitals.apply_to_character(character, resolved))
+
+    def test_the_real_character_is_safe_in_both_states_of_the_model(self):
+        """`model.Character` today has no such fields, and this must not raise.
+
+        !! THE ASSERTION IS PICKED FROM THE MODEL RATHER THAN FROM TODAY, AND
+        THAT IS THIS FILE REFUSING TO BE A HOSTAGE AGAIN.  Pinning "the real
+        character comes back untouched" would have gone red on the day the
+        OTHER lane adds the three fields -- which is the change this lane's
+        own CORE-REQUEST asks for -- so the lane that wants the seam would
+        have been the lane blocking it (measured on a patched copy: this test
+        was one of exactly three real failures the seam patch caused).  What
+        must hold in BOTH states is the contract: a model without the fields
+        is handed back untouched, a model with them carries the row, and
+        neither raises.
+        """
+        from dataclasses import fields as dataclass_fields
+        from pirateforce_foundation.model import Character, Position
+
+        character = Character(
+            1, 1, 0, "rowvit", b"", b"", 0, 0, Position(1, 0, 1.0, 2.0, 3.0))
+        names = {f.name for f in dataclass_fields(Character)}
+        result = login_vitals.apply_to_character(character, self._row())
+        if set(login_vitals.CHARACTER_FIELDS) <= names:
+            self.assertEqual(
+                (result.level, result.hp_current, result.hp_max),
+                (7, 37, 250),
+                "the model grew the three fields, so a login must now carry "
+                "the row's numbers on the real character")
+        else:
+            self.assertIs(
+                character, result,
+                "the model has no such fields, so this must be a no-op -- "
+                "not a crash in the START_GAME_REQ handler")
+
+    def test_an_object_that_is_not_a_dataclass_is_returned_untouched(self):
+        class NotADataclass:
+            level = None
+            hp_current = None
+            hp_max = None
+
+        character = NotADataclass()
+        self.assertIs(
+            character,
+            login_vitals.apply_to_character(character, self._row()))
+
+    def test_a_partial_dict_carries_nothing(self):
+        """All three or none, at this layer too (`PANYA-DECISION 20260901_1059`).
+
+        The refusal is measured on a resolution that ANSWERS with two of the
+        three, which is the shape a future `wire_kwargs()` bug would have.
+        """
+        class TwoOfThree:
+            def wire_kwargs(self):
+                return {"hp_current": 37, "hp_max": 250}
+
+        character = self._dataclass_character()
+        self.assertIs(
+            character,
+            login_vitals.apply_to_character(character, TwoOfThree()))
+        self.assertIsNone(character.hp_current)
+
+    def test_a_bool_is_not_an_int_here_either(self):
+        """`True` is an `int` in python and would encode as `1` on the wire."""
+        class BoolLevel:
+            def wire_kwargs(self):
+                return {"level": True, "hp_current": 37, "hp_max": 250}
+
+        character = self._dataclass_character()
+        self.assertIs(
+            character,
+            login_vitals.apply_to_character(character, BoolLevel()))
+
+    def test_a_resolution_whose_door_raises_cannot_fail_a_login(self):
+        class Hostile:
+            def wire_kwargs(self):
+                raise RuntimeError("no")
+
+        character = self._dataclass_character()
+        self.assertIs(
+            character, login_vitals.apply_to_character(character, Hostile()))
+
+    def test_a_character_whose_replace_raises_cannot_fail_a_login(self):
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class Refuses:
+            level: int | None = None
+            hp_current: int | None = None
+            hp_max: int | None = None
+
+            def __post_init__(self):
+                if self.level is not None:
+                    raise ValueError("this object refuses to carry a level")
+
+        character = Refuses()
+        self.assertIs(
+            character,
+            login_vitals.apply_to_character(character, self._row()))
+
+    def test_an_object_that_drops_the_field_is_not_reported_as_carrying_it(self):
+        """The read back, one layer up from the one `COO-DECISION 20260903_0447`
+        point 2 made a house rule: a `__post_init__` that normalises the value
+        away hands back an object that does NOT carry the row, and returning it
+        would be the seam claiming a carry nobody verified."""
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class Clamps:
+            level: int | None = None
+            hp_current: int | None = None
+            hp_max: int | None = None
+
+            def __post_init__(self):
+                object.__setattr__(self, "hp_current", 100)
+
+        character = Clamps()
+        self.assertIs(
+            character,
+            login_vitals.apply_to_character(character, self._row()))
+
+    def test_a_field_whose_read_raises_is_not_reported_as_carrying_it(self):
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class RaisesOnRead:
+            level: int | None = None
+            _hp_current: int | None = None
+            hp_max: int | None = None
+
+            @property
+            def hp_current(self):
+                raise RuntimeError("this field cannot be read")
+
+        # `replace` needs the init field name, so the property sits beside a
+        # private one; what matters is that the READ BACK raises.
+        character = RaisesOnRead()
+        try:
+            result = login_vitals.apply_to_character(character, self._row())
+        except Exception as exc:   # noqa: BLE001 -- the whole point
+            self.fail(f"a login must not fail here; got {exc!r}")
+        self.assertIs(character, result)
+
+    def test_the_read_back_reads_the_three_fields_it_names(self):
+        """The read back spells the three attributes out (a computed name is
+        forbidden in this module by the sibling call map), so a fourth field
+        added to `CHARACTER_FIELDS` without a fourth read would be verified by
+        nothing.  This is the test that keeps the two in step."""
+        import ast
+
+        source = MODULE_SOURCE.read_text(encoding="utf-8")
+        node = next(
+            n for n in ast.walk(ast.parse(source))
+            if isinstance(n, ast.FunctionDef) and n.name == "apply_to_character")
+        read = {
+            a.attr for a in ast.walk(node)
+            if isinstance(a, ast.Attribute)
+            and isinstance(a.value, ast.Name) and a.value.id == "carried"
+        }
+        self.assertEqual(set(login_vitals.CHARACTER_FIELDS), read)
+
+    def test_the_three_field_names_are_the_three_wire_names(self):
+        """One list, not two.  A fourth spelling is how they drift apart."""
+        self.assertEqual(
+            sorted(login_vitals.CHARACTER_FIELDS),
+            sorted(self._row().wire_kwargs()))
+
+
+def _vitals_aliases_in(text):
+    """Every local name `text` binds this module to, via any import spelling."""
+    import ast
+
+    aliases = set()
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.name == "persistence_login_vitals":
+                    aliases.add(a.asname or a.name)
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.split(".")[-1] == "persistence_login_vitals":
+                    aliases.add(a.asname or a.name.split(".")[0])
+    return aliases
+
+
+def _called_names_in(text):
+    """Every attribute/name a call in `text` uses, as dotted strings."""
+    import ast
+
+    names = []
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, ast.Call):
+            continue
+        target = node.func
+        parts = []
+        while isinstance(target, ast.Attribute):
+            parts.append(target.attr)
+            target = target.value
+        if isinstance(target, ast.Name):
+            parts.append(target.id)
+        if parts:
+            names.append(".".join(reversed(parts)))
+    return names
+
+
+class TheOneLoginSeamTests(unittest.TestCase):
+    """What the seam must look like ON THE DAY it lands, graded from here.
+
+    !! THIS GROUP IS DELIBERATELY QUIET TODAY AND SAYS SO.  The seam is in
+    `session.py`, which this lane may not write; until the file names this
+    module there is no seam to grade and these tests say that in an assertion
+    rather than in a `skip` (a new skip is a thing this project counts, and a
+    skip here would be a hole in the very guard `COO-DECISION 20260903_0447`
+    asked for).  The moment the seam lands, the same tests start grading it --
+    which is the only shape that does not need this lane to be awake at the
+    same hour as the lane that lands it.
+    """
+
+    def setUp(self):
+        self.path = ROOT / THE_ONE_LOGIN_SEAM
+        self.text = self.path.read_text(encoding="utf-8", errors="replace")
+        self.wired = "persistence_login_vitals" in self.text
+
+    def test_the_seam_file_exists_at_the_path_this_file_allows(self):
+        """The allowlisted path is a real file, or the scan's one hole leads
+        nowhere and would never be noticed."""
+        self.assertTrue(
+            self.path.is_file(),
+            "%s is the one path allowed to hold the seam and does not exist"
+            % THE_ONE_LOGIN_SEAM)
+
+    def test_a_seam_that_names_the_module_goes_through_both_doors(self):
+        """Naming is not wiring.  A seam that imports the module and then
+        composes its own numbers would pass the scan above and send the
+        literals -- the exact "green test, unchanged wire" shape `COO-DECISION
+        20260903_0054` caught `/speed` in."""
+        called = _called_names_in(self.text)
+        if not self.wired:
+            # `resolve_for_character` is NOT a usable probe here: the sibling
+            # seam `login_speed` exports a function of the same name and
+            # `session.py` already calls it.  `apply_to_character` is this
+            # module's alone, so it is the one that answers "wired without
+            # being named".
+            self.assertEqual(
+                [], [n for n in called if n.endswith("apply_to_character")],
+                "the seam calls this lane's `apply_to_character` without "
+                "naming the module, so the caller scan cannot see it")
+            return
+        aliases = _vitals_aliases_in(self.text)
+        self.assertNotEqual(
+            set(), aliases,
+            "the seam names this module in prose only -- no import binds it, "
+            "so nothing here is calling it")
+        for door in ("resolve_for_character", "apply_to_character"):
+            with self.subTest(door=door):
+                self.assertTrue(
+                    any(name in {f"{alias}.{door}" for alias in aliases}
+                        or name == door
+                        for name in called),
+                    "the login seam names this module but never calls "
+                    "`%s`, so the row's numbers do not reach the character"
+                    % door)
+
+    def test_the_seam_does_not_call_the_resolver_twice(self):
+        """One call point, no second one (`COO-DECISION 20260903_0447`).  Two
+        resolves in one login is also two REVIVE writes, because
+        `resolve_for_character` writes on the dead-row branch."""
+        if not self.wired:
+            return
+        called = _called_names_in(self.text)
+        aliases = _vitals_aliases_in(self.text)
+        # BY ALIAS, NOT BY BARE NAME.  `login_speed.resolve_for_character` is
+        # a different module's function of the same name, already called once
+        # in this very file, so a bare-name count would read the speed seam as
+        # a second vitals resolve and refuse a seam that is correct.
+        mine = [n for n in called
+                if n in {f"{alias}.resolve_for_character" for alias in aliases}]
+        self.assertLessEqual(
+            len(mine), 1,
+            "the login seam resolves the vitals more than once, and each "
+            "resolve of a dead row is another revive WRITE")
+
+    def test_the_call_scan_really_sees_a_call(self):
+        """The control.  Without it a seam could delete both doors and this
+        group would stay green by looking at nothing."""
+        sample = (
+            "import x\n"
+            "def f(store, c):\n"
+            "    r = login_vitals.resolve_for_character(store, c.id)\n"
+            "    return login_vitals.apply_to_character(c, r)\n"
+        )
+        called = _called_names_in(sample)
+        self.assertIn("login_vitals.resolve_for_character", called)
+        self.assertIn("login_vitals.apply_to_character", called)
+        self.assertEqual([], _called_names_in("x = 1\n"))
+        self.assertEqual(
+            {"login_vitals"},
+            _vitals_aliases_in(
+                "from . import persistence_login_vitals as login_vitals\n"))
+        self.assertEqual(
+            {"pirateforce_foundation"},
+            _vitals_aliases_in(
+                "import pirateforce_foundation.persistence_login_vitals\n"))
+        self.assertEqual(set(), _vitals_aliases_in("import sys\n"))
+
+
+class TheHpPinSurvivesTheRequestedChangeTests(unittest.TestCase):
+    """`_hp_defaults_of`, graded on synthetic composers.
+
+    The real composer is another lane's file and holds ONE of these shapes at
+    a time, so the branch that is not live today would otherwise be graded by
+    nothing -- which is how a fallback branch rots into a hole before anyone
+    reaches it.
+    """
+
+    def _composer(self, source):
+        import ast
+
+        tree = ast.parse(source)
+        node = next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef))
+        return _hp_defaults_of(node, ast)
+
+    def test_the_parameterised_shape_the_core_request_asks_for_is_read(self):
+        self.assertEqual(
+            [100, 100],
+            self._composer(
+                "def c(legacy, *, hp_current: int = 100, hp_max: int = 100):\n"
+                "    return legacy.u32tag(0x14, hp_current) + legacy.u32tag(0x14, hp_max)\n"))
+
+    def test_positional_defaults_are_read_too(self):
+        self.assertEqual(
+            [7, 9],
+            self._composer(
+                "def c(legacy, hp_current=7, hp_max=9):\n"
+                "    return legacy.u32tag(0x14, hp_current) + legacy.u32tag(0x14, hp_max)\n"))
+
+    def test_a_parameter_the_composer_never_emits_is_not_a_pin(self):
+        """The hole this guard exists to refuse: a signature that carries the
+        names while the wire still carries something else."""
+        self.assertIsNone(
+            self._composer(
+                "def c(legacy, *, hp_current: int = 100, hp_max: int = 100):\n"
+                "    return legacy.u32tag(0x14, 100) + legacy.u32tag(0x14, 100)\n"))
+
+    def test_one_of_the_two_is_not_enough(self):
+        self.assertIsNone(
+            self._composer(
+                "def c(legacy, *, hp_current: int = 100):\n"
+                "    return legacy.u32tag(0x14, hp_current)\n"))
+
+    def test_a_bool_default_is_refused(self):
+        """`True` is an `int` and would pin the HP constant at 1."""
+        self.assertIsNone(
+            self._composer(
+                "def c(legacy, *, hp_current=True, hp_max=True):\n"
+                "    return legacy.u32tag(0x14, hp_current) + legacy.u32tag(0x14, hp_max)\n"))
+
+    def test_todays_composer_still_reaches_the_literal_branch(self):
+        """The control: on `main` as it stands the numbers come from the two
+        inline literals, not from this file's fallback."""
+        self.assertEqual(
+            [FALLBACK_HP_CURRENT, FALLBACK_HP_MAX], _login_hp_literals())
 
 
 if __name__ == "__main__":

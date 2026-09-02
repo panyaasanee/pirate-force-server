@@ -812,3 +812,105 @@ def resolve_for_character(
         fallback_hp_current=fallback_hp_current,
         fallback_hp_max=fallback_hp_max,
     )
+
+
+#: The three field names a login seam sets on its character object.  Named
+#: once here because `apply_to_character` below has to agree with
+#: `ResolvedLoginVitals.wire_kwargs` on all three, and a fourth spelling of
+#: the same list is the shape that lets them drift apart.
+CHARACTER_FIELDS = ("level", "hp_current", "hp_max")
+
+
+def apply_to_character(character, resolved):
+    """Return the character a login should compose, carrying the row's numbers.
+
+    This is the seam's half of `wire_kwargs()`, in the shape chief chose for
+    the login's walk speed (`model.py`'s note, and `legacy_bridge.start_
+    game`'s): the value RIDES the character object rather than being threaded
+    through the composer call, because `start_game` is called up to three more
+    times per production login by `runtime.py`'s recomposes, and each of those
+    passes the same selected character.  A number threaded into only the
+    first call is a number the very next recompose puts back to the
+    constant -- visible in a unit test, invisible on the wire.
+
+    THE WALK-SPEED FIELD IS NAMED IN WORDS RATHER THAN SPELLED, and that is
+    not squeamishness: `tests/test_npc_gait_wire.py` scans every module under
+    `src/` for the bare token and fails the lane that adds one, DOCSTRINGS
+    INCLUDED (`MOVEMENT_SPEED_TOKEN = re.compile(r"\bmovement_speed\b")`,
+    matched against `path.read_text()`).  Measured: an earlier draft of this
+    paragraph turned that lane's test red from a comment.
+
+    FAIL-CLOSED, AND CLOSED MEANS THE OBJECT IT WAS GIVEN, UNTOUCHED.  Every
+    refusal below returns `character` itself (identity, not a copy), which is
+    exactly `main`'s behaviour for that login: the composer's own literals go
+    out.  The refusals are:
+
+    * the resolution's numbers are NOT the row's (`wire_kwargs()` is `{}`) --
+      every reason whose numbers are the caller's literals already, so
+      putting them on the character would be laundering a constant into a
+      field named after a row;
+    * `character` is not a dataclass, or is one without these three fields --
+      which is `model.Character` TODAY, so this function is safe to call
+      before chief's half of the seam lands, and stays safe for any other
+      lane's stub that never grew the fields;
+    * the object that comes back does not actually answer with the three
+      numbers -- the same read-back-after-write discipline `COO-DECISION
+      20260903_0447` made a house rule one layer down: a seam may not report
+      that the character carries the row unless the object says so itself.
+
+    IT NEVER RAISES.  `select_and_start` runs inside `runtime.py`'s
+    START_GAME_REQ handler, which catches `KeyError`, `PermissionError`,
+    `ValueError` and `RuntimeError` -- and `v141` wraps the per-connection
+    loop in `try/finally` with no `except` at all -- so a `TypeError` from
+    here would unwind the listener thread and park the client on
+    "connecting".  The module that exists so a login cannot fail must not be
+    the thing that fails it.
+
+    ALL THREE OR NONE, at this layer too (`PANYA-DECISION 20260901_1059`):
+    the numbers come out of `wire_kwargs()` as one dict and go onto the
+    object in one `replace` call, so there is no ordering in which a login
+    could carry the row's `hp_current` beside a constant `level`.
+    """
+    from dataclasses import replace
+
+    try:
+        kwargs = resolved.wire_kwargs()
+    except Exception:   # noqa: BLE001 -- a login outranks a foreign object
+        return character
+    if not isinstance(kwargs, dict) or sorted(kwargs) != sorted(
+            CHARACTER_FIELDS):
+        # `{}` is the ordinary refusal (every literal-carrying reason); any
+        # other shape is a `resolved` this function did not come from, and
+        # both mean the same thing here -- send what `main` sends.
+        return character
+    for name in CHARACTER_FIELDS:
+        value = kwargs[name]
+        # `bool` first, for the reason `ResolvedLoginVitals` gives: `True` is
+        # an `int` and would encode as `1` on the wire.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return character
+    try:
+        carried = replace(character, **kwargs)
+    except Exception:   # noqa: BLE001 -- not a dataclass, or not these fields
+        return character
+    # THE READ BACK.  `replace` runs `__init__`, so a `__post_init__` that
+    # normalises, clamps or drops a field can hand back an object that does
+    # not carry what was asked -- and a seam that then reported "the wire
+    # takes the row's numbers" would be making the exact claim `COO-DECISION
+    # 20260903_0447` point 2 outlawed one layer down.
+    #
+    # THE THREE NAMES ARE SPELLED OUT RATHER THAN LOOPED OVER `CHARACTER_
+    # FIELDS`, and that is not style.  `tests/test_persistence_vitals_heal.
+    # py::NothingIsWiredTests` forbids this module from asking for ANY
+    # attribute by a computed name, because the call map that proves no
+    # unauthorised healing door is reached cannot see through one -- and a
+    # `getattr(carried, name)` in a loop is exactly that shape.  Measured:
+    # the looped version turned that guard red.  `test_the_read_back_reads_
+    # the_three_fields_it_names` keeps these three in step with the tuple.
+    try:
+        read_back = (carried.level, carried.hp_current, carried.hp_max)
+    except Exception:   # noqa: BLE001 -- a property that raises
+        return character
+    if read_back != (kwargs["level"], kwargs["hp_current"], kwargs["hp_max"]):
+        return character
+    return carried
