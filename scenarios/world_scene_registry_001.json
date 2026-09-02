@@ -123,7 +123,7 @@
       "native_definition_count": 46,
       "native_sha256": "a649f4afab701df3698b9ffebbb83b77863531a9113c40b6f12f056b7f030b16",
       "role": "proven_second_scene",
-      "status": "runtime_pass_SCENE_001_behind_a_scenario_flag",
+      "status": "runtime_pass_SCENE_001_behind_a_scenario_flag -- OPEN AT LOGIN, WRITTEN DOWN RATHER THAN INHERITED (LANE-A round cu1il6, 2026-09-02T18:0x+07:00): this row carried NO login_entry_allowed key at all, so world_scene_travel's DEFAULT_LOGIN_ENTRY_ALLOWED supplied True and every caller of lane_a_scene_census.scene_is_open_to_players got a silent yes for scene 2 -- including the ChooseNPC responder this round shipped, whose own comment cited the registry for a value the registry did not hold (pf-adversary D7). The boolean below states the door that was already open; it changes no behaviour, and it makes shutting the door a one-key edit that the responder's registry_door_shut refusal can actually be driven against. The safety case is scene 2's own: its 97-actor census has shipped on every flagless boot since CORE-REQUEST-021, and the scene arms no population_indices for a scene-blind reader to be reached through.",
       "table_row": {
         "n_SCENE_WEATHER": 1,
         "n_SCENE_DAYANDNIGHT": 15,
@@ -154,7 +154,8 @@
         "note": "The one row that is BOTH marker-sourced and client-observed, and the distinction is worth keeping: the coordinate came from MARKER[2] (scenarios/scene2_load_only.json, named scene2_load_only_marker2, coordinate_provenance scene2_marker2), and SCENE-001 then stood a live client on it (docs/EXPERIMENT_LEDGER.md:32, a runtime pass). That is the strongest evidence any marker point has. It is still NOT proof of rule 1's real claim: the client was placed there by this server behind a scenario flag, not by the original game's own arrival path.",
         "deviates_from_rule_1": false
       },
-      "ground": null
+      "ground": null,
+      "login_entry_allowed": true
     },
     {
       "n_id": 3,
