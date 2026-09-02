@@ -265,17 +265,57 @@ UIA_NOTICE_TEXT = "BACK REFUSED"
 # WHY `EXIT REFUSED` IS AVAILABLE: COO-DECISION `20260902_0943` refused it
 # *as UI-A's wording*, with the reason "it collides with the UI-B button".
 # That is a statement about which button owns the words, not a ban on the
-# words -- so this round claims them for the button they name.  It is still
-# a reading of someone else's sentence rather than a ruling, so:
+# words -- so this round claims them for the button they name.
 #
-# [assumption of lane A - awaiting COO confirmation]
-# the letter carrying it, one topic per letter as the lane charter asks:
+# It was a reading of someone else's sentence rather than a ruling, so it
+# shipped labelled, and the label is now retired:
+#
+# ~~[assumption of lane A - awaiting COO confirmation]~~
+# RULED, round `gwwpmr` -- AND THE RULING IS NOT VERIFIABLE FROM THIS
+# REPOSITORY (pf-adversary D6).  Every COO decision, letter and GT/RE
+# ticket this project cites lives in the SEPARATE `pf_bridge` repository,
+# which is not a path in this tree; the test below can only assert that
+# this comment names a file, never that the file exists or says what the
+# comment claims.  That is a property of the two-repo split, not of this
+# round, and it is written here so a reader does not mistake a green test
+# for corroboration.  The decision, quoted only as far as it was read:
+# COO-DECISION 2026-09-02T14:45+07:00
+# (pf_bridge/notes_to_chief/20260902_1445_COO-DECISION-lane-a-uib-word-
+# exit-refused-confirmed-drop-the-assumption-tag.md) confirms this exact
+# spelling and says the reading above was correct -- "collides with UI-B"
+# means "reserved FOR UI-B".  Same strikethrough-plus-RULED shape as
+# UI-A's retired label above, and for the same reason: the sweep that
+# hunts for open lane assumptions matches on the label text, so a retired
+# one has to be distinguishable ON the matched line.
+#
+# The letter that carried it, one topic per letter as the lane charter
+# asks, and which that decision answers:
 # pf_bridge/notes_to_chief/20260902_1341_LANE-A-ASK-COO-uib-notice-wording.md
 #
-# WHAT CHANGING THE SPELLING COSTS, counted rather than guessed: this
-# constant, the two test lines that pin the literal, the two prose lines in
-# this file that quote it, and the console line a tester copies by hand in
-# `GT-211`.  No byte of the composer moves.
+# WHAT THAT DECISION ALSO REFUSED, kept because a later round will reach
+# for it otherwise: the ask letter's option 2, `EXIT NOT YET`.  COO's
+# reason was that the whole game's refusal vocabulary is one shape,
+# `<the button's verb> REFUSED/DENIED`, and that "not ready yet" is not
+# what the server is doing -- it is refusing.  Options 3 and 4 were
+# refused for the reason this lane had already written: one screenshot
+# must say which button was clicked.
+#
+# WHAT CHANGING THE SPELLING COSTS.  ~~counted rather than guessed: this
+# constant, the two test lines that pin the literal, the two prose lines
+# in this file that quote it~~ -- BOTH NUMBERS WERE WRONG (pf-adversary
+# D5, round `gwwpmr`, counted at HEAD: neither was 2).  A count written
+# into a comment is stale the moment anyone adds a line, and the round
+# that tried to correct it made its own replacement numbers stale in the
+# same edit.  So the durable half is the METHOD, and this is it:
+#
+#     grep -n "EXIT REFUSED" src/pirateforce_foundation/
+#         world_logout_button_notice.py
+#         tests/test_world_logout_button_notice.py
+#         tests/test_world_logout_button_notice_wiring.py
+#
+# plus the console line a tester copies by hand in `GT-211`, which no
+# grep of this repository will find because that ticket lives in
+# `pf_bridge`.  No byte of the composer moves either way.
 #
 # WHAT IT DOES NOT SAY: `EXIT REFUSED` does not mean the server decided the
 # player may not leave.  It means this server cannot yet PERFORM the exit
