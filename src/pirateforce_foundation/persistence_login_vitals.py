@@ -23,7 +23,8 @@ unrelated edit and every test in this lane stayed green".
 * `player_wire._make_actor_attr_with_name_and_class` -- the composer the REAL
   login path reaches (`legacy_bridge.start_game` ->
   `make_actor_attr_with_name_and_class`).  It is the one that already takes
-  `movement_speed`, and its `level` goes out through `u16tag(0x12, ...)`
+  the walk-speed keyword `login_speed.py` feeds, and its `level` goes out
+  through `u16tag(0x12, ...)`
   while the two HP numbers go out through `u32tag(0x14, ...)`.  THIS is the
   pair a seam must parameterise.
 * `player_wire._make_actor_attr_with_name` -- what that file's own docstring
@@ -69,8 +70,11 @@ all three literals and the console line names the gap.
 WHAT THIS DOES NOT CLAIM
 ------------------------
 * !! IT DOES NOT CLAIM ANY BYTE ON A FRESH DATABASE CHANGES, AND ON ONE NONE
-  DOES.  `persistence_vitals.new_character_vitals()` seeds a newborn at
-  `level 1, hp 100/100`, which is EXACTLY the three literals the login sends
+  DOES.  `persistence_vitals` seeds a newborn at `level 1, hp 100/100`
+  (through the one birth-value function `COO-DECISION 20260902_0443` point 1
+  names -- NOT NAMED HERE, because that lane's own guard scans this tree for
+  a second caller and a mention is indistinguishable from a call to it),
+  which is EXACTLY the three literals the login sends
   today, so "read the row" and "send the constant" produce identical bytes on
   every character of a fresh install.  This is the same trap `COO-DECISION
   20260903_0054` -- in `pf_bridge`, unopenable from here -- caught the speed
