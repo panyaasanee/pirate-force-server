@@ -36,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from pf_preconditions import BRIDGE_GAMEDATA
 from pirateforce_foundation import (
-    field_drop_tables, field_mobs, ground_loot_hypothesis, loot_roll, mob_loot)
+    field_drop_tables, field_mobs, ground_loot_hypothesis, loot_roll,
+    mob_drop_presence, mob_loot, mob_pickup)
 from pirateforce_foundation.field_mobs import load_roster
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_death import DeathRecord
@@ -2586,6 +2587,81 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
         self.assertEqual(called, [], "the composer was reached for an empty "
                                      "scene; the guard is gone")
 
+    def test_entering_the_same_scene_again_publishes_nothing(self):
+        """pf-adversary 9jrsei D2.  ``enter_scene``'s "safe to call on every
+        sync" was carried over to a method that COMPOSES, and measured, five
+        consecutive same-scene calls composed five full ground generations --
+        a ground re-emission per sync, which is the cadence COO-DECISION
+        2026-08-26T07:45+07:00 refused, reached through a method whose
+        docstring says it is not one.  The publication belongs to the
+        CROSSING."""
+        self._kill(self._mob_in(self.SCENE_A))
+        first = self.cell.enter_scene_frames(self.legacy, self.SCENE_B)
+        crossing = self.cell.enter_scene_frames(self.legacy, self.SCENE_A)
+        self.assertTrue(crossing[4], "the crossing published nothing")
+        for _ in range(5):
+            again = self.cell.enter_scene_frames(self.legacy, self.SCENE_A)
+            self.assertEqual(again[4], ())
+            self.assertEqual(again[0], self.SCENE_A)
+        # case folding counts as the same scene, not as a crossing
+        folded = self.cell.enter_scene_frames(
+            self.legacy, self.SCENE_A.upper())
+        self.assertEqual(folded[4], ())
+        self.assertEqual(first[4], ())     # A -> B was an empty scene
+
+    def test_the_boundary_declares_the_scene_it_entered(self):
+        """pf-adversary 9jrsei D6: deleting ``_scene_declared = True`` from
+        the extracted ``_enter_scene`` left the WHOLE suite green, because
+        the only test of the declaration set the scene through the
+        constructor.  What the flag buys is written in this module: a kill
+        whose FieldMob carries a defaulted scene may not overrule a scene the
+        boundary DECLARED, or the session's whole ground moves under the
+        player and their own keys are erased by the next publication."""
+        cell = DropLedgerCell()
+        cell.enter_scene_frames(self.legacy, self.SCENE_A)
+        with self.assertRaises(MobLootContractError) as caught:
+            self._kill_through(cell, self._mob_in(self.SCENE_B))
+        self.assertEqual(caught.exception.args[0], "kill_in_another_scene")
+        self.assertEqual(cell.current_scene, self.SCENE_A)
+        # and the plain entry point declares it too
+        plain = DropLedgerCell()
+        plain.enter_scene(self.SCENE_A)
+        with self.assertRaises(MobLootContractError):
+            self._kill_through(plain, self._mob_in(self.SCENE_B))
+
+    def test_a_scene_too_wide_to_frame_trims_instead_of_raising(self):
+        """pf-adversary 9jrsei D5.  The bare composer call raised
+        ``generation_too_wide_to_frame`` OUT OF A SCENE TRANSITION, after the
+        cell had already advanced -- while the sibling emitter trims.  A
+        boundary is the worst place in the lane to raise: the caller is in
+        the middle of moving a player between scenes."""
+        cap = (
+            mob_loot.DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
+            if mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED
+            else mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
+        )
+        rows = tuple(
+            mob_loot.GroundDrop(
+                DROP_KEY_BASE + i, 2400046, 1, as_wire_float(float(i)),
+                0.0, 0.0, 0x201F + i, KILLER, self.SCENE_A)
+            for i in range(cap + 3)
+        )
+        wide = mob_loot.DropLedger(rows, 1, DROP_KEY_BASE + len(rows))
+        frames = DropLedgerCell._boundary_frames(self.legacy, wide)
+        self.assertEqual(len(frames), 1)
+        for _pc, frame in frames:
+            self.assertLessEqual(len(frame), 0x10000)
+
+    def test_the_boundary_refuses_a_handle_that_is_not_the_serializer(self):
+        """Same finding: ``legacy=None`` used to leave a bare AttributeError
+        coming out of a scene transition.  Every other emission path in this
+        lane fails closed BY NAME."""
+        self._kill(self._mob_in(self.SCENE_A))
+        self.cell.enter_scene(self.SCENE_B)
+        with self.assertRaises(MobLootContractError) as caught:
+            self.cell.enter_scene_frames(None, self.SCENE_A)
+        self.assertEqual(caught.exception.args[0], "type_not_typed_record")
+
     def test_the_boundary_publication_removes_nothing(self):
         """COO 0253 still stands: the announcing call may not become a
         remover."""
@@ -2736,6 +2812,34 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
         self.assertIn("enter_scene_frames(legacy, folder)", wiring_step_six)
         self.assertIn("~~self.mob_loot_cell.enter_scene(folder)~~",
                       wiring_step_six)
+        # pf-adversary 9jrsei D9/D10: the pre-existing assertion above is
+        # satisfied by the STRUCK text, and nothing checked that the code the
+        # chief is told to write can actually be written.  So: the names he
+        # is told to unpack must match the arity this method returns, the
+        # ordering rule RE-130 forces must be stated, and the two-layer
+        # wording COO 0944 item 2 ordered must survive.
+        names = wiring_step_six.split(
+            "self.mob_loot_cell.enter_scene_frames")[0].rsplit("\n", 1)[-1]
+        self.assertEqual(names.count(","), 4, "the chief is told to unpack "
+                         "the wrong number of names from a 5-tuple")
+        cell = DropLedgerCell()
+        self.assertEqual(
+            len(cell.enter_scene_frames(self.legacy, self.SCENE_A)), 5)
+        for phrase in ("BEFORE any other ground generation",
+                       "SERVER LAYER", "SCREEN LAYER, unmeasured"):
+            self.assertIn(phrase, wiring_step_six)
+        # and the sentence that licensed a per-sync re-emission is struck
+        self.assertIn("~~Calling it for the scene the cell is already in",
+                      wiring_step_six)
+        # every sibling module that repeats the ask names the same call
+        for module in (mob_loot, mob_pickup, mob_drop_presence):
+            sibling = Path(module.__file__).read_text(encoding="utf-8")
+            for line in sibling.splitlines():
+                if "enter_scene(" in line and "~~" not in line:
+                    self.assertNotIn(
+                        "runtime.py", line,
+                        "%s still asks runtime.py for the superseded call"
+                        % module.__name__)
         self.assertIn("SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY", source)
 
     def test_the_scene_does_not_travel_on_the_wire(self):

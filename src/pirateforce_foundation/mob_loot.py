@@ -359,8 +359,20 @@ MOB_LOOT_WIRING = (
     "COO-DECISION 2026-09-02T02:52+07:00 chose WAY 1 -- bind ownership to the "
     "scene -- and reconcile DELETES rows, which COO-DECISION 2026-09-02T02:53 "
     "+07:00 forbids until a removal publisher exists.  WHAT TO CALL INSTEAD, "
-    "one line, at the SAME boundary (right where mob_combat_scene_folder is "
-    "assigned), before the first publish in the new scene:\n"
+    "~~one line, at the SAME boundary (right where mob_combat_scene_folder is "
+    "assigned)~~ -- BOTH HALVES OF THAT ARE STRUCK, round 9jrsei: it is two "
+    "lines now (see below), and pf-adversary D3 MEASURED that the place it "
+    "named is not a scene boundary a walking player crosses.  "
+    "_sync_combat_scene_state has three callers: _dispatch_mob_combat (which "
+    "returns early unless the packet is an ActionVital at a positive "
+    "non-self target -- i.e. THE PLAYER SWUNG AT SOMETHING) and two sites "
+    "behind the once-per-session `not self.world_census_sent` latch.  Wired "
+    "there and nowhere else, 'walk out and back and your ground is "
+    "re-announced' becomes 'walk out and back AND ATTACK SOMETHING'.  SO THE "
+    "ASK IS: call it where the session actually learns the scene changed -- "
+    "the GM-warp / scene-sync path that assigns the new folder for a "
+    "MOVEMENT, not only the combat one -- before the first publish in the "
+    "new scene:\n"
     "       ~~self.mob_loot_cell.enter_scene(folder)~~ IS SUPERSEDED, round "
     "9jrsei, by COO-DECISION 2026-09-02T09:44+07:00, which answered the open "
     "question below.  THE LINE TO WRITE IS NOW TWO, and the second one is the "
@@ -370,6 +382,16 @@ MOB_LOOT_WIRING = (
     "       # then send every (pc, frame) in `ground`, in order, like a "
     "kill's drop frames.  It is EMPTY for a scene with no drops standing, "
     "and then you send nothing.\n"
+    "     ORDERING, AND IT IS NOT OPTIONAL (pf-adversary D4, round 9jrsei).  "
+    "RE-130: the LAST nonempty generation a client receives is the one that "
+    "survives, and it ERASES every key it omits.  So these frames must go "
+    "out BEFORE any other ground generation composed in the same dispatch.  "
+    "If a kill lands in the same dispatch, sustain_a_kill's generation "
+    "carries the whole scene (this kill's rows AND the ones the boundary "
+    "just re-announced), so kill-last is correct and boundary-last is NOT: "
+    "appending the stashed boundary frames after the kill's rolls the "
+    "client's ground back to the state it had BEFORE the player's newest "
+    "kill, and the object they just earned is the one that disappears.\n"
     "     enter_scene(folder) still exists and still does exactly what it "
     "did; enter_scene_frames is that call plus the entered scene's own "
     "generation, composed from one snapshot.\n"
@@ -383,16 +405,31 @@ MOB_LOOT_WIRING = (
     "keys it omits, and ~~the only emitter is sustain_a_kill, which needs a "
     "KILL -- so a player who returns to scene A sees the drop again only "
     "when something else dies in scene A, inside what is left of the "
-    "120 s~~ IS STRUCK, round 9jrsei: the boundary emits now, so nothing "
-    "else has to die -- what the player gets back is whatever is left inside "
-    "the 120 s.  "
+    "120 s~~ IS STRUCK, round 9jrsei, AND ITS TWO-LAYER FORM IS KEPT "
+    "(COO-DECISION 2026-09-02T09:44+07:00 item 2 orders the server layer and "
+    "the screen layer written separately until a GT measures the second).  "
+    "SERVER LAYER, and this is what this lane can prove: the boundary now "
+    "COMPOSES AND HANDS YOU the entered scene's generation, so nothing else "
+    "has to die for those bytes to exist.  SCREEN LAYER, unmeasured: what a "
+    "client does with a generation sent at a boundary has never been "
+    "watched, and NONCLAIM 1 of this module is the ceiling on any promise "
+    "made here -- GT-045 measured a floating NAME LABEL plus dust for "
+    "0.2-0.3 s and NO OBJECT under it.  Anybody quoting this to the owner "
+    "quotes both layers or neither.  "
     "~~WHO RE-ANNOUNCES A SCENE'S GROUND ON RE-ENTRY IS AN OPEN QUESTION~~ "
     "IS ANSWERED, round 9jrsei: COO-DECISION 2026-09-02T09:44+07:00 rules "
     "that the boundary itself re-announces it -- ONE generation, only when "
     "the entered scene has rows -- because that is an EVENT and not the "
     "cadence refused on 2026-08-26.  That is why the line above is now "
-    "enter_scene_frames.  Calling it for the scene the cell is "
-    "already in is a no-op, so it is safe to call on every sync.  WITHOUT IT "
+    "enter_scene_frames.  ~~Calling it for the scene the cell is already in "
+    "is a no-op, so it is safe to call on every sync~~ IS STRUCK, round "
+    "9jrsei (pf-adversary D2): that was true of enter_scene, which composes "
+    "nothing, and carrying it to a method that DOES compose measured five "
+    "full ground generations for five same-scene calls -- a cadence, the "
+    "refused thing, reached through the method that says it is not one.  "
+    "enter_scene_frames now publishes ONLY when previous != current, so "
+    "calling it on every sync is safe again AND means one generation per "
+    "crossing.  WITHOUT IT "
     "the cell keeps publishing for whatever scene its last kill was in, and "
     "before the FIRST kill of a boot it does not know a scene at all, so "
     "mob_drop_presence.sustain_a_kill returns "
@@ -2862,22 +2899,94 @@ class DropLedgerCell:
         been designed yet.  ``frames`` is the empty tuple there and the caller
         sends nothing.
 
+        ENTERING THE SCENE THE CELL IS ALREADY IN PUBLISHES NOTHING, and that
+        is not an optimisation -- it is the ruling.  ~~"calling it for the
+        scene the cell is already in is a no-op, so it is safe to call on
+        every sync"~~ WAS TRUE OF ``enter_scene`` AND WAS CARRIED OVER HERE
+        UNCHECKED (pf-adversary, round 9jrsei, D2): measured, five
+        consecutive calls for the same scene composed five full ground
+        generations.  A caller following that sentence would have put a
+        ground re-emission on every sync -- a cadence, which is the thing
+        COO-DECISION 2026-08-26T07:45+07:00 refused, arrived at through a
+        method whose own docstring says it is not one.  So the publication is
+        bound to the CROSSING: ``previous`` differing from ``current`` is the
+        event, and a repeat call for the same scene answers with the same
+        four values and no frames.
+
         The bytes are composed OUTSIDE the lock, from the ledger VALUE this
         call snapshotted, because composing bytes under a lock a kill is
-        waiting on is how a lane earns a stall it cannot see.  The value is
-        immutable, so what is composed is exactly what was true at the
-        boundary.
+        waiting on is how a lane earns a stall it cannot see.  WHAT THE ONE
+        ACQUISITION BUYS, EXACTLY (pf-adversary D7 struck the wider claim):
+        the scene and the rows agree with each other, so the generation
+        cannot omit a live key of the scene it publishes AS OF THE SNAPSHOT.
+        It buys nothing about freshness at SEND time: a kill that lands after
+        this returns composes a NEWER generation, and whichever of the two
+        reaches the client last is the one RE-130 keeps.  The caller owes the
+        ordering, and :data:`MOB_LOOT_WIRING` step 6 now states it.
 
         [ASSUMPTION OF LANE B - AWAITING AN ATTENDED ROUND] that a client
         which draws a generation sent after a kill also draws the same
         generation sent at a scene boundary.  NONCLAIM 12 (nobody has watched
         what a re-emission does to a label that is already drawn) is
-        untouched by this and stays open; GT-204's re-entry step is where
-        both get watched.
+        untouched by this and stays open.  ~~GT-204's re-entry step is where
+        both get watched~~ IS STRUCK (pf-adversary D8): GT-204 is the chief's
+        ticket, is BLOCKED, and its steps are kill / walk / click / bag with
+        no walk-out-and-back step in them.  COO-DECISION 0944 assigns adding
+        one to the chief and it has not been added, so nothing is scheduled
+        to watch this yet.
+
+        AND THE COST OF THE EMPTY-SCENE RULE, named rather than left for a
+        player to find (pf-adversary D11): entering a scene with no rows
+        publishes nothing, so nothing clears the LABELS the previous scene
+        drew -- a zero-row generation is a client no-op (RE-082).  A click on
+        one of those is refused by name, ``drop_is_in_another_scene``.  The
+        alternative was to spend the one shape nobody has measured to say
+        nothing, and the removal publisher COO-DECISION 0253 asks for is
+        where this gets fixed properly.
         """
         previous, scene, elsewhere, expired, view = self._enter_scene(scene)
-        frames = refresh_frames(legacy, view) if view.drops else ()
+        if previous is not None and scene_key(previous) == scene_key(scene):
+            return previous, scene, elsewhere, expired, ()
+        frames = self._boundary_frames(legacy, view)
         return previous, scene, elsewhere, expired, frames
+
+    @staticmethod
+    def _boundary_frames(legacy: Any, view: "DropLedger") -> tuple:
+        """The entered scene's generation, TRIMMED and typed, or ``()``.
+
+        pf-adversary, round 9jrsei, D5: the first draft called
+        :func:`refresh_frames` bare, so a scene holding more rows than one
+        frame can carry raised ``generation_too_wide_to_frame`` OUT OF A
+        SCENE TRANSITION -- after the cell had already advanced -- and a
+        ``legacy`` that is not a serializer raised a bare ``AttributeError``.
+        The sibling emitter (``mob_drop_presence.sustain_a_kill``) has
+        trimmed to the composer's own cap for exactly this reason since its
+        own adversarial pass, with a comment about turning a graceful trim
+        into a full refusal.  This is the same trim, kept here rather than
+        imported, because ``mob_drop_presence`` imports THIS module.
+
+        The trim keeps the OLDEST rows: the drop a player walked back for is
+        older than the one that fell while they were away, and the newer one
+        will be re-announced by its own kill's generation anyway.
+        """
+        if not view.drops:
+            return ()
+        for name in ("u32tag", "u8tag", "u16tag", "f32tag", "frame_pc"):
+            if not callable(getattr(legacy, name, None)):
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "enter_scene_frames needs the frozen v141 serializer "
+                    "handle; this one has no %s" % name)
+        cap = (
+            DROP_MAX_ELEMENTS_PER_FRAME_WITH_MODEL_TYPE
+            if DROP_MODEL_TYPE_FIELD_ENABLED
+            else DROP_MAX_ELEMENTS_PER_FRAME
+        )
+        rows = view.drops
+        if len(rows) > cap:
+            view = DropLedger(
+                rows[:cap], view.generation, view.issued_through, view.looted)
+        return refresh_frames(legacy, view)
 
     def publication(self) -> tuple:
         """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.
