@@ -65,17 +65,73 @@
 -- purpose, so the proof travels with the owner's own upgrade and does not
 -- live only in a test on a developer's machine:
 --
---   G1  the row count is unchanged.
+--   G1  the row count is unchanged -- checked while BOTH tables still exist,
+--       against the real old table rather than against a copy of it.
 --   G2  EVERY row is unchanged in EVERY one of the 35 columns, compared
---       NULL-safely (`IS`) against a copy taken before the rebuild.
+--       NULL-safely (`IS`), also against the real old table.
 --   G3  the column list, types, NOT NULL flags and primary key are identical
 --       before and after -- only `dflt_value` is allowed to differ, and only
---       for the four columns named above.
+--       for the four columns named above -- and the column COUNT matches, so
+--       a column cannot be added or dropped.
 --   G4  the four partial indexes `004` installed are back, by name AND by
 --       their exact SQL text (a rebuild that silently loses
 --       `characters_active_selector` would let one account hold two
 --       characters in the same slot).
 --   G5  `pragma_foreign_key_check` is empty.
+--   G6  every OTHER object in the schema -- every table, index and trigger
+--       that is not this table's -- is byte-identical in `sqlite_master`,
+--       and there are the same number of them.  A `pf-adversary` pass
+--       measured why this one is needed: with G1-G5 alone, a rebuild that
+--       also dropped `sessions_one_active_character` (`002`, one live
+--       session per character) passed every guard AND the whole test file.
+--   G7  the CHECK constraints on this table are still there, counted from
+--       the table's own SQL text.  `PRAGMA table_info` cannot see a CHECK,
+--       so without this a rebuild that dropped all twenty-one `typeof()`
+--       constraints `006` installed was green.
+--   G8  the foreign key to `accounts` is still declared, read back from
+--       `pragma_foreign_key_list`.  Same blind spot as G7: an FK clause
+--       silently deleted from the rebuilt table is invisible to G3, and
+--       `pragma_foreign_key_check` cannot report a violation of a
+--       constraint that no longer exists.
+--   G9  every OTHER table still holds the same number of rows.  The tables
+--       are named one by one because SQL in a migration file cannot iterate
+--       over `sqlite_master`; a table added by a later migration is not
+--       covered here and is covered by the test file instead.  Needed
+--       because `DROP TABLE characters` with foreign keys OFF is exactly the
+--       statement that would silently take the child rows with it if the
+--       recipe were wrong, and G1/G2 only ever look at this table.
+--
+-- WHAT THE GUARDS STILL CANNOT SEE, said here rather than left to be found.
+-- Their "before" picture is taken by the first statements of this file, so
+-- damage done by a statement inserted ABOVE them is inside the picture and
+-- they will call it unchanged.  That shape is caught one layer out, by
+-- `tests/test_persistence_birth_defaults_009.py::NotOneExistingRowMovesTests`,
+-- which takes its own picture from outside the migration entirely.  The two
+-- layers are deliberate and neither replaces the other.
+--
+-- FOREIGN KEYS STAY OFF FOR THE REST OF THE MIGRATION CONNECTION, exactly as
+-- `004` leaves them, because `PRAGMA foreign_keys` is a silent no-op inside a
+-- transaction and this file deliberately leaves its own open.  A later
+-- migration that runs in the same `migrate()` call therefore runs with them
+-- OFF and must not rely on `ON DELETE CASCADE` or expect an FK violation to
+-- abort it.  Every normal connection re-enables them at open
+-- (`store.py`, `SQLiteStore.connect`).  Written down here because `004`'s
+-- header states it and this file renews it.
+--
+-- WHAT IT COSTS ON DISK.  The recipe holds two copies of the table at once
+-- (the original and `characters_rebuild`), so it needs about twice the size
+-- of `characters` in free pages while it runs, and afterwards the freed pages
+-- stay in the file's freelist -- SQLite reuses them, but the file does not
+-- shrink without a `VACUUM`, which cannot run inside a transaction and is not
+-- attempted here.  Measured by a `pf-adversary` pass on synthetic databases:
+-- an earlier draft that kept a THIRD copy (a `_pf_mig009_rows_before` table
+-- holding every row and blob) grew the file x2.98; comparing against the live
+-- old table instead, as this version does, removes that copy and the same
+-- measurement gives x2.00.  A database whose free space is under about twice
+-- the size of `characters` should not be upgraded until it has more; the
+-- pre-migration snapshot's own `FREE_SPACE_FACTOR = 2.0` gate
+-- (`persistence_backup`) covers the COPY and not this, so the two together
+-- want roughly four times the database's size available.
 --
 -- WHAT THIS FILE DOES NOT DO.  It does not touch a single existing row's
 -- values: a DEFAULT applies to future INSERTs only, and G2 proves that is
@@ -87,11 +143,26 @@
 COMMIT;
 PRAGMA foreign_keys=OFF;
 BEGIN IMMEDIATE;
-CREATE TABLE _pf_mig009_rows_before AS SELECT * FROM characters;
+CREATE TABLE _pf_mig009_master_before AS
+    SELECT type,name,tbl_name,sql FROM sqlite_master
+     WHERE name NOT LIKE 'sqlite_%' AND tbl_name<>'characters';
 CREATE TABLE _pf_mig009_cols_before AS
     SELECT cid,name,type,"notnull",dflt_value,pk FROM pragma_table_info('characters');
 CREATE TABLE _pf_mig009_idx_before AS
     SELECT name,sql FROM sqlite_master WHERE type='index' AND tbl_name='characters';
+CREATE TABLE _pf_mig009_checks_before AS
+    SELECT (length(sql)-length(replace(sql,'CHECK(','')))/6 AS n FROM sqlite_master
+     WHERE type='table' AND name='characters';
+CREATE TABLE _pf_mig009_fk_before AS
+    SELECT "table" AS parent, "from" AS child_column, "to" AS parent_column
+      FROM pragma_foreign_key_list('characters');
+CREATE TABLE _pf_mig009_counts_before(name TEXT NOT NULL, n INTEGER NOT NULL);
+INSERT INTO _pf_mig009_counts_before(name,n)
+    SELECT 'accounts',COUNT(*) FROM accounts
+    UNION ALL SELECT 'sessions',COUNT(*) FROM sessions
+    UNION ALL SELECT 'character_positions',COUNT(*) FROM character_positions
+    UNION ALL SELECT 'character_backpacks',COUNT(*) FROM character_backpacks
+    UNION ALL SELECT 'character_backpack_items',COUNT(*) FROM character_backpack_items;
 CREATE TABLE characters_rebuild (
     id INTEGER PRIMARY KEY,
     account_id INTEGER NOT NULL REFERENCES accounts(id),
@@ -152,53 +223,53 @@ CREATE TABLE characters_rebuild (
 );
 INSERT INTO characters_rebuild (id,account_id,selector,name,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at,deleted_at,name_key,create_fingerprint,level,hp_current,hp_max,mp_current,mp_max,speed_walk,class_id,skill_points,unspent_points,stat_str,stat_con,stat_dex,stat_int,stat_per,experience,cash,bonus_str,bonus_con,bonus_dex,bonus_int,bonus_per)
     SELECT id,account_id,selector,name,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at,deleted_at,name_key,create_fingerprint,level,hp_current,hp_max,mp_current,mp_max,speed_walk,class_id,skill_points,unspent_points,stat_str,stat_con,stat_dex,stat_int,stat_per,experience,cash,bonus_str,bonus_con,bonus_dex,bonus_int,bonus_per FROM characters;
+CREATE TABLE _pf_mig009_guard(ok INTEGER NOT NULL CHECK(ok=1));
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
+    (SELECT COUNT(*) FROM characters_rebuild)=(SELECT COUNT(*) FROM characters)
+    THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
+    SELECT COUNT(*) FROM characters_rebuild r JOIN characters c ON c.id=r.id
+     WHERE r.account_id IS c.account_id
+       AND r.selector IS c.selector
+       AND r.name IS c.name
+       AND r.actor_wire IS c.actor_wire
+       AND r.avatar_wire IS c.avatar_wire
+       AND r.avatar_typed_json IS c.avatar_typed_json
+       AND r.identity_lo IS c.identity_lo
+       AND r.identity_hi IS c.identity_hi
+       AND r.created_at IS c.created_at
+       AND r.updated_at IS c.updated_at
+       AND r.deleted_at IS c.deleted_at
+       AND r.name_key IS c.name_key
+       AND r.create_fingerprint IS c.create_fingerprint
+       AND r.level IS c.level
+       AND r.hp_current IS c.hp_current
+       AND r.hp_max IS c.hp_max
+       AND r.mp_current IS c.mp_current
+       AND r.mp_max IS c.mp_max
+       AND r.speed_walk IS c.speed_walk
+       AND r.class_id IS c.class_id
+       AND r.skill_points IS c.skill_points
+       AND r.unspent_points IS c.unspent_points
+       AND r.stat_str IS c.stat_str
+       AND r.stat_con IS c.stat_con
+       AND r.stat_dex IS c.stat_dex
+       AND r.stat_int IS c.stat_int
+       AND r.stat_per IS c.stat_per
+       AND r.experience IS c.experience
+       AND r.cash IS c.cash
+       AND r.bonus_str IS c.bonus_str
+       AND r.bonus_con IS c.bonus_con
+       AND r.bonus_dex IS c.bonus_dex
+       AND r.bonus_int IS c.bonus_int
+       AND r.bonus_per IS c.bonus_per
+    )=(SELECT COUNT(*) FROM characters) THEN 1 ELSE 0 END;
 DROP TABLE characters;
 ALTER TABLE characters_rebuild RENAME TO characters;
 CREATE INDEX characters_active_name_lookup ON characters(name_key) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX characters_create_fingerprint ON characters(account_id, create_fingerprint) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX characters_active_selector ON characters(account_id, selector) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX characters_active_identity ON characters(identity_lo, identity_hi) WHERE deleted_at IS NULL;
-CREATE TABLE _pf_mig009_guard(ok INTEGER NOT NULL CHECK(ok=1));
-INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
-    (SELECT COUNT(*) FROM characters)=(SELECT COUNT(*) FROM _pf_mig009_rows_before)
-    THEN 1 ELSE 0 END;
-INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
-    SELECT COUNT(*) FROM characters c JOIN _pf_mig009_rows_before b ON b.id=c.id
-     WHERE c.account_id IS b.account_id
-       AND c.selector IS b.selector
-       AND c.name IS b.name
-       AND c.actor_wire IS b.actor_wire
-       AND c.avatar_wire IS b.avatar_wire
-       AND c.avatar_typed_json IS b.avatar_typed_json
-       AND c.identity_lo IS b.identity_lo
-       AND c.identity_hi IS b.identity_hi
-       AND c.created_at IS b.created_at
-       AND c.updated_at IS b.updated_at
-       AND c.deleted_at IS b.deleted_at
-       AND c.name_key IS b.name_key
-       AND c.create_fingerprint IS b.create_fingerprint
-       AND c.level IS b.level
-       AND c.hp_current IS b.hp_current
-       AND c.hp_max IS b.hp_max
-       AND c.mp_current IS b.mp_current
-       AND c.mp_max IS b.mp_max
-       AND c.speed_walk IS b.speed_walk
-       AND c.class_id IS b.class_id
-       AND c.skill_points IS b.skill_points
-       AND c.unspent_points IS b.unspent_points
-       AND c.stat_str IS b.stat_str
-       AND c.stat_con IS b.stat_con
-       AND c.stat_dex IS b.stat_dex
-       AND c.stat_int IS b.stat_int
-       AND c.stat_per IS b.stat_per
-       AND c.experience IS b.experience
-       AND c.cash IS b.cash
-       AND c.bonus_str IS b.bonus_str
-       AND c.bonus_con IS b.bonus_con
-       AND c.bonus_dex IS b.bonus_dex
-       AND c.bonus_int IS b.bonus_int
-       AND c.bonus_per IS b.bonus_per
-    )=(SELECT COUNT(*) FROM _pf_mig009_rows_before) THEN 1 ELSE 0 END;
 INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
     SELECT COUNT(*) FROM pragma_table_info('characters') a
       JOIN _pf_mig009_cols_before b ON b.name=a.name
@@ -223,7 +294,46 @@ INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
     =(SELECT COUNT(*) FROM _pf_mig009_idx_before) THEN 1 ELSE 0 END;
 INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
     (SELECT COUNT(*) FROM pragma_foreign_key_check())=0 THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
+    SELECT COUNT(*) FROM sqlite_master m JOIN _pf_mig009_master_before b
+        ON b.name=m.name AND b.type=m.type AND b.tbl_name=m.tbl_name
+       AND b.sql IS m.sql
+     WHERE m.name NOT LIKE 'sqlite_%' AND m.tbl_name<>'characters'
+       AND m.name NOT LIKE '%pf_mig009%'
+    )=(SELECT COUNT(*) FROM _pf_mig009_master_before
+        WHERE name NOT LIKE '%pf_mig009%') THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
+    SELECT COUNT(*) FROM sqlite_master
+     WHERE name NOT LIKE 'sqlite_%' AND tbl_name<>'characters'
+       AND name NOT LIKE '%pf_mig009%'
+    )=(SELECT COUNT(*) FROM _pf_mig009_master_before
+        WHERE name NOT LIKE '%pf_mig009%') THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
+    (SELECT (length(sql)-length(replace(sql,'CHECK(','')))/6 FROM sqlite_master
+      WHERE type='table' AND name='characters')
+    =(SELECT n FROM _pf_mig009_checks_before) THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
+    SELECT COUNT(*) FROM pragma_foreign_key_list('characters') f
+      JOIN _pf_mig009_fk_before b ON b.parent=f."table"
+       AND b.child_column IS f."from" AND b.parent_column IS f."to"
+    )=(SELECT COUNT(*) FROM _pf_mig009_fk_before) THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN
+    (SELECT COUNT(*) FROM pragma_foreign_key_list('characters'))
+    =(SELECT COUNT(*) FROM _pf_mig009_fk_before) THEN 1 ELSE 0 END;
+INSERT INTO _pf_mig009_guard(ok) SELECT CASE WHEN (
+    SELECT COUNT(*) FROM _pf_mig009_counts_before b WHERE b.n = (
+        CASE b.name
+            WHEN 'accounts' THEN (SELECT COUNT(*) FROM accounts)
+            WHEN 'sessions' THEN (SELECT COUNT(*) FROM sessions)
+            WHEN 'character_positions' THEN (SELECT COUNT(*) FROM character_positions)
+            WHEN 'character_backpacks' THEN (SELECT COUNT(*) FROM character_backpacks)
+            WHEN 'character_backpack_items' THEN (SELECT COUNT(*) FROM character_backpack_items)
+        END)
+    )=(SELECT COUNT(*) FROM _pf_mig009_counts_before) THEN 1 ELSE 0 END;
 DROP TABLE _pf_mig009_guard;
+DROP TABLE _pf_mig009_counts_before;
+DROP TABLE _pf_mig009_fk_before;
+DROP TABLE _pf_mig009_checks_before;
 DROP TABLE _pf_mig009_idx_before;
 DROP TABLE _pf_mig009_cols_before;
-DROP TABLE _pf_mig009_rows_before;
+DROP TABLE _pf_mig009_master_before;

@@ -829,9 +829,39 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
     reported by `test_which_state_this_repository_is_in_is_reported`.
     """
 
-    def _newborn(self, tag="after-007"):
+    def _migrations_through_008(self):
+        """A migrations directory holding `001..008` and nothing after it.
+
+        *** WHY THE MECHANISM TEST BELOW NEEDS ONE.  A `pf-adversary` pass
+        measured what happens without it, and it was this round's worst
+        defect: `migrations/009_character_birth_defaults.sql` gives the three
+        columns a schema DEFAULT, so on the full directory a newborn holds
+        `1/100/100` whether or not anything in `create_character` wrote them.
+        A first attempt to handle that added a control row and returned early
+        when the two matched -- which is EVERY correct plug, because the only
+        numbers `COO-DECISION 20260902_1607` allows are the DEFAULT's own.
+        The sentinel assertion below became dead code, and a plug writing
+        `UPDATE characters SET level=1,hp_current=100,hp_max=100` -- the exact
+        inline literal `COO-DECISION 20260902_0443` point 1 forbids -- passed
+        this file's 49 tests.  Measured, with a control on `origin/main`
+        where the same plug went red.
+
+        The question "did the numbers come from the FUNCTION" can only be
+        asked where the schema does not supply them, so this test asks it on a
+        database that stops at `008`.  That `009` also supplies them, and is
+        allowed to, is `tests/test_persistence_birth_defaults_009.py`'s
+        subject, not this one's.
+        """
+        through = self.root / "migrations_through_008"
+        through.mkdir(exist_ok=True)
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 8:
+                shutil.copy2(path, through / path.name)
+        return through
+
+    def _newborn(self, tag="after-007", migrations=None):
         """A character created on the FULL migration set, and what it holds."""
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, migrations or MIGRATIONS)
         store.migrate()
         account_id = store.ensure_account(tag)
         character = store.create_character(
@@ -1283,86 +1313,21 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             self.assertEqual(vitals.new_character_vitals(), sentinel)
             for name in aliases:
                 self.assertEqual(getattr(store_module, name)(), sentinel, name)
-            _store, _character_id, stored = self._newborn("mechanism")
+            _store, _character_id, stored = self._newborn(
+                "mechanism", migrations=self._migrations_through_008())
 
         if not any(column in stored for column in SEEDED):
             # The plug is not in yet; there is no birth write to trace.
             return
 
-        # *** WHICH MECHANISM SUPPLIED THEM, MEASURED RATHER THAN ASSUMED.
-        # This test used to name "a schema DEFAULT" as one of three forbidden
-        # sources, because `COO-DECISION 20260902_0443` point 2 forbade the
-        # DEFAULT outright.  The project owner overruled that in person and
-        # `migrations/009_character_birth_defaults.sql` is that DEFAULT
-        # (`COO-DECISION 20260902_1607`), so on any database carrying `009` a
-        # newborn holds 1/100/100 whether or not chief's write ever lands, and
-        # the flat sentinel assertion below would accuse a repository that is
-        # exactly right.
-        #
-        # The control separates the two without asking the source code
-        # anything: a row inserted by RAW SQL naming the SAME columns
-        # `create_character` names can only be carrying what the SCHEMA gave
-        # it.  If the newborn holds exactly what that control holds, the
-        # schema supplied the numbers and there is no birth write to trace.
-        # If it holds anything else, something in the create path wrote them
-        # -- and THAT is what has to come from the function.
-        schema_supplied = self._schema_supplied_vitals(_store, _character_id)
-        if {column: stored[column] for column in SEEDED if column in stored} == \
-                {c: v for c, v in schema_supplied.items() if c in SEEDED}:
-            self.assertEqual(
-                {c: v for c, v in schema_supplied.items() if c in SEEDED},
-                dict(birth_state.seeded_birth()),
-                "the schema's own DEFAULTs are not the numbers "
-                "COO-DECISION 20260902_1607 fixed",
-            )
-            return
         self.assertEqual(
             {column: stored[column] for column in SEEDED}, sentinel,
-            "a newborn holds birth vitals that the schema's DEFAULTs did not "
-            "supply, but they are NOT the ones new_character_vitals() returned "
-            "while it was being created -- so a write in the create path took "
-            "its numbers from somewhere else (an inline literal, or a "
+            "a newborn holds birth vitals, but NOT the ones "
+            "new_character_vitals() returned while it was being created -- so "
+            "the numbers came from somewhere else (an inline literal or a "
             "trigger).  COO-DECISION 20260902_0443 point 1 rules both out.  "
             "Measured at runtime, not read off source.",
         )
-
-    @staticmethod
-    def _schema_supplied_vitals(store, model_character_id):
-        """What a row gets when NOTHING in python writes a typed column.
-
-        Inserted by raw SQL naming exactly the columns
-        `SQLiteStore.create_character`'s own INSERT names -- copied off an
-        existing row so the NOT NULL columns are real -- so every typed value
-        it comes out holding was put there by the SCHEMA and by nothing else.
-        Removed again (hard delete, not a soft one) before returning, so the
-        control cannot be mistaken for a character by anything that counts
-        them afterwards.
-        """
-        db = sqlite3.connect(str(store.path))
-        try:
-            db.row_factory = sqlite3.Row
-            cursor = db.execute(
-                "INSERT INTO characters(account_id,selector,name,name_key,"
-                "create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,"
-                "identity_lo,identity_hi,created_at,updated_at) "
-                "SELECT account_id,255,'SchemaControl','schemacontrol',"
-                "'fingerprint-schema-control',actor_wire,avatar_wire,"
-                "avatar_typed_json,identity_lo+9000,identity_hi,created_at,"
-                "updated_at FROM characters WHERE id=?",
-                (int(model_character_id),),
-            )
-            control_id = int(cursor.lastrowid)
-            columns = list(typed.TYPED_COLUMNS)
-            row = db.execute(
-                "SELECT %s FROM characters WHERE id=?" % ",".join(columns),
-                (control_id,),
-            ).fetchone()
-            supplied = {c: row[c] for c in columns if row[c] is not None}
-            db.execute("DELETE FROM characters WHERE id=?", (control_id,))
-            db.commit()
-        finally:
-            db.close()
-        return supplied
 
     def test_a_birth_seed_may_not_carry_any_column_nobody_adjudicated(self):
         """No newborn carries a column no decision has put a number on.

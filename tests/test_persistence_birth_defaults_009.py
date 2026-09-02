@@ -387,6 +387,18 @@ class _StoppedAt008(unittest.TestCase):
         self.rookie = store.create_character(
             self.account_id, "Rookie", "rookie", "fingerprint-rookie",
             _build_wire, Position(3, 0, 4.0, 5.0, 6.0, heading=0.0))
+        # What the rookie was BORN holding on a pre-009 database, measured
+        # through the gate that refuses any state this lane does not accept.
+        # NOT written down as `{}` here: `COO-DECISION 20260902_1607` keeps
+        # chief's birth-write plug (`COO-DECISION 20260902_0444`) alive at
+        # R306, and the day it lands a rookie born on this pre-009 database
+        # holds the three vitals.  A literal `{}` would then go red inside
+        # HIS pull request, in THIS lane's file, accusing a correct line --
+        # which is the exact shape `tests/pf_birth_state.py` exists to stop
+        # this lane from laying in another lane's corridor.  A `pf-adversary`
+        # pass installed that plug and measured the red before it shipped.
+        self.rookie_birth = birth_state.measure_birth_typed_state(
+            store, self.rookie.id)
         self.doomed = store.create_character(
             self.account_id, "Doomed", "doomed", "fingerprint-doomed",
             _build_wire, Position(3, 0, 7.0, 8.0, 9.0, heading=0.0))
@@ -446,8 +458,13 @@ class TheOwnerKeepsACopyBefore009Tests(_StoppedAt008):
                           "the snapshot already carries 009's DEFAULT")
         self.assertEqual(self._rows(restored), self._rows_before_009,
                          "the snapshot does not hold the pre-009 rows")
-        # and the live database really did move on
-        self.assertEqual(_applied(self.path), list(range(1, 10)))
+        # and the live database really did move on.  `assertIn`, not
+        # `assertEqual(..., list(range(1, 10)))`: the day `010` exists the
+        # equality would be a claim about how many migrations the repository
+        # has, which is not what this class measures.  A `pf-adversary` pass
+        # dropped an empty `010` into the directory and turned this red.
+        self.assertIn(VERSION, _applied(self.path))
+        self.assertNotIn(VERSION, _applied(restored))
 
     def setUp(self):
         super().setUp()
@@ -610,30 +627,60 @@ class NotOneExistingRowMovesTests(_StoppedAt008):
     also enforces, measured here from outside it."""
 
     def test_every_row_survives_the_rebuild_byte_for_byte(self):
+        """Every row of `characters`, and every row of every other table.
+
+        The other tables are compared over the tables that existed BEFORE the
+        upgrade rather than by whole-dictionary equality: a later migration
+        that ADDS a table is not this test's business, and a `pf-adversary`
+        pass showed the strict version going red on an empty probe `010`.
+        A table that DISAPPEARS is still caught, by the membership assertion.
+        """
         before = self._rows()
         others = self._everything_else()
         SQLiteStore(self.path, MIGRATIONS).migrate()
         self.assertEqual(self._rows(), before)
-        self.assertEqual(self._everything_else(), others)
+        after = self._everything_else()
+        for name, rows in others.items():
+            with self.subTest(table=name):
+                self.assertIn(name, after, "a table disappeared")
+                self.assertEqual(after[name], rows)
 
     def test_the_veteran_keeps_its_own_numbers_and_does_not_get_the_defaults(self):
         SQLiteStore(self.path, MIGRATIONS).migrate()
         store = SQLiteStore(self.path, MIGRATIONS)
         self.assertEqual(store.read_typed_attributes(self.veteran.id), VETERAN)
 
-    def test_a_row_that_held_nothing_still_holds_nothing(self):
+    def test_a_row_born_before_009_is_not_reached_by_the_default(self):
         """The gap this file does NOT close, said out loud rather than left to
-        be discovered: a character created between `007` and `009` on a fresh
-        install holds NULL, and a DEFAULT cannot reach backwards to it.  Only
-        a backfill could, and `COO-DECISION 20260902_1607` approved the
+        be discovered: a DEFAULT applies to future INSERTs and cannot reach
+        backwards, so a character created between `007` and `009` comes out of
+        the upgrade holding exactly what it was born holding.  Only a backfill
+        could change that, and `COO-DECISION 20260902_1607` approved the
         DEFAULT alone -- so the state is pinned here and reported to COO
         rather than fixed on this lane's own authority.
+
+        Phrased as "unchanged by `009`" rather than as "empty", so it stays
+        true, and stays a measurement, in both worlds: today the rookie holds
+        nothing and the vitals doors refuse it; the day chief's plug lands it
+        holds the three and they resolve.  Either way `009` must not have
+        touched it.
         """
         SQLiteStore(self.path, MIGRATIONS).migrate()
         store = SQLiteStore(self.path, MIGRATIONS)
-        self.assertEqual(store.read_typed_attributes(self.rookie.id), {})
-        with self.assertRaises(vitals.VitalsError):
-            store.read_character_vitals(self.rookie.id).require()
+        after = store.read_typed_attributes(self.rookie.id)
+        self.assertEqual(after, self.rookie_birth,
+                         "009 reached a row that already existed")
+        self.assertNotEqual(
+            after, birth_state.defaulted_birth(),
+            "a row born before 009 came out holding 009's defaults; the "
+            "DEFAULT reached backwards, which is not what a DEFAULT does")
+        resolution = store.read_character_vitals(self.rookie.id)
+        if not self.rookie_birth:
+            with self.assertRaises(vitals.VitalsError):
+                resolution.require()
+        else:
+            self.assertTrue(resolution.complete,
+                            [gap.reason for gap in resolution.gaps])
 
     def test_the_soft_deleted_row_is_still_there_and_still_deleted(self):
         SQLiteStore(self.path, MIGRATIONS).migrate()
@@ -651,6 +698,35 @@ class NotOneExistingRowMovesTests(_StoppedAt008):
         SQLiteStore(self.path, MIGRATIONS).migrate()
         self.assertEqual(self._rows(), after_first)
         self.assertEqual(_applied(self.path), ledger)
+
+    def test_nothing_outside_this_table_changes_shape(self):
+        """Every other schema object, byte for byte in `sqlite_master`.
+
+        `_indexes` and `_columns` above are scoped to `characters`, and the
+        row comparison is about rows.  A `pf-adversary` pass used the gap:
+        a rebuild that also ran `DROP INDEX sessions_one_active_character`
+        (`002`, one live session per character) passed every guard the
+        migration had AND this whole file.  `G6` inside the migration now
+        refuses it too; this is the same sentence measured from OUTSIDE the
+        migration, because `G6`'s own "before" picture is taken by the
+        migration itself.
+        """
+        def schema():
+            with _raw(self.path) as db:
+                return {(row["type"], row["name"]): row["sql"]
+                        for row in db.execute(
+                            "SELECT type,name,tbl_name,sql FROM sqlite_master "
+                            "WHERE name NOT LIKE 'sqlite_%' "
+                            "AND tbl_name<>'characters'")}
+
+        before = schema()
+        self.assertTrue(before)
+        SQLiteStore(self.path, MIGRATIONS).migrate()
+        after = schema()
+        for key, sql in before.items():
+            with self.subTest(object=key):
+                self.assertIn(key, after, "a schema object disappeared")
+                self.assertEqual(after[key], sql)
 
     def test_no_scratch_table_of_this_migration_is_left_behind(self):
         """The guards build tables to hold the BEFORE picture.  A leftover
