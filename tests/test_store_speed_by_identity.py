@@ -15,8 +15,13 @@ WHAT IT PROVES (wire/DB layer only, against a real migrated database):
 1. **A refused call writes nothing.**  Every refusal path -- a bad identity,
    a bad value, a lost write, a read-back that disagrees, a locked database
    -- comes back `None` with the row byte-for-byte as it was, `updated_at`
-   included.  Two of those paths are driven by SQL triggers rather than by
-   argument, because they cannot be reached from the outside.
+   included.  The locked-database case is in that list because it is now
+   graded that way: it used to assert only `!= SPEED`, which a character
+   born holding `migrations/009`'s `400.0` default satisfies without any
+   door at all (`pf-adversary` D7).  Two paths are driven by SQL triggers
+   rather than by argument, because they cannot be reached from the outside,
+   and one -- two active rows sharing an identity -- needs the schema's own
+   partial unique index dropped before it can exist.
 2. **`True` is not the character whose identity is 1.**  SQLite binds a bool
    as an integer; the door refuses it before the lookup, and the test builds
    the character that would otherwise be written.
@@ -44,12 +49,14 @@ the written value.
 """
 
 import contextlib
+import math
 import sqlite3
 import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -265,10 +272,23 @@ class TheLookupIsTheACTIVERowTests(_StoreCase):
 
 class ADictMeansAWriteLandedTests(_StoreCase):
     """The other half of "`None` means nothing was written": a call that
-    returns a number must have written one.  The trap is a row that ALREADY
-    holds the value -- there the read-back agrees with the caller and only
-    the row count knows the UPDATE never happened.
+    returns a number must have written one.
+
+    AN EARLIER DRAFT OF THIS DOCSTRING WAS WRONG ABOUT SQLITE and is
+    corrected rather than quietly deleted.  It said the trap was a row that
+    already holds the value -- "the read-back agrees and only the row count
+    knows the UPDATE never happened".  `rowcount` counts rows MATCHED, not
+    rows whose bytes changed (`test_rewriting_the_same_value_is_still_a
+    _write` measures it), so that case is an ordinary success.  The
+    reachable trap is an UPDATE that matches NO row while the value in the
+    row is already the one asked for: a `RAISE(IGNORE)` trigger builds it,
+    and there the read-back agrees with the caller while nothing was
+    written.  Found by a `pf-adversary` pass (D5).
     """
+
+    def test_rewriting_the_same_value_is_still_a_write(self):
+        self.assertEqual(self._write(*self.identity, SPEED), {7: SPEED})
+        self.assertEqual(self._write(*self.identity, SPEED), {7: SPEED})
 
     def test_a_write_that_lands_nowhere_is_not_reported_as_a_write(self):
         self.assertEqual(self._write(*self.identity, SPEED), {7: SPEED})
@@ -279,6 +299,142 @@ class ADictMeansAWriteLandedTests(_StoreCase):
             )
         before = dict(self._row())
         self.assertIsNone(self._write(*self.identity, SPEED))
+        self.assertEqual(dict(self._row()), before)
+
+
+class NegativeZeroIsTheRowsZeroTests(_StoreCase):
+    """The one input where the value read back and the value validated are
+    `==` but not the same number -- and therefore not the same BYTES.
+
+    `as_f32` keeps the sign of `-0.0`; SQLite normalises it away on the way
+    into a REAL column; `-0.0 == 0.0` is True, so the door's mismatch guard
+    passes.  The door returns the ROW's `+0.0`.  A version composing from
+    the caller's validated value returns `-0.0`, which is
+    `struct.pack("<f", -0.0) == b"\x00\x00\x00\x80"` on the wire against
+    the row's `b"\x00\x00\x00\x00"` -- four bytes the database does not
+    hold.  Found by a `pf-adversary` pass (D1), which refuted this lane's
+    own written claim that the two could not be told apart.
+    """
+
+    def test_validate_really_keeps_the_sign_that_sqlite_drops(self):
+        self.assertEqual(
+            math.copysign(1.0, typed_attrs.validate("speed_walk", -0.0)), -1.0)
+
+    def test_what_comes_back_is_the_rows_positive_zero(self):
+        returned = self._write(*self.identity, -0.0)
+        self.assertEqual(returned, {7: 0.0})
+        self.assertEqual(math.copysign(1.0, returned[7]), 1.0)
+        self.assertEqual(math.copysign(1.0, self._row()["speed_walk"]), 1.0)
+
+
+class TwoActiveRowsAreRefusedTests(_StoreCase):
+    """The door promises to refuse rather than pick when two ACTIVE rows hold
+    the same identity.  `migrations/004`'s partial unique index
+    `characters_active_identity` makes that state unreachable through this
+    API, so the branch had never executed and its guards (`LIMIT 2`,
+    `len(rows) != 1`) survived every mutant -- a promise with no evidence
+    (`pf-adversary` D6).  This builds the state by hand, which is the only
+    way to grade the promise at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.twin = self.store.create_character(
+            self.account_id, "TwinChar", "twinchar",
+            "fingerprint-twin", _build_wire, self.home,
+        )
+        with raw(self.path) as db:
+            db.execute("DROP INDEX characters_active_identity")
+            db.execute(
+                "UPDATE characters SET identity_lo=?,identity_hi=? WHERE id=?",
+                (*self.identity, self.twin.id),
+            )
+
+    def test_the_state_really_exists_before_the_door_is_asked(self):
+        with raw(self.path) as db:
+            rows = db.execute(
+                "SELECT id FROM characters WHERE identity_lo=? AND "
+                "identity_hi=? AND deleted_at IS NULL",
+                self.identity,
+            ).fetchall()
+        self.assertEqual(len(rows), 2)
+
+    def test_it_refuses_instead_of_picking_one(self):
+        before = (dict(self._row()), dict(self._row(self.twin.id)))
+        self.assertIsNone(self._write(*self.identity, SPEED))
+        self.assertEqual(
+            (dict(self._row()), dict(self._row(self.twin.id))), before)
+
+
+class TheReadAndTheWriteAreOneTransactionTests(_StoreCase):
+    """`BEGIN IMMEDIATE` is the door's stated contract and NOTHING pinned it:
+    a `pf-adversary` pass (D2) deleted it, and made it deferred, and all 25
+    tests stayed green -- while the deferred version lost 160 of 240 writes
+    under six concurrent writers.
+
+    `_now()` is evaluated between the door's SELECT and its UPDATE, which
+    makes it a legal interleaving hook: a second writer that tries to take
+    the write lock THERE must be refused, because the door already holds it.
+    Without `BEGIN IMMEDIATE` the intruder commits, and this goes red.
+    """
+
+    def _intruder_result(self):
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute("PRAGMA busy_timeout=200")
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "UPDATE characters SET speed_walk=? WHERE id=?",
+                (321.5, self.character.id),
+            )
+            db.commit()
+            return "committed"
+        except sqlite3.OperationalError:
+            return "refused"
+        finally:
+            db.close()
+
+    def test_a_second_writer_cannot_get_in_between_the_read_and_the_write(self):
+        seen = []
+        real_now = store_module._now
+
+        def now_that_lets_an_intruder_try():
+            if not seen:
+                seen.append(self._intruder_result())
+            return real_now()
+
+        with mock.patch.object(
+            store_module, "_now", now_that_lets_an_intruder_try
+        ):
+            returned = self.store.write_speed_by_identity(*self.identity, SPEED)
+        self.assertEqual(seen, ["refused"], "the door did not hold the lock")
+        self.assertEqual(returned, {7: SPEED})
+        self.assertEqual(self._row()["speed_walk"], SPEED)
+
+
+class TheImportIsInsideTheTryTests(_StoreCase):
+    """The lazy import used to sit ABOVE the `try`, so a
+    `persistence_typed_attrs` that fails to build -- which it does, by
+    raising, for a wire field with no storage rule -- came out of this door
+    as a raise into the caller's thread instead of `None` (`pf-adversary`
+    D3).  `ItDoesNotRaiseTests` sweeps arguments and could never see it.
+    """
+
+    def test_a_module_that_cannot_be_imported_is_a_refusal_not_a_raise(self):
+        # `from . import x` uses the ATTRIBUTE on the parent package when it
+        # is already bound, so `sys.modules[name] = None` alone changes
+        # nothing: the attribute has to go too, and then the import machinery
+        # really runs and refuses.  Both are restored by cleanups.
+        name = "pirateforce_foundation.persistence_typed_attrs"
+        package = sys.modules["pirateforce_foundation"]
+        module = getattr(package, "persistence_typed_attrs")
+        self.addCleanup(setattr, package, "persistence_typed_attrs", module)
+        delattr(package, "persistence_typed_attrs")
+        before = dict(self._row())
+        with mock.patch.dict(sys.modules, {name: None}):
+            with self.assertRaises(ImportError):
+                exec("from pirateforce_foundation import persistence_typed_attrs")
+            self.assertIsNone(self._write(*self.identity, SPEED))
         self.assertEqual(dict(self._row()), before)
 
 
@@ -385,17 +541,13 @@ class ALockedDatabaseIsARefusalTests(_StoreCase):
         thread.start()
         try:
             self.assertTrue(holding.wait(10), "the lock was never taken")
+            before = dict(self._row())
             self.assertIsNone(
                 self.store.write_speed_by_identity(*self.identity, SPEED))
         finally:
             released.set()
             thread.join(30)
-        with raw(self.path) as db:
-            row = db.execute(
-                "SELECT speed_walk FROM characters WHERE id=?",
-                (self.character.id,),
-            ).fetchone()
-        self.assertNotEqual(row["speed_walk"], SPEED)
+        self.assertEqual(dict(self._row()), before)
 
 
 class ItDoesNotRaiseTests(_StoreCase):
@@ -423,9 +575,14 @@ class ItDoesNotRaiseTests(_StoreCase):
         ):
             with self.subTest(args=repr(args)):
                 try:
-                    self.assertIsNone(self._write(*args))
+                    returned = self._write(*args)
                 except Exception as exc:  # pragma: no cover - the failure IS the report
+                    # `assertIsNone` raises `AssertionError`, which IS an
+                    # `Exception`: catching around it reported a door that
+                    # RETURNED something as a door that RAISED (D8).  The
+                    # call and the assertion are separated for that reason.
                     self.fail(f"the door raised {exc!r}")
+                self.assertIsNone(returned)
 
     def test_a_database_whose_column_is_gone_is_a_refusal_not_a_raise(self):
         # Schema drift is indistinguishable from a refusal at this door, by

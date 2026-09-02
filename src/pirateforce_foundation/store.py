@@ -1722,6 +1722,23 @@ class SQLiteStore:
           so removing it leaves every test green.  It is written down as
           structural, exactly as `_apply_hp_transition`'s own doubled
           predicates are, and nobody should cite it as measured.
+
+        THE REST OF THE STRUCTURAL LIST, because an earlier draft declared
+        only one item and then claimed this door is tested "on every branch".
+        A `pf-adversary` pass (D4) measured seven more mutants that survive
+        the whole file, and hiding them is worse than owning them.  Still
+        unkillable today, and each is belt-and-braces behind something that
+        IS measured: `AND deleted_at IS NULL` in the UPDATE (the lookup's own
+        predicate plus the write lock already cover it); the `after is None`
+        branch (removing it turns into the same rolled-back `None` through
+        `TypeError`); `type(stored) is not float` inside the read-back guard;
+        `written != 1` narrowed to `written < 1`; composing before the commit
+        rather than after it.  Two more were killable and are now killed
+        rather than declared -- `LIMIT 2` / `len(rows) != 1` (see
+        `TwoActiveRowsAreRefusedTests`, which builds by hand the state
+        `migrations/004`'s partial unique index makes unconstructible through
+        this API) and the transaction's `BEGIN IMMEDIATE` itself (see
+        `TheReadAndTheWriteAreOneTransactionTests`).
         * no active character with that pair (including one soft-deleted
           between the caller reading it and this call).
         * a value `persistence_typed_attrs.validate` refuses for this column
@@ -1734,26 +1751,38 @@ class SQLiteStore:
           may not raise across `gm/`'s boundary -- so a caller that needs the
           REASON must use `write_typed_attributes`, which names it.
 
-        WHAT COMES BACK IS THE ROW'S NUMBER, AND WHAT THAT IS WORTH IS SAID
-        RATHER THAN IMPLIED.  The read-back happens inside the same
+        WHAT COMES BACK IS THE ROW'S NUMBER, AND IT IS A SOURCE RATHER THAN
+        A FORMALITY -- CORRECTED HERE, BECAUSE THIS DOCSTRING SAID THE
+        OPPOSITE AND WAS WRONG.  The read-back happens inside the same
         transaction as the write (the shape `write_typed_attributes` adopted
         after an adversary pass measured a commit-then-read returning another
         writer's value as "the state after this write"), and `COO-DECISION
         20260903_0447` point 2 made that a house rule rather than a
         preference: a module claiming wire == DB must send the value it read
         back, and "the write did not throw" is not evidence that a row
-        changed.  But the mismatch check below REFUSES the call, so the
-        returned number and the validated one are equal by construction: a
-        mutant that composes from `checked` instead of `stored` cannot be
-        told apart by any test in this repository, measured.  The read-back
-        is therefore a GUARD, not a source, and the guard is measured
-        (`TheTransactionRollsBackTests`).
+        changed.  An earlier draft then reasoned that the mismatch check
+        below makes `stored` and `checked` "equal by construction", so
+        composing from either could not be told apart -- and declared that
+        undetectability MEASURED.  A `pf-adversary` pass (D1) refuted it with
+        one input: `-0.0`.  `validate` keeps the sign (`as_f32` does), SQLite
+        normalises it away on the way into a REAL column, and `-0.0 == 0.0`
+        is True -- so the guard passes while the two values differ, and they
+        differ in the sign BIT: `struct.pack("<f", 0.0)` is `00000000` and
+        `-0.0` is `00000080`, four different bytes on the wire.  Composing
+        from `checked` would send a number this database does not hold, which
+        is the exact wire-vs-DB split the house rule exists to forbid.
+        `NegativeZeroIsTheRowsZeroTests` pins it.
 
-        THE `written != 1` CHECK IS NOT A DUPLICATE OF IT.  A row that
-        already holds the value makes the two disagree: the read-back agrees
-        while the UPDATE landed nowhere, and only the row count knows.  Both
-        directions are pinned -- `None` means nothing was written, a dict
-        means something was.
+        THE `written != 1` CHECK, AND THE WRONG REASON THIS DOCSTRING GAVE
+        FOR IT.  It used to say that a row already holding the value makes
+        the read-back agree while the UPDATE landed nowhere.  That is FALSE
+        about SQLite and the same pass measured it: `rowcount` counts rows
+        MATCHED, not rows whose bytes changed, so re-writing the same value
+        gives `1` and the door correctly reports a write.  What the check
+        really catches is an UPDATE that matched NO row -- a `BEFORE UPDATE
+        ... RAISE(IGNORE)` trigger is the reachable case, and it is what the
+        test uses.  Both directions are pinned all the same: `None` means
+        nothing was written, a dict means something was.
 
         THE LOCK DISCIPLINE IS `write_typed_attributes`', NOT THE HEALING
         DOOR'S, and the difference is deliberate.  `_begin_immediate_under_
@@ -1775,9 +1804,19 @@ class SQLiteStore:
         tries a safe value has happened and has a result.  This door does not
         release either one -- it is a store method with no caller.
         """
-        from . import persistence_typed_attrs as typed_attrs
-
         try:
+            # INSIDE the `try`, and that is a fix rather than a style: this
+            # module does not import `persistence_typed_attrs` at module
+            # level (the house pattern for the circular import), so the first
+            # call in a process really runs that module's body -- and
+            # `_build()` there RAISES `TypedAttrError` for a wire kind with
+            # no storage rule, an unsafe column name, or a duplicate one.
+            # With this line above the `try`, the first `/speed` of a session
+            # killed the caller's thread with the very drift this door
+            # promises to report as `None`.  Measured by a `pf-adversary`
+            # pass (D3), which also verified the one-line fix.
+            from . import persistence_typed_attrs as typed_attrs
+
             column = typed_attrs.column_for(SPEED_WALK_FIELD_X)
             checked = typed_attrs.validate(column, speed)
             pair = (
@@ -1817,11 +1856,16 @@ class SQLiteStore:
                     raise _SpeedWriteRefused(
                         f"read back {stored!r}, wrote {checked!r}"
                     )
-                # Re-validated on the way out by `typed_values_for_compose`,
-                # and keyed by `x` there rather than by the literal 7 here:
-                # the day this column is renamed, the rename travels through
-                # `column_for` above and through this call, and nothing in
-                # this method has to be remembered.
+                # `typed_values_for_compose` and not `{SPEED_WALK_FIELD_X:
+                # stored}`: it re-validates on the way out and it derives the
+                # key from the column table.  Both halves are honest about
+                # their worth -- a `pf-adversary` pass (D9) showed the
+                # literal-keyed mutant survives every test here, and a column
+                # RENAME would not distinguish them either, since a rename
+                # changes the column name and never `x`.  What this call
+                # really buys is that the key and the value come from the
+                # same table as the write did; the earlier comment here
+                # claimed rename-safety it cannot deliver.
                 composed = typed_attrs.typed_values_for_compose({column: stored})
             return composed
         except Exception:
