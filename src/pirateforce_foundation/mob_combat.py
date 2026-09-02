@@ -408,15 +408,29 @@ MOB_COMBAT_NONCLAIMS = (
     "mob_aggro absorbs damage silently in its return and dead phases, by that "
     "module's declared design, and this driver does not override it",
     "the announce frame's PRESERVE tail (round 9jrsei, COO-DECISION "
-    "2026-09-02T06:46+07:00) has never been observed on a vitals collection: "
-    "what is measured is that the same tail already ships on every ~2 s "
-    "heartbeat of a flagless boot (app.py installs "
+    "2026-09-02T06:46+07:00) has never been observed on a vitals collection.  "
+    "[MEASURED, WIRE LAYER, from our own source] the same tail already ships "
+    "on every ~2 s heartbeat of a flagless boot (app.py installs "
     "mob_loot.preserve_ground_heartbeat_frame), and that frame carries "
-    "inherited mask 0 where this one carries 0x02.  That a client accepting "
-    "the first accepts the second is this lane's assumption and GT-204 is "
-    "where it gets watched; a refusal falls back to yesterday's bytes and "
-    "prints GROUND_VITALS_PRESERVE_REFUSED, so the damage number cannot be "
-    "lost with it",
+    "inherited mask 0 where this one carries 0x02.  NO CLIENT-OBSERVABLE "
+    "LAYER IS CITED FOR EITHER FRAME.  That a client accepting the first "
+    "accepts the second is this lane's assumption; a refusal falls back to "
+    "yesterday's bytes and prints GROUND_VITALS_PRESERVE_REFUSED, so the "
+    "damage number cannot be lost with it",
+    "PRESERVING THIS FRAME DOES NOT BY ITSELF KEEP A DROP ON THE FLOOR, and "
+    "the round that changed it measured that with its own dispatcher "
+    "(pf-adversary 9jrsei D1): the bar frame at delay 0.0, and mob_death's "
+    "dying/dead frames after it, ride make_runtime_remote_actors "
+    "(v141:1280-1283), which writes the same envelope slot with bit 0x08 "
+    "CLEAR.  Under this lane's own premise the frame beside this one undoes "
+    "it.  A PRESERVE composer for that carrier does not exist yet",
+    "~~GT-204 is where this tail gets watched~~ IS STRUCK the round it was "
+    "written (pf-adversary 9jrsei D8): GT-204 belongs to the chief, is "
+    "currently scoped to loot on the ground / left click / into the bag, and "
+    "is still forbidden to boot.  This lane has REQUESTED a step there "
+    "(pf_bridge notes_to_chief/20260902_0952) and a request is not a "
+    "measurement plan; until the chief accepts it, nothing is scheduled to "
+    "watch this tail on a screen",
 )
 
 # Struck, not deleted.  Both of these were true of this module while the death
@@ -1189,15 +1203,42 @@ def encode_chit_result(
 # ---------------------------------------------------------------------------
 # THE OPT-IN, SITE BY SITE (COO-DECISION 2026-09-02T06:46+07:00, items 2 and 4)
 #
-# WHAT IT IS FOR, IN THE PLAYER'S WORDS.  Kill one monster, its loot lands on
-# the floor, turn and hit the next one -- and the loot is gone.  It is gone
-# because THIS site's frame said so: v141's ``make_runtime_vitals`` ends its
-# body with an EMPTY derived change mask, bit 0x08 clear, and a clear bit means
-# "there is no ground pool", which the client's reconciler reads as "clear
-# everything".  ``mob_loot.preserve_ground_in_runtime_res_vitals`` composes the
-# same body with the last record saying "there IS a pool and nothing new to
-# reconcile" instead.  Nothing else about the frame moves: the damage number,
-# its position and its flags are the same bytes as yesterday.
+# WHAT IT IS FOR.  v141's ``make_runtime_vitals`` ends its body with an EMPTY
+# derived change mask, bit 0x08 clear, and a clear bit means "there is no
+# ground pool", which the client's reconciler is read (Codex, static) as
+# treating like "clear everything".
+# ``mob_loot.preserve_ground_in_runtime_res_vitals`` composes the same body
+# with the last record saying "there IS a pool and nothing new to reconcile"
+# instead.  Nothing else about the frame moves: the damage number, its
+# position and its flags are the same bytes as yesterday.
+#
+# ~~"Kill one monster, its loot lands on the floor, turn and hit the next
+# one -- and the loot is gone.  It is gone because THIS site's frame said
+# so"~~ IS STRUCK THE ROUND IT WAS WRITTEN, and by measurement rather than by
+# argument (pf-adversary, round 9jrsei, D1).  THIS SITE IS ONE FRAME OF A
+# BURST AND THE OTHERS STILL CARRY A CLEAR 0x08.  Driven through this repo's
+# own headless dispatcher (tests/test_mob_combat_dispatch.py's boot, no flag),
+# one non-lethal hit puts these on the wire back to back:
+#
+#     MOB_COMBAT_ANNOUNCE  delay 0.0  inherited 0x02  derived 0x08 SET   <- here
+#     MOB_COMBAT_BAR       delay 0.0  inherited 0x00  derived 0x02       <- clear
+#     MOB_DEATH_DYING      delay 0.0  inherited 0x00  derived 0x02       <- clear
+#     MOB_DEATH_DEAD       delay 0.7  inherited 0x00  derived 0x02       <- clear
+#
+# The last three ride ``make_runtime_remote_actors`` (v141:1280-1283), which
+# writes the ground-list slot as ``u8tag(0x0B, 0x02)`` -- same envelope offset
+# as the drop frame's 0x08, bit clear.  So under the very premise that
+# motivates this change, the bar frame sent 0.0 s later undoes what this one
+# preserved, and the player-visible claim is NOT established by this site
+# alone.  What IS established here: the announce frame of a hit no longer
+# carries a clear 0x08.  The remote-actors carrier has no PRESERVE composer
+# yet; that is this lane's next queue item and is written up in
+# pf_bridge/notes_to_chief/20260902_1030_LANE-B-SELFCORRECTION-*.
+#
+# THE QUESTION THIS ROUND DID NOT ANSWER, kept where the next round will hit
+# it: which frame is the LAST one the client sees after a drop lands, and does
+# IT carry bit 0x08?  This round changed the frame this module owns without
+# enumerating the set.
 #
 # WHY A WRAP WAS REFUSED AND THIS IS NOT ONE.  COO-DECISION 0347 item 2 (wrap
 # ``make_runtime_vitals`` globally) was WITHDRAWN after chief measured it
@@ -1225,6 +1266,31 @@ def encode_chit_result(
 # ---------------------------------------------------------------------------
 GROUND_VITALS_PRESERVE_REFUSED_TOKEN = "GROUND_VITALS_PRESERVE_REFUSED"
 GROUND_VITALS_PRESERVE_SITE = "mob_combat.announce_frames"
+GROUND_VITALS_PRESERVE_DETAIL_LIMIT = 200
+
+
+def _console_safe_one_line(text: Any) -> str:
+    """ASCII, one line, bounded, for a string this lane did not compose.
+
+    ROUND 9jrsei, pf-adversary D2, and the project has paid for this twice
+    already: the bridge console is cp874 with ``errors='strict'``, so ONE
+    unmappable character inside ``print`` raises -- and the raise would come
+    from the branch whose entire job is to keep the damage number when the
+    ground list cannot be kept.  ``mob_pickup_persist.console_safe`` and
+    ``columbus_quest_dispatch`` (which folds ``type(exc).__name__`` too,
+    because Python 3 allows non-ASCII identifiers) wrote the same lesson
+    down; this is the third site and it uses the same fold.
+
+    Newlines are folded as well: the ruling asks for ONE line per
+    occurrence, and an exception detail is free to contain as many as it
+    likes.  The length bound is for the same reason -- a sqlite error naming
+    a Windows path arrived at another lane's console 237 characters long.
+    """
+    text = str(text).replace("\r", " ").replace("\n", " ")
+    text = text.encode("ascii", "backslashreplace").decode("ascii")
+    if len(text) > GROUND_VITALS_PRESERVE_DETAIL_LIMIT:
+        text = text[:GROUND_VITALS_PRESERVE_DETAIL_LIMIT] + "..."
+    return text
 
 
 def runtime_vitals_preserving_the_ground(
@@ -1235,24 +1301,50 @@ def runtime_vitals_preserving_the_ground(
     Same arguments and same return shape as ``legacy.make_runtime_vitals``.
     On ANY refusal from the preserve composer this returns exactly what that
     composer's argument would have returned -- v141's own bytes -- after
-    printing one console line that names the exception type, the refusal and
-    the site.  The breadth of the ``except`` is deliberate and is the ruling's
-    own shape (``<ExcType>``): a preserve composer driven by a legacy handle
-    can fail as a contract refusal, as an AttributeError against a shim, or as
-    a TypeError against a moved signature, and in every one of those the right
-    answer for the player is the frame that worked yesterday.  A failure of
-    ``make_runtime_vitals`` ITSELF is not caught here and never should be:
-    that is not a lost ground list, that is a lost damage number.
+    printing one console line that names the exception type, the site and a
+    bounded detail.  The breadth of the ``except`` is deliberate and is the
+    ruling's own shape (``<ExcType>``): a preserve composer driven by a
+    legacy handle can fail as a contract refusal, as an AttributeError
+    against a shim, or as a TypeError against a moved signature, and in every
+    one of those the right answer for the player is the frame that worked
+    yesterday.
+
+    ~~"A failure of ``make_runtime_vitals`` ITSELF is not caught here and
+    never should be"~~ IS STRUCK, round 9jrsei, pf-adversary D4: FALSE as
+    written, and the correction is why the fall back is ordered the way it is
+    below.  ``preserve_ground_in_runtime_res_vitals`` DRIVES that composer
+    inside itself (mob_loot.py, the "call the composer and re-derive" step),
+    so a composer that is down raises THROUGH this ``except`` like any other
+    failure.  The first draft then printed a line whose whole meaning is
+    "only the ground list was lost" at the exact moment the damage number was
+    being lost, and only re-raised by accident because the fall back
+    re-invoked the same broken composer.
+
+    SO THE FALL BACK IS COMPOSED FIRST AND THE LINE IS PRINTED SECOND.  If
+    v141's own composer answers, the ground list is the only thing lost and
+    the line says so truthfully.  If it does not, this raises ITS exception
+    and prints NOTHING -- a lost damage number is not a ground-list refusal
+    and must not be reported as one.
     """
     vitals = list(vitals)
     try:
         return mob_loot.preserve_ground_in_runtime_res_vitals(legacy, vitals)
     except Exception as exc:                     # noqa: BLE001 - see docstring
-        detail = exc.args[0] if exc.args else ""
-        print("%s %s %s %s" % (
-            GROUND_VITALS_PRESERVE_REFUSED_TOKEN, type(exc).__name__,
-            GROUND_VITALS_PRESERVE_SITE, detail))
-        return legacy.make_runtime_vitals(vitals)
+        name = _console_safe_one_line(type(exc).__name__)
+        detail = _console_safe_one_line(exc.args[0] if exc.args else "")
+        composed = legacy.make_runtime_vitals(vitals)
+        try:
+            print("%s %s %s %s" % (
+                GROUND_VITALS_PRESERVE_REFUSED_TOKEN, name,
+                GROUND_VITALS_PRESERVE_SITE, detail))
+        except Exception:                        # noqa: BLE001
+            # A console that cannot be written to at all (closed stdout under
+            # pythonw, a detached bridge console, a full disk under
+            # runtime_console._Mirror) is a reason to lose the LINE, never a
+            # reason to lose the FRAME.  pf-adversary D2 measured the first
+            # draft losing the frame here.
+            pass
+        return composed
 
 
 def announce_frames(
