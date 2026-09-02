@@ -59,6 +59,66 @@ MODULE_PATH = (
 )
 
 
+# The lines ``render`` prints that are not scene rows, BY IDENTITY.  An
+# earlier version of this round derived the number from ``len(render(()))``,
+# which made three assertions compare ``render``'s output to ``render``'s own
+# output: pf-adversary made ``render`` print PRECONDITION three times and the
+# whole file stayed green, while the same mutant against the previous
+# revision failed four tests (D3).  Naming them costs one edit when the output
+# grows and buys back a check that can fail.
+FRAMING_MARKERS = (" PRECONDITION ", " ROUTE ", " chain_scenes=", " NOTE ")
+
+
+def _framing_lines() -> int:
+    return len(FRAMING_MARKERS)
+
+
+def _assert_framing_is_intact(case, lines):
+    """Each framing line appears EXACTLY once, and nothing else is framing."""
+    for marker in FRAMING_MARKERS:
+        case.assertEqual(
+            len([line for line in lines if marker in line]), 1,
+            "framing line %r does not appear exactly once" % marker,
+        )
+    scene_lines = [line for line in lines if " scene=" in line]
+    case.assertEqual(
+        len(lines), len(scene_lines) + len(FRAMING_MARKERS),
+        "render printed lines that are neither a scene row nor one of the "
+        "four framing lines",
+    )
+
+
+def _enclosing_function(tree, node):
+    """The ``FunctionDef`` a node sits in, or ``None``.
+
+    Needed because ``ast.walk`` has no parents and a gate that searches the
+    whole module is satisfied by dead code six thousand lines from the call it
+    claims to pin -- measured, not imagined (pf-adversary D1, mutant 2).
+    """
+    for candidate in ast.walk(tree):
+        if not isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(inner is node for inner in ast.walk(candidate)):
+            return candidate
+    return None
+
+
+def _code_only(source: str) -> str:
+    """``source`` with comments and string literals removed.
+
+    A prose mention of a constant in a comment is not a use of it, and a test
+    that cannot tell those apart forbids the module from EXPLAINING what it
+    stopped doing -- which is the one thing a later reader needs most.
+    """
+    import tokenize
+    kept = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in (tokenize.COMMENT, tokenize.STRING):
+            continue
+        kept.append(token.string)
+    return " ".join(kept)
+
+
 def _legacy():
     if not hasattr(_legacy, "cached"):
         _legacy.cached = load_legacy(LEGACY_PATH)
@@ -351,7 +411,8 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
         """
         rows = preflight.preflight_chain(legacy=_legacy())
         lines = preflight.render(row for row in rows)
-        self.assertEqual(len(lines), len(rows) + 3)
+        self.assertEqual(len(lines), len(rows) + _framing_lines())
+        _assert_framing_is_intact(self, lines)
         summary = [line for line in lines if " chain_scenes=" in line]
         self.assertEqual(
             summary[0].split("chain_scenes=")[1].split()[0], str(len(rows))
@@ -387,7 +448,9 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
 
     def test_a_precondition_line_plus_one_per_scene_plus_summary_plus_note(self):
         rows = preflight.preflight_chain(legacy=_legacy())
-        self.assertEqual(len(preflight.render(rows)), len(rows) + 3)
+        lines = preflight.render(rows)
+        self.assertEqual(len(lines), len(rows) + _framing_lines())
+        _assert_framing_is_intact(self, lines)
 
 
 class ItGrantsNobodyAnythingTests(unittest.TestCase):
@@ -536,7 +599,11 @@ class TheEntryPointAHumanActuallyRunsTests(unittest.TestCase):
     def test_no_arguments_runs_the_whole_reachable_world(self):
         code, lines = self._run([])
         self.assertEqual(code, 0)
-        self.assertEqual(len(lines), len(preflight.reachable_scene_ids()) + 3)
+        self.assertEqual(
+            len(lines),
+            len(preflight.reachable_scene_ids()) + _framing_lines(),
+        )
+        _assert_framing_is_intact(self, lines)
         for line in lines:
             line.encode("cp874")
             self.assertTrue(line.startswith(preflight.CONSOLE_TOKEN))
@@ -544,9 +611,11 @@ class TheEntryPointAHumanActuallyRunsTests(unittest.TestCase):
     def test_positional_scene_ids_run_a_custom_chain(self):
         code, lines = self._run(["3", "14"])
         self.assertEqual(code, 0)
-        self.assertEqual(len(lines), 5)
-        self.assertIn(" scene=3 ", lines[1])
-        self.assertIn(" scene=14 ", lines[2])
+        self.assertEqual(len(lines), 2 + _framing_lines())
+        scene_lines = [line for line in lines if " scene=" in line]
+        self.assertEqual(len(scene_lines), 2, lines)
+        self.assertIn(" scene=3 ", scene_lines[0])
+        self.assertIn(" scene=14 ", scene_lines[1])
 
     def test_a_junk_argument_is_refused_by_name_and_not_a_traceback(self):
         """It used to die with a bare ``ValueError`` from ``int()`` and print
@@ -608,6 +677,451 @@ class TheBranchesThatHadNeverRunTests(unittest.TestCase):
         self.assertIsNone(row.actor_count)
         self.assertIn("no lane composer claims it", row.note)
 
+
+class TheNumberThatWasComputedAndShownToNobodyTests(unittest.TestCase):
+    """Scene 1's after-one-step count, on the console instead of in a field.
+
+    The chain the owner types CLOSES on scene 1, and ``COO-DECISION
+    2026-09-02T05:44+07:00`` says to judge that map only after one step.  The
+    count for that step has been in ``ScenePreflight.actor_count`` since the
+    module shipped, and ``test_it_still_says_what_she_gets_after_the_step``
+    above has asserted it is there -- but ``render`` printed ``0`` for that row
+    and dropped it, so the console she actually reads carried no number for the
+    last map of her own chain.  A test whose name promises an answer, pinning a
+    field nobody prints, is the same defect pf-adversary logged as D4.
+    """
+
+    def test_the_step_count_reaches_the_console(self):
+        lines = preflight.render(preflight.preflight_chain(legacy=_legacy()))
+        home = [
+            line for line in lines
+            if " scene=%d " % world_population.SCENE_ID in line
+        ]
+        self.assertEqual(len(home), 1, lines)
+        row = preflight.preflight_for(
+            world_population.SCENE_ID, legacy=_legacy()
+        )
+        self.assertIn(
+            "actors_after_one_step=%d" % row.actor_count, home[0],
+            "the one map that is empty when she lands prints no number for "
+            "what she gets after the step: " + home[0],
+        )
+        # And the arrival half must still read 0, or the fix would have
+        # erased the distinction the module exists to make.
+        self.assertIn("actors_on_arrival=0 ", home[0])
+
+    def test_every_other_row_says_n_a_and_never_zero(self):
+        """``n/a`` is a refusal to predict.  ``0`` would read as a bug."""
+        lines = [
+            line
+            for line in preflight.render(
+                preflight.preflight_chain(legacy=_legacy())
+            )
+            if " scene=" in line
+        ]
+        home_marker = " scene=%d " % world_population.SCENE_ID
+        others = [line for line in lines if home_marker not in line]
+        self.assertTrue(others)
+        for line in others:
+            self.assertIn("actors_after_one_step=n/a", line, line)
+            self.assertNotIn("actors_after_one_step=0", line, line)
+
+    def test_the_field_is_keyed_on_the_source_not_on_arrival(self):
+        """A shut map is also ``on_arrival=False`` and must NOT get a step
+        number: nothing arrives there at all, before or after a step."""
+        shut = preflight.ScenePreflight(
+            scene_id=10, gm_name="x", source=preflight.SOURCE_SHUT_TO_PLAYERS,
+            route=preflight.ROUTE_PRODUCTION_COMPOSER, module="m",
+            actor_count=94, on_arrival=False, note="shut",
+        )
+        line = [
+            line for line in preflight.render((shut,)) if " scene=10 " in line
+        ][0]
+        self.assertIn("actors_after_one_step=n/a", line)
+        self.assertNotIn("94", line)
+
+
+class TheOutputSaysWhichNumbersItDerivedAndWhichItCopiedTests(unittest.TestCase):
+    """pf-adversary's closing question from round ``0aij4z``, answered.
+
+    He asked: when this tool and the runtime disagree, what in the OUTPUT
+    tells her which to doubt?  For the eleven composer scenes the answer was
+    already "nothing to doubt" -- the tool walks the runtime's own route.  For
+    scenes 1 and 2 it RECONSTRUCTS a call inside ``runtime.py``, a file this
+    lane may not touch, and the output said nothing about the difference.  Now
+    every row carries its route and the summary lists the reconstructed ones.
+    """
+
+    def test_every_row_carries_a_route_from_the_named_set(self):
+        rows = preflight.preflight_chain(legacy=_legacy())
+        allowed = {
+            preflight.ROUTE_PRODUCTION_COMPOSER,
+            preflight.ROUTE_MIRRORED_RUNTIME_ARM,
+            preflight.ROUTE_NONE,
+        }
+        for row in rows:
+            self.assertIn(row.route, allowed, row)
+
+    def test_the_two_arms_are_the_mirrored_ones_and_the_rest_are_not(self):
+        rows = {
+            row.scene_id: row
+            for row in preflight.preflight_chain(legacy=_legacy())
+        }
+        self.assertEqual(
+            rows[world_population.SCENE_ID].route,
+            preflight.ROUTE_MIRRORED_RUNTIME_ARM,
+        )
+        self.assertEqual(
+            rows[world_population_bg0002.SCENE2_N_ID].route,
+            preflight.ROUTE_MIRRORED_RUNTIME_ARM,
+        )
+        composed = [
+            row for row in rows.values()
+            if row.source == preflight.SOURCE_LANE_COMPOSER
+        ]
+        self.assertTrue(composed)
+        for row in composed:
+            self.assertEqual(row.route, preflight.ROUTE_PRODUCTION_COMPOSER)
+
+    def test_a_scene_refused_by_name_claims_no_route_at_all(self):
+        row = preflight.preflight_for(999999, legacy=_legacy())
+        self.assertEqual(row.route, preflight.ROUTE_NONE)
+
+    def test_the_console_prints_the_route_on_every_row_and_the_legend_once(self):
+        lines = preflight.render(preflight.preflight_chain(legacy=_legacy()))
+        legend = [line for line in lines if " ROUTE " in line]
+        self.assertEqual(len(legend), 1, lines)
+        self.assertIn("mirrored_runtime_arm", legend[0])
+        self.assertIn("--world-census-actors", legend[0])
+        for line in [line for line in lines if " scene=" in line]:
+            self.assertIn("route=", line, line)
+
+    def test_the_summary_lists_the_reconstructed_scenes(self):
+        lines = preflight.render(preflight.preflight_chain(legacy=_legacy()))
+        summary = [line for line in lines if " chain_scenes=" in line][0]
+        self.assertIn(
+            "mirrored_not_measured=[%d,%d]"
+            % (
+                world_population_bg0002.SCENE2_N_ID,
+                world_population.SCENE_ID,
+            ),
+            summary,
+        )
+
+
+class TheHomeArmIsMirroredFromTheRuntimesOwnExpressionTests(unittest.TestCase):
+    """Scene 1's count, pinned to the call ``runtime.py`` actually makes.
+
+    MEASURED FIRST, so nobody reads more into this than it says: on this
+    clone the old spelling (``effective_actor_count()`` with
+    ``COUNT_SOURCE_MEASURED_CEILING`` hand-picked beside it) and the runtime's
+    own ``census_count_for_dispatch()`` build BYTE-IDENTICAL frames, both
+    reporting 108 on the wire.  The printed number was never wrong.  What
+    differed was the RECORDED REASON -- ``measured_client_ceiling`` where the
+    runtime records ``full_census`` -- which is exactly the misreport
+    ``census_count_for_dispatch``'s own docstring says it exists to prevent,
+    and it is the kind of difference that stays invisible until the day a
+    ceiling is finally measured and the two spellings stop agreeing.
+    """
+
+    def test_the_module_takes_the_count_from_the_runtimes_own_call(self):
+        """A SOURCE PIN, and weaker than a behavioural test on purpose.
+
+        It cannot be a behavioural test today: measured above, both spellings
+        build byte-identical frames, so no assertion on the OUTPUT can tell
+        them apart.  The difference is the recorded reason, and it only
+        becomes a difference in bytes on the day a client ceiling is finally
+        measured.  So this pins the spelling and says plainly that is all it
+        does.
+        """
+        code = _code_only(MODULE_PATH.read_text(encoding="utf-8"))
+        self.assertIn("census_count_for_dispatch", code)
+        self.assertNotIn(
+            "COUNT_SOURCE_MEASURED_CEILING", code,
+            "the home branch hand-picks a count_source again; the runtime "
+            "takes the number and its reason from one call",
+        )
+
+    def test_the_home_count_still_matches_the_runtimes_expression(self):
+        count, count_source = world_population.census_count_for_dispatch()
+        anchor = world_scene_travel.spawn_position(
+            world_scene_travel.destination(world_population.SCENE_ID)
+        )
+        generation = world_population.build_world_population(
+            _legacy(), anchor, count,
+            scene_id=world_population.SCENE_ID, count_source=count_source,
+        )
+        self.assertEqual(
+            preflight.preflight_for(
+                world_population.SCENE_ID, legacy=_legacy()
+            ).actor_count,
+            world_population.wire_actor_count(generation),
+        )
+
+    def test_the_runtimes_home_call_site_still_looks_like_this(self):
+        """READ FROM SOURCE, the same guard scene 2 already has.
+
+        Scene 2 got this gate because pf-adversary moved its roster with a
+        positional argument and an alias while both test files stayed green.
+        Scene 1's arm had no such gate at all, and it is the arm with the
+        EXTRA moving part: a boot flag (``--world-census-actors``) selects
+        another rung for this scene alone.
+        """
+        source_text = RUNTIME_PATH.read_text(encoding="utf-8")
+        # Count CODE occurrences only.  The name appears once more in a
+        # docstring on line 338, and an alias assignment -- the trick that
+        # defeated scene 2's first gate -- is code, so tokenising is what
+        # separates the two.  A plain `str.count` would either miss the alias
+        # or trip on the prose.
+        import tokenize
+        code_uses = 0
+        readline = io.StringIO(source_text).readline
+        for token in tokenize.generate_tokens(readline):
+            if (token.type == tokenize.NAME
+                    and token.string == "build_world_population"):
+                code_uses += 1
+        self.assertEqual(
+            code_uses, 1,
+            "runtime.py uses build_world_population in code more than once; "
+            "an alias or a second call site can move scene 1's roster "
+            "without this tool noticing",
+        )
+        tree = ast.parse(source_text)
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and (
+                (isinstance(node.func, ast.Attribute)
+                 and node.func.attr == "build_world_population")
+                or (isinstance(node.func, ast.Name)
+                    and node.func.id == "build_world_population")
+            )
+        ]
+        self.assertEqual(len(calls), 1, "expected exactly one home build call")
+        call = calls[0]
+        self.assertEqual(
+            len(call.args), 3,
+            "the home arm's third positional argument is the count this tool "
+            "predicts; the call site's shape changed: " + ast.unparse(call),
+        )
+        self.assertIsInstance(
+            call.args[2], ast.Name,
+            "the count is no longer a name bound above the call, so the "
+            "expression this tool mirrors cannot be read: "
+            + ast.unparse(call),
+        )
+        bound = call.args[2].id
+        # SCOPED TO THE ENCLOSING FUNCTION, AND TO THE FLAGLESS ARM.  The
+        # first version of this gate walked the WHOLE of runtime.py and asked
+        # only that the two substrings appear SOMEWHERE among the assignments
+        # binding that name -- possibly in different assignments, in different
+        # functions, on either arm of the conditional.  pf-adversary broke it
+        # twice in ten minutes and both mutants left this file green:
+        #   * INVERTED the two arms, so a flagless boot took
+        #     `effective_actor_count(20)` and shipped 20 while this tool kept
+        #     printing 108 -- a tester counts twenty NPCs after her step and
+        #     files a FAIL for GT-192 that is a mirror drift, not a bug;
+        #   * put a literal `count = 20` at the live call site and left a
+        #     DEAD, never-called function at the end of the file holding the
+        #     old tuple-assign for this gate to find.
+        # What the mirror actually depends on is one property -- WHICH ARM A
+        # FLAGLESS BOOT TAKES -- so that is what is asserted now.
+        enclosing = _enclosing_function(tree, call)
+        self.assertIsNotNone(
+            enclosing, "the home build call is not inside a function any more"
+        )
+        assigns = [
+            node for node in ast.walk(enclosing)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Tuple)
+                and any(
+                    isinstance(element, ast.Name) and element.id == bound
+                    for element in target.elts
+                )
+                for target in node.targets
+            )
+        ]
+        self.assertTrue(
+            assigns,
+            "nothing in the function that builds the home census binds %r "
+            "alongside its reason any more; this lane's tool mirrors that "
+            "expression, so the mirror needs updating -- this is a GM-lane "
+            "diagnostic's dependency on your call site, not a rule about it"
+            % bound,
+        )
+        conditionals = [
+            node.value for node in assigns
+            if isinstance(node.value, ast.IfExp)
+        ]
+        self.assertTrue(
+            conditionals,
+            "the home count is no longer chosen by an inline conditional, so "
+            "this gate cannot read which arm a flagless boot takes; the "
+            "scene-1 mirror needs re-deriving by hand: "
+            + " | ".join(ast.unparse(node.value) for node in assigns),
+        )
+        flagless = [
+            node for node in conditionals
+            if ast.unparse(node.test) == "world_census_actor_count is None"
+        ]
+        self.assertTrue(
+            flagless,
+            "the flagless boot is no longer selected by "
+            "`world_census_actor_count is None`; the ROUTE legend tells the "
+            "tester about a flag whose rung this gate can no longer find: "
+            + " | ".join(ast.unparse(node) for node in conditionals),
+        )
+        for node in flagless:
+            self.assertIn(
+                "census_count_for_dispatch()", ast.unparse(node.body),
+                "the arm a FLAGLESS boot takes no longer calls "
+                "census_count_for_dispatch(); this tool's scene-1 number "
+                "mirrors that call and is now predicting the wrong rung: "
+                + ast.unparse(node),
+            )
+
+class _FakeComposed:
+    """A composer result whose LABEL and whose BYTES disagree on purpose."""
+
+    def __init__(self, wire_count, label):
+        header = bytearray(world_population_handoff.WIRE_HEADER_BYTES)
+        offset = world_population_handoff.WIRE_COUNT_TAG_OFFSET
+        header[offset] = world_population_handoff.COLLECTION_TAG
+        header[offset + 1:offset + 3] = int(wire_count).to_bytes(2, "little")
+        self.pc = bytes(header)
+        self.actor_count = label
+
+
+class _RecordingComposer:
+    def __init__(self, module, result):
+        self.module = module
+        self.result = result
+        self.calls = []
+
+    def compose(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class WhatProductionComposerActuallyPromisesTests(unittest.TestCase):
+    """The label says HOW the number was obtained.  Pin both halves of it.
+
+    pf-adversary (D6) mutated ``_composed_count`` twice -- reading
+    ``result.actor_count`` (the lane-authored label this module's own
+    docstring calls untrusted) instead of the queued bytes, and composing at
+    ``(0,0,0)`` instead of the scene's pinned spawn -- and BOTH left the whole
+    file green with byte-identical console output, because the label happens to
+    equal the wire count today and the count happens not to move with the
+    anchor.  A route label is a promise about the implementation, so the
+    implementation needs a test that holds it: the rows advertised as MEASURED
+    had no gate at all while the two reconstructed rows had two.
+    """
+
+    @staticmethod
+    def _with_composer(scene_id, composer, allowed=True):
+        real_composer = lane_hooks.scene_census_composer
+        real_allowed = lane_hooks.module_production_allowed
+        try:
+            lane_hooks.scene_census_composer = (
+                lambda sid: composer if sid == scene_id else real_composer(sid)
+            )
+            lane_hooks.module_production_allowed = (
+                lambda module: True if module == composer.module
+                else real_allowed(module)
+            )
+            preflight.lane_hooks.scene_census_composer = (
+                lane_hooks.scene_census_composer
+            )
+            preflight.lane_hooks.module_production_allowed = (
+                lane_hooks.module_production_allowed
+            )
+            return preflight.preflight_for(scene_id, legacy=_legacy())
+        finally:
+            lane_hooks.scene_census_composer = real_composer
+            lane_hooks.module_production_allowed = real_allowed
+            preflight.lane_hooks.scene_census_composer = real_composer
+            preflight.lane_hooks.module_production_allowed = real_allowed
+
+    def test_the_number_is_the_queued_bytes_not_the_lanes_own_label(self):
+        composer = _RecordingComposer(
+            "fake_lane_module", _FakeComposed(wire_count=7, label=56)
+        )
+        row = self._with_composer(3, composer)
+        self.assertEqual(row.route, preflight.ROUTE_PRODUCTION_COMPOSER)
+        self.assertEqual(
+            row.actor_count, 7,
+            "the row reports the label a lane handed over, not the count in "
+            "the bytes that would be queued; a label can say 56 over an "
+            "empty buffer",
+        )
+
+    def test_the_composer_is_called_at_the_scenes_pinned_spawn(self):
+        composer = _RecordingComposer(
+            "fake_lane_module", _FakeComposed(wire_count=7, label=7)
+        )
+        self._with_composer(3, composer)
+        self.assertEqual(len(composer.calls), 1)
+        self.assertEqual(
+            composer.calls[0]["anchor"],
+            world_scene_travel.spawn_position(
+                world_scene_travel.destination(3)
+            ),
+            "every row prints why=...at this scene's pinned spawn; the "
+            "composer was called somewhere else",
+        )
+        self.assertEqual(composer.calls[0]["scene_id"], 3)
+
+
+class TheConsoleNeverInventsAZeroTests(unittest.TestCase):
+    """pf-adversary D8: ``0`` reached rows where nothing is known."""
+
+    def test_a_scene_refused_by_name_prints_n_a_not_zero(self):
+        lines = preflight.render(
+            preflight.preflight_chain([12], legacy=_legacy())
+        )
+        row = [line for line in lines if " scene=12 " in line][0]
+        self.assertIn("actors_on_arrival=n/a", row)
+        self.assertNotIn("actors_on_arrival=0", row)
+
+    def test_the_two_rows_where_zero_is_the_prediction_keep_it(self):
+        held = preflight.preflight_for(
+            world_population.SCENE_ID, legacy=_legacy()
+        )
+        shut = preflight.ScenePreflight(
+            scene_id=10, gm_name="x", source=preflight.SOURCE_SHUT_TO_PLAYERS,
+            route=preflight.ROUTE_PRODUCTION_COMPOSER, module="m",
+            actor_count=None, on_arrival=False, note="shut",
+        )
+        lines = preflight.render((held, shut))
+        for marker in (" scene=%d " % world_population.SCENE_ID, " scene=10 "):
+            line = [line for line in lines if marker in line][0]
+            self.assertIn("actors_on_arrival=0", line, line)
+
+    def test_the_legend_names_every_route_the_console_can_print(self):
+        """``route=none`` reached her console while the legend defined two
+        values; a mistyped scene number is how she meets it (D5)."""
+        legend = [
+            line for line in preflight.render(())
+            if " ROUTE " in line
+        ][0]
+        for route in (
+            preflight.ROUTE_PRODUCTION_COMPOSER,
+            preflight.ROUTE_MIRRORED_RUNTIME_ARM,
+            preflight.ROUTE_NONE,
+        ):
+            self.assertIn(route + "=", legend, route)
+
+    def test_the_legend_names_the_anchor_caveat_the_gate_cannot_close(self):
+        """The runtime composes scene 1 at the position she STEPPED TO
+        (``runtime.py`` home arm, from ``last_target_pos``); this tool
+        composes at the pinned spawn.  Measured: the count does not move with
+        the anchor today.  Named because no gate closes it (D7)."""
+        legend = [
+            line for line in preflight.render(()) if " ROUTE " in line
+        ][0]
+        self.assertIn("STEPPED TO", legend)
+        self.assertIn("pinned spawn", legend)
 
 
 if __name__ == "__main__":
