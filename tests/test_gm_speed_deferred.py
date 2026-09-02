@@ -63,6 +63,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import persistence_typed_attrs  # noqa: E402
 
 RUN_COPY_DB_FILENAME = "pirateforce_lane_gm_20260902_2017.sqlite3"
 
@@ -105,11 +106,28 @@ class FakeStore:
         self.stored.update(values)
 
     def write_typed_attributes_and_compose_sparse(self, character_id, values):
+        """The read-back goes through the REAL validator, and it has to.
+
+        ~~`float(values[...])`~~ -- pf-adversary (round `gj77z5`, D2)
+        measured what that cost: because this double echoed the typed number
+        unchanged, `stored == value` in EVERY test in this file, so mutating
+        the production call site from the store's read-back to the GM's typed
+        value left the whole 8,249-test suite green.  The round's own central
+        claim -- "the console prints what the row HOLDS, never what was
+        typed" -- was asserted in prose and enforced by no assertion.
+
+        `persistence_typed_attrs.validate` is what the real
+        `SQLiteStore.write_typed_attributes_and_compose_sparse` applies, and
+        it rounds to f32 on the way in: `400.1` stores and reads back as
+        `400.1000061035156`.  That divergence is the only thing that can tell
+        the two sources apart, so this double must produce it.
+        """
         self.calls.append((character_id, dict(values)))
         self.stored.update(values)
+        column = chat_command_action.SPEED_TYPED_COLUMN
         return {
-            speed_wire.SPEED_FIELD_X: float(
-                values[chat_command_action.SPEED_TYPED_COLUMN]
+            speed_wire.SPEED_FIELD_X: persistence_typed_attrs.validate(
+                column, values[column]
             )
         }
 
@@ -184,6 +202,17 @@ class _Case(unittest.TestCase):
         with redirect_stderr(buffer):
             action = self.act(session, text)
         return action, buffer.getvalue()
+
+    def break_the_outcome_append(self):
+        """Fail the SECOND audit append only -- the `issued` row still lands,
+        which is the state that makes the trail broken rather than absent."""
+
+        def failing(*args, **kwargs):
+            raise OSError(28, "no space left on device")
+
+        return mock.patch.object(
+            chat_command_action, "log_gm_command_outcome", failing
+        )
 
     def _deferred_line(self, console):
         """The one `SPEED DEFERRED` line, or a failure that shows the console.
@@ -317,17 +346,6 @@ class TheUndoSurvivesTheDeferralTests(_Case):
     handler MOST in need of the undo, not least.
     """
 
-    def break_the_outcome_append(self):
-        """Fail the SECOND audit append only -- the `issued` row still lands,
-        which is the state that makes the trail broken rather than absent."""
-
-        def failing(*args, **kwargs):
-            raise OSError(28, "no space left on device")
-
-        return mock.patch.object(
-            chat_command_action, "log_gm_command_outcome", failing
-        )
-
     def test_a_failed_outcome_append_puts_the_previous_speed_back(self):
         store = self.store()
         store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
@@ -383,6 +401,197 @@ class TheUndoSurvivesTheDeferralTests(_Case):
             buffer.getvalue(),
             buffer.getvalue(),
         )
+
+
+class TheRowFieldIsTheReadBackNotTheTypingTests(_Case):
+    """pf-adversary (round `gj77z5`, D2): the round's central claim was pinned
+    by nothing.
+
+    `_speed_action` passes the store's READ-BACK to the printer, not the
+    parsed typed value, and a comment in the diff made a point of it.  But
+    `FakeStore` echoed the typed number unchanged, so `stored == value` in
+    every test in this file and the mutant `_print_speed_deferred(..., value)`
+    left the ENTIRE 8,249-test suite green.
+
+    The double now applies the real `persistence_typed_attrs.validate`, and
+    these tests use the one input that separates the two sources: `400.1` is
+    not representable as an f32, so the row reads back `400.1000061035156`.
+    """
+
+    DIVERGENT_TYPED = "400.1"
+    DIVERGENT_READ_BACK = "400.1000061035156"
+
+    def test_the_field_carries_the_read_back_and_not_the_parsed_value(self):
+        _action, console = self.act_capturing_console(
+            self.session(), f"/speed {self.DIVERGENT_TYPED}"
+        )
+        deferred = self._deferred_line(console)
+        field = deferred.split("row_after_write=", 1)[1].split(" ", 1)[0]
+        # THIS is the assertion the mutant dies on: the parsed value is
+        # `400.1` and the row holds `400.1000061035156`.
+        self.assertEqual(field, self.DIVERGENT_READ_BACK)
+        self.assertNotEqual(field, repr(float(self.DIVERGENT_TYPED)))
+
+    def test_the_double_really_does_diverge_from_the_typed_number(self):
+        # A control on the CONTROL: if `persistence_typed_attrs.validate` ever
+        # stopped rounding, the test above would pass for the wrong reason
+        # (both sources agreeing again) and the mutant would come back to
+        # life.  Measured here directly rather than assumed.
+        self.assertNotEqual(
+            persistence_typed_attrs.validate(
+                chat_command_action.SPEED_TYPED_COLUMN,
+                float(self.DIVERGENT_TYPED),
+            ),
+            float(self.DIVERGENT_TYPED),
+        )
+
+    def test_what_the_next_login_would_send_is_the_read_back_too(self):
+        # The second half: `next_login_sends=` must carry the same rounded
+        # number, because that is what the login seam will resolve off the
+        # row -- not the number the GM asked for.
+        _action, console = self.act_capturing_console(
+            self.session(), f"/speed {self.DIVERGENT_TYPED}"
+        )
+        deferred = self._deferred_line(console)
+        self.assertIn(
+            f"next_login_sends={self.DIVERGENT_READ_BACK}", deferred
+        )
+
+
+class TheRowFieldIsAboutTheWriteNotTheFinalRowTests(_Case):
+    """pf-adversary (round `gj77z5`, D1): this printer runs BEFORE the last
+    thing that can change the row.
+
+    `_make_action` appends the outcome row after the handler returns and, if
+    that append fails, runs `verdict.undo()`.  So there are three end states
+    and the printed number is only the final one in two of them.  The field is
+    named `row_after_write=` rather than `row_written=` for exactly this
+    reason, and the operator is told which branch happened by the SECOND line
+    `_announce_console_outcome` prints beside it.
+
+    These tests pin the pairing, so neither line can start meaning something
+    else on its own.
+    """
+
+    PRIOR = 100.0
+    TYPED = "777.0"
+
+    def _run(self, store):
+        buffer = io.StringIO()
+        with self.break_the_outcome_append(), redirect_stderr(buffer):
+            self.act(self.session(store), f"/speed {self.TYPED}")
+        return buffer.getvalue()
+
+    def test_branch_A_audit_ok_the_printed_number_IS_the_final_row(self):
+        store = self.store()
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: self.PRIOR}
+        _action, console = self.act_capturing_console(
+            self.session(store), f"/speed {self.TYPED}"
+        )
+        self.assertIn("row_after_write=777.0", self._deferred_line(console))
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 777.0
+        )
+        # Nothing else to read: no backstop line, because the audit landed.
+        self.assertNotIn(chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN, console)
+
+    def test_branch_B_the_undo_reverted_it_and_the_second_line_says_so(self):
+        # THE BRANCH THAT MAKES THE SHORT NAME A LIE.  The row ends at 100.0
+        # and this line has already printed 777.0.  What keeps the console
+        # honest is the word on the backstop line, which is why the two are
+        # asserted together and never apart.
+        store = self.store()
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: self.PRIOR}
+        console = self._run(store)
+        self.assertIn("row_after_write=777.0", self._deferred_line(console))
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], self.PRIOR
+        )
+        self.assertIn(chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN, console)
+        self.assertNotIn(
+            chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT, console
+        )
+
+    def test_branch_C_nothing_to_put_back_so_the_number_stands(self):
+        store = self.store()
+        self.assertEqual(store.stored, {})
+        console = self._run(store)
+        self.assertIn("row_after_write=777.0", self._deferred_line(console))
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 777.0
+        )
+        self.assertIn(
+            chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT, console
+        )
+
+    def test_the_two_words_that_separate_B_from_C_are_not_the_same_word(self):
+        # The whole pairing rests on these being distinguishable, and one of
+        # them being a prefix of the other is exactly how that would rot: a
+        # substring assertion for B would also match C.
+        kept = chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT
+        plain = chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN
+        self.assertNotEqual(kept, plain)
+        self.assertNotIn(kept, plain)
+
+    def test_the_field_is_not_called_row_written(self):
+        # A rename back to the shorter name is a claim this route cannot
+        # keep.  Pinned by name so it is a diff a reviewer sees.
+        _action, console = self.act_capturing_console(
+            self.session(), f"/speed {self.TYPED}"
+        )
+        deferred = self._deferred_line(console)
+        self.assertIn("row_after_write=", deferred)
+        self.assertNotIn("row_written=", deferred)
+
+
+class TheTypedTextStaysOffTheWHOLEConsoleTests(_Case):
+    """pf-adversary (round `gj77z5`, D4): the narrowing shrank the property
+    from "this route's console" to "this one line".
+
+    The old assertion swept the whole capture.  The replacement read one
+    line, so a DIFFERENT printer on the same route -- adding `args=` to the
+    `LANE_GM_CHAT_ACTION` line, say -- could put the GM's raw typed text in
+    front of the operator with the file named "it never prints what the GM
+    typed" still green.  That property is not decorative: this module's own
+    `_print_command_refusal_way_out` records pf-adversary round `9wy444`
+    measuring `session.token` as PROCESS-wide on the wired server, so any
+    player's chat text printed under the GM account.
+
+    So the scope comes back to the whole console, with only the two
+    canonicalised numeric fields carved out by name.
+    """
+
+    def test_the_typed_text_appears_nowhere_outside_the_two_number_fields(self):
+        typed = "1234.5"
+        _action, console = self.act_capturing_console(
+            self.session(), f"/speed {typed}"
+        )
+        deferred = self._deferred_line(console)
+        # Carve out ONLY the two fields that are allowed to carry the number,
+        # then require the rest of the ENTIRE console to be free of it.
+        carved = deferred
+        for field in (f"row_after_write={typed}", f"next_login_sends={typed}"):
+            self.assertIn(field, deferred)
+            carved = carved.replace(field, "", 1)
+        rest = console.replace(deferred, carved)
+        self.assertNotIn(typed, rest, rest)
+
+    def test_a_second_printer_echoing_the_argument_is_caught(self):
+        # The mutant itself, run as a test: any additional line on this route
+        # that carries the raw argument fails the assertion above.  Proven by
+        # forging such a line into the capture rather than by trusting that
+        # no future edit will add one.
+        typed = "1234.5"
+        _action, console = self.act_capturing_console(
+            self.session(), f"/speed {typed}"
+        )
+        deferred = self._deferred_line(console)
+        forged = f"LANE_GM_CHAT_ACTION speed route=action args=('{typed}',)\n"
+        carved = deferred
+        for field in (f"row_after_write={typed}", f"next_login_sends={typed}"):
+            carved = carved.replace(field, "", 1)
+        rest = (forged + console).replace(deferred, carved)
+        self.assertIn(typed, rest)
 
 
 class TheWordsAGraderGrepsAreLiteralsTests(_Case):
@@ -499,7 +708,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
 
     def test_it_never_prints_what_the_gm_TYPED_only_what_the_row_HOLDS(self):
         """~~"the line never prints what the GM typed"~~ -- NARROWED, in the
-        round that added `row_written=`, and narrowed deliberately rather than
+        round that added `row_after_write=`, and narrowed deliberately rather
         deleted, because the old spelling would have banned reporting the
         row at all.
 
@@ -507,7 +716,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         in `_print_no_bytes_way_out` describes, is that NO CLIENT-CONTROLLED
         TEXT reaches the operator's console: text can carry bidi overrides,
         a line break, a cp874-unencodable byte, or a fake field of its own.
-        `row_written=` carries none of that by CONSTRUCTION -- it is
+        `row_after_write=` carries none of that by CONSTRUCTION -- it is
         `repr()` of a Python float that came back out of the store's own
         validator, so its character set is closed over digits, `.`, `e`,
         `+`, `-` whatever was typed.
@@ -521,7 +730,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
             self.session(), "/speed 1234.5"
         )
         # The ROW is reported...
-        self.assertIn("row_written=1234.5", console)
+        self.assertIn("row_after_write=1234.5", console)
         # ...and the typed text is still nowhere else on the line: no echo of
         # the raw argument outside the one canonicalised field.
         deferred = self._deferred_line(console)
@@ -529,7 +738,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         self.assertIn("next_login_sends=1234.5", deferred)
 
     def test_the_row_field_is_the_VALUE_not_the_typing(self):
-        # The proof that `row_written=` is a canonicalisation and not an
+        # The proof that `row_after_write=` is a canonicalisation, not an
         # echo: three spellings a GM could type for the same number, none of
         # which survives to the console as typed.
         for typed, expected in (
@@ -542,7 +751,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
                     self.session(), f"/speed {typed}"
                 )
                 deferred = self._deferred_line(console)
-                field = deferred.split("row_written=", 1)[1].split(" ", 1)[0]
+                field = deferred.split("row_after_write=", 1)[1].split(" ", 1)[0]
                 # Compared as the WHOLE field, not as a substring of the
                 # line: `400.` IS a prefix of `400.0`, so a `assertNotIn`
                 # here would fail on a canonicalisation that worked.
@@ -563,7 +772,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
                     self.session(), f"/speed {typed}"
                 )
                 deferred = self._deferred_line(console)
-                field = deferred.split("row_written=", 1)[1].split(" ", 1)[0]
+                field = deferred.split("row_after_write=", 1)[1].split(" ", 1)[0]
                 self.assertTrue(field, deferred)
                 self.assertLessEqual(set(field), allowed, field)
 
@@ -606,7 +815,7 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
             self.session(), "/speed -1"
         )
         deferred = self._deferred_line(console)
-        self.assertIn("row_written=-1.0", deferred)
+        self.assertIn("row_after_write=-1.0", deferred)
         self.assertIn(f"next_login={login_speed.ROW_SPEED_NOT_POSITIVE}", deferred)
         self.assertIn(
             "next_login_sends="
@@ -639,10 +848,24 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         )
         self.assertIn(chat_command_action.EVENT_SPEED_DEFERRED, session.events)
 
+    def test_a_caller_that_forgets_the_read_back_fails_loudly(self):
+        # pf-adversary D8: the first draft gave `stored` a default of `None`,
+        # so a future call site (the shape-hold branch is the obvious one)
+        # wired without it would have printed `row_after_write=unknown` --
+        # indistinguishable from "the printer could not read the row".  This
+        # module's design is "make the forgetful edit fail closed", so the
+        # parameter is required and the mistake is a TypeError, not a quietly
+        # degraded console line.
+        with self.assertRaises(TypeError):
+            chat_command_action._print_speed_deferred(
+                self.session(), "GM_ONE", "speed"
+            )
+
     def test_a_printer_handed_no_read_back_says_not_evaluated(self):
-        # The shipped route cannot reach this (the branch runs below
-        # `EVENT_SPEED_PERSIST_READBACK_UNUSABLE`), so it gets its own word
-        # rather than being spelled like a resolver failure.
+        # Passing `None` DELIBERATELY is still a real answer and keeps its own
+        # word: the shipped route cannot reach it (the branch runs below
+        # `EVENT_SPEED_PERSIST_READBACK_UNUSABLE`), so it must not be spelled
+        # like a resolver failure.
         import io
         from contextlib import redirect_stderr
 
@@ -650,12 +873,12 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         buffer = io.StringIO()
         with redirect_stderr(buffer):
             printed = chat_command_action._print_speed_deferred(
-                session, "GM_ONE", "speed"
+                session, "GM_ONE", "speed", None
             )
         self.assertTrue(printed)
         line = buffer.getvalue()
         self.assertIn(
-            f"row_written={chat_command_action.SPEED_DEFERRED_ROW_UNKNOWN}", line
+            f"row_after_write={chat_command_action.SPEED_DEFERRED_ROW_UNKNOWN}", line
         )
         self.assertIn(
             "next_login="

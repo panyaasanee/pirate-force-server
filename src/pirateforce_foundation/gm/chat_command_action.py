@@ -2850,7 +2850,7 @@ def _print_staged_way_out(
 
 
 def _print_speed_deferred(
-    session: object, token: str, command_name: object, stored: object = None,
+    session: object, token: str, command_name: object, stored: object,
 ) -> bool:
     """Print COO-DECISION `1847`'s line and say whether it reached the stream.
 
@@ -2886,25 +2886,28 @@ def _print_speed_deferred(
     `commands.COMMAND_NAMES`, and `session.token` names a process, not a
     person (see `_print_no_bytes_way_out`).
 
-    IT NAMES THE ROW IT LEFT BEHIND, AND THAT IS THE POINT OF THE TWO FIELDS
-    ADDED AFTER `why=`.  COO `1847` stopped the FRAME and deliberately kept
-    the DB write ("the DB write continues as before ... what has to stop is
-    the outbound frame, and only that"), so on this route the command DID
+    IT NAMES THE ROW IT LEFT BEHIND, AND THAT IS THE POINT OF THE THREE
+    FIELDS ADDED AFTER `why=`.  COO `1847` stopped the FRAME and deliberately
+    kept the DB write ("the DB write continues as before ... what has to stop
+    is the outbound frame, and only that"), so on this route the command DID
     change the character's row and then printed a line that said only that
     something was deferred.  A tester reading `SPEED DEFERRED` and concluding
     "nothing happened" was reading the console correctly and the system
     wrongly -- and since `#605` landed the `speed_walk` login read on `main`
-    (`session.py` -> `login_speed.resolve_for_character` -> `player_wire`),
-    the row this route leaves behind is no longer inert: THE NEXT LOGIN FOR
-    THAT CHARACTER READS IT AND PUTS IT ON THE WIRE.  `GT-218`'s own recovery
-    step is a re-login, so the gap between the two facts is reachable in the
-    ticket that route was written for.
+    (`session.py:192` -> `login_speed.resolve_for_character` ->
+    `player_wire.py:266`), the row this route leaves behind is no longer
+    inert: THE NEXT LOGIN FOR THAT CHARACTER READS IT AND PUTS IT ON THE
+    WIRE.  The recovery step of `GT-218` (`pf_bridge/GAME_TEST_QUEUE.md` --
+    a BRIDGE-side ticket, not in this repository, so a reader here cannot
+    grep it) is a re-login, so the gap is reachable in the ticket this route
+    was written for.
 
-      * `row_written=` -- the store's OWN read-back, the same number the
+      * `row_after_write=` -- the store's OWN read-back, the same number the
         composer below would have carried, never the GM's typed text (the
         property every printer in this module holds).  `validate` rounds an
-        f32 on the way in, so this is what the row HOLDS, not what was asked
-        for.
+        f32 on the way in, so `/speed 400.1` reads back
+        `400.1000061035156`: this is what the WRITE RETURNED, not what was
+        asked for.
       * `next_login=` / `next_login_sends=` -- answered by
         `login_speed.resolve`, THE VERY FUNCTION the login path runs, called
         as a pure predicate on that read-back with `player_wire`'s own
@@ -2914,6 +2917,38 @@ def _print_speed_deferred(
         calling it instead.  So `next_login=from_row` means the tester's next
         login sends the number beside it, and `next_login=row_refused_by_
         validator` / `row_speed_not_positive` mean it sends the constant.
+
+    !! WHY `row_after_write=` AND NOT `row_written=`, WHICH IS WHAT THE FIRST
+    DRAFT CALLED IT.  pf-adversary (round `gj77z5`, D1) measured the branch
+    that makes the shorter name a lie.  This printer runs inside
+    `_speed_action`; the row is not final until `_make_action` has appended
+    the outcome row and, IF THAT APPEND FAILS, run `verdict.undo()`.  Three
+    branches, all measured on a real store with a prior row of `100.0` and
+    `/speed 777.0`:
+
+      A. audit appended, row kept        -> row IS 777.0
+      B. audit FAILED, undo REVERTED it  -> row IS 100.0, and this line has
+                                            already printed 777.0
+      C. audit FAILED, undo could not    -> row IS 777.0
+
+    So THE DESIGN QUESTION pf-adversary closed his report with -- is this a
+    line about what the HANDLER DID, or about what the DATABASE NOW HOLDS? --
+    is answered here, deliberately, and the name follows the answer: IT IS A
+    LINE ABOUT WHAT THIS HANDLER DID.  That is the only claim a function
+    running strictly before the last thing that can change the row is
+    entitled to make.  `row_after_write=` says exactly that and no more.
+    [ASSUMPTION OF LANE-GM, AWAITING COO -- letter `20260903_0529`; the
+    alternative, moving the assertion down into `_announce_console_outcome`
+    where `reverted` is known, changes the shape of a line COO `1847`
+    specified and is not a lane's call.]
+
+    THE OPERATOR IS NOT LEFT GUESSING ON BRANCH B, and that is what makes the
+    narrower name honest rather than merely defensible: when the audit fails,
+    `_announce_console_outcome` prints a SECOND line beside this one, and its
+    `why=` word already separates B from C -- `WHY_AUDIT_ROW_NOT_WRITTEN`
+    (the effect was put back) versus `WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT`
+    (it was not).  The pairing is pinned by tests below so neither line can
+    start meaning something else on its own.
 
     WHAT THESE FIELDS DO NOT DO: they change no byte, lift no lock, and make
     no claim that the value is safe on a client.  Both `/speed` locks stand
@@ -2949,12 +2984,26 @@ def _print_speed_deferred(
             resolved = login_speed.resolve(
                 value, fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
             )
-            next_login = str(resolved.reason)
+            # `console_safe` on THIS one only, and the asymmetry is the
+            # point (pf-adversary D6): the two numeric fields are `repr()` of
+            # a finite float and cannot carry a space, a quote, an `=`, a
+            # newline or a non-ASCII byte, but `next_login` can also be
+            # `unresolved_<ExcType>`, and a Python class name may be
+            # non-ASCII.  One such name would cost the whole two-word line on
+            # a cp874 console -- COO `1847` point 2 asks for one PURE-ASCII
+            # line, and a lost prefix is a lost grep for an attended tester.
+            # No exception class on today's path between `login_speed.resolve`
+            # and `persistence_typed_attrs.validate` is non-ASCII, so this is
+            # a contract being kept, not a live bug being fixed.
+            next_login = console_safe(_one_line(str(resolved.reason)), stream)
             next_login_sends = repr(float(resolved.value))
         except Exception as error:  # noqa: BLE001 - a printer never raises
-            next_login = (
-                f"{SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
-                f"{type(error).__name__}"
+            next_login = console_safe(
+                _one_line(
+                    f"{SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
+                    f"{type(error).__name__}"
+                ),
+                stream,
             )
             next_login_sends = SPEED_DEFERRED_ROW_UNKNOWN
     try:
@@ -2963,7 +3012,7 @@ def _print_speed_deferred(
             f"{SPEED_DEFERRED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command={name} why={OUTCOME_SPEED_DEFERRED} "
-            f"row_written={row_written} next_login={next_login} "
+            f"row_after_write={row_written} next_login={next_login} "
             f"next_login_sends={next_login_sends} "
             f"{_identity_fields(session, stream)}",
             file=stream,
@@ -3913,10 +3962,30 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # is already clean; what has to stop is the OUTBOUND FRAME, and only
     # that."  So both gates now stand BELOW the write, and the withheld
     # frame/written row disagreement the struck paragraph feared is accepted
-    # deliberately: `speed_walk` has no login read yet either way, so the row
-    # is what a later login-read can honour and the frame is what killed a
-    # client.  Keeping the row also keeps `GT-193` step 6 (diff the row)
+    # deliberately: ~~`speed_walk` has no login read yet either way, so the
+    # row is what a later login-read can honour~~ and the frame is what killed
+    # a client.  Keeping the row also keeps `GT-193` step 6 (diff the row)
     # gradeable at all.
+    #
+    # !! THAT STRUCK CLAUSE WAS THE PREMISE, AND IT HAS EXPIRED.  PR #605
+    # landed the `speed_walk` login read on `main` -- `session.py:192` calls
+    # `login_speed.resolve_for_character(store, id, fallback=player_wire.
+    # PLAYER_LOGIN_MOVEMENT_SPEED)` and `player_wire.py:266` encodes the
+    # answer -- so the row this route leaves behind is NO LONGER INERT: the
+    # next login reads it and puts it on the wire, in the login frame, on a
+    # path that has none of this lane's two locks.  `GT-193`'s own recovery
+    # step is a re-login.
+    #
+    # WHAT THIS ROUND DID AND DID NOT DO ABOUT THAT.  It did not change the
+    # ordering: COO `1847` ruled "the DB write continues as before" in as many
+    # words, and a lane that stopped the write on its own reading of an
+    # expired premise would be overriding a decision rather than reporting to
+    # it.  What it did was make the console stop under-reporting the write
+    # (`_print_speed_deferred`'s row fields) and put the leak in front of the
+    # COO by name -- `pf_bridge/notes_to_chief/20260903_0529_LANE-GM-ASK-COO-
+    # speed-deferred-names-the-row-and-a-lock-deadlock.md`.  Measured, not
+    # inferred: with both locks held, `/speed 300` sends zero bytes and the
+    # NEXT login frame carries f32(300.0) where it carried f32(400.0) before.
     #
     # IT IS NOT A GUESS ABOUT WHICH BYTE KILLED THE CHARACTER, and COO `1847`
     # forbids making one: "do not guess which field killed the client and
