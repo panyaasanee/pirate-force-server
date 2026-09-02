@@ -1,1 +1,1 @@
-{"sha":"3e0d8b972dca8c25f3fa085a1dfcc2d39c43f2fc","conclusion":"success","event":"push","ref":"refs/heads/claude/intelligent-lamport-gnhlin","run_id":"33650242749","utc":"2026-09-02T15:54:34Z"}
+{"sha":"3e0d8b972dca8c25f3fa085a1dfcc2d39c43f2fc","conclusion":"failure","event":"pull_request","ref":"refs/pull/605/merge","run_id":"33650248862","utc":"2026-09-02T16:01:07Z"}
