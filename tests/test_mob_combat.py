@@ -28,6 +28,7 @@ written down in the module, in MOB_COMBAT_NONCLAIMS, and here.
 """
 
 import ast
+import builtins
 import json
 import sys
 from pathlib import Path
@@ -43,6 +44,7 @@ from pirateforce_foundation import (
     hostile_hp_link_hypothesis,
     mob_aggro,
     mob_combat,
+    mob_loot,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.population import NPC_ATTR_ID
@@ -424,6 +426,115 @@ class MobCombatTests(unittest.TestCase):
         self.assertEqual(
             step.frames, (step.announce_frame, step.bar_frame))
         self.assertIn(NPC_ATTR_ID.to_bytes(2, "little"), step.bar_pc)
+
+    # -- the ground-preserve opt-in (COO-DECISION 20260902_0646) -----------
+    #
+    # CHIEF-DEBT-003 says a site is not opted in until ONE test drives the
+    # INSTALLED path and reaches the real composer.  So the first test here
+    # goes through attack_from_observed_action -- the call the wiring line
+    # makes -- and not through announce_frames, and it reads the bytes that
+    # would leave the socket rather than a flag on a step.
+
+    def test_a_real_hit_ships_the_preserve_tail_through_the_wired_call(self):
+        ledger = open_ledger()
+        step = attack_from_observed_action(
+            self.legacy, None, ledger, None,
+            {"field_qword_20": self.mob.actor_identity},
+            PERFORMER, self.attacker,
+        )
+        self.assertIsNotNone(step)
+        self.assertTrue(step.announce_pc.endswith(
+            mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN),
+            "the wired hit did not ship the preserved ground list")
+        self.assertEqual(
+            step.announce_frame, self.legacy.frame_pc(step.announce_pc))
+
+    def test_only_the_last_record_moved_and_the_hit_itself_did_not(self):
+        # The claim this round makes to the owner is "the damage number is the
+        # same bytes as yesterday, and only the ground record changed".  That
+        # is checked here by re-composing yesterday's frame from the same
+        # payload and comparing everything in front of the tail.
+        ledger = open_ledger()
+        _, outcome = apply_hit(
+            ledger, PERFORMER, self.mob.actor_identity, 100)
+        pc, frame = announce_frames(
+            self.legacy, PERFORMER, self.mob, outcome)
+        entry = encode_hit_entry(
+            self.legacy, self.mob.actor_identity, outcome.damage_wire,
+            (self.mob.x, self.mob.y, self.mob.z), FLAGS_HIT)
+        payload = mob_combat.encode_chit_result(
+            self.legacy, PERFORMER, [entry])
+        yesterday_pc, _yesterday_frame = self.legacy.make_runtime_vitals(
+            [(CHIT_RESULT_VITAL_ID, mob_combat.CHIT_RESULT_VITAL_VERSION,
+              payload)])
+        empty_tail = mob_loot.RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN
+        preserve_tail = mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN
+        self.assertTrue(yesterday_pc.endswith(empty_tail))
+        self.assertEqual(
+            pc[:len(pc) - len(preserve_tail)],
+            yesterday_pc[:len(yesterday_pc) - len(empty_tail)],
+            "the body in front of the ground record is not yesterday's body")
+        self.assertNotEqual(pc, yesterday_pc)
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+
+    def test_a_refusing_preserve_composer_costs_the_ground_and_says_so(self):
+        # COO-DECISION 0646 item 4.  A shim whose serializer has "moved" makes
+        # the preserve composer refuse; the site must then ship v141's own
+        # bytes -- the damage number is never the thing that gets lost -- and
+        # print the token, once, naming the exception type.
+        class MovedSerializer:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                # One extra byte, only in the re-derivation path this lane
+                # owns, so the composer and mob_loot's derivation disagree.
+                return self._real.u16tag(tag, value) + b"\x00"
+
+        ledger = open_ledger()
+        _, outcome = apply_hit(
+            ledger, PERFORMER, self.mob.actor_identity, 100)
+        expected_pc, expected_frame = announce_frames(
+            self.legacy, PERFORMER, self.mob, outcome)
+        shim = MovedSerializer(self.legacy)
+        printed = []
+        real_print = builtins.print
+        builtins.print = lambda *a, **k: printed.append(" ".join(str(x) for x in a))
+        try:
+            pc, frame = mob_combat.runtime_vitals_preserving_the_ground(
+                shim, [(CHIT_RESULT_VITAL_ID,
+                        mob_combat.CHIT_RESULT_VITAL_VERSION, b"\x00")])
+        finally:
+            builtins.print = real_print
+        yesterday = self.legacy.make_runtime_vitals(
+            [(CHIT_RESULT_VITAL_ID, mob_combat.CHIT_RESULT_VITAL_VERSION,
+              b"\x00")])
+        self.assertEqual((pc, frame), yesterday)
+        self.assertEqual(len(printed), 1)
+        self.assertTrue(printed[0].startswith(
+            mob_combat.GROUND_VITALS_PRESERVE_REFUSED_TOKEN + " "))
+        self.assertIn("MobLootContractError", printed[0])
+        self.assertIn(mob_combat.GROUND_VITALS_PRESERVE_SITE, printed[0])
+        self.assertTrue(printed[0].isascii())
+        # and the healthy path is untouched by the shim's existence
+        self.assertEqual(
+            announce_frames(self.legacy, PERFORMER, self.mob, outcome),
+            (expected_pc, expected_frame))
+
+    def test_the_fall_back_does_not_swallow_a_broken_vitals_composer(self):
+        # The one exception the site must NOT absorb: if make_runtime_vitals
+        # itself fails there is no damage number to ship, and answering with
+        # a silent empty frame would be worse than raising.
+        class NoVitals:
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        with self.assertRaises(AttributeError):
+            mob_combat.runtime_vitals_preserving_the_ground(
+                NoVitals(), [(CHIT_RESULT_VITAL_ID, 1, b"")])
 
     def test_the_announce_frame_refuses_a_mismatched_mob(self):
         ledger = open_ledger()

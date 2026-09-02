@@ -3876,7 +3876,12 @@ def preserve_ground_in_runtime_res_vitals(
             "the legacy framing layer and this module's re-derivation of it "
             "disagree about the preserved RuntimeRes frame")
     return pc, frame
-    return rewritten, frame
+    # ~~return rewritten, frame~~ IS STRUCK, round 9jrsei: a leftover of the
+    # draft that rewrote an already-composed pc (refuted in round ewm6ff,
+    # finding D1).  It is unreachable AND names a variable this function does
+    # not define, so the day somebody deletes the return above it, this line
+    # answers with a NameError instead of bytes.  Struck rather than deleted,
+    # per the project's rule, with the reason beside it.
 
 
 def money_element(legacy: Any, money: Any) -> bytes:

@@ -194,6 +194,7 @@ import math
 from typing import Any
 
 from . import field_mobs
+from . import mob_loot
 from .field_mobs import FieldMob
 from .population import (
     FULL_MOVEMENT_MASK,
@@ -406,6 +407,16 @@ MOB_COMBAT_NONCLAIMS = (
     "threat is only recorded while the mob's aggro phase is idle or aggro: "
     "mob_aggro absorbs damage silently in its return and dead phases, by that "
     "module's declared design, and this driver does not override it",
+    "the announce frame's PRESERVE tail (round 9jrsei, COO-DECISION "
+    "2026-09-02T06:46+07:00) has never been observed on a vitals collection: "
+    "what is measured is that the same tail already ships on every ~2 s "
+    "heartbeat of a flagless boot (app.py installs "
+    "mob_loot.preserve_ground_heartbeat_frame), and that frame carries "
+    "inherited mask 0 where this one carries 0x02.  That a client accepting "
+    "the first accepts the second is this lane's assumption and GT-204 is "
+    "where it gets watched; a refusal falls back to yesterday's bytes and "
+    "prints GROUND_VITALS_PRESERVE_REFUSED, so the damage number cannot be "
+    "lost with it",
 )
 
 # Struck, not deleted.  Both of these were true of this module while the death
@@ -1175,13 +1186,88 @@ def encode_chit_result(
     return bytes(out)
 
 
+# ---------------------------------------------------------------------------
+# THE OPT-IN, SITE BY SITE (COO-DECISION 2026-09-02T06:46+07:00, items 2 and 4)
+#
+# WHAT IT IS FOR, IN THE PLAYER'S WORDS.  Kill one monster, its loot lands on
+# the floor, turn and hit the next one -- and the loot is gone.  It is gone
+# because THIS site's frame said so: v141's ``make_runtime_vitals`` ends its
+# body with an EMPTY derived change mask, bit 0x08 clear, and a clear bit means
+# "there is no ground pool", which the client's reconciler reads as "clear
+# everything".  ``mob_loot.preserve_ground_in_runtime_res_vitals`` composes the
+# same body with the last record saying "there IS a pool and nothing new to
+# reconcile" instead.  Nothing else about the frame moves: the damage number,
+# its position and its flags are the same bytes as yesterday.
+#
+# WHY A WRAP WAS REFUSED AND THIS IS NOT ONE.  COO-DECISION 0347 item 2 (wrap
+# ``make_runtime_vitals`` globally) was WITHDRAWN after chief measured it
+# killing the game_listener thread three ways (letter 20260902_0605), and 0646
+# replaced it with an opt-in per call site, ordered by what the player meets
+# first.  chief owns the first site (``action_ack``); this is this lane's own,
+# and it is one site, chosen and audited by itself.
+#
+# THE FALL BACK IS NOT A SWALLOW.  0646 item 4 rules that a refusal here means
+# emit v141's ORIGINAL bytes and SAY SO on the console -- the player must get
+# an answer, and yesterday's answer is a working one.  So a preserve composer
+# that refuses (a moved serializer, a shim, anything) costs the ground list and
+# nothing else, and it costs it LOUDLY: one line per occurrence, carrying the
+# exception type 0646 names, the reason and this site.  What it must never do
+# is take the damage number away with it.
+#
+# [ASSUMPTION OF LANE B - AWAITING AN ATTENDED ROUND] that a client which
+# accepts this tail on the ~2 s heartbeat (``app.py`` installs
+# ``preserve_ground_heartbeat_frame`` on every flagless boot) also accepts it
+# on a vitals collection.  The two are not the same frame: the heartbeat
+# carries inherited mask 0, this carries inherited mask 0x02.  What is measured
+# is that the tail itself is already in production traffic; what is NOT
+# measured is this frame with it.  MOB_COMBAT_NONCLAIMS carries this too, and
+# GT-204 is where it gets watched.
+# ---------------------------------------------------------------------------
+GROUND_VITALS_PRESERVE_REFUSED_TOKEN = "GROUND_VITALS_PRESERVE_REFUSED"
+GROUND_VITALS_PRESERVE_SITE = "mob_combat.announce_frames"
+
+
+def runtime_vitals_preserving_the_ground(
+    legacy: Any, vitals: Any,
+) -> tuple[bytes, bytes]:
+    """``(pc, frame)`` for these vitals with the ground list preserved.
+
+    Same arguments and same return shape as ``legacy.make_runtime_vitals``.
+    On ANY refusal from the preserve composer this returns exactly what that
+    composer's argument would have returned -- v141's own bytes -- after
+    printing one console line that names the exception type, the refusal and
+    the site.  The breadth of the ``except`` is deliberate and is the ruling's
+    own shape (``<ExcType>``): a preserve composer driven by a legacy handle
+    can fail as a contract refusal, as an AttributeError against a shim, or as
+    a TypeError against a moved signature, and in every one of those the right
+    answer for the player is the frame that worked yesterday.  A failure of
+    ``make_runtime_vitals`` ITSELF is not caught here and never should be:
+    that is not a lost ground list, that is a lost damage number.
+    """
+    vitals = list(vitals)
+    try:
+        return mob_loot.preserve_ground_in_runtime_res_vitals(legacy, vitals)
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        detail = exc.args[0] if exc.args else ""
+        print("%s %s %s %s" % (
+            GROUND_VITALS_PRESERVE_REFUSED_TOKEN, type(exc).__name__,
+            GROUND_VITALS_PRESERVE_SITE, detail))
+        return legacy.make_runtime_vitals(vitals)
+
+
 def announce_frames(
     legacy: Any,
     performer_identity: int,
     mob: FieldMob,
     outcome: HitOutcome,
 ) -> tuple[bytes, bytes]:
-    """The frame that floats the number over the monster."""
+    """The frame that floats the number over the monster.
+
+    Since round ``9jrsei`` this site composes through
+    :func:`runtime_vitals_preserving_the_ground` instead of
+    ``legacy.make_runtime_vitals``, so a hit no longer wipes the loot standing
+    on the floor.  See the section above for the ruling and the fall back.
+    """
     if type(mob) is not FieldMob:
         raise MobCombatContractError(
             REFUSE_TYPE_NOT_TYPED_RECORD, "mob must be the typed FieldMob record")
@@ -1199,8 +1285,8 @@ def announce_frames(
         (mob.x, mob.y, mob.z), outcome.flags,
     )
     payload = encode_chit_result(legacy, performer_identity, [entry])
-    pc, frame = legacy.make_runtime_vitals(
-        [(CHIT_RESULT_VITAL_ID, CHIT_RESULT_VITAL_VERSION, payload)])
+    pc, frame = runtime_vitals_preserving_the_ground(
+        legacy, [(CHIT_RESULT_VITAL_ID, CHIT_RESULT_VITAL_VERSION, payload)])
     if frame != legacy.frame_pc(pc):
         raise MobCombatContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN, "announce frame drift")
