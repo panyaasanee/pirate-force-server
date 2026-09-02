@@ -5098,9 +5098,44 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             """
             nested_id = parsed.nested_id
             actions = []
+            # CORE-REQUEST (LANE-A, pf_bridge notes_to_chief
+            # 20260902_1207_LANE-A-CORE-REQUEST-columbus-branch-needs-a-
+            # scene-guard.md): ASK THE SCENE BEFORE READING THE INDEX SPACE.
+            #
+            # ``population_indices`` is a placement-index space with NO scene
+            # in it.  An actor's identity on the wire is
+            # ``0x2000 + placement_index + 1``, so Columbus (placement index
+            # 1, columbus_quest_dispatch.py:226) is ``0x2002`` -- and so is
+            # placement index 1 of every other island that has a roster.
+            # LANE-A measured nine of the ten roster scenes carrying an index
+            # 1 (scenes 4, 5, 6, 7, 8, 9, 10, 11, 130; only scene 3 has none),
+            # computed from the identity table, not hardcoded.  Until LANE-A
+            # registered a ChooseNPC responder for roster scenes, those
+            # scenes' ``population_indices`` were always None and this branch
+            # could not be reached from them; arming them is what made the
+            # collision live.  One click on scene 4 would otherwise answer
+            # with this lane's frame AND
+            # CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE, and the
+            # QuestOperateVital after it teleports the player to scene 17,
+            # which the registry marks ``login_entry_allowed: false``.
+            #
+            # LANE-A is holding nine scenes' census back behind its own gate
+            # (``lane_hooks/lane_a_choose_npc_roster_scenes.py``, which prints
+            # LANE_A_CHOOSE_NPC_ROSTER_SKIPPED for them) until this guard is
+            # on main -- the letter's own words: the lane deletes one line and
+            # gets all nine the day this lands.
+            #
+            # FAIL-CLOSED WITH NO CHARACTER SELECTED, this file's house rule:
+            # no selected character means no scene to stand in, so the branch
+            # does not fire.  ``population_indices is not None`` above already
+            # implies a censused session today, but the guard does not lean on
+            # that -- it reads the scene itself.
             if (
                 nested_id in (legacy.TARGET_VITAL, legacy.CHOOSE_NPC)
                 and not self.columbus_quest3021_conversation_sent
+                and self.foundation.selected is not None
+                and self.foundation.selected.position.scene_id
+                == world_scene_travel.HOME_SCENE_ID
                 and self.population_indices is not None
                 and columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX
                 in self.population_indices
