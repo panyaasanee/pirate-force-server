@@ -871,22 +871,50 @@ def apply_to_character(character, resolved):
     object in one `replace` call, so there is no ordering in which a login
     could carry the row's `hp_current` beside a constant `level`.
     """
+    try:
+        return _apply_to_character(character, resolved)
+    except Exception:   # noqa: BLE001 -- a login outranks every foreign object
+        # THE OUTER NET, AND IT IS NOT BELT-AND-BRACES.  A `pf-adversary` pass
+        # measured three inputs escaping the inner guards of the function
+        # below -- a `wire_kwargs()` whose dict mixes key types (`sorted`
+        # raises `TypeError`), a dict subclass whose `__getitem__` raises, and
+        # a value whose `__eq__` raises -- and `TypeError` is exactly the
+        # class this docstring names as the one that unwinds the listener
+        # thread.  The inner guards stay because they are what makes each
+        # refusal say WHY; this one is what makes the promise true for the
+        # inputs nobody has thought of yet.
+        #
+        # `BaseException` IS NOT CAUGHT, and the omission is the decision:
+        # `KeyboardInterrupt`/`SystemExit`/`GeneratorExit` are a deliberate
+        # interpreter signal and swallowing them would be its own bug -- the
+        # same split `lane_hooks/__init__.py` states in its own words.
+        return character
+
+
+def _apply_to_character(character, resolved):
+    """`apply_to_character` proper; every raise it leaks is netted above."""
     from dataclasses import replace
 
     try:
         kwargs = resolved.wire_kwargs()
     except Exception:   # noqa: BLE001 -- a login outranks a foreign object
         return character
-    if not isinstance(kwargs, dict) or sorted(kwargs) != sorted(
-            CHARACTER_FIELDS):
+    if not isinstance(kwargs, dict) or set(kwargs) != set(CHARACTER_FIELDS):
         # `{}` is the ordinary refusal (every literal-carrying reason); any
         # other shape is a `resolved` this function did not come from, and
         # both mean the same thing here -- send what `main` sends.
         return character
     for name in CHARACTER_FIELDS:
-        value = kwargs[name]
+        try:
+            value = kwargs[name]
+        except Exception:   # noqa: BLE001 -- a dict subclass that raises
+            return character
         # `bool` first, for the reason `ResolvedLoginVitals` gives: `True` is
-        # an `int` and would encode as `1` on the wire.
+        # an `int` and would encode as `1` on the wire.  The `int` half is
+        # graded too (`test_a_string_that_looks_like_a_number_is_refused`):
+        # a `"7"` that rode onto the character would read back EQUAL to what
+        # was splatted, be reported as carried, and raise `struct.error` two
+        # layers down where nothing catches it.
         if isinstance(value, bool) or not isinstance(value, int):
             return character
     try:
@@ -909,8 +937,17 @@ def apply_to_character(character, resolved):
     # the_three_fields_it_names` keeps these three in step with the tuple.
     try:
         read_back = (carried.level, carried.hp_current, carried.hp_max)
-    except Exception:   # noqa: BLE001 -- a property that raises
+        # THE COMPARISON IS INSIDE THE SAME `try` AS THE READ, and it was not
+        # at first: a `pf-adversary` pass traced this handler and found it
+        # NEVER EXECUTED by the suite, while the comparison beside it could
+        # raise on its own (a value whose `__eq__` raises, reachable through
+        # a `__post_init__`).  One `try` over "read it back and see", which
+        # is one thought, rather than two guards where only the unreachable
+        # one was written down.
+        agreed = read_back == (
+            kwargs["level"], kwargs["hp_current"], kwargs["hp_max"])
+    except Exception:   # noqa: BLE001 -- a field that will not be read back
         return character
-    if read_back != (kwargs["level"], kwargs["hp_current"], kwargs["hp_max"]):
+    if not agreed:
         return character
     return carried
