@@ -25,7 +25,12 @@ def _now() -> str:
 
 
 #: How long ONE `BEGIN IMMEDIATE` in the healing path may block on a database
-#: another connection is writing, before SQLite gives up on that attempt.
+#: another connection is writing, before SQLite gives up on that attempt.  The
+#: attempt's real ceiling is this OR whatever is left of the budget below,
+#: whichever is smaller, so the call cannot outrun the budget by a whole
+#: ceiling -- a `pf-adversary` pass measured the version that could: budget
+#: 1000 ms, ceiling 2000 ms, returned after 2006 ms with a message that
+#: contradicted itself.
 #:
 #: WHY THIS EXISTS AND WHY IT IS NOT `connect`'s 5000.  `COO-DECISION
 #: 20260902_1646`: the eight-thread lock test in
@@ -63,6 +68,15 @@ HEAL_LOCK_RETRY_BACKOFF_S = 0.01
 #: The message SQLite produces for the contention this retries, and NOTHING
 #: else.  Every other `OperationalError` -- a missing table, a read-only
 #: database, a corrupt file -- is re-raised on the first attempt.
+#:
+#: THE WIDTH IS LOAD-BEARING IN BOTH DIRECTIONS, measured by a `pf-adversary`
+#: pass.  Too narrow and the starvation is not retried at all.  Too wide --
+#: `"locked"` alone, the obvious "make it robust" edit -- and `SQLITE_LOCKED`
+#: ("database TABLE is locked", a different condition that retrying cannot
+#: fix) is retried for the whole budget: the same pass measured this file's
+#: own suite going from 3.97 s to 123.95 s when the classification was
+#: removed, which on the Windows gate turns a fast named failure into a
+#: two-minute hang.  `tests/test_persistence_vitals_heal.py` pins both edges.
 _LOCKED = "database is locked"
 
 
@@ -1361,17 +1375,29 @@ class SQLiteStore:
         `database is locked` never said, and the reason a reader of a red gate
         could not tell contention from a real defect.
         """
-        deadline = time.monotonic() + HEAL_LOCK_TOTAL_WAIT_S
-        try:
-            db.execute("PRAGMA busy_timeout=%d" % HEAL_LOCK_BUSY_TIMEOUT_MS)
-        except sqlite3.Error:
-            # A connection that will not accept the pragma still gets its
-            # attempts; it just makes them at whatever timeout it has.
-            pass
-        attempts = 0
         started = time.monotonic()
+        deadline = started + HEAL_LOCK_TOTAL_WAIT_S
+        attempts = 0
         while True:
             attempts += 1
+            # PER ATTEMPT, and never longer than the budget has left: SQLite
+            # blocks inside `BEGIN IMMEDIATE` for the whole ceiling, so a
+            # ceiling larger than the remaining budget would be spent past the
+            # deadline before this loop could look at the clock again.  The
+            # pragma stays in force for the rest of this connection's
+            # statements too (the SELECT, the UPDATE, the COMMIT); that is a
+            # wider effect than the name suggests and it is deliberate --
+            # those statements are inside the same contended transaction.
+            ceiling = min(
+                HEAL_LOCK_BUSY_TIMEOUT_MS,
+                max(1, int((deadline - time.monotonic()) * 1000.0)),
+            )
+            try:
+                db.execute("PRAGMA busy_timeout=%d" % ceiling)
+            except sqlite3.Error:
+                # A connection that will not accept the pragma still gets its
+                # attempts; it just makes them at whatever timeout it has.
+                pass
             try:
                 db.execute("BEGIN IMMEDIATE")
                 return attempts
@@ -1383,7 +1409,7 @@ class SQLiteStore:
                     raise WriteLockTimeout(
                         "could not take the write lock for this character's "
                         "healing after %d attempt(s) over %.0f ms (budget "
-                        "%.0f ms, per-attempt busy_timeout %d ms): %s"
+                        "%.0f ms, per-attempt busy_timeout at most %d ms): %s"
                         % (attempts, (time.monotonic() - started) * 1000.0,
                            HEAL_LOCK_TOTAL_WAIT_S * 1000.0,
                            HEAL_LOCK_BUSY_TIMEOUT_MS, error)

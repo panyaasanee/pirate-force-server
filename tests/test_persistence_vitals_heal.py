@@ -65,6 +65,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -826,6 +827,73 @@ class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
         self.assertEqual(connection.begins, 4)
         self.assertEqual(clock.sleeps, 3)
 
+    def test_a_table_lock_is_not_the_contention_this_retries(self):
+        """The other edge of the classification, which decides whether a red
+        gate is fast and named or a two-minute hang.
+
+        `SQLITE_LOCKED` reads "database TABLE is locked" -- a different
+        condition, which retrying cannot fix.  A `pf-adversary` pass measured
+        the cost of widening the match to `"locked"`: this file went from
+        3.97 s to 123.95 s.  One sample of one non-matching message could not
+        tell those apart, so the message that is one word away from the one
+        that IS retried is pinned here by name.
+        """
+        # The budget is cut to 50ms for this test alone.  Not to make the
+        # assertion easier -- it is unchanged -- but so that a too-wide match
+        # fails FAST: with the shipped 120s budget the same mutant is still
+        # caught, and the same pass measured it taking 120 seconds per
+        # message to say so.  A slow red on a gate that already burns 655s is
+        # a worse red.
+        with mock.patch.object(store_module, "HEAL_LOCK_TOTAL_WAIT_S", 0.05):
+            for message in ("database table is locked",
+                            "attempt to write a readonly database",
+                            "no such table: characters"):
+                with self.subTest(message=message):
+                    connection = _RefusingConnection(
+                        sqlite3.OperationalError(message))
+                    with self._counted_sleeps() as clock:
+                        with self.assertRaises(sqlite3.OperationalError) as e:
+                            SQLiteStore._begin_immediate_under_contention(
+                                connection)
+                    self.assertNotIsInstance(
+                        e.exception, store_module.WriteLockTimeout,
+                        "this message was retried; it is not the contention "
+                        "a retry can fix")
+                    self.assertEqual(connection.begins, 1)
+                    self.assertEqual(clock.sleeps, 0)
+
+    def test_the_ceiling_the_helper_puts_on_the_wire_is_the_shipped_one(self):
+        """What the helper actually TELLS SQLite, read off the connection.
+
+        A `pf-adversary` pass hardcoded the pragma to 1 ms and the whole file
+        stayed green, because `_RefusingConnection` recorded the statement and
+        nothing ever read the recording.  This reads it.
+        """
+        connection = _RefusingConnection(None)
+        SQLiteStore._begin_immediate_under_contention(connection)
+        self.assertEqual(
+            connection.pragmas,
+            ["PRAGMA busy_timeout=%d" % store_module.HEAL_LOCK_BUSY_TIMEOUT_MS])
+
+    def test_the_call_cannot_outlive_the_budget_by_a_whole_ceiling(self):
+        """The budget is a bound on the CALL, not on the gaps between tries.
+
+        Measured defect: with the ceiling set once before the loop, the last
+        attempt started inside the budget and then blocked for the whole
+        ceiling -- 2,006 ms against a 1,000 ms budget, with an error message
+        that contradicted itself.  At the shipped numbers that was a 150 s
+        bound advertised as 120 s.
+        """
+        with mock.patch.object(store_module, "HEAL_LOCK_TOTAL_WAIT_S", 0.4):
+            with mock.patch.object(
+                    store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 5000):
+                started = time.monotonic()
+                with self._write_lock_held_for(3.0):
+                    with self.assertRaises(store_module.WriteLockTimeout):
+                        self.store.apply_hp_heal(self.character.id, 5)
+                elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 2.0, "the call outran its budget: %.2fs" % elapsed)
+
     def test_a_pragma_a_connection_refuses_does_not_stop_the_heal(self):
         """The per-path `busy_timeout` is an improvement, not a requirement.
 
@@ -837,22 +905,74 @@ class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
         SQLiteStore._begin_immediate_under_contention(connection)
         self.assertEqual(connection.begins, 1)
 
-    def test_eight_threads_lose_no_heal_even_at_a_ceiling_they_all_hit(self):
-        """The original failure, reproduced and then measured green.
+    #: The wait LANE-B measured a thread suffering before it died, in
+    #: `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`: 8 threads
+    #: x 60 heals at a ~40ms transaction, maximum wait 5,054 ms against a
+    #: 5,000 ms ceiling.  Any ceiling this repository ships must be able to
+    #: absorb it, so the number is quoted from the measurement rather than
+    #: chosen here.
+    LANE_B_MEASURED_STARVATION_MS = 5054
 
-        `BeginImmediateHoldsTheHealLockTests` runs the same eight threads at
-        the real ceiling, where on this machine they do not starve -- which is
-        exactly why it passed here and closed a pull request on a Windows
-        runner.  This one makes the machine irrelevant: the per-attempt
-        ceiling is cut to 25ms, far below what eight threads contending on one
-        file need, so EVERY thread hits it repeatedly.  Before the retry that
-        is `1 failed`; with it, no heal is lost and none is counted twice.
+    def test_the_shipped_ceilings_can_absorb_the_wait_lane_b_measured(self):
+        """The shipped numbers, pinned against the measurement that produced
+        them rather than against themselves.
 
-        The thread and heal counts are the ones `COO-DECISION 20260902_1646`
-        forbids lowering, and the lock is untouched.
+        A `pf-adversary` pass showed why this is needed: every other test in
+        this class patches the two constants down to values it picks, so
+        `1 ms / 0.5 s` was as green as `30000 ms / 120 s`, and a later round
+        "tidying" the budget would be told nothing.  The next test runs the
+        real doors at the shipped values; this one says what those values have
+        to be big enough for.
         """
-        threads_count, heals = 8, 20
+        self.assertGreaterEqual(store_module.HEAL_LOCK_BUSY_TIMEOUT_MS,
+                                self.LANE_B_MEASURED_STARVATION_MS)
+        # and the budget has to hold several such waits, or the retry cannot
+        # outlast a competitor that starves this thread more than once
+        self.assertGreaterEqual(store_module.HEAL_LOCK_TOTAL_WAIT_S * 1000.0,
+                                self.LANE_B_MEASURED_STARVATION_MS * 4)
+
+    def test_eight_threads_lose_no_heal_when_the_transaction_is_slow(self):
+        """The original failure, reproduced through the REAL doors at the
+        SHIPPED ceilings, and then measured green.
+
+        *** WHAT THIS REPLACED AND WHY, because the replacement is the whole
+        point.  The first version of this test patched
+        `HEAL_LOCK_BUSY_TIMEOUT_MS` down to 25 ms to manufacture contention.
+        A `pf-adversary` pass measured that it was **green with the repair
+        removed**, five runs out of five: the patched constant reaches SQLite
+        only through the code under test, so deleting the helper call put the
+        eight threads back on `connect()`'s own 5,000 ms and nothing noticed.
+        The control had deleted itself, and the round file's claim that it
+        went red was not re-derivable.  (The mutant that IS red -- keep the
+        new pragma, delete only the loop -- is a state this repository has
+        never been in.)
+
+        This version changes the one variable LANE-B changed: how long a
+        transaction takes.  40 ms of delay is injected INSIDE the transaction,
+        through `persistence_vitals.verify_schema`, which the healing path
+        calls after `BEGIN IMMEDIATE` -- no production constant is patched and
+        no production code knows this test exists.  Measured on this machine,
+        three runs each:
+
+            with a plain `BEGIN IMMEDIATE` (what `main` shipped):
+                3-4 x OperationalError('database is locked'), 196-197 of 200
+                heals landed -- heals LOST, silently
+            with the retry (what this branch ships):
+                0 errors, 200 of 200
+
+        THREADS is the 8 the forbidden repairs list protects.  HEALS is 25
+        rather than 60 only because each heal now costs 40 ms of injected
+        delay; the pressure that matters -- eight writers against one file --
+        is unchanged, and `BeginImmediateHoldsTheHealLockTests` still runs the
+        full 8 x 60 above.
+        """
+        threads_count, heals, delay = 8, 25, 0.040
         errors = []
+
+        self.store.write_typed_attributes(self.character.id, {
+            "level": 1, "hp_current": 0, "hp_max": 100000,
+        })
+        before = self._hp()
 
         def worker():
             for _ in range(heals):
@@ -861,14 +981,14 @@ class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
                 except Exception as exc:  # noqa: BLE001 - reported, not hidden
                     errors.append(exc)
 
-        # A bar tall enough that the ceiling is never what stops a heal --
-        # otherwise this measures `apply_heal`'s overheal clamp instead of the
-        # lock, and would be green with half the heals lost.
-        self.store.write_typed_attributes(self.character.id, {
-            "level": 1, "hp_current": 0, "hp_max": 100000,
-        })
-        before = self._hp()
-        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 25):
+        real_verify = vitals.verify_schema
+
+        def slow_verify(db):
+            result = real_verify(db)
+            time.sleep(delay)
+            return result
+
+        with mock.patch.object(vitals, "verify_schema", slow_verify):
             threads = [threading.Thread(target=worker)
                        for _ in range(threads_count)]
             for thread in threads:
@@ -894,7 +1014,20 @@ class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
             node for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef)
             and node.name == "_begin_immediate_under_contention")
-        statements = ast.dump(function)
+        # THE DOCSTRING IS STRIPPED, AND THE FIRST DRAFT DID NOT STRIP IT.
+        # A `pf-adversary` pass deleted the `BEGIN IMMEDIATE` from the helper
+        # BODY entirely -- a helper that opens no transaction at all -- and
+        # this test passed, because the phrase still appeared four times in
+        # the prose above it.  Prose read as evidence about code, the same
+        # shape this lane has been caught by before.  It cut the other way
+        # too: a future comment explaining why `BEGIN DEFERRED` is not used
+        # would have turned it red on documentation drift.
+        body = list(function.body)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            body = body[1:]
+        statements = "\n".join(ast.dump(node) for node in body)
         self.assertIn("BEGIN IMMEDIATE", statements)
         self.assertNotIn("'BEGIN'", statements)
         self.assertNotIn("BEGIN DEFERRED", statements)
