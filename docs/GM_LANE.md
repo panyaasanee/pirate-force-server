@@ -7321,3 +7321,83 @@ by pointing at row `0x9F2C` of this document instead.
 8.5 gives proven meanings only for `0x2A`/`0x12`. This round reproduces a byte; it does not claim to know what
 that byte encodes. `GM_RunGMCommandVital` remains `NOT_OBSERVED` (0 captured frames), so nothing here is
 confirmed by a real frame of that message. No GM status was granted to any account and no milestone moved.
+
+## Round `0aij4z` (2026-09-02T15:2x+07:00) -- the GT-192 preflight, and the seam that lies about scene 2
+
+`gm/warp_chain_preflight.py` (new) + `tests/test_gm_warp_chain_preflight.py` (new). No existing
+file in either repository is touched, no production code path changes, nothing is wired into
+`runtime.py`.
+
+### What it is for
+
+`GT-192` is GM-A's acceptance entry: a GM types `/warp <scene>` across the owner's closed list
+(`2-11`, `14`, `130`, closing with `1`, per `COO-DECISION 20260902_0544`) inside ONE login and
+must see a normal NPC population on every map. An attended round is the most expensive resource
+this project has, and until this round a tester who saw an empty map had no way to tell three
+different things apart:
+
+1. the census-latch bug the entry exists to catch -- a real FAIL;
+2. **scene 1**, which is empty ON ARRIVAL BY DESIGN and fills one step later
+   (`KA1A-AMENDMENT 20260901_1120` holds the walk-before-census disjunct shut on purpose);
+3. **scene 2**, whose roster does not come from a `lane_hooks` composer at all.
+
+The tool prints one ASCII line per scene before she boots, so an empty map is graded against a
+stated prediction instead of being a surprise.
+
+### The trap it was built around -- MEASURED, not reasoned
+
+The obvious implementation is to ask `world_population_handoff.handoff_for_arrival` for every
+reachable scene and print its `actor_count`. Measured on this clone, that seam answers
+`kind='clear'`, `actor_count=0` **for scene 2**, because `lane_a_scene_census.skipped_scenes()`
+records scene 2 as `reserved_by_a_runtime_branch` and its roster ships from the runtime's own
+bg0002 arm (`runtime.py:8536`). Scene 2 is the FIRST map on the owner's list. A preflight built
+the obvious way prints `0` for it and sends a tester hunting a bug that is not there.
+
+Scene 2 is therefore asked of its own arm with the same arguments that call site passes
+(`count_source=COUNT_SOURCE_FULL_ROSTER`, default `actor_count`) -- and because `runtime.py` is
+chief's file and this lane cannot stop it changing, a test READS THAT CALL SITE'S SOURCE with
+`ast` and goes red if the arguments drift. Both halves are pinned: that the seam really does say
+clear/0, and that the tool does not repeat it.
+
+### What it measured (the whole reachable world, this clone)
+
+The production gate `warp_executor.warp_no_coords_live_target`, asked for all 330 scene ids in
+`gm/scene_catalog.py`, answers **exactly thirteen**: `1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14,
+130` -- the owner's list, independently derived. Anything outside it is REFUSED BY NAME, which
+is a different outcome from an empty map and must not be graded as one.
+
+Actors composed on arrival: scene 2 = 97 (runtime arm) - 3 = 62 - 4 = 109 - 5 = 87 - 6 = 66 -
+7 = 56 - 8 = 69 - 9 = 57 - 10 = 94 - 11 = 51 - 14 = 81 - 130 = 41 - scene 1 = 0 on arrival,
+108 after one step. `empty_by_design=1 empty_unexplained=none`.
+
+### Design rules this module keeps, and the test that kills each
+
+* **`0` never stands in for "do not know."** `actor_count` is `None` whenever a number could not
+  be derived. `_lane_count` returning `0` on a non-census handoff survived the first five
+  mutations this lane ran and was only killed by a test added afterwards, driven against the one
+  scene whose seam really answers `clear`.
+* **Fail closed and NAMED.** Every failure returns a row carrying the exception type; a preflight
+  that crashes on one map takes the other twelve with it.
+* **The nonclaim rides the OUTPUT, not only the docstring.** The last line the tool prints says it
+  predicts what the server composes and never what the client draws. A tester reads a console, not
+  this repository.
+* **The reachable set is asked of the production gate, never listed.** The day LANE-A opens a
+  scene this covers it without an edit.
+
+### nonclaim
+
+1. No GM status is granted or used, no account is touched, no socket is opened, no frame is sent,
+   nothing is wired into `runtime.py`, and no flag is flipped. The tool runs with
+   `production_allowed` false everywhere.
+2. **No milestone moves.** P-1, P-2, P-3, GM-A, GM-B are exactly where they were. This is a tool
+   for reaching a testable state, not evidence that anything works.
+3. It predicts the SERVER side only. Nothing here says the client renders any of these actors --
+   that is `GT-192`'s client-observable layer and no number printed here substitutes for it.
+4. `GT-192`'s own header is chief's (opened round `liq4ri`); this lane did not touch it. The debt
+   it still carries -- no status tag, and step 3 still saying "pick e.g. scene 4/5/6/8/10" rather
+   than the closed list `COO-DECISION 20260902_0544` ordered at 05:44 -- is reported in
+   `pf_bridge/notes_to_chief/20260902_1526_LANE-GM-TO-CHIEF-*`, not fixed here.
+5. Six of the thirteen scenes on the chain (`7 8 9 10 11 130`) print
+   `LANE_A_CHOOSE_NPC_ROSTER_SKIPPED ... columbus_placement_index_collision_needs_runtime_scene_guard`
+   at hook registration. The census still ships (the counts above stand); what is skipped is the
+   ChooseNPC roster, i.e. CLICKING an NPC. That is chief's Columbus work in R304, reported not fixed.
