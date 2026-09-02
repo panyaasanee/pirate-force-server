@@ -58,6 +58,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mob_hostile_bg0015  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
@@ -890,8 +891,11 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
     scene 2's responder read the same keyword -- so the day the call site
     started passing it, two production scenes would have answered
     differently on the same input (chief's letter ``20260902_1918`` item
-    4.2, measured).  These drive the rule, not the wiring: the call site
-    still passes nothing today.
+    4.2, measured).  These drive the rule, not the wiring: ~~the call site
+    still passes nothing today~~ -- CORRECTED ROUND ``qa86im``: the call
+    site has passed ``mob_combat_ledger=`` since ``server#619`` (R313), and
+    what it still passes nothing for is ``mob_death_register=``, which this
+    round's own tests supply by hand for the same reason.
     """
 
     @classmethod
@@ -929,7 +933,23 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         return ledger.with_balance(
             mob_combat.MobBalance(identity, row.max_hp, current_hp))
 
-    def _click(self, index, ledger):
+    def _register(self, mob):
+        """A REAL, scene-keyed ``DeathRegister`` holding this mob's grave.
+
+        Typed for the same reason ``_ledger`` is: ``corpse_body_for``
+        refuses anything that is not a ``mob_death.DeathRegister``, so a
+        stand-in would silently assert the register-less path.
+        """
+        return mob_death.DeathRegister((
+            mob_death.DeathRecord(
+                actor_identity=mob.actor_identity,
+                killer_identity=mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+                max_hp=mob.max_hp,
+                scene=mob.scene,
+            ),
+        ), 1)
+
+    def _click(self, index, ledger, register=None):
         with contextlib.redirect_stderr(io.StringIO()) as err:
             answer = responder_mod.respond(
                 legacy=self.legacy,
@@ -937,6 +957,7 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
                 population_indices=self.population_indices,
                 last_target_pos=(0.0, 0.0, 0.0, 0.0),
                 mob_combat_ledger=ledger,
+                mob_death_register=register,
             )
         return answer, err.getvalue()
 
@@ -970,7 +991,10 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         self.assertIsNotNone(
             answer, "a dead monster silenced a click on someone else")
         self.assertIn("dead_at_ceiling=1", answer.console_lines[0])
-        self.assertIn("_DEAD_BODY_AT_CEILING placement=", err)
+        self.assertIn(
+            f"_DEAD_BODY_AT_CEILING count=1 placements={self.dead_index} "
+            f"identities=0x{mob.actor_identity:04X}",
+            err)
 
     def test_clicking_the_dead_body_is_refused_by_its_own_placement(self):
         mob = self.hostile[self.dead_index]
@@ -980,6 +1004,65 @@ class TheLedgerReachesSceneFourteenTooTests(unittest.TestCase):
         self.assertIn(
             "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_mob_"
             f"death_body placement={self.dead_index} identity=0x", err)
+
+    def test_the_register_answers_the_click_on_a_corpse_with_a_body(self):
+        """``COO-DECISION 20260903_0252``, scene 14's half of the commit."""
+        mob = self.hostile[self.dead_index]
+        answer, err = self._click(
+            self.dead_index, self._ledger(mob.actor_identity, 0),
+            self._register(mob))
+        self.assertIsNotNone(
+            answer, "a click on a corpse was still answered with silence")
+        self.assertEqual(
+            answer.label,
+            f"LANE_A_CHOOSE_NPC_SCENE14_CORPSE_P{self.dead_index}")
+        self.assertIn("dead_as_corpse=1", answer.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", answer.console_lines[0])
+        self.assertIn("_CLICKED_BODY_IS_A_CORPSE reason=answered_with_a_"
+                      f"corpse_body_not_a_facing placement={self.dead_index}",
+                      err)
+        self.assertNotIn("_IDENTITY_REFUSED", err)
+
+    def test_the_body_in_that_frame_is_the_death_composers_own_bytes(self):
+        mob = self.hostile[self.dead_index]
+        answer, _err = self._click(
+            self.civilian_index, self._ledger(mob.actor_identity, 0),
+            self._register(mob))
+        self.assertIn(
+            mob_death.corpse_npc_attr(
+                self.legacy, mob,
+                death_timer=mob_death.DEAD_TIMER_SECONDS,
+                scene_id=14, scene_sequence=0),
+            answer.frame,
+            "the corpse in this frame is not the composer's body",
+        )
+        self.assertNotIn(
+            field_mobs.hostile_npc_attr(
+                self.legacy, mob, current_hp=mob.max_hp,
+                scene_id=14, scene_sequence=0),
+            answer.frame,
+            "the dead monster was re-sent standing at its ceiling",
+        )
+        self.assertIn("dead_as_corpse=1", answer.console_lines[0])
+
+    def test_another_scenes_grave_cannot_bury_this_scenes_body(self):
+        """The register is scene-keyed, and this is what that BUYS."""
+        mob = self.hostile[self.dead_index]
+        foreign = mob_death.DeathRegister((
+            mob_death.DeathRecord(
+                actor_identity=mob.actor_identity,
+                killer_identity=mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+                max_hp=mob.max_hp,
+                scene="Bg0002",
+            ),
+        ), 1)
+        answer, err = self._click(
+            self.dead_index, self._ledger(mob.actor_identity, 0), foreign)
+        self.assertIsNone(
+            answer,
+            "a kill in another scene composed a corpse in this one",
+        )
+        self.assertIn("clicked_body_is_dead_needs_a_mob_death_body", err)
 
     def test_a_packet_naming_a_corpse_AND_a_civilian_is_still_answered(self):
         """The multi-identity packet, driven here too (pf-adversary D1):

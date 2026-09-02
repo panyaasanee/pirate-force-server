@@ -17,13 +17,26 @@ rather than a hand-built ledger, and it is deliberately in a file of its
 own so the property survives a rewrite of either responder's own suite.
 
 WHY IT CALLS ``respond`` DIRECTLY AFTER THE KILL, AND WHY THAT IS STILL
-END TO END.  The ChooseNPC call site in ``runtime.py`` does NOT pass
+END TO END.  ~~The ChooseNPC call site in ``runtime.py`` does NOT pass
 ``mob_combat_ledger`` today - chief withheld that line until this guard
-narrowed, which is the whole reason this round exists.  So a pure frame
-round trip would exercise the ``ledger=None`` path and prove nothing about
-the guard.  The ledger this file hands the responder is the SESSION's own,
-after a real ``ACTION_VITAL`` killed a real monster in a real scene-2
-arrival; only the one argument chief will add is supplied by hand.
+narrowed, which is the whole reason this round exists.~~ CORRECTED ROUND
+``qa86im``: chief landed ``mob_combat_ledger=`` at ``runtime.py:8800`` in
+``server#619`` (R313, ``COO-DECISION 20260903_0251``), so that half is
+production now.  The sentence still holds for the OTHER keyword: the call
+site passes no ``mob_death_register=`` yet, so a pure frame round trip
+would exercise the ``register=None`` path and prove nothing about the
+corpse answer this round added.  The ledger and the register this file
+hands the responder are the SESSION's own, after a real ``ACTION_VITAL``
+killed a real monster in a real scene-2 arrival; only the arguments chief
+has yet to add are supplied by hand.
+
+WHAT ROUND ``qa86im`` ADDED HERE, AND WHY IT IS THE SAME FILE.  ``COO-
+DECISION 20260903_0252``: "a corpse must answer with a body instead of
+silence".  The refusal this file pinned in round ``4uztfj`` is still the
+right answer when nothing can compose a corpse, so both halves are pinned
+side by side -- with a register, the click on the dead body is ANSWERED
+and carries the corpse; without one, it is refused by name, exactly as
+before.
 """
 from __future__ import annotations
 
@@ -41,6 +54,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs                      # noqa: E402
 from pirateforce_foundation import mob_combat                      # noqa: E402
 from pirateforce_foundation import mob_combat_membership           # noqa: E402
+from pirateforce_foundation import mob_death                       # noqa: E402
 from pirateforce_foundation import scene2_prison_exile_tables as tables  # noqa: E402
 from pirateforce_foundation import world_scene_travel              # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (        # noqa: E402
@@ -218,7 +232,7 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
             if index not in hostile
         )
 
-    def _click(self, state, placement_index):
+    def _click(self, state, placement_index, with_register=False):
         placement = next(
             p for p in tables.load_known_placements()
             if p.placement_index == placement_index
@@ -231,8 +245,21 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
                 last_target_pos=(1.0, 2.0, 0.0, 0.0),
                 scene_id=PRISON_EXILE,
                 mob_combat_ledger=state.mob_combat_ledger,
+                # THE SESSION'S OWN REGISTER, not a hand-built one: the
+                # kill above went through the real dispatcher, so this is
+                # the object ``runtime.py`` would hand over the day chief
+                # adds the keyword -- including the scene tag it wrote
+                # itself.
+                mob_death_register=(
+                    state.mob_death_register if with_register else None),
             )
         return response, err.getvalue()
+
+    def _dead_index(self, target):
+        return next(
+            index for index, mob in self._hostile_indices().items()
+            if mob.actor_identity == target
+        )
 
     def test_a_civilian_still_answers_after_a_real_kill(self) -> None:
         state, _target = self._killed_session()
@@ -243,7 +270,10 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
             "state chief measured as indistinguishable from a dead server",
         )
         self.assertIn("dead_at_ceiling=1", response.console_lines[0])
-        self.assertIn("_DEAD_BODY_AT_CEILING placement=", stderr)
+        self.assertIn("dead_as_corpse=0", response.console_lines[0])
+        self.assertIn(
+            "_DEAD_BODY_AT_CEILING count=1 placements=", stderr)
+        self.assertIn("identities=0x", stderr)
 
     def test_the_whole_island_is_still_in_that_answer(self) -> None:
         state, _target = self._killed_session()
@@ -256,11 +286,11 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
     def test_clicking_the_dead_body_is_refused_by_its_own_placement(
         self,
     ) -> None:
+        """STILL THE ANSWER WITHOUT A REGISTER, and that is the point of
+        keeping this test beside the corpse ones below: every boot until
+        chief adds the second keyword takes exactly this path."""
         state, target = self._killed_session()
-        dead_index = next(
-            index for index, mob in self._hostile_indices().items()
-            if mob.actor_identity == target
-        )
+        dead_index = self._dead_index(target)
         response, stderr = self._click(state, dead_index)
         self.assertIsNone(response)
         self.assertIn(
@@ -277,6 +307,177 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
         self.assertIsNotNone(first)
         self.assertIsNotNone(second)
         self.assertEqual(first.frame, second.frame)
+
+    # ------------------------------------------------------------------
+    # ROUND ``qa86im``: the corpse answers instead of the silence
+    # (``COO-DECISION 20260903_0252``).  Same session, same real kill; the
+    # only difference is that the register the session already holds is
+    # handed over the way chief's next line will hand it.
+    # ------------------------------------------------------------------
+
+    def test_the_session_register_really_holds_the_kill(self) -> None:
+        """The premise of every test below it, measured not assumed."""
+        state, target = self._killed_session()
+        mob = self._hostile_indices()[self._dead_index(target)]
+        self.assertEqual(mob.scene, DESTINATION_FOLDER)
+        self.assertTrue(
+            state.mob_death_register.is_dead(target, mob.scene),
+            "the real dispatcher did not write this kill to the register",
+        )
+
+    def test_clicking_the_dead_body_answers_with_a_corpse(self) -> None:
+        state, target = self._killed_session()
+        dead_index = self._dead_index(target)
+        response, stderr = self._click(state, dead_index, with_register=True)
+        self.assertIsNotNone(
+            response,
+            "a click on a corpse is still answered with silence - the "
+            "state COO-DECISION 20260903_0252 sent this round to close",
+        )
+        self.assertEqual(
+            response.label,
+            f"LANE_A_CHOOSE_NPC_SCENE2_CORPSE_P{dead_index}",
+            "a corpse cannot turn to face the player, so the label must "
+            "not claim a facing",
+        )
+        self.assertIn("dead_as_corpse=1", response.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", response.console_lines[0])
+        self.assertIn("_CLICKED_BODY_IS_A_CORPSE", stderr)
+        self.assertNotIn("_IDENTITY_REFUSED", stderr)
+
+    def test_that_frame_carries_the_composers_corpse_and_not_a_ceiling(
+        self,
+    ) -> None:
+        state, target = self._killed_session()
+        mob = self._hostile_indices()[self._dead_index(target)]
+        response, _stderr = self._click(
+            state, self._civilian_index(), with_register=True)
+        self.assertIn(
+            mob_death.corpse_npc_attr(
+                self.legacy, mob,
+                death_timer=mob_death.DEAD_TIMER_SECONDS,
+                scene_id=field_mobs.SCENE_ID,
+                scene_sequence=field_mobs.SCENE_SEQUENCE),
+            response.frame,
+            "the body in the frame is not mob_death's own corpse",
+        )
+        self.assertNotIn(
+            field_mobs.hostile_npc_attr(
+                self.legacy, mob, current_hp=mob.max_hp,
+                scene_id=field_mobs.SCENE_ID,
+                scene_sequence=field_mobs.SCENE_SEQUENCE),
+            response.frame,
+            "the dead monster stood back up at its ceiling in this frame",
+        )
+        self.assertIn("dead_at_ceiling=0", response.console_lines[0])
+        self.assertIn("dead_as_corpse=1", response.console_lines[0])
+
+    def test_the_whole_island_is_still_in_the_corpse_answer(self) -> None:
+        """``RE-092``: an omitted row is a DELETED actor.  A corpse answer
+        that shipped 96 of 97 would clear somebody off the screen."""
+        state, target = self._killed_session()
+        response, _stderr = self._click(
+            state, self._dead_index(target), with_register=True)
+        self.assertIn(
+            f"visible={len(tables.load_known_placements())}",
+            response.console_lines[0],
+        )
+
+    def test_the_corpse_answer_sends_no_movement_for_the_clicked_body(
+        self,
+    ) -> None:
+        """A MovementAttr on a fallen body snaps it back to its roster row
+        -- the reason ``mob_death.death_actor_entry`` defaults
+        ``with_movement=False``."""
+        state, target = self._killed_session()
+        dead_index = self._dead_index(target)
+        placement = next(
+            p for p in tables.load_known_placements()
+            if p.placement_index == dead_index
+        )
+        response, _stderr = self._click(
+            state, dead_index, with_register=True)
+        heading = self.legacy._heading_to_player(
+            placement.x, placement.y, 1.0, 2.0)
+        self.assertNotIn(
+            self.legacy.make_remote_movement_attr(
+                placement.actor_identity,
+                placement.x, placement.y, placement.z, heading, mask=0x03),
+            response.frame,
+        )
+
+    def test_a_grave_dug_in_another_scene_cannot_bury_this_body(
+        self,
+    ) -> None:
+        """The register is keyed by ``(scene, identity)`` and this is what
+        that key BUYS: scene 2 and scene 14 really do share identities."""
+        state, target = self._killed_session()
+        dead_index = self._dead_index(target)
+        mob = self._hostile_indices()[dead_index]
+        foreign = mob_death.DeathRegister((
+            mob_death.DeathRecord(
+                actor_identity=mob.actor_identity,
+                killer_identity=mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+                max_hp=mob.max_hp,
+                scene="Bg0015",
+            ),
+        ), 1)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            response = responder_mod.respond(
+                legacy=self.legacy,
+                chosen_identities=(mob.actor_identity,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=state.mob_combat_ledger,
+                mob_death_register=foreign,
+            )
+        self.assertIsNone(response)
+        self.assertIn(
+            "clicked_body_is_dead_needs_a_mob_death_body", err.getvalue())
+
+    def test_a_register_that_is_not_a_register_composes_nothing(
+        self,
+    ) -> None:
+        """Fail CLOSED on the type: an object that merely answers
+        ``is_dead`` is not a grave this lane may compose a body out of."""
+        class _NotARegister:
+            def is_dead(self, identity, scene=None):
+                return True
+
+        state, target = self._killed_session()
+        dead_index = self._dead_index(target)
+        mob = self._hostile_indices()[dead_index]
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            response = responder_mod.respond(
+                legacy=self.legacy,
+                chosen_identities=(mob.actor_identity,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=state.mob_combat_ledger,
+                mob_death_register=_NotARegister(),
+            )
+        self.assertIsNone(response)
+        self.assertIn(
+            "clicked_body_is_dead_needs_a_mob_death_body", err.getvalue())
+
+    def test_a_live_click_is_unchanged_when_a_register_is_passed(
+        self,
+    ) -> None:
+        """The frame a player sees on every OTHER click must not move
+        because this keyword arrived."""
+        state, _target = self._killed_session()
+        without, _ = self._click(state, self._civilian_index())
+        with_register, _ = self._click(
+            state, self._civilian_index(), with_register=True)
+        self.assertNotEqual(
+            without.frame, with_register.frame,
+            "the corpse changed no byte - the register was not read",
+        )
+        self.assertEqual(without.label, with_register.label)
+        self.assertIn("dead_at_ceiling=1", without.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", with_register.console_lines[0])
 
 
 if __name__ == "__main__":

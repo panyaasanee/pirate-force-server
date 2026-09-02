@@ -691,7 +691,7 @@ class TheLedgerPathTests(unittest.TestCase):
         self.assertIn(f"visible={ROSTER_COUNT}", response.console_lines[0])
         self.assertIn("dead_at_ceiling=1", response.console_lines[0])
         self.assertIn(
-            f"_DEAD_BODY_AT_CEILING placement={self.mob_index} ",
+            f"_DEAD_BODY_AT_CEILING count=1 placements={self.mob_index} ",
             err.getvalue())
 
     def test_a_packet_naming_a_corpse_AND_a_civilian_is_still_answered(self):
@@ -764,8 +764,8 @@ class TheLedgerPathTests(unittest.TestCase):
                 mob_combat_ledger=self._ledger_with(0),
             )
         self.assertIn(
-            f"_DEAD_BODY_AT_CEILING placement={self.mob_index} "
-            f"identity=0x{self.mob.actor_identity:04X}",
+            f"_DEAD_BODY_AT_CEILING count=1 placements={self.mob_index} "
+            f"identities=0x{self.mob.actor_identity:04X}",
             err.getvalue(),
         )
 
