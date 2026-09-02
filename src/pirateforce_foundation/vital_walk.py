@@ -131,8 +131,19 @@ NONCLAIMS -- read before using one symbol from here.
   4. WHICH POSITION THE PICKUP VITAL ARRIVES IN IS UNRESOLVED.  ka1-A's
      prose says the request "usually arrives as vital 2..5"; the refusal
      token actually counted 42 times, ``vital_count_not_one``, can only be
-     produced when the pickup vital is FIRST (the runtime branch keys on
-     ``parsed.nested_id``).  The two readings disagree and this module does
+     produced when the pickup vital is FIRST -- but AFTER R309 that is a
+     NARROWER statement than it reads, and the parenthetical it used to
+     carry ("the runtime branch keys on ``parsed.nested_id``") described
+     runtime.py BEFORE this module existed and is withdrawn [LANE-B, round
+     ``di7ers``, letter ``20260902_2307``].  Today ``runtime.py`` isolates
+     the pickup vital from ANY position, and an isolated parse has
+     ``vital_count == 1`` by construction, so that classifier can never
+     reach the token.  The only surviving producer is the leading-frame
+     fallback (``pickup_parsed = parsed`` when the frame leads with the
+     pickup id AND the walk refused it), which means the token now reports
+     "led with the pickup id and did not walk", not "arrived first".  A
+     reader counting it as evidence of arrival position is reading a
+     pre-R309 meaning.  The two readings disagree and this module does
      not settle it -- it handles both, because ``isolate_vital`` searches
      every position including the first.  "Handles both" is now driven by a
      test per reading at the dispatcher, not asserted here: the claim was
