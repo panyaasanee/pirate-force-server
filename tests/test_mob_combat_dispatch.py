@@ -327,8 +327,14 @@ class MobCombatDispatchTests(unittest.TestCase):
         that ships it) and not watched here.  The assertion below therefore
         covers whatever frames the burst really contains, drop frames
         included if a roll ever produces one in this harness, and the
-        ordering claim stays [PROPOSED] until a kill that drops is driven
-        end to end.
+        ~~ordering claim stays [PROPOSED] until a kill that drops is driven
+        end to end~~ -- MEASURED, round ihbal8 (COO-DECISION 2026-09-02T
+        14:47+07:00): tests/test_mob_combat_dispatch_bg0002_kill.py drives a
+        kill in Bg0002, whose rows really do roll, and pins the burst as
+        [announce, dying, dead, DROP] with a row behind the drop frame.  The
+        two sentences above stay true OF THIS HARNESS -- the bg0001 control
+        row still rolls nothing, and that file re-derives the 4 x 30 = 0
+        rather than citing it.
 
         What comes after the burst is the ~2 s heartbeat, which has carried
         the pool-present record on every flagless boot since app.py's
