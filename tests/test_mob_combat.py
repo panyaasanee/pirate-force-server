@@ -31,6 +31,7 @@ import ast
 import builtins
 import json
 import sys
+import threading
 from pathlib import Path
 import unittest
 
@@ -44,6 +45,7 @@ from pirateforce_foundation import (
     hostile_hp_link_hypothesis,
     mob_aggro,
     mob_combat,
+    mob_death,
     mob_loot,
 )
 from pirateforce_foundation.legacy_bridge import load_legacy
@@ -1174,6 +1176,12 @@ class MobCombatTests(unittest.TestCase):
         # (pf-adversary, second pass, D3).
         self.assertEqual(
             mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP, 32)
+        # THIS FAMILY'S LINES, not every line on the console: round t8z97r
+        # added a once-per-process status line to this same path, and a
+        # count of everything printed would make an unrelated line look
+        # like a budget failure.
+        printed = [line for line in printed
+                   if line.startswith("GROUND_ACTORS_LIVENESS_")]
         self.assertEqual(len(printed), 33)
         self.assertEqual(
             len([line for line in printed if line.startswith(
@@ -1834,6 +1842,726 @@ class MobCombatTests(unittest.TestCase):
         # actually present for it to have scanned.
         self.assertIn("check_attack_cadence", dir(mob_combat))
         self.assertIn("ATTACK_CADENCE_MS_PROVISIONAL", dir(mob_combat))
+
+
+class TheGateReadsAndComposesUnderOnePublicationTests(unittest.TestCase):
+    """COO-DECISION 20260902_1946, conditions a and b.
+
+    a. The count that arms the gate and the frame it arms must be taken
+       under one publication, or the call site must SAY the window is open.
+    b. A read that retires rows must say how many, because
+       ``enter_scene``'s boundary report reads ZERO after somebody else's
+       read swept the rows it was going to count.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.roster = field_mobs.load_roster()
+        cls.mob = [m for m in cls.roster
+                   if m.placement_index == field_mobs.CONTROL_PLACEMENT_INDEX][0]
+
+    def setUp(self):
+        # The once-per-process status line is driven by its OWN test; here
+        # it is marked said, so a test that asserts an empty console does
+        # not depend on which test ran first.
+        said = list(mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID)
+        mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.append(True)
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.clear(),
+                mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.extend(
+                    said)))
+        moved = set(mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED)
+        mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED.clear()
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED.clear(),
+                mob_combat._GROUND_ROWS_LEDGER_MOVED_REPORTED.update(moved)))
+        before = set(mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED)
+        mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED.clear()
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED.clear(),
+                mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED.update(before)))
+        unknown = set(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED)
+        mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear()
+        self.addCleanup(
+            lambda: (
+                mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear(),
+                mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.update(
+                    unknown)))
+
+    def _one_entry(self):
+        body = field_mobs.hostile_npc_attr(
+            self.legacy, self.mob, current_hp=self.mob.max_hp)
+        return self.legacy.make_remote_actor_entry(
+            mob_combat.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
+            [(NPC_ATTR_ID, body)])
+
+    def _capture_print(self):
+        printed = []
+        real_print = builtins.print
+        builtins.print = lambda *a, **k: printed.append(
+            " ".join(str(x) for x in a))
+        self.addCleanup(lambda: setattr(builtins, "print", real_print))
+        return printed
+
+    def _a_roll_that_really_drops(self, mob):
+        """A roll with a row in it, BUILT rather than rolled.
+
+        ~~``roll_drops(mob, random.Random(3))``~~ IS STRUCK (pf-adversary,
+        round t8z97r, D1+D2): that seed drops nothing, and neither does any
+        of the 40 mobs x 80 seeds the adversary searched, so every test that
+        needed a standing row skipped PERMANENTLY -- six undeclared skips,
+        and the six were exactly the tests that prove conditions a and b on
+        a floor with something on it.  A fixture that decides whether the
+        round is tested by rolling dice is not a fixture.
+        """
+        # ``or 1``: the set id is PROVENANCE, and the control mob's own
+        # normal set is 0, which the record refuses as a set id.  What the
+        # fixture needs is a row on the floor, not a plausible loot table.
+        item = mob_loot.DropItem(
+            2400046, 1, "DROPS_NORMAL", mob.drops_normal or 1, 1)
+        return mob_loot.DropRoll(
+            mob.template_id, mob.actor_identity, (item,), (), 1, ())
+
+    def _a_cell_with_a_row(self, clock=None):
+        cell = mob_loot.DropLedgerCell(clock=clock)
+        record = mob_death.DeathRecord(
+            self.mob.actor_identity, 0x10010001, self.mob.max_hp)
+        cell.loot_a_kill(
+            self.mob, record, self._a_roll_that_really_drops(self.mob),
+            kill_token=1)
+        self.assertTrue(
+            cell.ledger.drops, "the fixture must leave a row standing")
+        return cell
+
+    # -- condition a ------------------------------------------------------
+
+    def test_the_kill_cannot_land_between_the_read_and_the_composition(self):
+        """THE WINDOW ITSELF, driven with a real second thread.
+
+        The composer runs while another thread is trying to loot a kill into
+        the same cell.  If the read and the composition were two acquisitions
+        that kill would land in between; under one publication it cannot,
+        and this test proves the ordering rather than asserting it.
+        """
+        cell = mob_loot.DropLedgerCell()
+        entered = threading.Event()
+        may_finish = threading.Event()
+        landed = threading.Event()
+        second = self.roster[1]
+        record = mob_death.DeathRecord(
+            second.actor_identity, 0x10010001, second.max_hp)
+
+        def a_kill():
+            entered.wait(5)
+            cell.loot_a_kill(
+                second, record, self._a_roll_that_really_drops(second),
+                kill_token=2)
+            landed.set()
+
+        seen = []
+
+        def compose(rows_left):
+            seen.append(rows_left)
+            entered.set()
+            # Long enough for the other thread to reach the cell and block.
+            may_finish.wait(0.5)
+            self.assertFalse(
+                landed.is_set(),
+                "a kill landed between the read and the composition")
+            return b"pc", b"frame"
+
+        worker = threading.Thread(target=a_kill)
+        worker.start()
+        try:
+            answer, rows, swept, moved = cell.compose_under_publication(
+                compose)
+        finally:
+            may_finish.set()
+            worker.join(5)
+        self.assertEqual(answer, (b"pc", b"frame"))
+        # A cell nobody has entered a scene into answers NO_SCENE, which is
+        # the fail-closed sentinel and not a count -- the point of this test
+        # is WHEN the answer was taken, not what it said.
+        self.assertEqual(seen, [mob_loot.GROUND_LIVENESS_NO_SCENE])
+        self.assertEqual(rows, mob_loot.GROUND_LIVENESS_NO_SCENE)
+        self.assertEqual(swept, 0)
+        self.assertFalse(moved, "the composer did not touch the ledger")
+        self.assertTrue(landed.is_set(), "the other thread never ran")
+
+    def test_the_closed_path_says_nothing_and_gates_on_the_live_count(self):
+        cell = self._a_cell_with_a_row()
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=cell)
+        self.assertEqual(
+            answer,
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, entries),
+            "a row is standing and the ground was not preserved")
+        self.assertEqual(printed, [], printed)
+
+    def test_no_cell_composes_todays_bytes_and_says_the_window_is_open(self):
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        race = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")]
+        self.assertEqual(len(race), 1, printed)
+        self.assertIn(mob_combat.GROUND_ROWS_RACE_REASON_NO_CELL, race[0])
+
+    def test_a_cell_that_cannot_host_the_composition_is_named_not_silent(self):
+        class OldCell:
+            def publication(self):
+                return None, None, 0
+
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        for _click in range(4):
+            answer = (
+                mob_combat
+                .remote_actors_preserving_the_ground_under_publication(
+                    self.legacy, entries,
+                    mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                    cell=OldCell()))
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        race = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")]
+        self.assertEqual(len(race), 1, "the line is once per site and cause")
+        self.assertIn(
+            mob_combat.GROUND_ROWS_RACE_REASON_CANNOT_HOST, race[0])
+
+    def test_a_host_that_refuses_still_composes_and_is_named(self):
+        class RefusingCell:
+            def compose_under_publication(self, compose, scene=None):
+                raise RuntimeError("the cell is gone")
+
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            cell=RefusingCell())
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        race = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")]
+        self.assertEqual(len(race), 1, printed)
+        self.assertIn(
+            mob_combat.GROUND_ROWS_RACE_REASON_CELL_REFUSED, race[0])
+
+    def test_a_handle_whose_attribute_access_raises_still_gets_a_frame(self):
+        """The listener thread has no ``except``; finding out that a handle
+        is hostile may not cost the frame."""
+        class Hostile:
+            def __getattr__(self, name):
+                raise KeyError(name)
+
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=Hostile())
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        self.assertTrue(any(line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")
+            for line in printed), printed)
+
+    def test_a_lost_frame_is_raised_and_never_reported_as_a_race(self):
+        """The composer's own exception means the LEGACY composer failed
+        too, and that is a lost frame, not a ground-list condition."""
+        class Broken:
+            def __getattr__(self, name):
+                raise ValueError("v141 is not here")
+
+        cell = self._a_cell_with_a_row()
+        printed = self._capture_print()
+        with self.assertRaises(ValueError):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                Broken(), [], mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                cell=cell)
+        self.assertEqual(
+            [line for line in printed if line.startswith(
+                mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN)], [])
+
+    def test_another_scenes_cell_never_arms_this_frame(self):
+        cell = self._a_cell_with_a_row()
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            cell=cell, scene="Bg0014")
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries),
+            "another scene's floor armed this frame")
+        self.assertTrue(any(line.startswith(
+            mob_combat.GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN + " ")
+            for line in printed), printed)
+
+    def test_the_call_site_status_is_re_derived_from_src_on_every_run(
+            self):
+        """pf-adversary D3: silence is not evidence that the window is shut.
+
+        Zero ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines is what a closed window
+        and an UNWIRED closure both look like on a console.  This constant is
+        the difference, and it is re-derived from ``runtime.py``'s own AST
+        here so it cannot drift in either direction -- as red for a status
+        left at "called" after the line is reverted as for one left at
+        "composed_not_called" after it lands.  A CALL, not a substring: a
+        comment naming the function satisfies a substring and sends nothing.
+        """
+        # EVERY PRODUCTION FILE, not runtime.py alone (pf-adversary, second
+        # pass, R1): the site this closure is FOR is a ChooseNPC responder,
+        # and those live in ``lane_hooks/``.  A guard that watched one file
+        # stayed green with the closure wired in another -- measured, by
+        # wiring it into lane_a_choose_npc_scene14.py.  Aliased imports are
+        # resolved too, because ``import X as Y`` defeated the name match.
+        wanted = "remote_actors_preserving_the_ground_under_publication"
+        called = False
+        for path in sorted(
+                (ROOT / "src/pirateforce_foundation").rglob("*.py")):
+            if path.name == "mob_combat.py":
+                continue                          # where it is DEFINED
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            names = {wanted}
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for alias in node.names:
+                        if alias.name == wanted and alias.asname:
+                            names.add(alias.asname)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = getattr(func, "attr", None) or getattr(
+                    func, "id", None)
+                if name in names:
+                    called = True
+                    break
+            if called:
+                break
+        self.assertEqual(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS,
+            "called" if called else "composed_not_called",
+            "src/ and GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS disagree "
+            "about whether any production call site reads and composes "
+            "under one publication.  Either the wiring landed and the "
+            "constant was not moved, or the constant claims a closure "
+            "nothing uses.")
+
+    # -- condition b ------------------------------------------------------
+
+    def test_a_read_that_retires_rows_says_how_many(self):
+        ticks = [0.0, 0.0, 0.0, 0.0]
+
+        def clock():
+            return ticks[-1] if len(ticks) == 1 else ticks.pop(0)
+
+        cell = self._a_cell_with_a_row(clock=clock)
+        standing = len(cell.ledger.drops)
+        self.assertTrue(standing)
+        ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=cell)
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries),
+            "every row expired, so there was nothing left to preserve")
+        swept = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_SWEPT_BY_READ_TOKEN + " ")]
+        self.assertEqual(len(swept), 1, printed)
+        self.assertIn(" %d " % standing, swept[0])
+        self.assertIn(
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, swept[0])
+
+    def test_a_read_that_retires_nothing_says_nothing(self):
+        cell = self._a_cell_with_a_row()
+        printed = self._capture_print()
+        mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, [self._one_entry()],
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=cell)
+        self.assertEqual(printed, [], "an ordinary read is not a console event")
+
+    def test_the_sweep_line_refuses_a_count_that_is_not_a_count(self):
+        printed = self._capture_print()
+        for value in (0, -1, None, True, "3", 2.0):
+            self.assertFalse(
+                mob_combat.report_rows_swept_by_read(value, "site"), value)
+        self.assertEqual(printed, [])
+        self.assertTrue(mob_combat.report_rows_swept_by_read(2, "site"))
+        self.assertEqual(len(printed), 1)
+
+    def test_a_read_that_dies_after_sweeping_still_reports_what_it_swept(
+            self):
+        """pf-adversary D5: the old shape hard-coded zero on this path -- the
+        exact defect condition b exists to close, inside the method that
+        closes it."""
+        ticks = [0.0]
+
+        def clock():
+            return ticks[-1]
+
+        cell = self._a_cell_with_a_row(clock=clock)
+        standing = len(cell.ledger.drops)
+        ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+        real = mob_loot.ground_liveness_from_publication
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("the read died after the sweep")
+
+        mob_loot.ground_liveness_from_publication = boom
+        self.addCleanup(
+            setattr, mob_loot, "ground_liveness_from_publication", real)
+        answer, rows, swept, moved = cell.compose_under_publication(
+            lambda rows_left: ("composed", rows_left))
+        self.assertEqual(answer, ("composed", mob_loot.GROUND_LIVENESS_CELL_REFUSED))
+        self.assertEqual(rows, mob_loot.GROUND_LIVENESS_CELL_REFUSED)
+        self.assertEqual(
+            swept, standing,
+            "the rows this read retired vanished with the exception")
+        self.assertFalse(moved)
+
+    def test_an_unfoldable_scene_never_touches_the_cell(self):
+        """pf-adversary D6: the sibling documents this invariant; the new
+        method used to fold the scene AFTER sweeping."""
+        ticks = [0.0]
+        cell = self._a_cell_with_a_row(clock=lambda: ticks[-1])
+        standing = len(cell.ledger.drops)
+        ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+        answer, rows, swept, moved = cell.compose_under_publication(
+            lambda rows_left: rows_left, scene=["unfoldable"])
+        self.assertEqual(rows, mob_loot.GROUND_LIVENESS_BAD_SCENE)
+        self.assertEqual(answer, mob_loot.GROUND_LIVENESS_BAD_SCENE)
+        self.assertEqual((swept, moved), (0, False))
+        # The cell's own sweep counter, because reading ``.ledger`` here
+        # would sweep and hide exactly what this test is about.
+        self.assertEqual(
+            cell._swept_total, 0,
+            "a call that refused the caller's scene retired the ground")
+        self.assertEqual(standing, 1)
+
+    def test_a_composer_that_moves_the_ledger_is_counted_and_named(self):
+        """pf-adversary D7: the RLock lets a re-entrant composer proceed, so
+        the frame can be armed by a count the composer itself made false.
+        The sweep it causes is counted and the site is named."""
+        ticks = [0.0]
+        cell = self._a_cell_with_a_row(clock=lambda: ticks[-1])
+        standing = len(cell.ledger.drops)
+
+        def composer(rows_left):
+            # The composer expires the floor it was just told about.
+            ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+            cell.publication_and_sweep()
+            return ("composed", rows_left)
+
+        answer, rows, swept, moved = cell.compose_under_publication(composer)
+        self.assertEqual(answer[1], rows)
+        self.assertEqual(rows, standing, "the count handed over was the truth")
+        self.assertEqual(
+            swept, standing, "the composer's own sweep went unreported")
+        self.assertTrue(moved, "the ledger moved and nobody said so")
+
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+
+        class MovesTheLedger:
+            def compose_under_publication(self, compose, scene=None):
+                answer = compose(2)
+                return answer, 2, 0, True
+
+        mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            cell=MovesTheLedger())
+        self.assertTrue(any(line.startswith(
+            mob_combat.GROUND_ROWS_LEDGER_MOVED_TOKEN + " ")
+            for line in printed), printed)
+
+    def test_a_host_that_composed_then_failed_does_not_compose_twice(self):
+        """Composing twice doubles every console line the composer writes."""
+        calls = []
+
+        class ComposesThenFails:
+            def compose_under_publication(self, compose, scene=None):
+                calls.append(compose(3))
+                raise RuntimeError("the cell fell over after composing")
+
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            cell=ComposesThenFails())
+        self.assertEqual(len(calls), 1, "the composer ran twice")
+        self.assertEqual(answer, calls[0])
+        self.assertTrue(any(line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")
+            for line in printed), printed)
+
+    def test_a_host_that_wraps_the_composers_exception_is_not_the_culprit(
+            self):
+        """pf-adversary, second pass, R9: a wrapping host used to get the
+        composer run TWICE, the composer's exception discarded, and a pure
+        composition failure printed under the cell's name.  A lost frame is
+        not a ground-list condition."""
+        class WrapsTheException:
+            def compose_under_publication(self, compose, scene=None):
+                try:
+                    return compose(1)
+                except Exception as exc:
+                    raise KeyError("wrapped") from exc
+
+        attempts = []
+        real = mob_combat.remote_actors_preserving_the_ground
+
+        def counted(*args, **kwargs):
+            attempts.append(1)
+            return real(*args, **kwargs)
+
+        mob_combat.remote_actors_preserving_the_ground = counted
+        self.addCleanup(
+            setattr, mob_combat, "remote_actors_preserving_the_ground", real)
+
+        class Broken:
+            def __getattr__(self, name):
+                raise ValueError("v141 is not here")
+
+        printed = self._capture_print()
+        with self.assertRaises(ValueError):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                Broken(), [],
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                cell=WrapsTheException())
+        self.assertEqual(
+            len(attempts), 1, "the composer was run a second time")
+        self.assertEqual(
+            [line for line in printed if line.startswith(
+                mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN)], [],
+            "a composition failure was reported as a cell failure")
+
+    def test_the_race_family_says_its_own_suppression_word(self):
+        """pf-adversary D11: it used to borrow the liveness family's token,
+        so a capped race family accused a family that never spoke."""
+        printed = self._capture_print()
+        for index in range(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP
+                           + 3):
+            mob_combat._report_race_window_open_once(
+                "site_%d" % index, mob_combat.GROUND_ROWS_RACE_REASON_NO_CELL)
+        suppressed = [line for line in printed
+                      if "SUPPRESSED" in line]
+        self.assertEqual(len(suppressed), 1, printed)
+        self.assertTrue(suppressed[0].startswith(
+            mob_combat.GROUND_ROWS_RACE_SUPPRESSED_TOKEN + " "), suppressed)
+        self.assertEqual(
+            len(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED), 0,
+            "the liveness family was charged for the race family's lines")
+
+    def test_publication_still_answers_in_three_and_agrees_with_the_fourth(
+            self):
+        cell = self._a_cell_with_a_row()
+        scene, view, elsewhere = cell.publication()
+        scene2, view2, elsewhere2, swept = cell.publication_and_sweep()
+        self.assertEqual((scene, elsewhere), (scene2, elsewhere2))
+        self.assertEqual(view.drops, view2.drops)
+        self.assertEqual(swept, 0)
+
+    def test_a_host_that_answers_in_a_shape_this_lane_cannot_read(self):
+        """pf-adversary, second pass, R2: the unpack ran unguarded on the
+        listener thread, so a two-element or None answer cost the frame --
+        with a composed frame sitting in hand."""
+        class Answers:
+            def __init__(self, shape):
+                self._shape = shape
+
+            def compose_under_publication(self, compose, scene=None):
+                composed = compose(2)
+                if self._shape == "two":
+                    return composed, 0
+                if self._shape == "none":
+                    return None
+                if self._shape == "generator":
+                    return (x for x in (composed, 0, 0))
+                return composed, 0, 0, False
+
+        entries = [self._one_entry()]
+        expected = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, entries)
+        for shape in ("two", "none", "generator", "four"):
+            with self.subTest(shape=shape):
+                printed = self._capture_print()
+                answer = (
+                    mob_combat
+                    .remote_actors_preserving_the_ground_under_publication(
+                        self.legacy, entries,
+                        mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+                        cell=Answers(shape)))
+                self.assertEqual(answer, expected, "the frame was lost")
+                del printed
+
+    def test_the_moved_family_has_its_own_budget_and_its_own_word(self):
+        """pf-adversary, second pass, R3: it borrowed the race family's, so
+        a run of moved sites both mis-named the suppression and could
+        silence a genuine open window."""
+        printed = self._capture_print()
+        for index in range(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP
+                           + 3):
+            mob_combat._report_ledger_moved_once("moved_site_%d" % index)
+        mob_combat._report_race_window_open_once(
+            "a_real_open_window", mob_combat.GROUND_ROWS_RACE_REASON_NO_CELL)
+        self.assertTrue(any(line.startswith(
+            mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN + " ")
+            for line in printed),
+            "a run of moved sites silenced a genuine open window")
+        suppressed = [line for line in printed if "SUPPRESSED" in line]
+        self.assertEqual(len(suppressed), 1, suppressed)
+        self.assertTrue(suppressed[0].startswith(
+            mob_combat.GROUND_ROWS_LEDGER_MOVED_SUPPRESSED_TOKEN + " "),
+            suppressed)
+
+    def test_every_way_a_composer_can_sweep_is_counted(self):
+        """pf-adversary, second pass, R4: the counter lived in the
+        publication read, so 3 of the 5 nested sweep paths reported ZERO --
+        a MOVED line with no number, and a boundary that then says 0."""
+        for nested in ("publication_and_sweep", "publication",
+                       "sweep_expired", "ledger", "enter_scene"):
+            with self.subTest(nested=nested):
+                ticks = [0.0]
+                cell = self._a_cell_with_a_row(clock=lambda: ticks[-1])
+                standing = len(cell.ledger.drops)
+
+                def composer(rows_left, cell=cell, ticks=ticks,
+                             nested=nested):
+                    ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+                    if nested == "enter_scene":
+                        cell.enter_scene("Bg0014")
+                    elif nested == "ledger":
+                        cell.ledger
+                    else:
+                        getattr(cell, nested)()
+                    return rows_left
+
+                _answer, _rows, swept, moved = cell.compose_under_publication(
+                    composer)
+                self.assertEqual(
+                    swept, standing,
+                    "a nested %s swept in silence" % (nested,))
+                self.assertTrue(moved, "the ledger moved and nobody said so")
+
+    def test_a_composer_that_changes_the_scene_has_moved_the_ledger(self):
+        """pf-adversary, second pass, R8: identity of ``_ledger`` alone
+        cannot see a count that now describes another scene's floor."""
+        cell = self._a_cell_with_a_row()
+        def composer(rows_left):
+            cell.enter_scene("Bg0014")
+            return rows_left
+
+        answer, rows, swept, moved = cell.compose_under_publication(composer)
+        self.assertEqual(answer, rows)
+        self.assertEqual(swept, 0, "nothing expired in this test")
+        self.assertTrue(
+            moved, "the count now describes a scene the frame is not for")
+
+    def test_a_composer_that_raises_still_reports_what_the_read_swept(self):
+        """pf-adversary, second pass, R6."""
+        ticks = [0.0]
+        cell = self._a_cell_with_a_row(clock=lambda: ticks[-1])
+        standing = len(cell.ledger.drops)
+        ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+
+        class Broken:
+            def __getattr__(self, name):
+                raise ValueError("v141 is not here")
+
+        printed = self._capture_print()
+        with self.assertRaises(ValueError):
+            mob_combat.remote_actors_preserving_the_ground_under_publication(
+                Broken(), [],
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=cell)
+        swept = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_SWEPT_BY_READ_TOKEN + " ")]
+        self.assertEqual(len(swept), 1, printed)
+        self.assertIn(" %d " % standing, swept[0])
+
+    def test_the_fallback_read_reports_its_own_sweep(self):
+        """pf-adversary, second pass, R7: the cell_refused fallback swept in
+        silence, and the comment that excused it was false for that branch."""
+        ticks = [0.0]
+        real = self._a_cell_with_a_row(clock=lambda: ticks[-1])
+        standing = len(real.ledger.drops)
+        ticks[:] = [mob_loot.DROP_LIFETIME_SECONDS + 1.0]
+
+        class Refuses:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def compose_under_publication(self, compose, scene=None):
+                raise RuntimeError("not today")
+
+            def publication(self):
+                return self._inner.publication()
+
+            @property
+            def swept_total(self):
+                return self._inner.swept_total
+
+        entries = [self._one_entry()]
+        printed = self._capture_print()
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+            cell=Refuses(real))
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
+        swept = [line for line in printed if line.startswith(
+            mob_combat.GROUND_ROWS_SWEPT_BY_READ_TOKEN + " ")]
+        self.assertEqual(len(swept), 1, printed)
+        self.assertIn(" %d " % standing, swept[0])
+
+    def test_the_call_site_status_reaches_the_console_once(self):
+        """pf-adversary, second pass, R10: a source-only constant cannot
+        tell an operator watching the console whether the silence means a
+        shut window or an unwired closure."""
+        mob_combat._GROUND_UNDER_PUBLICATION_STATUS_SAID.clear()
+        printed = self._capture_print()
+        entries = [self._one_entry()]
+        for _frame in range(3):
+            mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        status = [line for line in printed if line.startswith(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN + " ")]
+        self.assertEqual(len(status), 1, printed)
+        self.assertIn(
+            mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS, status[0])
+
+    def test_a_console_that_refuses_the_lines_loses_them_not_the_frame(self):
+        real_print = builtins.print
+
+        def refuse(*_args, **_kwargs):
+            raise ValueError("I/O operation on closed file")
+
+        builtins.print = refuse
+        self.addCleanup(lambda: setattr(builtins, "print", real_print))
+        entries = [self._one_entry()]
+        answer = mob_combat.remote_actors_preserving_the_ground_under_publication(
+            self.legacy, entries,
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC, cell=None)
+        self.assertEqual(
+            answer, self.legacy.make_runtime_remote_actors(entries))
 
 
 if __name__ == "__main__":
