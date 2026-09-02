@@ -28,6 +28,13 @@ WHAT IS PROVEN HERE AND WHAT IS NOT.
     v141's.  The gate is ``mob_loot``'s own, called through
     ``mob_combat``: this file drives it, it does not re-implement it.
 
+    PROVEN, PER CALL SITE.  Each responder is driven END TO END through
+    ``respond()`` with and without a cell, and the console token it emits
+    is read back.  That is what makes a mis-wired call site red:
+    pf-adversary (round ``gx7xtp``, D3) showed that swapping the last two
+    arguments, or passing ``None`` where the cell goes, left the whole
+    7,158-test suite byte-identical when the only guard was a text scan.
+
     NOT PROVEN.  That any of this reaches a screen.  No attended ticket is
     scheduled to read ``GROUND_ACTORS_LIVENESS_UNKNOWN`` - LANE-B's letter
     says so plainly and this file does not pretend otherwise.  ``GT-204``
@@ -172,6 +179,138 @@ class TheCallSitesAskTheGroundBeforeTheyCompose(unittest.TestCase):
                 self.assertIn("compose_answer(\n", body)
 
 
+class TheCellIsHeldBackUntilTheLockHoldingComposerLands(unittest.TestCase):
+    """``COO-DECISION 20260902_1946`` approved the call site WITH two
+    conditions - close the read-then-compose race, never sweep silently on
+    a read - and LANE-B closed both in a LATER letter (``20260902_2048``)
+    with a composer that is not on ``main``.  chief measured the same
+    absence and declined to wire it (``20260902_2208``).  So a cell that
+    arrives today is held back rather than asked, and these tests are what
+    stop that from being a comment."""
+
+    def test_the_lock_holding_composer_is_still_absent(self) -> None:
+        """The premise of the hold, checked rather than assumed.  When this
+        goes red the hold is over: delete it, and the branch it guards."""
+        self.assertIsNone(preserve.under_publication_composer())
+        self.assertFalse(hasattr(mob_combat, preserve.UNDER_PUBLICATION_COMPOSER))
+
+    def test_a_cell_is_never_asked_while_the_composer_is_missing(
+        self,
+    ) -> None:
+        """The cell object itself would raise if it were read, so this is
+        not "the count came back unusable" - it is "nobody read it"."""
+        class _Explodes:
+            def publication(self):
+                raise AssertionError("the cell was asked, and it must not be")
+
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        expected = legacy.make_runtime_remote_actors(list(entries))
+        preserve._HELD_BACK_REPORTED.clear()
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            got = preserve.compose_answer(
+                legacy, list(entries), 1, _Explodes())
+        self.assertEqual(got, expected)
+        self.assertIn(preserve.CELL_HELD_BACK_TOKEN, buffer.getvalue())
+
+    def test_the_held_back_line_is_one_ascii_token_per_scene(self) -> None:
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        preserve._HELD_BACK_REPORTED.clear()
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            for _ in range(4):
+                preserve.compose_answer(
+                    legacy, list(entries), 1, _Cell(3, "bg0001"))
+            preserve.compose_answer(
+                legacy, list(entries), 2, _Cell(3, "Bg0002"))
+        lines = [line for line in buffer.getvalue().split("\n")
+                 if preserve.CELL_HELD_BACK_TOKEN in line]
+        self.assertEqual(len(lines), 2, lines)
+        for line in lines:
+            with self.subTest(line=line):
+                self.assertTrue(line.isascii())
+                line.encode("cp874")
+                self.assertIn("reason=", line)
+                self.assertIn(preserve.UNDER_PUBLICATION_COMPOSER, line)
+
+
+class EachResponderReallyPassesItsOwnCellAndItsOwnScene(unittest.TestCase):
+    """pf-adversary D3, closed.  Every one of these drives the REAL
+    ``respond()``, so a call site with its arguments swapped, or one that
+    drops the cell on the floor, goes red HERE - which a text scan of the
+    source could never do."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+
+    def _drive(self, module, scene, cell):
+        """Call a responder for real and return its console output.
+
+        ``_placements_by_index`` takes the legacy handle in one module and
+        nothing in the others; asked for both rather than special-cased by
+        name, so a fifth responder joins without editing this."""
+        try:
+            placements = module._placements_by_index(self.legacy)
+        except TypeError:
+            placements = module._placements_by_index()
+        indices = tuple(sorted(placements))
+        preserve._HELD_BACK_REPORTED.clear()
+        mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear()
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            answer = module.respond(
+                legacy=self.legacy,
+                chosen_identities=(0x2000 + indices[0] + 1,),
+                population_indices=indices,
+                last_target_pos=(0.0, 0.0, 0.0, 0.0),
+                scene_id=scene,
+                mob_loot_cell=cell,
+            )
+        return answer, buffer.getvalue()
+
+    def test_no_cell_says_no_cell_and_a_cell_says_held_back(self) -> None:
+        for label, module, scene in RESPONDERS:
+            if not hasattr(module, "_placements_by_index"):
+                continue
+            with self.subTest(responder=label):
+                answer, out = self._drive(module, scene, None)
+                self.assertIsNotNone(answer)
+                # No cell: the cause the console names is the wiring hole,
+                # and it is NOT the held-back one.
+                self.assertNotIn(preserve.CELL_HELD_BACK_TOKEN, out)
+                self.assertIn("no_cell", out)
+
+                folder = world_scene_folder.scene_folder_for_scene_id(scene)
+                answer, out = self._drive(module, scene, _Cell(2, folder))
+                self.assertIsNotNone(answer)
+                # A cell that reached the gate flips the cause.  An
+                # argument-swapped call site cannot produce this line, and
+                # a call site that drops the cell produces "no_cell" here.
+                self.assertIn(preserve.CELL_HELD_BACK_TOKEN, out)
+                self.assertNotIn("no_cell", out)
+
+    def test_the_frame_is_the_same_either_way_today(self) -> None:
+        """Holding the cell back must cost the ground list, never bytes."""
+        for label, module, scene in RESPONDERS:
+            if not hasattr(module, "_placements_by_index"):
+                continue
+            with self.subTest(responder=label):
+                without, _ = self._drive(module, scene, None)
+                folder = world_scene_folder.scene_folder_for_scene_id(scene)
+                with_cell, _ = self._drive(module, scene, _Cell(2, folder))
+                self.assertEqual(without.pc, with_cell.pc)
+                self.assertEqual(without.frame, with_cell.frame)
+
+
 class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
     """The whole safety argument for landing this before chief's line."""
 
@@ -260,25 +399,36 @@ class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
                 self.legacy, list(entries), 1, _Cell(3, "Bg0002"))
         self.assertEqual(got, expected)
 
-    def test_a_live_row_in_this_scene_changes_the_frame(self) -> None:
-        """The other half: the gate is not decorative.  A cell that really
-        holds rows for THIS scene composes the preserving shape, which is
-        not the bytes v141 returns."""
+    def test_the_gate_itself_is_not_decorative(self) -> None:
+        """The scene resolve really does turn a cell into a live count, and
+        a live count really does compose different bytes.
+
+        ``compose_answer`` deliberately does NOT reach that shape today -
+        it holds the cell back until the lock-holding composer lands, see
+        ``TheCellIsHeldBackUntilTheLockHoldingComposerLands`` - so this
+        drives the two halves separately.  Collapsing them into one call
+        is what the hold forbids, not what it hides.
+        """
         entries = self._entries()
         plain = self.legacy.make_runtime_remote_actors(list(entries))
-        cell = _Cell(3, "bg0001")
-        live = preserve.ground_rows_for_scene(cell, 1)
+        live = preserve.ground_rows_for_scene(_Cell(3, "bg0001"), 1)
         self.assertTrue(mob_loot.ground_is_live(live), live)
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            got = preserve.compose_answer(self.legacy, list(entries), 1, cell)
-        self.assertNotEqual(got, plain)
-        # And an empty floor in the right scene is still v141's own bytes:
-        # the gate turns on a row STANDING, not on a cell existing.
+        self.assertEqual(live, 3)
         with contextlib.redirect_stdout(io.StringIO()):
-            empty = preserve.compose_answer(
-                self.legacy, list(entries), 1, _Cell(0, "bg0001"))
-        self.assertEqual(empty, plain)
+            preserved = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, list(entries),
+                mob_combat.choose_npc_site(1), ground_rows_left=live)
+        self.assertNotEqual(preserved, plain)
+        # An empty floor in the right scene is still v141's own bytes: the
+        # gate turns on a row STANDING, not on a cell existing.
+        empty = preserve.ground_rows_for_scene(_Cell(0, "bg0001"), 1)
+        self.assertEqual(empty, 0)
+        self.assertFalse(mob_loot.ground_is_live(empty))
+        with contextlib.redirect_stdout(io.StringIO()):
+            composed = mob_combat.remote_actors_preserving_the_ground(
+                self.legacy, list(entries),
+                mob_combat.choose_npc_site(1), ground_rows_left=empty)
+        self.assertEqual(composed, plain)
 
     def test_each_responder_gets_its_own_site_name(self) -> None:
         """One shared name would let whichever responder fires first
