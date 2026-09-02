@@ -1,1 +1,1 @@
-{"sha":"fb35917959ad5fb3af7870431424589128c9504a","conclusion":"success","event":"push","ref":"refs/heads/claude/laughing-archimedes-l6at2v","run_id":"33652500347","utc":"2026-09-02T16:19:56Z"}
+{"sha":"fb35917959ad5fb3af7870431424589128c9504a","conclusion":"failure","event":"pull_request","ref":"refs/pull/606/merge","run_id":"33652586594","utc":"2026-09-02T16:21:42Z"}
