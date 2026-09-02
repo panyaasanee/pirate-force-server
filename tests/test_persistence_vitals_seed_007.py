@@ -885,6 +885,170 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
                 store.read_typed_attributes(first.id),
                 store.read_typed_attributes(second.id))
 
+    def _retried_birth(self, first_vitals):
+        """Create ONE character, level it up, then create it AGAIN with the
+        SAME fingerprint -- the retransmitted-create-packet path.
+
+        *** THE SECOND DOOR INTO THE SAME ROOM.  `_second_birth` above closed
+        the door where creating character N+1 damages character N, and its
+        docstring names the damage exactly: "a veteran at `level 9, hp
+        480/500` came out of the NEXT character's creation at `1, 100/100`".
+        `SQLiteStore.create_character` has a SECOND way to reach an existing
+        character -- the `create_fingerprint` retry branch, which returns the
+        character that already exists instead of making a second one, and
+        which exists for a retransmitted create packet from a lagging or
+        reconnecting client.  Nothing in this file looked at it.
+
+        Measured, on `main` at `064d9e37`, with a plug that is correct in
+        every way `_second_birth` checks (right values, right function, right
+        `WHERE id`) and that ALSO seeds on the retry branch:
+
+            veteran before duplicate create: level 9, hp 480/500
+            veteran AFTER  duplicate create: level 1, hp 100/100
+
+        `pytest` over this lane's four files: **230 passed, 0 failed**.  A
+        real player's character silently reset to a newborn by a repeated
+        packet, and the whole lane green.  Found by a `pf-adversary` pass on
+        LANE-DB round `5w9ly0`.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("retried-birth")
+        home = Position(3, 0, 1.0, 2.0, 3.0, heading=0.0)
+        first = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        store.write_typed_attributes(first.id, dict(first_vitals))
+        before = store.read_typed_attributes(first.id)
+        again = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        return store, first, again, before, store.read_typed_attributes(first.id)
+
+    def test_a_repeated_create_returns_the_same_row_and_changes_nothing(self):
+        """The retry door, closed.
+
+        Two assertions, and both are needed: that the repeat did not make a
+        second character -- the store's existing promise, without which the
+        second half would be vacuous -- and that it did not rewrite the
+        vitals of the character it returned.  The count is taken by raw SQL
+        rather than through the store, so the reader being graded is not the
+        reader supplying the evidence.
+        """
+        veteran = {"level": 9, "hp_current": 480, "hp_max": 500}
+        _store, first, again, before, after = self._retried_birth(veteran)
+        self.assertEqual(again.id, first.id)
+        with raw_rows(self.path) as db:
+            live = db.execute(
+                "SELECT COUNT(*) FROM characters WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+        self.assertEqual(live, 1)
+        for column, value in veteran.items():
+            self.assertEqual(before.get(column), value, column)
+            self.assertEqual(
+                after.get(column), value,
+                "a repeated create with the same fingerprint rewrote %s of an "
+                "EXISTING character from %r to %r.  The retry branch of "
+                "create_character returns a character that already exists; it "
+                "must not seed it as if it were being born."
+                % (column, value, after.get(column)),
+            )
+
+    def test_a_repeated_create_changes_no_row_in_any_table(self):
+        """*** THE PROPERTY THE RETRY DOOR ACTUALLY NEEDS, and the one the
+        test above walks past on every column it does not name.
+
+        `test_a_repeated_create_returns_the_same_row_and_changes_nothing`
+        grades ONE row, THREE columns, inside ONE account.  A `pf-adversary`
+        pass measured what that leaves open on the retry branch, with the
+        plugs installed rather than imagined, and every one of these was
+        GREEN at `7243 passed, 323 skipped` -- the identical figure the round
+        that added the narrow test offered as its evidence of a clean tree:
+
+        * a retry plug that also resets every OTHER account's veteran to
+          `1, 100/100` and moves every character 1000 units in `z`
+        * a retry plug that also stamps `speed_walk`, `cash` and `experience`
+          -- the first of which is the very column
+          `COO-DECISION 20260902_1043` ruled must NOT be written at birth
+        * a retry plug using `COALESCE(col, ?)`, the defensible "only fill
+          what is NULL" shape, which turns a raw `level 9, hp_max 500,
+          hp_current NULL` row into `hp 100/500` -- exactly the outcome
+          `MigrationIsNarrowTests` forbids for 007 itself
+
+        So the rule is stated the only way that covers them, and on this door
+        it is both STRONGER and SIMPLER than the birth-door version: a
+        repeated create returns a character that already exists, so it adds
+        no rows either.  The whole database must come back BYTE-FOR-BYTE
+        identical -- not "no row was lost", but "nothing changed at all".
+
+        The world is built to have something to lose, and deliberately
+        outside the retried account: a second account's veteran, a
+        soft-deleted row, positions and backpacks for everyone, a
+        `speed_walk` no store method would rewrite, and one half-filled HP
+        pair set by raw SQL so the COALESCE shape has a NULL to find.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        mine = store.ensure_account("retry-mine")
+        theirs = store.ensure_account("retry-theirs")
+
+        # EVERY CREATION FIRST, EVERY DISTINGUISHING VALUE AFTERWARDS -- the
+        # same interval bug the birth-door test above documents: a plug whose
+        # damage lands before the `before` dump is taken looks like a no-op.
+        retried = store.create_character(
+            mine, "Retried", "retried", "fingerprint-retry-subject",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        neighbour = store.create_character(
+            theirs, "Neighbour", "neighbour", "fingerprint-retry-neighbour",
+            _build_wire_offset(0x60000001),
+            Position(3, 0, 4.0, 5.0, 6.0, heading=0.0))
+        doomed = store.create_character(
+            mine, "Doomed", "doomed", "fingerprint-retry-doomed",
+            _build_wire_offset(0x70000001),
+            Position(3, 0, 7.0, 8.0, 9.0, heading=0.0))
+        sid = store.open_session(mine)
+        store.soft_delete_character(sid, doomed.selector)
+
+        store.write_typed_attributes(
+            retried.id, {"level": 9, "hp_current": 480, "hp_max": 500,
+                         "speed_walk": 620.5, "experience": 123456,
+                         "cash": 99999})
+        store.write_typed_attributes(
+            neighbour.id, {"level": 7, "hp_current": 210, "hp_max": 300,
+                           "speed_walk": 380.25})
+        self._set(doomed.id, level=4, hp_current=40, hp_max=60)
+        self._set(retried.id, avatar_typed_json='{"lane":"db"}')
+        # a HALF-FILLED pair, written by raw SQL because no store method will
+        # leave one: this is the NULL a `COALESCE` retry plug fills in.
+        self._set(neighbour.id, hp_current=None)
+
+        before = self._dump_every_table()
+        self.assertTrue(any(before[t] for t in
+                            ("characters", "character_positions",
+                             "character_backpacks")),
+                        "the world this test is about was never built")
+
+        again = store.create_character(
+            mine, "Retried", "retried", "fingerprint-retry-subject",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        # load-bearing: without this the equality below could hold because
+        # the retry branch was never taken at all.
+        self.assertEqual(again.id, retried.id)
+
+        after = self._dump_every_table()
+        self.assertEqual(sorted(after), sorted(before),
+                         "a table appeared or vanished")
+        for table in sorted(before):
+            self.assertEqual(
+                before[table], after[table],
+                "a repeated create with the same fingerprint CHANGED table "
+                "`%s`.  The retry branch returns a character that already "
+                "exists: it adds nothing and it may not rewrite a single row "
+                "in any table, including rows of accounts and characters "
+                "nobody was creating.  before=%r after=%r"
+                % (table, before[table], after[table]),
+            )
+
     def test_creating_a_character_does_not_touch_any_other_row(self):
         """The veteran-reset defect, as the test that fails on it.
 
