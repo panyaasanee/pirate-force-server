@@ -49,6 +49,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import mob_drop_presence              # noqa: E402
 from pirateforce_foundation import mob_loot                       # noqa: E402
+from pirateforce_foundation import mob_pickup_request             # noqa: E402
 from pirateforce_foundation import world_scene_folder             # noqa: E402
 from pirateforce_foundation import world_scene_travel             # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (       # noqa: E402
@@ -77,7 +78,14 @@ def _legacy():
     return load_legacy(LEGACY_PATH)
 
 
-class SceneBoundaryWiringTests(unittest.TestCase):
+class SceneBoundaryHarness(unittest.TestCase):
+    """A real login, a real character, a real warp -- and no test of its own.
+
+    ROUND g1y1yc split this out of ``SceneBoundaryWiringTests`` UNCHANGED so
+    the pickup class below can drive the same dispatcher without inheriting
+    (and re-running) that class's tests.  Same shape as
+    ``test_mob_pickup_request.TheWiringHarness``, and for the same reason.
+    """
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -191,6 +199,9 @@ class SceneBoundaryWiringTests(unittest.TestCase):
     @staticmethod
     def _ground(actions):
         return [a for a in actions if a[0] == mob_drop_presence.ACTION_LABEL]
+
+
+class SceneBoundaryWiringTests(SceneBoundaryHarness):
 
     # ----- the crossing --------------------------------------------------
 
@@ -412,6 +423,217 @@ class SceneBoundaryWiringTests(unittest.TestCase):
             "the handler must stop the retry loop -- the scene disagreement "
             "is a state fact, not a race",
         )
+
+
+class ThePickupGroundGenerationOnTheRealDispatcherTests(
+        SceneBoundaryHarness):
+    """R304's ``ground_after`` call site, DRIVEN -- not read.
+
+    Every one of these exists because pf-adversary (round g1y1yc) mutated
+    the landed call site and ran the whole repository suite on each mutant:
+
+      * transposing the comprehension's names (``for gframe, gpc in ...``)
+        stayed GREEN across 261 tests.  ``mob_drop_presence.ACTION_LABEL``
+        exists precisely because a pc/frame swap once did that, and v141
+        would then ``sendall`` the UNFRAMED pc behind a valid delta and
+        desynchronise the client's stream parser on every pickup.
+      * ``return out[1:] + out[:1]`` -- ground generation ahead of the
+        delta, the one order the wiring note forbids -- stayed GREEN,
+        because the only ordering pin was the position of two substrings in
+        the SOURCE TEXT.
+      * a filesystem sentinel on the first line of the branch was never
+        created by the full suite: not one line of it had ever executed.
+        The only thing that ran was a snippet exec'd out of a string in
+        another file.
+
+    So this class drives the real dispatcher: a real login, a real character,
+    the real bag cell the character-select path claims, a real ground ledger,
+    and the client's own bytes at the top.  It asserts what came BACK, which
+    is the only thing the client will ever see.
+    """
+
+    ITEM = 2400046
+    MOB = 0x2068
+    DROP_AT = (1000.0, 20.0, 3000.0)
+
+    def _pickup_pc(self, drop_key, opaque=0):
+        """The client's own seven-byte pickup body in its envelope."""
+        legacy = self.legacy
+        body = (
+            bytes([mob_pickup_request.PICKUP_REQUEST_OBJECT_REF_TAG])
+            + int(drop_key).to_bytes(4, "little")
+            + bytes([mob_pickup_request.PICKUP_REQUEST_OPAQUE_U8_TAG, opaque])
+        )
+        return bytes(
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, mob_pickup_request.PICKUP_REQUEST_VITAL_ID)
+            + legacy.u8tag(0x0B, 0)
+            + body
+        )
+
+    def _identity(self, state):
+        selected = state.foundation.selected
+        return (((selected.identity_hi & 0xFFFFFFFF) << 32)
+                | (selected.identity_lo & 0xFFFFFFFF))
+
+    def _floor(self, state, rows=2):
+        """`rows` of this character's own drops, on the scene it stands in."""
+        folder = world_scene_folder.scene_folder_for_scene_id(
+            state.foundation.selected.position.scene_id)
+        identity = self._identity(state)
+        drops = tuple(
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + index, self.ITEM, 1,
+                mob_loot.as_wire_float(self.DROP_AT[0]),
+                mob_loot.as_wire_float(self.DROP_AT[1]),
+                mob_loot.as_wire_float(self.DROP_AT[2]),
+                self.MOB, identity, folder,
+            )
+            for index in range(rows)
+        )
+        state.mob_loot_cell = mob_loot.DropLedgerCell(
+            mob_loot.DropLedger(
+                drops, 1, mob_loot.DROP_KEY_BASE + rows, ()),
+            scene=folder,
+        )
+        # The click is answered against the position the client last
+        # REPORTED, so a session that never moved refuses by name.  One
+        # reported step, standing on the drop.
+        state.last_target_pos = (
+            self.DROP_AT[0], self.DROP_AT[1], self.DROP_AT[2], 0.0)
+
+    def _take_one(self, state):
+        return self._dispatch(state, self._pickup_pc(mob_loot.DROP_KEY_BASE))
+
+    def test_a_real_click_answers_with_the_delta_and_then_the_ground(self):
+        """The branch, executed end to end, and the order asserted on the
+        RETURNED LIST rather than on where two words sit in the source."""
+        state = self._state("tok-pickup-order")
+        self._floor(state)
+        actions = self._take_one(state)
+        labels = [action[0] for action in actions]
+        self.assertEqual(
+            labels,
+            ["MOB_PICKUP_REQUEST_DELTA", "MOB_PICKUP_GROUND_AFTER"],
+            "the click's reply is not `the delta, then the floor`: %r"
+            % (labels,),
+        )
+        # And the label is the one LANE-B publishes, read out of the note
+        # rather than retyped: the operator grades GT-204 off `[G>] <label>`
+        # and `SENT label=...` in GAME_LIVE.txt.
+        self.assertIn(
+            'out += [("%s"' % (labels[1],),
+            mob_pickup_request.MOB_PICKUP_REQUEST_WIRING,
+        )
+
+    def test_every_frame_the_click_sends_is_framed_around_its_own_pc(self):
+        """THE pc/frame SWAP, killed.
+
+        v141 sends ``action[2]`` on the wire and ignores ``action[1]``, so a
+        transposed pair ships the unframed payload -- valid-looking, 10 bytes
+        short of a frame, straight after a good delta.  Re-derive the framing
+        through the frozen serializer instead of trusting the tuple.
+        """
+        state = self._state("tok-pickup-framing")
+        self._floor(state)
+        actions = self._take_one(state)
+        self.assertEqual(len(actions), 2)
+        for label, pc, frame, delay in actions:
+            with self.subTest(label=label):
+                self.assertEqual(
+                    frame, self.legacy.frame_pc(pc),
+                    "%s carries a frame that is not this pc's frame -- the "
+                    "pair is transposed" % (label,),
+                )
+                self.assertEqual(delay, 0.0)
+
+    def test_nothing_is_sent_for_the_floor_when_the_last_row_is_taken(self):
+        """The call site needs no condition of its own -- driven, not said.
+
+        One row on the floor: the take empties it, ``ground_after`` is ``()``
+        by RE-208's open hole, and the reply is the delta alone.
+        """
+        state = self._state("tok-pickup-last-row")
+        self._floor(state, rows=1)
+        labels = [action[0] for action in self._take_one(state)]
+        self.assertEqual(labels, ["MOB_PICKUP_REQUEST_DELTA"])
+
+    def test_a_pickup_releases_a_committed_boundary_before_its_own_reply(self):
+        """The other half of D3: once the arrival census HAS committed, the
+        held generation is owed to the client and goes out FIRST -- ahead of
+        the delta and ahead of this dispatch's own floor.
+
+        MUTATION-PROOF: delete the ``_mob_loot_boundary_flush()`` call at the
+        pickup branch and these bytes never leave the process, because this
+        branch returns before the final sum that would have flushed them.
+        """
+        state = self._state("tok-pickup-flush-first")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state)
+        held = ((b"owed-pc", b"owed-frame"),)
+        self._hold(state, held)
+        state.world_census_sent = True
+        actions = self._take_one(state)
+        labels = [action[0] for action in actions]
+        self.assertEqual(
+            labels,
+            [mob_drop_presence.ACTION_LABEL,
+             "MOB_PICKUP_REQUEST_DELTA", "MOB_PICKUP_GROUND_AFTER"],
+            "the owed boundary generation is not first, or this dispatch's "
+            "own ground generation is not last: %r" % (labels,),
+        )
+        self.assertEqual(actions[0][1:3], held[0])
+        self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+
+    def test_a_pickup_after_a_warp_flushes_the_held_boundary_first(self):
+        """pf-adversary D3, and it is the reason the flush call is there.
+
+        This branch RETURNS -- it never reaches the final sum where
+        ``_mob_loot_boundary_flush`` is consulted.  Before R304 a pickup
+        taken on the first dispatch after a GM warp left the stale arrival
+        generation in the stash, and the NEXT ordinary poll published it:
+        a PRE-take generation landing AFTER the POST-take one, which by
+        RE-082 puts the row already in the player's bag back on the floor
+        while the console says PUBLISHED.
+
+        MUTATION-PROOF: delete the flush call at the pickup branch and the
+        stash is still full after the click; the pre-take generation then
+        arrives on the next poll and both assertions below fail.
+        """
+        state = self._state("tok-pickup-after-warp")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state)
+        held = ((b"stale-pc", b"stale-frame"),)
+        self._hold(state, held)
+        actions = self._take_one(state)
+        labels = [action[0] for action in actions]
+        # The census has not committed on this dispatch, so the flush is
+        # still holding: the stale generation must therefore be DROPPED by
+        # name rather than published later, and the click's own reply is
+        # the delta and the post-take floor.
+        self.assertEqual(
+            labels,
+            ["MOB_PICKUP_REQUEST_DELTA", "MOB_PICKUP_GROUND_AFTER"],
+            "this dispatch's own ground generation must be LAST: %r"
+            % (labels,),
+        )
+        self.assertIn(
+            "mob_loot_boundary_superseded_by_pickup_%s_frames_%d"
+            % (mob_loot.scene_key(world_scene_folder
+                                  .scene_folder_for_scene_id(
+                                      DESTINATION_SCENE_ID)), len(held)),
+            state.events,
+        )
+        # The stash is empty afterwards, so no later poll can re-publish
+        # the pre-take floor behind the removal that just went out.
+        self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+        for _ in range(3):
+            self.assertEqual(
+                self._ground(self._dispatch(state, self.empty_poll_pc)), [])
 
 
 if __name__ == "__main__":

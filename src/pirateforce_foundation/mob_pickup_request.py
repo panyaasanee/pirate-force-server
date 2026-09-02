@@ -350,7 +350,13 @@ MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN = "MOB_PICKUP_DELTA_GROUND_CLEARED"
 #: re-derives it from that file's AST on every run, so it cannot drift in
 #: either direction -- a status left at "sent" after the line is reverted is
 #: as red as one left at "composed_not_sent" after it lands.
-GROUND_AFTER_CALL_SITE_STATUS = "composed_not_sent"
+#:
+#: MOVED TO "sent" BY THE CHIEF, R304, in the same PR that landed the call
+#: site in ``runtime.py`` -- LANE-B's own letter (2026-09-02T13:34+07:00)
+#: hands this one line to whichever round lands the branch, and
+#: COO-DECISION 2026-09-02T14:46+07:00 orders it into that same PR so no
+#: boot ever exists where the two files disagree.
+GROUND_AFTER_CALL_SITE_STATUS = "sent"
 
 ACCEPTED = "exact_pickup_request"
 
