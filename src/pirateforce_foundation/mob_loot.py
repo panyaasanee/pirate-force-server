@@ -3099,13 +3099,29 @@ class DropLedgerCell:
         to be a no-op on a real client would wipe the scene's whole ground,
         and the case it would fix is one label that the next kill in the
         scene clears anyway.  ~~'that a scene change ... clears anyway'~~ IS
-        STRUCK (pf-adversary D5, same round): ``enter_scene_frames`` HAS NO
+        STRUCK (pf-adversary D5, same round): ~~``enter_scene_frames`` HAS NO
         CALL SITE -- grep of src/, current/ and tools/ finds prose only -- so
         at the server layer a scene change publishes nothing at all today,
-        and at the client layer nothing has been watched.  The consolation
-        that survives is the kill, which IS wired (mob_drop_presence.
-        sustain_a_kill).  ``RE-208`` is open on the question and this lane
-        consumes its own answer.
+        and at the client layer nothing has been watched.~~  THAT STRIKE IS
+        ITSELF STRUCK AND THE REASON IS DEAD (chief's letter 2026-09-02T15:35
+        +07:00, item (a); re-derived here rather than quoted): the call site
+        LANDED in ``#572`` and ``runtime.py:5879`` calls
+        ``self.mob_loot_cell.enter_scene_frames(legacy, folder)`` from
+        ``_mob_loot_cross_scene_boundary``, held until after the arrival
+        census.  ITS ONE CALLER IS THE GM WARP (runtime.py:5784, in the
+        branch that clears the cross-scene census latch) and re-derived here
+        rather than taken from the letter: a player who WALKS across a
+        boundary still reaches no publisher at all.  So a scene change does
+        publish at the server layer today for the warp path, and only it.
+        What
+        survives of the paragraph is only the client half: no screen has been
+        watched receiving a boundary generation (NONCLAIM 12), so an empty
+        generation is still an UNMEASURED shape and OPTION (a) still holds on
+        the ``COO 1345`` ruling alone -- the "nobody publishes at a boundary
+        anyway" leg it used to lean on is gone.  The consolation that survives
+        is the kill, which IS wired (mob_drop_presence.sustain_a_kill).
+        ``RE-208`` is open on the question and this lane consumes its own
+        answer.
 
         THE TRIM IS INHERITED FROM THE BOUNDARY PUBLISHER, and it carries the
         same cost in the same words: a scene holding more rows than one frame
