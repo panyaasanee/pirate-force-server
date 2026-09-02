@@ -192,16 +192,57 @@ class DropPresenceWiringTests(unittest.TestCase):
             ))
         return actions, buf.getvalue()
 
-    def _plant_ground(self, state):
-        """One real dropping kill folded into the SESSION's own cell."""
-        mob, seed = self.dropping
+    def _donor_roll(self, mob):
+        """A real Bg0002 roll's ITEMS, re-addressed to ``mob``.
+
+        The bg0001 tables drop nothing (R221), so the only way to get real
+        rows standing in the scene this file kills in is to borrow a scene
+        that does drop and re-address the roll -- the same substitution
+        ``test_the_kills_own_rows_survive_their_own_announcement`` already
+        makes, and ``loot_a_kill`` validates the re-addressing itself.
+        """
+        donor_mob, seed = self.dropping
+        donor = mob_loot.roll_drops(donor_mob, random.Random(seed))
+        return mob_loot.DropRoll(
+            mob.template_id, mob.actor_identity,
+            donor.items, donor.money, donor.draws, donor.refusals,
+        )
+
+    def _plant_ground(self, state, mob=None):
+        """One kill's rows folded into the SESSION's own cell.
+
+        ROUND 4e9r7g: THE PLANTING MOB IS NOW A SCENE-1 MOB, and that is the
+        whole edit.  A ``GroundDrop`` owns the scene it fell in (COO-DECISION
+        2026-09-02T02:52+07:00 way 1) and a publication carries only the rows
+        of the scene it is published in, so a row planted with a Bg0002 mob
+        is CORRECTLY absent from a bg0001 kill's generation -- which is what
+        this fixture used to do, and what made these tests read as if the
+        ground had been lost.  It has not: see
+        ``test_a_drop_from_another_scene_neither_travels_nor_disappears``,
+        which plants exactly that way ON PURPOSE and proves both halves.
+        """
+        if mob is None:
+            mob = self._planting_mob()
         drops = state.mob_loot_cell.loot_a_kill(
             mob, DeathRecord(mob.actor_identity, KILLER, mob.max_hp),
-            mob_loot.roll_drops(mob, random.Random(seed)),
+            self._donor_roll(mob),
             kill_token=999,
         )
         self.assertTrue(drops, "the planted kill must leave rows")
         return drops
+
+    def _planting_mob(self):
+        """A scene-1 roster mob that is NOT the control target.
+
+        Not the control target because the looted register keeps one row per
+        identity: planting with it would make the driven kill of the same
+        identity refuse as a replay, which is a real guard doing its job and
+        not something a fixture should have to fight.
+        """
+        return next(
+            mob for mob in field_mobs.load_roster()
+            if mob.actor_identity not in (CONTROL_TARGET, KILLER)
+        )
 
     # ----- the three pinned properties --------------------------------------
 
@@ -281,6 +322,43 @@ class DropPresenceWiringTests(unittest.TestCase):
         return next(
             m for m in roster if m.actor_identity == CONTROL_TARGET
         ).template_id
+
+    def test_a_drop_from_another_scene_neither_travels_nor_disappears(self):
+        """COO-DECISION 2026-09-02T02:52+07:00 way 1, on the PRODUCTION path.
+
+        The row is planted with a Bg0002 mob -- so it owns Bg0002 -- and the
+        kill driven through the dispatcher is a scene-1 kill.  Both halves of
+        the decision are measured here, on the real dispatch and not on a
+        bare cell:
+
+          1. scene 1's publication carries no key of it (the leak, closed);
+          2. it is STILL IN THE LEDGER afterwards, standing where it fell
+             (COO-DECISION 2026-09-02T02:53+07:00 -- no row may be removed
+             until a removal publisher exists).  The superseded
+             ``reconcile_scene_transition`` would have failed half 2.
+        """
+        state = self._state("dpw_cross_scene")
+        self._drive_arrival_census(state)
+        elsewhere_mob, _seed = self.dropping
+        planted = self._plant_ground(state, mob=elsewhere_mob)
+        planted_keys = {drop.drop_key for drop in planted}
+        for drop in planted:
+            self.assertEqual(drop.scene, field_mobs.BG0002_SCENE)
+
+        actions, console = self._kill(state, CONTROL_TARGET)
+
+        # 1. nothing about that ground travels in this scene's publication.
+        loot = [a for a in actions if a[0] == mob_drop_presence.ACTION_LABEL]
+        self.assertEqual(loot, [], "a Bg0002 row must not ride a bg0001 kill")
+        self.assertIn("live=0", console)
+        self.assertIn("elsewhere=%d" % len(planted), console)
+
+        # 2. and it is still on the ground, whole.
+        live = {drop.drop_key for drop in state.mob_loot_cell.ledger.drops}
+        self.assertEqual(planted_keys & live, planted_keys)
+        self.assertEqual(
+            {drop.scene for drop in state.mob_loot_cell.ledger.drops},
+            {field_mobs.BG0002_SCENE})
 
     def test_an_empty_ground_stays_quiet_but_the_call_still_fires(self):
         """No planted rows, a no-drop kill: no MOB_LOOT_DROP action goes out

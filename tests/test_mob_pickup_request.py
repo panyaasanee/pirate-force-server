@@ -75,6 +75,9 @@ MODULE_SOURCE = (
 ITEM = 2400046
 MOB = 0x2068
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 # Far apart on all three axes on purpose: a permutation test that leaves two
 # coordinates close together cannot tell a swapped argument from a correct
 # one.  The claimant stands ON the drop, so an unpermuted pickup is well
@@ -137,7 +140,7 @@ def a_drop(key_offset=0, quantity=1):
         mob_loot.as_wire_float(DROP_AT[0]),
         mob_loot.as_wire_float(DROP_AT[1]),
         mob_loot.as_wire_float(DROP_AT[2]),
-        MOB, KILLER,
+        MOB, KILLER, SCENE,
     )
 
 
@@ -146,7 +149,10 @@ def a_ground_cell(*drops):
     for drop in drops:
         if drop.drop_key + 1 > issued:
             issued = drop.drop_key + 1
-    return DropLedgerCell(DropLedger(tuple(drops), 1, issued, ()))
+    # ROUND 4e9r7g: pointed at the scene its rows fell in -- a claim is
+    # resolved against the cell's current scene now (way 1).
+    return DropLedgerCell(
+        DropLedger(tuple(drops), 1, issued, ()), scene=SCENE)
 
 
 class LegacyFixture(unittest.TestCase):

@@ -51,6 +51,9 @@ from pirateforce_foundation.session import FoundationSession  # noqa: E402
 ITEM = 2400046  # the roster's most common drop, as tests/test_mob_pickup.py uses
 MOB = 0x2068
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 
 
 def a_drop():
@@ -59,7 +62,7 @@ def a_drop():
         mob_loot.as_wire_float(10.0),
         mob_loot.as_wire_float(20.0),
         mob_loot.as_wire_float(30.0),
-        MOB, KILLER,
+        MOB, KILLER, SCENE,
     )
 
 

@@ -58,6 +58,9 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 ITEM = 2400046            # the roster's most common drop
 MOB = 0x2068
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 # The claimant stands ON the drop, so every pickup here is well inside
 # mob_pickup.PICKUP_RADIUS.  The three coordinates are FAR APART on purpose
 # (pf-adversary, this round): with (10, 20, 30), permuting x and y anywhere in
@@ -79,7 +82,7 @@ def a_drop(key_offset=0, quantity=1):
         mob_loot.as_wire_float(DROP_AT[0]),
         mob_loot.as_wire_float(DROP_AT[1]),
         mob_loot.as_wire_float(DROP_AT[2]),
-        MOB, KILLER,
+        MOB, KILLER, SCENE,
     )
 
 
@@ -88,7 +91,10 @@ def a_ground_cell(*drops):
     for drop in drops:
         if drop.drop_key + 1 > issued:
             issued = drop.drop_key + 1
-    return DropLedgerCell(DropLedger(tuple(drops), 1, issued, ()))
+    # ROUND 4e9r7g: pointed at the scene its rows fell in -- a claim is
+    # resolved against the cell's current scene now (way 1).
+    return DropLedgerCell(
+        DropLedger(tuple(drops), 1, issued, ()), scene=SCENE)
 
 
 class PickupPersistTests(unittest.TestCase):
@@ -610,7 +616,7 @@ class PickupPersistTests(unittest.TestCase):
                 mob_loot.DROP_KEY_BASE + 9, 2200201, 1,
                 mob_loot.as_wire_float(DROP_AT[0]),
                 mob_loot.as_wire_float(DROP_AT[1]),
-                mob_loot.as_wire_float(DROP_AT[2]), MOB, KILLER),
+                mob_loot.as_wire_float(DROP_AT[2]), MOB, KILLER, SCENE),
             other_cell.issued_through,
         )
         self.store.commit_acquired_backpack_item(

@@ -114,6 +114,9 @@ TABLE_PATH = ROOT / "src" / "pirateforce_foundation" / "field_drop_tables.py"
 # number: an adversarial pass pointed out that 0x0101 never exercises the
 # identity surface with anything a real session would carry.
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 
 
 class _FixedRng(random.Random, mob_loot._FixedStream):
@@ -541,21 +544,22 @@ class MobLootTests(unittest.TestCase):
     def test_a_ground_drop_refuses_a_coordinate_that_is_not_an_exact_f32(self):
         with self.assertRaises(MobLootContractError) as caught:
             GroundDrop(DROP_KEY_BASE, 2400046, 1, 0.1, 0.0, 0.0,
-                       self.mob.actor_identity, KILLER)
+                       self.mob.actor_identity, KILLER, SCENE)
         self.assertEqual(
             caught.exception.args[0], "position_off_the_f32_grid")
 
     def test_a_ground_drop_refuses_a_monster_looting_itself(self):
         with self.assertRaises(MobLootContractError) as caught:
             GroundDrop(DROP_KEY_BASE, 2400046, 1, 0.0, 0.0, 0.0,
-                       self.mob.actor_identity, self.mob.actor_identity)
+                       self.mob.actor_identity, self.mob.actor_identity,
+                       SCENE)
         self.assertEqual(
             caught.exception.args[0], "roll_names_another_monster")
 
     def test_a_ground_drop_refuses_an_item_that_is_not_in_the_mined_table(self):
         with self.assertRaises(MobLootContractError) as caught:
             GroundDrop(DROP_KEY_BASE, 999999999, 1, 0.0, 0.0, 0.0,
-                       self.mob.actor_identity, KILLER)
+                       self.mob.actor_identity, KILLER, SCENE)
         self.assertEqual(caught.exception.args[0], "unknown_item_id")
 
     # -- the ledger ---------------------------------------------------------
@@ -830,7 +834,7 @@ class MobLootTests(unittest.TestCase):
                 DROP_KEY_BASE + index, item, 1,
                 mob_loot.as_wire_float(1.0 + DROP_SCATTER_STEP * index),
                 mob_loot.as_wire_float(2.0), mob_loot.as_wire_float(3.0),
-                0x201F, 0x0101,
+                0x201F, 0x0101, SCENE,
             )
             for index in range(count)
         )
@@ -939,7 +943,7 @@ class MobLootTests(unittest.TestCase):
         drop = GroundDrop(
             DROP_KEY_BASE, item_id, 1,
             as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
-            0x201F, KILLER,
+            0x201F, KILLER, SCENE,
         )
         expected = bytearray()
         expected += self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key)
@@ -965,7 +969,7 @@ class MobLootTests(unittest.TestCase):
             drop = GroundDrop(
                 DROP_KEY_BASE, item_id, 1,
                 as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
-                0x201F, KILLER,
+                0x201F, KILLER, SCENE,
             )
             element = drop_element_with_model_type(self.legacy, drop)
             start, end = DROP_ELEMENT_MODEL_TYPE_SPAN
@@ -983,7 +987,7 @@ class MobLootTests(unittest.TestCase):
         drop = GroundDrop(
             DROP_KEY_BASE, item_id, 1,
             as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
-            0x201F, KILLER,
+            0x201F, KILLER, SCENE,
         )
         expected = bytearray()
         expected += self.legacy.u16tag(
@@ -1015,7 +1019,7 @@ class MobLootTests(unittest.TestCase):
         drop = GroundDrop(
             DROP_KEY_BASE, item_id, 1,
             as_wire_float(1.0), as_wire_float(2.0), as_wire_float(3.0),
-            0x201F, KILLER,
+            0x201F, KILLER, SCENE,
         )
         (pc, frame), = drop_frames_with_model_type(self.legacy, (drop,))
         self.assertEqual(len(pc), DROP_PC_SIZE_WITH_MODEL_TYPE)
@@ -1032,7 +1036,7 @@ class MobLootTests(unittest.TestCase):
             GroundDrop(
                 DROP_KEY_BASE + index, item_id, 1,
                 as_wire_float(1.0 + DROP_SCATTER_STEP * index),
-                as_wire_float(2.0), as_wire_float(3.0), 0x201F, KILLER,
+                as_wire_float(2.0), as_wire_float(3.0), 0x201F, KILLER, SCENE,
             )
             for index, item_id in enumerate(items)
         )
@@ -1076,7 +1080,7 @@ class MobLootTests(unittest.TestCase):
 
         drop = GroundDrop(
             DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
-            as_wire_float(3.0), 0x201F, KILLER,
+            as_wire_float(3.0), 0x201F, KILLER, SCENE,
         )
         with self.assertRaises(MobLootContractError) as caught:
             drop_element_with_model_type(_BrokenLegacy(self.legacy), drop)
@@ -1098,7 +1102,7 @@ class MobLootTests(unittest.TestCase):
             "assertions below about drop_frames still must not")
         drop = GroundDrop(
             DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
-            as_wire_float(3.0), 0x201F, KILLER,
+            as_wire_float(3.0), 0x201F, KILLER, SCENE,
         )
         (pc, frame), = drop_frames(self.legacy, (drop,))
         self.assertEqual(len(pc), DROP_PC_SIZE)
@@ -1116,7 +1120,7 @@ class MobLootTests(unittest.TestCase):
         """
         drop = GroundDrop(
             DROP_KEY_BASE, 2200201, 1, as_wire_float(1.0), as_wire_float(2.0),
-            as_wire_float(3.0), 0x201F, KILLER,
+            as_wire_float(3.0), 0x201F, KILLER, SCENE,
         )
         narrow = drop_frames(self.legacy, (drop,))
         mob_loot.DROP_MODEL_TYPE_FIELD_ENABLED = False
@@ -1335,7 +1339,7 @@ class MobLootTests(unittest.TestCase):
             self.assertEqual(caught.exception.args[0], "item_has_no_name")
             with self.assertRaises(MobLootContractError) as caught:
                 GroundDrop(DROP_KEY_BASE, item_id, 1, 0.0, 0.0, 0.0,
-                           self.mob.actor_identity, KILLER)
+                           self.mob.actor_identity, KILLER, SCENE)
             self.assertEqual(caught.exception.args[0], "item_has_no_name")
             roll = roll_drops(self.mob, _FixedRng([0.0] * 40))
             self.assertIn(
@@ -2239,6 +2243,384 @@ class PreserveGroundHeartbeatTests(unittest.TestCase):
         announcement by length alone."""
         pc = preserve_ground_heartbeat_pc(self.legacy)
         self.assertLess(len(pc), DROP_PC_SIZE)
+
+
+class _StepClock:
+    """A clock that only moves when a test says so (round 4e9r7g)."""
+
+    def __init__(self):
+        self._now = 1000.0
+
+    def __call__(self):
+        return self._now
+
+    def advance(self, seconds):
+        self._now += float(seconds)
+
+
+class SceneOwnershipWayOneTests(unittest.TestCase):
+    """COO-DECISION 2026-09-02T02:52+07:00, WAY 1: a drop owns the scene it
+    fell in, a publication carries only that scene's rows, and NOTHING is
+    deleted at a scene boundary (COO-DECISION 2026-09-02T02:53+07:00).
+
+    THE FIXTURE, and why it is shaped this way: only Bg0002's tables actually
+    drop (R221 -- the bg0001 dummies carry n_DROPS_*=0), so a second "scene"
+    is made by ``dataclasses.replace``-ing a real Bg0002 mob's ``scene`` and
+    its ``placement_index`` (the identity is derived from that index, and two
+    kills must not share an identity or the looted register refuses the
+    second as a replay).  The ROLL is identical in both scenes, which is the
+    point: nothing but the scene differs between the two kills, so anything
+    these tests measure is the scene term and not a table difference.
+    """
+
+    SCENE_A = "Bg0002"
+    SCENE_B = "bg0001"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        roster = load_roster(scene=field_mobs.BG0002_SCENE)
+        cls.pair = None
+        for mob in roster:
+            for seed in range(60):
+                if mob_loot.roll_drops(mob, random.Random(seed)).placeable_count:
+                    cls.pair = (mob, seed)
+                    break
+            if cls.pair is not None:
+                break
+        if cls.pair is None:
+            raise unittest.SkipTest("this scene's tables drop nothing")
+
+    def setUp(self):
+        self.cell = DropLedgerCell()
+        self.token = 0
+
+    def _mob_in(self, scene, index_offset=0):
+        """The same monster, declared into ``scene``, at its own placement.
+
+        ``index_offset`` moves BOTH the identity (derived from the placement
+        index) and the position, because two kills that share either would
+        make a cross-scene assertion pass for the wrong reason: identical
+        keys refuse in the looted register, and identical coordinates would
+        let "no position from scene A" hold trivially.
+        """
+        mob, _seed = self.pair
+        return replace(
+            mob, scene=scene,
+            placement_index=mob.placement_index + index_offset,
+            x=as_wire_float(mob.x + 100.0 * index_offset))
+
+    def _kill(self, mob):
+        """One kill of ``mob`` through the cell, exactly as dispatch does."""
+        return self._kill_through(self.cell, mob)
+
+    def _kill_through(self, cell, mob):
+        _template, seed = self.pair
+        self.token += 1
+        roll = mob_loot.roll_drops(mob, random.Random(seed))
+        roll = mob_loot.DropRoll(
+            mob.template_id, mob.actor_identity,
+            roll.items, roll.money, roll.draws, roll.refusals)
+        drops = cell.loot_a_kill(
+            mob, DeathRecord(mob.actor_identity, KILLER, mob.max_hp),
+            roll, kill_token=self.token)
+        self.assertTrue(drops, "this test needs a kill with rows")
+        return drops
+
+    # -- the row owns a scene ------------------------------------------------
+    def test_place_drops_stamps_the_scene_of_the_monster_that_died(self):
+        """Not an argument, not a default: the mob's own roster scene."""
+        for scene in (self.SCENE_A, self.SCENE_B):
+            with self.subTest(scene=scene):
+                mob = self._mob_in(scene)
+                drops = self._kill(mob)
+                for drop in drops:
+                    self.assertEqual(drop.scene, scene)
+                self.cell = DropLedgerCell()
+
+    def test_the_scene_field_has_no_default_and_no_back_door(self):
+        """The claim GroundDrop's docstring makes, pinned so a later edit
+        cannot quietly re-introduce the silent wrong answer.
+
+        A default would let a row built in one scene claim another; a
+        ``scene=`` parameter on ``place_drops`` would give the field a second
+        source of truth, and the caller who would have to fill it in is
+        ``runtime.py`` -- not this lane's file.  Both are green under every
+        other test in this class, which is exactly why they are pinned here.
+        """
+        import dataclasses
+        import inspect
+
+        field = {
+            f.name: f for f in dataclasses.fields(mob_loot.GroundDrop)}["scene"]
+        self.assertIs(field.default, dataclasses.MISSING)
+        self.assertIs(field.default_factory, dataclasses.MISSING)
+        self.assertNotIn(
+            "scene",
+            inspect.signature(mob_loot.place_drops).parameters)
+
+    def test_a_ground_drop_refuses_a_scene_that_is_not_a_scene(self):
+        # The control characters are pf-adversary's (round 4e9r7g): the first
+        # list only had "\n", which the WHITESPACE check already catches, so
+        # the isprintable() guard was a line no test could kill.
+        bad = (None, b"bg0001", "", " ", "bg 0001", "bg0001\n", "x" * 33,
+               "bg0001\u00e9", 1, "bg0001\x01", "\x7f", "bg\x000001")
+        for value in bad:
+            with self.subTest(scene=value):
+                with self.assertRaises(MobLootContractError) as caught:
+                    mob_loot.GroundDrop(
+                        DROP_KEY_BASE, 2400046, 1, 0.0, 0.0, 0.0,
+                        0x201F, KILLER, value)
+                self.assertEqual(caught.exception.args[0], "scene_not_a_scene")
+
+    def test_scene_names_compare_case_folded_and_are_stored_as_given(self):
+        """``bg0002`` and ``Bg0002`` are ONE scene.  The project's own strings
+        disagree about case (field_mob_tables.SCENE is lower, the Bg0002
+        table's is not), and a publication that treated them as two scenes
+        would hide a player's drops from the player standing over them."""
+        drop = mob_loot.GroundDrop(
+            DROP_KEY_BASE, 2400046, 1, 0.0, 0.0, 0.0, 0x201F, KILLER, "Bg0002")
+        self.assertEqual(drop.scene, "Bg0002")     # stored as given
+        self.assertEqual(drop.scene_key, "bg0002")
+        ledger = mob_loot.DropLedger((drop,), 1, DROP_KEY_BASE + 1)
+        self.assertEqual(len(ledger.rows_in_scene("bg0002")), 1)
+        self.assertEqual(len(ledger.rows_in_scene("BG0002")), 1)
+        self.assertEqual(len(ledger.rows_in_scene("bg0001")), 0)
+
+    # -- the ledger carries both scenes at once ------------------------------
+    def test_for_scene_is_a_view_and_never_a_prune(self):
+        first = self._kill(self._mob_in(self.SCENE_A))
+        second = self._kill(self._mob_in(self.SCENE_B, index_offset=40))
+        whole = self.cell.ledger
+        self.assertEqual(len(whole.drops), len(first) + len(second))
+        view_a = whole.for_scene(self.SCENE_A)
+        view_b = whole.for_scene(self.SCENE_B)
+        self.assertEqual(
+            {row.drop_key for row in view_a.drops},
+            {drop.drop_key for drop in first})
+        self.assertEqual(
+            {row.drop_key for row in view_b.drops},
+            {drop.drop_key for drop in second})
+        # The view carries the ledger's own generation/issued/looted, and the
+        # ledger it came from still holds every row.
+        for view in (view_a, view_b):
+            self.assertEqual(view.generation, whole.generation)
+            self.assertEqual(view.issued_through, whole.issued_through)
+            self.assertEqual(view.looted, whole.looted)
+        self.assertEqual(len(self.cell.ledger.drops), len(first) + len(second))
+
+    def test_one_commit_may_not_span_two_scenes(self):
+        rows = (
+            mob_loot.GroundDrop(
+                DROP_KEY_BASE, 2400046, 1, 0.0, 0.0, 0.0, 0x201F, KILLER,
+                self.SCENE_A),
+            mob_loot.GroundDrop(
+                DROP_KEY_BASE + 1, 2400046, 1, 0.0, 0.0, 0.0, 0x201F, KILLER,
+                self.SCENE_B),
+        )
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.commit_drops(
+                mob_loot.DropLedger(), rows, base_generation=0, kill_token=1)
+        self.assertEqual(caught.exception.args[0], "commit_spans_two_scenes")
+
+    # -- the publication ------------------------------------------------------
+    def test_a_publication_in_B_carries_no_key_or_position_from_A(self):
+        """The regression COO-DECISION 0252 asked for, first half."""
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        published_b = self.cell.enter_scene(self.SCENE_B)
+        self.assertEqual(published_b[0], self.SCENE_A)      # previous scene
+        self.assertEqual(published_b[2], len(in_a))         # rows elsewhere
+        in_b = self._kill(self._mob_in(self.SCENE_B, index_offset=40))
+        rows = self.cell.scene_ledger().drops
+        self.assertEqual(
+            {row.drop_key for row in rows},
+            {drop.drop_key for drop in in_b})
+        keys_from_a = {drop.drop_key for drop in in_a}
+        positions_from_a = {(drop.x, drop.y, drop.z) for drop in in_a}
+        self.assertFalse(
+            keys_from_a & {row.drop_key for row in rows})
+        self.assertFalse(
+            positions_from_a & {(row.x, row.y, row.z) for row in rows})
+        # ...and the same is true of the BYTES, not only of the rows.
+        (pc, _frame), = self.cell.frames(self.legacy)
+        for drop in in_a:
+            self.assertNotIn(
+                self.legacy.u32tag(mob_loot.ELEMENT_KEY_TAG, drop.drop_key),
+                pc)
+
+    def test_walking_back_into_A_finds_the_drop_still_standing(self):
+        """The regression COO-DECISION 0252 asked for, SECOND half -- the one
+        the superseded reconcile could not pass, because it destroyed the
+        rows instead of scoping them."""
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        self.cell.enter_scene(self.SCENE_B)
+        self._kill(self._mob_in(self.SCENE_B, index_offset=40))
+        previous, current, elsewhere, expired = self.cell.enter_scene(
+            self.SCENE_A)
+        self.assertEqual((previous, current, expired),
+                         (self.SCENE_B, self.SCENE_A, 0))
+        self.assertEqual(elsewhere, len(self.cell.ledger.drops) - len(in_a))
+        rows = self.cell.scene_ledger().drops
+        self.assertEqual(
+            {row.drop_key for row in rows},
+            {drop.drop_key for drop in in_a})
+        self.assertEqual(
+            {(row.x, row.y, row.z) for row in rows},
+            {(drop.x, drop.y, drop.z) for drop in in_a})
+
+    def test_the_whole_round_trip_deletes_nothing(self):
+        """COO-DECISION 2026-09-02T02:53+07:00: no ledger row may be removed
+        until a removal publisher exists.  A -> B -> A, and the row count
+        never falls."""
+        in_a = self._kill(self._mob_in(self.SCENE_A))
+        counts = [len(self.cell.ledger.drops)]
+        self.cell.enter_scene(self.SCENE_B)
+        counts.append(len(self.cell.ledger.drops))
+        in_b = self._kill(self._mob_in(self.SCENE_B, index_offset=40))
+        counts.append(len(self.cell.ledger.drops))
+        self.cell.enter_scene(self.SCENE_A)
+        counts.append(len(self.cell.ledger.drops))
+        self.assertEqual(
+            counts,
+            [len(in_a), len(in_a), len(in_a) + len(in_b),
+             len(in_a) + len(in_b)])
+        self.assertEqual(
+            self.cell.ledger.scenes,
+            tuple(sorted({self.SCENE_A.casefold(), self.SCENE_B.casefold()})))
+
+    def test_entering_the_scene_it_is_already_in_is_a_no_op_that_answers(self):
+        self._kill(self._mob_in(self.SCENE_A))
+        before = self.cell.ledger.drops
+        previous, current, elsewhere, expired = self.cell.enter_scene(
+            self.SCENE_A)
+        self.assertEqual((previous, current, elsewhere, expired),
+                         (self.SCENE_A, self.SCENE_A, 0, 0))
+        self.assertEqual(self.cell.ledger.drops, before)
+
+    def test_a_cell_that_does_not_know_its_scene_refuses_by_name(self):
+        """FAIL-CLOSED.  The alternative -- falling back to every row -- is
+        the leak way 1 closed, so 'I do not know' must not become 'send
+        them all'."""
+        cell = DropLedgerCell()
+        self.assertIsNone(cell.current_scene)
+        for call in (lambda: cell.scene_ledger(),
+                     lambda: cell.frames(self.legacy)):
+            with self.assertRaises(MobLootContractError) as caught:
+                call()
+            self.assertEqual(caught.exception.args[0], "no_scene_to_publish")
+
+    def test_a_refused_kill_does_not_move_the_cells_scene(self):
+        """``loot_a_kill`` promises a refusal leaves the cell as it was, and
+        the scene is now part of 'as it was'."""
+        self._kill(self._mob_in(self.SCENE_A))
+        mob = self._mob_in(self.SCENE_B, index_offset=40)
+        roll = mob_loot.roll_drops(mob, random.Random(self.pair[1]))
+        roll = mob_loot.DropRoll(
+            mob.template_id, mob.actor_identity,
+            roll.items, roll.money, roll.draws, roll.refusals)
+        with self.assertRaises(MobLootContractError):
+            # kill token 0 is below the token the first kill recorded for a
+            # DIFFERENT identity, so this refuses on the roll/record
+            # disagreement instead: the record names another monster.
+            self.cell.loot_a_kill(
+                mob, DeathRecord(0x9999, KILLER, mob.max_hp), roll,
+                kill_token=1)
+        self.assertEqual(self.cell.current_scene, self.SCENE_A)
+
+    def test_entering_a_scene_reports_the_rows_its_own_sweep_collected(self):
+        """pf-adversary (round 4e9r7g) measured the first draft's headline
+        false: ``enter_scene`` sweeps, so crossing a boundary after being
+        away longer than the lifetime is the call that removes the rows --
+        and ``elsewhere`` read 0 there, which is the same 0 an empty ground
+        reads.  A state reading standing in for a comparison.  The fourth
+        element is the comparison."""
+        clock = _StepClock()
+        cell = DropLedgerCell(clock=clock)
+        in_a = self._kill_through(cell, self._mob_in(self.SCENE_A))
+        clock.advance(mob_loot.DROP_LIFETIME_SECONDS + 1.0)
+        previous, current, elsewhere, expired = cell.enter_scene(self.SCENE_B)
+        self.assertEqual((previous, current), (self.SCENE_A, self.SCENE_B))
+        self.assertEqual(elsewhere, 0)          # nothing is standing...
+        self.assertEqual(expired, len(in_a))    # ...because THIS call swept
+        self.assertEqual(cell.ledger.drops, ())
+
+    def test_a_kill_may_not_overrule_a_scene_the_boundary_declared(self):
+        """pf-adversary (round 4e9r7g), and the principle is
+        ``mob_ledger_admission``'s own: an explicit disagreement is never
+        overruled by a membership coincidence.
+
+        ``FieldMob.scene`` HAS a default, so before this refusal one
+        hand-built record could move the whole session's scene, drop the
+        player's own rows out of the publication (RE-130 erases them on the
+        client) and then answer their pickup with 'that is in another
+        scene'.  A cell nobody declared still takes its scene from the kill."""
+        cell = DropLedgerCell(scene=self.SCENE_A)
+        self._kill_through(cell, self._mob_in(self.SCENE_A))
+        with self.assertRaises(MobLootContractError) as caught:
+            self._kill_through(cell, self._mob_in(self.SCENE_B, 40))
+        self.assertEqual(caught.exception.args[0], "kill_in_another_scene")
+        # A refusal leaves the cell exactly as it was, scene included.
+        self.assertEqual(cell.current_scene, self.SCENE_A)
+        self.assertEqual(len(cell.ledger.drops), 1)
+        # ...and an UNDECLARED cell accepts the same kill and infers from it.
+        undeclared = DropLedgerCell()
+        self._kill_through(undeclared, self._mob_in(self.SCENE_B, 40))
+        self.assertEqual(undeclared.current_scene, self.SCENE_B)
+
+    def test_place_drops_refuses_a_mob_that_carries_no_scene(self):
+        """pf-adversary mutant A6 survived the first draft: defaulting a
+        missing scene to bg0001 instead of refusing broke nothing.  The
+        refusal is the whole reason the field has no default."""
+        mob, seed = self.pair
+        roll = mob_loot.roll_drops(mob, random.Random(seed))
+        record = DeathRecord(mob.actor_identity, KILLER, mob.max_hp)
+
+        class _NoScene:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def __getattr__(self, name):
+                if name == "scene":
+                    raise AttributeError(name)
+                return getattr(self._inner, name)
+
+        for scene in (None, ""):
+            with self.subTest(scene=scene):
+                with self.assertRaises(MobLootContractError) as caught:
+                    mob_loot.place_drops(
+                        replace(mob, scene=scene), record, roll,
+                        DROP_KEY_BASE)
+                self.assertEqual(
+                    caught.exception.args[0], "scene_not_a_scene")
+
+    def test_the_superseded_reconcile_is_named_as_superseded(self):
+        """It is KEPT (this lane strikes through, it does not erase) and it is
+        no longer the answer.  If a later round re-wires it at a boundary,
+        this is the line that has to be argued with first."""
+        self.assertIn(
+            "way 1", mob_loot.SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY)
+        self.assertIn(
+            "2026-09-02T02:53", mob_loot.SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY)
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        wiring_step_six = mob_loot.MOB_LOOT_WIRING.split("  6. ")[1]
+        self.assertIn("enter_scene(folder)", wiring_step_six)
+        self.assertIn("~~call cell.reconcile_scene_transition()",
+                      wiring_step_six)
+        self.assertIn("SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY", source)
+
+    def test_the_scene_does_not_travel_on_the_wire(self):
+        """The claim GroundDrop's own docstring makes, measured: two rows that
+        differ ONLY in scene compose byte-identical elements."""
+        common = (DROP_KEY_BASE, 2400046, 1, as_wire_float(1.0),
+                  as_wire_float(2.0), as_wire_float(3.0), 0x201F, KILLER)
+        first = mob_loot.GroundDrop(*common, self.SCENE_A)
+        second = mob_loot.GroundDrop(*common, self.SCENE_B)
+        self.assertEqual(
+            mob_loot.drop_element(self.legacy, first),
+            mob_loot.drop_element(self.legacy, second))
+        self.assertEqual(
+            mob_loot.drop_element_with_model_type(self.legacy, first),
+            mob_loot.drop_element_with_model_type(self.legacy, second))
 
 
 if __name__ == "__main__":
