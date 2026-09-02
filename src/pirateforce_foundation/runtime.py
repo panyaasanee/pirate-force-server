@@ -1289,6 +1289,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # one, so choosing one option does not block a later attempt
                 # at the other.
                 self.columbus_quest3205_dispatch_attempted = False
+                # And its own report set, for the same bound as the two
+                # above: one token per scene however many times the client
+                # sends op1 from the wrong one (COO-DECISION
+                # 2026-09-02T17:45+07:00, point 3).
+                self.columbus_q3205_bornagain_wrong_scene_reported = set()
                 # CORE-REQUEST-007 (MOB-AI-CONTROL-001).  Same per-session
                 # choice as mob_combat_ledger/mob_death_register just above,
                 # for the same reason: MOB_AI_CONTROL_WIRING does not say
@@ -5742,6 +5747,96 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # every time today (no persisted home-marker column,
                     # no captured wire ack -- see the module docstring and
                     # RE-112), so there is deliberately no success branch.
+                    #
+                    # THE SAME DOOR D2 CLOSED FOR 3021, CLOSED HERE BEFORE
+                    # IT CAN BE WALKED THROUGH (COO-DECISION
+                    # 2026-09-02T17:45+07:00, point 3).  The authorising
+                    # latch is ``columbus_quest3021_conversation_sent``,
+                    # which lives for the whole session and has no scene in
+                    # it: the click that opened Columbus's conversation at
+                    # Port Royal still authorises this op1 three maps
+                    # later, and after a SUCCESSFUL crossing the row says
+                    # scene 17, so the very next click on option 2 is sent
+                    # from a scene Columbus is not standing in.  THAT is
+                    # what this guard is for, and it is the whole of it.
+                    #
+                    # WHAT THIS GUARD IS **NOT** FOR, struck before it
+                    # shipped (pf-adversary E1, this round).  A draft of
+                    # this comment said a success branch would let a player
+                    # save their home marker onto whatever scene they
+                    # happen to be standing in.  Three layers say that
+                    # cannot happen: QUESTDATA_TH__QUEST.tsv row 3205
+                    # carries ``n_VARI_2=1`` -- a PER-QUEST TABLE CONSTANT,
+                    # one row per island's Columbus, not a position;
+                    # RE-112 measured ``q_bornagain.lua`` calling
+                    # ``Player.ResetMarker(Quest.Var2)`` on that constant,
+                    # against a client binding that is ``xor eax,eax; ret
+                    # 4``; and this module's own
+                    # COLUMBUS_QUEST_BORNAGAIN_MARKER_ID is the fixed 1.
+                    # No client input can steer that save at the standing
+                    # scene, so the scene-free latch above is the only
+                    # argument for this guard -- and it is enough on its
+                    # own.
+                    #
+                    # THE LATCH IS NOT CONSUMED ON A REFUSAL, exactly as in
+                    # the 3021 branch: a player whose row says scene 1
+                    # again may send the same op1 and be answered.  Only an
+                    # attempt actually made is one-shot.  [PROPOSED, NOT
+                    # MEASURED] that a player gets a scene-1 row back by
+                    # sailing: the walk-in travel gates print
+                    # WORLD_TRAVEL_INERT by owner decree, so the only
+                    # measured route back is a GM warp (the label the 3021
+                    # guard above carries, kept with the sentence it was
+                    # copied from).
+                    selected = self.foundation.selected
+                    if selected is None:
+                        # No scene at all, which is not the same sentence as
+                        # the wrong scene -- named apart so a grep for
+                        # ``..._wrong_scene_`` never answers with a session
+                        # that had no character selected.  ``None`` is the
+                        # dedupe key that cannot collide with a scene id.
+                        #
+                        # UNREACHABLE ON THE DEFAULT SESSION FACTORY TODAY,
+                        # and it is written down rather than implied
+                        # (pf-adversary D3, this round): reaching this
+                        # ``elif`` needs the conversation latch, which is
+                        # only set where ``selected is not None``, and
+                        # ``selected`` is cleared only before select-and-
+                        # start.  Kept for symmetry with the 3021 branch
+                        # and because a custom session factory is not
+                        # bound by that argument -- NOT because a client
+                        # can get here.
+                        reported = (
+                            self.columbus_q3205_bornagain_wrong_scene_reported
+                        )
+                        if None not in reported:
+                            reported.add(None)
+                            self.events.append(
+                                "columbus_q3205_bornagain_refused_"
+                                "no_selected_character"
+                            )
+                        return actions
+                    standing_scene = selected.position.scene_id
+                    if standing_scene != world_scene_travel.HOME_SCENE_ID:
+                        reported = (
+                            self.columbus_q3205_bornagain_wrong_scene_reported
+                        )
+                        if standing_scene not in reported:
+                            reported.add(standing_scene)
+                            self.events.append(
+                                "columbus_q3205_bornagain_refused_wrong_"
+                                f"scene_{standing_scene}"
+                            )
+                            try:
+                                print(
+                                    "COLUMBUS_Q3205_BORNAGAIN_REFUSED "
+                                    f"scene={standing_scene} "
+                                    "reason=not_home_scene",
+                                    file=sys.stderr,
+                                )
+                            except Exception:
+                                pass
+                        return actions
                     self.columbus_quest3205_dispatch_attempted = True
 
                     def _emit(line):
@@ -7022,7 +7117,47 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # silently, and only for the scene the session is standing
                 # in: a stash tagged for another scene is the flush's own
                 # named refusal to make, not this branch's.
-                if outcome.ground_after and self.mob_loot_boundary_frames_pending:
+                #
+                # THE TAKE IS THE CONDITION, NOT THE PUBLICATION, and the
+                # difference is a measured hole (COO-DECISION
+                # 2026-09-02T17:46+07:00).  R304 keyed this on
+                # ``outcome.ground_after``, which is ``()`` in two states
+                # where the item IS in the bag: the taken row was the
+                # scene's LAST one (RE-208's open hole -- an empty
+                # generation is a client no-op, so nothing is composed) and
+                # the publication itself refused.  In both, the stash then
+                # survived the click and the NEXT ordinary poll published
+                # it: a PRE-take generation carrying the row already in the
+                # player's bag, which by RE-082 puts that row back on the
+                # floor -- the exact rollback the rest of this block exists
+                # to prevent, reached through the one door it left open.
+                # ``handled`` is True only when an item actually moved into
+                # the bag (PickupRequestOutcome's own words), which is what
+                # this guard always meant to ask.
+                #
+                # READ THIS AS UNCONDITIONAL, and that is measured, not
+                # style (pf-adversary D3, this round).  ``if outcome.delta
+                # is None: return []`` sits ABOVE this line, and ``delta``
+                # is non-None only in the one ``handled=True``
+                # construction, so ``handled`` is invariantly True HERE:
+                # ``if True and ...`` survives the full 7,600-test suite.
+                # The field is named rather than dropped because it says
+                # what the branch means, but nobody may read it as a live
+                # check -- and the refusals it appears to cover never reach
+                # this line at all.
+                #
+                # WHAT THIS STILL DOES NOT COVER, open and reported
+                # rather than papered over (pf-adversary D2, measured on
+                # the real dispatcher): ``REFUSE_WRITE_FAILED_AFTER_THE_TAKE``
+                # returns ``handled=False`` AFTER the row has left the
+                # ground and entered the bag, so this branch returns
+                # earlier and the pre-take stash still goes out on a later
+                # poll -- the same RE-082 rollback, through a second door.
+                # Closing it means moving this whole block above the
+                # ``delta is None`` return, which is a larger change than
+                # the one-line patch COO-DECISION 2026-09-02T17:46+07:00
+                # authorised; it is in the letter to COO for this round.
+                if outcome.handled and self.mob_loot_boundary_frames_pending:
                     standing = (
                         world_scene_folder.scene_folder_for_scene_id(
                             selected.position.scene_id)
@@ -7035,11 +7170,68 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             self.mob_loot_boundary_frames_pending)
                         self.mob_loot_boundary_frames_pending = ()
                         self.mob_loot_boundary_frames_scene = None
-                        self.events.append(
-                            "mob_loot_boundary_superseded_by_pickup_"
+                        # THREE NAMES, NOT TWO, and the third one is the
+                        # reason this is not cosmetic.  COO-DECISION
+                        # 2026-09-02T17:46+07:00 point 2 asks for two, on
+                        # the reading that an empty ``ground_after`` means
+                        # the scene emptied.  IT HAS TWO PRODUCERS
+                        # (pf-adversary D1, measured on the real
+                        # dispatcher): the taken row was the scene's last
+                        # (RE-208) OR the publication itself refused, and
+                        # in the measured case the floor still held TWO
+                        # standing rows while a two-name console said
+                        # "last object taken".  That is the operator
+                        # reading the wrong thing at the console, which is
+                        # exactly what point 2 exists to prevent.
+                        #
+                        # ``ground_rows_left`` is the field that separates
+                        # them and it is already pinned by the sibling
+                        # lane's own tests: 0 when the take emptied the
+                        # scene, -1 when nothing was composed.  Its
+                        # docstring forbids reading the COUNT as a refusal
+                        # reason; this reads the two known values apart,
+                        # which is the same rule kept, not bent.
+                        if outcome.ground_after:
+                            reason = "superseded_by_pickup"
+                        elif outcome.ground_rows_left == 0:
+                            reason = "last_object_pickup"
+                        else:
+                            reason = "publication_refused"
+                        token = (
+                            f"mob_loot_boundary_{reason}_"
                             f"{mob_loot.scene_key(standing)}_frames_"
                             f"{superseded}"
                         )
+                        self.events.append(token)
+                        # AND IT IS PRINTED, not only recorded.  Every other
+                        # mob_loot_boundary_* token in this file goes to
+                        # self.events alone, which reaches no console unless
+                        # the process was started with --export-events -- the
+                        # same gap pf-adversary measured on the Columbus
+                        # branch in round e0daaa.  COO-DECISION
+                        # 2026-09-02T17:46+07:00 asks for two names so the
+                        # operator grading GT-204 can tell the cases apart,
+                        # and an operator cannot read a list they never see.
+                        # ASCII only, and the print CANNOT take the frames
+                        # down with it: the bridge console is cp874 with
+                        # errors='strict' and stdout can be closed or
+                        # redirected, so a line is lost rather than a reply
+                        # (mob_pickup_request._say, same reason).
+                        #
+                        # ``rows_left`` RIDES THE LINE, because the number
+                        # is what tells an operator whether the floor they
+                        # are looking at is supposed to be empty.  -1 is
+                        # "nothing was composed", which is the one value
+                        # that is not a count of rows (the sibling lane's
+                        # docstring, kept verbatim in meaning).
+                        try:
+                            print("MOB_LOOT_BOUNDARY_STASH_CLEARED "
+                                  "reason=%s scene=%s frames=%d "
+                                  "rows_left=%d"
+                                  % (reason, mob_loot.scene_key(standing),
+                                     superseded, outcome.ground_rows_left))
+                        except Exception:      # noqa: BLE001 - see above
+                            pass
                 return out
             if (
                 delete_actor_hypothesis_scenario is not None

@@ -23,6 +23,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -507,6 +508,32 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
             )
         ))
         self.assertTrue(state.columbus_quest3021_dispatch_attempted)
+        # "GOES BACK", WHICH THIS TEST NEVER ACTUALLY DID until the 3205
+        # scene guard landed (COO-DECISION 2026-09-02T17:45+07:00, point 3).
+        # Option 1 SUCCEEDS today, so the row now says scene 17 and the
+        # player is at sea; option 2 is Columbus's, and Columbus is at Port
+        # Royal.  This test's own sentence is "then goes back and tries
+        # option 2", so the walk home belongs in it -- what it pins is that
+        # the OUTER gate keeps checking once only the 3021 latch is set,
+        # which is unchanged.  The refusal from scene 17 is pinned by
+        # ColumbusSceneGuardTests below.
+        #
+        # THE PREMISE IS ASSERTED, NOT ASSUMED (pf-adversary A2): if the
+        # crossing ever stopped moving the row, the walk home below would
+        # write 1 over 1, this test would stay green, and the paragraph
+        # above would become a lie sitting in the file.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id,
+            columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
+        )
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected,
+            position=replace(
+                selected.position,
+                scene_id=world_scene_travel.HOME_SCENE_ID,
+            ),
+        )
         state.dispatch(self.legacy.parse_outer(
             self.legacy._synthetic_quest_operate_pc(
                 columbus_quest_dispatch.COLUMBUS_QUEST_BORNAGAIN_ID,
@@ -1340,6 +1367,220 @@ class ColumbusSceneGuardTests(unittest.TestCase):
         self.assertNotIn(
             "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE", labels,
         )
+
+    # ----- the same door, on option 2 (COO-DECISION 20260902_1745 pt 3) ---
+
+    def _open_the_conversation(self, state):
+        """Click Columbus AT HOME, which is the only place it composes."""
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        self.assertTrue(state.columbus_quest3021_conversation_sent)
+
+    def _send_bornagain_op1(self, state):
+        return state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_BORNAGAIN_ID,
+                1, 0, 0, 0, 0,
+            )
+        ))
+
+    def test_bornagain_op1_from_another_scene_is_refused_by_name(self):
+        """QUEST 3205 HAD NO SCENE GUARD -- the same door D2 closed for
+        3021, still open on option 2 until this round.
+
+        ``columbus_quest3021_conversation_sent`` authorises this branch and
+        lives for the whole session with no scene in it, so a conversation
+        opened at Port Royal still authorises a Q_BORNAGAIN op1 sent from
+        anywhere.  Q_BORNAGAIN is a marker save
+        (``Player.ResetMarker(1)``): the day it gets a success branch is
+        the day a player saves their home marker onto a scene they merely
+        happen to be standing in.
+
+        MUTATION-PROOF: delete the ``standing_scene != HOME_SCENE_ID``
+        return in ``runtime.py`` and the dispatch is attempted from scene
+        14 -- the latch flips and the refusal event names persistence
+        rather than the scene, failing both assertions below.
+        """
+        state = self._real_state("tok-3205-guard-wrong-scene")
+        self._open_the_conversation(state)
+        self._stand_in_scene(state, 14)
+        actions = self._send_bornagain_op1(state)
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "columbus_q3205_bornagain_refused_wrong_scene_14", state.events,
+        )
+        # The dispatch was never attempted, so the one-shot latch is intact
+        # and a player whose row says scene 1 again may still be answered.
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
+        self.assertEqual(
+            [e for e in state.events
+             if e.startswith("columbus_quest3205_dispatch_refused_")], [],
+        )
+
+    def test_bornagain_op1_at_home_still_reaches_its_own_refusal(self):
+        """The guard must not swallow the branch it protects: standing at
+        home, option 2 still reaches ``dispatch_columbus_quest3205`` and
+        gets that module's own named refusal (no persisted home-marker
+        column -- RE-112)."""
+        state = self._real_state("tok-3205-guard-at-home")
+        self._open_the_conversation(state)
+        self._send_bornagain_op1(state)
+        self.assertTrue(state.columbus_quest3205_dispatch_attempted)
+        self.assertIn(
+            "columbus_quest3205_dispatch_refused_"
+            + columbus_quest_dispatch
+            .BORNAGAIN_MARKER_RESET_REFUSED_NO_PERSISTENCE_ROW,
+            state.events,
+        )
+
+    def test_the_bornagain_wrong_scene_token_is_printed_once_per_scene(self):
+        """A token nobody can read is not a token, and an event list the
+        client can grow without bound is a leak -- the same two rules the
+        3021 guard above is held to."""
+        import io
+        from contextlib import redirect_stderr
+
+        state = self._real_state("tok-3205-guard-token")
+        self._open_the_conversation(state)
+        self._stand_in_scene(state, 14)
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            for _ in range(5):
+                self._send_bornagain_op1(state)
+        lines = [
+            line for line in buffer.getvalue().splitlines()
+            if line.startswith("COLUMBUS_Q3205_BORNAGAIN_REFUSED")
+        ]
+        self.assertEqual(len(lines), 1, buffer.getvalue())
+        self.assertIn("scene=14", lines[0])
+        self.assertIn("reason=not_home_scene", lines[0])
+        lines[0].encode("cp874")
+        self.assertEqual(
+            state.events.count(
+                "columbus_q3205_bornagain_refused_wrong_scene_14"), 1,
+        )
+        # THE DECISION IS PINNED, NOT ONLY THE TOKEN COUNT (pf-adversary
+        # D1).  Bolting the ``return`` to the reporting -- one extra
+        # indent, so only the FIRST op1 from a scene is refused and the
+        # second falls through to the real dispatch -- survived every other
+        # test in this file.  Five sends above, and none of them may reach
+        # the dispatch.
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
+        self.assertEqual(
+            [e for e in state.events
+             if e.startswith("columbus_quest3205_dispatch_refused_")], [],
+        )
+
+    def test_bornagain_op1_right_after_a_successful_crossing_is_refused(self):
+        """THE ONLY WRONG SCENE AN ORDINARY PLAYER REACHES (pf-adversary
+        A1).  The tests above hand-place the session in scene 14, which
+        takes a GM warp; scene 17 is where the feature itself puts the
+        player.  Option 1 succeeds, the crossing checkpoints the row to 17,
+        and the next click on option 2 is sent from there.
+
+        MUTATION-PROOF: exempt the destination scene from the guard --
+        `standing_scene not in (HOME_SCENE_ID, COLUMBUS_DEST_SCENE_ID)` --
+        and every other test in this file stays green while the one scene
+        the guard exists to catch walks through.
+        """
+        state = self._real_state("tok-3205-after-crossing")
+        self._open_the_conversation(state)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        # CONTROL: without a crossing that actually moved the row, the rest
+        # of this test proves nothing.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id,
+            columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
+        )
+        actions = self._send_bornagain_op1(state)
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "columbus_q3205_bornagain_refused_wrong_scene_%d"
+            % columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
+            state.events,
+        )
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
+
+    def test_each_wrong_scene_gets_its_own_bornagain_token(self):
+        """The dedupe is PER SCENE, which the promise in runtime.py says
+        and only two scenes can prove (pf-adversary D2): a per-session
+        dedupe passes every single-scene test while an operator watching a
+        player wander sees one line and misses the rest."""
+        state = self._real_state("tok-3205-two-wrong-scenes")
+        self._open_the_conversation(state)
+        for scene_id in (14, 130):
+            self._stand_in_scene(state, scene_id)
+            self._send_bornagain_op1(state)
+            self._send_bornagain_op1(state)
+        for scene_id in (14, 130):
+            self.assertEqual(
+                state.events.count(
+                    "columbus_q3205_bornagain_refused_wrong_scene_%d"
+                    % scene_id), 1, state.events,
+            )
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
+
+    def test_the_3021_wrong_scene_guard_refuses_every_time_not_only_once(self):
+        """THE SAME HOLE ON THE GUARD THIS ONE WAS COPIED FROM
+        (pf-adversary D1, second half).  Moving 3021's own wrong-scene
+        ``return`` inside its dedupe ``if`` survives this whole file today:
+        the second op1 from one scene reaches the crossing.  Pinned here
+        because this round is the cheapest moment to close both, and
+        because a teleport that fires on the second click is worse than one
+        that fires on the first.
+        """
+        state = self._real_state("tok-3021-guard-every-time")
+        self._open_the_conversation(state)
+        self._stand_in_scene(state, 14)
+        for _ in range(3):
+            actions = state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+            self.assertEqual(
+                [a[0] for a in actions], [],
+                "a crossing was composed from a scene that is not home",
+            )
+        self.assertFalse(state.columbus_quest3021_dispatch_attempted)
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, 14,
+        )
+
+    def test_the_no_selected_bornagain_token_is_bounded(self):
+        """The event list may not grow on a count the client chooses --
+        the same rule ``test_a_malformed_click_cannot_grow_the_event_list``
+        enforces for the diagnostic above (pf-adversary D2)."""
+        state = self._real_state("tok-3205-no-selected-bounded")
+        self._open_the_conversation(state)
+        state.foundation.selected = None
+        for _ in range(5):
+            self._send_bornagain_op1(state)
+        self.assertEqual(
+            state.events.count(
+                "columbus_q3205_bornagain_refused_no_selected_character"), 1,
+        )
+
+    def test_bornagain_op1_with_no_selected_character_is_named_apart(self):
+        """No scene at all is not the wrong scene, and neither may raise."""
+        state = self._real_state("tok-3205-guard-no-selected")
+        self._open_the_conversation(state)
+        state.foundation.selected = None
+        actions = self._send_bornagain_op1(state)
+        self.assertEqual(actions, [])
+        self.assertIn(
+            "columbus_q3205_bornagain_refused_no_selected_character",
+            state.events,
+        )
+        self.assertFalse(state.columbus_quest3205_dispatch_attempted)
 
 
 class CrossingHandoffQueuedWiringTests(unittest.TestCase):

@@ -132,6 +132,7 @@ class SceneBoundaryHarness(unittest.TestCase):
         err = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             actions = state.dispatch(self.legacy.parse_outer(pc))
+        self.console = out.getvalue()
         return actions
 
     def _warp(self, state, scene_id):
@@ -588,6 +589,10 @@ class ThePickupGroundGenerationOnTheRealDispatcherTests(
         )
         self.assertEqual(actions[0][1:3], held[0])
         self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+        # RELEASED, NOT DROPPED, and the console must not say otherwise: the
+        # flush already handed these frames to the client, so the guard
+        # below finds an empty stash and prints nothing at all.
+        self.assertNotIn("MOB_LOOT_BOUNDARY_STASH_CLEARED", self.console)
 
     def test_a_pickup_after_a_warp_flushes_the_held_boundary_first(self):
         """pf-adversary D3, and it is the reason the flush call is there.
@@ -631,9 +636,177 @@ class ThePickupGroundGenerationOnTheRealDispatcherTests(
         # The stash is empty afterwards, so no later poll can re-publish
         # the pre-take floor behind the removal that just went out.
         self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+        # The OTHER console reason, so one shared token cannot satisfy both
+        # cases: here a post-take floor really did replace the stash.
+        self.assertIn(
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=superseded_by_pickup",
+            self.console, self.console,
+        )
         for _ in range(3):
             self.assertEqual(
                 self._ground(self._dispatch(state, self.empty_poll_pc)), [])
+
+    def test_taking_the_last_row_also_drops_the_stale_boundary(self):
+        """THE HOLE R304 LEFT OPEN, and the reason this guard now asks
+        ``handled`` instead of ``ground_after`` (COO-DECISION
+        2026-09-02T17:46+07:00).
+
+        One row on the floor, taken on the first dispatch after a warp, so
+        the flush is still holding.  ``ground_after`` is ``()`` here --
+        RE-208's open hole: the scene is empty afterwards and an empty
+        generation is a client no-op, so nothing is composed.  With the old
+        condition the stash therefore survived the click and the next
+        ordinary poll published the PRE-take generation, putting the row
+        already in the player's bag back on the floor (RE-082).
+
+        MUTATION-PROOF: restore ``if outcome.ground_after and ...`` and the
+        polls below hand back the stale generation, failing on both the
+        missing event and the frames that arrive after it.
+        """
+        state = self._state("tok-pickup-last-row-stash")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state, rows=1)
+        held = ((b"stale-pc", b"stale-frame"),)
+        self._hold(state, held)
+        labels = [action[0] for action in self._take_one(state)]
+        # The take succeeded and said nothing about the floor -- that half
+        # is R304's behaviour and stays.
+        self.assertEqual(labels, ["MOB_PICKUP_REQUEST_DELTA"])
+        # AND IT IS NAMED FOR WHAT HAPPENED (COO-DECISION
+        # 2026-09-02T17:46+07:00, point 2): nothing replaced the stash in
+        # this reply, so the token must not say "superseded" -- an operator
+        # grading GT-204 would read that as a redraw the client never got.
+        self.assertIn(
+            "mob_loot_boundary_last_object_pickup_%s_frames_%d"
+            % (mob_loot.scene_key(world_scene_folder
+                                  .scene_folder_for_scene_id(
+                                      DESTINATION_SCENE_ID)), len(held)),
+            state.events,
+            "the pre-take generation survived a successful take, or the "
+            "drop is misnamed as a supersede: %r"
+            % ([e for e in state.events if "mob_loot_boundary" in e],),
+        )
+        self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+        # AND THE OPERATOR CAN READ IT.  Every other mob_loot_boundary_*
+        # token is self.events only, which reaches no console without
+        # --export-events; GT-204 is graded off what the bridge console
+        # shows.  ASCII, so cp874 cannot break the report mid-line.
+        self.assertIn(
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=last_object_pickup",
+            self.console, self.console,
+        )
+        self.console.encode("cp874")
+        # And no later poll resurrects the row the player is carrying.
+        for _ in range(3):
+            self.assertEqual(
+                self._ground(self._dispatch(state, self.empty_poll_pc)), [])
+
+    def test_a_refused_take_leaves_the_boundary_generation_owed(self):
+        """A click that takes nothing leaves the arrival generation OWED.
+
+        🔴 WHAT THIS DOES **NOT** PIN, corrected before it shipped
+        (pf-adversary D3, measured with a sentinel at the guard): the
+        refusal returns at ``if outcome.delta is None: return []``, ABOVE
+        the stash guard, so this test never executes that guard at all.
+        Its first draft claimed to pin "the other side of the guard, so it
+        cannot be widened into drop-the-stash-on-every-click" -- that claim
+        was false twice over, because the guard's own condition is
+        invariantly true where it is read.  What this test really pins is
+        the early return, which is worth keeping: it is what stops a
+        stranger's frame from touching an owed generation.
+        """
+        state = self._state("tok-pickup-refused-keeps-stash")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state)
+        held = ((b"owed-pc", b"owed-frame"),)
+        self._hold(state, held)
+        actions = self._dispatch(
+            state, self._pickup_pc(mob_loot.DROP_KEY_BASE + 900))
+        self.assertEqual([action[0] for action in actions], [])
+        self.assertEqual(state.mob_loot_boundary_frames_pending, held)
+        state.world_census_sent = True
+        self.assertEqual(
+            state._mob_loot_boundary_flush(),
+            [("MOB_LOOT_DROP", b"owed-pc", b"owed-frame", 0.0)],
+        )
+
+    def test_a_refused_publication_is_not_reported_as_an_empty_scene(self):
+        """THE THIRD NAME, and the measured reason it exists.
+
+        ``ground_after`` is ``()`` for two different reasons and only one
+        of them is "the scene is empty now".  When
+        ``frames_after_a_row_left`` refuses, the take still happened, the
+        stash is still stale, and the floor still holds every other row --
+        two of them, in pf-adversary's measurement of this exact setup,
+        under a console line that said the player had taken the last
+        object.  An operator grading GT-204 off that line reports an empty
+        floor they are looking straight at.
+
+        MUTATION-PROOF: name this case ``last_object_pickup`` again (i.e.
+        select on ``ground_after`` alone) and both assertions below fail on
+        the word.
+        """
+        state = self._state("tok-pickup-publication-refused")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state, rows=3)
+        held = ((b"stale-pc", b"stale-frame"),)
+        self._hold(state, held)
+
+        def _refuse(_legacy, _key):
+            raise mob_loot.MobLootContractError(
+                mob_loot.REFUSE_TYPE_NOT_TYPED_RECORD, "measured refusal",
+            )
+
+        state.mob_loot_cell.frames_after_a_row_left = _refuse
+        labels = [action[0] for action in self._take_one(state)]
+        # The take is answered; only the floor publication was lost.
+        self.assertEqual(labels, ["MOB_PICKUP_REQUEST_DELTA"])
+        scene = mob_loot.scene_key(
+            world_scene_folder.scene_folder_for_scene_id(
+                DESTINATION_SCENE_ID))
+        self.assertIn(
+            "mob_loot_boundary_publication_refused_%s_frames_%d"
+            % (scene, len(held)), state.events,
+            [e for e in state.events if "mob_loot_boundary" in e],
+        )
+        self.assertIn(
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=publication_refused "
+            "scene=%s frames=%d rows_left=-1" % (scene, len(held)),
+            self.console, self.console,
+        )
+
+    def test_a_stash_tagged_for_another_scene_is_never_dropped_here(self):
+        """THE SCENE GUARD AT THIS CALL SITE, which no test reached
+        (pf-adversary D5: deleting it stayed green across the whole
+        repository suite while this file's own header advertises
+        MUTATION-PROOF).
+
+        A crossing can leave a stash tagged for scene A while the session
+        stands in scene B -- that is the state
+        ``_mob_loot_cross_scene_boundary`` exists for.  Destroying scene
+        A's frames from a pickup made in scene B loses bytes nobody in
+        scene B was owed, and names the wrong scene while doing it.
+
+        MUTATION-PROOF: drop the scene conjunct (``if standing is not
+        None:``) and the two assertions below fail on frames that were
+        thrown away and an event that named scene B.
+        """
+        state = self._state("tok-pickup-other-scene-stash")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state)
+        other = ((b"scene-a-pc", b"scene-a-frame"),)
+        state.mob_loot_boundary_frames_pending = other
+        state.mob_loot_boundary_frames_scene = mob_loot.scene_key(
+            world_scene_folder.scene_folder_for_scene_id(1))
+        self._take_one(state)
+        self.assertEqual(state.mob_loot_boundary_frames_pending, other)
+        self.assertEqual(
+            [e for e in state.events
+             if e.startswith("mob_loot_boundary_superseded")
+             or e.startswith("mob_loot_boundary_publication_refused")
+             or e.startswith("mob_loot_boundary_last_object")], [],
+        )
+        self.assertNotIn("MOB_LOOT_BOUNDARY_STASH_CLEARED", self.console)
 
 
 if __name__ == "__main__":
