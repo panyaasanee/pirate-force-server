@@ -75,14 +75,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from pirateforce_foundation import persistence_login_vitals as login_vitals  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from test_persistence_typed_attr_columns import (  # noqa: E402
+    NoHandleOutlivesItsTempDirMixin,
+)
 
 MIGRATIONS = ROOT / "migrations"
 MODULE_SOURCE = ROOT / "src" / "pirateforce_foundation" / "persistence_login_vitals.py"
+
+#: Every tree a seam could land in, matching the sibling caller scan in
+#: `tests/test_persistence_vitals.py` rather than inventing a shorter list.
+SEAM_SCAN_TREES = (
+    ROOT / "src", ROOT / "tools", ROOT / "scenarios", ROOT / "current",
+    ROOT / "tests", ROOT / "drafts", ROOT / "reports",
+)
+
+#: The files that name this module because grading it is their job.  Guarded
+#: by `test_the_files_allowed_to_name_it_exist_and_really_name_it` below, so
+#: an entry cannot rot into a blind spot the way the basename did.
+NAMES_THE_MODULE_BY_CONSTRUCTION = frozenset({
+    "tests/test_persistence_login_vitals.py",
+    "tests/test_persistence_vitals.py",
+})
 
 from pirateforce_foundation.player_wire import PLAYER_LOGIN_LEVEL  # noqa: E402
 
@@ -615,13 +634,25 @@ class ReasonsAreDistinctTests(unittest.TestCase):
         self.assertNotEqual(unseeded.reason, broken.reason)
 
 
-class AgainstARealDatabaseTests(unittest.TestCase):
+class AgainstARealDatabaseTests(
+        NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
     """The M4 claim itself, on a database migrated by the real
-    `migrations/` directory -- not a stub."""
+    `migrations/` directory -- not a stub.
+
+    !! IT CARRIES THE LANE'S RUNTIME HANDLE GUARD, and that is worth more
+    here than any AST pin: this class now WRITES to the database (see
+    `_write_row`), and the mixin asks the operating system, after every test,
+    whether anything still holds a descriptor under the temp directory.  That
+    is the question the Windows gate asks by refusing the unlink -- the one
+    that closed `#495` and `#610` -- rather than a question about how the
+    source is spelled.  Registered after the directory's own cleanup so LIFO
+    runs it first, while there is still something to ask about.
+    """
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.guard_the_temp_dir(self.tmp)
         self.path = Path(self.tmp.name) / "state.sqlite3"
         self.store = SQLiteStore(self.path, MIGRATIONS)
         self.store.migrate()
@@ -686,6 +717,98 @@ class AgainstARealDatabaseTests(unittest.TestCase):
             self.store, character.id, **FALLBACKS)
         self.assertEqual(resolved.reason, login_vitals.ROW_HP_NOT_POSITIVE)
         self.assertEqual(resolved.hp_current, FALLBACK_HP_CURRENT)
+
+    # ---- the two branches that were unit-only until this round ----------
+
+    def _write_row(self, character_id, **columns):
+        """State a precondition on the real database instead of inheriting it.
+
+        !! THROUGH `store.connect()`, WHICH IS A `@contextmanager` THAT
+        CLOSES IN `finally`.  No raw `sqlite3.connect` enters this file, so
+        it needs no handle pin of its own and adds no surface to the Windows
+        `PermissionError [WinError 32]` trap that closed `#495`, `#610` and
+        `#614`'s gate.  A first pass of this round deferred these two tests
+        on the belief that reaching the database here MEANT a raw handle; a
+        `pf-adversary` pass measured that belief false, and the reason is
+        written here so no later round re-inherits it.
+        """
+        assignments = ", ".join("%s = ?" % name for name in columns)
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE characters SET %s WHERE id = ?" % assignments,
+                (*columns.values(), character_id))
+
+    def test_a_row_with_no_values_sends_the_literals_on_a_real_database(self):
+        """`ROW_HAS_NO_VALUE` driven against the real schema.
+
+        Until this round both this branch and the one below were reachable
+        only through a fake store.  `migrations/009` seeds every newborn, so
+        the branch that used to be THE production branch is now reachable in
+        production only on a pre-009 row -- which is exactly the shape that
+        rots quietly.  The precondition is stated here, not inherited from a
+        migration another lane owns, for the same reason
+        `tests/test_login_speed.py::TheRealLoginPathTests` empties its own
+        column instead of trusting `008`.
+        """
+        character = self._born("lv5")
+        self._write_row(
+            character.id,
+            **{vitals.LEVEL_COLUMN: None,
+               vitals.HP_CURRENT_COLUMN: None,
+               vitals.HP_MAX_COLUMN: None})
+        resolved = login_vitals.resolve_for_character(
+            self.store, character.id, **FALLBACKS)
+        self.assertEqual(resolved.reason, login_vitals.ROW_HAS_NO_VALUE)
+        self.assertEqual(
+            (resolved.level, resolved.hp_current, resolved.hp_max),
+            (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX))
+        self.assertEqual(
+            resolved.wire_kwargs(), {},
+            "an empty row must send the caller's literals through the "
+            "caller's own path, not three keys of its own")
+
+    def test_a_contradictory_row_is_refused_on_a_real_database(self):
+        """`ROW_REFUSED_BY_VITALS_GATE`, driven the same way.
+
+        `hp_current` above `hp_max` is the shape a half-applied write leaves
+        behind, and the rule this lane exists for is that a field it cannot
+        vouch for is never guessed at -- all three literals or all three from
+        the row, never a mix (`PANYA-DECISION 20260901_1059`).
+        """
+        character = self._born("lv6")
+        self._write_row(
+            character.id,
+            **{vitals.LEVEL_COLUMN: 7,
+               vitals.HP_CURRENT_COLUMN: 90,
+               vitals.HP_MAX_COLUMN: 10})
+        resolved = login_vitals.resolve_for_character(
+            self.store, character.id, **FALLBACKS)
+        self.assertEqual(
+            resolved.reason, login_vitals.ROW_REFUSED_BY_VITALS_GATE)
+        self.assertEqual(
+            (resolved.level, resolved.hp_current, resolved.hp_max),
+            (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX),
+            "a refused row leaked one of its own numbers into the answer")
+        self.assertEqual(resolved.wire_kwargs(), {})
+
+    def test_the_two_fixtures_above_really_change_the_row(self):
+        """The positive control for `_write_row`.
+
+        Both tests above would pass just as well if the UPDATE silently wrote
+        nothing and the resolver were refusing for some unrelated reason, so
+        the fixture is measured rather than trusted.
+        """
+        character = self._born("lv7")
+        before = login_vitals.resolve_for_character(
+            self.store, character.id, **FALLBACKS)
+        self.assertEqual(before.reason, login_vitals.FROM_ROW)
+        self._write_row(character.id, **{vitals.LEVEL_COLUMN: None})
+        after = login_vitals.resolve_for_character(
+            self.store, character.id, **FALLBACKS)
+        self.assertNotEqual(
+            after.reason, login_vitals.FROM_ROW,
+            "the fixture wrote nothing, so the two tests above are green for "
+            "a reason that has nothing to do with what they claim")
 
     def test_an_unknown_character_is_a_refusal_not_an_exception(self):
         resolved = login_vitals.resolve_for_character(
@@ -817,18 +940,65 @@ class TheModuleOwnsNoConstantsTests(unittest.TestCase):
         ALL of `src/`, not one file: a first draft checked `legacy_bridge.py`
         alone, and `session.py` is the likelier landing site (it is where
         `login_speed` went), so the nonclaim could have gone stale with the
-        suite green.
+        suite green.  And not `src/` alone either: the sibling caller scan in
+        `tests/test_persistence_vitals.py` reads seven trees, and this one
+        read one until a `pf-adversary` pass put a working caller in `tools/`
+        and measured this test GREEN -- `tools/` is not a hiding place, the
+        gate runs the headless replay scripts that live there.  Same seven
+        trees now, same `errors="replace"`, same allowlist-with-a-guard shape.
+
+        !! THE EXCLUSION IS BY RESOLVED PATH AND NOT BY BASENAME, AND THAT
+        DISTINCTION WAS ALREADY WRITTEN DOWN IN THIS LANE BEFORE THIS FILE
+        SPELLED IT WRONG.  `tests/test_persistence_vitals.py` carries a
+        comment saying a `pf-adversary` pass broke the basename spelling of
+        its own allowlist twice, and that `src/pirateforce_foundation/gm/` is
+        a directory another lane writes in every round -- so a real seam
+        landing at `src/pirateforce_foundation/gm/persistence_login_vitals.py`
+        is not a hypothetical filename.  MEASURED: with `path.name !=`, a
+        decoy at that path holding `from .. import persistence_login_vitals`
+        and a `resolve_for_character(...)` call left this test GREEN, and the
+        same decoy renamed to `gm/login_vitals_seam.py` turned it RED -- so
+        the hole was exactly the basename, not a dead scan.  `errors=
+        "replace"` for the same reason its sibling scan uses it: one
+        non-UTF-8 byte anywhere under `src/` would turn this into an ERROR
+        charged to whichever lane is standing nearest.
         """
-        importers = sorted(
-            path.relative_to(ROOT).as_posix()
-            for path in (ROOT / "src").rglob("*.py")
-            if path.name != "persistence_login_vitals.py"
-            and "persistence_login_vitals" in path.read_text(encoding="utf-8")
-        )
+        importers = []
+        for tree in SEAM_SCAN_TREES:
+            if not tree.exists():
+                continue
+            for path in tree.rglob("*.py"):
+                relative = path.relative_to(ROOT).as_posix()
+                if relative in NAMES_THE_MODULE_BY_CONSTRUCTION:
+                    continue
+                if path.resolve() == MODULE_SOURCE.resolve():
+                    continue
+                if "persistence_login_vitals" in path.read_text(
+                        encoding="utf-8", errors="replace"):
+                    importers.append(relative)
         self.assertEqual(
-            importers, [],
+            sorted(importers), [],
             "a seam now names this module, so the round file's 'nothing "
             "calls it' nonclaim is stale and the seam needs its own tests")
+
+    def test_the_files_allowed_to_name_it_exist_and_really_name_it(self):
+        """The allowlist above is the only way past the scan, so it is the
+        only thing that can rot it.  A path that no longer exists, or that no
+        longer names the module, is an entry silently widening the scan's
+        blind spot -- the same defect as the basename, one indirection out."""
+        for relative in sorted(NAMES_THE_MODULE_BY_CONSTRUCTION):
+            with self.subTest(path=relative):
+                path = ROOT / relative
+                self.assertTrue(
+                    path.is_file(),
+                    "%s is allowed to name this module and does not exist"
+                    % relative)
+                self.assertIn(
+                    "persistence_login_vitals",
+                    path.read_text(encoding="utf-8", errors="replace"),
+                    "%s is allowed to name this module and does not name it, "
+                    "so the entry is only widening the scan's blind spot"
+                    % relative)
 
 
 if __name__ == "__main__":

@@ -76,11 +76,23 @@ WHAT THIS DOES NOT CLAIM
   a second caller and a mention is indistinguishable from a call to it),
   which is EXACTLY the three literals the login sends
   today, so "read the row" and "send the constant" produce identical bytes on
-  every character of a fresh install.  This is the same trap `COO-DECISION
-  20260903_0054` -- in `pf_bridge`, unopenable from here -- caught the speed
-  seam in (009's `DEFAULT 400.0` equals the
-  hardcoded 400.0), and it is written here so that no round reports this
-  module as a win on screen.  The bytes differ only for a row something has
+  every character of a fresh install.  This is the same trap the speed seam
+  fell into -- `migrations/009_character_birth_defaults.sql` gives
+  `speed_walk` a DEFAULT that is numerically the constant that seam replaced,
+  so its two branches are byte-identical on a fresh database too -- and a
+  reviewer of THIS repository can read that one without leaving it:
+  `login_speed.py` says it in its own words, and
+  `tests/test_login_speed.py::TheRealLoginPathTests` had to write a fixture
+  that empties the column before either branch could be told apart.
+  `COO-DECISION 20260903_0054` in `pf_bridge` -- unopenable from here -- says
+  the same thing, and is named anyway: dropping the identifier would cost a
+  reader who DOES have that repository the ability to follow the chain, and
+  the rule this file states at the top is to NAME an unopenable citation as
+  unopenable, not to avoid one.  What this paragraph now does, and what the
+  rest of the file should be read as doing, is preferring an in-repo citation
+  where one exists and falling back to a named unopenable one where it does
+  not.  It is written here so that no round reports this module as a win on
+  screen.  The bytes differ only for a row something has
   MOVED -- `store.apply_hp_damage` is the mover that exists -- and that
   difference is the whole point: HP survives a logout.
 * It does not claim to be plugged in.  Nothing calls this module at the commit

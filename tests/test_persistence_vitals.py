@@ -849,8 +849,11 @@ class NothingIsWiredTests(unittest.TestCase):
         # TheModuleOwnsNoConstantsTests::test_the_module_is_not_wired_in_by_
         # this_lane` scans all of `src/` for any file naming the resolver and
         # requires the list to be empty.  THE DAY A LOGIN SEAM CALLS IT, that
-        # test goes red first and this entry is what must be rewritten -- the
-        # wiring is chief's to land, and it is the wiring this lane asked for.
+        # test goes red TOO -- not first, and the earlier wording here said
+        # "first", which is a claim about test ORDER that nothing in the repo
+        # provides between two different modules.  Whichever of the two is
+        # read first, this entry is what must then be rewritten -- the wiring
+        # is chief's to land, and it is the wiring this lane asked for.
         "src/pirateforce_foundation/persistence_login_vitals.py",
         "tests/test_persistence_login_vitals.py",
     )

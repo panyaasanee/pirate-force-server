@@ -100,12 +100,19 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation import store as store_module  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from test_persistence_typed_attr_columns import (  # noqa: E402
+    NoHandleOutlivesItsTempDirMixin,
+    _is_sqlite_connect,
+    bare_with_connect_sites,
+    unclosed_connect_sites,
+)
 
 MIGRATIONS = ROOT / "migrations"
 
@@ -422,14 +429,25 @@ class NoBirthStatementNamesTheFourthColumnTests(unittest.TestCase):
             % (list(THE_THREE), len(named), len(inserts)))
 
 
-class TheExecutedBirthNamesOnlyTheThreeTests(unittest.TestCase):
+class TheExecutedBirthNamesOnlyTheThreeTests(
+        NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
     """Layers two, three, four and five: what SQLite was really asked to run,
     what it was authorized to touch, how many inserts a birth performs, and
-    what the schema itself would run behind all of that."""
+    what the schema itself would run behind all of that.
+
+    !! THE RUNTIME HANDLE GUARD IS THE ONE THAT MATTERS HERE.  This is the
+    class that opens raw handles through `_raw`, and the AST pins at the
+    bottom of this file grade the SOURCE.  The mixin asks the operating
+    system instead, after every test, whether a descriptor under the temp
+    directory survived -- which is the question the Windows gate asks by
+    refusing the unlink, and the one that closed `#495` and `#610`.
+    Registered after the directory's own cleanup so LIFO runs it first.
+    """
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.guard_the_temp_dir(self.tmp)
         self.path = Path(self.tmp.name) / "state.sqlite3"
         self.store = SQLiteStore(self.path, MIGRATIONS)
         self.store.migrate()
@@ -806,119 +824,236 @@ class NoUnclosedSqliteHandleInThisFileTests(unittest.TestCase):
     have already gone green.  It killed `#495`, then `#610` a month later
     four metres outside the one fence that existed, and `CHIEF-TO-ALL
     20260903_0154` asks every lane to carry this class into any file of its
-    own that opens sqlite.  This file opens sqlite in three places, so it
-    carries it.
+    own that opens sqlite.  This file opens one raw handle -- `_raw`, the
+    only `sqlite3.connect(...)` node in it -- so it carries it.
 
-    !! THE COPY IS NOT VERBATIM AND THE DIFFERENCE IS THE POINT.  The version
-    in `tests/test_login_speed.py` grades "the function that opens a handle
-    must also close one", and this file's `_raw` used to open a handle and
-    RETURN it for its callers to close -- a shape that pin reports forever
-    however careful the callers are.  Rather than weaken the rule with an
-    exemption, `_raw` was changed into a context manager that closes what it
-    opens, so the rule holds here with no hole cut in it.
+    !! IT DOES NOT CARRY THE COPY THE LETTER POINTED AT, AND THE THIRD DRAFT
+    OF THIS CLASS IS WHY.  Draft one copied the two AST tests out of
+    `tests/test_login_speed.py` verbatim.  A `pf-adversary` pass measured
+    that copy against `unclosed_connect_sites` / `bare_with_connect_sites`,
+    the predicate THIS LANE ALREADY OWNS in
+    `tests/test_persistence_typed_attr_columns.py`, and the copy lost five
+    ways: it walked `FunctionDef`s only (module-scope leak invisible), it
+    accepted ANY `X.close()` in the function rather than a close bound to the
+    opened name, and it reported `contextlib.closing(sqlite3.connect(...))`
+    -- correct code its own sibling blesses by name -- as RED.  So draft two
+    imported the lane's predicate instead of re-deriving it.
+
+    !! DRAFT TWO THEN LOST THE ONE MUTANT THE VERBATIM COPY CAUGHT, and that
+    is the lesson this class exists to carry.  `unclosed_connect_sites`
+    treats `return db` as HANDING THE HANDLE ON, which is right in the file
+    it was written for and wrong here: `_raw` stripped of its
+    `@contextlib.contextmanager` and put back to `return sqlite3.connect(...)`
+    was reported by the copy and is INVISIBLE to the import.  Measured, with
+    the lane's own runtime helper rather than by argument:
+    `open_handles_under(tmp)` after `with _raw(path) as db: ...` and a
+    `gc.collect()` returned the live `state.sqlite3` descriptor -- the exact
+    thing `TemporaryDirectory.cleanup` refuses to unlink on Windows -- while
+    the file read `29 passed`.  A reviewer would have seen three call sites
+    spelled `with self._raw() as db:` and no reason to doubt them.
+
+    So draft three stops enumerating spellings and pins the PROPERTY the file
+    actually depends on: **`_raw` is this file's only door to a sqlite
+    handle, and it closes what it opens.**  That one rule kills the returning
+    `_raw`, and it also kills three spellings draft two was measured green
+    on: `store_module.sqlite3.connect(...)`, `sqlite3.dbapi2.connect(...)`
+    (where the function really lives -- `sqlite3.connect is
+    sqlite3.dbapi2.connect`), and `from sqlite3 import connect as _open`.
+    Enumerating spellings would have needed a new test per spelling and
+    missed the next one.
+
+    The two imported checks stay, and they are not redundant: they grade what
+    happens INSIDE `_raw` (a `_raw` that stops closing) and they carry the
+    module-scope and bound-name coverage this file would otherwise have to
+    re-derive.  One shape is red in both and is a house-wide property rather
+    than a defect here: `db = sqlite3.connect(...)` with
+    `self.addCleanup(db.close)`, because `db.close` there is an
+    `ast.Attribute` and never an `ast.Call`.  It is written down so the next
+    lane to hit it knows it is not alone.
 
     MEASURED on the commit this class ships with, by mutating this file in
-    place and running it (each line reports the state WITH this class, then
-    the same mutant with this class deleted):
-      * the shipped form -- `28 passed`.
-      * `_raw` put back to `return sqlite3.connect(...)`, one call site given
-        an explicit `try/finally: db.close()` -- `1 failed` on
-        `test_every_connection_this_file_opens_is_closed`, naming `_raw`;
-        deleted, `25 passed`.
+    place and running it.  Each line reports the state WITH this class:
+      * the shipped form -- `29 passed`.
+      * `_raw` put back to `return sqlite3.connect(...)`, callers unchanged
+        -- RED on `test_raw_is_the_only_door_and_it_closes_what_it_opens`.
+        Draft two: fully green.
+      * the same mutant with one call site given an explicit
+        `try/finally: db.close()` -- RED on the same test.  Draft two: fully
+        green.  (This is the exact mutant whose result draft two's docstring
+        stated backwards; it is restated here from a re-run, not carried.)
       * a fixture rewritten as `with sqlite3.connect(str(self.path)) as db:`
-        -- `2 failed`, both tests; deleted, `25 passed`.
-      * a fixture that opens a handle, reads, commits and never closes --
-        `1 failed` on the second test; deleted, `25 passed`.
-      * every `connect` routed through `store_module.sqlite3.connect`, an
-        alias the AST pattern cannot see -- `1 failed` on the positive
-        control; deleted, `25 passed`.  Without that control the other two
-        tests would have gone green on a file whose handles all still leak.
-      * so: this class deleted in ANY of those states is fully green, which
-        is exactly the blindness `#610` was written in.
+        -- RED on the bare-`with` test and on the only-door test.  (Draft two
+        claimed two tests here as well, but the second was the imported
+        closed-handle check, which keys on `ast.Assign` and never fires on a
+        `with` item.  One false number in a docstring is a defect, so it is
+        named rather than quietly corrected.)
+      * a fixture that opens a handle, reads, commits and never closes -- RED
+        on the imported closed-handle test and on the only-door test.
+      * a leaking fixture spelled `store_module.sqlite3.connect(...)`, or
+        `sqlite3.dbapi2.connect(...)`, or through
+        `from sqlite3 import connect as _open` -- each RED on the only-door
+        test.  All three were GREEN in draft two.
+      * `_raw` kept as a contextmanager but stripped of its `finally:
+        db.close()` -- `4 failed`: the imported closed-handle test, plus the
+        three tests that use `_raw`, through `NoHandleOutlivesItsTempDirMixin`
+        asking the operating system whether a descriptor survived.  This is
+        the half the only-door test does NOT cover, it is why both AST checks
+        stay, and it is the one place where the guard on the class above
+        answers the question the Windows gate really asks instead of a
+        question about how the source is spelled.
+      * this class deleted in ANY of those states -- fully green, which is
+        exactly the blindness `#610` was written in.
 
     An AST pin rather than a text search: `grep` cannot tell a real call from
     the same characters inside this docstring, and exempting the docstring
     would put a hole in the pin for the sake of the pin.
     """
 
-    def _connect_calls(self, tree):
-        """Every `sqlite3.connect(...)` call node in this file."""
-        return [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "connect"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "sqlite3"
-        ]
+    #: The one call this file is allowed to make outside `_raw`.  It is the
+    #: store's own `@contextmanager`, which closes in `finally`
+    #: (`src/pirateforce_foundation/store.py`), so it is a door that shuts.
+    STORE_DOOR = "self.store.connect"
 
-    def _tree(self):
-        return ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    #: The function that owns every raw handle in this file.
+    DOOR = "_raw"
+
+    def _source(self):
+        return Path(__file__).read_text(encoding="utf-8")
+
+    @staticmethod
+    def _dotted(node):
+        """`sqlite3.dbapi2.connect` for the AST of that expression, or None."""
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+            return ".".join(reversed(parts))
+        return None
+
+    @classmethod
+    def _sqlite3_import_aliases(cls, tree):
+        """Names bound by `from sqlite3 import connect [as x]`.
+
+        Without this, `from sqlite3 import connect as _open` opens a handle
+        through a bare `ast.Name` that no `Attribute` rule can see -- measured
+        green against all of draft two.
+        """
+        return {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "sqlite3"
+            for alias in node.names
+        }
+
+    @classmethod
+    def _handle_opening_calls(cls, tree):
+        """Every call here that could hand back a live sqlite handle.
+
+        Deliberately over-broad -- ANY `....connect(...)`, plus any name
+        imported out of `sqlite3` -- because the failure mode being pinned is
+        a spelling nobody thought of.  Over-breadth costs a named exemption
+        (`STORE_DOOR`); under-breadth costs a silent green.
+        """
+        aliases = cls._sqlite3_import_aliases(tree)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "connect":
+                yield node, cls._dotted(node.func) or "<expr>.connect"
+            elif isinstance(node.func, ast.Name) and node.func.id in aliases:
+                yield node, node.func.id
 
     def test_the_pin_is_looking_at_something(self):
-        """The positive control.  Both tests below pass trivially on a file
-        that opens no connection at all, and a refactor that moved the last
-        `sqlite3.connect` out of this file would leave them green while
-        grading nothing -- the same false comfort as `#610`."""
-        calls = self._connect_calls(self._tree())
+        """The positive control.  Every test in this class passes trivially
+        on a file that opens no connection at all, so a refactor moving the
+        last handle out of this file would leave them green while grading
+        nothing -- the same false comfort as `#610`."""
+        tree = ast.parse(self._source())
+        raw = [node for node in ast.walk(tree) if _is_sqlite_connect(node)]
         self.assertTrue(
-            calls,
-            "this file no longer contains a single `sqlite3.connect(...)`, "
-            "so the two checks below are green because there is nothing to "
-            "grade.  Either the handles moved to a helper -- carry this "
-            "class there -- or this class should go with them.")
+            raw,
+            "this file no longer opens a sqlite connection in any spelling "
+            "this class can see, so the checks below are green because there "
+            "is nothing to grade.  Either the handles moved to a helper -- "
+            "carry this class there -- or this class should go with them.")
+
+    def test_raw_is_the_only_door_and_it_closes_what_it_opens(self):
+        """The property, not a list of spellings.
+
+        Two halves, and both are needed: every handle-opening call in this
+        file is inside `_raw` (or is the store's own closing door), AND `_raw`
+        hands its handle out through a `contextmanager` rather than by
+        returning it.  See this class's docstring for the four spellings that
+        were measured green before this test existed.
+        """
+        tree = ast.parse(self._source())
+        door = next(
+            (node for node in ast.walk(tree)
+             if isinstance(node, ast.FunctionDef) and node.name == self.DOOR),
+            None)
+        self.assertIsNotNone(
+            door, "`%s`, the function this file routes every raw handle "
+                  "through, is gone; this class no longer describes the file"
+                  % self.DOOR)
+
+        inside_the_door = {id(node) for node in ast.walk(door)}
+        strays = sorted(
+            (node.lineno, spelling)
+            for node, spelling in self._handle_opening_calls(tree)
+            if id(node) not in inside_the_door
+            and spelling != self.STORE_DOOR)
+        self.assertEqual(
+            strays, [],
+            "a sqlite handle is opened outside `%s`, so nothing in this file "
+            "owns closing it and no pin here grades it.  On the Windows gate "
+            "a handle nobody closes makes TemporaryDirectory.cleanup raise "
+            "PermissionError [WinError 32] at teardown, long after the "
+            "assertions went green.  Take it from `%s`, which closes what it "
+            "opens.  Offender(s): %r"
+            % (self.DOOR, self.DOOR, strays))
+
+        decorators = {self._dotted(d) or getattr(d, "id", None)
+                      for d in door.decorator_list}
+        self.assertIn(
+            "contextlib.contextmanager", decorators,
+            "`%s` no longer hands its handle out through a context manager, "
+            "so it is returning a live connection for its callers to close. "
+            "The lane's `unclosed_connect_sites` reads `return db` as handing "
+            "the handle on and stays SILENT on this -- measured, with "
+            "`open_handles_under` reporting the live descriptor while the "
+            "file read green.  Decorators seen: %r" % (self.DOOR, decorators))
 
     def test_this_file_never_writes_the_leaking_with_form(self):
         """`with sqlite3.connect(...) as db:` -- the exact line that died."""
-        tree = self._tree()
-        leaking = sorted(
-            item.context_expr.lineno
-            for node in ast.walk(tree) if isinstance(node, ast.With)
-            for item in node.items
-            if item.context_expr in self._connect_calls(tree)
-        )
+        leaking = bare_with_connect_sites(self._source())
         self.assertEqual(
             leaking, [],
             "`with sqlite3.connect(...)` commits but does NOT close.  On "
             "Linux the surviving handle is silent; on the Windows gate "
             "TemporaryDirectory.cleanup raises PermissionError [WinError 32] "
             "at TEARDOWN, after the test body has printed its correct "
-            "result.  Write `db = sqlite3.connect(...)` with "
-            "`try: ... db.commit() / finally: db.close()` instead, or take "
-            "the handle from `_raw`, which closes what it opens.  "
+            "result.  Take the handle from `_raw`, which closes what it "
+            "opens, or write `contextlib.closing(...)`.  "
             "Offending line(s): %r" % (leaking,))
 
     def test_every_connection_this_file_opens_is_closed(self):
-        """The other half: opened, used, and then never closed.
+        """Opened, used, and then never closed -- graded inside `_raw` too.
 
-        The `with` form is not the only way to leak one.  Dropping just the
-        `finally: db.close()` leaves the same descriptors open and is equally
-        invisible on Linux, so pinning only the `with` spelling would pin the
-        typo rather than the defect.
+        Uses the lane's own predicate, which reads module scope and binds the
+        close to the opened name.  This is the check that catches a `_raw`
+        that keeps its decorator and loses its `finally: db.close()`, which
+        the only-door test above cannot see.
         """
-        tree = self._tree()
-        calls = self._connect_calls(tree)
-        unclosed = []
-        for function in ast.walk(tree):
-            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            owned = [c for c in calls if any(c is n for n in ast.walk(function))]
-            if not owned:
-                continue
-            closes = any(
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "close"
-                for node in ast.walk(function))
-            if not closes:
-                unclosed.append((function.name, owned[0].lineno))
+        unclosed = unclosed_connect_sites(self._source())
         self.assertEqual(
             unclosed, [],
-            "a function opens a sqlite connection and nothing in that same "
-            "function closes one.  On the Windows gate that handle makes "
+            "a sqlite connection is opened here and nothing closes it or "
+            "hands it on.  On the Windows gate that handle makes "
             "TemporaryDirectory.cleanup raise PermissionError [WinError 32] "
             "at teardown, long after the assertions went green.  "
-            "Offender(s): %r" % (unclosed,))
+            "Offending line(s): %r" % (unclosed,))
 
 
 if __name__ == "__main__":  # pragma: no cover
