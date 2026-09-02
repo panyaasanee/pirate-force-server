@@ -1541,15 +1541,56 @@ def _console_count(value: Any) -> int:
         return -1
 
 
+def _published_anything(value: Any) -> bool:
+    """Did the same reply publish a floor generation?  A YES/NO, never a count.
+
+    ROUND li9nce, pf-adversary D2.  ``_console_count`` is a DISPLAY sentinel
+    -- it answers "what number does an operator read" and deliberately says
+    ``-1`` for a bool -- and reusing it as a predicate inverted the answer
+    for the most natural adopting caller there is
+    (``published_generations=bool(outcome.ground_after)``).  So this asks the
+    question the inline site asks, in the order that cannot be surprised: a
+    bool IS the answer; an exact int is a COUNT of generations, which this
+    lane's own signature has documented from the first draft ("the tuple
+    itself or its length"); a sized value is answered by its length; and
+    anything else -- including a truthy object with no ``__len__`` -- is
+    "no", which is the reading that leaves the floor's state open rather
+    than claiming a redraw the client may never have received.  It cannot
+    raise.
+    """
+    try:
+        if isinstance(value, bool):
+            return value
+        if type(value) is int:
+            return value > 0
+        return len(value) > 0
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+
+
+def _rows_left_count(value: Any) -> int:
+    """``ground_rows_left`` as a count, or ``-1`` for anything that is not one.
+
+    ROUND li9nce, pf-adversary D3.  This field's documented values are exact
+    ints -- ``0`` when the take emptied the scene, ``-1`` when nothing was
+    composed -- so a container, a float, a bool or a digit string here is a
+    caller mistake, not a count.  ``_console_count`` would answer an EMPTY
+    TUPLE with ``0``, and ``0`` at this argument is the sentence "the player
+    took the last object": a confident falsehood about a floor nobody
+    counted, printed where the inline site prints nothing at all.
+    """
+    return value if type(value) is int else -1
+
+
 def boundary_stash_reason(
         *, published_generations: Any, ground_rows_left: Any) -> str:
     """WHICH of the three outcomes this was, as the bare console word.
 
     ROUND li9nce.  This is the one decision, in one place: the event name and
-    the console line are two RENDERINGS of it, and ``runtime.py`` can adopt
-    it as a one-line swap for its own ``if/elif/else`` without any operator
-    seeing a different word than they saw yesterday (COO-DECISION
-    2026-09-03T00:54+07:00 question 2).
+    the console line are two RENDERINGS of it, so the inline site in
+    ``runtime.py`` can adopt it without any operator seeing a different word
+    than they saw yesterday (COO-DECISION 2026-09-03T00:54+07:00 question 2).
+    NOTHING IN ``src/`` CALLS IT YET.
 
       * anything published -> :data:`BOUNDARY_STASH_SUPERSEDED_REASON`
       * nothing published and no rows left (``0``) ->
@@ -1559,22 +1600,35 @@ def boundary_stash_reason(
 
     IT CANNOT RAISE, for its caller's reason and not for politeness: the
     inline site sits in a v141 listener thread with no ``except`` above it.
-    The counts go through :func:`_console_count`, so an unreadable count is
-    ``-1`` and lands on the third name -- "nobody could read the floor" is
-    not "the floor is empty", and only the third name leaves that open.
 
-    !! ONE MEASURED DIFFERENCE FROM THE INLINE SITE IT IS OFFERED TO.  The
-    inline line asks ``if outcome.ground_after:`` -- truth, not a count.  For
-    the tuple that field actually holds the two agree exactly (a non-empty
-    tuple is truthy and counts > 0).  They part on an object that is truthy
-    and has no ``len`` at all, which this reads as ``-1`` (unreadable) and
-    the inline site reads as "published": this side is the one that then
-    says ``publication_refused``, which is the honest word for a value
-    nobody could count.
+    !! THE TWO ARGUMENTS ARE READ BY DIFFERENT RULES, AND THAT IS THE POINT
+    (pf-adversary D2/D3 of this round, both measured on this function).
+    ``published_generations`` answers a YES/NO -- did this reply send a new
+    floor -- so it is read the way the inline site reads it, plus the count
+    form this lane has always documented.  ``ground_rows_left`` is a COUNT
+    and its two documented values are exact ints (``0`` the last object,
+    ``-1`` nothing composed), so ONLY an exact int is read; every other
+    shape is unreadable and lands on the third name.  The first draft of
+    this round read both through :func:`_console_count` and paid for it
+    twice: ``True`` (which an adopting caller writing
+    ``bool(outcome.ground_after)`` would hand over) counted ``-1`` and said
+    ``publication_refused`` about a reply that published, and an EMPTY TUPLE
+    handed to ``ground_rows_left`` by a keyword mix-up counted ``0`` and
+    said ``last_object_pickup`` -- the one word pf-adversary D4 of round
+    ``veby94`` exists to forbid -- about a floor nobody counted.
+
+    !! WHERE THIS AND THE INLINE SITE STILL PART, AND IT IS OPEN ON PURPOSE.
+    The inline site asks ``if outcome.ground_after:`` -- pure truth.  On the
+    tuple that field holds today the two agree on every value.  They part on
+    a truthy object with no ``__len__``: that reads as "no" here and as
+    "yes" there.  Closing RE-208 is what would make that field something
+    other than a plain tuple, and the question of which side yields is in
+    the letter to the chief of round ``li9nce``; until it is answered this
+    side takes the reading that leaves the floor's state OPEN.
     """
-    published = _console_count(published_generations)
-    rows_left = _console_count(ground_rows_left)
-    if published > 0:
+    published = _published_anything(published_generations)
+    rows_left = _rows_left_count(ground_rows_left)
+    if published:
         return BOUNDARY_STASH_SUPERSEDED_REASON
     if rows_left == 0:
         return BOUNDARY_STASH_STALE_REASON
@@ -1584,24 +1638,36 @@ def boundary_stash_reason(
 def boundary_stash_cleared_console_line(
         scene: Any, frames_held: Any, *,
         published_generations: Any, ground_rows_left: Any) -> str:
-    """The console line ``runtime.py`` prints when it clears a held stash.
+    """The line the pickup branch prints when it clears a held stash.
 
-    ROUND li9nce.  Byte for byte the line the inline site composes today
-    (``runtime.py:7484-7488``), which is the line ``GT-204``'s grader reads:
+    ROUND li9nce.  Byte for byte the line the inline site in ``runtime.py``
+    composes today (grep ``MOB_LOOT_BOUNDARY_STASH_CLEARED`` -- a line number
+    here would be a pin nothing re-derives), which is the line ``GT-204``'s
+    grader reads:
 
         ``MOB_LOOT_BOUNDARY_STASH_CLEARED reason=<r> scene=<s> frames=<n>
         rows_left=<n>``
 
-    It is here so the swap the decision asks for cannot change what an
-    operator greps for -- the reason word comes from
-    :func:`boundary_stash_reason`, the same call that names the event.
+    NOTHING IN ``src/`` CALLS IT YET, and no round may report the console
+    hardened on the strength of this function.  It is here so that the day
+    the inline site adopts it, nothing an operator greps for changes -- the
+    reason word comes from :func:`boundary_stash_reason`, the same call that
+    names the event.
+
+    !! IT IS NOT A ONE-LINE SWAP AND THIS DOCSTRING WILL NOT PRETEND IT IS
+    (pf-adversary D5).  The inline site clears
+    ``mob_loot_boundary_frames_pending`` BEFORE it prints, so an adopting
+    caller must hand over the count it captured first -- passing the
+    now-empty tuple would print ``frames=0`` on every clear -- and it must
+    name ``outcome.ground_after`` as ``published_generations``.  Two calls,
+    two arguments each read off the same outcome.
 
     !! IT CANNOT RAISE, and that is worth one sentence more than usual.  The
     inline site interpolates ``outcome.ground_rows_left`` with ``%d`` inside
     a ``try``, so a value that is not a number costs the whole LINE -- the
     operator sees nothing at all in exactly the case they most need to see
-    something.  Here every field goes through the counters first, so an
-    unreadable count prints as ``-1`` and the line still goes out.  ASCII
+    something.  Here the fields go through the readers first, so a count
+    nobody could read prints as ``-1`` and the line still goes out.  ASCII
     only: the bridge console is cp874 with ``errors='strict'``.
     """
     try:
@@ -1616,7 +1682,7 @@ def boundary_stash_cleared_console_line(
                ground_rows_left=ground_rows_left),
            scene_word,
            _console_count(frames_held),
-           _console_count(ground_rows_left)))
+           _rows_left_count(ground_rows_left)))
 
 
 def boundary_stash_dropped_event(
