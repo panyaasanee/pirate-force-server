@@ -814,6 +814,13 @@ class NothingIsWiredTests(unittest.TestCase):
         # for, and it must not turn someone else's PR red.  Whether it has a
         # caller is a measurement for a round file, not a pin.
         "tests/test_persistence_vitals_or_none.py",
+        # LANE-DB round jqh58f: the single-boot `006` -> `008` file
+        # (`COO-DECISION 20260902_1144` point 2b) reads the vitals doors on
+        # rows the three migrations have just seeded, to say that the owner's
+        # real upgrade path leaves a row those doors accept.  Reading a door
+        # in a test is an exercise, not a wiring; nothing in that file is on
+        # a send path and nothing there composes a frame.
+        "tests/test_persistence_boot_006_to_008.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
@@ -1429,6 +1436,15 @@ class NewCharacterVitalsTests(unittest.TestCase):
             # NOT carry `speed_walk` -- which is the pin `COO-DECISION
             # 20260901_1447` point 2 leaves behind after migration 008.
             "tests/test_persistence_speed_walk_seed_008.py",
+            # LANE-DB round jqh58f: the single-boot file NAMES this function
+            # without CALLING it.  Its one use is a source-level pin that
+            # `tests/pf_birth_state.py::seeded_birth` still DERIVES from this
+            # function instead of restating `1/100/100` as a literal -- so
+            # the entry guards point 1's "one place" rather than spending it.
+            # Its own expectations come from `seeded_birth()` for exactly
+            # that reason; a scan cannot tell a mention from a call, so the
+            # entry is here and the discipline is in the file.
+            "tests/test_persistence_boot_006_to_008.py",
         }
         callers = []
         for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",
