@@ -67,6 +67,7 @@ import tempfile
 import threading
 import time
 import unittest
+import warnings
 from pathlib import Path
 from unittest import mock
 
@@ -1076,14 +1077,32 @@ class NothingIsWiredTests(unittest.TestCase):
         "tests/test_persistence_login_vitals.py",
     )
 
-    #: Every call to a healing door outside `ALLOWED_TO_NAME_THEM`'s two
-    #: owning modules, by door.  An empty list for a door means nothing calls
-    #: it; a path in one means that file calls it and a round file said why.
+    #: EVERY call site of EVERY healing door in the repository, by door,
+    #: measured rather than assumed.  An empty tuple means nothing calls that
+    #: door at all; a path means that file calls it and a round file said why.
     AUTHORISED_CALLS = {
+        # `COO-DECISION 20260903_0250`, LANE-DB round `sp09oy`: the login
+        # revive is the one caller of the store-level respawn door.
         "restore_hp_to_full": (
             "src/pirateforce_foundation/persistence_login_vitals.py",
+            # The login module's own grading file: its `_BlindAfterWriteStore`
+            # forwards the write to the real store so the revive really lands
+            # while the read-back fails.  A test double, listed rather than
+            # excluded -- excluding a file is how the `store.py` hole above
+            # happened.
+            "tests/test_persistence_login_vitals.py",
         ),
+        # Still nobody's.  The door exists so the first call site that needs
+        # it does not write its own UPDATE past every rule in this lane.
         "apply_hp_heal": (),
+        # The two arithmetic doors, called by the store methods that own them
+        # and by nothing else.  Pinned rather than skipped -- see
+        # `_calls_by_door`.
+        "heal_to_full": ("src/pirateforce_foundation/store.py",),
+        "apply_heal": (
+            "src/pirateforce_foundation/persistence_vitals.py",
+            "src/pirateforce_foundation/store.py",
+        ),
     }
 
     NAMES = r"\b(apply_hp_heal|restore_hp_to_full|apply_heal|heal_to_full)\b"
@@ -1153,51 +1172,92 @@ class NothingIsWiredTests(unittest.TestCase):
             "rewritten." % (callers,),
         )
 
-    def _calls_by_door(self):
-        """Every CALL to a healing door in the repository, by door.
+    @classmethod
+    def doors_called_in(cls, text):
+        """Which healing doors this source CALLS, by name.
 
-        Built from each file's syntax tree rather than from its text, so the
-        login module's prose citation of `heal_to_full` is not counted as a
-        call to it -- the distinction the class docstring turns on.  A file
-        that will not parse falls back to the textual scan, so an
-        unparseable file can never be a hiding place.
+        A classmethod over TEXT rather than a walk over files, so the rule
+        itself can be graded against sources that are not in the repository
+        -- which is how the spellings below were measured instead of assumed.
+        It counts:
+
+        * `x.apply_hp_heal(...)` and a bare `heal_to_full(...)`;
+        * `getattr(x, "apply_hp_heal")` -- WHICH A `pf-adversary` PASS DROVE
+          STRAIGHT THROUGH THE FIRST DRAFT OF THIS SCAN.  Python folds
+          `"apply" "_hp_heal"` into one constant at parse time, so the
+          split-literal dodge is covered by the same rule.
+
+        It does NOT count a mention in prose or in a list of names, which is
+        the distinction this class turns on: the login module cites
+        `heal_to_full` in a docstring while calling only
+        `restore_hp_to_full`.  A source that will not parse reports every
+        door it names, because a file nobody can parse is not a file anybody
+        can clear.
+
+        THE HOLE THAT REMAINS, NAMED RATHER THAN LEFT TO BE FOUND: a call
+        through a name computed at run time (`getattr(store, "restore_" +
+        suffix)`) is invisible here.  It is closed for the one production
+        file that calls a door by
+        `test_the_login_module_never_reaches_a_door_through_a_computed_name`
+        below, and for every unlisted file by the textual scan above.
         """
-        doors = set(self.AUTHORISED_CALLS)
-        found = {door: set() for door in doors}
-        # The two modules that DEFINE the doors, and the file that GRADES
-        # them -- this one.  Named rather than assumed: a test that drives a
-        # door is what a door is for, and counting this file's own calls
-        # would make the map say "apply_hp_heal has a caller" about its own
-        # test suite.  A production call landing in a test file would still
-        # be caught by the textual scan above, which allows only the same
-        # short list.
-        owners = {
-            "src/pirateforce_foundation/store.py",
-            "src/pirateforce_foundation/persistence_vitals.py",
-            str(Path(__file__).resolve().relative_to(ROOT)).replace(
-                "\\", "/"),
-        }
+        doors = set(cls.AUTHORISED_CALLS)
+        # NO "does the text mention a door" SHORT-CUT.  A first draft had
+        # one, and it was itself the hole: `getattr(store, "res"
+        # "tore_hp_to_full")` contains no door name as a substring and python
+        # folds it into one constant only at PARSE time, so the cheap check
+        # skipped exactly the file the expensive one was there to catch.
+        try:
+            with warnings.catch_warnings():
+                # Parsing EVERY python file in the repository surfaces other
+                # files' `DeprecationWarning: invalid escape sequence`, which
+                # is neither this scan's business nor this lane's to fix, and
+                # a suite run with `-W error` would turn it into this test's
+                # failure.
+                warnings.simplefilter("ignore")
+                tree = ast.parse(text)
+        except (SyntaxError, ValueError, RecursionError):
+            # Unparseable, holds a null byte, or nests deeper than the parser
+            # will go: report every door it NAMES, because a file nobody can
+            # parse is not a file anybody can clear.
+            return {door for door in doors if door in text}
+        called = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "attr", None) or getattr(
+                node.func, "id", None)
+            if name in doors:
+                called.add(name)
+            if name == "getattr" and len(node.args) >= 2:
+                target = node.args[1]
+                if (isinstance(target, ast.Constant)
+                        and target.value in doors):
+                    called.add(target.value)
+        return called
+
+    #: The one file left out of the call map, and why: grading these doors is
+    #: its job, so its own calls are tests rather than wiring.  A PRODUCTION
+    #: caller hiding in a test file is still caught by the textual scan
+    #: above, which admits only `ALLOWED_TO_NAME_THEM`.
+    GRADES_THE_DOORS = "tests/test_persistence_vitals_heal.py"
+
+    def _calls_by_door(self):
+        """`doors_called_in` over every python file in the repository.
+
+        !! THE TWO DEFINING MODULES ARE WALKED, NOT SKIPPED.  A first draft
+        skipped them as "owners" and a `pf-adversary` pass planted a second
+        production caller of `restore_hp_to_full` inside `store.py` and
+        watched the suite stay green.  Their real call sites are pinned in
+        `AUTHORISED_CALLS` instead.
+        """
+        found = {door: set() for door in self.AUTHORISED_CALLS}
         for relative, path in self._scanned_files():
-            if relative in owners:
+            if relative == self.GRADES_THE_DOORS:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if not any(door in text for door in doors):
-                continue
-            try:
-                tree = ast.parse(text)
-            except SyntaxError:
-                for door in doors:
-                    if door in text:
-                        found[door].add(relative)
-                continue
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                function = node.func
-                name = getattr(function, "attr", None) or getattr(
-                    function, "id", None)
-                if name in doors:
-                    found[name].add(relative)
+            for door in self.doors_called_in(text):
+                found[door].add(relative)
         return found
 
     def test_the_only_call_sites_are_the_ones_a_decision_authorised(self):
@@ -1214,13 +1274,79 @@ class NothingIsWiredTests(unittest.TestCase):
                     "explains it are out of date." % door,
                 )
 
+    def test_the_rule_sees_every_spelling_it_claims_to(self):
+        """The control for EVERY door, not only the one this repository
+        happens to call.  `AUTHORISED_CALLS["apply_hp_heal"] == ()` is a
+        claim about a scan, and until this test the scan was never shown to
+        be able to see that door at all.
+        """
+        for door in sorted(self.AUTHORISED_CALLS):
+            for label, source in (
+                ("attribute call", "store.%s(cid)" % door),
+                ("bare call", "%s(1, 2)" % door),
+                ("getattr", 'getattr(store, "%s")(cid)' % door),
+                ("split literal getattr",
+                 'getattr(store, "%s" "%s")(cid)' % (door[:3], door[3:])),
+            ):
+                with self.subTest(door=door, spelling=label):
+                    self.assertIn(
+                        door, self.doors_called_in(source),
+                        "the scan cannot see %s written as a %s"
+                        % (door, label))
+
+    def test_the_rule_does_not_read_a_mention_as_a_call(self):
+        """The other half.  A scan that answered "called" to every mention
+        would pin `AUTHORISED_CALLS` to the prose of this lane's docstrings
+        and go red on an edit that changes nothing."""
+        for label, source in (
+            ("docstring", '"""this cites heal_to_full and calls nothing."""'),
+            ("comment", "# apply_hp_heal is not called here\nx = 1\n"),
+            ("a name in a list", 'NAMES = ["restore_hp_to_full"]\n'),
+            ("a def, not a call",
+             "def apply_hp_heal(self, cid, amount):\n    return None\n"),
+        ):
+            with self.subTest(label):
+                self.assertEqual(
+                    set(), self.doors_called_in(source),
+                    "a mention was counted as a call (%s)" % label)
+
+    def test_an_unparseable_file_is_not_a_hiding_place(self):
+        self.assertEqual(
+            {"restore_hp_to_full"},
+            self.doors_called_in("def broken(:\n  store.restore_hp_to_full("),
+        )
+
+    def test_the_login_module_never_reaches_a_door_through_a_computed_name(self):
+        """The one hole `doors_called_in` names, closed where it matters.
+
+        The login module is the only production file that calls a healing
+        door, and it uses `getattr` for three unrelated things, so "no
+        getattr here" is not the rule.  The rule is that every `getattr` in
+        it asks for a CONSTANT name -- a computed one would be a door reached
+        behind the scan's back.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "persistence_login_vitals.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        computed = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and getattr(node.func, "id", None) == "getattr"
+                    and len(node.args) >= 2
+                    and not isinstance(node.args[1], ast.Constant)):
+                computed.append(node.lineno)
+        self.assertEqual(
+            [], computed,
+            "the login module asks for an attribute by a computed name at "
+            "line(s) %r, which the call map cannot see" % (computed,))
+
     def test_the_call_scan_can_see_a_call(self):
         """The control.  A scan that found the login revive by accident, or
         that walks nothing, would grade the same as one that works."""
         found = self._calls_by_door()
-        self.assertEqual(
+        self.assertIn(
+            "src/pirateforce_foundation/persistence_login_vitals.py",
             found["restore_hp_to_full"],
-            {"src/pirateforce_foundation/persistence_login_vitals.py"},
             "the scan no longer sees the one call site this repository has, "
             "so its empty answer for the other door proves nothing",
         )
