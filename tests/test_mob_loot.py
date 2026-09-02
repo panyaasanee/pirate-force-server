@@ -2857,5 +2857,74 @@ class SceneOwnershipWayOneTests(unittest.TestCase):
             mob_loot.drop_element_with_model_type(self.legacy, second))
 
 
+class TheDroppedBoundaryStashHasTwoNamesTests(unittest.TestCase):
+    """ROUND veby94.  A held boundary generation is thrown away for two
+    different reasons and until this round both spelled "superseded".
+
+    The letter this pays is CORE-REQUEST 2026-09-02T16:50+07:00, item 3.  The
+    guard itself is one line in ``runtime.py`` and is NOT in this repository's
+    lane B zone; what is here is the vocabulary, so that when the line moves
+    the console does not have to say "a newer floor went out" on the reply
+    where none did.
+    """
+
+    SCENE = "Bg0002"
+
+    def test_the_two_reasons_do_not_share_a_word(self):
+        superseded = mob_loot.boundary_stash_dropped_event(
+            self.SCENE, 3, a_newer_generation_went_out=True)
+        stale = mob_loot.boundary_stash_dropped_event(
+            self.SCENE, 3, a_newer_generation_went_out=False)
+        self.assertNotEqual(superseded, stale)
+        for event in (superseded, stale):
+            self.assertIn(mob_loot.scene_key(self.SCENE), event)
+            self.assertTrue(event.endswith("_frames_3"), event)
+        self.assertTrue(
+            superseded.startswith(mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT))
+        self.assertTrue(
+            stale.startswith(mob_loot.BOUNDARY_STASH_STALE_EVENT))
+        self.assertFalse(
+            stale.startswith(mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT),
+            "the stale name must not be readable as the superseded one by a "
+            "console reader who greps for a prefix")
+
+    def test_the_superseded_name_is_the_one_the_runtime_already_emits(self):
+        """Adopting this helper may not RENAME a live event.
+
+        ``runtime.py`` composes the superseded event inline today.  This test
+        holds the composed string to that shape rather than to the chief's
+        source, so it stays true both before he adopts the helper and after
+        -- what it forbids is this lane quietly changing a word an operator
+        already greps for.
+        """
+        self.assertEqual(
+            mob_loot.boundary_stash_dropped_event(
+                self.SCENE, 2, a_newer_generation_went_out=True),
+            "mob_loot_boundary_superseded_by_pickup_%s_frames_2"
+            % (mob_loot.scene_key(self.SCENE),))
+
+    def test_it_cannot_raise_on_what_a_session_can_hand_it(self):
+        """Its caller sits in a v141 listener thread with no except above it.
+
+        Both arguments come from outside this lane -- a scene name off a
+        session's position, a length off a stash -- and a console name may
+        never cost a dispatch.
+        """
+        for scene in (None, "", "  ", 17, object()):
+            with self.subTest(scene=scene):
+                event = mob_loot.boundary_stash_dropped_event(
+                    scene, 1, a_newer_generation_went_out=True)
+                self.assertIn(mob_loot.BOUNDARY_STASH_SCENE_UNNAMED, event)
+                self.assertTrue(event.endswith("_frames_1"))
+        event = mob_loot.boundary_stash_dropped_event(
+            self.SCENE, "not a count", a_newer_generation_went_out=False)
+        self.assertTrue(event.endswith("_frames_-1"), event)
+
+    def test_the_answer_is_keyword_only(self):
+        """A positional bool three lines from its opposite gets inverted."""
+        with self.assertRaises(TypeError):
+            mob_loot.boundary_stash_dropped_event(self.SCENE, 1, True)
+
+
 if __name__ == "__main__":
     unittest.main()

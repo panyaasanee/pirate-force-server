@@ -1445,6 +1445,67 @@ def scene_key(scene: Any) -> str:
     return _require_scene(scene, "scene").casefold()
 
 
+#: ROUND veby94.  The two reasons a boundary generation held for a scene is
+#: thrown away when a pickup lands in that scene, and they are NOT one event.
+#:
+#: SUPERSEDED: the pickup published the scene's remaining rows, so a newer
+#: generation for the same floor went out in the same reply and the held one
+#: is simply older.  STALE_AFTER_THE_LAST_OBJECT: the pickup published
+#: NOTHING because the row it took was the scene's last one (RE-208, held by
+#: COO-DECISION 2026-09-02T13:45+07:00), so nothing replaced the held
+#: generation -- it is dropped because it became FALSE, not because it was
+#: outranked.  A console that spells both "superseded_by_pickup" tells an
+#: operator a newer floor went out on a reply where none did, and the second
+#: case is exactly the one pf-adversary measured putting a bagged item back
+#: on the floor (CORE-REQUEST 2026-09-02T16:50+07:00, item 3).
+#:
+#: !! WHAT THIS IS AND IS NOT.  It is a NAME, in the lane that owns the
+#: ground's vocabulary; it is not the guard.  The guard is one line in
+#: ``runtime.py``, which is the chief's file, and the letter above asks for
+#: it: today's ``if outcome.ground_after and ...`` is false in precisely the
+#: last-object case, so the stash survives a take.  This helper exists so
+#: that when that line changes, the two outcomes it then covers do not have
+#: to share one word.  Nothing in ``src/`` calls it yet, and no round may
+#: report the hole closed on the strength of this function.
+BOUNDARY_STASH_SUPERSEDED_EVENT = "mob_loot_boundary_superseded_by_pickup"
+BOUNDARY_STASH_STALE_EVENT = (
+    "mob_loot_boundary_dropped_after_last_object_pickup")
+#: The scene word used when the caller's scene cannot be named at all.  See
+#: :func:`boundary_stash_dropped_event` for why this exists rather than a
+#: raise.
+BOUNDARY_STASH_SCENE_UNNAMED = "scene_unnamed"
+
+
+def boundary_stash_dropped_event(
+        scene: Any, frames: Any, *, a_newer_generation_went_out: Any) -> str:
+    """The event name for a held boundary generation that was thrown away.
+
+    ``a_newer_generation_went_out`` is the caller's own answer to one
+    question -- did this reply carry a newer generation for this scene --
+    and it is a keyword ON PURPOSE: the two call sites this is written for
+    are three lines apart in one branch, and a positional bool there is the
+    shape that gets passed inverted.
+
+    IT CANNOT RAISE, and that is not politeness either.  Its caller is the
+    pickup branch inside a v141 listener thread with no ``except`` above it,
+    and the value it is handed is a scene name from a session's position --
+    which this lane does not own and has already seen arrive as ``None``.  A
+    name that cannot be composed costs the console its scene word
+    (:data:`BOUNDARY_STASH_SCENE_UNNAMED`), never the dispatch.
+    """
+    try:
+        scene_word = scene_key(scene)
+    except Exception:                            # noqa: BLE001 - see docstring
+        scene_word = BOUNDARY_STASH_SCENE_UNNAMED
+    try:
+        count = int(frames)
+    except Exception:                            # noqa: BLE001 - see docstring
+        count = -1
+    return "%s_%s_frames_%d" % (
+        BOUNDARY_STASH_SUPERSEDED_EVENT if a_newer_generation_went_out
+        else BOUNDARY_STASH_STALE_EVENT, scene_word, count)
+
+
 def _require_draw(draw: Any) -> float:
     if type(draw) not in (int, float):   # a bool is neither, by exact type
         raise MobLootContractError(

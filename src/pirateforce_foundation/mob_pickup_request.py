@@ -322,6 +322,36 @@ MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN = (
 MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT"
 MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
 
+#: ROUND veby94, and it is the chief's finding (letter 2026-09-02T15:35+07:00,
+#: item (b)) paid in this lane's own file rather than in his.  THE BYTES WERE
+#: NEVER WRONG AND ARE NOT TOUCHED HERE; the CONSOLE was.  Three lines above
+#: print ``key=0x...`` next to ``rows_left=...``, and until this round those
+#: two numbers were not stated to be about the same ground:
+#: ``DropLedgerCell.take`` cuts by KEY across the whole register without
+#: asking which scene the row fell in (``mob_loot.DropLedgerCell.take`` ->
+#: ``take_drop``), while ``frames_after_a_row_left`` publishes
+#: ``for_scene(self._scene)`` only.  A line reading
+#: ``HELD_LAST_OBJECT key=0x1234 rows_left=0`` therefore says "0" about the
+#: scene the session is STANDING in, and a GT round grading on console lines
+#: would read it as "the ground that key was on is now empty".
+#:
+#: SO EVERY LINE NAMES BOTH SCENES NOW, and when they disagree a fourth token
+#: says so by name instead of leaving a reader to notice.  WHAT THIS IS NOT,
+#: measured rather than assumed, because a guard sold as a bug fix is worth
+#: less than the sentence it displaces: the production pickup path REFUSES a
+#: claim on a row standing in another scene BEFORE the take
+#: (``mob_pickup.REFUSE_DROP_IS_IN_ANOTHER_SCENE``, walked by
+#: ``mob_pickup``'s own refusal walk), and the session is strictly serial
+#: (FINDINGS_R18), so no dispatch reaches this file with a taken row from one
+#: scene and a cell pointed at another.  This is a LIE THAT CANNOT BE TOLD
+#: TODAY being made impossible to tell tomorrow -- the day a second pickup
+#: door, a second cell, or a boundary crossing inside one dispatch exists.
+#: The cross-scene token is therefore unreachable through
+#: :func:`dispatch_inbound_pickup_request` on this tree, and its test drives
+#: the private composer directly and says so in its own docstring.
+MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN = (
+    "MOB_PICKUP_GROUND_REMOVAL_KEY_IS_ANOTHER_SCENES")
+
 #: ROUND ewq4js, step 3 of COO-DECISION 2026-09-02T10:44+07:00.  Which of the
 #: two composed bag deltas this reply carries -- a different question from the
 #: tokens above, decided by :func:`_the_delta_that_matches_the_floor` AFTER
@@ -821,9 +851,18 @@ def _ground_after_the_take(
     names what left the ground rather than what was asked for, and a test
     reads that number back out.  The read happens INSIDE the try for the same
     never-raises reason as everything else here.
+
+    ROUND veby94: THE KEY AND THE COUNT ARE ABOUT TWO DIFFERENT GROUNDS AND
+    THE LINE NOW SAYS SO (the chief's letter 2026-09-02T15:35+07:00, item
+    (b), paid in this lane's file).  ``take`` cuts by key across the whole
+    register; this publisher speaks for ``current_scene`` only.  No byte
+    changes -- see :data:`MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN` for
+    what is measured, what is merely guarded, and why the guard is worth its
+    six lines anyway.
     """
     try:
         taken_key = transacted.outcome.drop.drop_key
+        taken_scene = getattr(transacted.outcome.drop, "scene", None)
         rows_left, frames = drop_ledger_cell.frames_after_a_row_left(
             legacy, taken_key)
     except Exception as exc:                     # noqa: BLE001 - see docstring
@@ -832,18 +871,51 @@ def _ground_after_the_take(
             mob_pickup_persist.console_safe(str(
                 exc.args[0] if exc.args else type(exc).__name__))[:120]))
         return -1, ()
+    # ROUND veby94, the chief's item (b).  Both names, on every line, in the
+    # same order every time -- ``taken_scene`` is where the row that LEFT was
+    # standing, ``scene`` is the ground ``rows_left`` and the frames are
+    # about.  ``console_safe`` because a scene folder is a string this lane
+    # does not own and the bridge console is cp874 with errors='strict'.
+    #
+    # READ AFTER THE PUBLICATION AND IN ITS OWN GUARD, and that is the whole
+    # reason it is three lines instead of one: everything above this point
+    # can cost the caller its frames when it raises (the refusal path returns
+    # ``(-1, ())``), and a NAME FOR THE CONSOLE may never do that.  A cell
+    # whose ``current_scene`` cannot be read loses the word, not the floor.
+    try:
+        published_scene = drop_ledger_cell.current_scene
+    except Exception:                            # noqa: BLE001 - see above
+        published_scene = None
+    scenes = "taken_scene=%s scene=%s" % (
+        mob_pickup_persist.console_safe(str(taken_scene))[:32],
+        mob_pickup_persist.console_safe(str(published_scene))[:32])
     if frames:
-        _say(echo, "%s key=0x%X rows_left=%d frames=%d" % (
+        _say(echo, "%s key=0x%X %s rows_left=%d frames=%d" % (
             MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN
             if GROUND_AFTER_CALL_SITE_STATUS == "sent"
             else MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
-            taken_key, rows_left, len(frames)))
+            taken_key, scenes, rows_left, len(frames)))
     else:
         # rows_left == 0 is the only way a composed publication is empty:
         # frames_after_a_row_left raises rather than returning () for every
         # other case.  RE-208 is open on this one.
-        _say(echo, "%s key=0x%X rows_left=%d" % (
-            MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, taken_key, rows_left))
+        _say(echo, "%s key=0x%X %s rows_left=%d" % (
+            MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, taken_key, scenes,
+            rows_left))
+    # AND THE DISAGREEMENT ITSELF GETS A NAME.  Two scene names on one line
+    # are only readable by someone who compares them; this line is for the
+    # operator who does not.  Casefolded because ``mob_loot.scene_key`` is
+    # what the rest of this lane compares with, and str() because neither
+    # value is this file's to trust.  BOTH MUST BE KNOWN: an unreadable name
+    # is not a disagreement, and printing "these two scenes differ" because
+    # one of them is ``None`` would be the same class of false line this
+    # block exists to remove.
+    if (taken_scene is not None and published_scene is not None
+            and str(taken_scene).casefold()
+            != str(published_scene).casefold()):
+        _say(echo, "%s key=0x%X %s rows_left_is_about=%s" % (
+            MOB_PICKUP_GROUND_REMOVAL_CROSS_SCENE_TOKEN, taken_key, scenes,
+            mob_pickup_persist.console_safe(str(published_scene))[:32]))
     return rows_left, tuple(frames)
 
 
