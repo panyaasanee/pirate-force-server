@@ -7794,6 +7794,48 @@ two), `none` when the file passed, and `none_evaluated` for `missing` / `no_such
 older than this round prints no such line; the batch says so in words instead of printing an empty
 `rules=`.
 
+**pf-adversary refused the first draft of this, and the refusal is the reason the paragraph above
+is true.** Thirteen defects; the shape of the first three is one shape:
+
+1. **The test graded the shape of a line, not the property.** It asserted the refusal block
+   *contains the substring* `exit /b 1` and that an escaping line *contains* `PFGM_FORCE` and
+   `=="1"`. Three mutants passed the whole 8,234-test suite with a refused DLL installing every
+   time: `REM exit /b 1 -- removed` (the statement is gone, the substring is not, and control falls
+   straight into `:pfgm_forced` below); `if **not** "%PFGM_FORCE_FLAG%"=="1" goto pfgm_forced` (one
+   word, polarity inverted, both substrings still present); and `set "PFGM_FORCE_FLAG=1"` two lines
+   above, which leaves the guard line byte-identical while nothing ties the flag to the environment
+   at all. The tests now read the EXECUTABLE statements (`_batch_statements` drops comments and
+   `echo`), require the last one to end the script, compare the guard whole, and pin the assignment
+   chain from `%PFGM_FORCE%` line by line. Ten batch mutants tried afterwards, ten red.
+2. **The only test of the new Python token lived in the class the gate skips.** On a gate-shaped
+   checkout, nine of nine mutants of `failed_rules` passed -- including renaming the printed token,
+   which silently turns every forced install into "this checker is too old" and sends the owner to
+   report the wrong thing. The Python side is now graded by unguarded tests that run everywhere;
+   sixteen mutants tried afterwards, sixteen red.
+3. **Four scoping properties held by luck.** Making the `[STOP]` guard itself forceable, making the
+   `.rsrc` `[FAIL]` forceable, routing `:pfgm_no_tool` into the forced banner, and deleting
+   `set "PFGM_FORCED=1"` were all green. The check had scanned a 17-line window that began after
+   the `if exist` line; it now forbids the variable in every statement above `:pfgm_image_check`
+   and allows exactly one jump into the forced branch in the whole file.
+
+Four defects were runtime rather than test-coverage, and each is fixed in the script:
+
+- `%PFGM_OUT%` is a fixed path that every later run deletes -- including the next, successful one
+  -- so the only durable trace of a forced install was console scrollback. The forced branch now
+  APPENDS the report to `%TEMP%\pf_gm_forced_installs.log`, which nothing here deletes, and says to
+  send that file instead.
+- `PFGM_FORCED` was the one variable the script never cleared, and `setlocal` inherits the caller's
+  environment: a person who typed `PFGM_FORCED` (one letter off, and `[FORCED]` is the word the
+  script shouts a dozen times) made the next fully CHECKED install print "THAT [OK] MEANS COPIED,
+  NOT CHECKED" with both evidence tokens empty. Cleared at the top now.
+- The banner asserted "the verdict above is a finding about these bytes" over `verdict=unreadable`
+  and `verdict=missing`, where the checker's own comment says no byte was read -- laundering a
+  failure to open a file into a statement about its contents, in capitals. Those two now get their
+  own wording, selected by the `failed_rules=none_evaluated` the checker already prints.
+- `failed_rules=none` claimed "every rule ran and passed" for a /MT build, where `manifest_id2` is
+  never asked. The line now carries `not_evaluated=` as a third fact.
+
 **NONCLAIM.** Nothing here has been run on Windows, `PFGM_FORCE` has never been set by anyone, and
 no DLL has been forced. `P-3` does not move. What is claimed is that the escape exists, is scoped,
-and cannot be exercised silently.
+and cannot be exercised silently -- and that claim is now measured by mutants rather than asserted
+in a comment.

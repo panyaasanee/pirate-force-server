@@ -36,6 +36,7 @@ Layout produced by _build_pe:
 """
 from __future__ import annotations
 
+import ast
 import json
 import sys
 import tempfile
@@ -1337,23 +1338,25 @@ def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> 
 # either place without lying about one of the two machines:
 #
 #   * as a `design_skips` entry it would be expected UNCONDITIONALLY, so the
-#     bridge -- where `../pf_bridge` IS beside this clone and these three
-#     tests RUN -- would observe 0 against a pin of 3 and go red there
-#     instead;
+#     bridge -- where `../pf_bridge` IS beside this clone and every test in
+#     `InstallBatContractTests` RUNS -- would observe 0 against the pinned
+#     count and go red there instead;
 #   * and it is not a design decision in the first place.  It is exactly the
 #     shape `tests/pf_preconditions.py` was written for: evidence that lives
 #     outside this repository, present on one machine and absent on the other.
 #
-# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> three
-# declared skips pinned in `docs/PYTEST_SKIP_PINS.json` under `preconditions`,
-# which the census expects to be ZERO on any machine that has the sibling.
+# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> one
+# declared skip per test in that class, pinned in `docs/PYTEST_SKIP_PINS.json`
+# under `preconditions` (the count is `INSTALL_BAT_TESTS`, and three tests
+# below grade the two against each other), which the census expects to be ZERO
+# on any machine that has the sibling.
 #
 # The key is `bridge_sibling` and not a narrower one for `install.bat` itself,
 # because a narrower key would need a new entry in `tests/pf_preconditions.py`
 # -- another lane's file -- and because the two answers must not be merged: a
 # checkout that HAS `../pf_bridge` and does not have the batch file is not a
 # machine short of evidence, it is a deleted `install.bat`, and that is the
-# regression these three tests exist to catch.  It fails loudly below.
+# regression `InstallBatContractTests` exists to catch.  It fails loudly below.
 
 
 def _install_bat() -> Path | None:
@@ -1470,6 +1473,33 @@ def _batch_successors(block: str, fallthrough: str | None) -> set:
     return targets
 
 
+def _batch_statements(text: str) -> list:
+    """The lines cmd would EXECUTE: no blanks, no comments, no bare `echo`.
+
+    Round `p7q74c` grades the forced-install guard, and every earlier version
+    of that grading was defeated by text that does not run (pf-adversary, D1):
+    an `exit /b 1` left behind inside a `REM` satisfied a substring test while
+    control fell straight through the deleted statement into the copy, and a
+    `REM one day print [FORCED] ...` satisfied the test that the forced branch
+    prints its evidence. A line beginning with `echo` is dropped for the same
+    reason in the other direction -- it is output, not control flow -- but a
+    line that merely CONTAINS `echo` after a condition is kept, because that
+    one runs.
+    """
+    statements = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("::"):
+            continue
+        upper = stripped.upper()
+        if upper == "REM" or upper.startswith(("REM ", "REM\t")):
+            continue
+        if upper == "ECHO." or upper.startswith(("ECHO ", "ECHO.")):
+            continue
+        statements.append(stripped)
+    return statements
+
+
 def _labels_reachable_from(text: str, start: str) -> set:
     blocks = _batch_blocks(text)
     order = list(blocks)
@@ -1486,9 +1516,216 @@ def _labels_reachable_from(text: str, start: str) -> set:
     return seen
 
 
+# --- the failed_rules token, graded WHERE THE GATE CAN SEE IT ---------------
+#
+# Every test below runs on a checkout with no `../pf_bridge`, i.e. on the
+# Windows gate, and that is the whole point of where they sit (pf-adversary,
+# round `p7q74c`, D2/D3): the feature shipped with its only assertion inside
+# `InstallBatContractTests`, which the gate skips, and nine of nine mutants of
+# it passed there -- including renaming the printed token, which silently
+# turns every forced install into "this checker is too old".
+
+
+def test_failed_rules_names_every_rule_the_image_breaks(tmp_path: Path) -> None:
+    """Not just the verdict's rule: one file can break two.
+
+    `verdict` is the FIRST blocking problem, and the forced-install line in
+    install.bat prints `failed_rules` and nothing else -- a second broken rule
+    that only appeared in `also_problem=` would cost a second attended round.
+    """
+    image = _build_pe(is_dll=False, exports=("_CreateGameMaster",))
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_NOT_A_DLL
+    assert report.failed_rules == ("pe32_dll", "export_exact")
+    assert (
+        "GM_PLUGIN_IMAGE build failed_rules=pe32_dll,export_exact "
+        "not_evaluated=none"
+    ) in pic.console_lines(report, "build")
+
+
+def test_every_export_failure_names_the_export_rule(tmp_path: Path) -> None:
+    """One assertion per branch, because one branch is one deletion.
+
+    All four export verdicts break the same rule and each is decided by its
+    own `elif`; a test that exercises only the decorated-name branch leaves
+    the other three free to stop naming the rule at all (measured: deleting
+    the `no_exports` collector alone kept the whole suite green).
+    """
+    shapes = {
+        pic.VERDICT_NO_EXPORTS: _build_pe(exports=(), with_export_dir=False),
+        pic.VERDICT_EXPORT_DECORATED: _build_pe(exports=("_CreateGameMaster",)),
+        pic.VERDICT_EXPORT_MISSING: _build_pe(exports=("DllMain",)),
+        pic.VERDICT_EXPORT_FORWARDED: _build_pe(
+            forwarders=(pic.REQUIRED_EXPORT,)
+        ),
+    }
+    for verdict, image in shapes.items():
+        report = pic.inspect_plugin_file(
+            _write(tmp_path, image, verdict + ".dll")
+        )
+        assert report.verdict == verdict, report.detail
+        assert report.failed_rules == ("export_exact",), verdict
+
+
+def test_failed_rules_is_the_token_install_bat_greps_for(tmp_path: Path) -> None:
+    """The literal, asserted here so the gate refuses a rename.
+
+    `patches/gm_plugin/install.bat` finds this line with
+    `findstr /c:"GM_PLUGIN_IMAGE build failed_rules="`. Rename the token and
+    the batch stops matching -- and then every forced install prints
+    `rules=not_printed_this_checker_predates_round_p7q74c`, accusing an
+    up-to-date checkout of being stale and sending the owner to report the
+    wrong thing. The batch lives in the other repository, which the gate does
+    not clone, so this side has to hold the literal.
+    """
+    report = pic.inspect_plugin_file(
+        _write(tmp_path, _build_pe(manifest_resource_ids=(1,)))
+    )
+
+    line = next(
+        one for one in pic.console_lines(report, "build")
+        if " failed_rules=" in one
+    )
+
+    assert line.startswith("GM_PLUGIN_IMAGE build failed_rules=")
+    assert line.split()[2] == "failed_rules=manifest_id2"
+
+
+def test_a_rule_that_passed_and_a_rule_that_never_ran_are_different_answers(
+    tmp_path: Path,
+) -> None:
+    """pf-adversary, round `p7q74c`, D8.
+
+    `manifest_id2` is only asked of a build that imports the side-by-side CRT.
+    A /MT DLL with no RT_MANIFEST anywhere reads `image_ok`, and reporting
+    `failed_rules=none` alone would state the strongest of the three possible
+    answers about a rule nobody ran. The module's docstrings say /MT builds
+    are supported, so this is not a synthetic shape.
+    """
+    assert pic.RULES_NONE != pic.RULES_NOT_EVALUATED
+
+    md_build = pic.inspect_plugin_file(_write(tmp_path, _build_pe(), "md.dll"))
+    assert md_build.ok
+    assert md_build.failed_rules == ()
+    assert md_build.rules_not_evaluated == ()
+    assert (
+        "GM_PLUGIN_IMAGE build failed_rules=none not_evaluated=none"
+        in pic.console_lines(md_build, "build")
+    )
+
+    mt_build = pic.inspect_plugin_file(
+        _write(
+            tmp_path,
+            _build_pe(imports=("KERNEL32.dll",), with_manifest=False),
+            "mt.dll",
+        )
+    )
+    assert mt_build.ok
+    assert mt_build.failed_rules == ()
+    assert mt_build.rules_not_evaluated == ("manifest_id2",)
+    assert (
+        "GM_PLUGIN_IMAGE build failed_rules=none not_evaluated=manifest_id2"
+        in pic.console_lines(mt_build, "build")
+    )
+
+
+def test_a_file_that_was_never_read_names_no_rule(tmp_path: Path) -> None:
+    """`none_evaluated`, and every rule listed as not evaluated.
+
+    install.bat reads exactly this to decide whether the capitals it prints
+    over a forced install may call the verdict a finding about the bytes.
+    """
+    for report in (
+        pic.inspect_plugin_file(tmp_path / "not-here.dll"),
+        pic.inspect_client_install(tmp_path),
+        pic.inspect_client_install(tmp_path / "no-such-dir"),
+    ):
+        assert not report.ok
+        assert report.failed_rules == ()
+        assert report.rules_not_evaluated == pic.CONSOLE_RULES
+        label = "build"
+        assert (
+            "GM_PLUGIN_IMAGE build failed_rules=none_evaluated "
+            "not_evaluated=pe32_dll,export_exact,manifest_id2"
+        ) in pic.console_lines(report, label)
+
+
+def test_a_truncated_image_still_names_the_rule_it_broke(tmp_path: Path) -> None:
+    """The `PluginImageError` path, which maps instead of walking branches."""
+    report = pic.inspect_plugin_file(_write(tmp_path, b"MZ" + b"\x00" * 40))
+
+    assert report.verdict == pic.VERDICT_NOT_PE
+    assert report.failed_rules == ("pe32_dll",)
+    assert report.rules_not_evaluated == ("export_exact", "manifest_id2")
+
+
+def test_rules_for_verdict_answers_for_every_verdict_that_read_bytes() -> None:
+    """The map itself, including the entries no image here can reach.
+
+    Only `not_pe` is raised today, so the other seven entries are read by
+    nothing and can rot silently (pf-adversary, round `p7q74c`, D12).
+    """
+    expected = {
+        pic.VERDICT_NOT_PE: ("pe32_dll",),
+        pic.VERDICT_WRONG_MACHINE: ("pe32_dll",),
+        pic.VERDICT_NOT_A_DLL: ("pe32_dll",),
+        pic.VERDICT_NO_EXPORTS: ("export_exact",),
+        pic.VERDICT_EXPORT_DECORATED: ("export_exact",),
+        pic.VERDICT_EXPORT_FORWARDED: ("export_exact",),
+        pic.VERDICT_EXPORT_MISSING: ("export_exact",),
+        pic.VERDICT_MANIFEST_MISSING: ("manifest_id2",),
+    }
+    for verdict, rules in expected.items():
+        assert pic.rules_for_verdict(verdict) == rules, verdict
+
+    # The three that read no byte must map to nothing, and `image_ok` too.
+    for verdict in (
+        pic.VERDICT_MISSING,
+        pic.VERDICT_NO_SUCH_DIR,
+        pic.VERDICT_UNREADABLE,
+        pic.VERDICT_IMAGE_OK,
+    ):
+        assert pic.rules_for_verdict(verdict) == (), verdict
+
+
+def test_every_rule_name_this_module_writes_down_is_a_console_rule() -> None:
+    """A misspelled name is DROPPED, not rejected -- so spell them here.
+
+    `failed_rules` is built by intersecting the collected names with
+    CONSOLE_RULES, so `broken.append("manifest_id_2")` produces
+    `verdict=manifest_missing` together with `failed_rules=none`, which reads
+    as "every rule ran and passed" (pf-adversary, round `p7q74c`, D9).
+    CONSOLE_RULES is documented APPEND-ONLY, i.e. it is expected to grow, and
+    a rule added in one place and forgotten in the other reproduces this.
+    """
+    tree = ast.parse(Path(pic.__file__).read_text(encoding="utf-8"))
+
+    written = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr != "append" or not isinstance(node.func.value, ast.Name):
+            continue
+        if node.func.value.id not in {"broken", "not_run"}:
+            continue
+        assert len(node.args) == 1 and isinstance(node.args[0], ast.Constant), (
+            ast.dump(node)
+        )
+        written.add(node.args[0].value)
+
+    assert written, "no rule names found -- did the collectors get renamed?"
+    assert written <= set(pic.CONSOLE_RULES), sorted(written)
+
+    for verdict, rules in pic._RULES_BY_VERDICT.items():
+        assert set(rules) <= set(pic.CONSOLE_RULES), verdict
+        assert isinstance(verdict, str) and verdict, verdict
+
+
 @BRIDGE_SIBLING.skip_unless_present()
 class InstallBatContractTests(unittest.TestCase):
-    """The three tests that read the batch file, guarded as ONE site.
+    """The four tests that read the batch file, guarded as ONE site.
 
     A `unittest.TestCase` with a class decorator, in a module that is
     otherwise plain pytest functions, and that is not a style lapse -- it is
@@ -1496,11 +1733,20 @@ class InstallBatContractTests(unittest.TestCase):
     `guarded_tests()` walker counts guard sites inside `ast.ClassDef` and
     nowhere else, ON PURPOSE (its own comment: guards in module-level code
     "produce skips that cannot be pinned per test name, so a module using them
-    goes red here until it is restructured").  Measured this round: with these
-    three as module-level functions calling `pytest.skip` from a helper, the
-    walker derived 0 guards against a pin of 3 and TWO tests in that file went
-    red -- the same class of gate failure that closed #611, caught one step
-    earlier.
+    goes red here until it is restructured").  Measured in round `kv2vjk`:
+    with these as module-level functions calling `pytest.skip` from a helper,
+    the walker derived 0 guards against the pin and TWO tests in that file
+    went red -- the same class of gate failure that closed #611, caught one
+    step earlier.
+
+    !! NOTHING ABOUT `plugin_image_check` ITSELF MAY BE ASSERTED ONLY HERE
+    (pf-adversary, round `p7q74c`, D2).  The Windows gate clones this
+    repository alone, so every test in this class skips there.  Round
+    `p7q74c` shipped `failed_rules` with its only assertion inside this class
+    and nine of nine mutants of the feature passed on a gate-shaped checkout,
+    including a renamed console token that silently breaks the batch's
+    `findstr`.  The Python side is graded by the unguarded tests further down;
+    what belongs here is only what needs the FILE.
     """
 
     def setUp(self) -> None:
@@ -1582,17 +1828,34 @@ class InstallBatContractTests(unittest.TestCase):
         that variable.  An unconditional `goto`, a fall-through, or a jump
         guarded by anything else still fails here, which is the whole content
         of "not fail-open": the owner has to type the variable.
+
+        AND THE THIRD VERSION IS THE ONE THAT MEASURES ANYTHING.  Round
+        `p7q74c`'s first draft asserted that the block CONTAINS the substring
+        `exit /b 1` and that any escaping line contains `PFGM_FORCE` and
+        `=="1"`.  pf-adversary (D1) turned every one of those into a green
+        mutant: `REM exit /b 1 -- removed` keeps the substring while control
+        falls through into the forced label sitting directly below; `if not
+        "%PFGM_FORCE_FLAG%"=="1" goto pfgm_forced` -- ONE WORD -- inverts the
+        polarity so an unset variable installs a refused DLL, and it still
+        contains both substrings; and `set "PFGM_FORCE_FLAG=1"` two lines
+        above leaves the guard line untouched while nothing anywhere ties the
+        flag to the environment.  All three passed the whole 8,234-test suite.
+
+        So the executable statements are read, the last one has to END the
+        script, the guard is compared verbatim, and the chain from the
+        environment variable to the flag is pinned line by line.
         """
         text = _install_bat_text()
         assert "\n:pfgm_refuse\n" in text
         block = _batch_blocks(text)["pfgm_refuse"]
-        assert "exit /b 1" in block
+        statements = _batch_statements(block)
+
+        # A `REM`-ed out `exit /b 1` is not an exit: the LAST thing this block
+        # runs must stop the script, or control falls into `:pfgm_forced`.
+        assert statements[-1] == "exit /b 1", statements[-3:]
 
         escapes = []
-        for line in block.splitlines():
-            stripped = line.strip()
-            if stripped.upper().startswith(("REM ", "ECHO ", "::")):
-                continue
+        for stripped in statements:
             at = stripped.lower().find("goto ")
             if at == -1:
                 continue
@@ -1602,58 +1865,128 @@ class InstallBatContractTests(unittest.TestCase):
             ):
                 continue
             # Reaching the copy from a refusal is allowed on exactly one
-            # condition, and the line itself has to carry it.
-            assert "PFGM_FORCE" in stripped, stripped
-            assert '=="1"' in stripped.replace(" ", ""), stripped
+            # condition, spelled exactly one way. Compared whole, because
+            # every partial comparison this test has tried was defeated by a
+            # line that still contained the parts.
+            assert stripped == (
+                'if "%PFGM_FORCE_FLAG%"=="1" goto pfgm_forced'
+            ), stripped
             escapes.append(target.lower())
 
         assert len(escapes) == 1, escapes
-        forced = _batch_blocks(text)[escapes[0]]
-        # A forced install that does not say what was refused is the fail-open
-        # this whole branch was allowed in order to avoid.
-        assert "[FORCED]" in forced
-        assert "%PFGM_VERDICT%" in forced
-        assert "%PFGM_RULES%" in forced
+
+        # The flag has to COME FROM the environment variable the owner types.
+        assignments = [
+            line for line in _batch_statements(text)
+            if 'set "PFGM_FORCE_FLAG=' in line
+        ]
+        assert assignments == [
+            'set "PFGM_FORCE_FLAG=%PFGM_FORCE%"',
+            'if defined PFGM_FORCE_FLAG set "PFGM_FORCE_FLAG=%PFGM_FORCE_FLAG:"=%"',
+        ], assignments
+
+        # ...and no other block may jump into the forced branch. `:pfgm_no_tool`
+        # doing so would route "this machine has no Python" into a banner that
+        # shouts the verdict is a finding about the bytes (pf-adversary D4/K).
+        jumps = []
+        for line in _batch_statements(text):
+            at = line.lower().find("goto ")
+            if at == -1:
+                continue
+            target = line[at + len("goto "):].split()[0].lstrip(":")
+            if target.lower() == "pfgm_forced":
+                jumps.append(line)
+        assert jumps == [
+            'if "%PFGM_FORCE_FLAG%"=="1" goto pfgm_forced'
+        ], jumps
 
     def test_install_bat_forces_only_the_checker_and_reads_the_real_tokens(
         self,
     ) -> None:
-        """The other three things `PFGM_FORCE=1` must not become.
+        """Everything `PFGM_FORCE=1` must not become, graded on statements.
 
-        1. It must name the REAL verdict and the REAL failing rules, which
-           means reading the tokens this module prints rather than a literal
-           re-typed into the batch.  A forced install whose evidence line says
-           `rules=` and nothing after it is a forced install nobody can report.
-        2. It must not reach the `[STOP]` guard on an existing GameMaster.dll.
-           That guard is about destroying the original plug-in, which no
-           environment variable may override.
-        3. Its fallback for an older checker must be a sentence, not an empty
-           value -- and must carry no `<` or `>`, because `echo %VAR%` with an
-           angle bracket in the value REDIRECTS the one line the owner was
-           asked to report.
+        1. SCOPE.  Not one executable line before `:pfgm_image_check` may
+           mention the variable.  That region holds the `[STOP]` guard on an
+           existing GameMaster.dll -- the artifact this project has failed to
+           obtain since 27 Aug, whose overwrite is not recoverable -- and the
+           `.rsrc` `[FAIL]`.  The first version of this check scanned a
+           17-line window that began AFTER the `if exist` line, so adding
+           `if not "%PFGM_FORCE%"=="1"` to that very line made the guard
+           forceable with the suite green (pf-adversary, round `p7q74c`, D4).
+        2. EVIDENCE.  The forced branch must SET the flag the `[OK]` block
+           reads, must PRINT both tokens on a line that runs (a `REM` naming
+           them passed the first version), and must not delete the report it
+           tells the owner to send.
+        3. DERIVATION.  Both tokens are read out of the checker's output by
+           `findstr`; the batch may not carry a rule name of its own, or it
+           will keep printing yesterday's answer after the module changes.
+        4. THE OLD-CHECKER FALLBACK is a sentence, not an empty value, and
+           carries no `<` or `>`: `echo %VAR%` with an angle bracket in the
+           value REDIRECTS the one line the owner was asked to report.
         """
-        image = _write(self.tmp_path, _build_pe(manifest_resource_ids=(1,)))
-        lines = pic.console_lines(pic.inspect_plugin_file(image), "build")
-        rules_line = next(line for line in lines if " failed_rules=" in line)
-        assert rules_line == "GM_PLUGIN_IMAGE build failed_rules=manifest_id2"
-
         text = _install_bat_text()
-        assert 'findstr /c:"GM_PLUGIN_IMAGE build failed_rules="' in text
+        statements = _batch_statements(text)
+
+        head = text[:text.index("\n:pfgm_image_check\n")]
+        for line in _batch_statements(head):
+            if line == 'set "PFGM_FORCED="':
+                continue  # the clearing line, which can only make it stricter
+            assert "PFGM_FORCE" not in line, line
+
+        forced = _batch_blocks(text)["pfgm_forced"]
+        forced_statements = _batch_statements(forced)
+        assert 'set "PFGM_FORCED=1"' in forced_statements, forced_statements
+        assert 'if "%PFGM_FORCED%"=="1" (' in statements
+        # Cleared at the top, so an inherited PFGM_FORCED cannot label a
+        # checked install as a forced one (pf-adversary, round `p7q74c`, D6).
+        assert 'set "PFGM_FORCED="' in statements
+
+        printed = [
+            line.strip() for line in forced.splitlines()
+            if line.strip().upper().startswith("ECHO ")
+        ]
+        assert any(
+            "[FORCED]" in line
+            and "%PFGM_VERDICT%" in line
+            and "%PFGM_RULES%" in line
+            for line in printed
+        ), printed
+        # The fixed-path report is deleted by every later run of this script,
+        # so the forced branch appends to a log nothing here deletes -- and
+        # must not delete anything itself (pf-adversary, round `p7q74c`, D5).
+        for label in ("pfgm_forced", "pfgm_forced_unread", "pfgm_forced_tail"):
+            for line in _batch_statements(_batch_blocks(text)[label]):
+                assert not line.lower().startswith("del "), line
+        assert any(
+            'type "%PFGM_OUT%" >> "%PFGM_LOG%"' in line
+            for line in _batch_statements(_batch_blocks(text)["pfgm_forced_tail"])
+        )
+
+        greps = [line for line in statements if "findstr" in line.lower()]
+        assert any(
+            '/c:"GM_PLUGIN_IMAGE build failed_rules="' in line for line in greps
+        ), greps
+        assert any(
+            '/c:"GM_PLUGIN_IMAGE build verdict="' in line for line in greps
+        ), greps
         # `failed_rules=manifest_id2` -> `rules=manifest_id2`, derived, so the
         # printed token cannot drift from the token that was read.
-        assert 'set "PFGM_RULES=%PFGM_RULES:failed_=%"' in text
-
-        stop = text.index("[STOP] A GameMaster.dll ALREADY EXISTS")
-        assert "PFGM_FORCE" not in text[stop:text.index("exit /b 1", stop)]
-
-        for line in text.splitlines():
-            if 'set "PFGM_RULES=rules=' not in line:
+        assert any(
+            'set "PFGM_RULES=%PFGM_RULES:failed_=%"' in line
+            for line in statements
+        ), "the rules token must be derived from the one that was read"
+        for line in statements:
+            if 'set "PFGM_RULES=' not in line or "%PFGM_RULES" in line:
                 continue
-            assert "<" not in line and ">" not in line, line
-            assert not line.rstrip().endswith('set "PFGM_RULES=rules="'), line
-            break
-        else:  # pragma: no cover - the fallback is the point of the branch
-            raise AssertionError("no PFGM_RULES fallback for an old checker")
+            for rule in pic.CONSOLE_RULES:
+                assert rule not in line, line
+
+        fallbacks = [
+            line for line in statements if 'set "PFGM_RULES=rules=' in line
+        ]
+        assert len(fallbacks) == 1, fallbacks
+        assert "<" not in fallbacks[0] and ">" not in fallbacks[0]
+        assert not fallbacks[0].endswith('set "PFGM_RULES=rules="')
 
 
 # --- what the census tests upstream cannot answer --------------------------
