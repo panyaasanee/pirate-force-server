@@ -8804,41 +8804,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             last_target_pos=self.last_target_pos,
                             scene_id=self.foundation.selected.position.scene_id,
                             scene_entry_registry=scene_entry_registry,
-                            # NOT PASSED, AND THE OMISSION IS A DECISION.
-                            # CORE-REQUEST (LANE-A, 20260902_1735) asks for
-                            # `mob_combat_ledger=` here so a responder can
-                            # answer a click with a wounded monster's real
-                            # HP instead of the table's ceiling.  R308 wrote
-                            # that keyword, measured what it does, and took
-                            # it back out; the answer is in
-                            # notes_to_chief/20260902_19xx_CHIEF-TO-LANE-A-*.
-                            #
-                            # WHAT IT DOES TODAY, driven end to end through
-                            # this dispatcher with real frames (kill in
-                            # scene 2, then click): the scene-2 responder's
-                            # dead-row branch refuses the WHOLE click -- it
-                            # loops over all 97 members, and the first
-                            # hostile whose ledger row reads current_hp == 0
-                            # returns a decline for every one of them.  So
-                            # one kill turns every click in the scene, on
-                            # civilians included, into no bytes at all, and
-                            # it survives a warp out and back (the ledger
-                            # rehydrates deaths from mob_death_register at
-                            # runtime.py:4245-4255).  Only a reconnect
-                            # clears it.  A scene whose purpose is killing
-                            # things would stop answering clicks after the
-                            # first kill.
-                            #
-                            # A stale full bar until the next combat frame
-                            # is a worse-looking bug than it is a bug; a
-                            # scene that silently stops answering is
-                            # indistinguishable from a dead server.  So the
-                            # keyword lands the round the dead path answers
-                            # with a body instead of with silence -- which
-                            # needs `mob_death_register` at this same call
-                            # site, and lane A offered that swap in the
-                            # request itself.  This comment is the record so
-                            # the next round does not re-derive it.
+                            # PASSED SINCE R313 (COO-DECISION 20260903_0251
+                            # lifts 20260902_1945): the responder judges the
+                            # CLICKED body only, so one kill no longer
+                            # silences the whole scene.  A click on a corpse
+                            # still gets no bytes -- lane A's own ticket adds
+                            # `mob_death_register` here to answer that with a
+                            # body.  tests/test_choose_npc_call_site_ledger.py
+                            # pins this keyword through the real dispatcher,
+                            # including that every registered responder can
+                            # accept it: a responder whose signature lacks it
+                            # loses its WHOLE scene here, and the TypeError
+                            # only reaches a console started with
+                            # --export-events (pf-adversary D4, measured).
+                            # Attribute access, not getattr: the constructor
+                            # re-raises if the ledger cannot be opened
+                            # (runtime.py:1401), so a session that reaches
+                            # dispatch always has one, and a future rename
+                            # must fail loudly here rather than compose every
+                            # answer at the table ceiling in silence.
+                            mob_combat_ledger=self.mob_combat_ledger,
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down
