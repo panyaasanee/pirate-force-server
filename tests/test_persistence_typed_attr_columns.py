@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import pf_preconditions  # noqa: E402  (the census token lives here)
+import pf_birth_state as birth_state  # noqa: E402
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
@@ -80,6 +81,75 @@ COLUMNS_BEFORE_006 = (
 
 def _build_wire(selector):
     return b"wire", b"avatar", 0x20000001 + selector, 0
+
+
+def _insert_character_at_005(path, login_name, name, selector=1,
+                             connection=None, position=None, store=None):
+    """One real character row in a database that is only at schema 005.
+
+    Written with raw SQL rather than through `SQLiteStore.create_character`
+    for a reason worth stating: `COO-DECISION 20260902_0444` has that method
+    write `level`/`hp_current`/`hp_max`, and those three columns do not exist
+    until 006.  Round `cby3pd` measured the store path dying on `no such
+    column: level` here the moment the ordered insertion point was simulated.
+    In a running server that is unreachable -- `app.py` migrates the whole
+    directory at boot before anything creates a character -- but a test whose
+    whole subject is a PRE-006 database cannot use a creator that requires
+    006.  `BootSnapshotProtects006Tests` already built its WAL-hot row this
+    way for an unrelated reason; this is that same insert, named once.
+
+    *** IT MUST BUILD THE CHILD ROWS TOO, and the first version of it did not.
+    A `pf-adversary` pass measured the cost: `create_character` writes
+    `characters` AND `character_positions` AND `character_backpacks`, so a
+    fixture that wrote only `characters` left
+    `MigrationIsNonDestructiveTests`'s comparison of those two tables running
+    over `[] == []`.  Proved with a mutant -- `UPDATE character_positions SET
+    z = 999.0;` appended to 006 failed on the old fixture and PASSED on the
+    new one.  A migration that rewrote every character's position would have
+    landed green.  So the position row is written here and the backpack rows
+    come from the store's own `_insert_initial_backpack`, which is the same
+    code `create_character` runs and touches no column 006 adds.
+
+    Returns the character's row id.  With `connection`, the caller's open
+    handle is used (and left open, and not committed by anyone else), which is
+    what the WAL-hot case needs.
+    """
+    stamp = "2026-09-01T15:00:00Z"
+    db = connection if connection is not None else sqlite3.connect(str(path))
+    try:
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute(
+            "INSERT INTO accounts(login_name,created_at) VALUES (?,?)",
+            (login_name, stamp),
+        )
+        account_id = int(db.execute(
+            "SELECT id FROM accounts WHERE login_name=?",
+            (login_name,),
+        ).fetchone()[0])
+        actor, avatar, identity, _ = _build_wire(selector)
+        cursor = db.execute(
+            "INSERT INTO characters(account_id,selector,name,actor_wire,"
+            "avatar_wire,identity_lo,identity_hi,created_at,updated_at,"
+            "name_key,create_fingerprint) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (account_id, selector, name, actor, avatar, identity, 0,
+             stamp, stamp, name.lower(), "fingerprint-%s" % name.lower()),
+        )
+        cid = int(cursor.lastrowid)
+        home = position or Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
+        db.execute(
+            "INSERT INTO character_positions(character_id,scene_id,scene_seq,"
+            "x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
+            (cid, home.scene_id, home.scene_seq, home.x, home.y, home.z,
+             stamp, home.heading),
+        )
+        (store or SQLiteStore(path, MIGRATIONS))._insert_initial_backpack(
+            db, cid, stamp)
+        db.commit()
+        return cid
+    finally:
+        if connection is None:
+            db.close()
 
 
 def _statements(sql: str) -> list[str]:
@@ -349,12 +419,10 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
     def test_existing_rows_survive_006_unchanged_and_the_new_columns_are_null(self):
         old_store = SQLiteStore(self.path, self.older)
         old_store.migrate()
-        account_id = old_store.ensure_account("typed-attr-006")
-        home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
-        old_store.create_character(
-            account_id, "TypedAttrOne", "typedattrone",
-            "fingerprint-typed-attr-006", _build_wire, home,
-        )
+        _insert_character_at_005(self.path, "typed-attr-006", "TypedAttrOne",
+                                 store=old_store,
+                                 position=Position(3, 0, 11.0, 22.0, 33.0,
+                                                   heading=1.5))
         before = {t: self._dump(t) for t in
                   ("characters", "character_positions", "character_backpacks")}
         self.assertEqual(len(before["characters"]), 1)
@@ -452,36 +520,18 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         store = SQLiteStore(self.path, self.older)
         store.migrate()
         if not keep_wal_hot:
-            account_id = store.ensure_account("boot-snapshot-006")
-            store.create_character(
-                account_id, "SnapshotOne", "snapshotone",
-                "fingerprint-boot-snapshot-006", _build_wire,
-                Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
-            )
+            _insert_character_at_005(
+                self.path, "boot-snapshot-006", "SnapshotOne", store=store,
+                position=Position(3, 0, 44.0, 55.0, 66.0, heading=0.25))
             return store
 
         holder = sqlite3.connect(str(self.path))
         holder.execute("PRAGMA journal_mode=WAL")
-        holder.execute("PRAGMA foreign_keys=ON")
-        holder.execute(
-            "INSERT INTO accounts(login_name,created_at) VALUES (?,?)",
-            ("boot-snapshot-006", "2026-09-01T15:00:00Z"),
+        _insert_character_at_005(
+            self.path, "boot-snapshot-006", "SnapshotOne",
+            connection=holder, store=store,
+            position=Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
         )
-        account_id = int(holder.execute(
-            "SELECT id FROM accounts WHERE login_name=?",
-            ("boot-snapshot-006",),
-        ).fetchone()[0])
-        actor, avatar, identity, _ = _build_wire(1)
-        holder.execute(
-            "INSERT INTO characters(account_id,selector,name,actor_wire,"
-            "avatar_wire,identity_lo,identity_hi,created_at,updated_at,"
-            "name_key,create_fingerprint) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (account_id, 1, "SnapshotOne", actor, avatar, identity, 0,
-             "2026-09-01T15:00:00Z", "2026-09-01T15:00:00Z", "snapshotone",
-             "fingerprint-boot-snapshot-006"),
-        )
-        holder.commit()
         return store, holder
 
     @staticmethod
@@ -681,35 +731,65 @@ class StoreRoundTripTests(unittest.TestCase):
             "fingerprint-typed-attr-store", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # What this character was BORN holding, refused unless it is one of
+        # the two states this lane accepts (`tests/pf_birth_state.py`).  Every
+        # expectation below is `birth + what the test wrote`, which keeps each
+        # assertion exact while making none of them a claim about whether the
+        # insertion point of `COO-DECISION 20260902_0444` has landed yet.
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
 
-    def test_a_fresh_character_has_no_typed_values_at_all(self):
-        # NOT `{column: 0 for ...}`: the whole rule in one assertion.
-        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+    def _expect(self, **written):
+        return birth_state.with_birth(self.birth, **written)
+
+    def test_a_fresh_character_holds_its_birth_state_and_nothing_else(self):
+        # NOT `{column: 0 for ...}`: the whole rule in one assertion.  Read
+        # RAW as well, so a `read_typed_attributes` that invented values would
+        # not be graded against itself.
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id), self.birth)
+        db = sqlite3.connect(self.path)
+        db.row_factory = sqlite3.Row
+        try:
+            row = db.execute("SELECT * FROM characters WHERE id=?",
+                             (self.character.id,)).fetchone()
+        finally:
+            db.close()
+        on_disk = {c: row[c] for c in typed.TYPED_COLUMNS
+                   if row[c] is not None}
+        self.assertEqual(on_disk, self.birth)
 
     def test_a_written_value_survives_a_reopen_of_the_database(self):
         self.store.write_typed_attributes(self.character.id, {"speed_walk": 800.0})
         reopened = SQLiteStore(self.path, MIGRATIONS)
         self.assertEqual(
-            reopened.read_typed_attributes(self.character.id), {"speed_walk": 800.0}
+            reopened.read_typed_attributes(self.character.id),
+            self._expect(speed_walk=800.0),
         )
 
     def test_writing_one_column_leaves_the_others_absent_not_zero(self):
         self.store.write_typed_attributes(self.character.id, {"level": 12})
         state = self.store.read_typed_attributes(self.character.id)
-        self.assertEqual(state, {"level": 12})
-        self.assertNotIn("hp_current", state)
+        self.assertEqual(state, self._expect(level=12))
+        # A column no birth state may ever carry: `COO-DECISION 20260901_1447`
+        # point 2 keeps `speed_walk` out of the birth values, and
+        # `pf_birth_state` refuses a birth state that carries it -- so this
+        # stays a real "absent, not zero" probe after the insertion point
+        # lands, which `hp_current` would not.
+        self.assertNotIn("speed_walk", state)
+        self.assertNotIn("cash", state)
 
     def test_a_second_write_updates_rather_than_duplicates(self):
         self.store.write_typed_attributes(self.character.id, {"speed_walk": 400.0})
         after = self.store.write_typed_attributes(
             self.character.id, {"speed_walk": 250.0, "level": 3}
         )
-        self.assertEqual(after, {"level": 3, "speed_walk": 250.0})
+        self.assertEqual(after, self._expect(level=3, speed_walk=250.0))
 
     def test_the_write_returns_the_whole_state_not_only_what_it_wrote(self):
         self.store.write_typed_attributes(self.character.id, {"level": 5})
         after = self.store.write_typed_attributes(self.character.id, {"cash": 900})
-        self.assertEqual(after, {"level": 5, "cash": 900})
+        self.assertEqual(after, self._expect(level=5, cash=900))
 
     def test_a_refused_value_writes_nothing_at_all(self):
         self.store.write_typed_attributes(self.character.id, {"level": 7})
@@ -718,7 +798,10 @@ class StoreRoundTripTests(unittest.TestCase):
                 self.character.id, {"speed_walk": 500.0, "level": 999999}
             )
         # the good half of the refused batch must not have landed either
-        self.assertEqual(self.store.read_typed_attributes(self.character.id), {"level": 7})
+        self.assertEqual(self.store.read_typed_attributes(self.character.id),
+                         self._expect(level=7))
+        self.assertNotIn(
+            "speed_walk", self.store.read_typed_attributes(self.character.id))
 
     def test_an_unknown_character_is_a_key_error_on_both_sides(self):
         with self.assertRaises(KeyError):
@@ -775,7 +858,7 @@ class StoreRoundTripTests(unittest.TestCase):
 
         with mock.patch.object(SQLiteStore, "read_typed_attributes", forbidden):
             after = self.store.write_typed_attributes(self.character.id, {"level": 4})
-        self.assertEqual(after, {"level": 4})
+        self.assertEqual(after, self._expect(level=4))
 
     def test_the_update_itself_refuses_a_soft_deleted_row(self):
         """The UPDATE carries `deleted_at IS NULL` of its own, so removing the
@@ -857,7 +940,10 @@ class StoreRoundTripTests(unittest.TestCase):
                 finally:
                     db.rollback()
                     db.close()
-        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+        # not one of the six refused values landed: the row still holds
+        # exactly what it was born with and nothing more
+        self.assertEqual(self.store.read_typed_attributes(self.character.id),
+                         self.birth)
 
 
 class TheGateStillRefusesTests(unittest.TestCase):
@@ -876,6 +962,10 @@ class TheGateStillRefusesTests(unittest.TestCase):
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
 
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
+        self.birth_x = birth_state.birth_by_x(self.birth)
+
     def _typed_values(self):
         """What the database really knows, in the gate's `{x: value}` shape."""
         stored = self.store.read_typed_attributes(self.character.id)
@@ -883,18 +973,27 @@ class TheGateStillRefusesTests(unittest.TestCase):
 
     def test_an_unwritten_column_reaches_the_gate_as_absent_not_as_zero(self):
         values = self._typed_values()
-        self.assertEqual(values, {})
+        self.assertEqual(values, self.birth_x)
+        # x=7 is `speed_walk`, which no birth state may carry -- so this stays
+        # a probe of an UNWRITTEN column after the insertion point lands.
+        self.assertNotIn(7, values)
         gaps = {g.x: g for g in compose.block_gaps(values)}
         self.assertEqual(gaps[7].reason, compose.REASON_NO_TYPED_VALUE)
 
     def test_writing_speed_closes_that_field_s_gap_and_no_other(self):
+        """The count used to be typed out (`54`).  It is now a DELTA, which is
+        what the sentence in the method name actually says and what survives a
+        birth state that closes three of the gaps before this test starts."""
+        before = {g.x for g in compose.block_gaps(self._typed_values())}
         self.store.write_typed_attributes(self.character.id, {"speed_walk": 620.0})
         values = self._typed_values()
-        self.assertEqual(values, {7: 620.0})
-        gaps = {g.x: g for g in compose.block_gaps(values)}
-        self.assertNotIn(7, gaps)
-        self.assertIn(2, gaps)  # level, still unwritten
-        self.assertEqual(len(gaps), 54)
+        self.assertEqual(values, {**self.birth_x, 7: 620.0})
+        after = {g.x for g in compose.block_gaps(values)}
+        self.assertEqual(before - after, {7}, "a gap other than speed closed")
+        self.assertEqual(after - before, set(), "writing speed OPENED a gap")
+        self.assertIn(24, after)  # `cash`, never written and never born
+        # and the absolute count still moves by exactly one
+        self.assertEqual(len(after), len(before) - 1)
 
     def test_a_full_block_still_cannot_be_composed_after_this_round(self):
         self.store.write_typed_attributes(
@@ -1123,6 +1222,11 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             "fingerprint-sparse-send", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
         )
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
+
+    def _expect(self, **written):
+        return birth_state.with_birth(self.birth, **written)
 
     def test_a_speed_write_comes_back_as_the_one_field_block(self):
         block = self.store.write_typed_attributes_and_compose_sparse(
@@ -1146,7 +1250,7 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
         )
         reopened = SQLiteStore(self.path, MIGRATIONS)
         stored = reopened.read_typed_attributes(self.character.id)
-        self.assertEqual(stored, {"speed_walk": block[7]})
+        self.assertEqual(stored, self._expect(speed_walk=block[7]))
         # and it is the float32 the wire will carry, not the double typed in
         self.assertEqual(block[7], struct.unpack("<f", struct.pack("<f", 400.1))[0])
         self.assertNotEqual(block[7], 400.1)
@@ -1162,7 +1266,12 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             self.store.write_typed_attributes_and_compose_sparse(
                 self.character.id, {"speed_walk": float("nan")}
             )
-        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+        # nothing landed: the row is still exactly its birth state, and in
+        # particular `speed_walk` is absent rather than zero
+        self.assertEqual(self.store.read_typed_attributes(self.character.id),
+                         self.birth)
+        self.assertNotIn(
+            "speed_walk", self.store.read_typed_attributes(self.character.id))
 
     def test_other_columns_already_on_the_row_do_not_join_the_block(self):
         """The write returns the WHOLE typed state; the block must not.
@@ -1180,7 +1289,7 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
         self.assertEqual(block, {7: 500.0})
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id),
-            {"level": 12, "speed_walk": 500.0},
+            self._expect(level=12, speed_walk=500.0),
         )
 
     def test_writing_an_unapproved_column_through_this_path_is_refused(self):
@@ -1203,7 +1312,7 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             )
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id),
-            {"level": 30, "speed_walk": 300.0},
+            self._expect(level=30, speed_walk=300.0),
         )
 
     def test_a_value_the_column_may_not_hold_never_reaches_the_database(self):
@@ -1211,7 +1320,10 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             self.store.write_typed_attributes_and_compose_sparse(
                 self.character.id, {"speed_walk": float("inf")}
             )
-        self.assertEqual(self.store.read_typed_attributes(self.character.id), {})
+        self.assertEqual(self.store.read_typed_attributes(self.character.id),
+                         self.birth)
+        self.assertNotIn(
+            "speed_walk", self.store.read_typed_attributes(self.character.id))
 
     def test_an_unknown_character_is_a_key_error_before_anything(self):
         with self.assertRaises(KeyError):
@@ -1268,8 +1380,15 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
         )
         reopened = SQLiteStore(self.path, MIGRATIONS)
         stored = reopened.read_typed_attributes(self.character.id)
+        self.assertEqual(stored["speed_walk"], 777.0)
+        # The row is composed for the FIELD BEING SENT, not wholesale.  That
+        # is not a convenience here: composing everything the row happens to
+        # hold is exactly the multi-field send `COO-ORDER 20260901_1641`
+        # forbids, and `test_other_columns_already_on_the_row_do_not_join_the
+        # _block` is the control that fires on it.
+        sending = {c: v for c, v in stored.items() if c == "speed_walk"}
         self.assertEqual(
-            compose.compose_sparse_block(typed.typed_values_for_compose(stored)),
+            compose.compose_sparse_block(typed.typed_values_for_compose(sending)),
             {7: 777.0},
         )
 

@@ -53,6 +53,8 @@ from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
+import pf_birth_state as birth_state  # noqa: E402
+
 MIGRATIONS = ROOT / "migrations"
 MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
 
@@ -370,15 +372,33 @@ class SeedingCensusTests(unittest.TestCase):
             self.account_id, "CensusChar", "censuschar",
             "fingerprint-census", _build_wire, self.home,
         )
+        # What this character was BORN holding.  Refused unless it is one of
+        # the two states this lane accepts, so the expectations below are
+        # phrased against a measured fact and not against a guess -- see
+        # `tests/pf_birth_state.py`.
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
 
-    def test_the_repository_as_it_stands_has_seeded_nothing(self):
+    def test_the_census_counts_exactly_what_a_fresh_character_holds(self):
+        """Once named `..._has_seeded_nothing`, which was a claim about the
+        calendar rather than about the census: `COO-DECISION 20260902_0444`
+        makes a fresh character hold three vitals, and a census that still
+        reported zero would be the bug.  Graded against RAW SQL over the same
+        file, so the census cannot agree with itself.
+        """
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_any"], 1)
         self.assertEqual(census["characters_live"], 1)
         self.assertEqual(census["database"], str(self.path))
         for column in vitals.VITAL_COLUMNS:
-            self.assertEqual(census[column + "_seeded_any"], 0, column)
-            self.assertEqual(census[column + "_seeded_live"], 0, column)
+            expected = 1 if column in self.birth else 0
+            with raw(self.path) as db:
+                on_disk = int(db.execute(
+                    "SELECT COUNT(*) FROM characters WHERE %s IS NOT NULL"
+                    % column).fetchone()[0])
+            self.assertEqual(on_disk, expected, column)
+            self.assertEqual(census[column + "_seeded_any"], expected, column)
+            self.assertEqual(census[column + "_seeded_live"], expected, column)
 
     def test_a_default_on_add_column_seeds_every_row_and_is_counted(self):
         # The shape 006's own header invites ("a rename is a later, cheap
@@ -393,7 +413,11 @@ class SeedingCensusTests(unittest.TestCase):
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["hp_current_seeded_any"], 1)
         self.assertEqual(census["hp_current_seeded_live"], 1)
-        self.assertEqual(census["level_seeded_any"], 0)
+        # `level` is untouched by the rename above, so it reports whatever the
+        # character was born with -- the point of this test is that the DEFAULT
+        # on `hp_current` is SEEN, not that the rest of the row is empty.
+        self.assertEqual(census["level_seeded_any"],
+                         1 if "level" in self.birth else 0)
 
     def test_a_plain_update_is_counted(self):
         self.store.write_typed_attributes(self.character.id, {"level": 3})
@@ -433,8 +457,12 @@ class SeedingCensusTests(unittest.TestCase):
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_live"], 1)
         self.assertEqual(census["characters_any"], 2)
-        self.assertEqual(census["level_seeded_live"], 0)
-        self.assertEqual(census["level_seeded_any"], 1)
+        # The live row is the FRESH character, so its `level` count is whatever
+        # birth leaves; the `_any` count adds the seeded-then-deleted one on
+        # top, and that gap between the two is what this test is about.
+        live = 1 if "level" in self.birth else 0
+        self.assertEqual(census["level_seeded_live"], live)
+        self.assertEqual(census["level_seeded_any"], live + 1)
 
     def test_the_census_names_the_drift_instead_of_raising_a_raw_sqlite_error(self):
         with raw(self.path) as db:
@@ -574,6 +602,19 @@ class StoreVitalsTests(unittest.TestCase):
             "fingerprint-vitals", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # Measured, then CLEARED.  The two tests directly below are about a
+        # row that holds no vital: what `read_character_vitals` reports for it
+        # and what `apply_hp_damage` refuses to do to it.  Until
+        # `COO-DECISION 20260902_0444` lands that state came for free from
+        # `create_character`; after it lands this is the only way to reach it
+        # at all, so the fail-closed doors stay measured rather than becoming
+        # unreachable.  The measurement is kept because it refuses any birth
+        # state this lane does not accept -- clearing must not be able to hide
+        # a wrong insertion point (`tests/pf_birth_state.py`).
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
+        birth_state.clear_vitals_to_pre_seed(self.path, [self.character.id])
+        self.assertEqual(self._hp_on_disk(), (None, None, None))
 
     def _hp_on_disk(self):
         with raw(self.path) as db:
@@ -589,7 +630,9 @@ class StoreVitalsTests(unittest.TestCase):
 
     # -- the unseeded database this repository actually has today ------------
 
-    def test_a_fresh_character_has_three_gaps_and_no_numbers(self):
+    def test_a_character_holding_no_vital_has_three_gaps_and_no_numbers(self):
+        """Renamed off the word "fresh": the row this measures is one the
+        fixture BUILT unseeded, not one that happens to be born that way."""
         resolution = self.store.read_character_vitals(self.character.id)
         self.assertFalse(resolution.complete)
         self.assertEqual(
@@ -755,6 +798,13 @@ class NothingIsWiredTests(unittest.TestCase):
         # and 2 require exactly that), so this lane's own test file for it
         # names them.  A test exercising the method is not a wiring.
         "tests/test_persistence_vitals_seed_007.py",
+        # LANE-DB round j3cswf: this lane's file for
+        # `migrations/008_character_speed_walk_seed.sql` names
+        # `read_character_vitals` inside `NothingSendsItTests.READERS` -- the
+        # scan that proves `COO-DECISION 20260902_0742` point 4.  It names the
+        # method in order to look for callers of it, which is the opposite of
+        # being one.
+        "tests/test_persistence_speed_walk_seed_008.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
@@ -1361,6 +1411,15 @@ class NewCharacterVitalsTests(unittest.TestCase):
             "src/pirateforce_foundation/persistence_vitals.py",
             "tests/test_persistence_vitals.py",
             "tests/test_persistence_vitals_seed_007.py",
+            # A test helper that DERIVES the accepted birth states from this
+            # same function so that three test files cannot each grow their
+            # own copy of `1/100/100`.  It is the opposite of a second source
+            # of birth values: it produces none, it only refuses states.
+            "tests/pf_birth_state.py",
+            # names it only to assert the NEGATIVE -- that the birth values do
+            # NOT carry `speed_walk` -- which is the pin `COO-DECISION
+            # 20260901_1447` point 2 leaves behind after migration 008.
+            "tests/test_persistence_speed_walk_seed_008.py",
         }
         callers = []
         for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",

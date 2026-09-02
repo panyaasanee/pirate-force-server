@@ -1,0 +1,123 @@
+-- 008_character_speed_walk_seed.sql
+-- LANE-DB / M4.  The second row-touching migration of this lane, and the
+-- first one whose number is not a transcription of something this server
+-- already sends.
+--
+-- MEASURED from client BasicAttr constructor (RE-194) -- VA 0x00464AF2 -- STORE ONLY, not a send value
+--
+-- That tag is the header label `COO-DECISION 20260902_0742` point 2 requires,
+-- verbatim, in ASCII (`--` for the em dash).  Its second half is not
+-- decoration and is the reason the decision insisted on it: RE-194 closed
+-- what the CONSTRUCTION default is and explicitly did NOT close whether that
+-- number is safe to put on the wire after construction.  Point 4 of the same
+-- decision forbids any code reading this column off a row and sending it on
+-- the strength of this file; `/speed` and every other midgame send stay under
+-- their own owner/COO decision (`20260901_0345`).  Nothing in this repository
+-- reads the column for a send today, and
+-- `tests/test_persistence_speed_walk_seed_008.py` keeps that sentence honest
+-- by scanning for a reader rather than by asserting it here.
+--
+-- ERRATA FOR 007's HEADER, carried here because `COO-DECISION 20260902_0250`
+-- point 3 forbids editing 007 and `COO-DECISION 20260902_0743` point 3 chose
+-- this file over a file of its own.  The line is that decision's, verbatim:
+--
+-- 007 header: SeedsACohortNotADatabaseTests now accepts both pre/post create-plug states; the 'seeds a cohort, not a database' sentence remains true of 007's own effect
+--
+-- WHY THIS NUMBER, AND WHY IT IS NO LONGER A GUESS.
+-- `COO-DECISION 20260901_1447` point 2 forbade seeding this column with
+-- EITHER candidate: 150.0 (`tests/test_npc_gait_wire.py`'s
+-- `PROVEN_WALK_SPEED`, proven on the wire for an NPC) and 400.0 (the client
+-- construction default named in
+-- `persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS`) were "equally a
+-- guess without" an RE answer.  RE-194 (`pf_bridge/notes_to_chief/
+-- 20260902_0501_RE-194-RESULT-PLAYER-FRESH-DEFAULT-400-NPC150-IS-WIRE.md`)
+-- is that answer, and it resolves the two into different LIFECYCLE LAYERS
+-- rather than picking a winner between rivals:
+--
+--   * `BasicAttr::ctor` stores a f32 into `+0x54` with no branch and no
+--     parameter -- `movss [esi+0x54], xmm0` at VA `0x00464AF2`, loading the
+--     literal at `[0x00F0DD9C]`, bytes `00 00 C8 43` = IEEE-754 `400.0`.
+--   * The player's attr object reaches that constructor unconditionally:
+--     `CMyActor::ctor` -> `CNetActor::ctor` -> ActorAttr factory ->
+--     `ActorAttr::ctor` -> `BasicAttr::ctor`, with no return path that
+--     supplies a non-null player attr without the call.
+--   * `NPCAttr::ctor` calls the SAME base constructor, so an NPC also begins
+--     at 400.0.  The 150.0 arrives later, over the wire: the CNetNPC data
+--     initializer converts the MOBS record's `n_SPEED_WALK` and calls the
+--     `+0x54` setter, and tag `0x2A` under mask bit `0x0040` can overwrite
+--     the resident value at any time.
+--
+-- So 400.0 is what a freshly constructed player object HOLDS before anything
+-- on the wire touches it, and 150.0 is a value something on the wire put
+-- there afterwards, for a mob.  They never disagreed about the same moment.
+-- Cited by VA and by symbol rather than by line number, for the reason 007's
+-- header gives at length: this file may not be edited afterwards
+-- (`COO-DECISION 20260902_0250` point 3 applies to a row-touching migration
+-- of this lane), so a pointer that rots could never be corrected in place.
+--
+-- WHAT THE TAG DOES NOT SAY.  It does not say the ORIGINAL GAME seeds a new
+-- character's stored walk speed with 400.0; it says the CLIENT's object
+-- starts there.  Those are different questions and only the second is closed.
+-- It also does not say a player MOVES at 400.0 on screen: RE-194's own
+-- nonclaims refuse client-observable movement from static evidence.  The day
+-- an answer to either differs, the fix is a NEW file; 008 is never edited.
+--
+-- WHY IT DOES NOT BREAK THE OWNER'S "NEVER GUESS ZERO" RULE
+-- (PANYA-ORDER relayed verbatim in `COO-DECISION 20260901_1059`).  400.0 is
+-- not zero and not a guess: it is bytes read out of the shipped client image
+-- at a named address.  The seventeen columns this file does not touch stay
+-- NULL, `SQLiteStore.read_typed_attributes` keeps omitting them, and
+-- `persistence_attr_compose` keeps refusing any block that would need them.
+--
+-- WHY IT IS SURVIVABLE.  `COO-DECISION 20260901_1112` point 3 requires an
+-- automatic pre-apply copy of the `.db` file for any migration that touches
+-- existing rows.  The mechanism is already on both migrating boot branches
+-- (`app.py` calls `SQLiteStore.migrate_with_backup`), and
+-- `persistence_backup.should_snapshot` returns True whenever ANY migration
+-- file is pending -- which is exactly the boot that applies this one.  As
+-- with 007, that is measured rather than asserted:
+-- `BootSnapshotProtects008Tests` drives the real `migrate_with_backup` over
+-- this real directory and restores the pre-008 database out of the snapshot.
+--
+-- WHY THE PREDICATE IS ONE LINE AND HAS NO PARTNER CLAUSE.
+-- `COO-DECISION 20260902_0742` point 1 asks for 007's shape exactly:
+-- `WHERE speed_walk IS NULL`, no row that already holds a value touched.
+-- 007 needed two extra guards -- the HP pair written atomically, and the
+-- `level > 0` clause -- because seeding one column of a RELATED SET can
+-- complete a row into a state the server accepts around a value nobody
+-- adjudicated.  `speed_walk` has no partner column and participates in no
+-- such relation: `persistence_vitals` does not read it, `resolve()` does not
+-- mention it, and no CHECK relates it to another column.  Seeding it can
+-- therefore close exactly one gap (x=7) and cannot complete anything.
+--
+-- *** THE SAME LIMITATION 007 CARRIES, AND ONE MORE THIS FILE ADDS.
+-- Like 007, this file SEEDS A COHORT, NOT A DATABASE: it writes the rows that
+-- exist the moment it runs and no others, ever.  On a fresh install it runs
+-- against an empty table and every later character has `speed_walk` NULL
+-- forever.
+--
+-- What is new, and a reader must not have to discover it: `COO-DECISION
+-- 20260902_0444` closes the cohort gap FOR THE THREE VITALS ONLY, by having
+-- `create_character` write them from `persistence_vitals.
+-- new_character_vitals()` -- and that function is forbidden from carrying a
+-- fourth column (`COO-DECISION 20260901_1447` point 2, pinned by
+-- `test_it_seeds_none_of_the_other_eighteen_columns`).  So once both land,
+-- the database holds two kinds of character: one created before 008, holding
+-- level/hp AND `speed_walk = 400.0`, and one created after, holding level/hp
+-- and NO speed.  That asymmetry is a consequence of the two decisions as
+-- written, not a defect this file introduces, and it is REPORTED to COO in
+-- the round this file lands rather than resolved here -- closing it means
+-- deciding what every future character is born holding, which is not this
+-- file's question.
+--
+-- WHAT ELSE THIS FILE DOES NOT DO.  It inserts nothing, deletes nothing,
+-- drops nothing, rebuilds no table, adds no column, and names no column other
+-- than `speed_walk`.  It does not touch `updated_at`, for 007's reason: a
+-- backfill of a column that was absent is not a change the character made.
+-- It does not treat soft-deleted rows differently from live ones, also for
+-- 007's reason: `004_character_soft_delete_reuse.sql` keeps the row, and an
+-- undelete must not produce a character in a state the server refuses.  It
+-- never writes a row that already holds the value it would write, so a second
+-- run (which the ledger prevents anyway) would change nothing.
+
+UPDATE characters SET speed_walk = 400.0 WHERE speed_walk IS NULL;
