@@ -219,9 +219,14 @@ class TheBirthPlugIsPinnedTests(_FreshInstall):
 
     def test_a_birth_writes_no_typed_column_beyond_the_three(self):
         """`COO-DECISION 20260901_1447` point 2: no fourth column at birth.
-        `speed_walk` is the live candidate -- `008` seeded it into the
-        existing cohort and `COO-DECISION 20260902_1043` forbids seeding it
-        at creation -- so a newborn must hold it as NULL.
+        `speed_walk` is the live candidate, and it is NO LONGER NULL at
+        birth: `COO-DECISION 20260902_0742` then `20260902_1607` (the one
+        Panya ruled live) replaced `20260902_1043`, and migration `009`
+        gives the column a schema DEFAULT of 400.0.  At HEAD
+        `create_character` names only the three vitals, so the 400.0 below
+        is the DEFAULT's -- but the assertion MEASURES THE VALUE, NOT ITS
+        PROVENANCE, and `COO-DECISION 20260902_2046` point 3 gives the
+        provenance guard to this file's owner, not to LANE-DB.
         """
         store = self._store()
         character = self._born(store, "four")
@@ -233,11 +238,21 @@ class TheBirthPlugIsPinnedTests(_FreshInstall):
             value = db.execute(
                 "SELECT speed_walk FROM characters WHERE id=?",
                 (character.id,)).fetchone()[0]
-        self.assertIsNone(
-            value,
-            "a newborn carries speed_walk, which is a FOURTH birth value "
-            "nobody adjudicated (COO-DECISION 20260901_1447 point 2, "
-            "20260902_1043)")
+        self.assertEqual(
+            value, 400.0,
+            "a newborn's speed_walk is not the 400.0 that "
+            "migrations/009_character_birth_defaults.sql declares as the "
+            "column DEFAULT.  The value is owed to the SCHEMA: "
+            "COO-DECISION 20260902_0742 then 20260902_1607 (Panya ruled "
+            "live) replaced 20260902_1043, which is what the old NULL "
+            "expectation cited.  THIS CARD CANNOT TELL WHERE THE 400.0 "
+            "CAME FROM -- measured by pf-adversary on 2026-09-02: a "
+            "create_character that appends speed_walk=400.0 to the birth "
+            "INSERT costs ZERO red tests in this file, and a tree with the "
+            "DEFAULT removed and the value written at birth instead leaves "
+            "all seven green.  Read a green here as 'the row holds 400.0', "
+            "never as 'no fourth column was written at birth'; "
+            "COO-DECISION 20260902_2046 point 3 gives that guard to chief")
 
 
 class TheBirthTouchesNothingElseTests(_FreshInstall):
