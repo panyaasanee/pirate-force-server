@@ -55,13 +55,18 @@ class ActionAckTests(unittest.TestCase):
  def test_exact_once_and_differential_performer_only(self):
   state=self.state(); before=self.db_guard(); request,body=self.request()
   actions=state.dispatch(request); self.assertEqual([x[0] for x in actions],["SCENE007_EA7D_ACTION_ACK_ONCE"])
-  parsed=self.v.parse_outer(actions[0][1]); parsed.nested_payload=parsed.nested_payload[:-2]
+  # COO-DECISION 20260902_0646 item 2: this site now composes through
+  # preserve_ground_in_runtime_res_vitals, whose derived-mask tail is the
+  # 5-byte PRESERVE pin (0B 08 12 00 00), not the 2-byte EMPTY pin.  Both
+  # numbers below moved for that reason and no other: the body in front of
+  # the tail is byte-identical, which is what the composer swap promises.
+  parsed=self.v.parse_outer(actions[0][1]); parsed.nested_payload=parsed.nested_payload[:-5]
   fields=self.v.parse_action_vital(parsed)
   identity=(self.character.identity_hi<<32)|self.character.identity_lo
   self.assertEqual(fields["field_qword_18"],identity); self.assertEqual(fields["field_qword_20"],0x203D)
   response_body=parsed.nested_payload[:64]
   self.assertEqual(response_body[9:],body[9:]); self.assertEqual(response_body[:1],body[:1])
-  self.assertEqual(len(actions),1); self.assertEqual(len(actions[0][1]),86)
+  self.assertEqual(len(actions),1); self.assertEqual(len(actions[0][1]),89)
   for forbidden in (self.v.UPDATE_ATTR_VITAL,0x1285): self.assertNotIn(self.v.u16tag(0x12,forbidden),actions[0][1])
   self.assertEqual(state.dispatch(request),[]); self.assertEqual(self.db_guard(),before)
  def test_fresh_count6_structural_order_is_accepted(self):
@@ -129,5 +134,114 @@ class ActionAckTests(unittest.TestCase):
   self.assertEqual(actions[0][1:3],self.projector.start_game(
    self.character,self.scenario.position,1))
   self.assertEqual(self.db_guard(),before)
+
+class ActionAckPreserveOptInTests(ActionAckTests):
+ # D7: this class re-uses the parent's fixtures, not its tests.
+ # Every test_* the parent defines is unbound here so it is not
+ # collected twice; anything added to the parent stays single-run.
+ for _inherited in [n for n in list(vars(ActionAckTests))
+                    if n.startswith('test_')]: locals()[_inherited]=None
+ del _inherited
+ """COO-DECISION 20260902_0646 items 2 and 4, and CHIEF-DEBT-003.
+
+ The debt this closes, in the COO's own words: a suite may not go green on an
+ emitter nobody calls.  Both tests below go through state.dispatch(), so they
+ exercise the composer at the INSTALLED call site (runtime.py:7335), not by
+ importing mob_loot and calling it directly.
+ """
+ def test_the_installed_site_composes_through_the_preserving_composer(self):
+  # Item 2.  The evidence that the swap took effect is the derived-mask tail
+  # on the wire, not the presence of an import: the EMPTY pin is 2 bytes and
+  # the PRESERVE pin is 5, and the body in front of it must be untouched.
+  from pirateforce_foundation import action_ack as ack_mod
+  from pirateforce_foundation.mob_loot import (
+   RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN,RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN)
+  # D5: pinning the tail alone is not enough -- pf-adversary showed those byte
+  # assertions also pass on the REFUTED "slice two bytes off and staple the
+  # tail on" implementation (mob_loot.py:3332-3345, round ewm6ff finding D1).
+  # So assert the real composer was CALLED, with the site's own arguments.
+  calls=[]; original=ack_mod.preserve_ground_in_runtime_res_vitals
+  def spy(legacy,vitals):
+   calls.append(tuple(vitals)); return original(legacy,vitals)
+  ack_mod.preserve_ground_in_runtime_res_vitals=spy
+  try:
+   state=self.state(); request,_=self.request()
+   actions=state.dispatch(request)
+  finally:
+   ack_mod.preserve_ground_in_runtime_res_vitals=original
+  self.assertEqual(len(calls),1)
+  self.assertEqual(len(calls[0]),1); self.assertEqual(calls[0][0][0],self.v.ACTION_VITAL)
+  self.assertEqual([x[0] for x in actions],["SCENE007_EA7D_ACTION_ACK_ONCE"])
+  pc=actions[0][1]
+  self.assertTrue(pc.endswith(RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN))
+  self.assertFalse(pc.endswith(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN))
+  # 86 = what the legacy composer produced at this site before the swap;
+  # 89 = the same body with the 3-byte-longer PRESERVE tail.  The body being
+  # byte-identical is what the swap promises, so pin the difference exactly.
+  self.assertEqual(len(pc),86-len(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)
+   +len(RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN))
+  self.assertEqual(len(pc),89)
+ def test_a_refusal_ships_the_original_bytes_and_says_so(self):
+  # Item 4.  Force the preserving composer to refuse the way it really can --
+  # by moving the legacy composer under it -- and assert the player still gets
+  # an answer: the ORIGINAL 86-byte pc, plus one loud ASCII line naming the
+  # exception type.  A silent fallback would be the failure this guards.
+  import io,contextlib
+  from pirateforce_foundation import action_ack as ack_mod
+  from pirateforce_foundation.mob_loot import (
+   MobLootContractError,REFUSE_VITALS_COMPOSER_MOVED,
+   RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)
+  # The message carries a Thai character on purpose: the except is broad, so a
+  # non-refusal exception from anywhere may reach this print, and the bridge
+  # console is cp874.  The line must survive that encoding whatever it caught.
+  def refuse(legacy,vitals):
+   raise MobLootContractError(REFUSE_VITALS_COMPOSER_MOVED,"forced")
+  original=ack_mod.preserve_ground_in_runtime_res_vitals
+  ack_mod.preserve_ground_in_runtime_res_vitals=refuse
+  try:
+   state=self.state(); request,_=self.request(); buf=io.StringIO()
+   with contextlib.redirect_stdout(buf): actions=state.dispatch(request)
+  finally:
+   ack_mod.preserve_ground_in_runtime_res_vitals=original
+  self.assertEqual([x[0] for x in actions],["SCENE007_EA7D_ACTION_ACK_ONCE"])
+  pc=actions[0][1]
+  self.assertEqual(len(pc),86)
+  self.assertTrue(pc.endswith(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN))
+  printed=buf.getvalue()
+  self.assertIn("GROUND_VITALS_PRESERVE_REFUSED",printed)
+  self.assertIn("MobLootContractError",printed)
+  # cp874: the bridge console dies on anything outside it, so the refusal line
+  # must survive that encoding.  Test the encoder, do not eyeball the output.
+  hit=[l for l in printed.splitlines() if "GROUND_VITALS_PRESERVE_REFUSED" in l]
+  self.assertEqual(len(hit),1)
+  # COO 0646 item 4 says <ExcType>: type name only, never the message.  An
+  # exception MESSAGE can carry non-cp874 bytes and blow up inside this very
+  # handler, which is why three other modules here already write type-only.
+  self.assertEqual(hit[0].strip(),"GROUND_VITALS_PRESERVE_REFUSED MobLootContractError")
+  hit[0].encode("cp874"); hit[0].encode("ascii")
+  # D6: a refusal must be visible in the events stream, not only on a console.
+  self.assertIn("scene007_action_ack_preserve_refused_"+REFUSE_VITALS_COMPOSER_MOVED.lower(),
+   state.events)
+ def test_a_composer_defect_is_not_dressed_up_as_a_refusal(self):
+  # D1, the defect this round nearly shipped.  preserve_* DRIVES
+  # legacy.make_runtime_vitals itself, so a broad except would catch a failure
+  # of the shared composer, print a reassuring "refused" line, and then call
+  # the very same broken composer again -- re-raising out of state.dispatch(),
+  # where the frozen game_listener has zero except handlers and the thread
+  # dies.  That is the failure letter 0605 withdrew the global wrap for.
+  # The except is narrow, so a composer defect must propagate UNCHANGED and
+  # must NOT print the refusal token.
+  import io,contextlib,struct
+  from pirateforce_foundation import action_ack as ack_mod
+  def boom(legacy,vitals): raise struct.error("bad payload")
+  original=ack_mod.preserve_ground_in_runtime_res_vitals
+  ack_mod.preserve_ground_in_runtime_res_vitals=boom
+  try:
+   state=self.state(); request,_=self.request(); buf=io.StringIO()
+   with contextlib.redirect_stdout(buf):
+    with self.assertRaises(struct.error): state.dispatch(request)
+  finally:
+   ack_mod.preserve_ground_in_runtime_res_vitals=original
+  self.assertNotIn("GROUND_VITALS_PRESERVE_REFUSED",buf.getvalue())
 
 if __name__=="__main__": unittest.main()

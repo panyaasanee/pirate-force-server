@@ -835,7 +835,46 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # "no allowlisted profile can carry this value yet" comments were corrected.
 # No other entry added, removed or reordered; no earlier status/kind/
 # checkpoint/production_allowed touched.)
-CANONICAL_CONTENT_SHA256 = "6579D95295347AB1B1D2C4C252F41EB81C98C9D31D82DE72C719530E164C16FC"
+# Re-pinned for ONE deliberate movement (chief cloud round smrum3 / R301,
+# 2026-09-02, COO-DECISION 20260902_0646 item 2): HYP-PF-002's source_ref for
+# src/pirateforce_foundation/action_ack.py swaps its composer marker from
+# "make_runtime_vitals([(legacy.ACTION_VITAL, 0, payload)])" to
+# "preserve_ground_in_runtime_res_vitals(legacy, vitals)", its runtime.py
+# call-site marker gains the refusals argument, and exact_value_or_transform
+# gains the new byte counts with the nonclaim that the frozen 2026-08-16
+# evidence measured the OLD ones.  That marker is what
+# records WHICH composer this call site uses, so moving the site without moving
+# the marker would leave the ledger asserting a line that is no longer there --
+# the "ledger drift" that killed two chief PRs on 27 Aug.  This is the first
+# opt-in site of the per-site rollout that replaced the WITHDRAWN global wrap
+# over make_runtime_vitals (chief letter 20260902_0605: the wrap was measured
+# killing the game_listener thread on three live paths and helping P-1 on
+# none).  The ledger GROWS by nothing: count unchanged, no entry added,
+# removed, reordered or reindexed; no status/kind/checkpoint/
+# production_allowed touched -- HYP-PF-002 stays frozen with
+# production_allowed false, so no claim is made that this changes what any
+# player sees.
+#
+# CORRECTION, same round, after pf-adversary: an earlier draft of this note
+# argued from "production_allowed: false" that nothing a player sees can
+# change.  That argument is WRONG and is withdrawn.  production_allowed is
+# enforced for lane_hooks modules (runtime.py:5415, :5775); HYP-PF-002 has no
+# such flag and no code consults it, so for this site the field is a label
+# that reports, not a gate that acts.  What actually gates the site is the
+# operator flag --scene-load-scenario ..._ea7d_ack.json (app.py:141, :330;
+# scene_load.py:171-173), and that scenario HAS been booted against a live
+# client.  So this IS a client-observable byte change on a flag-gated path:
+# pc 86 -> 89, frame 97 -> 100, body byte-identical, PRESERVE tail.  The shape
+# is unmeasured on any wire -- mob_loot.py:3320 says so in its own words, and
+# ka1-B 20260901_2210 counts 0 present-pool frames under outer mask 0x02 in
+# 15,288.  Raised to COO as the blocking question before any further site.
+#
+# The src make_runtime_vitals call-site census is UNCHANGED at
+# 26 (re-derived with the tool's own regex and file set): the refusal path of
+# the new code still calls that composer by name, so the pins in
+# tools/pf_runtimeres_actor_entry_static.py and the RUNTIMERES_COUNTS block do
+# not move and were deliberately not touched.
+CANONICAL_CONTENT_SHA256 = "826C4ADD9E72CC014D91793166800A719EE2B668A3232F69F46F0E5A8E537115"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

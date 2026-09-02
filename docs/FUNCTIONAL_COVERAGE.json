@@ -479,7 +479,7 @@
             "tests/test_action_ack.py",
             "tests/test_action_consumer_probe.py"
           ],
-          "notes": "The ack is accepted by the client without error, and SCENE-008 traced the consumer as inert: no visible attack, animation, or state change follows. Acknowledgement is not combat."
+          "notes": "The ack is accepted by the client without error, and SCENE-008 traced the consumer as inert: no visible attack, animation, or state change follows. Acknowledgement is not combat. CAVEAT since 2026-09-02 (COO-DECISION 20260902_0646 item 2, chief round smrum3/R301): the composer at this site changed, so the ack is now an 89-byte pc in a 100-byte frame carrying the PRESERVE derived-mask tail, where the runtime_pass evidence measured 86 and 97 with the EMPTY tail. The body is byte-identical and the change is reachable only under --scene-load-scenario ..._ea7d_ack.json, but the runtime_pass above was earned against the OLD bytes and has NOT been re-earned against the new ones. Read this row as runtime_pass for the acknowledgement behaviour, not for the frame this server sends today."
         },
         {
           "id": "damage_and_hit_result",
