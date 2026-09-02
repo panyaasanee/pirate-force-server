@@ -3090,7 +3090,10 @@ class DropLedgerCell:
         zero-row generation as a CLIENT NO-OP (static, same ceiling).  There is no known
         message that removes the last object one at a time, so this returns
         ``(0, ())`` and the caller sends nothing -- today's behaviour, held
-        deliberately.  [ASSUMPTION OF LANE B - AWAITING COO] that holding is
+        deliberately.  ~~[ASSUMPTION OF LANE B - AWAITING COO]~~ IS ANSWERED:
+        [COO-DECISION 2026-09-02T13:45+07:00 CONFIRMS OPTION (a), HELD --
+        REOPEN ONLY WHEN ``RE-208`` HAS A RESULT FROM A REAL MACHINE] that
+        holding is
         better than spending this lane's one UNMEASURED shape (a generation
         carrying no elements) on it: an empty generation that turns out NOT
         to be a no-op on a real client would wipe the scene's whole ground,
