@@ -971,5 +971,418 @@ class ImportTimeGuardTests(unittest.TestCase):
                          ("level", "hp_current", "hp_max"))
 
 
+class LevelZeroIsRefusedTests(unittest.TestCase):
+    """`COO-DECISION 20260902_0443` point 4.
+
+    Until that decision this module refused `hp_max = 0` and had NO rule about
+    a stored `level = 0`, and `006`'s CHECK allows one (`BETWEEN 0 AND 65535`,
+    the `u16` wire range).  The consequence is written out in
+    `migrations/007_character_vitals_seed.sql`'s header and was measured by a
+    `pf-adversary` pass, not reasoned to: a row at level zero was refused only
+    for as long as its HP stayed unseeded, so ANYTHING that later completed the
+    HP pair -- 007 itself, chief's write at creation, an operator's UPDATE --
+    handed back a state `require()` accepted, and `apply_hp_damage` would run
+    on it, around a level nobody adjudicated.
+
+    007 closed that from the migration's side by declining such a row.  This
+    closes it from the decision layer's side, which is the side that holds when
+    the completion does not come from a migration at all.
+    """
+
+    #: The state the old code accepted and the new code refuses.  Written once
+    #: so that every test below is visibly about the SAME row.
+    COMPLETED_AROUND_A_ZERO = {"level": 0, "hp_current": 100, "hp_max": 100}
+
+    def test_a_zero_level_beside_a_complete_hp_pair_is_refused(self):
+        resolution = vitals.resolve(dict(self.COMPLETED_AROUND_A_ZERO))
+        self.assertFalse(resolution.complete)
+        self.assertEqual(
+            [(gap.column, gap.reason) for gap in resolution.gaps],
+            [("level", vitals.REASON_LEVEL_ZERO)],
+        )
+        with self.assertRaises(vitals.VitalsError) as caught:
+            resolution.require()
+        self.assertIn("level", str(caught.exception))
+        self.assertIn(vitals.REASON_LEVEL_ZERO, str(caught.exception))
+
+    def test_the_refusal_is_a_named_gap_and_not_a_dropped_column(self):
+        """A refusal that removed the column from `present` would read to a
+        caller as "not seeded", which is a different and softer sentence than
+        "this server was told a level it may not hold"."""
+        resolution = vitals.resolve(dict(self.COMPLETED_AROUND_A_ZERO))
+        self.assertEqual(resolution.present["level"], 0)
+        self.assertNotIn(
+            vitals.REASON_NOT_SEEDED,
+            {gap.reason for gap in resolution.gaps},
+        )
+
+    def test_a_zero_level_with_unseeded_hp_reports_both_reasons(self):
+        """The gap that already existed is not swallowed by the new one: an
+        operator reading the message has to see everything wrong with the row,
+        not the first thing."""
+        resolution = vitals.resolve({"level": 0})
+        self.assertEqual(
+            {(gap.column, gap.reason) for gap in resolution.gaps},
+            {
+                ("hp_current", vitals.REASON_NOT_SEEDED),
+                ("hp_max", vitals.REASON_NOT_SEEDED),
+                ("level", vitals.REASON_LEVEL_ZERO),
+            },
+        )
+
+    def test_a_zero_level_survives_the_incomplete_pair_early_return(self):
+        """`_consistency_gaps` returns early on a half-written HP pair.  The
+        level gap is computed BEFORE that return on purpose, and this is the
+        test that fails if a later edit moves it after."""
+        resolution = vitals.resolve({"level": 0, "hp_max": 50})
+        reasons = {gap.reason for gap in resolution.gaps}
+        self.assertIn(vitals.REASON_LEVEL_ZERO, reasons)
+        self.assertIn(vitals.REASON_HP_PAIR_INCOMPLETE, reasons)
+
+    def test_every_other_level_this_wire_can_hold_is_still_accepted(self):
+        """The control.  The rule refuses exactly the zero, not "a low level":
+        a rule that quietly took 1 with it would break every character 007
+        seeded, which is every character that exists."""
+        for level in (1, 2, 65535):
+            with self.subTest(level=level):
+                resolution = vitals.resolve(
+                    {"level": level, "hp_current": 100, "hp_max": 100})
+                self.assertTrue(resolution.complete, resolution.gaps)
+                self.assertEqual(resolution.require().level, level)
+
+    def test_the_hp_rules_did_not_move(self):
+        """`hp_max = 0` and `hp_current > hp_max` are refused exactly as
+        before, with their own reason codes: this decision tightened one
+        column and was not allowed to loosen another."""
+        zero_max = vitals.resolve(
+            {"level": 1, "hp_current": 0, "hp_max": 0})
+        self.assertEqual(
+            [gap.reason for gap in zero_max.gaps],
+            [vitals.REASON_HP_MAX_ZERO],
+        )
+        above = vitals.resolve(
+            {"level": 1, "hp_current": 90, "hp_max": 50})
+        self.assertEqual(
+            [gap.reason for gap in above.gaps],
+            [vitals.REASON_HP_ABOVE_MAX],
+        )
+
+    def test_apply_damage_is_unchanged_because_it_never_sees_a_level(self):
+        """`apply_damage` is arithmetic over the HP pair and takes no level at
+        all, so this decision could not have changed it.  Asserted rather than
+        assumed: the rule was added to the shared `_consistency_gaps`, which
+        `apply_damage` also calls."""
+        outcome = vitals.apply_damage(100, 100, 30)
+        self.assertEqual(outcome.hp_after, 70)
+        self.assertFalse(outcome.died)
+
+
+class LevelZeroThroughTheStoreTests(unittest.TestCase):
+    """The same rule where it actually bites: a real row in a real database.
+
+    The module-level tests above pass a dict to `resolve`.  These take the
+    path a caller takes -- `read_character_vitals` and `apply_hp_damage`,
+    which is the method that WRITES -- because the defect being closed is a
+    write landing on a row nobody adjudicated, not a mapping being judged.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("level-zero")
+        self.character = self.store.create_character(
+            self.account_id, "Zeroth", "zeroth", "fingerprint-zeroth",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+
+    def _raw_set(self, **columns):
+        """Straight SQL, deliberately: this is the writer the rule exists for.
+
+        `write_typed_attributes` validates per column and `006`'s CHECK allows
+        a zero level, so BOTH of this repository's own doors let this row
+        exist.  The point of the rule is that the row can be created and is
+        then refused on the way OUT.
+        """
+        with raw(self.path) as db:
+            for column, value in columns.items():
+                db.execute(
+                    "UPDATE characters SET %s=? WHERE id=?" % column,
+                    (value, self.character.id),
+                )
+            db.commit()
+
+    def test_the_repository_s_own_write_path_also_accepts_a_zero_level(self):
+        """Stated as a measurement rather than left implied: this rule is a
+        READ-side refusal, and the write side is unchanged.  A round file must
+        not claim a zero level cannot be stored."""
+        self.store.write_typed_attributes(self.character.id, {"level": 0})
+        with raw(self.path) as db:
+            stored = db.execute(
+                "SELECT level FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()
+        self.assertEqual(stored[0], 0)
+
+    def test_a_complete_row_at_level_zero_is_refused_by_the_read(self):
+        self._raw_set(level=0, hp_current=100, hp_max=100)
+        resolution = self.store.read_character_vitals(self.character.id)
+        with self.assertRaises(vitals.VitalsError) as caught:
+            resolution.require()
+        self.assertIn(vitals.REASON_LEVEL_ZERO, str(caught.exception))
+
+    def test_damage_will_not_land_on_a_row_at_level_zero(self):
+        """The one that matters, and the one that was green before this round.
+
+        Without the rule this row is COMPLETE: `require()` hands back
+        `Vitals(0, 100, 100)` and the UPDATE lands.  The assertion on disk is
+        what makes this a test about a write rather than about an exception.
+        """
+        self._raw_set(level=0, hp_current=100, hp_max=100)
+        with self.assertRaises(vitals.VitalsError):
+            self.store.apply_hp_damage(self.character.id, 10)
+        with raw(self.path) as db:
+            after = db.execute(
+                "SELECT hp_current FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()
+        self.assertEqual(after[0], 100)
+
+    def test_the_same_row_at_level_one_takes_the_damage(self):
+        """The control: the refusal above is the level, not the harness."""
+        self._raw_set(level=1, hp_current=100, hp_max=100)
+        outcome = self.store.apply_hp_damage(self.character.id, 10)
+        self.assertEqual(outcome.hp_after, 90)
+        with raw(self.path) as db:
+            after = db.execute(
+                "SELECT hp_current FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()
+        self.assertEqual(after[0], 90)
+
+
+class NewCharacterVitalsTests(unittest.TestCase):
+    """`COO-DECISION 20260902_0443` point 1: the values a character is BORN
+    holding, in one function, in this module.
+
+    What the decision rejected is as much a part of this as what it chose.
+    Point 2 forbids a schema `DEFAULT`: SQLite cannot add one to an existing
+    column, so it would mean rebuilding `characters` to install a number the
+    header itself marks OPEN -- and rebuilding it a second time the day an RE
+    answers.  A function is one edit in one file.
+
+    This module still writes nothing.  The INSERT that will carry these three
+    columns is in `SQLiteStore.create_character`, an EXISTING method the
+    charter (`COO-DECISION 20260901_1100`) forbids this lane to change, so it
+    is chief's plug and was asked for in writing.  Until it lands these values
+    are correct and unreached -- `SeedsACohortNotADatabaseTests` in
+    `tests/test_persistence_vitals_seed_007.py` is where which of those two
+    states the repository is actually in gets MEASURED rather than assumed.
+    """
+
+    def test_it_returns_exactly_the_three_vital_columns(self):
+        self.assertEqual(
+            sorted(vitals.new_character_vitals()),
+            sorted(vitals.VITAL_COLUMNS),
+        )
+
+    def test_the_keys_are_column_names_because_a_caller_builds_an_insert(self):
+        """Not `x` numbers and not attribute names: the consumer is an INSERT
+        column list, and a mismatch here would be found by SQLite at runtime
+        on the owner's machine rather than here."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "probe.sqlite3"
+        with raw(path) as db:
+            db.executescript(
+                "CREATE TABLE probe(level INTEGER, hp_current INTEGER, "
+                "hp_max INTEGER);")
+            values = vitals.new_character_vitals()
+            columns = list(values)
+            db.execute(
+                "INSERT INTO probe(%s) VALUES (%s)"
+                % (",".join(columns), ",".join("?" * len(columns))),
+                [values[c] for c in columns],
+            )
+            row = db.execute(
+                "SELECT level,hp_current,hp_max FROM probe").fetchone()
+        self.assertEqual(tuple(row), (1, 100, 100))
+
+    def test_the_values_are_the_transcribed_ones(self):
+        self.assertEqual(
+            vitals.new_character_vitals(),
+            {"level": 1, "hp_current": 100, "hp_max": 100},
+        )
+
+    def test_the_result_passes_this_module_s_own_front_door(self):
+        """A birth value the module refuses is a character that cannot be
+        composed for on its first login."""
+        resolution = vitals.resolve(vitals.new_character_vitals())
+        self.assertTrue(resolution.complete, resolution.gaps)
+        state = resolution.require()
+        self.assertEqual(
+            (state.level, state.hp_current, state.hp_max), (1, 100, 100))
+        self.assertTrue(state.alive)
+
+    def test_every_call_hands_back_a_fresh_dict(self):
+        """A caller that mutates what it got must not poison the next
+        character born on this process."""
+        first = vitals.new_character_vitals()
+        first["level"] = 99
+        first.pop("hp_max")
+        self.assertEqual(
+            vitals.new_character_vitals(),
+            {"level": 1, "hp_current": 100, "hp_max": 100},
+        )
+
+    def test_a_birth_value_this_module_would_refuse_cannot_be_handed_out(self):
+        """The self-check is the point of routing through `resolve`, so it is
+        graded against the three states this module refuses -- including the
+        zero level this round added, which is the shape a guessed seed leaves
+        behind (`COO-DECISION 20260901_1059`)."""
+        refused = (
+            ({"level": 0, "hp_current": 100, "hp_max": 100},
+             vitals.REASON_LEVEL_ZERO),
+            ({"level": 1, "hp_current": 0, "hp_max": 0},
+             vitals.REASON_HP_MAX_ZERO),
+            ({"level": 1, "hp_current": 200, "hp_max": 100},
+             vitals.REASON_HP_ABOVE_MAX),
+            ({"level": 1, "hp_current": 100},
+             vitals.REASON_HP_PAIR_INCOMPLETE),
+            ({"hp_current": 100, "hp_max": 100},
+             vitals.REASON_NOT_SEEDED),
+        )
+        for bad, reason in refused:
+            with self.subTest(bad=bad):
+                with mock.patch.object(
+                        vitals, "_NEW_CHARACTER_VITALS", dict(bad)):
+                    with self.assertRaises(vitals.VitalsError) as caught:
+                        vitals.new_character_vitals()
+                self.assertIn(reason, str(caught.exception))
+        # and the module is not left holding the patched value
+        self.assertEqual(
+            vitals.new_character_vitals(),
+            {"level": 1, "hp_current": 100, "hp_max": 100},
+        )
+
+    def test_the_module_s_own_copy_cannot_be_written_through(self):
+        """`_NEW_CHARACTER_VITALS` is a `MappingProxyType`, not a dict.
+
+        The first draft annotated a plain dict as `Mapping` and called itself
+        private in a comment.  A `pf-adversary` pass wrote straight through
+        the annotation -- `_NEW_CHARACTER_VITALS["level"] = 5` -- and the
+        self-check passed, because 5 is a legal level.  On a long-lived server
+        that poisons every character born until restart.  An annotation is not
+        a guard, so this grades the runtime type's behaviour, not the type
+        name.
+        """
+        with self.assertRaises(TypeError):
+            vitals._NEW_CHARACTER_VITALS["level"] = 5
+        with self.assertRaises(TypeError):
+            del vitals._NEW_CHARACTER_VITALS["hp_max"]
+        self.assertEqual(
+            vitals.new_character_vitals(),
+            {"level": 1, "hp_current": 100, "hp_max": 100},
+        )
+
+    def test_a_birth_value_carrying_an_extra_column_is_refused(self):
+        """The hole `resolve` structurally cannot close.
+
+        `resolve` ignores every column outside the three by design -- a
+        character's `cash` is not its business -- so routing through it does
+        NOT catch an extra key.  A `pf-adversary` pass added
+        `speed_walk: 400.0` to the constant and got it back out untouched;
+        the caller would then have put it in its INSERT and seeded the one
+        number `COO-DECISION 20260901_1447` point 2 says nobody may pick.
+        The guard for this is explicit and lives in the function, and this is
+        the test that fails when it is removed.
+        """
+        poisoned = {
+            "level": 1, "hp_current": 100, "hp_max": 100, "speed_walk": 400.0,
+        }
+        with mock.patch.object(vitals, "_NEW_CHARACTER_VITALS", poisoned):
+            with self.assertRaises(vitals.VitalsError) as caught:
+                vitals.new_character_vitals()
+        self.assertIn("speed_walk", str(caught.exception))
+        self.assertIn(
+            vitals.new_character_vitals(),
+            [{"level": 1, "hp_current": 100, "hp_max": 100}],
+        )
+
+    def test_it_seeds_none_of_the_other_eighteen_columns(self):
+        """`COO-DECISION 20260901_1447` point 2 is still in force for
+        `speed_walk` and every other typed column: no value is adjudicated,
+        so nothing here may quietly carry one."""
+        handed_out = set(vitals.new_character_vitals())
+        for column in typed.TYPED_COLUMNS:
+            if column in vitals.VITAL_COLUMNS:
+                continue
+            self.assertNotIn(column, handed_out, column)
+
+    def test_the_label_travels_with_the_numbers_and_is_ascii(self):
+        label = vitals.NEW_CHARACTER_VITALS_LABEL
+        self.assertEqual(label.encode("ascii").decode("ascii"), label)
+        self.assertIn("TRANSCRIBED", label)
+        self.assertIn("original game default OPEN", label)
+
+    def test_the_label_is_quoted_beside_the_values_in_the_source(self):
+        """A label defined in a module nobody reads next to the numbers is a
+        label that stops being read.  This pins that the constant and the
+        values live in the same file, and that the function's own docstring
+        says the numbers are not the original game's."""
+        source = MODULE.read_text(encoding="utf-8")
+        self.assertIn("NEW_CHARACTER_VITALS_LABEL", source)
+        start = source.index("def new_character_vitals")
+        body = source[start:source.index("\n@dataclass", start)]
+        self.assertIn("NEW_CHARACTER_VITALS_LABEL", body)
+
+    def test_only_the_ordered_call_site_may_call_it(self):
+        """Where the ORDERED caller is allowed and every other one is not.
+
+        The first draft of this test excluded `store.py` and its docstring
+        said "it does NOT forbid the call".  A `pf-adversary` pass called that
+        exactly right: it was an assertEqual, not a report, so the moment
+        chief wrote the one line `COO-DECISION 20260902_0443` point 1 orders,
+        this lane's brand-new test would have failed inside HIS pull request
+        -- the very landmine `SeedsACohortNotADatabaseTests` was rewritten to
+        remove, re-laid in the same commit that removed it.
+
+        So `store.py` is allowed: that is where point 1 puts the call.  What
+        the scan still catches is the thing worth catching -- a SECOND source
+        of birth values somewhere else in the tree, which is what point 1's
+        "one function, one place" exists to prevent.
+        """
+        allowed = {
+            # the ordered call site (COO-DECISION 20260902_0443 point 1);
+            # that the call, once there, is really this function and not an
+            # inlined literal is graded by
+            # `SeedsACohortNotADatabaseTests.
+            #  test_a_birth_seed_must_come_from_new_character_vitals`
+            "src/pirateforce_foundation/store.py",
+            "src/pirateforce_foundation/persistence_vitals.py",
+            "tests/test_persistence_vitals.py",
+            "tests/test_persistence_vitals_seed_007.py",
+        }
+        callers = []
+        for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",
+                     ROOT / "current", ROOT / "tests", ROOT / "drafts",
+                     ROOT / "reports"):
+            if not tree.exists():
+                continue
+            for path in tree.rglob("*.py"):
+                relative = str(path.relative_to(ROOT)).replace("\\", "/")
+                if relative in allowed:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if re.search(r"\bnew_character_vitals\b", text):
+                    callers.append(relative)
+        self.assertEqual(
+            [], callers,
+            "%r calls new_character_vitals() from outside the one call site "
+            "COO-DECISION 20260902_0443 point 1 names.  Point 1's whole "
+            "purpose is that the birth value lives in ONE place and changes "
+            "in one edit; a second caller is a second place." % (callers,),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
