@@ -3173,6 +3173,15 @@ def _speed_undo(store: object, character_id: int) -> object:
     the store cannot be read; the restoring write itself fails.  A `False`
     surfaces as `EVENT_OUTCOME_STAGE_NOT_REVERTED`, which is the truth.
 
+    Migration `008` NARROWS the first of those three and does not remove it
+    (`COO-DECISION 20260902_1147`).  It ran `UPDATE characters SET
+    speed_walk = 400.0 WHERE speed_walk IS NULL`, so a character holding
+    NULL at that moment now has this undo restore 400.0 instead of reporting
+    nothing to put back.  A character `/speed` had already written keeps what
+    it held -- the predicate skips it -- and a character created afterwards
+    still reaches this undo NULL, because `SQLiteStore.create_character`
+    writes no typed column at all today.
+
     The event names `_make_action` writes still say `STAGE` -- they were
     minted for the staged-login-scene undo and are pinned by the event-name
     contract table.  Renaming them to cover a second handler is a separate,
