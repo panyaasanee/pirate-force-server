@@ -327,8 +327,20 @@ class MobCombatDispatchTests(unittest.TestCase):
         that ships it) and not watched here.  The assertion below therefore
         covers whatever frames the burst really contains, drop frames
         included if a roll ever produces one in this harness, and the
-        ordering claim stays [PROPOSED] until a kill that drops is driven
-        end to end.
+        ~~ordering claim stays [PROPOSED] until a kill that drops is driven
+        end to end~~ -- DRIVEN, round ihbal8 (COO-DECISION 2026-09-02T
+        14:47+07:00), and it came back the OTHER WAY.  tests/test_mob_combat_
+        dispatch_bg0002_kill.py kills in Bg0002, whose rows really do roll,
+        and measures the burst as [announce 0.0, dying 0.0, dead 0.7, DROP
+        0.0] -- the drop frame is queued LAST, at 0.0, so v141's serial
+        sender (which walks the list against a cumulative deadline) puts it
+        on the wire AFTER the dead frame, not 0.7 s before it.  So the
+        adjacency inferred two sentences up is ~~confirmed~~ REFUTED as
+        stated: the dead frame does not arrive 0.7 s after the drop frame of
+        the same kill; the drop frame follows it.  What stays true of THIS
+        harness is the rest -- the bg0001 control row still rolls nothing
+        (that file re-derives the 4 x 30 = 0 rather than citing it), so the
+        three-frame burst above is what a bg0001 kill really composes.
 
         What comes after the burst is the ~2 s heartbeat, which has carried
         the pool-present record on every flagless boot since app.py's

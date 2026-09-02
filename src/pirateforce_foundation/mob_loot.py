@@ -3099,13 +3099,49 @@ class DropLedgerCell:
         to be a no-op on a real client would wipe the scene's whole ground,
         and the case it would fix is one label that the next kill in the
         scene clears anyway.  ~~'that a scene change ... clears anyway'~~ IS
-        STRUCK (pf-adversary D5, same round): ``enter_scene_frames`` HAS NO
+        STRUCK (pf-adversary D5, same round): ~~``enter_scene_frames`` HAS NO
         CALL SITE -- grep of src/, current/ and tools/ finds prose only -- so
         at the server layer a scene change publishes nothing at all today,
-        and at the client layer nothing has been watched.  The consolation
-        that survives is the kill, which IS wired (mob_drop_presence.
-        sustain_a_kill).  ``RE-208`` is open on the question and this lane
-        consumes its own answer.
+        and at the client layer nothing has been watched.~~  THAT STRIKE IS
+        ITSELF STRUCK (chief's letter 2026-09-02T15:35+07:00, item (a);
+        re-derived here rather than quoted): the call site LANDED in ``#572``
+        and ``runtime.State._mob_loot_cross_scene_boundary`` calls
+        ``self.mob_loot_cell.enter_scene_frames(legacy, folder)``.  Methods
+        are named instead of line numbers ON PURPOSE (pf-adversary D5 of round
+        h84hp6): ``runtime.py`` is nine thousand lines and is edited every
+        round, so a pinned line reads like a measurement while silently
+        drifting.  AND THE CORRECTION IS NARROWER THAN THE SENTENCE IT
+        REPLACES, each half re-derived:
+
+        * ITS ONE CALLER IS THE GM WARP (the branch that clears the
+          cross-scene census latch): a player who WALKS across a boundary
+          still reaches no publisher at all.
+        * COMPOSING IS NOT PUBLISHING.  ``_boundary_frames`` returns ``()``
+          the moment the entered scene has no standing rows, and
+          ``_mob_loot_boundary_flush`` then holds what was composed behind
+          three further gates -- the arrival census must have committed or
+          refused by name, no scenario ground lane may be in the same
+          dispatch, and the session must still be standing in the scene the
+          frames were composed for.
+
+        So what is dead is only "NO call site": at the server layer a GM warp
+        into a scene that HAS rows can publish one.  ~~the reason is dead~~ IS
+        STRUCK IN THE SAME BREATH, because the case this paragraph is about is
+        the one where it cannot be: after the last object is taken the scene
+        holds zero rows, so warping out and back composes ``()`` forever and
+        NO scene change clears that label.  What survives of the paragraph is
+        that plus the client half: no screen has been watched receiving a
+        boundary generation (NONCLAIM 12), so an empty generation is still an
+        UNMEASURED shape.  OPTION (a) is NOT left standing on a bare ruling
+        either -- ``COO 1345`` names its own surviving leg (the next kill in
+        the scene sends a nonempty generation, measured), and ~~the "nobody
+        publishes at a boundary anyway" leg it used to lean on is gone~~ IS
+        STRUCK AS BACKWARDS: that sentence never held OPTION (a) up, it was
+        the leg the strike above REMOVED from the case against it.  The
+        consolation that survives
+        is the kill, which IS wired (mob_drop_presence.sustain_a_kill).
+        ``RE-208`` is open on the question and this lane consumes its own
+        answer.
 
         THE TRIM IS INHERITED FROM THE BOUNDARY PUBLISHER, and it carries the
         same cost in the same words: a scene holding more rows than one frame
