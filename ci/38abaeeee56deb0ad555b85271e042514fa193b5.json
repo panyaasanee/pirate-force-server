@@ -1,1 +1,1 @@
-{"sha":"38abaeeee56deb0ad555b85271e042514fa193b5","conclusion":"failure","event":"push","ref":"refs/heads/claude/dazzling-volta-qtxdpr","run_id":"33573638937","utc":"2026-09-02T00:11:40Z"}
+{"sha":"38abaeeee56deb0ad555b85271e042514fa193b5","conclusion":"failure","event":"pull_request","ref":"refs/pull/545/merge","run_id":"33573642663","utc":"2026-09-02T00:14:35Z"}
