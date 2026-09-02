@@ -365,6 +365,21 @@ same as every other checkpoint call in this file - the audit's own interlock fac
 them are guarded, and this new one is not an exception. Re-derived on the cloud clone by
 `python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
 
+**Re-pin, chief round `kt05o0`/R305 (2026-09-02): `checkpoint_calls_at_try_depth_zero` 4 -> 5.** Not drift
+and not a correction: D3 of `COO-DECISION 20260902_1347` gave the Columbus M2 crossing the
+`self.foundation.checkpoint(entry.position)` call it never had, so the scene the client is teleported
+into (17) is also the scene the session's in-memory row names. Before it, `/warp 1` home compared
+target 1 against a row that still said 1, took the same-scene early return, and never cleared the
+census latch. The call is at try depth zero like the other four, and getting it there is why the
+crossing's `try/except/else` became `entry = None` + `if entry is not None:` -- an `ast.Try`'s
+`orelse` counts as inside the Try, so the interlock cannot be satisfied from an `else:` block at all
+(measured by pf-adversary this round, which caught the first draft red on this exact guard AND
+catching the `PermissionError` a stolen lease raises, which is the thing X06 exists to forbid).
+Sorted call lines beside the count, so a future re-pin cannot pass on the number alone:
+`runtime.py` lines `3896, 4104, 5674, 8561, 8575` (`_checkpoint_exact_target` x2 sites, the Columbus
+crossing, the travel-gate crossing x2). Re-derived on the cloud clone by
+`python3 tools/pf_multiplayer_readiness_audit.py --json`, computed and not quoted.
+
 **Re-pin, chief round n2ws3l (2026-08-27): `X03` occurrence count 2 -> 3, table row above unchanged
 (it describes HEAD `5cc0eda`, not the live tree).** Not drift and not a correction: `CORE-REQUEST-018`
 (the scene-17 persist-position gate, recovered this round after its own PR closed gate-red on this exact
@@ -395,7 +410,7 @@ The `*_at_head` numbers describe commit `5cc0eda` and nothing else. They are pin
   "assumption_sites_immutable": 18,
   "assumption_sites_mutable": 22,
   "ready_sites_total": 17,
-  "checkpoint_calls_at_try_depth_zero": 4,
+  "checkpoint_calls_at_try_depth_zero": 5,
   "game_listener_try_blocks_without_except": 1,
   "login_req_capture_guard": "reproduced",
   "frames_total": 18,

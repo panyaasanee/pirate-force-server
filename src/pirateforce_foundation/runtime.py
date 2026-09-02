@@ -5389,13 +5389,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # kt05o0, D6).  The M2 crossing is Port Royal's boat: the
                     # departure row, the pinned-home return ticket and the
                     # stowaway measurement below all read a scene-1 row.  What
-                    # this guard can check is the row, not the player; today
-                    # the successful crossing itself never updates that row,
-                    # so a player standing in scene 17 still reads as home
-                    # here and only ``dispatch_attempted`` stops a second
-                    # crossing.  That gap is D3 of the same decision, landing
-                    # as this round's second PR; when it does, this guard's
-                    # two sentences become one.
+                    # this guard can check is the row, not the player.  Those
+                    # two were different sentences until D3 of the same
+                    # decision landed the ``foundation.checkpoint`` call in
+                    # the crossing below (this file, same round): the row now
+                    # says 17 after a crossing, so a player standing in scene
+                    # 17 is refused here by the guard and not merely by the
+                    # one-shot ``dispatch_attempted`` latch.
                     #
                     # THE LATCH IS NOT CONSUMED HERE, on purpose: a player
                     # whose row is scene 1 again may send the same op1 and get
@@ -5461,6 +5461,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     def _emit(line):
                         print(line)
                         self.events.append(line)
+                    # ``entry = None`` + ``if entry is not None:`` INSTEAD OF
+                    # ``try/except/else`` (chief, round kt05o0, D3).  The
+                    # success block below now takes a durable checkpoint, and
+                    # interlock X06 in tools/pf_multiplayer_readiness_audit.py
+                    # pins EVERY ``foundation.checkpoint`` call in this file at
+                    # try-depth 0 so that a stale or stolen lease
+                    # (``store.save_position``'s ownership SELECT, this
+                    # project's only detection signal for one) can never be
+                    # swallowed by a nearby ``except``.  An ``ast.Try``'s
+                    # ``orelse`` counts as inside the Try, so no line of an
+                    # ``else:`` block can satisfy that interlock -- measured by
+                    # pf-adversary, which found the first draft of this change
+                    # turning the audit red no matter where in the block the
+                    # call sat.  Same code, same order, one less nesting level.
+                    entry = None
                     try:
                         entry = columbus_quest_dispatch.dispatch_columbus_quest3021(
                             registry=scene_entry_registry,
@@ -5533,7 +5548,7 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             self.events.append(
                                 f"columbus_quest3021_dispatch_refused_{reason}"
                             )
-                    else:
+                    if entry is not None:
                         # PANYA-DECISION 2026-08-27T15:25+07:00
                         # (M2-NO-VEHICLE-OWNER-20260827-1525): no vehicle
                         # frame -- just the same TeleportVital encoder the
@@ -5602,6 +5617,81 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 crossing_actions = (
                                     crossing_actions + handoff_actions
                                 )
+                        # D3 (COO-DECISION 20260902_1347, assigned to chief
+                        # because the edit is in this file).  THE CROSSING
+                        # NOW SAYS WHERE THE PLAYER WENT.  Until this line
+                        # the M2 crossing was the only scene change in the
+                        # server that never touched ``selected.position``:
+                        # the travel gate calls ``foundation.checkpoint
+                        # (departure.arrival)`` (this file's other crossing,
+                        # below) and the GM warp resyncs the row itself, but
+                        # this branch teleported the client to scene 17 and
+                        # left the row saying scene 1.  Measured cost of
+                        # that: a later ``/warp 1`` compares target 1 against
+                        # a row that already says 1, takes
+                        # ``_gm_warp_resync_selected_scene``'s same-scene
+                        # early return, and never clears the census latch --
+                        # so the player walks back into a Port Royal with
+                        # nobody in it, and no step will ever fix it.
+                        #
+                        # WHAT THIS DOES NOT DO, MEASURED (pf-adversary,
+                        # round kt05o0): clearing the latch is a
+                        # precondition, not the census.  After the warp home
+                        # the first two runtime polls still carry no census;
+                        # scene 1 sends it on the frame the player STEPS,
+                        # because the scene-1 walk-before-census disjunct is
+                        # held shut on purpose (KA1A-AMENDMENT 20260901_1120)
+                        # and this change does not touch it.  So GM-A is
+                        # satisfied with that asterisk, and the attended
+                        # entry says "walk one step before judging the map
+                        # empty" for exactly this reason.
+                        #
+                        # NO DURABLE ROW IS WRITTEN, AND THAT IS THE POINT:
+                        # scene 17 is pinned ``persist_position_allowed:
+                        # false`` in the registry, so ``lifecycle.checkpoint``
+                        # calls ``save_position(..., write_position=False)``
+                        # -- ownership of the lease is still verified, the
+                        # column is not touched, and the in-memory row is
+                        # updated by ``session.checkpoint`` afterwards.
+                        # Measured on a real dispatcher: in-memory 17, stored
+                        # row still 1 (GT-106's own requirement).
+                        #
+                        # UNGUARDED, BEFORE THE FRAMES ARE QUEUED, AND THAT IS
+                        # THE HOUSE ANSWER, NOT AN OVERSIGHT.  What can raise
+                        # here is a stale or stolen lease -- the ownership
+                        # SELECT in ``store.save_position`` that its own
+                        # comment calls this project's only detection signal
+                        # for one -- and also anything the sqlite3 layer
+                        # raises on the way (a locked file, a full disk).
+                        # This file already has an answer for that, four
+                        # times over: ``_checkpoint_exact_target`` and the
+                        # travel-gate crossing let it out, the listener has
+                        # no ``except``, and ``ManagedThread`` turns it into
+                        # a named server stop.  A first draft of this change
+                        # caught it here and carried on; pf-adversary
+                        # measured what that produced -- a console showing
+                        # SCENE_ENTRY, WORLD_SCENE and
+                        # ``dispatched=YES`` for a crossing that put zero
+                        # bytes on the wire, the exact token GT-106 reads as
+                        # proof the crossing happened -- and two call sites
+                        # in one file disagreeing about what a stolen lease
+                        # means.  One answer, the one already pinned.
+                        #
+                        # BEFORE the frames are queued, so a raise leaves
+                        # nothing queued and none of the frozen membership
+                        # resets below run: same order as the travel gate,
+                        # which checkpoints before it composes.
+                        self.foundation.checkpoint(entry.position)
+                        # READ BACK, NOT ECHOED (pf-adversary, round kt05o0):
+                        # the first draft built this token from the argument
+                        # it had just passed in, so a session class whose
+                        # ``checkpoint`` does not move the row -- a supported
+                        # ``session_factory`` shape -- printed the token with
+                        # the row still saying scene 1.
+                        self.events.append(
+                            "columbus_q3021_crossing_row_checkpointed_"
+                            f"{self.foundation.selected.position.scene_id}"
+                        )
                         for action in crossing_actions:
                             actions.append(action)
                         # BOTH frozen-state membership fields together
@@ -5998,17 +6088,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             WHY THIS IS THE ONLY CALLER TODAY, stated so nobody reads a
             narrower wiring than the letter asked for.  The letter asks for
             "wherever the session learns its scene changed because of walking
-            or a warp".  Measured this round: three lines in this file change
-            ``selected.position.scene_id`` -- the GM warp (above), the GM
-            login-scene override, and the travel-gate crossing.  The crossing
-            is UNREACHABLE on a flagless boot: ``travel_gate_debug_enabled``
-            defaults False (``make_state_class``), so
-            ``world_travel_gate.lane_reason`` returns
-            ``DEBUG_LANE_DISABLED_REASON`` and ``observe()`` returns None
-            before it can report a departure.  So on a production boot the GM
-            warp is the ONLY way a player changes scene, and this is the only
-            place the boundary exists to be wired.  The day the travel gate
+            or a warp".  Measured when that letter landed: three lines in this
+            file changed ``selected.position.scene_id`` -- the GM warp
+            (above), the GM login-scene override, and the travel-gate
+            crossing.  The travel-gate crossing is UNREACHABLE on a flagless
+            boot: ``travel_gate_debug_enabled`` defaults False
+            (``make_state_class``), so ``world_travel_gate.lane_reason``
+            returns ``DEBUG_LANE_DISABLED_REASON`` and ``observe()`` returns
+            None before it can report a departure.  The day the travel gate
             ships unflagged, that crossing calls this method too.
+
+            THAT IS NOW THREE OF FOUR, AND THE FOURTH IS REACHABLE TODAY
+            (chief, round `kt05o0`, D3; pf-adversary found this paragraph
+            still claiming otherwise).  The Columbus M2 crossing checkpoints
+            the arrival row on a flagless boot, so a session can be in scene
+            17 without this method having been told.  It is deliberately NOT
+            called from there in this change: the boundary frames belong to
+            LANE-B's ground-publisher order rule (COO-DECISION 20260902_1548),
+            scene 17 carries no ground rows by decree, and widening a
+            checkpoint fix into the drop lane is the kind of same-PR reach
+            this project keeps paying for.  Named here so the next reader of
+            this paragraph is not told a door does not exist.
 
             WHY THE FRAMES ARE HELD RATHER THAN SENT HERE, and this is the
             half LANE-B's letter could not see from its side.  This method

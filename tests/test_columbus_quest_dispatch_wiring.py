@@ -877,6 +877,176 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         self.assertIn(line, state.events)
 
 
+class ColumbusCrossingCheckpointTests(unittest.TestCase):
+    """D3 of COO-DECISION 20260902_1347: the M2 crossing writes the row it
+    moves the player to, and a warp home after it is a CROSS-scene warp.
+
+    This is the only test in the repository that drives a Columbus crossing
+    and a GM warp through one state object.  pf-static-re (round kt05o0)
+    measured why it had to exist: before D3 the crossing left
+    ``selected.position.scene_id`` at 1 while the client stood in scene 17,
+    so ``/warp 1`` matched ``_gm_warp_resync_selected_scene``'s same-scene
+    early return, the census latch (``world_census_sent`` and the eleven
+    fields cleared beside it) was never cleared, and Port Royal came back
+    empty.  That is GM-A in the owner's own words.
+
+    MUTATION-PROOF: delete the ``foundation.checkpoint(entry.position)`` call
+    in ``runtime.py`` and
+    ``test_a_warp_home_after_the_crossing_is_a_cross_scene_warp`` fails on
+    the missing ``gm_warp_cross_scene_census_latch_cleared_1`` event, and
+    ``test_the_crossing_moves_the_row_but_writes_no_durable_scene_17`` fails
+    on the scene id.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = _legacy()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+
+    def _crossed_state(self, token):
+        """Login -> census armed -> ChooseNPC(Columbus) -> op1/quest 3021."""
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        state.dispatch(self.legacy.parse_outer(_target_pos_pc(self.legacy)))
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE",
+            [action[0] for action in actions],
+            "the crossing did not happen -- nothing below this proves "
+            "anything about the row it should have written",
+        )
+        return state, character
+
+    def test_the_crossing_moves_the_row_but_writes_no_durable_scene_17(self):
+        state, character = self._crossed_state("tok-d3-row")
+        self.assertEqual(
+            state.foundation.selected.position.scene_id,
+            columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
+        )
+        self.assertIn(
+            "columbus_q3021_crossing_row_checkpointed_17", state.events,
+        )
+        # The WHOLE arrival, not just its scene: the in-memory XYZ feeds
+        # _checkpoint_exact_target's change detection and the travel gate's
+        # observe(), so a checkpoint that moved the scene and invented the
+        # point would pass a scene-only assertion (pf-adversary, round
+        # kt05o0, mutant b2 survived exactly that).
+        arrival = columbus_quest_dispatch.resolve_columbus_arrival(
+            emit=lambda _line: None,
+        ).position
+        row = state.foundation.selected.position
+        self.assertEqual(
+            (row.scene_id, row.x, row.y, row.z),
+            (arrival.scene_id, arrival.x, arrival.y, arrival.z),
+        )
+        # The durable row is deliberately NOT scene 17: the registry pins
+        # persist_position_allowed false for it, and lifecycle.checkpoint
+        # honours that (GT-106).  A stored 17 would refuse the character at
+        # its next login, which login_entry_allowed false forbids.
+        stored = self.store.get_character(character.id)
+        self.assertEqual(stored.position.scene_id, 1)
+
+    def test_a_warp_home_after_the_crossing_is_a_cross_scene_warp(self):
+        """Warp home after sailing out and the census latch IS cleared -- and
+        the census itself still arrives on the frame the player steps, not on
+        the warp.
+
+        Both halves are asserted on purpose.  ``tests/test_gm_warp_chain_
+        census_shipped.py``'s own words are "clearing a latch is a
+        precondition, not the census", and scene 1 is the one map that stays
+        silent until the character moves (its walk-before-census disjunct is
+        held shut deliberately, KA1A-AMENDMENT 20260901_1120).  A test that
+        stopped at the latch would let a reader believe this change alone
+        repopulates Port Royal; pf-adversary measured that it does not."""
+        from pirateforce_foundation.gm.chat_command_action import (
+            WARP_ACTION_LABEL,
+        )
+        from pirateforce_foundation.gm.warp_executor import WarpTarget
+        from pirateforce_foundation.gm.warp_target_record import (
+            current_character_id, record_warp_target,
+        )
+
+        state, _character = self._crossed_state("tok-d3-warp-home")
+        home = world_scene_travel.HOME_SCENE_ID
+        spawn = world_scene_travel.spawn_position(
+            world_scene_travel.destination(home)
+        )
+        self.assertTrue(record_warp_target(
+            state, WarpTarget(home, spawn[0], spawn[1], spawn[2]),
+            current_character_id(state),
+        ))
+        # The same one-frame seam tests/test_gm_warp_chain_census_shipped.py
+        # uses: the production label path runs, the chat parser does not.
+        real = state._dispatch_with_lanes
+
+        def _one_warp_action(parsed):
+            state._dispatch_with_lanes = real
+            return [(WARP_ACTION_LABEL, b"", b"", 0.0)]
+
+        state._dispatch_with_lanes = _one_warp_action
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(state.token)
+        ))
+        self.assertEqual(state.foundation.selected.position.scene_id, home)
+        self.assertIn(
+            "gm_warp_selected_scene_resynced_1", state.events,
+        )
+        self.assertIn(
+            "gm_warp_cross_scene_census_latch_cleared_1", state.events,
+        )
+        self.assertFalse(state.world_census_sent)
+        # The other half: an empty runtime poll right after the warp still
+        # carries no census for scene 1 ...
+        polled = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(state.token)
+        ))
+        self.assertFalse([
+            action for action in polled
+            if action[0].startswith("WORLD_CENSUS_")
+        ])
+        # ... and the step the tester is told to take is what sends it.
+        stepped = state.dispatch(self.legacy.parse_outer(
+            _target_pos_pc(self.legacy, xyz=(11.0, 21.0, 31.0))
+        ))
+        self.assertTrue([
+            action for action in stepped
+            if action[0].startswith("WORLD_CENSUS_")
+        ], [action[0] for action in stepped])
+
+
 class ColumbusSceneGuardTests(unittest.TestCase):
     """CORE-REQUEST (LANE-A, pf_bridge notes_to_chief 20260902_1207): the
     Columbus branch must ask WHICH SCENE the session stands in before it
