@@ -7490,15 +7490,30 @@ another rung, for scene 1 alone.
 
 **3. The home arm is mirrored from the runtime's own expression, and it was not.** `runtime.py`
 takes scene 1's count from `world_population.census_count_for_dispatch()` on the flagless boot
-`GT-192` asks for -- one call returning the number AND the reason, precisely so a caller cannot
-reconstruct the reason from the number. This module passed `effective_actor_count()` with
-`COUNT_SOURCE_MEASURED_CEILING` hand-picked beside it. **Measured before changing anything: the
-two build BYTE-IDENTICAL frames today (both 108 on the wire), so the printed number was never
-wrong.** What differed was the recorded reason -- `measured_client_ceiling` where the runtime
-records `full_census` -- exactly the misreport `census_count_for_dispatch`'s own docstring exists
-to prevent, and a difference that would only start moving bytes on the day a client ceiling is
-finally measured. The branch now copies the expression. Scene 1's call site also gained the AST
-gate scene 2 already had, and it is the arm with the extra moving part (the boot flag above).
+`GT-192` asks for. This module passed `effective_actor_count()` with a `count_source` hand-picked
+beside it. **Measured before changing anything: the two build BYTE-IDENTICAL frames today (both
+108 on the wire), so the printed number was never wrong.** The branch now copies the expression,
+and scene 1's call site gained an AST gate of its own.
+
+> 🔴 ~~What differed was the recorded reason -- `measured_client_ceiling` where the runtime records
+> `full_census` -- exactly the misreport `census_count_for_dispatch`'s own docstring exists to
+> prevent, and a difference that would only start moving bytes on the day a client ceiling is
+> finally measured.~~ ~~Scene 1's call site also gained the AST gate scene 2 already had.~~
+>
+> **STRUCK THE SAME ROUND IT WAS WRITTEN, by pf-adversary, and both halves were false.**
+> `build_world_population` **overwrites** whatever `count_source` a caller passes
+> (`world_population.py`, the `count < CENSUS_COUNT and count == len(available)` branch): both
+> spellings record `identity_resolved`, neither ever records `measured_client_ceiling` or
+> `full_census`. Swept **every legal ceiling** (`None` plus 1..115, 116 builds of each spelling):
+> the two agree on bytes, wire count and recorded reason at **every** value -- there is no day
+> when it starts to matter -- and this module never reads `count_source` at all. **The change is a
+> no-op.** It stays for the only reason that survives measurement: a mirror should copy the
+> EXPRESSION its original evaluates, so the day chief's flagless rung changes, this branch changes
+> with it instead of agreeing by coincidence. And the two gates are **not** the same strength:
+> scene 2's pins the NUMBER (no positional count, no `actor_count` keyword, therefore the
+> default); scene 1's can only pin the SHAPE of the branch the count comes from, and neither says
+> anything about the anchor. The cause was reading `census_count_for_dispatch`'s docstring and not
+> reading `build_world_population` twenty lines above the call being mirrored.
 
 **Mutants run before the adversary pass, five on this module and three on `runtime.py`
 (reverted, never committed) -- all eight die:** `_after_one_step` always `n/a`; `render` drops
@@ -7511,3 +7526,28 @@ call site, an aliased second call site, and the flagless branch no longer callin
 AST gate can turn a reconstruction into the real thing -- what stands behind them is
 `test_gm_warp_chain_census_shipped.py` driving the real dispatcher, a test rather than a line on
 her console. And `main()` still uses the DEFAULT scene registry, not a boot-loaded one.
+
+### Round `xodi87` continued -- pf-adversary: **NOT APPROVED**, ten items, all ten accepted
+
+He ran before the final push (`COO-DECISION 20260902_1446`), and he was right about the two things
+that mattered most. Struck the false claim above rather than deleting it.
+
+| # | What he measured | What the round did |
+|---|---|---|
+| **D2 (top)** | The whole stated rationale for the `count_source` change is false in three places (source comment, test docstring, this doc). `build_world_population` overwrites the caller's `count_source`; swept all 116 ceiling values, the two spellings never differ. The module does not even read the field. | Retraction written where each claim was. The change stays, relabelled as the no-op it is, with the only reason that survives: a mirror copies the expression. |
+| **D1 (top)** | The new scene-1 AST gate walked ALL of `runtime.py` and asked only that two substrings appear *somewhere* among assignments binding the name. He inverted the two arms (flagless boot ships 20, tool still prints 108, tester files a false FAIL) and separately put a literal `count = 20` at the live site with a dead decoy function at the end of the file. **Both green.** | The gate is scoped to the ENCLOSING FUNCTION and now reads the conditional itself: the arm selected by `world_census_actor_count is None` must call `census_count_for_dispatch()`. Both his mutants now fail. |
+| **D3** | `_framing_lines()` returned `len(render(()))`, so three assertions compared `render`'s output to its own. Control run: the same mutant (PRECONDITION printed three times) failed FOUR tests against the previous revision and zero against this one -- the round **weakened** the gate. | Framing lines are named by identity (`FRAMING_MARKERS`), each asserted to appear exactly once, and no line may be neither a scene row nor framing. His mutant now fails four tests. |
+| **D6** | `route=production_composer` promises the number came off the queued bytes at the pinned spawn. Both promises could be broken with the file green and the console byte-identical (read the lane's label instead of the bytes; compose at the origin). The rows advertised as MEASURED had no gate, while the two reconstructed rows had two. | Two behavioural tests with a fake composer whose label (56) disagrees with its bytes (7), and one that records the anchor it was called at. Both mutants now fail. |
+| **D8** | The round refused to print `0` in the new field and kept printing it one field to the left, including for a `/warp` REFUSED BY NAME -- a fabricated number for a map nobody can enter, which `ScenePreflight`'s own docstring forbids. | `actors_on_arrival=n/a` wherever nothing is known; `0` only for the two rows where it IS the prediction (held until you move, shut on purpose). |
+| **D5** | `route=none` reaches the console and the legend defined only two values -- a mistyped scene number is how she meets it. | The legend names all three routes and points at `why=` for the four causes `none` covers. |
+| **D7** | The runtime composes scene 1 at the position she STEPPED TO (`last_target_pos`); this tool composes at the pinned spawn, and the legend listed only the `--world-census-actors` caveat. Measured anchor-insensitive today (count identical at spawn, spawn+50, origin, and 99999) -- so latent, not live. | The legend now names BOTH caveats and says which one is measured-harmless today. No gate is claimed for either. |
+| **D4** | "Scene 1's call site also gained the AST gate scene 2 already had" overstates it; the two are different shapes and the scene-1 one pins no number. | Struck above and corrected in the module docstring. |
+| **D9** | Two new tripwires on chief's file could fire on a legitimate refactor and misname the cause. | Failure messages rewritten to say what actually broke and that this is a GM-lane diagnostic's dependency on his call site, not a rule about it. |
+| **D10** | Dead branch in `_after_one_step`; three module lines never execute under the test file. | The branch is named as unreachable-today rather than deleted or left silent. |
+
+**Attacks of his that failed, recorded because they are the half that carries weight:** the alias
+and `getattr` defeats of the scene-1 gate both die; the `n/a` rule could not be made wrong for any
+real row (`_after_one_step` keys on `source`, not on `on_arrival`, which he confirmed is the right
+key); "byte-identical today" is TRUE and he reproduced it; no scene was found where a step changes
+the census after the arrival dispatch; and the preflight-side pin is backstopped by a real
+behavioural oracle. He also confirmed the round touched no file outside this lane's zone.

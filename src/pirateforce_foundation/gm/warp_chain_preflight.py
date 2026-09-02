@@ -56,7 +56,12 @@ left a tester with no way to know which number to doubt when the screen
 disagreed -- pf-adversary's closing question on the round that shipped this
 module.  Every row now carries ``route=``, the summary lists the reconstructed
 scenes as ``mirrored_not_measured``, and the AST gates in the test file turn a
-drift in either call site red instead of silent.
+drift in either call site red instead of silent.  Those two gates are NOT the
+same strength and the console does not pretend they are: scene 2's pins the
+number (no positional count, no ``actor_count`` keyword, therefore the
+default), while scene 1's can only pin the SHAPE of the branch its count comes
+from, and neither of them says anything about the anchor the runtime composes
+at.  The legend names both open caveats rather than claiming they are closed.
 
 AND THE LAST MAP OF THE CHAIN NOW PRINTS ITS NUMBER.  The owner's list closes
 on scene 1, which is judged only after one step, and the count for that step
@@ -126,12 +131,15 @@ ROUTE_NONE = "none"
 # which it copied.
 ROUTE_LEGEND = (
     "production_composer=this tool called the composer the runtime calls and "
-    "counted the bytes; mirrored_runtime_arm=scenes 1 and 2 have no composer, "
-    "so this tool REBUILDS runtime.py's own call and its number is only as "
-    "true as that reconstruction (AST gates in the tests fail on drift); "
-    "scene 1's number additionally assumes a boot with no "
-    "--world-census-actors, a flag that selects another rung for that scene "
-    "alone"
+    "counted the bytes it queued; mirrored_runtime_arm=scenes 1 and 2 have no "
+    "composer, so this tool REBUILDS runtime.py's own call and its number is "
+    "only as true as that reconstruction; none=no arm was consulted at all, "
+    "the why= on that row says which of the four reasons; scene 1 carries TWO "
+    "caveats no gate closes: a boot with --world-census-actors selects "
+    "another rung for that scene alone, and the runtime composes it at the "
+    "position you STEPPED TO while this tool composes it at the pinned spawn "
+    "(measured: the count does not move with the anchor today, only the "
+    "order)"
 )
 
 # `runtime.py:993`.  Printed with every run, because a boot that fails this
@@ -300,17 +308,31 @@ def preflight_for(
         try:
             # THE RUNTIME'S OWN EXPRESSION, not a lookalike.  `runtime.py`
             # takes the count for this arm from `census_count_for_dispatch()`
-            # on the flagless boot GT-192 asks for, and that call returns the
-            # LABEL with the number precisely so a caller cannot reconstruct
-            # the reason from the count.  This branch used to pass
-            # `effective_actor_count()` with `COUNT_SOURCE_MEASURED_CEILING`
-            # hand-picked next to it -- measured: same bytes today, because
-            # `census_count_for_dispatch` calls `effective_actor_count`
-            # itself, but a DIFFERENT recorded reason
-            # (`measured_client_ceiling` where the runtime records
-            # `full_census`), which is exactly the misreport that function's
-            # own docstring exists to prevent.  Mirroring an arm means
-            # copying the expression, not a number that agrees with it today.
+            # on the flagless boot GT-192 asks for; this branch used to pass
+            # `effective_actor_count()` with a `count_source` hand-picked
+            # beside it.
+            #
+            # RETRACTION, WRITTEN WHERE THE CLAIM WAS.  The first version of
+            # this comment said the two spellings recorded DIFFERENT reasons
+            # and that the difference would start moving bytes the day a
+            # client ceiling was measured.  BOTH HALVES WERE FALSE, and
+            # pf-adversary caught it by reading twenty lines above the call
+            # being mirrored: `build_world_population` (world_population.py,
+            # the `count < CENSUS_COUNT and count == len(available)` branch)
+            # OVERWRITES whatever `count_source` a caller passes with
+            # `identity_resolved`.  Swept every legal ceiling
+            # (`None` plus 1..115, 116 builds of each spelling): the two agree
+            # on bytes, on wire count, and on the recorded reason at EVERY
+            # value.  There is no day when it starts to matter, and this
+            # module never reads `count_source` at all -- it takes
+            # `wire_actor_count` and drops the generation.
+            #
+            # SO THIS CHANGE IS A NO-OP, and it stays for the only reason that
+            # survives measurement: a mirror should copy the EXPRESSION its
+            # original evaluates, so that the day chief's flagless rung
+            # changes, this branch changes with it instead of agreeing with it
+            # by coincidence.  That is a claim about tomorrow, not a bug fixed
+            # today, and it is worth exactly what the AST gate below is worth.
             count_for_dispatch, count_source = (
                 world_population.census_count_for_dispatch()
             )
@@ -481,8 +503,7 @@ def render(rows: Any) -> tuple[str, ...]:
             % (
                 CONSOLE_TOKEN,
                 row.scene_id,
-                ("?" if row.actor_count is None else str(row.actor_count))
-                if row.on_arrival else "0",
+                _on_arrival(row),
                 _after_one_step(row),
                 row.source,
                 row.route,
@@ -523,6 +544,30 @@ def render(rows: Any) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _on_arrival(row: Any) -> str:
+    """What she sees when she lands.  ``0`` only where ``0`` is a measurement.
+
+    THE SAME DISEASE THIS ROUND DIAGNOSED ONE FIELD OVER (pf-adversary D8).
+    ``render`` printed ``0`` for every row that was not ``on_arrival``, which
+    swept up rows where nothing is known at all: a ``/warp`` REFUSED BY NAME,
+    a registry that pins no spawn, a scene no composer claims.  Nobody ever
+    lands on those, so ``0`` there is a fabricated number, and
+    ``ScenePreflight``'s own docstring forbids exactly that -- ``never 0
+    standing in for "do not know"`` -- a promise the dataclass kept and the
+    console line broke.
+
+    ``0`` stays for the two rows where it IS the prediction: a map held until
+    she moves, and a map shut on purpose.  Both are maps she reaches and both
+    show her an empty screen.
+    """
+    if row.on_arrival:
+        return "?" if row.actor_count is None else str(row.actor_count)
+    if row.source in (SOURCE_HELD_UNTIL_THE_PLAYER_MOVES,
+                      SOURCE_SHUT_TO_PLAYERS):
+        return "0"
+    return "n/a"
+
+
 def _after_one_step(row: Any) -> str:
     """The number a tester grades on the ONE map that is empty when she lands.
 
@@ -545,7 +590,14 @@ def _after_one_step(row: Any) -> str:
     """
     if row.source != SOURCE_HELD_UNTIL_THE_PLAYER_MOVES:
         return "n/a"
-    return "?" if row.actor_count is None else str(row.actor_count)
+    if row.actor_count is None:
+        # UNREACHABLE THROUGH `preflight_for` TODAY and kept as an explicit
+        # answer rather than deleted: the home arm either yields a count or
+        # returns a `nothing` row, so this branch has no driver.  pf-adversary
+        # found it dead (D10).  It is not `0` for the same reason nothing else
+        # here is.
+        return "?"
+    return str(row.actor_count)
 
 
 def _joined(scene_ids: Any) -> str:

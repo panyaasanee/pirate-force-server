@@ -59,15 +59,48 @@ MODULE_PATH = (
 )
 
 
-def _framing_lines() -> int:
-    """How many lines ``render`` prints that are not scene rows.
+# The lines ``render`` prints that are not scene rows, BY IDENTITY.  An
+# earlier version of this round derived the number from ``len(render(()))``,
+# which made three assertions compare ``render``'s output to ``render``'s own
+# output: pf-adversary made ``render`` print PRECONDITION three times and the
+# whole file stayed green, while the same mutant against the previous
+# revision failed four tests (D3).  Naming them costs one edit when the output
+# grows and buys back a check that can fail.
+FRAMING_MARKERS = (" PRECONDITION ", " ROUTE ", " chain_scenes=", " NOTE ")
 
-    ASKED OF ``render`` ITSELF rather than written as a number here.  Every
-    line added to the preamble used to require finding and bumping four
-    separate ``+ 3``s, and a test that has to be edited whenever the output
-    grows stops being a check on the output.
+
+def _framing_lines() -> int:
+    return len(FRAMING_MARKERS)
+
+
+def _assert_framing_is_intact(case, lines):
+    """Each framing line appears EXACTLY once, and nothing else is framing."""
+    for marker in FRAMING_MARKERS:
+        case.assertEqual(
+            len([line for line in lines if marker in line]), 1,
+            "framing line %r does not appear exactly once" % marker,
+        )
+    scene_lines = [line for line in lines if " scene=" in line]
+    case.assertEqual(
+        len(lines), len(scene_lines) + len(FRAMING_MARKERS),
+        "render printed lines that are neither a scene row nor one of the "
+        "four framing lines",
+    )
+
+
+def _enclosing_function(tree, node):
+    """The ``FunctionDef`` a node sits in, or ``None``.
+
+    Needed because ``ast.walk`` has no parents and a gate that searches the
+    whole module is satisfied by dead code six thousand lines from the call it
+    claims to pin -- measured, not imagined (pf-adversary D1, mutant 2).
     """
-    return len(preflight.render(()))
+    for candidate in ast.walk(tree):
+        if not isinstance(candidate, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if any(inner is node for inner in ast.walk(candidate)):
+            return candidate
+    return None
 
 
 def _code_only(source: str) -> str:
@@ -379,6 +412,7 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
         rows = preflight.preflight_chain(legacy=_legacy())
         lines = preflight.render(row for row in rows)
         self.assertEqual(len(lines), len(rows) + _framing_lines())
+        _assert_framing_is_intact(self, lines)
         summary = [line for line in lines if " chain_scenes=" in line]
         self.assertEqual(
             summary[0].split("chain_scenes=")[1].split()[0], str(len(rows))
@@ -414,9 +448,9 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
 
     def test_a_precondition_line_plus_one_per_scene_plus_summary_plus_note(self):
         rows = preflight.preflight_chain(legacy=_legacy())
-        self.assertEqual(
-            len(preflight.render(rows)), len(rows) + _framing_lines()
-        )
+        lines = preflight.render(rows)
+        self.assertEqual(len(lines), len(rows) + _framing_lines())
+        _assert_framing_is_intact(self, lines)
 
 
 class ItGrantsNobodyAnythingTests(unittest.TestCase):
@@ -569,6 +603,7 @@ class TheEntryPointAHumanActuallyRunsTests(unittest.TestCase):
             len(lines),
             len(preflight.reachable_scene_ids()) + _framing_lines(),
         )
+        _assert_framing_is_intact(self, lines)
         for line in lines:
             line.encode("cp874")
             self.assertTrue(line.startswith(preflight.CONSOLE_TOKEN))
@@ -876,8 +911,27 @@ class TheHomeArmIsMirroredFromTheRuntimesOwnExpressionTests(unittest.TestCase):
             + ast.unparse(call),
         )
         bound = call.args[2].id
+        # SCOPED TO THE ENCLOSING FUNCTION, AND TO THE FLAGLESS ARM.  The
+        # first version of this gate walked the WHOLE of runtime.py and asked
+        # only that the two substrings appear SOMEWHERE among the assignments
+        # binding that name -- possibly in different assignments, in different
+        # functions, on either arm of the conditional.  pf-adversary broke it
+        # twice in ten minutes and both mutants left this file green:
+        #   * INVERTED the two arms, so a flagless boot took
+        #     `effective_actor_count(20)` and shipped 20 while this tool kept
+        #     printing 108 -- a tester counts twenty NPCs after her step and
+        #     files a FAIL for GT-192 that is a mirror drift, not a bug;
+        #   * put a literal `count = 20` at the live call site and left a
+        #     DEAD, never-called function at the end of the file holding the
+        #     old tuple-assign for this gate to find.
+        # What the mirror actually depends on is one property -- WHICH ARM A
+        # FLAGLESS BOOT TAKES -- so that is what is asserted now.
+        enclosing = _enclosing_function(tree, call)
+        self.assertIsNotNone(
+            enclosing, "the home build call is not inside a function any more"
+        )
         assigns = [
-            node for node in ast.walk(tree)
+            node for node in ast.walk(enclosing)
             if isinstance(node, ast.Assign)
             and any(
                 isinstance(target, ast.Tuple)
@@ -890,23 +944,184 @@ class TheHomeArmIsMirroredFromTheRuntimesOwnExpressionTests(unittest.TestCase):
         ]
         self.assertTrue(
             assigns,
-            "nothing in runtime.py binds %r alongside its reason any more; "
-            "this tool mirrors an expression that no longer exists" % bound,
+            "nothing in the function that builds the home census binds %r "
+            "alongside its reason any more; this lane's tool mirrors that "
+            "expression, so the mirror needs updating -- this is a GM-lane "
+            "diagnostic's dependency on your call site, not a rule about it"
+            % bound,
         )
-        expressions = [ast.unparse(node.value) for node in assigns]
+        conditionals = [
+            node.value for node in assigns
+            if isinstance(node.value, ast.IfExp)
+        ]
         self.assertTrue(
-            any("census_count_for_dispatch()" in text for text in expressions),
-            "the home arm no longer takes its flagless-boot count from "
-            "census_count_for_dispatch(); this tool's scene-1 number mirrors "
-            "that call: " + " | ".join(expressions),
+            conditionals,
+            "the home count is no longer chosen by an inline conditional, so "
+            "this gate cannot read which arm a flagless boot takes; the "
+            "scene-1 mirror needs re-deriving by hand: "
+            + " | ".join(ast.unparse(node.value) for node in assigns),
         )
+        flagless = [
+            node for node in conditionals
+            if ast.unparse(node.test) == "world_census_actor_count is None"
+        ]
         self.assertTrue(
-            any("world_census_actor_count is None" in text
-                for text in expressions),
-            "the boot-flag rung is gone from the home call site; the ROUTE "
-            "legend tells the tester about a flag that no longer exists: "
-            + " | ".join(expressions),
+            flagless,
+            "the flagless boot is no longer selected by "
+            "`world_census_actor_count is None`; the ROUTE legend tells the "
+            "tester about a flag whose rung this gate can no longer find: "
+            + " | ".join(ast.unparse(node) for node in conditionals),
         )
+        for node in flagless:
+            self.assertIn(
+                "census_count_for_dispatch()", ast.unparse(node.body),
+                "the arm a FLAGLESS boot takes no longer calls "
+                "census_count_for_dispatch(); this tool's scene-1 number "
+                "mirrors that call and is now predicting the wrong rung: "
+                + ast.unparse(node),
+            )
+
+class _FakeComposed:
+    """A composer result whose LABEL and whose BYTES disagree on purpose."""
+
+    def __init__(self, wire_count, label):
+        header = bytearray(world_population_handoff.WIRE_HEADER_BYTES)
+        offset = world_population_handoff.WIRE_COUNT_TAG_OFFSET
+        header[offset] = world_population_handoff.COLLECTION_TAG
+        header[offset + 1:offset + 3] = int(wire_count).to_bytes(2, "little")
+        self.pc = bytes(header)
+        self.actor_count = label
+
+
+class _RecordingComposer:
+    def __init__(self, module, result):
+        self.module = module
+        self.result = result
+        self.calls = []
+
+    def compose(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.result
+
+
+class WhatProductionComposerActuallyPromisesTests(unittest.TestCase):
+    """The label says HOW the number was obtained.  Pin both halves of it.
+
+    pf-adversary (D6) mutated ``_composed_count`` twice -- reading
+    ``result.actor_count`` (the lane-authored label this module's own
+    docstring calls untrusted) instead of the queued bytes, and composing at
+    ``(0,0,0)`` instead of the scene's pinned spawn -- and BOTH left the whole
+    file green with byte-identical console output, because the label happens to
+    equal the wire count today and the count happens not to move with the
+    anchor.  A route label is a promise about the implementation, so the
+    implementation needs a test that holds it: the rows advertised as MEASURED
+    had no gate at all while the two reconstructed rows had two.
+    """
+
+    @staticmethod
+    def _with_composer(scene_id, composer, allowed=True):
+        real_composer = lane_hooks.scene_census_composer
+        real_allowed = lane_hooks.module_production_allowed
+        try:
+            lane_hooks.scene_census_composer = (
+                lambda sid: composer if sid == scene_id else real_composer(sid)
+            )
+            lane_hooks.module_production_allowed = (
+                lambda module: True if module == composer.module
+                else real_allowed(module)
+            )
+            preflight.lane_hooks.scene_census_composer = (
+                lane_hooks.scene_census_composer
+            )
+            preflight.lane_hooks.module_production_allowed = (
+                lane_hooks.module_production_allowed
+            )
+            return preflight.preflight_for(scene_id, legacy=_legacy())
+        finally:
+            lane_hooks.scene_census_composer = real_composer
+            lane_hooks.module_production_allowed = real_allowed
+            preflight.lane_hooks.scene_census_composer = real_composer
+            preflight.lane_hooks.module_production_allowed = real_allowed
+
+    def test_the_number_is_the_queued_bytes_not_the_lanes_own_label(self):
+        composer = _RecordingComposer(
+            "fake_lane_module", _FakeComposed(wire_count=7, label=56)
+        )
+        row = self._with_composer(3, composer)
+        self.assertEqual(row.route, preflight.ROUTE_PRODUCTION_COMPOSER)
+        self.assertEqual(
+            row.actor_count, 7,
+            "the row reports the label a lane handed over, not the count in "
+            "the bytes that would be queued; a label can say 56 over an "
+            "empty buffer",
+        )
+
+    def test_the_composer_is_called_at_the_scenes_pinned_spawn(self):
+        composer = _RecordingComposer(
+            "fake_lane_module", _FakeComposed(wire_count=7, label=7)
+        )
+        self._with_composer(3, composer)
+        self.assertEqual(len(composer.calls), 1)
+        self.assertEqual(
+            composer.calls[0]["anchor"],
+            world_scene_travel.spawn_position(
+                world_scene_travel.destination(3)
+            ),
+            "every row prints why=...at this scene's pinned spawn; the "
+            "composer was called somewhere else",
+        )
+        self.assertEqual(composer.calls[0]["scene_id"], 3)
+
+
+class TheConsoleNeverInventsAZeroTests(unittest.TestCase):
+    """pf-adversary D8: ``0`` reached rows where nothing is known."""
+
+    def test_a_scene_refused_by_name_prints_n_a_not_zero(self):
+        lines = preflight.render(
+            preflight.preflight_chain([12], legacy=_legacy())
+        )
+        row = [line for line in lines if " scene=12 " in line][0]
+        self.assertIn("actors_on_arrival=n/a", row)
+        self.assertNotIn("actors_on_arrival=0", row)
+
+    def test_the_two_rows_where_zero_is_the_prediction_keep_it(self):
+        held = preflight.preflight_for(
+            world_population.SCENE_ID, legacy=_legacy()
+        )
+        shut = preflight.ScenePreflight(
+            scene_id=10, gm_name="x", source=preflight.SOURCE_SHUT_TO_PLAYERS,
+            route=preflight.ROUTE_PRODUCTION_COMPOSER, module="m",
+            actor_count=None, on_arrival=False, note="shut",
+        )
+        lines = preflight.render((held, shut))
+        for marker in (" scene=%d " % world_population.SCENE_ID, " scene=10 "):
+            line = [line for line in lines if marker in line][0]
+            self.assertIn("actors_on_arrival=0", line, line)
+
+    def test_the_legend_names_every_route_the_console_can_print(self):
+        """``route=none`` reached her console while the legend defined two
+        values; a mistyped scene number is how she meets it (D5)."""
+        legend = [
+            line for line in preflight.render(())
+            if " ROUTE " in line
+        ][0]
+        for route in (
+            preflight.ROUTE_PRODUCTION_COMPOSER,
+            preflight.ROUTE_MIRRORED_RUNTIME_ARM,
+            preflight.ROUTE_NONE,
+        ):
+            self.assertIn(route + "=", legend, route)
+
+    def test_the_legend_names_the_anchor_caveat_the_gate_cannot_close(self):
+        """The runtime composes scene 1 at the position she STEPPED TO
+        (``runtime.py`` home arm, from ``last_target_pos``); this tool
+        composes at the pinned spawn.  Measured: the count does not move with
+        the anchor today.  Named because no gate closes it (D7)."""
+        legend = [
+            line for line in preflight.render(()) if " ROUTE " in line
+        ][0]
+        self.assertIn("STEPPED TO", legend)
+        self.assertIn("pinned spawn", legend)
 
 
 if __name__ == "__main__":
