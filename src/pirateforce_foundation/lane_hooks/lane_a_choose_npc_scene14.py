@@ -191,9 +191,9 @@ from .. import field_mob_hostile_bg0015 as hostile_bg0015
 from .. import field_mobs
 from .. import lane_a_click_hp
 from .. import lane_hooks
-from .lane_a_ground_preserve import compose_answer
 from .. import world_census_level
 from .. import world_bg0015_identity as identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
 # WHY THIS IS True, NOT False, AS OF LANE-A round `n8fq3w`: see "WHY THIS
@@ -442,7 +442,7 @@ def respond(
             ))
         if not entries:
             continue
-                # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
         # call-site half COO-DECISION 20260902_1946 approved).  Same
         # bytes as ``legacy.make_runtime_remote_actors`` whenever no
         # row is standing in THIS scene, which includes every boot

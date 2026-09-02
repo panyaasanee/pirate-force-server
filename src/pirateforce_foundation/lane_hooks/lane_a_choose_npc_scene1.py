@@ -108,9 +108,9 @@ from __future__ import annotations
 from typing import Any
 
 from .. import lane_hooks
-from .lane_a_ground_preserve import compose_answer
 from .. import world_population
 from .. import world_port_royal_identity as identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
 # See "WHY THE GATE STAYS CLOSED THIS ROUND" in the module docstring.  Flip
@@ -242,7 +242,7 @@ def respond(
             ))
         if not entries:
             continue
-                # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
         # call-site half COO-DECISION 20260902_1946 approved).  Same
         # bytes as ``legacy.make_runtime_remote_actors`` whenever no
         # row is standing in THIS scene, which includes every boot

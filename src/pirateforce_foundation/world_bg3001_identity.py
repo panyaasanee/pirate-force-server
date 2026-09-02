@@ -99,7 +99,10 @@ Set 54 is therefore a key CLINE HAS that no shipped row uses, recorded in
 shape bg0011's untouched key 106 carries, and now carrying the second
 leg's full shipped columns so the gate can COMPARE rather than assert.
 
-TWO SETS DO NOT RESOLVE (COST 2 PLACEMENTS), TWO DIFFERENT SHAPES.
+~~TWO SETS DO NOT RESOLVE (COST 2 PLACEMENTS), TWO DIFFERENT SHAPES.~~
+ONE SET DOES NOT RESOLVE (COSTS 1 PLACEMENT) SINCE ROUND ``gx7xtp``.  The
+second shape is kept below, struck, because it is the shape a future
+non-ASCII name will be read against.
 
 * Set 16 -> CLINE row 60415, whose ``n_LEADER_BK1`` is literally ``0`` -
   the only zero-leader row in the block (measured, and the same row
@@ -250,7 +253,7 @@ THE JOIN, EXACTLY, SO IT CAN BE MECHANISED LATER:
 
 WHAT THIS MODULE DOES NOT CLAIM.
 
-* Not that any of these 36 actors has been SEEN.  No human has been in
+* Not that any of these ~~36~~ 37 actors has been SEEN.  No human has been in
   this scene in this project's history.
 * Not that this scene is where a Columbus crossing lands a player.  It is
   not: ``world_m2_sea_destination`` settled that in August - the Columbus

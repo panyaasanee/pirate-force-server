@@ -290,7 +290,6 @@ from typing import Any, Callable
 
 from .. import columbus_quest_dispatch
 from .. import lane_hooks
-from .lane_a_ground_preserve import compose_answer
 from .. import world_census_level
 from .. import world_scene_travel
 from .. import world_bg0003_identity
@@ -304,6 +303,7 @@ from .. import world_bg0010_identity
 from .. import world_bg0011_identity
 from .. import world_bg3001_identity
 from .. import world_bg4001_identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_may_be_populated
 
 # SHIPPABLE, FOR THE SCENES THE GATES BELOW ADMIT AND NO OTHERS.  Every
@@ -561,7 +561,7 @@ def _make_responder(scene_n_id: int, identity: Any) -> Callable[..., Any]:
                 continue  # pragma: no cover - unreachable while
                 # population_indices and by_idx come from one table; the
                 # loop above only skips indices that table lacks.
-                        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+            # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
             # call-site half COO-DECISION 20260902_1946 approved).  Same
             # bytes as ``legacy.make_runtime_remote_actors`` whenever no
             # row is standing in THIS scene, which includes every boot
