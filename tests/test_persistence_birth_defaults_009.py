@@ -32,11 +32,15 @@ allow-list (`NewCharacterVitalsTests` in tests/test_persistence_vitals.py).
 
 WHY IT ALSO MUTATES THE MIGRATION.  A guard that has never failed is a guess.
 `TheGuardsInTheFileReallyFireTests` writes deliberately wrong versions of 009
-into a throwaway migration directory -- one that drops an index, one that
-backfills the existing rows, one that gives a seventeenth column a default,
-one that loses a column's NOT NULL -- and asserts each is REFUSED and that the
-database it was refused on still holds its pre-009 table.  Six guards, six
-mutants that only that guard catches.
+into a throwaway migration directory -- one that drops the foreign key, one
+that drops a CHECK constraint, one that adds a collation, one that destroys a
+trigger, one that backfills the existing rows, one that cascade-deletes every
+child row, one that loses an index, one that forgets a birth default -- and
+requires of each that a guard REFUSED it, that the message NAMES the guard the
+test is about, and that the database still holds its pre-009 table, columns,
+indexes and DDL text.  Seven guards; every one of them has a mutant that names
+it, and `test_every_guard_in_the_file_has_a_mutant_in_this_class` is what keeps
+that true when a guard is added or removed.
 
 WHAT THIS FILE DOES NOT CLAIM.  It does not claim the four numbers are the
 original game's; that is `NEW_CHARACTER_VITALS_LABEL`'s and RE-194's business
@@ -48,6 +52,7 @@ that applies 009 still holds NULL, which is measured below by
 quietly fixed here.  And it does not reach the `--scene-load-scenario` boot
 shape, which does not migrate at all.
 """
+import re
 import shutil
 import sqlite3
 import sys
@@ -76,6 +81,26 @@ PRE_EXISTING_DEFAULT_COLUMNS = ("identity_hi", "name_key", "create_fingerprint")
 
 VETERAN = {"level": 9, "hp_current": 480, "hp_max": 500}
 
+#: A veteran with a DISTINCT value in every one of the 21 typed columns.  Not
+#: decoration: guard C in the migration compares each column with `IS NOT`, so
+#: a column that is NULL in every fixture row can only ever be compared NULL
+#: to NULL and the guard's line for it never really runs.  Built from the
+#: typed-column table so a column added by a later migration joins it
+#: automatically instead of being silently unmeasured.
+def _veteran_full():
+    values = {}
+    for index, (column, spec) in enumerate(sorted(typed.TYPED_COLUMNS.items())):
+        if column in VETERAN:
+            values[column] = VETERAN[column]
+        elif spec.kind == "f32":
+            values[column] = 250.0 + index
+        else:
+            values[column] = 11 + index
+    return values
+
+
+VETERAN_FULL = _veteran_full()
+
 
 def _build_wire(selector):
     return b"wire-%d" % selector, b"avatar", 0x30000001 + selector, 0
@@ -83,6 +108,10 @@ def _build_wire(selector):
 
 def _build_wire_second_account(selector):
     return b"wire-b-%d" % selector, b"avatar", 0x40000001 + selector, 0
+
+
+def _build_wire_third_account(selector):
+    return b"wire-c-%d" % selector, b"avatar", 0x50000001 + selector, 0
 
 
 def _table_info(path, table="characters"):
@@ -102,6 +131,19 @@ def _indexes(path, table="characters"):
             (str(row[0]), row[1]) for row in db.execute(
                 "SELECT name,sql FROM sqlite_master "
                 "WHERE type='index' AND tbl_name=?", (table,)))
+    finally:
+        db.close()
+
+
+def _ddl(path, table="characters"):
+    """The table's own stored DDL text -- the thing `pragma_table_info` is a
+    lossy projection of, and the only place a CHECK constraint, a REFERENCES
+    clause or a COLLATE can be seen at all."""
+    db = sqlite3.connect(str(path))
+    try:
+        return db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+            (table,)).fetchone()[0]
     finally:
         db.close()
 
@@ -173,7 +215,21 @@ class _PreNineFixture(unittest.TestCase):
         """A veteran with real vitals, a rookie with none, on two accounts."""
         account_a = store.ensure_account("account-a")
         veteran = self._create(store, account_a, "Veteran", "veteran", x=1.0)
-        store.write_typed_attributes(veteran.id, dict(VETERAN))
+        # EVERY typed column, with a value distinct from every other column's.
+        # A `pf-adversary` pass measured what the three-column version cost:
+        # with the other eighteen NULL in every fixture row, guard C's
+        # `IS NOT` comparison for them only ever compared NULL to NULL, and a
+        # rebuild that dropped `speed_walk` out of the copy COMMITTED.
+        store.write_typed_attributes(veteran.id, dict(VETERAN_FULL))
+        db = sqlite3.connect(str(self.path))
+        try:
+            # Two more columns guard C names that no store method writes.
+            db.execute("UPDATE characters SET avatar_typed_json=?, "
+                       "identity_hi=? WHERE id=?",
+                       ('{"lane":"db"}', 7, veteran.id))
+            db.commit()
+        finally:
+            db.close()
         rookie = self._create(store, account_a, "Rookie", "rookie", x=4.0)
         account_b = store.ensure_account("account-b")
         stranger = self._create(store, account_b, "Stranger", "stranger",
@@ -297,22 +353,47 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
                          "009 is a DEFAULT, not a backfill: no existing row "
                          "may change in any column")
 
-    def test_a_row_born_before_009_keeps_its_nulls(self):
+    def test_a_row_born_before_009_keeps_what_it_was_born_with(self):
         """Named rather than hidden: 009 does not reach backwards.
 
-        A character created between the boot that applied 008 and the boot
-        that applies 009 holds NULL in all four columns, and still does after
-        009 -- a DEFAULT governs INSERTs, and this file deliberately runs no
-        UPDATE.  That window is reported to COO in this round's letter; it is
-        not closed here, because `COO-DECISION 20260902_1607` approved a
-        default and a backfill is a different decision with a different price.
+        A DEFAULT governs INSERTs, and this file deliberately runs no UPDATE,
+        so a character created before 009 keeps exactly the columns it was
+        born with and gains nothing.  WHICH columns those are depends on when
+        it was born, and the window narrowed while this file was being
+        written: chief's insertion point (`COO-DECISION 20260902_0444`,
+        commit `b9e11059`) now writes the three vitals at creation, so a
+        character born after THAT has the three and lacks only `speed_walk`.
+        A character born before it -- which is every character on the owner's
+        database created between the boot that applied 007/008 and the boot
+        that applies the plug -- still holds NULL in all four.  Both halves
+        are measured below, and the window is reported to COO in this round's
+        letter rather than closed here: `COO-DECISION 20260902_1607` approved
+        a DEFAULT, and a backfill is a different decision with its own price.
         """
         store = self._store_at_008()
         _, _, veteran, rookie, _, _ = self._populate(store)
+        born_with = store.read_typed_attributes(rookie.id)
+        self.assertNotIn("speed_walk", born_with,
+                         "008 seeds a cohort; a character born after it has "
+                         "no speed and this test would be measuring nothing")
+
+        # The other half of the window: a row that predates chief's plug too.
+        pre_plug = self._create(store, self.__dict__.setdefault(
+            "_account_c", store.ensure_account("account-c")),
+            "Ancient", "ancient", _build_wire_third_account, 11.0)
+        birth_state.clear_birth_defaults_to_pre_009(self.path, [pre_plug.id])
+        self.assertEqual(store.read_typed_attributes(pre_plug.id), {})
+
         self._store_at_009().migrate()
         after = SQLiteStore(self.path, MIGRATIONS)
-        self.assertEqual(after.read_typed_attributes(rookie.id), {})
-        self.assertEqual(after.read_typed_attributes(veteran.id), VETERAN)
+        self.assertEqual(after.read_typed_attributes(rookie.id), born_with)
+        self.assertEqual(after.read_typed_attributes(pre_plug.id), {},
+                         "009 backfilled a row; it is a DEFAULT, not an "
+                         "UPDATE, and the guard in the file should have "
+                         "refused the commit")
+        self.assertEqual(
+            after.read_typed_attributes(veteran.id),
+            birth_state.with_birth(born_with, **VETERAN_FULL))
 
     def test_the_children_of_a_dropped_parent_are_still_there(self):
         """The rebuild drops `characters` with foreign_keys OFF for a reason.
@@ -372,11 +453,12 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
         """
         store = self._store_at_008()
         account_a, _, veteran, _, _, _ = self._populate(store)
+        held = store.read_typed_attributes(veteran.id)
         self._store_at_009().migrate()
         after = SQLiteStore(self.path, MIGRATIONS)
         again = self._create(after, account_a, "Veteran", "veteran", x=1.0)
         self.assertEqual(again.id, veteran.id)
-        self.assertEqual(after.read_typed_attributes(veteran.id), VETERAN)
+        self.assertEqual(after.read_typed_attributes(veteran.id), held)
 
 
 class TheSchemaIsTheSameSchemaTests(_PreNineFixture):
@@ -514,82 +596,227 @@ class TheSnapshotReallyHappensTests(_PreNineFixture):
                     if dflt is not None}
         self.assertEqual(defaults, set(PRE_EXISTING_DEFAULT_COLUMNS))
 
-
 class TheGuardsInTheFileReallyFireTests(_PreNineFixture):
-    """Six guards, and one mutant each that only that guard catches.
+    """One mutant per guard, and each one has to NAME the guard that caught it.
 
-    Every mutant is a wrong rebuild that a reader could plausibly write, and
-    every assertion is the same pair: the migration is REFUSED, and the
-    database it was refused on still holds its pre-009 table with its rows
-    intact.  A guard whose mutant applies cleanly is decoration.
+    WHY THE NAME IS ASSERTED AND NOT JUST THE REFUSAL.  The first version of
+    this class asserted `assertRaises(Exception)` and called that "six guards,
+    six mutants".  A `pf-adversary` pass took it apart:
+
+      * the "guard 6" mutant dropped `id` from the INSERT column list but not
+        from the SELECT list, which is an ARITY ERROR -- `table
+        characters_rebuild has 35 values for 34 columns`.  It was refused with
+        every guard deleted from the file.  That guard had never fired once;
+      * two mutants were "caught" by `_mutated_dir`'s own `assertIn`, because
+        they changed the exact substring a DIFFERENT test searches for.  Move
+        the same defect one column over and the whole suite went green;
+      * one mutant was caught by two guards, so one of the two was decoration;
+      * and six wrong rebuilds a reader would call catastrophic -- a lost
+        `REFERENCES accounts(id)`, three lost CHECK constraints, an added
+        COLLATE, a widened range -- were caught by NOTHING, because
+        `pragma_table_info` cannot see any of them.
+
+    Every guard now carries a NAMED constraint, so SQLite's message says which
+    one refused, and `_refused` requires the expected name.  A mutant caught by
+    a SQL error, or by the wrong guard, is a failure here.
     """
 
-    def _refused(self, replacements):
+    def _refused(self, replacements, expect_guard):
+        """Apply a mutant of 009 to a populated 008 database and require that
+        the named guard is what stopped it, with the database untouched."""
         store = self._store_at_008()
         self._populate(store)
         before = _all_rows(self.path)
         before_columns = _table_info(self.path)
         before_indexes = _indexes(self.path)
+        before_ddl = _ddl(self.path)
         mutant = self._mutated_dir(replacements)
         with self.assertRaises(Exception) as caught:
             SQLiteStore(self.path, mutant).migrate()
+        message = str(caught.exception)
+        self.assertIn(
+            "CHECK constraint failed", message,
+            "the mutant was refused by something that is not a guard -- a SQL "
+            "error refuses just as loudly and proves nothing: %s" % message)
+        self.assertIn(
+            expect_guard, message,
+            "a guard refused the mutant, but not the one this test is about")
         self.assertEqual(_applied(self.path)[-1], 8,
                          "the ledger recorded a migration that failed")
         self.assertEqual(_all_rows(self.path), before)
         self.assertEqual(_table_info(self.path), before_columns)
         self.assertEqual(_indexes(self.path), before_indexes)
-        return caught.exception
+        self.assertEqual(_ddl(self.path), before_ddl)
+        return message
 
-    def test_guard_1_catches_a_backfill_of_the_existing_rows(self):
+    # -- guard A: the whole table declaration.  Every mutant below was
+    # -- measured COMMITTING, with every test green, against the version of
+    # -- this file that graded the rebuild by `pragma_table_info` alone.
+    def test_the_ddl_guard_catches_a_lost_foreign_key(self):
+        """The worst of the six: `characters.account_id` stops referencing
+        `accounts`, and the orphan half of guard G becomes permanently vacuous
+        for this table, in every future migration."""
+        self._refused(
+            [("    account_id INTEGER NOT NULL REFERENCES accounts(id),\n",
+              "    account_id INTEGER NOT NULL,\n")],
+            "guard_the_table_declaration_is_unchanged")
+
+    def test_the_ddl_guard_catches_a_dropped_check_constraint(self):
+        """`migrations/006` says in writing that a value the encoder could not
+        survive cannot be stored in the first place.  Dropping the CHECK makes
+        that sentence false, permanently, and the checksum ledger seals it."""
+        self._refused(
+            [("    cash INTEGER\n"
+              "        CHECK(cash IS NULL OR (typeof(cash)='integer' AND cash BETWEEN 0 AND 9223372036854775807)),\n",
+              "    cash INTEGER,\n")],
+            "guard_the_table_declaration_is_unchanged")
+
+    def test_the_ddl_guard_catches_a_widened_check_range(self):
+        self._refused(
+            [("stat_str BETWEEN 0 AND 65535",
+              "stat_str BETWEEN 0 AND 4294967295")],
+            "guard_the_table_declaration_is_unchanged")
+
+    def test_the_ddl_guard_catches_an_added_collation(self):
+        """`name_key` is the column the active-name index is built on; giving
+        it NOCASE changes what "the same name" means without changing a single
+        thing `pragma_table_info` reports."""
+        self._refused(
+            [("    name_key TEXT NOT NULL DEFAULT '',\n",
+              "    name_key TEXT NOT NULL DEFAULT '' COLLATE NOCASE,\n")],
+            "guard_the_table_declaration_is_unchanged")
+
+    def test_the_other_objects_guard_catches_a_trigger_destroyed_by_the_rebuild(self):
+        """A rebuild drops every trigger on the table it replaces, silently.
+        No migration in this repository creates one today -- but the owner's
+        canonical database is not in this repository, so "there is no trigger
+        on her characters" is an assumption, and this guard is the one nobody
+        has to make it."""
+        store = self._store_at_008()
+        self._populate(store)
+        db = sqlite3.connect(str(self.path))
+        try:
+            db.execute(
+                "CREATE TRIGGER characters_audit AFTER UPDATE ON characters "
+                "BEGIN SELECT 1; END")
+            db.commit()
+        finally:
+            db.close()
+        before = _all_rows(self.path)
+        with self.assertRaises(Exception) as caught:
+            SQLiteStore(self.path, MIGRATIONS).migrate()
+        self.assertIn("guard_every_other_object_is_unchanged",
+                      str(caught.exception))
+        self.assertEqual(_applied(self.path)[-1], 8)
+        self.assertEqual(_all_rows(self.path), before)
+        db = sqlite3.connect(str(self.path))
+        try:
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM sqlite_master "
+                           "WHERE type='trigger'").fetchone()[0], 1,
+                "the trigger was destroyed even though the migration rolled "
+                "back")
+        finally:
+            db.close()
+
+    def test_the_rows_guard_catches_a_backfill_of_the_existing_rows(self):
         """The UPDATE that looks helpful and is the owner's banned overwrite:
         every character in the database reset to the birth numbers."""
-        self._refused([(
-            "DROP TABLE characters;\nALTER TABLE characters_rebuild",
-            "DROP TABLE characters;\n"
-            "UPDATE characters_rebuild SET level=1, hp_current=100, "
-            "hp_max=100, speed_walk=400.0;\n"
-            "ALTER TABLE characters_rebuild")])
+        self._refused(
+            [("DROP TABLE characters;\nALTER TABLE characters_rebuild",
+              "DROP TABLE characters;\n"
+              "UPDATE characters_rebuild SET level=1, hp_current=100, "
+              "hp_max=100, speed_walk=400.0;\n"
+              "ALTER TABLE characters_rebuild")],
+            "guard_no_row_changed_in_any_column")
 
-    def test_guard_1_catches_a_row_that_did_not_come_across(self):
-        self._refused([(
-            "    FROM characters;\n\nDROP TABLE characters;",
-            "    FROM characters WHERE deleted_at IS NULL;\n\n"
-            "DROP TABLE characters;")])
+    def test_the_rows_guard_catches_a_row_that_did_not_come_across(self):
+        self._refused(
+            [("    FROM characters;\n\nDROP TABLE characters;",
+              "    FROM characters WHERE deleted_at IS NULL;\n\n"
+              "DROP TABLE characters;")],
+            "guard_no_row_changed_in_any_column")
 
-    def test_guard_2_catches_a_column_that_lost_its_not_null(self):
-        self._refused([("    name TEXT NOT NULL,\n", "    name TEXT,\n")])
+    def test_the_rows_guard_catches_a_column_dropped_from_the_copy(self):
+        """The slip guard C could not see until `_populate` began writing a
+        distinct value into all 21 typed columns: with every typed column NULL
+        in every fixture row, a column left out of the copy compares NULL to
+        NULL and passes.  A `pf-adversary` pass measured exactly that on
+        `speed_walk`."""
+        self._refused(
+            [("     stat_per,experience,cash,bonus_str,bonus_con,bonus_dex,bonus_int,bonus_per\n"
+              "    FROM characters;",
+              "     stat_per,experience,NULL,bonus_str,bonus_con,bonus_dex,bonus_int,bonus_per\n"
+              "    FROM characters;")],
+            "guard_no_row_changed_in_any_column")
 
-    def test_guard_3_catches_a_default_written_with_the_wrong_number(self):
+    def test_the_columns_guard_catches_a_column_that_lost_its_not_null(self):
+        self._refused([("    name TEXT NOT NULL,\n", "    name TEXT,\n")],
+                      "guard_the_column_list_is_unchanged")
+
+    def test_the_defaults_guard_catches_a_default_written_with_the_wrong_number(self):
         self._refused([("hp_max INTEGER DEFAULT 100",
-                        "hp_max INTEGER DEFAULT 150")])
+                        "hp_max INTEGER DEFAULT 150")],
+                      "guard_exactly_the_four_defaults_were_added")
 
-    def test_guard_4_catches_a_default_on_an_unadjudicated_column(self):
-        """The guessed zero, arriving as a kindness."""
+    def test_the_columns_guard_catches_a_default_on_an_unadjudicated_column(self):
+        """The guessed zero, arriving as a kindness.  Caught by the COLUMNS
+        guard, which runs first: it compares `dflt_value` for every column
+        outside the four this file is allowed to touch."""
         self._refused([("    mp_current INTEGER\n",
-                        "    mp_current INTEGER DEFAULT 0\n")])
+                        "    mp_current INTEGER DEFAULT 0\n")],
+                      "guard_the_column_list_is_unchanged")
 
-    def test_guard_5_catches_a_lost_uniqueness_index(self):
+    def test_the_defaults_guard_catches_a_birth_default_that_never_landed(self):
+        """The mutant only the defaults guard can catch: the columns guard
+        deliberately EXCLUDES the four birth columns from its `dflt_value`
+        comparison (they are the four this file changes), so a rebuild that
+        simply forgets one of them walks straight past it -- and past every
+        test that only creates characters, because three of the four are
+        written by chief's insertion point anyway.  `speed_walk` is the one
+        nothing else supplies."""
+        self._refused([("    speed_walk REAL DEFAULT 400.0\n",
+                        "    speed_walk REAL\n")],
+                      "guard_exactly_the_four_defaults_were_added")
+
+    def test_the_indexes_guard_catches_a_lost_uniqueness_index(self):
         """Without `characters_active_selector` two live characters share a
         slot; this is the risk the proposing letter called the highest one."""
-        self._refused([(
-            "CREATE UNIQUE INDEX characters_active_selector ON characters"
-            "(account_id, selector) WHERE deleted_at IS NULL;\n", "")])
+        self._refused(
+            [("CREATE UNIQUE INDEX characters_active_selector ON characters"
+              "(account_id, selector) WHERE deleted_at IS NULL;\n", "")],
+            "guard_every_index_came_back")
 
-    def test_guard_5_catches_an_index_that_lost_its_partial_clause(self):
+    def test_the_indexes_guard_catches_an_index_that_lost_its_partial_clause(self):
         """A whole-table UNIQUE where a partial one was: soft-deleted slots
         stop being reusable and `004` is silently undone."""
-        self._refused([(
-            "CREATE UNIQUE INDEX characters_active_identity ON characters"
-            "(identity_lo, identity_hi) WHERE deleted_at IS NULL;",
-            "CREATE UNIQUE INDEX characters_active_identity ON characters"
-            "(identity_lo, identity_hi);")])
+        self._refused(
+            [("CREATE UNIQUE INDEX characters_active_identity ON characters"
+              "(identity_lo, identity_hi) WHERE deleted_at IS NULL;",
+              "CREATE UNIQUE INDEX characters_active_identity ON characters"
+              "(identity_lo, identity_hi);")],
+            "guard_every_index_came_back")
 
-    def test_guard_6_catches_a_rebuild_that_orphaned_the_children(self):
-        """`id` renumbered by dropping it from the copy: every position and
-        backpack row now points at a parent that does not exist."""
-        self._refused([(
-            "INSERT INTO characters_rebuild\n    (id,account_id",
-            "INSERT INTO characters_rebuild\n    (account_id")])
+    def test_the_children_guard_catches_a_rebuild_that_deleted_every_child_row(self):
+        """`PRAGMA foreign_keys=OFF` is the line that prevents this, and a
+        `pf-adversary` pass measured what the old orphan-only guard did when
+        that line was flipped: `DROP TABLE characters` cascade-deleted every
+        position, backpack and item row, and the orphan count came back ZERO
+        -- because nothing was orphaned, nothing was left.  Counting the
+        survivors is the guard the header always claimed to have."""
+        self._refused(
+            [("PRAGMA foreign_keys=OFF;", "PRAGMA foreign_keys=ON;")],
+            "guard_the_child_rows_all_survived")
+
+    def test_the_children_guard_still_catches_an_orphan(self):
+        """The other direction, which counting cannot see: every child row is
+        still there and points at a parent that is not."""
+        self._refused(
+            [("DROP TABLE characters;\nALTER TABLE characters_rebuild",
+              "DROP TABLE characters;\n"
+              "UPDATE characters_rebuild SET id = id + 100000;\n"
+              "ALTER TABLE characters_rebuild")],
+            "guard_")
 
     def test_the_mutation_harness_is_not_vacuous(self):
         """The unmutated file, through the same harness, APPLIES.
@@ -606,6 +833,21 @@ class TheGuardsInTheFileReallyFireTests(_PreNineFixture):
         SQLiteStore(self.path, unmutated).migrate()
         self.assertEqual(_applied(self.path)[-1], 9)
         self.assertEqual(_all_rows(self.path), before)
+
+    def test_every_guard_in_the_file_has_a_mutant_in_this_class(self):
+        """The bookkeeping that stops a guard being added with no mutant, and
+        stops one being deleted with its mutant left behind testing nothing.
+        Both were real: a `pf-adversary` pass found a guard here that had
+        never fired once."""
+        declared = set(re.findall(r"CONSTRAINT (guard_[a-z_]+) CHECK",
+                                  NINE.read_text(encoding="utf-8")))
+        self.assertEqual(len(declared), 7)
+        source = Path(__file__).read_text(encoding="utf-8")
+        for name in sorted(declared):
+            with self.subTest(guard=name):
+                self.assertIn(
+                    '"%s"' % name, source,
+                    "this guard has no mutant in this class that names it")
 
 
 class TheLedgerStillGovernsThisFileTests(_PreNineFixture):

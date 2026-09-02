@@ -767,11 +767,14 @@ class BootSnapshotProtects008Tests(_MigratedWorkspace):
         take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
         self.assertTrue(take, reason)
         self.assertIn("008", reason)
-        # 009 joined the directory after this test was written, and a database
-        # that stopped at 007 has both files pending.  What the test is about
-        # -- that a snapshot is DUE while 008 has not been applied -- is the
-        # membership, not the length.
-        self.assertIn(8, persistence_backup.pending_versions(self.path,
+        # 009 joined the directory after this test was written, so a database
+        # that stopped at 007 now has BOTH files pending.  Still an exact
+        # list and not an `assertIn`: the point of the pin is that the
+        # snapshot is due for a KNOWN set of pending files, and a membership
+        # test would keep passing while a tenth file nobody looked at joined
+        # them.
+        self.assertEqual([8, 9],
+                         persistence_backup.pending_versions(self.path,
                                                              MIGRATIONS))
 
     def test_a_snapshot_that_dies_in_its_prologue_still_aborts_the_boot(self):
