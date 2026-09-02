@@ -220,7 +220,7 @@ FIELDS = (
     (6,  "basic", 0x0020, 0x050, 0x14, "u32",  "mp_max",          True,  ""),
     (7,  "basic", 0x0040, 0x054, 0x2A, "f32",  "basic_f32_54",    False, "unknown f32"),
     (8,  "basic", 0x0080, 0x058, 0x2A, "f32",  "death_timer",     True,  "dying countdown f32"),
-    (9,  "basic", 0x0100, 0x05C, 0x12, "u16",  "category_5C",     False, "partial: ==8 swaps HP to x52/53"),
+    (9,  "basic", 0x0100, 0x05C, 0x12, "u16",  "category_5C",     False, "0x430E10(this)==8 swaps HP to x52/53; see SELECTOR_NOTE_R301"),
     (10, "basic", 0x0200, 0x060, 0x32, "u64",  "basic_q60",       False, "unknown"),
     (11, "basic", 0x0400, 0x068, 0x14, "u32",  "basic_faction",   True,  "1 = player side"),
     (12, "basic", 0x0800, 0x06C, 0x14, "u32",  "basic_u32_6C",    False, "unknown"),
@@ -251,7 +251,7 @@ FIELDS = (
     (35, "actor", 1 << 22, 0x18A, 0x12, "u16",  "bonus_per",       True,  ""),
     (36, "actor", 1 << 23, 0x18C, 0x0B, "u8",   "u8_18C",          False, "unknown"),
     (37, "actor", 1 << 24, 0x164, 0x48, "wstr", "wstr_164_guild",  True,  "-> LABEL_GUILD (probe sent a character name here safely)"),
-    (38, "actor", 1 << 25, 0x180, 0x0B, "u8",   "u8_180",          False, "unknown"),
+    (38, "actor", 1 << 25, 0x180, 0x0B, "u8",   "u8_180",          False, "unknown; a [CORPUS, UNVERIFIED] domain is recorded in SELECTOR_NOTE_R301"),
     (39, "actor", 1 << 26, 0x098, 0x0B, "u8",   "u8_98_pairA",     False, "unknown, shares bit with x40"),
     (40, "actor", 1 << 26, 0x094, 0x19, "u32",  "u32_94_pairA",    False, "unknown, shares bit with x39"),
     (41, "actor", 1 << 27, 0x140, 0x32, "u64",  "q_140_pairB",     False, "unknown, shares bit with x42"),
@@ -273,13 +273,90 @@ FIELDS = (
     (49, "actor", 1 << 35, 0x0E8, 0x48, "wstr", "wstr_E8",         False, "unknown text 3"),
     (50, "actor", 1 << 36, 0x104, 0x48, "wstr", "wstr_104",        False, "unknown text 4"),
     (51, "actor", 1 << 37, 0x120, 0x48, "wstr", "wstr_120",        False, "unknown text 5"),
-    (52, "actor", 1 << 38, 0x1A8, 0x14, "u32",  "alt_hp_current",  True,  "used when x9 == 8"),
+    (52, "actor", 1 << 38, 0x1A8, 0x14, "u32",  "alt_hp_current",  True,  "used when 0x430E10(x9)==8; see SELECTOR_NOTE_R301"),
     (53, "actor", 1 << 39, 0x1AC, 0x14, "u32",  "alt_hp_max",      True,  ""),
     (54, "actor", 1 << 40, 0x1B0, 0x12, "u16",  "u16_1B0",         False, "unknown"),
     (55, "actor", 1 << 41, 0x1B2, 0x0B, "u8",   "u8_1B2",          False, "unknown"),
 )
 BY_X = {f[0]: f for f in FIELDS}
 BY_NAME = {f[6]: f for f in FIELDS}
+
+# -- SELECTOR_NOTE_R301 -----------------------------------------------------
+# Trigger: `ka1-B`'s letter 20260901_2215 (items 3, 4, 5) asked this lane to
+# rename four rows from the Codex IMAGE corpus and to mark nineteen rows
+# known.  NONE of that is done here, and the reason is worth writing down
+# once because this lane got it wrong first and had to be refuted:
+#
+#   The corpus IS mirrored in this repository -- `persistence_attr_compose.
+#   _CLIENT_DEFAULT_ROWS` -- but `ClientConstructionDefault`'s own docstring
+#   says that table is "One row of the Codex corpus, copied with its
+#   provenance attached".  A copy is not a second source.
+#
+#   This lane's first attempt renamed x=9 to `scene_id`, arguing that seven
+#   in-repo modules reach that name independently.  pf-adversary refuted it
+#   before commit: those seven are one lineage (R90 section 3.4 -> the
+#   stats-progression lane -> modules that say "Copied, not imported"), and
+#   this repository's OWN byte-exact sweep retracted the name in writing --
+#   `reports/PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md`, the note
+#   under the BasicAttr table: the bytes only show that +0x5C is a u16 fed
+#   into 0x430E10 and compared with 8; the name "scene id/seq" has nothing
+#   in the image behind it, is an inherited [GUESS], and must not be carried
+#   forward.  That same report's table calls +0x5C `u16 category`, which is
+#   what this table already called it.  So: NO RENAMES.  x=9 keeps
+#   `category_5C`, x=38 keeps `u8_180`, x=52/53 keep `alt_hp_current`/
+#   `alt_hp_max`.
+#
+# What IS corrected here is one word in two notes.
+#
+# THE SELECTOR, as far as the bytes actually go [PROVEN, in-repo]:
+#   The alternate HP pair is not chosen by comparing x=9 to 8.  x=9's value
+#   is passed to the function 0x430E10 and it is that function's RESULT that
+#   is compared with 8.  Two independently reported paths do it:
+#     * the nameboard updater 0x5BD320 computes it inline --
+#       `attr+0x5C -> 0x430E10() == 8 ?` -> HP switches to ActorAttr
+#       +0x1A8/+0x1AC, [PROVEN VA=0x5BD3C0..0x5BD3DB]
+#       (`PF_CHUNK2_Q1_ACTORATTR_MASK_FINDINGS_20260819.md`, section 7.2);
+#     * the HUD updater 0x53F180 and the death predicate both switch on the
+#       cached byte [actor+0x358] instead, and the one writer of that byte
+#       found by the sweep, 0x4564B3, is `al = (0x430E10(sceneId) == 8)`
+#       (`tools/pf_hp_death_respawn_static.py`, the HP-fields section and the
+#       one-writer guard).
+#   Scope of that writer claim, stated exactly because the tool's own
+#   message is narrower than it is tempting to quote: the guard searches ONE
+#   instruction encoding (`mov [esi+0x358], al`) in `.text` only.  It does
+#   not exclude a write through another register or a different encoding,
+#   and +0x358 is class-overloaded -- for the NPC classes the same offset is
+#   an Attr pointer (`GetAttr 0x45CD20`), not a selector byte.
+#
+# WHAT CATEGORY 8 IS: not decoded.  `PF_HP_DEATH001_HP_DEATH_AND_RESPAWN_
+# STATIC_20260819.md` says so in as many words ("What category 8 *is* is not
+# claimed -- the mapping lives inside 0x430E10 and the external scene data,
+# and this milestone did not decode it"), and the CHUNK2 report lists
+# "0x430E10 not yet read" as an open question.  So NOTHING here says which
+# scene, or which kind of scene, gets the alternate pair.  A note that told
+# a tester to go to scene 8 -- or to avoid it -- would be inventing the
+# mapping.  ~~An earlier draft of this very block did exactly that.~~
+#
+# x=38, note only, no rename:
+#   The corpus calls x=38 `LABEL_GUILD_FontStyleID_selector` and gives it a
+#   domain -- 1..3 -> FontStyleID 64, 4..7 -> 65, 8..9 -> 66, 10 -> 67.
+#   [CORPUS, UNVERIFIED] -- single-source, encoded nowhere in this module,
+#   and `NOW.md` P-2 forbids hardcoding a FontStyleID in any case.  It is
+#   recorded for one reason: the trigger letter reports that an earlier
+#   probe table wrote "x38 != 0 turns the orange name purple" -- a TWO-STATE
+#   reading of something the corpus gives at least four bands.  That probe
+#   table is NOT in this repository and neither the letter nor this lane can
+#   locate it, so the rebuttal is [PROPOSED] on both sides: what is recorded
+#   is that a two-state reading and a four-band domain cannot both be right,
+#   not which one is.
+#
+# NOT DONE: the letter's item 4, eighteen rows to `known=True` (its list of
+# nineteen includes x=30, which `SENSITIVE_FIELDS` forbids outright, so
+# eighteen is the real count).  `known` is the ONLY gate deciding which mask
+# bits `build_named_field_update` may set, so those flips would widen this
+# module's send permission by eighteen fields in one commit on the strength
+# of a corpus that still ships open CONFLICTS files.  `RefusedWideningTests`
+# pins every one of them.  Asked of COO, not assumed.
 
 # x=30 (ActorAttr +0x148): an UNADJUDICATED Codex checkpoint corpus
 # (`pf_bridge/notes_to_chief/reference_codex_attr/`, still carrying open
