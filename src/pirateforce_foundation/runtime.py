@@ -1264,6 +1264,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # round; see CHIEF-STATUS 2026-08-27T15:45+07:00 and GT-106.
                 self.columbus_quest3021_conversation_sent = False
                 self.columbus_quest3021_dispatch_attempted = False
+                # COO-DECISION 20260902_1347 (pf-adversary round g7yvo2, D4
+                # and D2): both scene guards on the Columbus lane refuse in
+                # total silence today, and every other refusal in the same
+                # method carries a name.  These two sets hold the scene ids
+                # already reported, so one token per scene reaches the
+                # console however many times the client clicks -- an event
+                # list this session appends to on every frame may not grow
+                # without a bound the client controls.  Per session, like
+                # the two latches above.
+                self.columbus_choose_npc_wrong_scene_reported = set()
+                self.columbus_q3021_teleport_wrong_scene_reported = set()
+                # Bounded by the SOURCE, not by the client: what goes in is
+                # an exception class name this code produced, so a client
+                # sending ten thousand malformed ChooseNPC frames adds one
+                # entry, not ten thousand (pf-adversary round kt05o0 measured
+                # the first draft doing exactly that, 200 events from 200
+                # frames).
+                self.columbus_choose_npc_report_errors = set()
                 # CORE-REQUEST-019 (Lane A, 2026-08-27T18:48+07:00): option 2
                 # / quest 3205 (Q_BORNAGAIN) is a separate op1 the client can
                 # send independently of quest 3021's, off the same two-entry
@@ -5076,6 +5094,91 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         mob_drop_presence.presence_event(step))
             return actions
 
+        def _columbus_note_choose_npc_wrong_scene(self, parsed) -> None:
+            """Name the D4 refusal: a click that WOULD have opened Columbus's
+            conversation, taken in a scene that is not home.
+
+            COO-DECISION 20260902_1347.  Diagnostic only - this composes no
+            frame, queues no action, changes no latch, and its caller ignores
+            what it does.
+
+            THE TOKEN SAYS ``lane_declined``, NOT ``no_reply``, AND THAT WORD
+            WAS MEASURED, NOT CHOSEN.  The decision's own draft wording was
+            ``..._no_reply``; pf-adversary (round kt05o0) drove the real
+            dispatcher and found the claim false in every scene but one.  A
+            ChooseNPC naming ``0x2002`` in scene 14 is ANSWERED by
+            ``lane_hooks/lane_a_choose_npc_scene14.py`` (label
+            ``LANE_A_CHOOSE_NPC_SCENE14_FACE_P1``), and in the nine roster
+            scenes and scene 2 the frozen v141 path answers it
+            (``V98_NPC_CONVERSATION_DEFAULT_P1``); only scene 3 queues
+            nothing.  This branch can see its own decision and no further, so
+            it reports its own decision: THIS lane declined.  Whether the
+            frame sum was empty is a fact that belongs to the join at the
+            bottom of ``dispatch``, which is where a future ``no_reply`` token
+            would have to live.
+
+            ONE TOKEN PER SCENE.  ``columbus_choose_npc_wrong_scene_reported``
+            is checked first and written last, so a client clicking the same
+            actor a thousand times leaves one event and one console line.
+
+            ONLY FOR COLUMBUS'S OWN IDENTITY.  Placement index 1 is armed for
+            the whole roster; a click on any other actor is not this lane's to
+            report at all.
+
+            IT MAY NOT RAISE, and it may not lean on its caller to be safe:
+            the ``selected`` read below is its own, not the caller's
+            (``lane_a_choose_npc_roster_scenes.py`` refuses the caller's-net
+            pattern for itself and it is refused here too).
+            ``extract_choose_npc_identities`` parses client bytes and
+            ``columbus_actor_identity`` reads a table that can be missing; a
+            diagnostic that killed the dispatch would be worse than no
+            diagnostic at all.  A failure to read is reported ONCE PER
+            EXCEPTION TYPE - the type name is written by this code, never by
+            the client, so that set is bounded by the source, whereas the
+            first draft appended one event per malformed frame and
+            pf-adversary measured 200 of them from 200 frames.
+
+            stderr, not stdout: the same reason the GM_WARP_POSITION_CONFIRMED
+            token a few hundred lines above gives - a token on stdout lands
+            inside the JSON artifact of
+            tools/pf_runtimeres_death_headless_replay.py --json.  The tester's
+            console shows both streams.
+            """
+            selected = self.foundation.selected
+            if selected is None:
+                return
+            scene_id = selected.position.scene_id
+            if scene_id in self.columbus_choose_npc_wrong_scene_reported:
+                return
+            try:
+                chosen = legacy.extract_choose_npc_identities(parsed)
+                columbus_identity = (
+                    columbus_quest_dispatch.columbus_actor_identity(legacy)
+                )
+            except Exception as error:
+                name = type(error).__name__
+                if name not in self.columbus_choose_npc_report_errors:
+                    self.columbus_choose_npc_report_errors.add(name)
+                    self.events.append(
+                        f"columbus_choose_npc_wrong_scene_report_unreadable_"
+                        f"{name}"
+                    )
+                return
+            if columbus_identity not in chosen:
+                return
+            self.columbus_choose_npc_wrong_scene_reported.add(scene_id)
+            self.events.append(
+                f"columbus_choose_npc_wrong_scene_{scene_id}_lane_declined"
+            )
+            try:
+                print(
+                    "COLUMBUS_CHOOSE_NPC_WRONG_SCENE "
+                    f"scene={scene_id} effect=columbus_lane_declined",
+                    file=sys.stderr,
+                )
+            except Exception:
+                pass
+
         def _dispatch_columbus_quest3021(self, parsed):
             """CORE-REQUEST-014: Columbus (MOBS n_ID 156, bg0001 placement
             index 1) NPCConversation -> QuestOperateVital op1/quest 3021.
@@ -5147,11 +5250,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # placement index 1 of every other island that has a roster.
             # LANE-A measured nine of the ten roster scenes carrying an index
             # 1 (scenes 4, 5, 6, 7, 8, 9, 10, 11, 130; only scene 3 has none),
-            # computed from the identity table, not hardcoded.  Until LANE-A
-            # registered a ChooseNPC responder for roster scenes, those
-            # scenes' ``population_indices`` were always None and this branch
-            # could not be reached from them; arming them is what made the
-            # collision live.  One click on scene 4 would otherwise answer
+            # computed from the identity table, not hardcoded.
+            #
+            # THIS GUARD IS NOT A PRECAUTION - IT CLOSED A BUG THAT WAS
+            # LIVE ON ``main`` (pf-adversary, round g7yvo2, D1; the sentence
+            # this paragraph replaces claimed the opposite and was wrong).
+            # The nine roster scenes above are indeed still held behind
+            # LANE-A's own gate, but SCENE 14 IS NOT ONE OF THEM: it is armed
+            # today by ``lane_hooks/lane_a_choose_npc_scene14.py``, whose
+            # ``production_allowed`` is ``True`` on main, and its placement
+            # index 1 of bg0015 is an actor literally named "Columbus" (MOBS
+            # n_ID 322, level 110) - a different actor from Port Royal's
+            # (n_ID 156).  Scene 14 is reachable on production: its registry
+            # row pins ``login_entry_allowed: true``
+            # (scenarios/world_scene_registry_001.json, n_id 14) and
+            # ``gm/login_scene_admission.py`` lists it as stageable, so a GM
+            # login lands there.  One click on scene 14 would otherwise answer
             # with this lane's frame AND
             # CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE, and the
             # QuestOperateVital after it teleports the player to scene 17,
@@ -5168,6 +5282,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # does not fire.  ``population_indices is not None`` above already
             # implies a censused session today, but the guard does not lean on
             # that -- it reads the scene itself.
+            # D4 (pf-adversary round g7yvo2, COO-DECISION 20260902_1347): the
+            # guard refuses in silence.  Every other refusal in this method
+            # has a name, and the tester greps the console for one.  Reported
+            # here, BEFORE the branch below, and deliberately WITHOUT a
+            # ``return``: a ChooseNPC in a roster scene still belongs to
+            # whatever lane answers it (LANE-A's own responder among them),
+            # so this may observe and name, never swallow.
+            if (
+                nested_id in (legacy.TARGET_VITAL, legacy.CHOOSE_NPC)
+                and not self.columbus_quest3021_conversation_sent
+                and self.foundation.selected is not None
+                and self.foundation.selected.position.scene_id
+                != world_scene_travel.HOME_SCENE_ID
+                and self.population_indices is not None
+                and columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX
+                in self.population_indices
+            ):
+                self._columbus_note_choose_npc_wrong_scene(parsed)
             if (
                 nested_id in (legacy.TARGET_VITAL, legacy.CHOOSE_NPC)
                 and not self.columbus_quest3021_conversation_sent
@@ -5240,6 +5372,80 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         quest_fields,
                     )
                 ):
+                    # D2, THE DOOR THE #570 GUARD LEFT OPEN (pf-adversary
+                    # round g7yvo2; COO-DECISION 20260902_1347 approved this
+                    # exact gate).  The conversation latch
+                    # ``columbus_quest3021_conversation_sent`` lives for the
+                    # whole session and has no scene in it, so the click that
+                    # opened the conversation at Port Royal still authorises
+                    # this QuestOperateVital an hour and three maps later --
+                    # measured on a live dispatcher: click Columbus at home,
+                    # cross to another scene, send op1/quest 3021, and the
+                    # player is teleported into scene 17, which the registry
+                    # pins ``login_entry_allowed: false``.
+                    #
+                    # THE IN-MEMORY ROW SAYS HOME OR IT IS NOTHING - and
+                    # those are two different sentences (pf-adversary round
+                    # kt05o0, D6).  The M2 crossing is Port Royal's boat: the
+                    # departure row, the pinned-home return ticket and the
+                    # stowaway measurement below all read a scene-1 row.  What
+                    # this guard can check is the row, not the player; today
+                    # the successful crossing itself never updates that row,
+                    # so a player standing in scene 17 still reads as home
+                    # here and only ``dispatch_attempted`` stops a second
+                    # crossing.  That gap is D3 of the same decision, landing
+                    # as this round's second PR; when it does, this guard's
+                    # two sentences become one.
+                    #
+                    # THE LATCH IS NOT CONSUMED HERE, on purpose: a player
+                    # whose row is scene 1 again may send the same op1 and get
+                    # the crossing.  Only ``dispatch_attempted`` (set below,
+                    # on the attempt that is actually made) is one-shot.
+                    # [PROPOSED, NOT MEASURED] that a player can SAIL back:
+                    # the walk-in travel gates print WORLD_TRAVEL_INERT by
+                    # owner decree and the return leg only reports a ticket,
+                    # so the only route back to a scene-1 row today is a GM
+                    # warp (pf-adversary round kt05o0, D7).
+                    if self.foundation.selected is None:
+                        # NOT a wrong scene - no scene at all.  Named apart
+                        # from the wrong-scene token so a grep for
+                        # ``..._refused_wrong_scene_`` never answers with a
+                        # session that had no character selected, and deduped
+                        # through the same set (``None`` is the key that
+                        # cannot collide with a scene id).
+                        reported = (
+                            self.columbus_q3021_teleport_wrong_scene_reported
+                        )
+                        if None not in reported:
+                            reported.add(None)
+                            self.events.append(
+                                "columbus_q3021_teleport_refused_"
+                                "no_selected_character"
+                            )
+                        return actions
+                    departure_scene = (
+                        self.foundation.selected.position.scene_id
+                    )
+                    if departure_scene != world_scene_travel.HOME_SCENE_ID:
+                        reported = (
+                            self.columbus_q3021_teleport_wrong_scene_reported
+                        )
+                        if departure_scene not in reported:
+                            reported.add(departure_scene)
+                            self.events.append(
+                                "columbus_q3021_teleport_refused_wrong_scene_"
+                                f"{departure_scene}"
+                            )
+                            try:
+                                print(
+                                    "COLUMBUS_Q3021_TELEPORT_REFUSED "
+                                    f"scene={departure_scene} "
+                                    "reason=not_home_scene",
+                                    file=sys.stderr,
+                                )
+                            except Exception:
+                                pass
+                        return actions
                     self.columbus_quest3021_dispatch_attempted = True
                     # PF-ADVERSARY FINDING, round e0daaa: emit=self.events.
                     # append alone (unlike the LOGIN resolve_entry call
@@ -5281,32 +5487,32 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # _checkpoint_exact_target all read/update it),
                             # so the printed drift is measured from where
                             # THIS character departed, not from the pinned
-                            # new-character spawn.  The scene guard is part
-                            # of the contract, not caution: a row already
-                            # naming another scene is not a departure from
-                            # home, and return_ticket validates a passed
-                            # row even when it would not use it, so
-                            # handing one over degrades the whole line to
-                            # a reason-only "refused:ValueError" stub --
-                            # None instead makes it print the full
-                            # pinned-home ticket with the named absence
-                            # (pf-adversary, this round, D4).  No branch
-                            # here can raise: selected is only ever None
-                            # or a frozen Character with a total position
-                            # field, and dispatch is single-writer.
-                            # return_leg_console_line itself never raises
-                            # (its own contract) and no frame or row is
-                            # composed from it.
-                            departed_from=(
-                                self.foundation.selected.position
-                                if (
-                                    self.foundation.selected is not None
-                                    and self.foundation.selected.position
-                                    .scene_id
-                                    == world_scene_travel.HOME_SCENE_ID
-                                )
-                                else None
-                            ),
+                            # new-character spawn.
+                            #
+                            # THE SCENE TEST THAT USED TO LIVE HERE MOVED UP
+                            # INTO THE GUARD (COO-DECISION 20260902_1347, D2).
+                            # It used to read ``... if selected is not None
+                            # and scene_id == HOME_SCENE_ID else None``, which
+                            # kept the console line honest while STILL letting
+                            # the crossing happen from anywhere.  Now the
+                            # crossing itself is refused unless both are true,
+                            # so this row is provably a scene-1 row by the
+                            # time it is read - pf-adversary (round kt05o0,
+                            # D5) measured the old else-branch as dead code
+                            # (raising ``AssertionError`` in it left the suite
+                            # green) and dead defensive code that reads like a
+                            # live guarantee is what this file keeps writing
+                            # itself up about.  ``world_m2_return_leg``'s own
+                            # ``call_site_passed_no_departure_row`` path is
+                            # untouched and still covered by that module's
+                            # unit tests; it is simply no longer reachable
+                            # from here.  Nothing here can raise: selected is
+                            # a frozen Character with a total position field
+                            # and dispatch is single-writer;
+                            # return_leg_console_line never raises (its own
+                            # contract) and no frame or row is composed from
+                            # it.
+                            departed_from=self.foundation.selected.position,
                             # CORE-REQUEST (LANE-A, round czoo9t): the
                             # one-token flip columbus_quest_dispatch.py's own
                             # docstring names -- unconditional True is safe

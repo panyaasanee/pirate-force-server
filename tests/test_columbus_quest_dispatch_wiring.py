@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch
+from pirateforce_foundation import lane_hooks
 from pirateforce_foundation import world_m2_crossing_handoff
 from pirateforce_foundation import world_m2_return_leg
 from pirateforce_foundation import world_population
@@ -624,24 +625,26 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         # _emit records AND prints (the e0daaa convention).
         self.assertIn(line, state.events)
 
-    def test_a_crossing_from_a_non_home_row_reports_the_named_absence(self):
-        """pf-adversary (round roj9lp, D4): the conversation latch has no
-        scene guard and survives a scene change, so the in-memory row can
-        name another scene by the time the QuestOperate arrives.  A row
-        from another scene is not a departure from home --
-        ``return_ticket`` validates a passed row even when it would not
-        use it, so handing it over degrades the whole line to a
-        reason-only ``refused:ValueError`` stub with no ticket in it.
-        The call site's scene guard passes None instead, which keeps the
-        full pinned-home ticket on the console with the named absence --
-        the exact line this state produced before the kwarg existed.
+    def test_a_crossing_from_a_non_home_row_is_refused_by_name(self):
+        """COO-DECISION 20260902_1347 (D2), REPLACING THIS TEST'S OWN OLDER
+        EXPECTATION.  Until this round the same setup asserted that the
+        crossing STILL HAPPENED and merely reported "the named absence" of a
+        departure row on its console line.  pf-adversary (round g7yvo2)
+        measured what that costs on a live dispatcher: the conversation latch
+        has no scene in it and lives for the whole session, so one click on
+        Columbus at Port Royal authorises this QuestOperateVital from
+        anywhere -- including scene 14, which is reachable on production
+        today -- and the player is teleported into scene 17, whose registry
+        row pins ``login_entry_allowed: false``.
 
-        MUTATION-PROOF: drop the ``scene_id == HOME_SCENE_ID`` conjunct
-        from the guard and this crossing prints the "refused:" stub this
-        test forbids by word.
+        The named absence did not disappear; it moved into the refusal token,
+        which is what a tester can now grep.
+
+        MUTATION-PROOF: delete the ``departure_scene !=
+        world_scene_travel.HOME_SCENE_ID`` guard in ``runtime.py`` and the
+        teleport label reappears in ``actions`` -- this test fails on the
+        label, not by going quiet.
         """
-        import io
-        from contextlib import redirect_stdout
         from dataclasses import replace
 
         state = self._real_state("tok-columbus-non-home-row")
@@ -651,6 +654,7 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         state.dispatch(self.legacy.parse_outer(
             _choose_npc_pc(self.legacy, columbus_identity)
         ))
+        self.assertTrue(state.columbus_quest3021_conversation_sent)
         # A scene change between the conversation and the quest operate --
         # the in-memory shape a travel-gate crossing or GM warp leaves
         # behind (in-memory only, no durable write needed for this test).
@@ -658,24 +662,168 @@ class ColumbusQuest3021WiringTests(unittest.TestCase):
         state.foundation.selected = replace(
             selected, position=replace(selected.position, scene_id=2),
         )
-        buffer = io.StringIO()
-        with redirect_stdout(buffer):
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        labels = [action[0] for action in actions]
+        self.assertNotIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
+        self.assertIn(
+            "columbus_q3021_teleport_refused_wrong_scene_2", state.events,
+        )
+        self.assertNotIn(
+            "core_request_014_columbus_scene17_teleport_sent", state.events,
+        )
+        # The one-shot ticket is NOT consumed by a refusal: the player who
+        # sails home may still take the crossing.
+        self.assertFalse(state.columbus_quest3021_dispatch_attempted)
+
+    def test_the_refused_crossing_still_crosses_once_the_player_is_home(self):
+        """The other half of D2, which a refusal-only test cannot show: the
+        guard reads the row at the moment of the QuestOperate, so the SAME
+        session that was refused in scene 2 crosses when it stands in scene 1
+        again.  A guard that latched would have taken the crossing away for
+        good."""
+        from dataclasses import replace
+
+        state = self._real_state("tok-columbus-refused-then-home")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        home_position = state.foundation.selected.position
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected, position=replace(home_position, scene_id=2),
+        )
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        state.foundation.selected = replace(
+            state.foundation.selected, position=home_position,
+        )
+        actions = state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_quest_operate_pc(
+                columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+            )
+        ))
+        labels = [action[0] for action in actions]
+        self.assertIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
+        self.assertTrue(state.columbus_quest3021_dispatch_attempted)
+
+    def test_one_refusal_token_per_scene_however_many_clicks(self):
+        """The event list may not grow on a count the client chooses.  Ten
+        identical QuestOperates from the same wrong scene leave one token."""
+        from dataclasses import replace
+
+        state = self._real_state("tok-columbus-refusal-once")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected, position=replace(selected.position, scene_id=2),
+        )
+        for _ in range(10):
             state.dispatch(self.legacy.parse_outer(
                 self.legacy._synthetic_quest_operate_pc(
                     columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
                 )
             ))
-        printed = buffer.getvalue()
-        leg_lines = [
-            line for line in printed.splitlines()
-            if line.startswith("WORLD_M2_RETURN_LEG")
+        self.assertEqual(
+            state.events.count(
+                "columbus_q3021_teleport_refused_wrong_scene_2"
+            ),
+            1,
+        )
+
+    def test_the_teleport_refusal_reaches_the_console_once(self):
+        """pf-adversary (round kt05o0, D3): the D4 half of this decision got a
+        console test and the D2 half - the one that actually stops a teleport
+        - got none, so deleting its ``print`` left the whole suite green.  The
+        token exists to be grepped by a human at the bridge; nothing else in
+        the repository names it.
+
+        stderr, for the reason the runtime comment gives."""
+        import io
+        from contextlib import redirect_stderr
+        from dataclasses import replace
+
+        state = self._real_state("tok-columbus-refusal-console")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        selected = state.foundation.selected
+        state.foundation.selected = replace(
+            selected, position=replace(selected.position, scene_id=2),
+        )
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            for _ in range(3):
+                state.dispatch(self.legacy.parse_outer(
+                    self.legacy._synthetic_quest_operate_pc(
+                        columbus_quest_dispatch.COLUMBUS_QUEST_ID,
+                        1, 0, 0, 0, 0,
+                    )
+                ))
+        lines = [
+            line for line in buffer.getvalue().splitlines()
+            if line.startswith("COLUMBUS_Q3021_TELEPORT_REFUSED")
         ]
-        self.assertEqual(len(leg_lines), 1, printed)
-        line = leg_lines[0]
-        self.assertNotIn("refused:", line)
-        self.assertIn("owed=YES", line)
-        self.assertIn("source=pinned_home_entry", line)
-        self.assertIn("call_site_passed_no_departure_row", line)
+        self.assertEqual(len(lines), 1, buffer.getvalue())
+        self.assertIn("scene=2", lines[0])
+        self.assertIn("reason=not_home_scene", lines[0])
+
+    def test_a_session_with_no_selected_character_is_named_apart(self):
+        """pf-adversary (round kt05o0, D4): this branch had no test at all -
+        replacing its condition with ``if False`` (which makes the next line
+        raise) left the file green - and it used to answer to the same
+        ``..._refused_wrong_scene_`` grep as a real wrong scene, which it is
+        not.  It is also deduped now: a client that keeps sending op1 may not
+        grow ``events`` by one entry per frame."""
+        state = self._real_state("tok-columbus-no-selected")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        state.foundation.selected = None
+        for _ in range(4):
+            actions = state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_quest_operate_pc(
+                    columbus_quest_dispatch.COLUMBUS_QUEST_ID, 1, 0, 0, 0, 0,
+                )
+            ))
+        labels = [action[0] for action in actions]
+        self.assertNotIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_TELEPORT_SCENE17_ONCE", labels,
+        )
+        self.assertEqual(
+            state.events.count(
+                "columbus_q3021_teleport_refused_no_selected_character"
+            ),
+            1,
+        )
+        self.assertFalse([
+            event for event in state.events
+            if event.startswith("columbus_q3021_teleport_refused_wrong_scene")
+        ])
 
     def test_a_successful_crossing_reports_the_return_population_owed(self):
         """The fourth report line on the same flagless call site: the
@@ -836,6 +984,14 @@ class ColumbusSceneGuardTests(unittest.TestCase):
         for scene_id in (4, 5, 6, 7, 8, 9, 10, 11, 130):
             with self.subTest(scene_id=scene_id):
                 state = self._real_state("tok-guard-%d" % scene_id)
+                # CONTROL (pf-adversary round g7yvo2, D6): without this line
+                # a subtest whose census was never armed passes for the wrong
+                # reason -- the branch it claims to guard could not have been
+                # reached at all.
+                self.assertIn(
+                    columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX,
+                    state.population_indices or (),
+                )
                 self._stand_in_scene(state, scene_id)
                 actions = state.dispatch(self.legacy.parse_outer(
                     _choose_npc_pc(self.legacy, columbus_identity)
@@ -846,6 +1002,138 @@ class ColumbusSceneGuardTests(unittest.TestCase):
                     labels,
                 )
                 self.assertFalse(state.columbus_quest3021_conversation_sent)
+                # D4: the refusal has a name in every one of the nine.
+                self.assertIn(
+                    "columbus_choose_npc_wrong_scene_%d_lane_declined" % scene_id,
+                    state.events,
+                )
+
+    def test_scene_14_is_the_one_that_was_live_and_it_is_refused_by_name(self):
+        """D1 (pf-adversary round g7yvo2).  The nine scenes above are held
+        behind LANE-A's own gate; SCENE 14 IS NOT.  Its lane hook
+        (``lane_hooks/lane_a_choose_npc_scene14.py``) carries
+        ``production_allowed = True`` on main, and its registry row pins
+        ``login_entry_allowed: true``, so a GM login stages a player there
+        today.  That makes this the only subtest of this class that stands
+        for a bug the guard actually took off ``main`` rather than one it
+        pre-empted -- which is why it gets its own test and its own name.
+
+        The census armed here is still Port Royal's (this harness can only
+        arm the home one), which is exactly the collision: placement index 1
+        is armed, and scene 14's own index 1 is a DIFFERENT actor that also
+        answers to ``0x2000 + 1 + 1``.
+        """
+        state = self._real_state("tok-guard-scene-14")
+        self.assertTrue(
+            lane_hooks.module_production_allowed(
+                "lane_a_choose_npc_scene14"
+            ),
+            "scene 14's responder is armed on main; if this ever flips, this "
+            "test's premise changed and the comment in runtime.py must too",
+        )
+        self.assertIn(
+            columbus_quest_dispatch.COLUMBUS_PLACEMENT_INDEX,
+            state.population_indices or (),
+        )
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        self._stand_in_scene(state, 14)
+        actions = state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity)
+        ))
+        labels = [action[0] for action in actions]
+        self.assertNotIn(
+            "CORE_REQUEST_014_COLUMBUS_Q3021_NPC_CONVERSATION_ONCE", labels,
+        )
+        self.assertFalse(state.columbus_quest3021_conversation_sent)
+        self.assertIn(
+            "columbus_choose_npc_wrong_scene_14_lane_declined", state.events,
+        )
+
+    def test_the_wrong_scene_token_reaches_the_console_once_per_scene(self):
+        """D4's other half: a token nobody can read is not a token.  It goes
+        to stderr for the reason GM_WARP_POSITION_CONFIRMED does (a stdout
+        token landed inside a --json artifact once), and it is printed once
+        however many times the client clicks."""
+        import io
+        from contextlib import redirect_stderr
+
+        state = self._real_state("tok-guard-token-console")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        self._stand_in_scene(state, 14)
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            for _ in range(5):
+                state.dispatch(self.legacy.parse_outer(
+                    _choose_npc_pc(self.legacy, columbus_identity)
+                ))
+        printed = buffer.getvalue()
+        lines = [
+            line for line in printed.splitlines()
+            if line.startswith("COLUMBUS_CHOOSE_NPC_WRONG_SCENE")
+        ]
+        self.assertEqual(len(lines), 1, printed)
+        self.assertIn("scene=14", lines[0])
+        self.assertIn("effect=columbus_lane_declined", lines[0])
+        self.assertEqual(
+            state.events.count("columbus_choose_npc_wrong_scene_14_lane_declined"),
+            1,
+        )
+
+    def test_a_malformed_click_cannot_grow_the_event_list(self):
+        """pf-adversary (round kt05o0, D2): the first draft of the diagnostic
+        appended one ``..._report_unreadable_`` event per unreadable frame,
+        and 200 malformed frames produced 200 events -- growth on a count the
+        client chooses, in the helper whose own comment forbids exactly that.
+        The dedupe key is the EXCEPTION TYPE NAME, which this code writes and
+        the client cannot."""
+        state = self._real_state("tok-guard-malformed")
+        self._stand_in_scene(state, 14)
+        legacy = self.legacy
+        # A ChooseNPC whose actor entry carries the wrong tag: the outer
+        # frame parses (so the branch is entered) and the identity extractor
+        # raises on the body.
+        malformed = (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.CHOOSE_NPC)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.u8tag(0x0B, 0)
+        )
+        for _ in range(50):
+            state.dispatch(legacy.parse_outer(malformed))
+        unreadable = [
+            event for event in state.events
+            if event.startswith(
+                "columbus_choose_npc_wrong_scene_report_unreadable_"
+            )
+        ]
+        # EXACTLY one, not "at most one": zero would mean this test never
+        # reached the path it claims to bound.
+        self.assertEqual(len(unreadable), 1, unreadable[:5])
+
+    def test_a_click_on_another_actor_in_the_same_scene_is_not_reported(self):
+        """The token says Columbus's conversation had no reply.  Every other
+        actor in the same scene is answered by whatever lane owns it, and a
+        refusal token printed over an answered click would be a lie on the
+        console."""
+        state = self._real_state("tok-guard-other-actor")
+        columbus_identity = columbus_quest_dispatch.columbus_actor_identity(
+            self.legacy,
+        )
+        self._stand_in_scene(state, 14)
+        state.dispatch(self.legacy.parse_outer(
+            _choose_npc_pc(self.legacy, columbus_identity + 1)
+        ))
+        self.assertNotIn(
+            "columbus_choose_npc_wrong_scene_14_lane_declined", state.events,
+        )
 
     def test_the_home_scene_still_answers_the_same_click(self):
         """The guard must not cost the scene it was written to protect."""
