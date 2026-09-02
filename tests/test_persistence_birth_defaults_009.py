@@ -199,11 +199,22 @@ class _PreNineFixture(unittest.TestCase):
         mutant_root.mkdir()
         for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
             shutil.copy(path, mutant_root / path.name)
-        text = NINE.read_text(encoding="utf-8")
+        # newline="" on BOTH halves, and it is not style.  `read_text` /
+        # `write_text` translate line endings, and on Windows the write half
+        # turns every "\n" into "\r\n" -- so the "unmutated copy is
+        # byte-identical" guard below went red on the gate while every Linux
+        # run of this file was green (server #602, run 33643829164, the only
+        # red test in 6986).  Reading and writing untranslated makes the copy
+        # a byte round-trip of whatever is on disk, on every platform, which
+        # is what a harness that grades bytes has to be.
+        with NINE.open(encoding="utf-8", newline="") as handle:
+            text = handle.read()
         for old, new in replacements:
             self.assertIn(old, text, "the mutation target left the file")
             text = text.replace(old, new, 1)
-        (mutant_root / NINE.name).write_text(text, encoding="utf-8")
+        with (mutant_root / NINE.name).open(
+                "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
         return mutant_root
 
     def _create(self, store, account_id, name, tag, build=_build_wire, x=1.0):
