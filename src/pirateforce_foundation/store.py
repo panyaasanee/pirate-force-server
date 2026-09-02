@@ -976,6 +976,15 @@ class SQLiteStore:
         Both answers are correct; which one a caller gets depends on when the
         row was made, and that gap is with COO.
 
+        A THIRD answer exists from `COO-DECISION 20260902_0443` point 4: a row
+        holding `level = 0` resolves with a `level_zero_is_not_an_adjudicated_
+        level` gap even when all three columns have values.  Named here
+        because this docstring used to enumerate "not seeded" as the only
+        reason a caller gets gaps back, and a caller who read that and wrote
+        `if not gaps` around the seeded case would now be wrong.  A zero level
+        can be STORED (`write_typed_attributes` accepts it and `006`'s CHECK
+        allows it); it is refused on the way out.
+
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, matching `get_character` and `read_typed_attributes`.
         """
@@ -1092,6 +1101,16 @@ class SQLiteStore:
         soft-deleted, and `persistence_vitals.VitalsError` for an unseeded or
         inconsistent character, or for an amount that is not a whole number of
         points of damage.  Nothing is written when anything is refused.
+
+        "INCONSISTENT" WIDENED on 2026-09-02 and this sentence is the notice.
+        `COO-DECISION 20260902_0443` point 4 made a stored `level = 0` a
+        refusal, and this method resolves the whole vitals state before it
+        subtracts anything -- so a row at `level = 0` holding a perfectly
+        valid `hp 100/100` now refuses damage and writes nothing.  It is a
+        deliberate tightening (that row's level is a number nobody
+        adjudicated), but a caller cannot learn it from `persistence_vitals`
+        without opening it, and this is where a caller of the store method
+        reads.
         """
         from . import persistence_typed_attrs as typed_attrs
         from . import persistence_vitals as vitals

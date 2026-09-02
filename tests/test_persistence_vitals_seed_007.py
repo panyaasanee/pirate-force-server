@@ -38,6 +38,7 @@ row-touching migration survivable at all, and neither is visible from the SQL:
   is a rule about the owner's only copy of the world; a test that asserted
   the mechanism exists somewhere would not be about that.
 """
+import contextlib
 import re
 import shutil
 import sqlite3
@@ -74,6 +75,23 @@ SEEDED = {"level": 1, "hp_current": 100, "hp_max": 100}
 
 def _build_wire(selector):
     return b"wire", b"avatar", 0x20000001 + selector, 0
+
+
+@contextlib.contextmanager
+def raw_rows(path):
+    """A raw sqlite connection that is committed AND CLOSED.
+
+    `with sqlite3.connect(...)` commits on exit and does NOT close, which
+    costs nothing on Linux and fails the whole suite on Windows with
+    `WinError 32` out of `TemporaryDirectory` cleanup.  Same helper, same
+    reason, as `raw()` in `tests/test_persistence_vitals.py`.
+    """
+    db = sqlite3.connect(path)
+    try:
+        yield db
+        db.commit()
+    finally:
+        db.close()
 
 
 def _statements(sql: str) -> list[str]:
@@ -682,36 +700,228 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
     write at character creation -- both of them decisions, not edits.  Raised
     to COO the same round this landed.
 
-    These tests exist so that the day it IS closed, they go red and say so.
+    HOW THESE TESTS BEHAVE WHEN IT IS CLOSED, because it changed this round
+    and the change is a real weakening if read carelessly.  The first version
+    asserted flatly that a character born after 007 has NULL vitals.  That was
+    true when it was written and it is a LANDMINE: `COO-DECISION 20260902_0443`
+    point 1 ordered the write at creation, the plug is three columns in
+    `SQLiteStore.create_character` and belongs to chief -- so the day chief
+    lands the thing COO ordered, a test in THIS lane's file goes red inside
+    HIS pull request, over a file he may not edit.  A lane does not get to
+    leave that in another lane's path.
+
+    So these MEASURE which of two adjudicated states the repository is in
+    instead of asserting one of them, and both branches assert something that
+    can fail:
+
+    * not plugged -- all three columns absent, `require()` refuses, and the
+      fresh-install census reads zero.  Exactly the old claim.
+    * plugged -- all three present and EQUAL to
+      `persistence_vitals.new_character_vitals()`, `require()` succeeds, and
+      no other typed column came with them.
+
+    A partial seed, a different number, or a value this lane's own front door
+    refuses fails in BOTH branches, which is the property that matters: the
+    only thing that stopped being graded is WHICH of the two, and that is
+    reported by `test_which_state_this_repository_is_in_is_reported`.
     """
 
-    def test_a_character_created_after_007_has_no_vitals_at_all(self):
+    def _newborn(self, tag="after-007"):
+        """A character created on the FULL migration set, and what it holds."""
         store = SQLiteStore(self.path, MIGRATIONS)
         store.migrate()
-        account_id = store.ensure_account("after-007")
+        account_id = store.ensure_account(tag)
         character = store.create_character(
             account_id, "Newborn", "newborn", "fingerprint-newborn",
             _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
-        stored = store.read_typed_attributes(character.id)
-        for column in SEEDED:
-            self.assertNotIn(column, stored, column)
-        with self.assertRaises(vitals.VitalsError):
-            store.read_character_vitals(character.id).require()
+        return store, character.id, store.read_typed_attributes(character.id)
 
-    def test_on_a_fresh_install_the_census_reads_zero_after_a_successful_007(self):
+    def test_a_character_created_after_007_holds_nothing_or_the_birth_values(self):
+        store, character_id, stored = self._newborn()
+        present = [column for column in SEEDED if column in stored]
+        if not present:
+            # 007 seeded a cohort and this character was not in it.
+            with self.assertRaises(vitals.VitalsError):
+                store.read_character_vitals(character_id).require()
+            return
+        # chief's plug (COO-DECISION 20260902_0443 point 1) has landed.
+        self.assertEqual(sorted(present), sorted(SEEDED),
+                         "a PARTIAL birth seed: %r" % (stored,))
+        birth = vitals.new_character_vitals()
+        self.assertEqual({c: stored[c] for c in SEEDED}, birth)
+        state = store.read_character_vitals(character_id).require()
+        self.assertEqual(
+            (state.level, state.hp_current, state.hp_max),
+            (birth["level"], birth["hp_current"], birth["hp_max"]))
+
+    def _second_birth(self, first_vitals=None):
+        """Create TWO characters on one account and return both rows.
+
+        The hole a `pf-adversary` pass drove through the first version of this
+        class: every test created exactly ONE character and never looked at
+        another row, so a plug whose UPDATE was missing its `WHERE id=?` --
+        or carried `WHERE account_id=?`, or fired only for `selector == 0` --
+        passed all seven tests.  Measured, with the `account_id` variant
+        actually installed: a veteran at `level 9, hp 480/500` came out of the
+        NEXT character's creation at `1, 100/100`.  A silent reset of a real
+        player's character, green.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("two-births")
+        first = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        if first_vitals is not None:
+            store.write_typed_attributes(first.id, dict(first_vitals))
+        before = store.read_typed_attributes(first.id)
+        second = store.create_character(
+            account_id, "Rookie", "rookie", "fingerprint-rookie",
+            _build_wire, Position(3, 0, 4.0, 5.0, 6.0, heading=0.0))
+        return (store, before,
+                store.read_typed_attributes(first.id),
+                store.read_typed_attributes(second.id))
+
+    def test_creating_a_character_does_not_touch_any_other_row(self):
+        """The veteran-reset defect, as the test that fails on it.
+
+        This is the one that matters for the owner's data: whatever the birth
+        write turns out to be, creating character N+1 may not change the
+        vitals of character N.  Graded on a row that HOLDS values, because a
+        row holding NULL cannot show a reset.
+        """
+        veteran = {"level": 9, "hp_current": 480, "hp_max": 500}
+        _store, before, after, _newborn = self._second_birth(veteran)
+        for column, value in veteran.items():
+            self.assertEqual(before.get(column), value, column)
+            self.assertEqual(
+                after.get(column), value,
+                "creating another character changed an EXISTING character's "
+                "%s from %r to %r -- a birth write reached a row that is not "
+                "the newborn's" % (column, value, after.get(column)),
+            )
+
+    def test_every_character_is_born_the_same_way_not_only_the_first(self):
+        """The same hole from the other side: a plug that fires only for an
+        account's FIRST character (`selector == 0`) leaves every later
+        character unseeded forever, and a class that creates one character per
+        test never sees it."""
+        _store, first_at_birth, _after, second_at_birth = self._second_birth()
+        self.assertEqual(
+            sorted(column for column in SEEDED if column in first_at_birth),
+            sorted(column for column in SEEDED if column in second_at_birth),
+            "an account's second character is born in a DIFFERENT state from "
+            "its first (first=%r, second=%r)"
+            % (first_at_birth, second_at_birth),
+        )
+
+    def test_a_birth_seed_must_come_from_new_character_vitals(self):
+        """`COO-DECISION 20260902_0443` point 1 is about a MECHANISM, not only
+        about three numbers: "ผ่านฟังก์ชันเดียว `new_character_vitals()`" --
+        one function, so that the day an RE answers, the value changes in one
+        edit in one file.
+
+        A state check alone cannot see that.  A `pf-adversary` pass proved it
+        twice: a plug that inlines `(1, 100, 100)` into the INSERT, and a
+        `CREATE TRIGGER` that seeds at the schema level -- the mechanism point
+        2 explicitly forbids -- both left this class fully green.  So when the
+        birth values are present, the source has to name the function too.
+        """
+        _store, _character_id, stored = self._newborn("mechanism")
+        if not any(column in stored for column in SEEDED):
+            return
+        store_source = (ROOT / "src" / "pirateforce_foundation"
+                        / "store.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "new_character_vitals", store_source,
+            "characters are born holding vitals, but store.py never names "
+            "new_character_vitals(): the numbers came from somewhere else "
+            "(an inline literal, a schema DEFAULT, or a trigger), and "
+            "COO-DECISION 20260902_0443 points 1 and 2 rule out all three",
+        )
+
+    def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
+        """`COO-DECISION 20260901_1447` point 2 -- no value is adjudicated for
+        `speed_walk` or the other seventeen -- holds in both branches, so this
+        one is not conditional at all."""
+        _store, _character_id, stored = self._newborn("no-extras")
+        for column in typed.TYPED_COLUMNS:
+            if column in SEEDED:
+                continue
+            self.assertNotIn(column, stored, column)
+
+    def test_the_birth_values_are_the_same_three_007_wrote(self):
+        """Whatever the plug's state, the two seeds may not disagree: a
+        character born tomorrow and one 007 wrote today have to be the same
+        kind of character.  Derived from 007's SQL text, not from a constant
+        this test also uses for the other side."""
+        sql = MIGRATION_007.read_text(encoding="utf-8")
+        from_007 = {}
+        for statement in _statements(sql):
+            for column, value in re.findall(
+                    r"\b(level|hp_current|hp_max)\s*=\s*(\d+)", statement):
+                if "SET" in statement.split(column)[0].upper():
+                    from_007[column] = int(value)
+        self.assertEqual(from_007, SEEDED, from_007)
+        self.assertEqual(vitals.new_character_vitals(), from_007)
+
+    def test_the_birth_label_is_the_same_string_007_carries(self):
+        """`COO-DECISION 20260902_0443` point 1 requires the SAME label as
+        007.  Graded against 007's own bytes so the two cannot drift."""
+        self.assertIn(
+            vitals.NEW_CHARACTER_VITALS_LABEL,
+            MIGRATION_007.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(vitals.NEW_CHARACTER_VITALS_LABEL,
+                         REQUIRED_HEADER_TAG)
+
+    def test_on_a_fresh_install_the_census_counts_only_what_is_written(self):
         """The sentence a round file must never write about a fresh install:
-        "007 applied, every character seeded"."""
+        "007 applied, every character seeded".  007 runs against an empty
+        table there and seeds nothing at all; the only vitals a fresh install
+        can hold are the ones a birth write puts there."""
         store = SQLiteStore(self.path, MIGRATIONS)
         self.assertIsNone(store.migrate_with_backup(
             backups_root=self.root / "backups"))
         account_id = store.ensure_account("fresh")
-        store.create_character(
+        character = store.create_character(
             account_id, "Fresh", "fresh", "fingerprint-fresh", _build_wire,
             Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        del character
         census = store.vitals_seeding_census()
         self.assertEqual(census["characters_any"], 1)
-        for column in SEEDED:
-            self.assertEqual(census["%s_seeded_any" % column], 0, column)
+        # Graded against RAW SQL, not against `read_typed_attributes`.  The
+        # first version derived what to expect by reading back the same row
+        # the census had just counted, which a `pf-adversary` pass called
+        # correctly: once a plug lands that can only ever prove the census and
+        # the read path agree with each other, never that either is right.
+        # `sqlite3` on the file is an oracle neither of them can influence.
+        with raw_rows(self.path) as db:
+            for column in SEEDED:
+                expected = db.execute(
+                    "SELECT COUNT(*) FROM characters WHERE %s IS NOT NULL"
+                    % column).fetchone()[0]
+                self.assertEqual(
+                    census["%s_seeded_any" % column], expected, column)
+
+    def test_the_census_counts_a_zero_level_as_seeded_though_it_is_unusable(self):
+        """A caveat a round file must not lose, found by a `pf-adversary`
+        pass: from `COO-DECISION 20260902_0443` point 4, "seeded" and "usable"
+        are two different numbers, and only the first one is in the census.
+
+        `vitals_seeding_census` counts NOT NULL, so a row at `level = 0`
+        counts as seeded while `resolve(...).require()` refuses it.  That is
+        the right behaviour for a census -- it reports what is on disk -- but
+        a round file quoting `level_seeded_any` as "characters M4 can use" is
+        quoting the wrong number.
+        """
+        ids = self._make(["ZeroLevel"])
+        self._set(ids[0], level=0, hp_current=100, hp_max=100)
+        store = SQLiteStore(self.path, self.older)
+        census = store.vitals_seeding_census()
+        self.assertEqual(census["level_seeded_any"], 1)
+        with self.assertRaises(vitals.VitalsError):
+            store.read_character_vitals(ids[0]).require()
 
     def test_the_migration_header_states_this_limitation(self):
         """A limitation a reader has to run a test to discover is not stated.
