@@ -4494,6 +4494,308 @@ def preserve_ground_in_runtime_res_remote_actors(
     return pc, frame
 
 
+# ---------------------------------------------------------------------------
+# THE FOURTH CARRIER, ROUND suovqw -- AND THE FENCE THAT LETS IT IN.
+#
+# LANE-A measured a THIRD sender of this same carrier (pf_bridge notes_to_
+# chief/20260902_1806_LANE-A-TO-LANE-B-the-choosenpc-answer-is-a-third-carrier-
+# that-says-no-ground-pool.md): the answer to a ChooseNPC click on scene 2 is
+# ~12.5 KB of 97 actors composed through ``make_runtime_remote_actors``, and
+# its derived mask is ``0x02`` -- ground bit CLEAR -- on EVERY click, including
+# the click that targets the next monster after a kill.  Bg0002 is the scene
+# where kills drop.  If the static reading this module already carries is
+# right, that click is the player's loot.
+#
+# WHY THAT LANE DID NOT SIMPLY SWAP THE COMPOSER, AND IT IS THE RIGHT REASON.
+# The preserve shape has never been observed on any wire (see the ka1-B corpus
+# paragraph above: present-count-zero appears ZERO times in 15,288 frames), and
+# ``COO-DECISION 0646/1044`` fences it out of the shared census because a frame
+# the client cannot parse costs every actor IN THAT FRAME.  One monster's bar
+# is a cheap bet.  Ninety-seven NPCs on every click is not.
+#
+# WHAT THIS LANE DECIDES, AND IT IS A DECISION AND NOT A MEASUREMENT
+# ([ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION], pf_bridge notes_to_
+# chief/20260902_1844_LANE-B-ASK-COO-preserve-only-when-a-row-is-standing.md --
+# that letter is in the OTHER repository; this one has no notes_to_chief/):
+# the two are not one question.  A frame composed while the
+# scene holds NO ground rows has nothing to preserve -- clearing an empty pool
+# takes nothing from the player -- so on that frame the preserve shape buys
+# zero and risks 97 actors.  A frame composed while a row IS standing in the
+# scene it announces is the exact frame the fence was drawn for, and there the
+# risk runs the OTHER way: v141's own bytes are the ones that (per the static
+# reading) erase the row.
+#
+# So the gate below is the fence in one call: v141's own bytes, byte for byte,
+# whenever the ground is empty or UNREADABLE; the preserve shape only when a
+# row is actually standing.
+#
+# [PROPOSED, NOT MEASURED -- pf-adversary, round suovqw, D8] The exposure of
+# the never-observed shape narrows from "every click for the rest of the
+# session" to "clicks taken while loot is on the floor", and how big that
+# narrowing is HAS NOT BEEN MEASURED.  The honest bound is the drop lifetime:
+# DROP_LIFETIME_SECONDS is 120, and the scenario the 1806 letter names --
+# kill, loot falls, click the next monster -- is inside that window by
+# construction, so during a grind the gate is ARMED for most post-kill
+# clicks.  What it removes is every click in every session that is not
+# grinding: walking, talking, the whole of scenes where nothing drops.  A
+# paragraph claiming more than that would be the kind of unmeasured number
+# this module refuses elsewhere.
+#
+# WHAT THE GATE COSTS, WHICH THE FIRST DRAFT ARGUED IN ONE DIRECTION ONLY
+# (pf-adversary, second pass, D8).  The unconditional opt-in has no race: it
+# preserves whatever else is true.  This gate READS, then composes, and a kill
+# landing between the two composes a clearing frame over a row that is now
+# standing -- protection narrows to "clicks whose read won the race", exactly
+# as exposure narrows to "clicks taken while loot is on the floor".  The
+# window is one composition long and the row is re-announced by the next
+# publication, but it IS a window this lane did not have before, it is not
+# closed here, and the module's own rule for that shape is written three
+# functions up: THE CALLER OWES THE ORDERING.
+#
+# WHERE THE MEASUREMENT LIVES, AND IT IS NOT IN THIS REPOSITORY
+# (pf-adversary, second pass, D13).  "97 actors, ~12.5 KB, derived mask 0x02
+# on every click" is LANE-A's measurement, reported in pf_bridge notes_to_
+# chief/20260902_1806_*, and this repo has no pf_bridge/ directory: it cannot
+# be re-derived here.  The nearest in-repo statement, docs/
+# FUNCTIONAL_COVERAGE.json (the ChooseNPC row, updated 2026-08-27), describes
+# ONE NPCConversation descriptor -- a different frame family from the
+# RemoteActors answer LANE-A drove -- so it neither confirms nor refutes the
+# number.  Anything this gate does is safe under both readings (it composes
+# v141's own bytes unless a row is standing), which is why the round does not
+# wait for the reconciliation; but no reader may cite this comment as if the
+# 97 were measured HERE.
+#
+# AND THE CARRIER THIS ROUND DOES NOT TOUCH, named because a "fourth carrier"
+# headline invites the reader to think the set is closed (pf-adversary D9):
+# mob_death.MOB_DEATH_NONCLAIMS says the post-arrival path replaces both of
+# its frames with a WHOLE-SCENE RECOMPOSE of ~108 actors
+# (mob_scene_recompose.recompose_frames) that writes bit 0x08 CLEAR too, and
+# calls that recompose the one taking the loot off the floor in an ordinary
+# session.  It sits on the map side of COO-DECISION 1044 item 4's fence and
+# is NOT gated here.  Whether this gate belongs there as well is a question
+# for the COO, and it is asked in the letter, not answered in this comment.
+#
+# FAIL-CLOSED HERE MEANS V141'S BYTES, and the direction is argued rather than
+# assumed: both branches emit, so "refuse" is not available; the branch that
+# CANNOT be worse than yesterday is the one this server already ships.  An
+# unreadable cell therefore reads as "not live" and the carrier's wrapper says
+# so on the console once per site (``mob_combat.remote_actors_preserving_the_
+# ground``), because a cell that can never be read is a WIRING hole a tester
+# must see, not a per-frame condition.
+#
+# WHAT THIS DOES NOT DO.  It does not change one byte for bar / dying / dead:
+# those carriers keep the unconditional opt-in ``COO-DECISION 1044`` item 4
+# ordered, and narrowing them to this gate as well is the COO's call, not this
+# function's.  It wires itself into nothing: the click responder is LANE-A's
+# file and its call site is the chief's, so this round ships the gate, the
+# reader and the tests, and asks for the two lines in the letter.
+# ---------------------------------------------------------------------------
+#: What :func:`ground_rows_live_here` answers when it could not read a count,
+#: and WHY it could not.  NOT zero: "there is no row standing" and "nobody
+#: could tell me" are different sentences and only the first one is evidence.
+#: Every one of them is negative, so :func:`ground_is_live` treats them all
+#: alike; they differ only in what the console is able to say about them.
+#: pf-adversary, round ``suovqw``, finding D4: the first draft collapsed all
+#: four into -1 and then printed a line ASSERTING one of them ("the cell never
+#: reached the call site") -- measured false with a cell that was wired,
+#: holding a live row, and refusing its own clock check.
+GROUND_LIVENESS_UNKNOWN = -1
+#: Nothing was passed where a cell goes.
+GROUND_LIVENESS_NO_CELL = -2
+#: A handle was passed and reading it raised.  Includes a REAL cell that
+#: refuses: ``_read_now_locked`` rejects a clock that stepped backwards, once
+#: and for the rest of the process.
+GROUND_LIVENESS_CELL_REFUSED = -3
+#: The cell does not know which scene it is publishing (no ``enter_scene``
+#: and no kill yet).  It has rows or not; neither is this frame's business.
+GROUND_LIVENESS_NO_SCENE = -4
+#: The caller named the scene its frame is FOR and the cell is publishing a
+#: different one.  pf-adversary D16: the count is the CELL's scene and the
+#: responders share one cell, so a frame for scene 1 could otherwise be armed
+#: by a row standing in Bg0002.
+GROUND_LIVENESS_SCENE_MISMATCH = -5
+#: The caller named a scene this module cannot turn into a comparison key.
+#: Kept apart from the mismatch above so a console line never says "another
+#: scene's cell" about a caller's own bad argument.
+GROUND_LIVENESS_BAD_SCENE = -6
+#: value -> one ASCII word for the console.  A console line that cannot name
+#: its own cause sends a reader to the wrong side of the wiring.
+GROUND_LIVENESS_REASONS = {
+    GROUND_LIVENESS_UNKNOWN: "not_a_count",
+    GROUND_LIVENESS_NO_CELL: "no_cell",
+    GROUND_LIVENESS_CELL_REFUSED: "cell_refused",
+    GROUND_LIVENESS_NO_SCENE: "cell_has_no_scene",
+    GROUND_LIVENESS_SCENE_MISMATCH: "another_scenes_cell",
+    GROUND_LIVENESS_BAD_SCENE: "caller_scene_unreadable",
+}
+
+
+def ground_liveness_reason(ground_rows_left: Any) -> str:
+    """One ASCII word for why a count is not a count, ``""`` when it is one.
+
+    NOTHING IS HASHED HERE.  ``GROUND_LIVENESS_REASONS.get(x)`` raises
+    ``TypeError`` for an unhashable ``x`` -- ``get`` does not return its
+    default for a key it cannot hash -- and this function is called on the
+    listener thread OUTSIDE the wrapper's ``try``, so a caller passing a list
+    or a dict lost the FRAME (pf-adversary, round ``suovqw``, second pass,
+    D14).  The int test comes first and the lookup only ever sees an int.
+    """
+    if ground_liveness_is_readable(ground_rows_left):
+        return ""
+    if isinstance(ground_rows_left, int) and not isinstance(
+            ground_rows_left, bool):
+        return GROUND_LIVENESS_REASONS.get(
+            int(ground_rows_left), "not_a_count")
+    return "not_a_count"
+
+
+def ground_rows_live_here(cell: Any, scene: Any = None) -> int:
+    """How many ground rows stand in the scene ``cell`` is publishing.
+
+    Negative when that cannot be read, and the VALUE says why: see
+    :data:`GROUND_LIVENESS_NO_CELL` and its siblings.  ``scene``, when a
+    caller passes the scene its frame is being composed FOR, is compared with
+    the scene the cell is publishing (by :func:`scene_key`, so ``bg0002`` and
+    ``Bg0002`` are one scene) and a disagreement is
+    :data:`GROUND_LIVENESS_SCENE_MISMATCH` rather than a count -- a frame is
+    never armed by another scene's floor.  Callers that cannot name their
+    scene keep the cell's answer, and that limit is theirs, not this
+    function's.
+
+    THIS NEVER RAISES ``Exception``, and the reason is the same one
+    ``mob_combat.remote_actors_preserving_the_ground`` was written with: the
+    caller is composing a frame the player is waiting for, on the v141
+    listener thread, which has no ``except`` of its own.  A liveness read is
+    an OPTIMISATION of that frame's mask.  It may cost the mask.  It may
+    never cost the frame.
+
+    WHAT THAT SENTENCE DOES NOT COVER, written down because pf-adversary
+    measured both (round ``suovqw``, D11): a handle whose ``publication``
+    BLOCKS blocks this thread -- no ``except`` reaches a call that never
+    returns -- and ``KeyboardInterrupt``/``SystemExit`` are not ``Exception``
+    and still propagate.  Pass a real :class:`DropLedgerCell`.
+
+    AND IT IS NOT A PURE READ (pf-adversary D10, both passes).
+    ``publication()`` reads the clock and sweeps, which is what "lazy at
+    insert and dispatch" means in this module: a row past its deadline is
+    retired BY THIS CALL and its key joins the cell's expired memory.  That
+    is the cell's own design and the same thing the next dispatch would have
+    done; what is new is that a click is now one of the moments it happens,
+    and TWO OTHER READERS SEE THAT: :meth:`DropLedgerCell.enter_scene`
+    reports how many rows it swept at the boundary (its fourth element, which
+    exists because a state reading once stood in for a comparison), and the
+    expired-key memory is what lets a later pickup say "expired" instead of
+    "unknown drop".  After a liveness read those two say "already empty" for
+    a scene the player left corpses in.  A caller that must not move the cell
+    must not call this.
+
+    ONE ACQUISITION, not two reads: :meth:`DropLedgerCell.publication` is
+    used exactly because a kill landing between a scene read and a ledger
+    read is what makes the two disagree.  The rows counted are the rows of
+    the scene the cell would ANNOUNCE -- rows standing in another scene are
+    deliberately not counted here, because they are not what the frame in
+    front of this caller is about (way 1, ``COO-DECISION 20260902_0252``).
+    """
+    if cell is None:
+        return GROUND_LIVENESS_NO_CELL
+    wanted = None
+    if scene is not None:
+        # The caller's own argument is folded FIRST and in its own guard, so a
+        # scene this module cannot name is never reported as the cell's fault.
+        try:
+            wanted = scene_key(scene)
+        except Exception:                        # noqa: BLE001 - see docstring
+            return GROUND_LIVENESS_BAD_SCENE
+    try:
+        publishing, view, _elsewhere = cell.publication()
+        if publishing is None or view is None:
+            return GROUND_LIVENESS_NO_SCENE
+        if wanted is not None and wanted != scene_key(publishing):
+            return GROUND_LIVENESS_SCENE_MISMATCH
+        return len(view.drops)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return GROUND_LIVENESS_CELL_REFUSED
+
+
+def ground_liveness_is_readable(ground_rows_left: Any) -> bool:
+    """Is ``ground_rows_left`` a count at all -- readable, whatever it says?
+
+    ``True`` for an ``int`` (or an ``int`` SUBCLASS -- an ``IntEnum`` count
+    is a count) of zero and up, ``False`` for
+    :data:`GROUND_LIVENESS_UNKNOWN` and its siblings, for anything that is
+    not an ``int``, and for ``bool``.
+
+    ``bool`` is excluded on purpose even though it is an ``int`` subclass:
+    ``True`` reaching this argument means a caller passed a "is there
+    ground?" answer into a "how many rows?" parameter, and reading that as
+    "one row" would turn a caller's type error into a wire shape nobody
+    chose.  Every OTHER ``int`` subclass is accepted, and the first draft's
+    ``type(x) is int`` was wrong in a way that cost twice (pf-adversary,
+    round ``suovqw``, second pass, D2): a responder counting rows with an
+    ``IntEnum`` got its loot CLEARED while a row was standing, and the
+    console printed a wiring-hole line about a call site that was wired
+    correctly.  A subclass that lies in its own ``__gt__`` is trusted here,
+    which is what taking the caller's type at its word costs.
+
+    Separate from :func:`ground_is_live` because the two answer different
+    questions and only one of them is worth a console line: "no rows" is an
+    ordinary frame, "nobody could tell me" is a wiring hole.
+    """
+    return (isinstance(ground_rows_left, int)
+            and not isinstance(ground_rows_left, bool)
+            and ground_rows_left >= 0)
+
+
+def ground_is_live(ground_rows_left: Any) -> bool:
+    """Is a row standing?  ``True`` only for a positive count, per
+    :func:`ground_liveness_is_readable`."""
+    return ground_liveness_is_readable(ground_rows_left) and ground_rows_left > 0
+
+
+def preserve_ground_in_runtime_res_remote_actors_when_live(
+        legacy: Any, entries: Any, *, ground_rows_left: Any,
+) -> tuple[bytes, bytes]:
+    """``(pc, frame)`` for this actor collection, ground list kept ONLY if a
+    row is standing.
+
+    Same arguments and same return shape as ``legacy.make_runtime_remote_
+    actors`` plus one keyword-only count, so a call site swaps one for the
+    other and changes nothing else.
+
+    * ``ground_rows_left`` a positive ``int``  -> exactly what
+      :func:`preserve_ground_in_runtime_res_remote_actors` composes, refusals
+      and all.
+    * anything else -- ``0``, :data:`GROUND_LIVENESS_UNKNOWN`, ``True``,
+      ``None``, a string, an object -> exactly what ``legacy.make_runtime_
+      remote_actors`` returns for these entries.  Not a re-derivation of it,
+      not a copy of it: ITS OWN RETURN VALUE, so a carrier that swaps this in
+      is provably sending today's bytes on every frame that has no row to
+      keep.
+
+    "A ROW IS STANDING" IS THE COUNT THE CALLER HANDS IN, and whose ground it
+    counts is the CALLER's problem, not this function's: see
+    :func:`ground_rows_live_here`, which answers about the scene its cell is
+    publishing unless the caller names the scene its frame is for.  This
+    function never sees a scene.
+
+    ``entries`` is materialised once with ``list()`` on both paths -- the
+    same thing the carrier wrapper already did -- so a caller that hands in a
+    mapping hands v141 its keys (pf-adversary, second pass, D11).  Both call
+    sites in this repo pass lists.
+
+    THE ASYMMETRY IS DELIBERATE AND IS NOT AN OVERSIGHT.  The live path
+    validates the entries (a zero-length entry is ``ErrorData=28317`` and the
+    preserve composer refuses it by name); the other path validates nothing,
+    because validating there would make this function refuse frames the
+    server sends successfully today.  "Changes nothing when there is nothing
+    to keep" is the whole claim, and a new refusal would break it.
+    """
+    entries = list(entries)
+    if ground_is_live(ground_rows_left):
+        return preserve_ground_in_runtime_res_remote_actors(legacy, entries)
+    return legacy.make_runtime_remote_actors(entries)
+
+
 def _runtime_vitals_body(legacy: Any, vitals: Any) -> bytes:
     """Everything make_runtime_vitals composes BEFORE its derived-mask record.
 

@@ -640,5 +640,318 @@ class TheOtherCarrierKeepsTheGroundToo(LegacyCase):
             mob_loot.MOB_LOOT_REFUSAL_REASONS)
 
 
+class TheGateThatOnlySpendsTheRiskWhenThereIsSomethingToKeep(LegacyCase):
+    """ROUND ``suovqw``: the fence for the carrier LANE-A measured.
+
+    ``preserve_ground_in_runtime_res_remote_actors_when_live`` is the whole
+    answer to letter ``20260902_1806``: preserve costs 97 actors of every
+    click if the never-observed shape is wrong, and buys nothing at all on a
+    frame composed while the floor is empty.  So the class pins BOTH halves
+    with the composer driven for real -- today's bytes when no row stands,
+    and the preserve shape when one does -- because a gate that is only
+    tested on one side is a gate nobody knows the shape of.
+    """
+
+    def _entries(self):
+        attrs = [(0x2710, self.legacy.u8tag(0x0B, 1))]
+        return [
+            self.legacy.make_remote_actor_entry(2, 0x2068, attrs),
+            self.legacy.make_remote_actor_entry(2, 0x2069, attrs),
+        ]
+
+    def test_no_row_standing_is_v141s_own_bytes_to_the_last_byte(self):
+        entries = self._entries()
+        composed, composed_frame = self.legacy.make_runtime_remote_actors(
+            list(entries))
+        pc, frame = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, entries, ground_rows_left=0))
+        self.assertEqual(pc, composed)
+        self.assertEqual(frame, composed_frame)
+        # ...and the mask really is the one the client sees today, so this
+        # test cannot pass by comparing two preserved frames to each other.
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[offset + 1], 0x02)
+
+    def test_a_row_standing_is_the_preserve_shape_byte_for_byte(self):
+        entries = self._entries()
+        pc, frame = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, entries, ground_rows_left=1))
+        preserved, preserved_frame = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, entries))
+        self.assertEqual(pc, preserved)
+        self.assertEqual(frame, preserved_frame)
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[offset + 1], 0x0A)
+        self.assertEqual(
+            pc[-3:], mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+
+    def test_every_unreadable_count_lands_on_todays_bytes_and_none_raise(self):
+        # The list is the point: a gate that answers "preserve" for any of
+        # these is a gate that bets 97 actors on a caller's type error.
+        entries = self._entries()
+        composed = self.legacy.make_runtime_remote_actors(list(entries))[0]
+        for value in (
+                mob_loot.GROUND_LIVENESS_UNKNOWN, -7, None, True, False,
+                "1", b"1", 1.0, object(), (1,), [1]):
+            with self.subTest(value=repr(value)):
+                pc, _frame = (
+                    mob_loot
+                    .preserve_ground_in_runtime_res_remote_actors_when_live(
+                        self.legacy, entries, ground_rows_left=value))
+                self.assertEqual(pc, composed)
+
+    def test_the_count_is_keyword_only_so_it_cannot_land_in_entries(self):
+        # Positionally, a third argument would be a caller passing a count
+        # where the sibling composers take nothing -- and it would be silently
+        # accepted as an entry list by the wrong function some day.
+        with self.assertRaises(TypeError):
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, self._entries(), 1)
+
+    def test_a_generator_of_entries_is_answered_once_on_either_side(self):
+        # ``entries`` is consumed exactly once: the not-live path hands v141
+        # the same list the live path would build, so a caller that passes a
+        # generator does not get an empty collection on one branch only.
+        entries = self._entries()
+        live, _f = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, (entry for entry in entries), ground_rows_left=2))
+        dead, _f2 = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, (entry for entry in entries), ground_rows_left=0))
+        for entry in entries:
+            self.assertIn(entry, live)
+            self.assertIn(entry, dead)
+
+    def test_the_live_path_still_refuses_an_entry_that_encodes_to_nothing(self):
+        with self.assertRaises(MobLootContractError):
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, self._entries() + [b""], ground_rows_left=1)
+
+    def test_the_not_live_path_adds_no_refusal_of_its_own(self):
+        # The asymmetry the docstring declares, executed: whatever v141 does
+        # with a bad entry when nothing is standing is what it did yesterday.
+        # This test asserts the two AGREE, not that either accepts.
+        entries = self._entries() + [b""]
+        try:
+            expected = self.legacy.make_runtime_remote_actors(list(entries))
+        except Exception as exc:                 # noqa: BLE001
+            with self.assertRaises(type(exc)):
+                (mob_loot
+                 .preserve_ground_in_runtime_res_remote_actors_when_live(
+                     self.legacy, entries, ground_rows_left=0))
+        else:
+            self.assertEqual(
+                (mob_loot
+                 .preserve_ground_in_runtime_res_remote_actors_when_live(
+                     self.legacy, entries, ground_rows_left=0)),
+                expected)
+
+    def test_the_not_live_path_returns_v141s_OWN_return_value(self):
+        """The docstring's load-bearing word is "provably", and pf-adversary
+        (round suovqw, D5/M5) planted a copy -- ``bytes(pc), bytes(frame)`` --
+        that every ``==`` comparison in this file accepted.  This drives a
+        composer whose return value is an object no re-derivation could
+        produce, so only handing that object straight back passes."""
+        sentinel = object()
+
+        class ItsOwnReturnValue:
+            def __init__(self, real):
+                self._real = real
+                self.calls = 0
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def make_runtime_remote_actors(self, entries):
+                self.calls += 1
+                return sentinel
+
+        shim = ItsOwnReturnValue(self.legacy)
+        answer = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                shim, self._entries(), ground_rows_left=0))
+        self.assertIs(answer, sentinel)
+        self.assertEqual(shim.calls, 1, "composed once, not twice")
+
+    def test_the_predicates_split_readable_from_live(self):
+        self.assertTrue(mob_loot.ground_liveness_is_readable(0))
+        self.assertFalse(mob_loot.ground_is_live(0))
+        self.assertTrue(mob_loot.ground_is_live(1))
+        for value in (mob_loot.GROUND_LIVENESS_UNKNOWN, True, False, "0",
+                      1.0, None):
+            with self.subTest(value=repr(value)):
+                self.assertFalse(mob_loot.ground_liveness_is_readable(value))
+                self.assertFalse(mob_loot.ground_is_live(value))
+
+
+class TheLivenessReadNeverCostsTheFrame(LegacyCase):
+    """``ground_rows_live_here`` against real cells and broken ones.
+
+    Every exit is driven by an object that really produces it, because the
+    claim being made is "this cannot raise on the listener thread" and an
+    ``assertEqual(-1, -1)`` proves nothing about that.
+    """
+
+    @staticmethod
+    def _a_row_in(scene, key_offset=0, mob_identity=0x201F):
+        return mob_loot.GroundDrop(
+            mob_loot.DROP_KEY_BASE + key_offset, 2400046, 1,
+            mob_loot.as_wire_float(1.0), mob_loot.as_wire_float(2.0),
+            mob_loot.as_wire_float(3.0), mob_identity, 0x0101, scene)
+
+    @classmethod
+    def _cell_holding(cls, publishing, *kills):
+        """A cell publishing ``publishing``, holding one commit per KILL.
+
+        One commit is one kill in one scene and the ledger refuses anything
+        else by name, so a cross-scene ledger is built the way the server
+        builds one: two kills, two commits, one cell.
+        """
+        ledger = mob_loot.DropLedger()
+        for token, rows in enumerate(kills, start=1):
+            ledger = mob_loot.commit_drops(
+                ledger, tuple(rows), base_generation=ledger.generation,
+                kill_token=token)
+        return mob_loot.DropLedgerCell(ledger, scene=publishing)
+
+    def test_a_real_cell_counts_the_rows_of_the_scene_it_publishes(self):
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 1)
+        cell.take(row.drop_key)
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 0)
+
+    def test_a_row_standing_in_another_scene_is_not_this_frames_ground(self):
+        # way 1 (COO-DECISION 20260902_0252): what a frame may announce is
+        # its own scene's rows.  A row on another island must not arm the
+        # preserve shape for a click here.
+        cell = self._cell_holding("bg0001", [self._a_row_in("Bg0002")])
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 0)
+
+    def test_the_count_is_the_scenes_rows_and_not_the_whole_ledger(self):
+        cell = self._cell_holding(
+            "Bg0002",
+            [self._a_row_in("Bg0002"), self._a_row_in("Bg0002", 1)],
+            [self._a_row_in("bg0001", 2, mob_identity=0x2020)])
+        self.assertEqual(len(cell.ledger.drops), 3)
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 2)
+
+    def test_a_cell_that_does_not_know_its_scene_is_unknown_not_zero(self):
+        # ...and it says WHICH unknown: a cell with no scene is not a cell
+        # that refused, and not a call site with no cell at all.
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(mob_loot.DropLedgerCell()),
+            mob_loot.GROUND_LIVENESS_NO_SCENE)
+        self.assertFalse(mob_loot.ground_is_live(
+            mob_loot.GROUND_LIVENESS_NO_SCENE))
+
+    def test_no_cell_at_all_says_no_cell_and_not_something_else(self):
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(None),
+            mob_loot.GROUND_LIVENESS_NO_CELL)
+
+    def test_each_cause_is_its_own_value_and_its_own_word(self):
+        """pf-adversary D4: the first draft collapsed four causes into one
+        number and then printed a line asserting the cause it liked.  Each
+        of these is driven by an object that really produces it."""
+        class Exploding:
+            def publication(self):
+                raise RuntimeError("a cell that refuses its own clock")
+
+        row = self._a_row_in("Bg0002")
+        cases = {
+            mob_loot.GROUND_LIVENESS_NO_CELL: mob_loot.ground_rows_live_here(
+                None),
+            mob_loot.GROUND_LIVENESS_CELL_REFUSED:
+                mob_loot.ground_rows_live_here(Exploding()),
+            mob_loot.GROUND_LIVENESS_NO_SCENE: mob_loot.ground_rows_live_here(
+                mob_loot.DropLedgerCell()),
+            mob_loot.GROUND_LIVENESS_SCENE_MISMATCH:
+                mob_loot.ground_rows_live_here(
+                    self._cell_holding("Bg0002", [row]), "bg0001"),
+            mob_loot.GROUND_LIVENESS_BAD_SCENE:
+                mob_loot.ground_rows_live_here(
+                    self._cell_holding("Bg0002", [row]), object()),
+        }
+        for expected, measured in cases.items():
+            with self.subTest(reason=mob_loot.GROUND_LIVENESS_REASONS[expected]):
+                self.assertEqual(measured, expected)
+                word = mob_loot.ground_liveness_reason(measured)
+                self.assertEqual(
+                    word, mob_loot.GROUND_LIVENESS_REASONS[expected])
+                self.assertEqual(word, word.encode("ascii").decode("ascii"))
+                self.assertFalse(mob_loot.ground_is_live(measured))
+        self.assertEqual(len(set(cases)), len(cases), "causes must not alias")
+        self.assertEqual(mob_loot.ground_liveness_reason(0), "")
+        self.assertEqual(mob_loot.ground_liveness_reason(4), "")
+        self.assertEqual(mob_loot.ground_liveness_reason("x"), "not_a_count")
+
+    def test_the_scene_the_frame_is_for_beats_the_scene_the_cell_holds(self):
+        """pf-adversary D16.  Four responders share ONE cell.  A frame for
+        scene 1 must not be armed by a row standing in Bg0002."""
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, "Bg0002"), 1)
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, "bg0002"), 1)
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(cell, "bg0001"),
+            mob_loot.GROUND_LIVENESS_SCENE_MISMATCH)
+        # and a caller that names no scene keeps the cell's own answer
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 1)
+
+    def test_a_handle_whose_read_raises_costs_the_mask_and_not_the_frame(self):
+        class Exploding:
+            def publication(self):
+                raise RuntimeError("the listener thread has no except")
+
+        class NotACell:
+            pass
+
+        class WrongShape:
+            def publication(self):
+                return ("Bg0002",)
+
+        class RowsThatCannotBeCounted:
+            def publication(self):
+                class NoLength:
+                    drops = object()
+                return "Bg0002", NoLength(), 0
+
+        for handle in (Exploding(), NotACell(), WrongShape(),
+                       RowsThatCannotBeCounted(), 7, "cell"):
+            with self.subTest(handle=type(handle).__name__):
+                self.assertEqual(
+                    mob_loot.ground_rows_live_here(handle),
+                    mob_loot.GROUND_LIVENESS_CELL_REFUSED)
+
+    def test_the_answer_of_a_real_cell_drives_the_gate_end_to_end(self):
+        # The two halves joined, which is the only form the call site will
+        # ever use: read the cell, hand the count to the gate.
+        attrs = [(0x2710, self.legacy.u8tag(0x0B, 1))]
+        entries = [self.legacy.make_remote_actor_entry(2, 0x2068, attrs)]
+        composed = self.legacy.make_runtime_remote_actors(list(entries))[0]
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        cell.take(row.drop_key)
+        empty, _frame = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, entries,
+                ground_rows_left=mob_loot.ground_rows_live_here(cell)))
+        self.assertEqual(empty, composed)
+        cell = self._cell_holding("Bg0002", [row])
+        loaded, _frame2 = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live(
+                self.legacy, entries,
+                ground_rows_left=mob_loot.ground_rows_live_here(cell)))
+        self.assertEqual(loaded[offset + 1], 0x0A)
+        self.assertEqual(
+            loaded[-3:], mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+
+
 if __name__ == "__main__":
     unittest.main()

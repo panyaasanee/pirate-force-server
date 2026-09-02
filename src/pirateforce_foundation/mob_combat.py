@@ -1408,10 +1408,127 @@ def runtime_vitals_preserving_the_ground(
 GROUND_ACTORS_PRESERVE_REFUSED_TOKEN = "GROUND_ACTORS_PRESERVE_REFUSED"
 GROUND_ACTORS_PRESERVE_SITE_BAR = "mob_combat.bar_frames"
 GROUND_ACTORS_PRESERVE_SITE_DEATH = "mob_death.death_frames"
+#: For the carrier LANE-A measured (round ``suovqw``): the answer to a
+#: ChooseNPC click.  A PREFIX, not a site -- LANE-A has FOUR responders
+#: (scenes 1, 2, 14 and the ten-island roster) and one shared literal would
+#: let the first of them to fire silence the other three forever
+#: (pf-adversary, round ``suovqw``, D3).  Build the site with
+#: :func:`choose_npc_site`.  Nothing in this repo passes it yet; the lines
+#: that would are named in ``pf_bridge/notes_to_chief/20260902_1845_LANE-B-TO-
+#: LANE-A-the-gate-answers-your-1806-two-lines.md`` (that letter is in the
+#: OTHER repository).
+GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC = "lane_hooks.choose_npc_response"
+#: Said ONCE per site AND CAUSE when a caller asked for the gate and could not
+#: say how many rows are standing.  A missing count is a wiring hole, not a
+#: frame condition, so it is reported once and never per click.
+GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN = "GROUND_ACTORS_LIVENESS_UNKNOWN"
+#: Which ``site + cause`` pairs have already said it.  Two threads racing here
+#: print the line twice, which is the harmless end of that race; the
+#: alternative is a lock on a console line.  THE CAUSE IS PART OF THE KEY
+#: (pf-adversary D4): a site that first reports ``no_cell`` and later starts
+#: refusing its clock is telling a reader two different things and must be
+#: able to say both.
+_GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED: set = set()
+#: ...and the set is CAPPED, because "one line per site" is only bounded while
+#: the site names are literals, and ``site`` is caller data (pf-adversary D6).
+#: A caller that builds a site string per click would otherwise grow this set
+#: for the life of the process and print, on every click, the line that was
+#: written to be said once.
+#:
+#: THE CAP IS THE BOUND, NOT THE SCENE COUNT.  An earlier draft of
+#: :func:`choose_npc_site` claimed the responders were "bounded by
+#: construction, smaller than the cap"; re-derived, ``scenarios/world_scene_
+#: registry_001.json`` carries 19 scenes and the key now carries the CAUSE as
+#: well, so the worst case is scenes x causes and is larger than 32
+#: (pf-adversary, second pass, D15).  What keeps the console readable is this
+#: number, and reaching it is ANNOUNCED once
+#: (:data:`GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN`) rather than passed over
+#: in silence, so nobody reads "no more lines" as "no more holes".
+#:
+#: Note the key is the console-safe form, which is TRUNCATED at
+#: ``GROUND_VITALS_PRESERVE_DETAIL_LIMIT``: two sites agreeing in their first
+#: 200 characters share one report.
+_GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP = 32
+#: Said once, when the cap is reached, so silence past it is never mistaken
+#: for "every wiring hole has been reported".
+GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN = "GROUND_ACTORS_LIVENESS_SUPPRESSED"
+#: The key the notice itself is remembered under.  It is not a site, and it
+#: cannot collide with one: a site key always carries a cause after a space.
+_GROUND_ACTORS_LIVENESS_SUPPRESSED = "\x00suppressed"
+#: The default of ``ground_rows_left``: "do not ask, just preserve", which is
+#: what the bar, the dying frame and the dead frame have done since
+#: ``COO-DECISION 1044`` item 4.  It is a SENTINEL and not ``None`` because
+#: ``None`` already means "not a count" in
+#: ``mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live``, and a
+#: caller who read that docstring and wrote ``ground_rows_left=None`` here
+#: would have got the opposite of what it promised -- the never-observed
+#: shape on 97 actors of every click, silently (pf-adversary D2).
+PRESERVE_WITHOUT_ASKING = object()
+
+
+def choose_npc_site(scene_id: Any) -> str:
+    """The site name for the ChooseNPC responder of ONE scene.
+
+    Four responders share this carrier and each is its own wiring hole, so
+    each gets its own console report.  The scene id is folded through the
+    same console-safe fold as the rest of the line; what bounds the number of
+    reports is the CAP, not the number of scenes (see it for why the earlier
+    "bounded by construction" claim was withdrawn).
+    """
+    return "%s.scene_%s" % (
+        GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC,
+        _console_safe_one_line(scene_id))
+
+
+def _report_liveness_unknown_once(site: Any, reason: Any) -> bool:
+    """Say ``GROUND_ACTORS_LIVENESS_UNKNOWN <site> <reason>`` once per pair.
+
+    Returns whether this call is the one that printed, which is what a test
+    can drive; the caller ignores it.  It NEVER raises: like every other
+    console write on this path, a console that cannot take the line is a
+    reason to lose the LINE, never the FRAME.  The de-duplication key is the
+    console-safe form of the site AND the cause, so two sites that differ
+    only in bytes the bridge console cannot encode are one key rather than an
+    endless stream -- and one site whose cause CHANGES is not silenced by
+    what it said before.
+    """
+    try:
+        key = "%s %s" % (_console_safe_one_line(site),
+                         _console_safe_one_line(reason))
+    except Exception:                            # noqa: BLE001 - see docstring
+        # A site object whose own ``__str__`` raises is still a wiring hole,
+        # and reporting NOTHING for it is how a hole stays invisible for a
+        # session (pf-adversary, second pass, D5).  It reports under a name
+        # that says exactly what is known about it.
+        key = "site_unprintable %s" % (type(site).__name__[:32],)
+    if key in _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED:
+        return False
+    if (len(_GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED)
+            >= _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP):
+        if _GROUND_ACTORS_LIVENESS_SUPPRESSED not in (
+                _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED):
+            _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.add(
+                _GROUND_ACTORS_LIVENESS_SUPPRESSED)
+            try:
+                print("%s %d" % (GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN,
+                                 _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP))
+            except Exception:                    # noqa: BLE001
+                pass
+        return False
+    try:
+        print("%s %s" % (GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN, key))
+    except Exception:                            # noqa: BLE001 - see docstring
+        # NOT marked as reported: a line that never reached the console is a
+        # line nobody has read, and marking it here would spend the one
+        # report this site gets on a write that failed.
+        return False
+    _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.add(key)
+    return True
 
 
 def remote_actors_preserving_the_ground(
     legacy: Any, entries: Any, site: str,
+    ground_rows_left: Any = PRESERVE_WITHOUT_ASKING,
 ) -> tuple[bytes, bytes]:
     """``(pc, frame)`` for this actor collection with the ground list kept.
 
@@ -1433,8 +1550,51 @@ def remote_actors_preserving_the_ground(
     says so truthfully.  If it does not, this raises ITS exception and prints
     NOTHING: a lost bar frame is not a ground-list refusal and must not be
     reported as one.
+    ``ground_rows_left`` IS THE GATE, AND ITS DEFAULT IS TODAY.  Left out
+    (:data:`PRESERVE_WITHOUT_ASKING`) this preserves unconditionally, which
+    is what the bar, the dying frame and the dead frame have done since
+    ``COO-DECISION 1044`` item 4 ordered them in that order, and this round
+    does not move one byte of them.  Passed anything else the answer is
+    ``mob_loot.preserve_ground_in_runtime_res_remote_actors_when_live``'s,
+    NOT a second implementation of it (pf-adversary, round ``suovqw``, D13):
+    the ground list is kept only while a row is actually standing, and every
+    non-count -- ``None`` included -- composes v141's own bytes.
+
+    A caller that passes a non-count (``mob_loot.GROUND_LIVENESS_NO_CELL``
+    and its siblings, or anything else) gets today's bytes and ONE console
+    line per site AND cause for the life of the process.  The line names the
+    cause and does not guess it: "no count reached this call site" is what is
+    known; whether the cell was never wired, refused its own clock, has no
+    scene, or belongs to another scene is what
+    ``mob_loot.ground_liveness_reason`` puts on the line (pf-adversary D4).
+    An operator reading the console needs that without it drowning at one
+    line per click.  ~~"a tester reading GT-204"~~ IS STRUCK before it
+    shipped (pf-adversary, second pass, D12): this module already carries a
+    struck claim that ``GT-204`` watches this tail -- that ticket is the
+    chief's, scoped to loot / left click / into the bag -- so nothing is
+    scheduled to read this line on a screen, and saying otherwise would be
+    citing an artifact whose own conclusion refuses the citation.
     """
     entries = list(entries)
+    if (ground_rows_left is not PRESERVE_WITHOUT_ASKING
+            and not mob_loot.ground_is_live(ground_rows_left)):
+        # The sibling composes it, so the two can never disagree about what
+        # "nothing to keep" sends -- and v141's composer keeps ONE call site
+        # in this repo instead of two.
+        #
+        # COMPOSE FIRST, PRINT SECOND, the same ordering as the refusal path
+        # below and for the same reason (pf-adversary, second pass, D6): the
+        # one report a site ever gets must not be spent on a frame the player
+        # never received.  An unreadable count is always "not live", so this
+        # branch is the only place the line can come from.
+        answer = (
+            mob_loot
+            .preserve_ground_in_runtime_res_remote_actors_when_live(
+                legacy, entries, ground_rows_left=ground_rows_left))
+        if not mob_loot.ground_liveness_is_readable(ground_rows_left):
+            _report_liveness_unknown_once(
+                site, mob_loot.ground_liveness_reason(ground_rows_left))
+        return answer
     try:
         return mob_loot.preserve_ground_in_runtime_res_remote_actors(
             legacy, entries)

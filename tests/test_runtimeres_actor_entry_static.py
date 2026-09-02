@@ -427,7 +427,12 @@ class TestTheAnswer(unittest.TestCase):
         # built it, same shape as bg0011 -- UNLIKE bg0011, NOT an
         # elevated-risk row.  Every one of the ten doors round 12lyda
         # surveyed is now open.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 37)
+        # 37 -> 38 on 2026-09-02 (LANE-B, round suovqw): mob_loot's
+        # ground-liveness gate composes v141's own stream on its not-live
+        # branch.  ONE site, not two: mob_combat's wrapper delegates to that
+        # function instead of calling the composer itself.  No new actor
+        # ENTRY builder and no new module, so the other two counts stand.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 38)
         self.assertEqual(counts["src_actor_entry_call_sites"], 28)
         self.assertEqual(counts["src_modules_building_actor_entries"], 27)
         self.assertIn(
