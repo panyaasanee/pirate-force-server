@@ -48,6 +48,100 @@ _PE_OFFSET = 0x80
 _FILE_ALIGN = 0x200
 
 
+def _resource_blob(
+    *,
+    type_field: int = pic._RT_MANIFEST,
+    ids: tuple[int, ...] = (2,),
+    named_ids: int = 0,
+    subdirectory: bool = True,
+    language_level: bool = True,
+    subdir_offset: int | None = None,
+    id_entry_count: int | None = None,
+    decoy_table: bool = False,
+) -> bytes:
+    """A resource section shaped the way `mt.exe` actually leaves one.
+
+    THREE levels, not two: type -> id -> LANGUAGE -> data entry. The earlier
+    fixture in this file stopped at two and called it "the way a real image
+    files a manifest", which pf-adversary (round `selrsl`, D9) measured as
+    false -- and a two-level tree is exactly as unproducible by the real
+    toolchain as the one-level tree it replaced. Every id-level assertion in
+    this suite now stands on the shape `mt.exe -outputresource:...;#2` writes.
+
+    Every offset is RELATIVE TO THE START OF THIS BLOB, which is what the
+    resource directory's own offsets mean, so the blob can be placed at any
+    RVA. `subdir_offset` and `id_entry_count` exist to build the malformed
+    shapes the parser has to refuse (D4, D5-mutant) -- a real linker writes
+    neither.
+    """
+    id_count = len(ids) + named_ids
+    root_size = 16 + 8
+    id_table_offset = root_size
+    id_table_size = 16 + 8 * id_count
+    language_offset = id_table_offset + id_table_size
+    language_size = (16 + 8) if language_level else 0
+    data_offset = language_offset + language_size * id_count
+
+    if subdir_offset is not None:
+        type_entry_offset = subdir_offset
+    elif subdirectory:
+        type_entry_offset = 0x80000000 | id_table_offset
+    else:
+        type_entry_offset = 0
+    root = struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1) + struct.pack(
+        "<II", type_field, type_entry_offset
+    )
+
+    id_entries = b""
+    for index in range(id_count):
+        named = index >= len(ids)
+        name_field = (0x80000000 | 0x300) if named else ids[index]
+        child = language_offset + language_size * index
+        id_entries += struct.pack(
+            "<II",
+            name_field,
+            (0x80000000 | child) if language_level else data_offset + 16 * index,
+        )
+    id_table = (
+        struct.pack(
+            "<IIHHHH",
+            0,
+            0,
+            0,
+            0,
+            named_ids,
+            len(ids) if id_entry_count is None else id_entry_count,
+        )
+        + id_entries
+    )
+
+    languages = b""
+    if language_level:
+        for index in range(id_count):
+            languages += struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1) + struct.pack(
+                "<II", 0x409, data_offset + 16 * index
+            )
+
+    # IMAGE_RESOURCE_DATA_ENTRY: nothing in this module reads it.
+    data_entries = b"\x00" * (16 * id_count)
+    blob = root + id_table + languages + data_entries
+    if decoy_table:
+        # Sixteen bytes that parse as a directory holding one id-2 entry,
+        # sitting OUTSIDE the declared resource directory. This is what
+        # pf-adversary planted in `.data` (round `selrsl`, D4): follow an
+        # unbounded offset to it and the image reads as manifested when it
+        # is not. `decoy_offset()` says where it lands.
+        blob += struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1) + struct.pack(
+            "<II", 2, 0
+        )
+    return blob
+
+
+def _decoy_offset(**kwargs) -> int:
+    """Offset of the decoy table inside a blob built with `decoy_table`."""
+    return len(_resource_blob(**kwargs))
+
+
 def _build_pe(
     *,
     exports: tuple[str, ...] = (pic.REQUIRED_EXPORT,),
@@ -58,8 +152,15 @@ def _build_pe(
     pe32: bool = True,
     with_export_dir: bool = True,
     with_manifest: bool = True,
-    manifest_resource_id: int = 2,
+    manifest_resource_ids: tuple[int, ...] = (2,),
+    manifest_named_ids: int = 0,
+    manifest_type_field: int = pic._RT_MANIFEST,
     manifest_subdirectory: bool = True,
+    manifest_language_level: bool = True,
+    manifest_subdir_offset: int | None = None,
+    manifest_id_entry_count: int | None = None,
+    manifest_decoy_table: bool = False,
+    resource_directory_size: int | None = None,
     export_name_count: int | None = None,
     ordinals_rva: int | None = None,
     names_rva_zero: bool = False,
@@ -132,27 +233,21 @@ def _build_pe(
         import_dir_rva = place(descriptors + b"\x00" * 20)
 
     resource_dir_rva = 0
+    resource_dir_size = 0
     if with_manifest:
-        # Two levels, the way a real image files a manifest: the root's id
-        # entry for RT_MANIFEST points at a SUBDIRECTORY (high bit set,
-        # offset relative to the root), and that subdirectory's id entry is
-        # the manifest id the loader matches -- 2 for a DLL, 1 for an EXE.
-        # A one-level tree is not a shape mt.exe can produce, so the parser
-        # must not be handed one as if it were the normal case.
-        root_size = 16 + 8
-        resource_dir_rva = place(
-            struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1)
-            + struct.pack(
-                "<II",
-                pic._RT_MANIFEST,
-                (0x80000000 | root_size) if manifest_subdirectory else 0,
-            )
-            + (
-                struct.pack("<IIHHHH", 0, 0, 0, 0, 0, 1)
-                + struct.pack("<II", manifest_resource_id, 0)
-                if manifest_subdirectory
-                else b""
-            )
+        blob = _resource_blob(
+            type_field=manifest_type_field,
+            ids=manifest_resource_ids,
+            named_ids=manifest_named_ids,
+            subdirectory=manifest_subdirectory,
+            language_level=manifest_language_level,
+            subdir_offset=manifest_subdir_offset,
+            id_entry_count=manifest_id_entry_count,
+            decoy_table=manifest_decoy_table,
+        )
+        resource_dir_rva = place(blob)
+        resource_dir_size = (
+            len(blob) if resource_directory_size is None else resource_directory_size
         )
 
     rdata_raw = (len(body) + _FILE_ALIGN - 1) & ~(_FILE_ALIGN - 1) or _FILE_ALIGN
@@ -226,7 +321,7 @@ def _build_pe(
             headers,
             directories + 8 * pic._DIRECTORY_RESOURCE,
             resource_dir_rva,
-            0x18 if resource_dir_rva else 0,
+            resource_dir_size,
         )
 
     section_headers = optional + optional_size
@@ -404,7 +499,7 @@ def test_a_manifest_at_the_exe_id_is_not_a_manifest_for_a_dll(tmp_path: Path) ->
     so the module still answers 14001. Before round `selrsl` this reported
     `image_ok` and sent a tester to look for a bug that was not in the code.
     """
-    image = _build_pe(manifest_resource_id=1)
+    image = _build_pe(manifest_resource_ids=(1,))
 
     report = pic.inspect_plugin_file(_write(tmp_path, image))
 
@@ -427,13 +522,204 @@ def test_a_manifest_at_both_ids_still_loads(tmp_path: Path) -> None:
     Nothing stops an image from carrying both, and the loader reads id 2
     whatever else sits beside it.
     """
-    image = _build_pe(manifest_resource_id=2)
+    image = _build_pe(manifest_resource_ids=(1, 2))
 
     report = pic.inspect_plugin_file(_write(tmp_path, image))
 
     assert report.verdict == pic.VERDICT_IMAGE_OK
     assert report.pe is not None and report.pe.has_embedded_manifest
-    assert report.pe.manifest_resource_ids == (2,)
+    # BOTH ids, which is the point: the old body built ONE and asserted one,
+    # so the mutant it named (`ids == (2,)` exactly) survived it
+    # (pf-adversary, round `selrsl`, D8).
+    assert report.pe.manifest_resource_ids == (1, 2)
+
+
+def test_a_subdirectory_offset_that_leaves_the_resource_directory_is_refused(
+    tmp_path: Path,
+) -> None:
+    """pf-adversary, round `selrsl`, D4 -- measured, not hypothetical.
+
+    The type-24 entry's `OffsetToData` is attacker- or corruption-chosen up
+    to 0x7FFFFFFF. Pointed at `.data`, where sixteen bytes happen to parse as
+    a directory with an id-2 entry, the first version of this descent
+    answered `ids=(2,)` and `image_ok` for an image with no manifest anywhere
+    -- the exact false green this round exists to remove, reintroduced by the
+    fix for it. Offsets are bounded by the resource directory's own Size now,
+    which `_need` (a FILE bound) cannot do.
+    """
+    # A real, well-formed id-2 table -- planted OUTSIDE the resource
+    # directory the header declares, and pointed at by the type entry.
+    honest_size = _decoy_offset(language_level=False)
+    image = _build_pe(
+        manifest_subdir_offset=0x80000000 | honest_size,
+        manifest_language_level=False,
+        manifest_decoy_table=True,
+        resource_directory_size=honest_size,
+    )
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+
+    # Control: the very same table, INSIDE the declared directory, is read.
+    # Without it this test could pass because the decoy is unreadable rather
+    # than because the bound refused it.
+    honest = _build_pe(manifest_language_level=False)
+    control = pic.inspect_plugin_file(_write(tmp_path, honest, "Control.dll"))
+    assert control.pe is not None and control.pe.manifest_resource_ids == (2,)
+
+
+def test_a_subdirectory_offset_past_the_end_of_the_file_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Kills the "drop the file bound" mutant, which is a crash, not a lie.
+
+    The directory Size is read from the header and can say anything: declare
+    it enormous and the directory bound stops refusing, so only the file
+    bound is left between a 2 GiB offset and `struct.error` out of the
+    listener's report.
+    """
+    image = _build_pe(
+        manifest_subdir_offset=0x80000000 | 0x7000000,
+        resource_directory_size=0x7FFFFFF0,
+    )
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+
+
+def test_an_id_table_whose_entries_run_past_the_end_of_the_file_is_refused(
+    tmp_path: Path,
+) -> None:
+    """The same bound, one field along: the header fits, the entries do not.
+
+    5000 entries is 40,016 bytes in a file of a few kilobytes. Without the
+    span bound the entry loop reads past the end and the report dies with a
+    `struct.error` instead of answering.
+    """
+    image = _build_pe(
+        manifest_id_entry_count=5000, resource_directory_size=0x7FFFFFF0
+    )
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+
+
+def test_a_root_resource_table_that_does_not_fit_is_loud(tmp_path: Path) -> None:
+    """The ROOT table keeps the answer it had before this round.
+
+    A root directory that does not parse is a statement about the IMAGE, so
+    it stays `not_pe` -- unlike a malformed table under the type entry, which
+    is answered quietly as "no manifest I will vouch for" (D12). Without this
+    the two could be swapped and nothing would notice.
+    """
+    image = _build_pe(resource_directory_size=8)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_NOT_PE
+
+
+def test_a_manifest_under_a_type_that_is_not_rt_manifest_is_not_a_manifest(
+    tmp_path: Path,
+) -> None:
+    """Kills the "descend into the FIRST type entry, whatever it is" mutant.
+
+    A resource-rich DLL's first type is usually RT_ICON, whose ids run 1, 2,
+    3... -- so a parser that ignores the type answers `image_ok` for a DLL
+    with no manifest at all (pf-adversary, round `selrsl`, D6, which found
+    every fixture here carrying exactly one type entry and it being 24).
+    """
+    image = _build_pe(manifest_type_field=3, manifest_resource_ids=(1, 2, 3))
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+
+
+def test_a_string_named_type_entry_is_never_read_as_rt_manifest(
+    tmp_path: Path,
+) -> None:
+    """Kills the "drop the high-bit test on the TYPE name" mutant.
+
+    With the high bit set the field is an offset to a string, so comparing it
+    to 24 compares an offset to a type id -- and a custom resource type whose
+    name string happens to sit at offset 24 would read as RT_MANIFEST.
+    """
+    image = _build_pe(manifest_type_field=0x80000000 | pic._RT_MANIFEST)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None and report.pe.manifest_resource_ids == ()
+
+
+def test_a_string_named_id_entry_is_counted_but_never_satisfies_id_2(
+    tmp_path: Path,
+) -> None:
+    """Kills the "drop the high-bit test on the ID name" mutant, and D11.
+
+    A string-named entry cannot be id 2 and cannot be what the loader reads,
+    but the image DOES carry a manifest -- so the message must not say "no
+    embedded RT_MANIFEST" and send the reader looking in the wrong place.
+    """
+    image = _build_pe(manifest_resource_ids=(), manifest_named_ids=1)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None
+    assert report.pe.manifest_resource_ids == ()
+    assert report.pe.manifest_named_resource_count == 1
+    assert "string-named" in report.detail
+    assert "no embedded RT_MANIFEST" not in report.detail
+
+
+def test_an_id_table_claiming_more_entries_than_it_holds_is_refused_quietly(
+    tmp_path: Path,
+) -> None:
+    """Kills the "delete the entry-count bound" mutant at the id level.
+
+    And it is refused QUIETLY on purpose: a malformed table under the type
+    entry says nothing about whether the file is a PE, so the export and
+    import findings survive and only the manifest answer is withheld
+    (pf-adversary, round `selrsl`, D12 -- the root table keeps its loud
+    `not_pe`, which is a statement about the image itself).
+    """
+    image = _build_pe(manifest_id_entry_count=5000)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_MANIFEST_MISSING
+    assert report.pe is not None
+    assert report.pe.manifest_resource_ids == ()
+    # The rest of the report survives: only the manifest answer is withheld.
+    assert report.pe.exports == (pic.REQUIRED_EXPORT,)
+    assert report.pe.imports == ("MSVCR90.dll", "MSVCP90.dll", "KERNEL32.dll")
+
+
+def test_a_two_level_tree_still_reads_even_though_mt_exe_writes_three(
+    tmp_path: Path,
+) -> None:
+    """The shape the fixture used before `selrsl`, kept as its own case.
+
+    Real images put a LANGUAGE level under the id, and the default fixture
+    now does too. A two-level tree is not what `mt.exe` writes, but nothing
+    in the parser needs the language level, and a hand-built resource section
+    must not change the answer.
+    """
+    image = _build_pe(manifest_language_level=False)
+
+    report = pic.inspect_plugin_file(_write(tmp_path, image))
+
+    assert report.verdict == pic.VERDICT_IMAGE_OK
+    assert report.pe is not None and report.pe.manifest_resource_ids == (2,)
 
 
 def test_a_manifest_type_entry_with_no_id_level_is_not_a_manifest(

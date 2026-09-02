@@ -7731,3 +7731,27 @@ run stays green; only the hand-embed at the wrong id turns red, and it was alrea
 entry whose XML names the wrong assembly version still reads as present here. Nobody has measured
 that shape, so no verdict claims it. And nothing in this module has been run against a real
 `GameMaster.dll` in this clone -- there is no Windows, no VC9 and no PE fixture here.
+
+**The rule itself is unmeasured, and that is stated in the code, not only here.** Nobody in this
+project has embedded a manifest at id 1 and watched a Windows loader decide. It ships as a BLOCKING
+verdict rather than an advisory on a cost argument, not on proof: the remedy it prints (re-embed at
+`;#2`) is correct for a DLL either way and costs one `mt.exe` run, while the false GREEN it replaces
+already cost an attended round. **The negative control that would refute it**: build one DLL
+embedded at `;#1`, load it on the owner's machine, and see whether `LoadLibraryW` succeeds. Put to
+COO in `notes_to_chief/20260902_2252_LANE-GM-ASK-COO-id-2-*`.
+
+**pf-adversary refused this diff twice over, and the second refusal was the important one.** The
+first descent bounded its offsets with `_need`, which bounds the FILE. Given a type-24 entry
+pointing into `.data`, where sixteen planted bytes parse as a directory with an id-2 entry, it
+answered `embedded_manifest=yes manifest_ids=2` for an image carrying no manifest anywhere -- the
+false green this round exists to delete, reintroduced by the deletion. Offsets are now bounded by
+the resource data directory's own Size. Eleven mutants of the new code (type filter, both string
+name filters, all three bounds, the id-2 test, the leaf-entry rule, the named-id message, and both
+halves of the loud-root/quiet-child split) were applied by hand and every one of them turns a test
+red.
+
+**What still is not wired, said plainly:** no script RUNS this module. `build_vs2008.bat` only
+echoes its command line, and the gates that actually block a build or an install are
+`findstr /c:".rsrc"` -- which, in those scripts' own words, proves an image has A resource
+directory, not a manifest at id 2. So the tightening is real for `GT-207`'s step 0, which a human
+runs by hand, and not yet for the pipeline. Asked in the same letter.

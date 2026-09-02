@@ -1143,17 +1143,21 @@ class SpeedUndoTests(_Case):
         self,
     ):
         """Was `test_a_first_ever_speed_reports_not_reverted_rather_than_lying`
-        until round `selrsl`, and the old name is now a false claim about the
-        database.  `migrations/009` is on `main` with `speed_walk DEFAULT
-        400.0`, so on a migrated file a first-ever `/speed` READS 400.0 and
-        this branch is not the one it walks (LANE-DB, `20260902_2140`).
+        until round `selrsl`, and the old name over-claims.  `migrations/009`
+        is on `main` with `speed_walk DEFAULT 400.0`, so for a character BORN
+        AFTER `009` a first-ever `/speed` reads 400.0 and does not walk this
+        branch (LANE-DB, `20260902_2140`).
 
-        The branch is still reached -- by a store whose read raises, by a row
-        on a file that never ran `009`, by a store that is not `SQLiteStore`
-        -- so what this test pins is the SHAPE, "nothing came back from the
-        read", not the retired cause.  `test_an_unreadable_prior_value_...`
-        below walks a source a 009 database can still produce, so the two are
-        not one test twice.
+        NOT "on any 009 database", which is what this docstring said when it
+        was written: `009` rebuilds the table with an INSERT that NAMES
+        `speed_walk`, and a DEFAULT applies only to an omitted column, so a
+        row that already held NULL is copied through NULL (pf-adversary,
+        round `selrsl`, D1, measured). A character born between `008` and
+        `009` still reaches this branch on a fully migrated file.
+
+        What this test pins is therefore the SHAPE -- "nothing came back from
+        the read" -- and `test_an_unreadable_prior_value_...` below walks a
+        different source of it, so the two are not one test twice.
         """
         # `write_typed_attributes` refuses `None` outright and this API has no
         # way to clear a column back to NULL, so there is nothing to put back.
@@ -1175,9 +1179,9 @@ class SpeedUndoTests(_Case):
 
         A read that raises is folded into `previous = None` on purpose (an
         unreadable prior value is a refused undo, never a crash on the
-        listener thread).  Without this test the whole branch stands on the
-        empty-row shape LANE-DB just measured out of the real database, and
-        a later reader would be right to call it dead code.
+        listener thread).  Without this test the whole branch stands on one
+        empty-row double, and a reader who believed `009` retired that shape
+        entirely would be left calling a live path dead code.
         """
         session = FakeSession()
         store = session.foundation.lifecycle.store
