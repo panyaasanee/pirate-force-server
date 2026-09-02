@@ -1,4 +1,5 @@
 """Typed player ActorAttr projections outside the immutable V141 source."""
+import math
 import struct
 
 # LANE-A round vvy6q7 (defect D3): the scene condition on the faction-1 field
@@ -78,6 +79,82 @@ PLAYER_LOGIN_MOVEMENT_SPEED = 400.0
 # BasicAttr mask bit added by this widening.
 _BASIC_BIT_MOVEMENT_SPEED = 0x0040
 
+#: The largest finite float32.  Named here rather than imported so this module
+#: keeps composing with no dependency on the persistence layer; it is the same
+#: number `persistence_typed_attrs.F32_MAX` holds, and the test file asserts
+#: the two agree so they cannot drift apart in silence.
+_F32_MAX = 3.4028234663852886e38
+
+
+def _login_movement_speed(movement_speed: float | None) -> float:
+    """The speed this composer emits: the caller's, or this module's constant.
+
+    CORE-REQUEST `pf_bridge/notes_to_chief/20260902_2010` (COO-DECISION
+    20260902_1846 point 3).  `None` -- which is what every caller that has no
+    character row hands in, and what a character loaded straight from the
+    database carries -- means "the constant", so this widening cannot change
+    a single frame that main composes today.
+
+    The frame's LENGTH is unchanged either way and that is structural, not
+    lucky: `f32tag` writes a fixed-width float32 for any finite value.  Two
+    length guards in runtime.py depend on it -- the flagless production
+    faction recompose diffs its frame against this one and refuses on a
+    delta other than the 5 bytes of the faction field, and the scene-override
+    resync compares lengths outright -- so a variable-width speed would have
+    turned both of those into a silent fallback to the unmodified bytes on
+    every login.  `tests/test_login_speed.py` pins the equality rather than
+    leaving it to this comment.
+
+    A value the encoder cannot carry is REFUSED here rather than coerced.
+    This is the last gate before `f32tag`, and it is deliberately not the only
+    one: `login_speed.resolve` has already put the row's value through
+    `persistence_typed_attrs.validate` upstream.  This one exists for the
+    caller that never went through `login_speed` at all.
+
+    !! THE RULE IS THE FLOAT32 RULE, NOT `math.isfinite`, AND THE DIFFERENCE
+    IS TWO MEASURED HOLES (pf-adversary):
+
+    * `3.5e38` is finite and OUTSIDE float32, so `struct.pack("<f", ...)`
+      raises `OverflowError` -- which subclasses `ArithmeticError` and is
+      therefore caught by NONE of the four handlers guarding these composers
+      (`runtime.py` 3387 / 8093 / 8419 catch ValueError, RuntimeError,
+      TypeError; the START_GAME handler catches those plus KeyError and
+      PermissionError).  An uncaught one unwinds the listener thread.
+    * `1e-320` is finite, packs happily, and arrives at the client as an
+      EXACT `0.0` -- the "guessed zero arriving by arithmetic" that
+      `persistence_typed_attrs.validate` refuses by name, sneaking in through
+      a composer that only asked whether the number was finite.
+
+    Both are refused as `ValueError`, which every one of those handlers does
+    catch, so the worst case is a named refusal rather than a dead thread.
+    """
+    if movement_speed is None:
+        return PLAYER_LOGIN_MOVEMENT_SPEED
+    if isinstance(movement_speed, bool) or not isinstance(
+            movement_speed, (int, float)):
+        raise TypeError(
+            "login movement speed must be a real number or None, got "
+            f"{type(movement_speed).__name__}"
+        )
+    speed = float(movement_speed)
+    if not math.isfinite(speed):
+        raise ValueError(
+            f"login movement speed {movement_speed!r} is not finite"
+        )
+    if not (-_F32_MAX <= speed <= _F32_MAX):
+        raise ValueError(
+            f"login movement speed {movement_speed!r} is outside the float32 "
+            f"range [{-_F32_MAX}, {_F32_MAX}] and would raise OverflowError "
+            "inside the encoder, where nothing on this path catches it"
+        )
+    if speed != 0.0 and struct.unpack("<f", struct.pack("<f", speed))[0] == 0.0:
+        raise ValueError(
+            f"login movement speed {movement_speed!r} underflows to exactly "
+            "0.0 as a float32, and a zero on this wire is a value rather "
+            "than an absence"
+        )
+    return speed
+
 # CORE-REQUEST-022's "probe base 1" fix (PANYA-DECISION 20260828_0125 row
 # x1/x37): the real login path was sending the character's own name into
 # ActorAttr bit 0x01000000 @ +0x164, which the probe identified as the
@@ -156,6 +233,7 @@ def _make_actor_attr_with_name_and_class(
     legacy, identity_lo: int, identity_hi: int, scene_id: int, scene_seq: int,
     character_name: str, class_id: int, level: int, *,
     basic_faction: int | None,
+    movement_speed: float | None = None,
 ) -> bytes:
     """Project name+class+level+speed and an optional frozen faction.
 
@@ -185,6 +263,7 @@ def _make_actor_attr_with_name_and_class(
     it; this reordering keeps that splice point and the frame's total length
     unchanged (the name wstring moves, it is not duplicated or dropped).
     """
+    speed = _login_movement_speed(movement_speed)
     name_wire = _encode_character_name(legacy, character_name)
     basic_mask = (
         _BASIC_BIT_NAME | 0x0002 | 0x000C | _BASIC_BIT_MOVEMENT_SPEED
@@ -203,7 +282,7 @@ def _make_actor_attr_with_name_and_class(
         + legacy.u16tag(0x12, level)
         + legacy.u32tag(0x14, 100)
         + legacy.u32tag(0x14, 100)
-        + legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)
+        + legacy.f32tag(speed)
         + legacy.u16tag(0x12, scene_id)
         + bytes([0x32]) + struct.pack("<Q", scene_seq)
         + faction_wire
@@ -218,11 +297,16 @@ def make_actor_attr_with_name_and_class(
     legacy, identity_lo: int, identity_hi: int, scene_id: int, scene_seq: int,
     character_name: str,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
+    movement_speed: float | None = None,
 ) -> bytes:
-    """Build the real login ActorAttr: proven baseline plus class+level+speed."""
+    """Build the real login ActorAttr: proven baseline plus class+level+speed.
+
+    `movement_speed=None` keeps this module's constant, which is what every
+    caller without a character row hands in -- see `_login_movement_speed`.
+    """
     return _make_actor_attr_with_name_and_class(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
-        class_id, level, basic_faction=None,
+        class_id, level, basic_faction=None, movement_speed=movement_speed,
     )
 
 
@@ -230,6 +314,7 @@ def make_actor_attr_with_name_class_and_faction(
     legacy, identity_lo: int, identity_hi: int, scene_id: int, scene_seq: int,
     character_name: str, basic_faction: int,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
+    movement_speed: float | None = None,
 ) -> bytes:
     """The class+level+speed baseline above, plus the frozen faction-1 probe field.
 
@@ -289,6 +374,7 @@ def make_actor_attr_with_name_class_and_faction(
     return _make_actor_attr_with_name_and_class(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
         class_id, level, basic_faction=basic_faction,
+        movement_speed=movement_speed,
     )
 
 

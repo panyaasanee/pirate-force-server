@@ -349,6 +349,29 @@ CLIENT_CONSTRUCTION_DEFAULTS: dict[int, ClientConstructionDefault] = {
 # finishing a job.  The second limit: point 4 of `0742` forbids
 # any code reading this column off a row onto the wire on the strength of the
 # migration; sending a speed is GM-B's decision (`COO-DECISION 20260902_0345`).
+#
+# !! BOTH OF THOSE TRIGGERS FIRED IN ROUND gnhlin (R310), AND THIS PARAGRAPH
+# IS AMENDED RATHER THAN DELETED, because the sentences above are the record
+# of why the gap was left and they stay true of the day they were written.
+# `COO-DECISION 20260902_1846` point 3 ordered the login read, and
+# `src/pirateforce_foundation/login_speed.py` (with the call sites in
+# `session.py`) now does exactly the thing `0742` point 4 forbade "on the
+# strength of the migration" -- on the strength of a letter instead, which is
+# the door `1043` said would open by itself the day one existed.  Read this
+# way, the two rulings are not in conflict: `1043` named the trigger, `1846`
+# pulled it.  Two things a later round must NOT read into that:
+#   1. It does not seed the column at birth.  That half of `1043` still
+#      stands, and a round that adds a birth write is still undoing a
+#      decision -- `tests/test_birth_vitals_plug_is_pinned.py` grades it.
+#   2. It does not open `/speed`.  `gm/speed_wire.py`'s two locks are
+#      untouched, and `COO-DECISION 20260902_2147` says neither may be
+#      lifted until an attended round has actually tried a safe value.
+#      A login that READS the column is not a command that WRITES it.
+# The verifiable half of `0742` point 4 -- that no code may do this on the
+# strength of the migration alone -- is preserved in the read path itself:
+# `login_speed.resolve` puts the row's value through the write path's own
+# validator and adds a positive-speed floor, and falls back to the constant,
+# by name on the console, for anything else.
 # A BUILT COLUMN IS STILL NOT A SUPPLIED VALUE, and that includes x=7
 # itself -- a `pf-adversary` pass caught an earlier draft of this sentence
 # implying otherwise.  Measured at HEAD rather than counted by hand, because
