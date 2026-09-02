@@ -7332,8 +7332,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 selected = self.foundation.selected
                 performer = ((selected.identity_hi & 0xFFFFFFFF) << 32) | (selected.identity_lo & 0xFFFFFFFF)
                 # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
-                pc, frame = make_scene007_action_ack(legacy, fields, performer)
+                # COO-DECISION 20260902_0646 item 2 opted this site into the
+                # ground preserving composer.  Collect the refusal reason so a
+                # silent revert to the original bytes is visible in the events
+                # stream instead of only on a console (pf-adversary D6): a
+                # refused round and a working round otherwise look identical.
+                ack_refusals = []
+                pc, frame = make_scene007_action_ack(legacy, fields, performer, ack_refusals)
                 self.scene_action_ack_sent = True
+                for reason in ack_refusals:
+                    self.events.append(
+                        "scene007_action_ack_preserve_refused_" + reason.lower())
                 self.events.append("scene007_ea7d_no_damage_action_ack_sent")
                 return [("SCENE007_EA7D_ACTION_ACK_ONCE", pc, frame, 0.0)]
             # PF-HYPOTHESIS-LEDGER: HYP-PF-032 active

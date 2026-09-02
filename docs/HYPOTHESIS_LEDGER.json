@@ -100,7 +100,7 @@
    "id": "HYP-PF-002",
    "kind": "protocol_hypothesis",
    "introduced_checkpoint": "SCENE-007",
-   "exact_value_or_transform": "After selected+spawned+TargetVital kind 1+exact EA7D, send once one RuntimeRes v4/count 1 ActionVital: copy the accepted 64-byte request ActionVital, replace performer qword 0 with persisted selected-player identity, preserve all other ActionVital fields, and omit trailing TargetPos.",
+   "exact_value_or_transform": "After selected+spawned+TargetVital kind 1+exact EA7D, send once one RuntimeRes v4/count 1 ActionVital: copy the accepted 64-byte request ActionVital, replace performer qword 0 with persisted selected-player identity, preserve all other ActionVital fields, and omit trailing TargetPos. Since COO-DECISION 20260902_0646 item 2 this site composes through mob_loot.preserve_ground_in_runtime_res_vitals, so the derived-mask tail is the 5-byte PRESERVE pin (ground list present, count 0) and not the 2-byte EMPTY pin: the body is unchanged and the pc is 89 bytes in a 100-byte frame, where the frozen 2026-08-16 evidence measured 86 and 97. That shape is UNMEASURED on any wire (mob_loot.py:3320; ka1-B 20260901_2210 counts 0 occurrences of a present pool under outer mask 0x02 in 15,288 frames), so the byte counts in the evidence report describe the pre-2026-09-02 frame and the runtime_pass they support has not been re-earned for the new shape.",
    "scope": "port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack connection-local one-shot only",
    "status": "frozen",
    "provenance": "Grade D minimum no-damage response composition accepted only for transport; repeated Grade B runtime acceptance did not prove the original response.",
@@ -147,7 +147,7 @@
      "path": "src/pirateforce_foundation/action_ack.py",
      "required_markers": [
       "Build one ActionVital; only performer differs",
-      "make_runtime_vitals([(legacy.ACTION_VITAL, 0, payload)])"
+      "preserve_ground_in_runtime_res_vitals(legacy, vitals)"
      ],
      "active_claim_marker": true
     },
@@ -155,7 +155,7 @@
      "path": "src/pirateforce_foundation/runtime.py",
      "required_markers": [
       "PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen",
-      "make_scene007_action_ack(legacy, fields, performer)"
+      "make_scene007_action_ack(legacy, fields, performer, ack_refusals)"
      ],
      "active_claim_marker": true
     }
