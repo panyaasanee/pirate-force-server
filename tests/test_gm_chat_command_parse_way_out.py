@@ -207,7 +207,25 @@ class EveryLineThatWasSilentNowSpeaksTests(_Case):
 
                 action, console = self.act(session, text)
 
-                self.assertIsNone(action, "a refused command still sends nothing")
+                # ~~"a refused command still sends nothing"~~ -- struck, not
+                # deleted.  It was true until COO-DECISION 2026-09-02T06:47
+                # +07:00 (`pf_bridge/notes_to_chief/consumed/20260902_0647_
+                # COO-DECISION-typo-layer-notice-is-TYPO-REFUSED-12-ascii-
+                # after-p1.md`), which ordered the SYNTAX layer -- every line
+                # in this very tuple -- to answer the connection with a
+                # twelve-character `TYPO REFUSED` notice on 0xAC52.  What
+                # this file is about is the CONSOLE line, and every claim it
+                # makes about that line is unchanged; what is no longer true
+                # is that the refusal reaches the OPERATOR only.  The notice
+                # composes NOTHING the GM typed -- pinned in
+                # `tests/test_gm_typo_refused_notice.py`, and by
+                # `NothingTypedEverReachesTheConsoleTests` below for the line.
+                self.assertEqual(
+                    action[0],
+                    chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL,
+                    "a refused command sent something other than the typo "
+                    "notice: %r" % (action[0] if action else None),
+                )
                 lines = self.refusal_lines(console)
                 self.assertEqual(1, len(lines), f"console was: {console!r}")
                 self.assertIn(f"account='{self.GM_ACCOUNT}'", lines[0])
@@ -564,6 +582,15 @@ class TheLineNeverAltersDispatchTests(_Case):
     The refusal is already decided when the line is written; the line is the
     courtesy.  Each test here breaks the console in a different way and
     asserts the command's fate is untouched.
+
+    "UNTOUCHED" IS NOW A LABEL, NOT `None`.  COO-DECISION 2026-09-02T06:47
+    +07:00 (`pf_bridge/notes_to_chief/consumed/20260902_0647_COO-DECISION-
+    typo-layer-notice-is-TYPO-REFUSED-12-ascii-after-p1.md`) gave the parse
+    refusal an on-screen sentence, so a mistyped command's fate is the
+    `TYPO REFUSED` notice -- and the property this class exists for is
+    exactly that a broken console does not change it.  A stronger assertion
+    than the old `assertIsNone`, not a weaker one: it now also catches a
+    console failure that SWALLOWS the notice.
     """
 
     def test_a_none_stderr_writes_nothing_to_stdout_and_names_the_failure(self):
@@ -575,7 +602,12 @@ class TheLineNeverAltersDispatchTests(_Case):
         with contextlib.redirect_stdout(out), mock.patch.object(sys, "stderr", None):
             action = self.dispatch(session, "/warp island")
 
-        self.assertIsNone(action)
+        self.assertEqual(
+            action[0],
+            chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL,
+            "a broken console changed the command's fate: %r"
+            % (action[0] if action else None),
+        )
         self.assertNotIn(TOKEN, out.getvalue())
         self.assertIn(
             f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr",
@@ -602,7 +634,12 @@ class TheLineNeverAltersDispatchTests(_Case):
         with mock.patch.object(sys, "stderr", HostileStream()):
             action = self.dispatch(session, "/warp island")
 
-        self.assertIsNone(action)
+        self.assertEqual(
+            action[0],
+            chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL,
+            "a broken console changed the command's fate: %r"
+            % (action[0] if action else None),
+        )
         self.assertIn(
             f"{chat_command_action.EVENT_CONSOLE_WRITE_FAILED_PREFIX}OSError",
             session.events,
@@ -675,7 +712,12 @@ class TheLineSurvivesTheConsoleItIsWrittenToTests(_Case):
         with mock.patch.object(sys, "stderr", console):
             action = self.dispatch(session, "/warp island")
 
-        self.assertIsNone(action)
+        self.assertEqual(
+            action[0],
+            chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL,
+            "a broken console changed the command's fate: %r"
+            % (action[0] if action else None),
+        )
         lines = self.refusal_lines(console.getvalue())
         self.assertEqual(1, len(lines), f"console was: {console.getvalue()!r}")
         self.assertIn(gm_commands.COMMAND_USAGE["warp"], lines[0])

@@ -287,7 +287,18 @@ class SayActionTests(_Case):
         session = FakeSession()
         with self.open_the_version_gate():
             action = self.act(session, "/say " + "x" * (MAX_SAY_MESSAGE_LENGTH + 5))
-        self.assertIsNone(action)
+        # NOT `assertIsNone` since COO-DECISION 2026-09-02T06:47+07:00
+        # (`pf_bridge/notes_to_chief/consumed/20260902_0647_COO-DECISION-typo-
+        # layer-notice-is-TYPO-REFUSED-12-ascii-after-p1.md`): the parser
+        # refuses this line, and that layer now answers the connection with
+        # the twelve-character `TYPO REFUSED` notice.  What this test is for
+        # is unchanged -- NO `Channel_GMGlobalMessageVital` frame is composed
+        # (the say gate is open in this block, so that is a real claim), and
+        # the refusal is NAMED rather than raised.
+        self.assertNotEqual(action[0], chat_command_action.SAY_ACTION_LABEL)
+        self.assertEqual(
+            action[0], chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL
+        )
         # The parser refuses this one before the wire is reached, which is
         # correct -- what this pins is that it is a NAMED refusal either way
         # and never an exception out of the module.

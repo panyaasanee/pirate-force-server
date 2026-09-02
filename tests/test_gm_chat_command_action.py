@@ -1321,6 +1321,18 @@ class EventNameContractTests(_Case):
         "EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX": (
             "gm_chat_action_speed_denied_notice_failed_"
         ),
+        # The SAME on-screen half, one layer up: the SYNTAX refusal, for
+        # every command name (COO-DECISION 2026-09-02T06:47+07:00,
+        # `pf_bridge/notes_to_chief/consumed/20260902_0647_COO-DECISION-typo-
+        # layer-notice-is-TYPO-REFUSED-12-ascii-after-p1.md`).  TWO names for
+        # the same reason the pair above has two, and named after the LAYER
+        # rather than a command because this one fires for all of them.
+        "EVENT_TYPO_REFUSED_NOTICE_COMPOSED": (
+            "gm_chat_action_typo_refused_notice_composed"
+        ),
+        "EVENT_TYPO_REFUSED_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_typo_refused_notice_failed_"
+        ),
         # The audit-failure branch, for a notice rather than a command frame.
         # Its own name because the older one is asserted elsewhere with the
         # narrower meaning, and because this is the boot where the screen goes
@@ -1350,6 +1362,12 @@ class EventNameContractTests(_Case):
         # must keep telling the two apart.
         "SPEED_DENIED_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE"
+        ),
+        # The syntax layer's sentence (COO-DECISION `0647`).  A separate
+        # label from the one above because the two answer different questions
+        # and an attended run has to tell them apart from the console alone.
+        "TYPO_REFUSED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
         ),
     }
 

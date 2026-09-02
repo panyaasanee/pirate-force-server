@@ -308,6 +308,12 @@ from . import (
 from .chat_command import (
     REFUSAL_LOG_QUOTA_EXCEEDED,
     REFUSAL_LOG_WRITE_FAILED_PREFIX,
+    # THE ONE REFUSAL THAT GETS AN ON-SCREEN SENTENCE (COO-DECISION `0647`).
+    # Imported by NAME from the module that owns it, never re-spelled here as
+    # a literal: `chat_command.py` keeps its refusal words beside the comment
+    # that says which of them may and may not reach a human, and a second
+    # copy of the string in this file is how the two would drift apart.
+    REFUSAL_PARSE_ERROR_PREFIX,
     REFUSAL_RATE_LIMITED,
     SERVER_SIDE_DROP_REFUSALS,
     TYPED_COMMAND_REFUSAL_PREFIXES,
@@ -488,6 +494,24 @@ SPEED_ACTION_LABEL = "LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL"
 # It also MUST NOT contain `TELEPORT`, for the same `runtime.py` reason
 # spelled out above this line.
 SPEED_DENIED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE"
+
+# The SAME shape for the SYNTAX layer, ordered by COO-DECISION
+# 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_chief/consumed/20260902_0647_
+# COO-DECISION-typo-layer-notice-is-TYPO-REFUSED-12-ascii-after-p1.md`): a GM
+# who mistypes ANY command gets `say_wire.TYPO_REFUSED_NOTICE_TEXT` on screen
+# instead of a chat line that vanishes.
+#
+# A SEPARATE LABEL FROM THE ONE ABOVE, for the reason that one is separate
+# from `SPEED_ACTION_LABEL`: the two notices answer different questions
+# ("the grammar refused you" vs "the command ran and the value was refused"),
+# and an attended run that greps the serve loop's own action lines must be
+# able to tell which sentence went out without decoding the frame.
+#
+# !! MUST NOT CONTAIN `TELEPORT`, same reason as every label above:
+# `runtime.py`'s `_move_authority_note_server_moves` reopens the
+# move-authority grace window on that exact substring, and a refused typo
+# repositions nobody.
+TYPO_REFUSED_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
 
 # The `characters` column LANE-DB's persistence entry point is keyed by for
 # this one field, resolved THROUGH their own table rather than spelled here
@@ -831,6 +855,23 @@ EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 EVENT_SPEED_DENIED_NOTICE_COMPOSED = "gm_chat_action_speed_denied_notice_composed"
 EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX = (
     "gm_chat_action_speed_denied_notice_failed_"
+)
+
+# The on-screen notice for a MISTYPED command (COO-DECISION `0647`).  Two
+# events for the same reason the pair above has two, and named after the LAYER
+# (`typo`) rather than after a command, because this one fires for every
+# command name and for a verb this lane does not have at all.
+#
+# THE SECOND NAME IS NOT DECORATION.  This route composes and returns in one
+# step -- there is no audit row between the two, because a command refused by
+# the grammar was never logged (`chat_command.handle_local_talk_chat` returns
+# the parse refusal ABOVE its `log_gm_command` call) -- so unlike the
+# `/speed` notice, `..._composed` here really does mean "the bytes were
+# handed back to the serve loop".  A composer failure is therefore the ONLY
+# way the screen stays silent on this path, and it says so by name.
+EVENT_TYPO_REFUSED_NOTICE_COMPOSED = "gm_chat_action_typo_refused_notice_composed"
+EVENT_TYPO_REFUSED_NOTICE_FAILED_PREFIX = (
+    "gm_chat_action_typo_refused_notice_failed_"
 )
 
 # The PERSISTENCE half of `/speed`, added the round LANE-DB's
@@ -1321,6 +1362,95 @@ def _note_item_catalog_diagnostic(session: object, command: object) -> None:
         )
 
 
+def _typo_refused_notice(
+    session: object,
+    legacy: object,
+    refusal_reason: object,
+) -> tuple[str, bytes, bytes, float] | None:
+    """`TYPO REFUSED` on screen for a command the GRAMMAR refused, or None.
+
+    COO-DECISION 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_chief/consumed/
+    20260902_0647_COO-DECISION-typo-layer-notice-is-TYPO-REFUSED-12-ascii-
+    after-p1.md`), which is the follow-up `0345`'s own round asked for: the
+    `/speed` notice closed the DB-refusal layer, and left the commonest GM
+    mistake of all -- a line the parser could not read -- exactly as silent as
+    it was before (`tests/test_gm_speed_denied_notice.py` pinned that silence
+    at the time, citing this decision as the thing that would lift it).
+
+    ONE LAYER, EVERY COMMAND NAME.  The gate is `refusal_reason.startswith(
+    REFUSAL_PARSE_ERROR_PREFIX)` and nothing else, so it fires for
+    `/warp island`, a bare `/warp`, `/lv`, `/spawn x`, `/speed fast`,
+    `/nonsense` and `/` alike -- the parse layer is the one place that reports
+    all of them under one word.  Every OTHER refusal `chat_command.py` can
+    return composes NOTHING, and each exclusion is somebody's stated reason
+    rather than an omission (the long comment above that module's
+    `TYPED_COMMAND_REFUSAL_PREFIXES` names them one by one):
+
+      REFUSAL_NOT_GM               -- nothing was decoded; this lane never
+      REFUSAL_LOOKUP_FAILED_PREFIX    looked at the line and must not learn to
+      REFUSAL_NOT_A_COMMAND        -- a GM talking.  A frame per sentence, to
+                                      say "that was not a typo", is noise
+      REFUSAL_PAYLOAD_TOO_LARGE    -- a malformed FRAME, which no typing can
+      REFUSAL_UNDECODABLE_PREFIX      fix; calling it a typo blames a human
+      REFUSAL_UNSAFE_COMMAND_TEXT  -- the bidi/format-character refusal.  It
+                                      is a typed-command refusal and it is
+                                      still NOT this layer: the decision names
+                                      `parse_gm_command` alone, and this one
+                                      is refused above the parser
+      REFUSAL_RATE_LIMITED         -- the ceiling that BOUNDS this feature.  A
+      REFUSAL_LOG_QUOTA_EXCEEDED      notice for it would be a frame composed
+      REFUSAL_LOG_WRITE_FAILED_*      per frame the limiter is refusing, and
+                                      the last two mean the audit log is
+                                      broken, which is not a typo either
+
+    That exclusion list is also what caps the wire cost: a parse refusal is
+    returned BELOW `rate_limit_allows` in `handle_local_talk_chat`, so at most
+    `dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW` of these can be composed per
+    account per window, however fast a client types.
+
+    FAIL CLOSED, AND NAMED.  A composer failure returns None -- the refusal
+    itself is untouched, because it was already decided by the time this runs
+    and the caller returns whatever this returns as its whole answer -- and it
+    is recorded as `EVENT_TYPO_REFUSED_NOTICE_FAILED_PREFIX + <ExcType>`.
+    TYPE NAME ONLY: a `NoticeWireError` message is this lane's own text today,
+    but the `except` below is deliberately broad (the `legacy` seam raises
+    `AttributeError`, measured in round `aa9ajr` D7), and an arbitrary
+    exception's message can carry bytes this lane may not print to a cp874
+    console.  Nothing escapes onto the listener thread: an on-screen courtesy
+    may never turn a named refusal into `gm_chat_action_unexpected_<Type>`,
+    which is this module's standing rule for diagnostics.
+
+    NO `queued` ROW, and not by omission: this function never touches
+    `_arm_queued_confirm`.  `queued` closes a command's `issued` row and means
+    "this COMMAND's frame reached runtime" -- a mistyped command has no
+    `issued` row at all (the grammar refused it above `log_gm_command`), so a
+    `queued` row here would close nothing and read like a command that ran
+    (LANE-GM's letter `20260902_0419` question 1, accepted by COO-DECISION
+    `0647` item 2).  For the same reason there is no `_Verdict` and no
+    `_log_outcome` on this path: there is no audit pair to keep honest.
+    """
+    if not isinstance(refusal_reason, str):
+        # `handle_local_talk_chat` always sets a string here; this module also
+        # reads its outcome fields off an arbitrary object in tests and in any
+        # future caller, and a non-string must be a quiet "not my layer"
+        # rather than an `AttributeError` one frame up.
+        return None
+    if not refusal_reason.startswith(REFUSAL_PARSE_ERROR_PREFIX):
+        return None
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, say_wire.TYPO_REFUSED_NOTICE_TEXT
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_TYPO_REFUSED_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        return None
+    _note(session, EVENT_TYPO_REFUSED_NOTICE_COMPOSED)
+    return (TYPO_REFUSED_NOTICE_ACTION_LABEL, pc, frame, 0.0)
+
+
 def make_gm_chat_command_action(
     session: object,
     payload: bytes,
@@ -1357,6 +1487,15 @@ def make_gm_chat_command_action(
     Returns `(label, pc, frame, delay_before)` -- append it to the action
     list, exactly like `gm_state_action` -- or None, which means "this frame
     is not ours; behave exactly as the server did before this lane existed".
+
+    !! AN ACTION IS NOT ALWAYS A COMMAND.  Two of the labels this can return
+    are ON-SCREEN NOTICES about a command that did NOT run -- a refused
+    `/speed` (`SPEED_DENIED_NOTICE_ACTION_LABEL`, COO-DECISION `0345`) and a
+    MISTYPED command of any name (`TYPO_REFUSED_NOTICE_ACTION_LABEL`,
+    COO-DECISION `0647`).  The caller appends them the same way; nothing at
+    the call site changes.  It is said here because "an action came back"
+    stopped meaning "the command ran" the day the first notice landed, and a
+    reader of this docstring is exactly who would otherwise assume it.
 
     `scene_registry` -- OPTIONAL, AND THE ONE ARGUMENT WHOSE ABSENCE COSTS
     THE TESTER SOMETHING.  `/warp` decides whether a destination can be
@@ -1436,7 +1575,18 @@ def _make_action(
         # so a refusal gets one line or none, never two -- asserted by
         # `tests/test_gm_chat_no_bytes_line.py`, not left to reading.
         _print_server_drop_way_out(session, token, outcome)
-        return None
+        # AND, FOR ONE OF THOSE REFUSALS ONLY, A SENTENCE ON THE SCREEN.
+        # COO-DECISION `0647`: the two printers above reach the SERVER HOST'S
+        # console and nobody else -- which is what every docstring in this
+        # module has said about them since round `9wy444` -- so the person who
+        # actually mistyped the command still watched their chat line vanish.
+        # This is the only line on this branch that answers them.
+        #
+        # AFTER both printers, never before: the console line is decided by
+        # the refusal alone and must not change shape because a codec was
+        # unhappy.  `_typo_refused_notice` returns None for every refusal
+        # except the parse layer, so this stays `return None` for all of them.
+        return _typo_refused_notice(session, legacy, outcome.refusal_reason)
 
     command = outcome.command
     _note(session, f"{EVENT_ACCEPTED_PREFIX}{command.name}")

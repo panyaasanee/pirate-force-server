@@ -568,7 +568,16 @@ class ThingsThatMustStaySilentTests(_Case):
 
     def test_a_mistyped_command_keeps_its_usage_line_and_gains_nothing(self):
         action, err = self.act("/warp island")
-        self.assertIsNone(action)
+        # ~~`assertIsNone(action)`~~ -- struck since COO-DECISION
+        # 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_chief/consumed/
+        # 20260902_0647_COO-DECISION-typo-layer-notice-is-TYPO-REFUSED-12-
+        # ascii-after-p1.md`): a mistyped command now answers the connection
+        # with a twelve-character `TYPO REFUSED` notice on 0xAC52.  This
+        # test's own subject is the CONSOLE, and both of its console claims
+        # below are unchanged: exactly one usage line, and no no-bytes line.
+        self.assertEqual(
+            action[0], chat_command_action.TYPO_REFUSED_NOTICE_ACTION_LABEL
+        )
         self.assertEqual(
             len(
                 self.lines(err, chat_command_action.COMMAND_REFUSED_CONSOLE_TOKEN)

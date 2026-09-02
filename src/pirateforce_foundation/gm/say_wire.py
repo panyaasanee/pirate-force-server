@@ -134,6 +134,28 @@ LOCAL_TALK_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS[
 # never has to tell two on-screen sentences apart, and so that the round that
 # widens it has to move a pinned length rather than a habit.
 SPEED_DENIED_NOTICE_TEXT = "SPEED DENIED"
+
+# THE SECOND SENTENCE, AND IT IS A SECOND ONE BECAUSE THE FIRST WOULD LIE.
+# COO-DECISION 2026-09-02T06:47+07:00 (`pf_bridge/notes_to_chief/consumed/
+# 20260902_0647_COO-DECISION-typo-layer-notice-is-TYPO-REFUSED-12-ascii-after-
+# p1.md`), item 1: the SYNTAX layer -- `parse_gm_command`'s refusal, which
+# `gm/chat_command.py` reports as `command_parse_error_*` -- gets its own
+# body, `TYPO REFUSED`, for every command name and not just `/speed`.
+#
+# Why not reuse the string above: `SPEED DENIED` in answer to a mistyped
+# `/warp` would name a command the GM did not type and a subsystem that never
+# ran.  Why not a longer, clearer sentence: the length is the SAME pinned
+# evidence the constant above rests on -- 12 printable ASCII characters is the
+# only body length anybody has watched render on this channel -- so a second
+# string had to be found INSIDE that length rather than written freely.  That
+# is `0345` item 2's rule applied a second time, not a new rule.
+#
+# WHAT THE TWO SENTENCES BUY TOGETHER, and it is the whole point of splitting
+# them: COO-DECISION `0147` asks a tester to tell "typo", "the DB refused it"
+# and "the frame went out" apart FROM THE SCREEN.  With both strings shipped
+# the screen answers the first two by wording and the third by silence.
+TYPO_REFUSED_NOTICE_TEXT = "TYPO REFUSED"
+
 NOTICE_TEXT_EXACT_LENGTH = 12
 
 # Every captured GT-006 frame on this shared serializer has carried an empty
