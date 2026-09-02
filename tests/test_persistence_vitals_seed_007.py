@@ -1286,25 +1286,62 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             _store, _character_id, stored = self._newborn("mechanism")
 
         if not any(column in stored for column in SEEDED):
-            # The plug is not in yet; there is no birth write to trace.
+            # The plug is not in yet and the database is below 009; there is
+            # no birth write to trace.
             return
+        held = {column: stored[column] for column in SEEDED}
+        if held == sentinel:
+            # The numbers came from the call.  This is chief's insertion point
+            # (`COO-DECISION 20260902_0443` point 1) and it is what the patch
+            # above exists to detect.
+            return
+
+        # THE SECOND APPROVED SOURCE, and why this test is no longer a single
+        # equality.  Point 2 of `0443` ruled out a schema DEFAULT; the owner
+        # overruled that herself and `COO-DECISION 20260902_1607` had this
+        # lane install `migrations/009_character_birth_defaults.sql`.  So a
+        # newborn whose numbers are NOT the sentinel is correct exactly when
+        # they are the schema's own defaults, read here from the same database
+        # the row came out of rather than typed in.  What stays refused is the
+        # third source both decisions still forbid: an inline literal or a
+        # trigger, which shows up as numbers that are neither.
+        db = sqlite3.connect(str(self.path))
+        try:
+            defaults = {
+                str(row[1]): row[4]
+                for row in db.execute(
+                    "SELECT * FROM pragma_table_info('characters')")
+                if str(row[1]) in SEEDED}
+        finally:
+            db.close()
         self.assertEqual(
-            {column: stored[column] for column in SEEDED}, sentinel,
-            "a newborn holds birth vitals, but NOT the ones "
-            "new_character_vitals() returned while it was being created -- so "
-            "the numbers came from somewhere else (an inline literal, a schema "
-            "DEFAULT, or a trigger).  COO-DECISION 20260902_0443 points 1 and "
-            "2 rule out all three.  Measured at runtime, not read off source.",
+            held, {column: int(value) for column, value in defaults.items()
+                   if value is not None},
+            "a newborn holds birth vitals that are neither the ones "
+            "new_character_vitals() returned while it was being created nor "
+            "the schema defaults of migrations/009 -- so the numbers came "
+            "from a third source (an inline literal or a trigger), which "
+            "COO-DECISION 20260902_0443 point 2 and COO-DECISION "
+            "20260902_1607 both still rule out.  Measured at runtime, not "
+            "read off source.",
         )
 
     def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
-        """`COO-DECISION 20260901_1447` point 2 -- no value is adjudicated for
-        `speed_walk` or the other seventeen -- holds in both branches, so this
-        one is not conditional at all."""
+        """The seventeen columns with no adjudicated value hold nothing.
+
+        This used to be eighteen: `COO-DECISION 20260901_1447` point 2 kept
+        `speed_walk` out of a birth as well, until `RE-194` settled the number
+        and `COO-DECISION 20260902_1607` made it one of the four
+        `migrations/009_character_birth_defaults.sql` supplies.  The rule the
+        test enforces is unchanged and is the owner's own (`COO-DECISION
+        20260901_1059`): a column whose value nobody has measured is never
+        guessed -- it stays NULL and reaches the compose gate as absent.
+        """
         _store, _character_id, stored = self._newborn("no-extras")
-        for column in typed.TYPED_COLUMNS:
-            if column in SEEDED:
-                continue
+        unadjudicated = [column for column in typed.TYPED_COLUMNS
+                         if column not in birth_state.BIRTH_COLUMNS]
+        self.assertEqual(len(unadjudicated), 17)
+        for column in unadjudicated:
             self.assertNotIn(column, stored, column)
 
     def test_the_birth_values_are_the_same_three_007_wrote(self):

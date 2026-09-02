@@ -757,15 +757,22 @@ class StoreVitalsTests(unittest.TestCase):
         # is carried by `git diff --numstat` on this round (91 insertions, 0
         # deletions in store.py); this test only pins the two methods the new
         # ones are built on top of.
+        # The three literals this test used to hold are now "the three this
+        # test wrote, on top of whatever the row was born holding" --
+        # `migrations/009_character_birth_defaults.sql` gives a newborn a
+        # fourth column (`speed_walk`) that these two methods correctly report
+        # and that has nothing to do with what they are being pinned for.
         self._seed()
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id),
-            {"level": 5, "hp_current": 80, "hp_max": 120},
+            birth_state.with_birth(
+                self.birth, level=5, hp_current=80, hp_max=120),
         )
         self.assertEqual(
             self.store.write_typed_attributes(
                 self.character.id, {"level": 6}),
-            {"level": 6, "hp_current": 80, "hp_max": 120},
+            birth_state.with_birth(
+                self.birth, level=6, hp_current=80, hp_max=120),
         )
 
 

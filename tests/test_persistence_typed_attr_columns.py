@@ -771,12 +771,14 @@ class StoreRoundTripTests(unittest.TestCase):
         self.store.write_typed_attributes(self.character.id, {"level": 12})
         state = self.store.read_typed_attributes(self.character.id)
         self.assertEqual(state, self._expect(level=12))
-        # A column no birth state may ever carry: `COO-DECISION 20260901_1447`
-        # point 2 keeps `speed_walk` out of the birth values, and
-        # `pf_birth_state` refuses a birth state that carries it -- so this
-        # stays a real "absent, not zero" probe after the insertion point
-        # lands, which `hp_current` would not.
-        self.assertNotIn("speed_walk", state)
+        # A column no birth state carries.  This probe used to be
+        # `speed_walk`, on `COO-DECISION 20260901_1447` point 2 ("no birth
+        # state may carry it") -- `COO-DECISION 20260902_1607` made that
+        # sentence false by giving the column a DEFAULT in
+        # `migrations/009_character_birth_defaults.sql`, so the probe moved to
+        # two of the seventeen columns that still have no adjudicated value
+        # and therefore still measure "absent, not zero".
+        self.assertNotIn("mp_current", state)
         self.assertNotIn("cash", state)
 
     def test_a_second_write_updates_rather_than_duplicates(self):
@@ -800,8 +802,12 @@ class StoreRoundTripTests(unittest.TestCase):
         # the good half of the refused batch must not have landed either
         self.assertEqual(self.store.read_typed_attributes(self.character.id),
                          self._expect(level=7))
-        self.assertNotIn(
-            "speed_walk", self.store.read_typed_attributes(self.character.id))
+        # and the refused half specifically: `speed_walk` still holds the
+        # value 009's DEFAULT gave it at birth, not the 500.0 of the refused
+        # batch.  (Before 009 this was spelled "the column is absent".)
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["speed_walk"],
+            self.birth["speed_walk"])
 
     def test_an_unknown_character_is_a_key_error_on_both_sides(self):
         with self.assertRaises(KeyError):
@@ -974,16 +980,37 @@ class TheGateStillRefusesTests(unittest.TestCase):
     def test_an_unwritten_column_reaches_the_gate_as_absent_not_as_zero(self):
         values = self._typed_values()
         self.assertEqual(values, self.birth_x)
-        # x=7 is `speed_walk`, which no birth state may carry -- so this stays
-        # a probe of an UNWRITTEN column after the insertion point lands.
-        self.assertNotIn(7, values)
+        # x=5 is `mp_current`, one of the seventeen columns with no
+        # adjudicated value, so it is UNWRITTEN on a newborn.  This probe used
+        # to be x=7 (`speed_walk`) on the strength of `COO-DECISION
+        # 20260901_1447` point 2; `migrations/009_character_birth_defaults.sql`
+        # gives x=7 a DEFAULT, so x=7 is now a written column at birth and
+        # would measure nothing here.
+        unwritten = typed.TYPED_COLUMNS["mp_current"].x
+        self.assertNotIn(unwritten, values)
         gaps = {g.x: g for g in compose.block_gaps(values)}
-        self.assertEqual(gaps[7].reason, compose.REASON_NO_TYPED_VALUE)
+        self.assertEqual(gaps[unwritten].reason, compose.REASON_NO_TYPED_VALUE)
 
     def test_writing_speed_closes_that_field_s_gap_and_no_other(self):
         """The count used to be typed out (`54`).  It is now a DELTA, which is
         what the sentence in the method name actually says and what survives a
-        birth state that closes three of the gaps before this test starts."""
+        birth state that closes some of the gaps before this test starts.
+
+        WHY THE ROW IS PUT BACK TO PRE-009 FIRST.  `migrations/009` gives
+        `speed_walk` a DEFAULT, so on a newborn the gap this test is about is
+        already closed and the delta it measures would be empty -- the test
+        would still pass while measuring nothing.  The state where writing
+        speed CLOSES a gap is a row that holds no speed, which is what a
+        database below 009 holds and what `pf_birth_state.
+        clear_birth_defaults_to_pre_009` builds deliberately (raw SQL, on this
+        temporary file only).
+        """
+        birth_state.clear_birth_defaults_to_pre_009(
+            self.path, [self.character.id])
+        self.birth = birth_state.measure_birth_typed_state(
+            self.store, self.character.id)
+        self.birth_x = birth_state.birth_by_x(self.birth)
+        self.assertEqual(self.birth, {})
         before = {g.x for g in compose.block_gaps(self._typed_values())}
         self.store.write_typed_attributes(self.character.id, {"speed_walk": 620.0})
         values = self._typed_values()
@@ -1267,11 +1294,14 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
                 self.character.id, {"speed_walk": float("nan")}
             )
         # nothing landed: the row is still exactly its birth state, and in
-        # particular `speed_walk` is absent rather than zero
+        # particular `speed_walk` still holds the number 009's DEFAULT gave it
+        # rather than the NaN that was refused.  (Before 009 this was spelled
+        # "the column is absent".)
         self.assertEqual(self.store.read_typed_attributes(self.character.id),
                          self.birth)
-        self.assertNotIn(
-            "speed_walk", self.store.read_typed_attributes(self.character.id))
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["speed_walk"],
+            self.birth["speed_walk"])
 
     def test_other_columns_already_on_the_row_do_not_join_the_block(self):
         """The write returns the WHOLE typed state; the block must not.
@@ -1322,8 +1352,9 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             )
         self.assertEqual(self.store.read_typed_attributes(self.character.id),
                          self.birth)
-        self.assertNotIn(
-            "speed_walk", self.store.read_typed_attributes(self.character.id))
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["speed_walk"],
+            self.birth["speed_walk"])
 
     def test_an_unknown_character_is_a_key_error_before_anything(self):
         with self.assertRaises(KeyError):
@@ -1361,7 +1392,11 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             ).fetchone()
         finally:
             db.close()
-        self.assertIsNone(row["speed_walk"])
+        # The row still holds the birth DEFAULT of
+        # `migrations/009_character_birth_defaults.sql`, which is the proof
+        # the refused 300.0 never landed.  It read `assertIsNone` while the
+        # column had no default and no birth value.
+        self.assertEqual(row["speed_walk"], self.birth["speed_walk"])
 
     def test_an_empty_write_is_refused_before_it_becomes_an_empty_block(self):
         with self.assertRaises(typed.TypedAttrError):

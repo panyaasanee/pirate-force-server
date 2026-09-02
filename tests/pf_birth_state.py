@@ -33,11 +33,22 @@ stamp gets written: a ``pf-adversary`` pass (round ``cby3pd``, defect D2)
 took a draft in that shape and drove four different WRONG insertion points
 through it green, the worst of which reset an existing ``level 9, hp 480/500``
 character to ``1, 100/100``.  The refusal in
-:func:`measure_birth_typed_state` is the single place the two accepted states
-are named, and it refuses everything else -- so an insertion point that seeds
-``level = 0``, or that adds ``speed_walk = 400.0`` (a number
-``COO-DECISION 20260901_1447`` point 2 reserves for a migration and forbids at
-birth), turns every file that imports this one red at its fixture.
+:func:`measure_birth_typed_state` is the single place the accepted states are
+named, and it refuses everything else -- so an insertion point that seeds
+``level = 0``, or that adds a FIFTH column, turns every file that imports this
+one red at its fixture.
+
+WHAT CHANGED ON 2026-09-02 AT 16:07, and why the list grew to three.  This
+module used to refuse a birth carrying ``speed_walk = 400.0`` outright, citing
+``COO-DECISION 20260901_1447`` point 2, which reserved that number for a
+migration and forbade it at birth.  That decision was overtaken twice: `0742`
+lifted the ban on the number once `RE-194` closed which of the two candidates
+the player object uses, and ``COO-DECISION 20260902_1607`` -- the owner
+overruling her own COO in session -- had this lane install all four as column
+DEFAULTS in ``migrations/009_character_birth_defaults.sql``.  So the third
+accepted state is not a loosening of the guard, it is the guard following the
+decision that created it: a birth on a database at 009 is exactly those four
+values, and anything else is still refused.
 
 WHAT IT DOES NOT CLAIM.  It does not check that other TABLES (positions,
 backpacks) or non-vital columns of other rows survived the creation of this
@@ -60,10 +71,30 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import persistence_typed_attrs as _typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 
-#: The state a character is born into TODAY: no typed column holds anything.
+#: The column `009` gives a default alongside the three vitals.  Looked up by
+#: its WIRE field (x=7, BasicAttr+0x54) through `persistence_typed_attrs`
+#: rather than written here as a string, because the column NAME still encodes
+#: an unproven identification ("speed_walk", [assumption of LANE-DB - awaiting
+#: RE], see the naming note in `migrations/006`) while the field it is bound to
+#: does not.  A rename of the column therefore moves this constant with it; a
+#: column that stops existing is an error here rather than a silently absent
+#: key in an expectation.
+SPEED_COLUMN = _typed.COLUMN_FOR_X[7]
+
+#: The state a character was born into before `migrations/009_character_birth
+#: _defaults.sql`: no typed column holds anything.  Still reachable, and still
+#: accepted, because a database BELOW 009 really is in it -- the boot tests
+#: build databases that stop at 006, 007 and 008 on purpose, and
+#: :func:`clear_vitals_to_pre_seed` constructs it deliberately so the
+#: fail-closed doors stay measured instead of unreachable.
 UNSEEDED_BIRTH: dict[str, int | float] = {}
+
+#: The four columns `migrations/009_character_birth_defaults.sql` gives a
+#: DEFAULT, in the order the migration lists them.
+BIRTH_COLUMNS: tuple[str, ...] = tuple(vitals.VITAL_COLUMNS) + (SPEED_COLUMN,)
 
 
 def seeded_birth() -> dict[str, int]:
@@ -76,9 +107,49 @@ def seeded_birth() -> dict[str, int]:
     return vitals.new_character_vitals()
 
 
-def accepted_birth_states() -> tuple[dict, dict]:
-    """The only two states this lane accepts from ``create_character``."""
-    return dict(UNSEEDED_BIRTH), seeded_birth()
+def default_birth() -> dict[str, int | float]:
+    """The state a character is born into on a database that has applied
+    ``migrations/009_character_birth_defaults.sql``.
+
+    THE FOURTH COLUMN IS NOT A DRIFT.  Until `009` this module refused a birth
+    carrying ``speed_walk``, on `COO-DECISION 20260901_1447` point 2 -- which
+    forbade seeding that column while 400.0 and the 150.0 proven on the wire
+    for NPCs were two candidates.  `RE-194` closed that question,
+    `COO-DECISION 20260902_0742` lifted the ban and approved
+    ``008_character_speed_walk_seed.sql``, and `COO-DECISION 20260902_1607`
+    -- the owner overruling two refusals of her own COO in session on
+    2026-09-02 -- put the same number on the column as a DEFAULT so that
+    characters born after `008` get it too.  So the refusal below did not
+    weaken: it moved with the decision that created it, and a birth carrying
+    a FIFTH column, or any of these four with a different number, is still a
+    defect this module raises on.
+
+    Both halves are derived rather than retyped: the three vitals from
+    ``persistence_vitals.new_character_vitals()`` and the speed from
+    ``persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS[7]``, the
+    client's own construction default at ``0x00464AF2``.  A migration whose
+    DEFAULT drifts from either module is red at every fixture that imports
+    this file, which is the whole reason this state is spelled here once.
+    """
+    from pirateforce_foundation import persistence_attr_compose as compose
+
+    state: dict[str, int | float] = dict(seeded_birth())
+    state[SPEED_COLUMN] = float(compose.CLIENT_CONSTRUCTION_DEFAULTS[7].value)
+    return state
+
+
+def accepted_birth_states() -> tuple[dict, ...]:
+    """The only states this lane accepts from ``create_character``.
+
+    Three, in the order a database reaches them: no seeding at all (below
+    `009`, and what `clear_vitals_to_pre_seed` builds), the three vitals
+    `COO-DECISION 20260902_0444` has chief write at the insertion point, and
+    the four `009` installs as column defaults.  A database that has applied
+    `009` AND carries chief's plug lands on the third of them as well -- the
+    plug writes the same three numbers the defaults would have supplied, which
+    is measured, not assumed (LANE-DB letter `20260902_1452`).
+    """
+    return dict(UNSEEDED_BIRTH), seeded_birth(), default_birth()
 
 
 def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float]:
@@ -89,18 +160,23 @@ def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float
     refusal is what keeps that phrasing from being a rubber stamp.
     """
     state = dict(store.read_typed_attributes(character_id))
-    unseeded, seeded = accepted_birth_states()
-    if state in (unseeded, seeded):
+    accepted = accepted_birth_states()
+    if state in accepted:
         return state
+    unseeded, seeded, defaulted = accepted
     raise AssertionError(
         "a newly created character holds a typed state this lane does not "
-        "accept: %r.  The two accepted states are %r (no seeding, the world "
-        "as of round cby3pd) and %r (create_character calling "
+        "accept: %r.  The three accepted states are %r (no seeding -- a "
+        "database below migrations/009, or one built by "
+        "clear_vitals_to_pre_seed), %r (create_character calling "
         "persistence_vitals.new_character_vitals(), COO-DECISION "
-        "20260902_0444).  Anything else -- a fourth column, a level of zero, "
-        "a speed_walk seeded at birth -- is a defect in the insertion point, "
-        "not in the test that just refused it."
-        % (state, unseeded, seeded)
+        "20260902_0444) and %r (the column defaults of "
+        "migrations/009_character_birth_defaults.sql, COO-DECISION "
+        "20260902_1607).  Anything else -- a fifth column, a level of zero, "
+        "one of these four with a different number -- is a defect in the "
+        "insertion point or in the migration, not in the test that just "
+        "refused it."
+        % (state, unseeded, seeded, defaulted)
     )
 
 
@@ -144,6 +220,23 @@ def birth_by_x(birth: dict) -> dict[int, int | float]:
             for column, value in birth.items()}
 
 
+def clear_birth_defaults_to_pre_009(db_path, character_ids=None) -> int:
+    """Put character rows into the state a pre-`009` database really held:
+    none of the FOUR birth columns holds anything.
+
+    :func:`clear_vitals_to_pre_seed` clears the three vital columns and is the
+    right call for a test about `007`'s narrowness or about the fail-closed
+    doors of `persistence_vitals`.  This one also clears ``speed_walk``, which
+    `migrations/009_character_birth_defaults.sql` gives a DEFAULT: a test whose
+    subject is "writing this column CLOSES a gap" needs a row where the gap is
+    open, and after 009 a newborn no longer has one.  Same raw-SQL,
+    temporary-file-only rule as its neighbour -- the owner's canonical database
+    is reachable exactly one way, through a migration file (`COO-DECISION
+    20260901_1112` point 2).
+    """
+    return _clear_columns(db_path, list(BIRTH_COLUMNS), character_ids)
+
+
 def clear_vitals_to_pre_seed(db_path, character_ids=None) -> int:
     """Put character rows into the state a pre-007 database really held.
 
@@ -154,7 +247,15 @@ def clear_vitals_to_pre_seed(db_path, character_ids=None) -> int:
     migration file (``COO-DECISION 20260901_1112`` point 2), and nothing here
     runs anywhere near it.
     """
-    columns = list(vitals.VITAL_COLUMNS)
+    return _clear_columns(db_path, list(vitals.VITAL_COLUMNS), character_ids)
+
+
+def _clear_columns(db_path, columns, character_ids) -> int:
+    """The shared body of the two functions above.
+
+    Returns the number of rows that still hold one of ``columns`` afterwards,
+    which is always zero -- it raises rather than returning nonzero.
+    """
     assignments = ", ".join("%s=NULL" % column for column in columns)
     db = sqlite3.connect(str(db_path))
     try:
