@@ -831,6 +831,18 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
     def _ground(self, *offsets):
         return a_ground_cell(*[a_drop(offset) for offset in offsets])
 
+    def _success_token(self):
+        """The word the console is ALLOWED to use on this tree.
+
+        Not a convenience: it is the point of pf-adversary's D1.  Until
+        `runtime.py` sends the frames, a successful compose may not print
+        PUBLISHED, and the test must read the same source of truth the code
+        reads instead of hardcoding whichever word is right this week.
+        """
+        if mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS == "sent":
+            return mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN
+        return mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN
+
     def _explode_the_publisher(self, exc):
         """Make the ground cell's publisher raise, for this test only.
 
@@ -885,7 +897,11 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
         keys = self._keys_on_the_wire(outcome.ground_after)
         self.assertEqual(keys, [mob_loot.DROP_KEY_BASE + 1])
         self.assertNotIn(mob_loot.DROP_KEY_BASE, keys)
-        self.assertIn("MOB_PICKUP_GROUND_REMOVAL_PUBLISHED", console)
+        self.assertIn(self._success_token(), console)
+        self.assertIn(
+            "key=0x%X" % mob_loot.DROP_KEY_BASE, console,
+            "the console names a key that is not the one the ground cell "
+            "handed over; the line is the only place that number is read")
 
     def test_the_publication_is_the_ground_cell_s_own_and_not_recomposed_here(
             self):
@@ -946,7 +962,7 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
         self.assertEqual(outcome.ground_rows_left, 0)
         self.assertEqual(outcome.ground_after, ())
         self.assertIn("MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT", console)
-        self.assertNotIn("MOB_PICKUP_GROUND_REMOVAL_PUBLISHED", console)
+        self.assertNotIn(self._success_token(), console)
 
     def test_the_two_empty_answers_are_told_apart_by_the_count(self):
         """``()`` is not one fact.  ``rows_left`` is what separates "there was
@@ -1112,6 +1128,135 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
                      "outcome": outcome}
         exec(snippet, namespace)      # noqa: S102 - executing it IS the test
         self.assertEqual(len(namespace["out"]), 1)
+
+    def test_the_ground_after_call_site_status_is_re_derived_from_runtime(
+            self):
+        """pf-adversary D1+D2: the console word is pinned to another file.
+
+        D1 measured the first draft printing PUBLISHED on a boot where
+        `runtime.py` has no line that sends the frames -- composed, then
+        dropped inside the process.  D2 measured that the new ask was
+        unpinned: this file already parses `runtime.py` to hold the CALL to
+        its published shape, and nothing held the RETURN.
+
+        Both close here.  The status constant is re-derived from
+        `runtime.py`'s own source on every run, so it cannot drift in either
+        direction, and the token follows the status rather than the
+        intention.  When the chief's line lands, this test is what says the
+        constant must change with it -- and it checks the ORDER too, because
+        a ground generation sent before the delta is the one arrangement the
+        wiring note forbids.
+        """
+        runtime = (
+            ROOT / "src/pirateforce_foundation/runtime.py"
+        ).read_text(encoding="utf-8")
+        sends_it = "ground_after" in runtime
+        self.assertEqual(
+            mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS,
+            "sent" if sends_it else "composed_not_sent",
+            "runtime.py and GROUND_AFTER_CALL_SITE_STATUS disagree about "
+            "whether the removal publication is actually sent.  Either the "
+            "call site landed and the constant was not moved (the console "
+            "then reports COMPOSED_NOT_SENT for frames that DO go out), or "
+            "the constant says 'sent' for a boot that drops them.")
+        if sends_it:
+            delta_at = runtime.index("MOB_PICKUP_REQUEST_DELTA")
+            ground_at = runtime.index("ground_after")
+            self.assertLess(
+                delta_at, ground_at,
+                "the ground publication is composed into the reply before "
+                "the bag delta; the wiring note forbids that order")
+
+    def test_the_success_token_says_composed_not_sent_while_it_is_true(self):
+        """The word itself, not only the mechanism that picks it.
+
+        A GT round grades on console lines.  PUBLISHED on a boot that never
+        sent a byte would be recorded as 'the server published it and the
+        client ignored it' -- a false negative against the CLIENT, which is
+        the same failure R302 fixed for LANE-A eight hours before this round.
+        """
+        self.assertEqual(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
+            "MOB_PICKUP_GROUND_REMOVAL_COMPOSED_NOT_SENT_NO_CALL_SITE")
+        for token in (
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+        ):
+            token.encode("cp874")
+            self.assertEqual(token, token.upper())
+
+    def test_the_key_on_the_console_is_the_key_the_ground_cell_handed_over(
+            self):
+        """pf-adversary D7: two mutants of that argument survived the suite.
+
+        The composed frames do not depend on the key -- the take already
+        happened -- so nothing but the console line can catch a call that
+        publishes under the wrong number.  This drives a pickup whose request
+        key and whose `opaque_u8` differ from each other and from zero, and
+        reads the number back out of the line.
+        """
+        outcome, console = self._run(self._namespace(
+            key_offset=1, body=_body(mob_loot.DROP_KEY_BASE + 1, 0x5A),
+            ground_cell=self._ground(0, 1)))
+        self.assertTrue(outcome.handled)
+        self.assertIn("key=0x%X" % (mob_loot.DROP_KEY_BASE + 1), console)
+        self.assertNotIn("key=0x0 ", console)
+        self.assertNotIn("key=0x5A", console)
+
+    def test_the_say_helper_reports_whether_the_line_survived(self):
+        """`_say`'s documented return value, exercised (D8).
+
+        Its docstring offers the return so a test can prove the loss is the
+        line; a mutant that always returned True survived, because nothing
+        read it.
+        """
+        self.assertTrue(mob_pickup_request._say(True, "ASCII LINE"))
+        self.assertFalse(mob_pickup_request._say(False, "ASCII LINE"))
+
+        class Refuses:
+            def write(self, _text):
+                raise UnicodeEncodeError("cp874", "x", 0, 1, "no mapping")
+
+            def flush(self):
+                pass
+
+        with redirect_stdout(Refuses()):
+            said = mob_pickup_request._say(True, "ASCII LINE")
+        self.assertFalse(said)
+
+    def test_a_console_that_refuses_cannot_destroy_the_item_any_more(self):
+        """pf-adversary D6, MEASURED on this branch before it was fixed.
+
+        Under a stdout that refuses every write, the bare print between the
+        take and the database write raised out of the "never raises" dispatch:
+        the drop had LEFT the ground, no row had been written, and the item
+        existed nowhere.  Every console line in this lane and in the two
+        transaction lanes goes through `mob_pickup.say` now.
+        """
+        class RefusesEverything:
+            def write(self, _text):
+                raise UnicodeEncodeError("cp874", "x", 0, 1, "no mapping")
+
+            def flush(self):
+                pass
+
+        baseline = self._rows()
+        namespace = self._namespace(ground_cell=self._ground(0, 1))
+        with redirect_stdout(RefusesEverything()):
+            outcome = mob_pickup_request.dispatch_inbound_pickup_request(
+                namespace["legacy"], namespace["parsed"], namespace["store"],
+                namespace["sid"], namespace["character_id"],
+                namespace["bag_cell"], namespace["drop_ledger_cell"],
+                namespace["identity"], namespace["x"], namespace["y"],
+                namespace["z"])
+        self.assertTrue(outcome.handled)
+        self.assertEqual(
+            len(self._rows()), len(baseline) + 1,
+            "the row left the ground and no database row replaced it: the "
+            "player's item exists nowhere")
+        self.assertTrue(outcome.ground_after)
 
     def test_the_wiring_note_still_states_what_the_branch_may_not_do(self):
         """The struck sentence and its replacement are load-bearing.
@@ -1488,10 +1633,15 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.assertNotIn(
             mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
         # The two halves of the round agree: the delta kept the floor and the
-        # removal publication that follows names what is left on it.
+        # removal publication that follows names what is left on it.  The
+        # token that reports THAT half follows the sibling round's status
+        # constant, not this test's wish, so this assertion keeps holding on
+        # the day the chief's line lands and the word changes.
         self.assertEqual(outcome.ground_rows_left, 1)
         self.assertIn(
-            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN
+            if mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS == "sent"
+            else mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN,
             console)
 
     def test_the_last_object_clears_the_floor_and_says_that_instead(self):
@@ -1512,6 +1662,23 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.assertIn(
             mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, console)
         self.assertEqual(outcome.ground_rows_left, 0)
+
+    def test_the_delta_this_token_describes_is_a_frame_runtime_py_sends(self):
+        """The sibling round's D1 finding, asked of THIS round's token.
+
+        MOB_PICKUP_GROUND_REMOVAL_* had to grow a COMPOSED_NOT_SENT word
+        because `runtime.py` composes those frames and drops them.  KEPT and
+        CLEARED do not need one -- but only because the bag delta IS returned
+        by the branch (`MOB_PICKUP_REQUEST_DELTA`, landed in #549), and that
+        is a fact about a file this lane does not own.  So it is re-derived
+        here rather than believed: the day that return is removed, this test
+        goes red and the token stops claiming a frame that leaves.
+        """
+        runtime = (
+            ROOT / "src/pirateforce_foundation/runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("MOB_PICKUP_REQUEST_DELTA", runtime)
+        self.assertIn("outcome.delta", runtime)
 
     def test_the_console_line_is_ascii_and_one_line(self):
         _outcome, console = self._run(self._namespace(

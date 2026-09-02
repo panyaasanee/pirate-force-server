@@ -1310,6 +1310,10 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # end of ``_dispatch_with_lanes``.  A tuple of (pc, frame)
                 # pairs, empty when there is nothing owed.
                 self.mob_loot_boundary_frames_pending = ()
+                # The scene_key those frames were composed for.  Held bytes
+                # with no scene on them are a delay, not a guard: the flush
+                # refuses to release them anywhere else (pf-adversary D2).
+                self.mob_loot_boundary_frames_scene = None
                 # CORE-REQUEST-007 (MOB-PICKUP-001), MOB_PICKUP_WIRING step 0:
                 # this session's claim against the server-wide
                 # mob_pickup_registry (built once above).  None until
@@ -5836,17 +5840,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             listener thread DURING a warp.  Every refusal is an event and no
             frames, exactly like ``mob_combat.remote_actors_preserving_the_
             ground`` does at its own site.
+
+            EVERY EXIT CLEARS THE STASH FIRST (pf-adversary D2, round
+            g7yvo2, measured on the real dispatcher).  The first version of
+            this method returned early on an unaddressed folder and on a
+            composer refusal WITHOUT clearing, and the stash carries no
+            scene of its own -- so a warp into one of the 283 scene ids
+            ``gm/scene_catalog`` accepts but ``world_scene_folder`` does not
+            address left scene A's ground held, and the next census in scene
+            B published it there.  That is the cross-scene leak way 1 exists
+            to close, arriving through the one path that holds bytes across
+            a boundary.  The stash is now a ``(scene_key, frames)`` record
+            and :meth:`_mob_loot_boundary_flush` refuses to release it into
+            any other scene.
             """
-            folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
-            if folder is None:
-                # An unaddressed scene id is a refusal in
-                # world_scene_folder's own contract, not an absence of data:
-                # ship no boundary generation and say so.
-                self.events.append(
-                    f"mob_loot_boundary_scene_{scene_id}_unaddressed_no_frames"
-                )
-                return
+            self.mob_loot_boundary_frames_pending = ()
+            self.mob_loot_boundary_frames_scene = None
             try:
+                folder = world_scene_folder.scene_folder_for_scene_id(
+                    scene_id)
+                if folder is None:
+                    # An unaddressed scene id is a refusal in
+                    # world_scene_folder's own contract, not an absence of
+                    # data: ship no boundary generation and say so.  The
+                    # event names the cell's OWN scene too, because the cell
+                    # did not learn it left (there is no folder to declare)
+                    # -- so a later return to that scene composes NOTHING,
+                    # and this line is the only trail that says why
+                    # (pf-adversary D3: `frames_0` alone reads identically
+                    # to "the scene was empty").
+                    self.events.append(
+                        f"mob_loot_boundary_scene_{scene_id}_unaddressed_"
+                        "no_frames_cell_still_declared_"
+                        f"{self.mob_loot_cell.current_scene}"
+                    )
+                    return
                 _prev, _now, _elsewhere, _expired, ground = (
                     self.mob_loot_cell.enter_scene_frames(legacy, folder)
                 )
@@ -5857,40 +5885,100 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 return
             self.mob_loot_boundary_frames_pending = tuple(ground)
+            self.mob_loot_boundary_frames_scene = mob_loot.scene_key(folder)
             self.events.append(
                 f"mob_loot_boundary_entered_{folder}_frames_"
                 f"{len(self.mob_loot_boundary_frames_pending)}"
             )
 
-        def _mob_loot_boundary_flush(self):
+        def _mob_loot_boundary_flush(self, other_ground_actions=()):
             """The held boundary generation, once the arrival census is in.
 
-            Returns the action tuples to put LAST in this dispatch's sum, or
-            ``[]``.  ``MOB_LOOT_DROP`` is deliberately the same label the kill
-            path uses: it is the same generation shape on the same list, and
-            a new label would break the four order pins in
-            ``tests/test_mob_combat_dispatch.py`` for no gain.
+            Returns the action tuples for this dispatch, or ``[]``.  They go
+            AFTER the census and BEFORE every other ground generation in the
+            sum -- see the ordering paragraph below, which is the rule this
+            method got backwards once already.
 
-            THE GATE IS THE CENSUS, not a timer and not the crossing itself.
+            ~~"LAST in the sum on purpose"~~ IS STRUCK (pf-adversary D1,
+            round g7yvo2, driven on the real dispatcher).  MOB_LOOT_WIRING
+            step 6 says in its own words that boundary-last is the WRONG
+            order: a kill in the same dispatch composes a generation
+            carrying the whole scene (its own rows AND the ones the boundary
+            just re-announced), so kill-last is correct, and appending the
+            older boundary generation after it "rolls the client's ground
+            back to the state it had BEFORE the player's newest kill, and
+            the object they just earned is the one that disappears".  The
+            first version of this wiring cited that paragraph and then did
+            the thing it forbids; measured, a killing blow on the first
+            frame after a warp arrival put a stale 1-row generation on the
+            wire behind the kill's 2-row one.  Now the flush sits between
+            ``census_actions`` and ``mob_combat_actions``.
+
+            AND IT STANDS DOWN WHEN A SCENARIO GROUND LANE IS IN THE SAME
+            DISPATCH.  ``ground_loot_actions`` and ``nameprop_actions`` are
+            derived-0x08 generations too, and they are composed EARLIER in
+            the sum, where this method cannot get in front of them.  Rather
+            than erase an attended lane's frames, the frames wait for a
+            dispatch that has none: those lanes are flag-gated, so on a
+            production boot this branch never fires.
+
+            THE CENSUS IS THE GATE, not a timer and not the crossing itself.
             While ``world_census_sent`` is False the arrival generation has
             not committed, so the frames wait -- one more poll costs nothing
             and the alternative is publishing the ground of a scene the
-            client has not been given yet.  ``world_census_refused`` releases
-            them too: a census that refused by name is never coming, and
-            holding the ground hostage to it would mean a warp into a scene
-            with a broken census silently loses its ground forever.
+            client has not been given yet.  ``world_census_refused``
+            releases them too: a census that refused by name is never
+            coming, and holding the ground hostage to it would mean a warp
+            into a scene with a broken census silently loses its ground
+            forever.  Both flags are cleared by the warp resync before the
+            boundary composes, so neither can be stale-true from the scene
+            the player just left; the scene check below is what makes a
+            refusal about ANOTHER scene unable to release these bytes
+            (pf-adversary D4).
+
+            THE SCENE CHECK IS THE POINT OF THE RECORD (pf-adversary D2).  A
+            stash with no scene in it is a delay, not a guard: any census
+            can set the flag, and the bytes then go out wherever the session
+            happens to be standing.  The frames are released only while the
+            session is still in the scene they were composed for, and are
+            dropped by name otherwise.
             """
             if not self.mob_loot_boundary_frames_pending:
                 return []
             if not (self.world_census_sent or self.world_census_refused):
                 return []
+            if other_ground_actions:
+                return []
+            selected = self.foundation.selected
+            standing = (
+                world_scene_folder.scene_folder_for_scene_id(
+                    selected.position.scene_id)
+                if selected is not None else None
+            )
+            held_scene = self.mob_loot_boundary_frames_scene
+            if (standing is None
+                    or held_scene is None
+                    or mob_loot.scene_key(standing) != held_scene):
+                self.mob_loot_boundary_frames_pending = ()
+                self.mob_loot_boundary_frames_scene = None
+                self.events.append(
+                    "mob_loot_boundary_dropped_scene_moved_held_"
+                    f"{held_scene}_standing_{standing}"
+                )
+                return []
             frames = self.mob_loot_boundary_frames_pending
             self.mob_loot_boundary_frames_pending = ()
+            self.mob_loot_boundary_frames_scene = None
             self.events.append(
                 f"mob_loot_boundary_flushed_frames_{len(frames)}"
             )
+            # The label is mob_drop_presence's own constant, not a literal:
+            # that module exists so no call site hand-types this tuple, and
+            # its docstring records a pc/frame swap that kept a whole suite
+            # green (pf-adversary D6).
             return [
-                ("MOB_LOOT_DROP", pc, frame, 0.0) for pc, frame in frames
+                (mob_drop_presence.ACTION_LABEL, pc, frame, 0.0)
+                for pc, frame in frames
             ]
 
         def _dispatch_with_lanes(self, parsed):
@@ -9286,12 +9374,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # owner's feet.
             # CORE-REQUEST (LANE-B v2): the ground generation held at the last
             # scene crossing, released now that the arrival census has
-            # committed.  LAST in the sum on purpose -- see
-            # ``_mob_loot_boundary_flush``.  Empty on every dispatch that owes
-            # nothing, which is nearly all of them.
-            boundary_ground_actions = self._mob_loot_boundary_flush()
+            # committed.  AFTER the census and BEFORE ``mob_combat_actions``,
+            # which is MOB_LOOT_WIRING step 6's rule and not a preference: a
+            # kill's generation carries the whole scene, so it must be the
+            # LAST ground generation in the dispatch or the drop the player
+            # just earned is the one the client erases.  ~~Last in the sum on
+            # purpose~~ was this file's own inversion of that rule for one
+            # commit (pf-adversary D1, round g7yvo2).  It stands down entirely
+            # when a scenario ground lane composed earlier in this same sum --
+            # it cannot get in front of those.  Empty on every dispatch that
+            # owes nothing, which is nearly all of them.
+            boundary_ground_actions = self._mob_loot_boundary_flush(
+                ground_loot_actions + nameprop_actions,
+            )
             return (actions + arena_actions + ground_loot_actions
-                    + nameprop_actions + census_actions + mob_combat_actions
-                    + columbus_quest_actions + uia_notice_actions
-                    + boundary_ground_actions)
+                    + nameprop_actions + census_actions
+                    + boundary_ground_actions + mob_combat_actions
+                    + columbus_quest_actions + uia_notice_actions)
     return PersistentGameSessionState

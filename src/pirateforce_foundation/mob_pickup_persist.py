@@ -625,7 +625,7 @@ def persist_pickup(
         lost = console_safe(row_lost_console_line(
             row_write, exc,
             aftermath_of_a_failed_write(store, sid, character_id, row_write)))
-        print(lost)
+        mob_pickup.say(lost)
         raise MobPickupPersistError(
             REFUSE_WRITE_FAILED_AFTER_THE_TAKE, lost) from exc
     lines = [row_inserted_console_line(row_write)]
@@ -634,7 +634,7 @@ def persist_pickup(
         lines.append(disagreement_console_line(outcome, bag_after_db))
     if echo:
         for line in lines:
-            print(line)
+            mob_pickup.say(line)
     return PersistedPickup(outcome, bag_after_db, agrees, tuple(lines))
 
 
