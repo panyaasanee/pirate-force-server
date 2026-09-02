@@ -46,13 +46,13 @@ trusting a claim here that a mismatch would invalidate):
 | vital id | name | direction | layout status |
 |---|---|---|---|
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
-| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE`. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
+| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + ~~UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE~~ **CORRECTED round `q6p0pb` (2026-09-02): each wide string is `tag 0x48 + uint32le byte count + UTF-16LE` = 5+N bytes**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 6266/6267/6279/6280 -- same nested span sha256 as pinned here, tag instructions `0x0089A833`/`0x0089A89C` `push 0x48`. This is the SAME shape row 0x9F2C below already proved against real captured frames, which is what makes the coarse `UNTAGGED_*` label in `PF_SERIALIZER_FIELDS.tsv` the outdated one, not a second opinion. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
 | 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
-| 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`) -- round-trip encode/decode of the untagged length-prefixed raw bytes, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
+| 0x162E | `CheatVital` | both | ~~proven: single UNTAGGED_STRING8_LEN32LE @+0x14~~ **CORRECTED round `q6p0pb` (2026-09-02): tag `0x44` + `uint32le` byte count + payload = 5+N bytes @+0x14**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 565/566, tag instructions `0x0089A6F1`/`0x0089A75C` `push 0x44`, same base span sha256 the module already pinned (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`, corrected `q6p0pb`) -- round-trip encode/decode, rejects a wrong tag and rejects the old 4+N shape, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client (Global-scope `Channel_*` family) | **already proven elsewhere in this repo -- do not re-derive or re-codec in this lane's zone.** `reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` (byte-exact static, 69 static guards + `tests/test_chat_channel_family_static.py`, 15 passed) proves `Channel_GMGlobalMessageVital` shares serializer `0x65AD40` with four other channels (LocalTalk/Party/Guild/ActorBoardcast) byte-for-byte identically: `tag 0x48 + u32 byte-length + UTF-16LE` wstring codec, field order `speaker@+0x34` then `body@+0x18`. This is a **different, more specific wire shape** than `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`'s coarser `UNTAGGED_WSTRING16LE_LEN32LE` label for the same offsets implies (no leading tag byte) -- the report's claim is corroborated against real captured GT-006 frames (three independent byte-for-byte hash cross-checks against pins produced by an unrelated code path), which the TSV row alone is not. `src/pirateforce_foundation/channel_message_hypothesis.py` already implements a tested encoder/decoder for all five shared-serializer channels including this one (`CHANNEL_MESSAGE_FIELD_ORDER`, `SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"] = 0x9F2C`). **This lane tried to build its own codec for this message in a since-retracted round (see "Attempted and retracted" below) before finding this.** `gm/say_wire.py` (say-wire round, below) now bridges a parsed `say` `GmCommand` to that existing encoder by import -- no second codec. |
 | 0x0E80 | `ForcePos` | direction NOT_OBSERVED (0 captured frames either way, `PF_FIELD_VALIDATION.tsv`) | **RE-090 PASS/DONE**: vec3 only, three `f32tag(0x2A)` (X/Y/Z), span_sha256 `7c6f6cb7...860e0d`. Vital id is not a table row in `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` (the client computes it at runtime from the name, it is not a stored constant); reproduced here from that file's own documented formula -- see "Vital id formula" below. Codec: `gm/teleport_wire.py`. |
 | 0x1BA4 | `CWarpResult` | direction NOT_OBSERVED (0 captured frames either way) | **RE-090 PASS/DONE**: flat `qwordtag(0x32)` + vec3 (`f32tag(0x2A)` x3) + `u16tag(0x12)`, span_sha256 `5e3acf83...986c6db6a9`. The name `Result` is not evidence of direction. Codec: `gm/teleport_wire.py`. |
-| 0x25A2 | `TeleportVital` | direction not confirmed, but NOT the same evidentiary state as the two rows above: 132 candidate frames per direction exist at status `A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), unlike `ForcePos`/`CWarpResult`'s genuine zero | **RE-090 PASS/DONE**: `u8tag(0x0B)` field_0x18 -> presence-gated target object (stream order per RE-090's listing: `scene_id` u16tag(0x12), `scene_seq` qwordtag(0x32), then `field_0x10`/`field_0x11` u8 -- **not** ascending object-offset order, same pattern as the aux reorder below; `scene_id`/`scene_seq` are the same RE-077 crosswalk `player_wire.py`/`npc_wire.py` already use -- then vec3 f32tag(0x2A) x3) -> presence-gated auxiliary object (untagged wstring, then four more scalars, **wire order `+0x40` before `+0x38`** even though the object offset is lower -- RE-090 confirms this is real, not a transcription slip) -> `field_0x20` u8 -> `field_0x22` u16tag(0x0F). span_sha256 `fbe813db...df990487` (top), `ec9a5421...9a724df0b5ef` (target), `105bad91...6ccc049c93` (aux). Codec: `gm/teleport_wire.py`. The target field order is this lane's own reading of RE-090's prose listing, not independently re-verified against a real frame -- a follow-up round should run it against the 132 `A2_STATIC_OPEN` candidate frames before this is used against a real client (see the `TeleportTarget` docstring). |
+| 0x25A2 | `TeleportVital` | direction not confirmed, but NOT the same evidentiary state as the two rows above: 132 candidate frames per direction exist at status `A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), unlike `ForcePos`/`CWarpResult`'s genuine zero | **RE-090 PASS/DONE**: `u8tag(0x0B)` field_0x18 -> presence-gated target object (stream order per RE-090's listing: `scene_id` u16tag(0x12), `scene_seq` qwordtag(0x32), then `field_0x10`/`field_0x11` u8 -- **not** ascending object-offset order, same pattern as the aux reorder below; `scene_id`/`scene_seq` are the same RE-077 crosswalk `player_wire.py`/`npc_wire.py` already use -- then vec3 f32tag(0x2A) x3) -> presence-gated auxiliary object (~~untagged wstring~~ **CORRECTED `q6p0pb`: `text` is at DEREF(+0x1C)+0x10 and carries tag `0x48` + `uint32le` byte count = 5+N bytes, per the same delta table rows 580/613**, then four more scalars, **wire order `+0x40` before `+0x38`** even though the object offset is lower -- RE-090 confirms this is real, not a transcription slip) -> `field_0x20` u8 -> `field_0x22` u16tag(0x0F). span_sha256 `fbe813db...df990487` (top), `ec9a5421...9a724df0b5ef` (target), `105bad91...6ccc049c93` (aux). Codec: `gm/teleport_wire.py`. The target field order is this lane's own reading of RE-090's prose listing. ~~a follow-up round should run it against the 132 `A2_STATIC_OPEN` candidate frames~~ 🔴 **SUPERSEDED / RED**: those frames HAVE been replayed and `PF_V5_FIELD_VALIDATION.md` ([MEASURED][CAPTURE], still red at V5) reports **R 190 mismatches, reason `STRING_TAG`**, at the field identity whose `DELTA` component is the dedup_key of delta row 613 -- i.e. at the aux-text tag correction this lane applied on 2026-09-02 -- and **W 188 mismatches, reason `TAG`, at `ORDER:4`** = `PF_SERIALIZER_FIELDS.tsv` row 570 = `TeleportTarget.scene_id`, with no delta component, i.e. base-schema-vs-capture. So the order is not merely unconfirmed, it is contradicted at one of its own fields by 188 real instances. `gm/teleport_wire.py` is therefore a reference codec **KNOWN to disagree with capture** and must not be promoted on its tests. A first written hypothesis (aux presence gate declared ungated in row 579) is in that module's docstring, `[PROPOSED]`. **Note:** the `132 / mismatch 0` figure in `external/PF_FIELD_VALIDATION.tsv` is the V1 aggregate and is stale for this row. |
 
 ### Vital id formula (ForcePos / CWarpResult)
 
@@ -7254,3 +7254,70 @@ at `parse_gm_command` and is **still silent on screen** (chief asked COO in `054
 **The nine are nine returns of one function, not every refusal of the command.** The dispatcher guard
 closes the one other site that exists today; a refusal invented at a third site is still outside what
 any test in either file can see. That question went to COO in this round's letter.
+
+## Round `q6p0pb` (2026-09-02T08:5x+07:00) -- the string tag byte three of this lane's codecs never wrote, and the capture red that was hiding behind it
+
+Consuming ka1-B's letter `notes_to_chief/20260901_2215_KA1B-TO-LANE-GM-third-untagged-string-module-plus-attr-wire-corrections.md`.
+
+**What changed.** `gm/cheat_wire.py`, `gm/command_wire.py` and `gm/teleport_wire.py` all wrote and read
+`uint32le byte_count + payload` for their string fields. The client's own string helpers push a **type tag
+byte first**, so the real shape is `tag(1) + uint32le byte_count(4) + payload(N)` = **5+N bytes, not 4+N**:
+`0x44` for the narrow helper (`0x0089A6D0` W / `0x0089A740` R) and `0x48` for the wide one
+(`0x0089A810` W / `0x0089A880` R). Both directions of all three modules now write and require the tag, and
+reject the old 4+N shape rather than decoding it.
+
+**Evidence, checked against the source before acting, not taken from the letter.**
+`pf_bridge/notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv`
+sha256 `e1f4f987c31f53d4dd87845aab01857c8415a8dbcd750af12df9c4cde208b3a2`, rows 565/566 (CheatVital),
+580/613 (TeleportVital aux text, and it also names that field's offset: `DEREF(+0x1C)+0x10`),
+6266/6267/6279/6280 (GM_RunGMCommandVital's two strings). Every row's `base_span_sha256` is byte-identical
+to the span each module already pinned in its own docstring -- **which is a reason to look for an outside
+tiebreaker, not a reason to trust the delta on its own**: it is the same IMAGE lineage re-reading the same
+helper bytes, exactly the argument this lane accepted in the other direction for `attr_wire`'s x30.
+
+The tiebreaker exists and is in this repository: `channel_message_hypothesis.py` has carried
+`CHANNEL_WSTRING_TAG = 0x48` / `CHANNEL_WSTRING_HEADER_SIZE = 5` against the **same helper VAs** since
+2026-08-18, corroborated against real captured GT-006 frames; and `current/pf_login_game_server_v141.py:21-24`
+records a **live client rejecting a frame** (`ErrorData=0x2A7A`) because that helper's string went out with
+`0x44` where `0x48` was required. 🔴 That corroboration is for the WIDE tag. The narrow `0x44` in
+`cheat_wire.py` has the delta rows and the helper disassembly and nothing else -- no captured frame in this
+project has ever carried a `0x44` string a client accepted. It is the least-supported of the three.
+
+**Nothing player-visible moves.** `make_teleport_aux_payload`/`make_teleport_vital_frame` have no production
+callers (the live cross-scene warp is `warp_executor.py` -> `legacy.make_login_teleport`, whose payload sets
+aux presence = 0), `CheatVital` is not wired into `dispatch.py`/`runtime.py` at all, and the `0x51E9` path
+only decodes captured bytes and already keeps the raw bytes when the decode raises.
+
+**🔴 The red this uncovered, which is the important part of the round.**
+`PF_V5_FIELD_VALIDATION.md` ([MEASURED][CAPTURE]) has TeleportVital **R: 190 mismatches, reason
+`STRING_TAG`**, at the field identity whose `DELTA` component is the dedup_key of **delta row 613 -- the very
+field this round corrected** -- and **W: 188 mismatches, reason `TAG`, at `ORDER:4`** =
+`PF_SERIALIZER_FIELDS.tsv` row 570 = `TeleportTarget.scene_id`, with no delta component at all. Still red at
+V5. A first draft of this round's docstrings wrote that the 190/188 result "predates the tag correction and
+says nothing about field order"; **that was false in both halves** and pf-adversary caught it before commit.
+The correction is still applied, for the reasons above, but `gm/teleport_wire.py` is now labelled a reference
+codec **KNOWN to disagree with capture**, with the first written hypothesis for why (the static plan declares
+the aux sub-object ungated at row 579 while the real message gates it, so the validator hunts a `0x48` where
+an absent object begins) marked `[PROPOSED]` in the module. Letter opened to chief this round to route it.
+
+**Tests.** `test_gm_cheat_wire.py` / `test_gm_command_wire.py` / `test_gm_teleport_wire.py` /
+`test_gm_command_capture.py` / `test_gm_command_dispatch.py` updated. pf-adversary's second finding was that
+eight guards went **silently vacuous** when the shape changed -- they pinned byte offsets that are now the tag
+byte, so they asserted on the tag check and never reached the branch each was named after, including
+`cheat_wire`'s own `MAX_STRING_LENGTH` DoS cap and the capture-quota regression guard round `whoaop` added.
+All pins moved, three tests added (missing-tag rejection in two modules, a real even-length truncation case),
+and two now assert on the message text so the same disarming cannot happen silently again.
+
+**Two gates in this repo caught this round's own mistakes, and both are worth naming.**
+`test_tree_is_cp874_safe.py` / `test_gm_source_is_cp874_safe.py` rejected the `U+1F534` marker character
+this round put in two of the modules -- their failure message names the pull request that was closed
+automatically the last time a non-cp874 byte reached the Windows gate, so the marker is `!!` now.
+`test_gm_say_gate_lock.py::test_only_say_wire_may_call_the_shared_channel_codec` then rejected the
+corroboration paragraph itself: no module in this package may so much as **name** the shared channel codec,
+because naming leads to calling and calling walks around `say_wire`'s gate. The corroboration is still cited,
+by pointing at row `0x9F2C` of this document instead.
+
+**nonclaim.** The tag byte's own semantics (domain, signedness, sentinels) are NOT proven -- `PF_HANDOFF_V1.md`
+8.5 gives proven meanings only for `0x2A`/`0x12`. This round reproduces a byte; it does not claim to know what
+that byte encodes. `GM_RunGMCommandVital` remains `NOT_OBSERVED` (0 captured frames), so nothing here is
+confirmed by a real frame of that message. No GM status was granted to any account and no milestone moved.

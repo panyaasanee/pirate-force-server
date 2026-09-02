@@ -1,7 +1,7 @@
 """RE-088: structural decoder for GM_RunGMCommandVital / GM_RunGMCommandResultVital.
 
 These tests build synthetic wire bytes from the RE-088 pinned shape (tag
-0x0B = one byte, tag 0x14 = little-endian u32, untagged wstring = u32le
+0x0B = one byte, tag 0x14 = little-endian u32, tagged wstring = 0x48 + u32le
 byte_len + UTF-16LE payload) rather than importing an encoder, because this
 module intentionally has no encoder: it decodes an inbound (client->server)
 message, it does not compose one.
@@ -30,8 +30,10 @@ from pirateforce_foundation.gm.command_wire import (
 
 
 def _wstring(text: str) -> bytes:
+    # 0x48 tag + uint32le byte count + payload (corrected 2026-09-02;
+    # PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 6266/6267/6279/6280).
     payload = text.encode("utf-16-le")
-    return struct.pack("<I", len(payload)) + payload
+    return bytes((0x48,)) + struct.pack("<I", len(payload)) + payload
 
 
 def _nested_body(
@@ -139,25 +141,43 @@ class DecodeGmRunCommandVitalTests(unittest.TestCase):
         with self.assertRaises(GmCommandWireError):
             decode_gm_run_command_vital(bytes([0x0B, 1, 0x14, 0x01, 0x02]))
 
+    def test_missing_string_tag_is_rejected(self):
+        # The pre-2026-09-02 wire shape (4+N, no tag) must not decode.
+        raw = bytearray(_nested_body(1, 2, 3, "a", "b"))
+        del raw[1 + 1 + 5 + 5 + 2]  # drop string_0x1c's tag byte
+        with self.assertRaisesRegex(GmCommandWireError, "tag"):
+            decode_gm_run_command_vital(bytes(raw))
+
     def test_odd_string_byte_len_is_rejected(self):
         raw = bytearray(_nested_body(1, 2, 3, "a", "b"))
-        # string_0x1c's length prefix immediately follows the fixed 11-byte
-        # scalar prefix (1 presence tag+byte + 2*(1 tag+4 byte) + 1 tag+byte).
-        length_offset = 1 + 1 + 5 + 5 + 2
+        # string_0x1c's TAG byte follows the fixed 11-byte scalar prefix
+        # (1 presence tag+byte + 2*(1 tag+4 byte) + 1 tag+byte); its length
+        # prefix is one further along.  Pinning the old offset here made three
+        # tests below assert on the tag check instead of the branch they name.
+        length_offset = 1 + 1 + 5 + 5 + 2 + 1
         raw[length_offset] = 0x01  # odd byte length, not a whole UTF-16LE run
         with self.assertRaises(GmCommandWireError):
             decode_gm_run_command_vital(bytes(raw))
 
     def test_declared_string_length_longer_than_buffer_is_rejected(self):
         raw = bytearray(_nested_body(1, 2, 3, "a", "b"))
-        length_offset = 1 + 1 + 5 + 5 + 2
+        length_offset = 1 + 1 + 5 + 5 + 2 + 1
         struct.pack_into("<I", raw, length_offset, 0xFFFF)
-        with self.assertRaises(GmCommandWireError):
+        with self.assertRaisesRegex(GmCommandWireError, "whole number"):
+            # 0xFFFF is odd, so this is the odd-length branch, not truncation.
+            decode_gm_run_command_vital(bytes(raw))
+
+    def test_even_declared_string_length_longer_than_buffer_is_rejected(self):
+        # The truncation branch proper: even length, past the end of the buffer.
+        raw = bytearray(_nested_body(1, 2, 3, "a", "b"))
+        length_offset = 1 + 1 + 5 + 5 + 2 + 1
+        struct.pack_into("<I", raw, length_offset, 0xFFFE)
+        with self.assertRaisesRegex(GmCommandWireError, "truncated"):
             decode_gm_run_command_vital(bytes(raw))
 
     def test_maximum_u32_declared_string_length_is_rejected_not_a_hang_or_crash(self):
         raw = bytearray(_nested_body(1, 2, 3, "a", "b"))
-        length_offset = 1 + 1 + 5 + 5 + 2
+        length_offset = 1 + 1 + 5 + 5 + 2 + 1
         struct.pack_into("<I", raw, length_offset, 0xFFFFFFFF)
         with self.assertRaises(GmCommandWireError):
             decode_gm_run_command_vital(bytes(raw))

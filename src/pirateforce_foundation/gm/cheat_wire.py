@@ -1,4 +1,4 @@
-"""Structural codec for CheatVital (0x162E) -- a single untagged, narrow
+"""Structural codec for CheatVital (0x162E) -- a single 0x44-tagged, narrow
 (8-bit char) length-prefixed string field.
 
 Layout is PROVEN at the byte level and pinned against the bridge repository:
@@ -20,8 +20,47 @@ directions instead of a distinct encoder/decoder pair per direction the way
 ``gm/command_wire.py`` and ``gm/state_wire.py`` do (those messages have
 genuinely different W and R shapes; this one does not).
 
-What is PROVEN stops at "one untagged field, a uint32-LE byte length, then
-that many raw bytes, `basic_string<char>` (narrow, not the
+
+CORRECTION 2026-09-02 (LANE-GM round q6p0pb, consuming ka1-B's letter
+notes_to_chief/20260901_2215_KA1B-TO-LANE-GM-third-untagged-string-module-...):
+the string field on this message is NOT untagged.  The client's own string
+helper pushes a type tag byte BEFORE the uint32-LE byte count, so the wire
+shape is  tag(1) + uint32le byte_count(4) + payload(N)  and the full field is
+5+N bytes, not 4+N.  Source, pinned:
+    pf_bridge/notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv
+    sha256 e1f4f987c31f53d4dd87845aab01857c8415a8dbcd750af12df9c4cde208b3a2
+The delta rows carry the SAME base_span sha256 this module already pins
+below -- and the same helper span -- so this is the same lineage re-reading
+the same bytes, which is a reason to look for an outside tiebreaker, not a
+reason to trust it on its own.
+
+Corroboration beyond that table -- this correction is NOT IMAGE-only evidence
+even though the delta rows themselves are (`PF_A2_A3_STRING_WIRE_CORRECTION.md`
+states `source=IMAGE`, and the delta is the SAME lineage re-reading the SAME
+helper bytes, so it is not an independent second source on its own):
+  * the shared `Channel_*` string codec that already exists in this
+    repository -- named in `docs/GM_LANE.md` row 0x9F2C, deliberately NOT
+    named here because a lane gate test forbids modules in this package from
+    naming it -- has carried tag 0x48 with a 5-byte header against the SAME
+    helper VAs (W 0x0089A810 / R 0x0089A880) since 2026-08-18, corroborated
+    against real captured frames (GT-006).
+  * `current/pf_login_game_server_v141.py:21-24` records a LIVE client
+    rejecting a frame (ErrorData=0x2A7A) because that helper's string went out
+    with tag 0x44 instead of 0x48.
+What is still NOT proven: the tag byte's own semantics (domain, signedness,
+sentinel values) -- `PF_HANDOFF_V1.md` 8.5 gives proven meanings only for
+0x2A/0x12.  We reproduce the byte; we do not claim to know what it encodes.
+
+!! WEAKEST LINK, on the record: the corroboration above is for the WIDE
+helper (0x48).  The narrow 0x44 this module writes has the delta rows and the
+helper disassembly and nothing else -- no captured frame in this project has
+ever carried a 0x44 string that a client accepted.  Treat this codec's tag as
+the least-supported of the three modules corrected on 2026-09-02.
+    rows 565 (W) / 566 (R), tag instructions 0x0089A6F1 / 0x0089A75C,
+    both `push 0x44` -- narrow `basic_string<char>`.
+
+What is PROVEN stops at "one tagged field (0x44), a uint32-LE byte length,
+then that many raw bytes, `basic_string<char>` (narrow, not the
 `basic_string<wchar_t>` the two ``GM_RunGMCommandVital`` strings use)".
 What the string's BYTE ENCODING is (CP874, since this is a Thai-language
 client that already forces `cp874:strict` on other narrow text -- see
@@ -78,6 +117,11 @@ SERIALIZER_SPAN_SHA256 = (
 # handling thread.
 MAX_STRING_LENGTH = 65536
 
+# The client's narrow-string helper (W 0x0089A6D0, R 0x0089A740) pushes this
+# tag byte before the length.  0x44, not the 0x48 the two wide
+# `GM_RunGMCommandVital` strings carry -- see the CORRECTION block above.
+STRING8_TAG = 0x44
+
 
 class GmCheatWireError(ValueError):
     """Raw bytes do not match the PF_SERIALIZER_FIELDS.tsv pinned wire shape."""
@@ -95,7 +139,7 @@ class CheatVitalBody:
 
 
 def make_cheat_vital_payload(text: bytes) -> bytes:
-    """Build the untagged uint32-LE-length-prefixed string body.
+    """Build the 0x44-tagged uint32-LE-length-prefixed string body.
 
     ``text`` must already be encoded to bytes by the caller -- this
     function does not encode a ``str`` (see module docstring: the byte
@@ -109,7 +153,7 @@ def make_cheat_vital_payload(text: bytes) -> bytes:
             f"text is {len(text)} bytes, exceeds MAX_STRING_LENGTH="
             f"{MAX_STRING_LENGTH}"
         )
-    return struct.pack("<I", len(text)) + text
+    return bytes((STRING8_TAG,)) + struct.pack("<I", len(text)) + text
 
 
 def decode_cheat_vital_payload(raw: bytes) -> CheatVitalBody:
@@ -119,23 +163,29 @@ def decode_cheat_vital_payload(raw: bytes) -> CheatVitalBody:
     version in the runtime-vital envelope), not the whole frame. Raises
     ``GmCheatWireError`` when the bytes do not match the pinned shape,
     including any bytes left over after the string is consumed -- a real
-    payload is expected to be exactly the length prefix plus its declared
-    bytes, nothing more.
+    payload is expected to be exactly the tag byte, the length prefix and its
+    declared bytes, nothing more.
     """
     if not isinstance(raw, (bytes, bytearray)):
         raise TypeError("raw must be bytes")
     buf = bytes(raw)
-    if len(buf) < 4:
+    if len(buf) < 5:
         raise GmCheatWireError(
-            f"truncated: need 4 bytes for the length prefix, have {len(buf)}"
+            f"truncated: need 1 tag byte + 4 bytes for the length prefix, "
+            f"have {len(buf)}"
         )
-    byte_len = struct.unpack_from("<I", buf, 0)[0]
+    if buf[0] != STRING8_TAG:
+        raise GmCheatWireError(
+            f"unexpected string tag 0x{buf[0]:02X} at offset 0, expected "
+            f"0x{STRING8_TAG:02X}"
+        )
+    byte_len = struct.unpack_from("<I", buf, 1)[0]
     if byte_len > MAX_STRING_LENGTH:
         raise GmCheatWireError(
             f"declared length {byte_len} exceeds MAX_STRING_LENGTH="
             f"{MAX_STRING_LENGTH}"
         )
-    start = 4
+    start = 5
     end = start + byte_len
     if end > len(buf):
         raise GmCheatWireError(
