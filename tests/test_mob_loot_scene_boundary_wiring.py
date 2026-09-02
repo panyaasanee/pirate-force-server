@@ -701,6 +701,72 @@ class ThePickupGroundGenerationOnTheRealDispatcherTests(
             self.assertEqual(
                 self._ground(self._dispatch(state, self.empty_poll_pc)), [])
 
+    def test_the_dispatcher_and_this_lanes_composer_say_the_same_words(self):
+        """ROUND li9nce.  THE MERGE, PROVEN ON THE DISPATCHER'S OWN OUTPUT.
+
+        COO-DECISION 2026-09-03T00:54+07:00 question 2: two sets of three
+        names for this one event lived on ``main`` -- the inline set in
+        ``runtime.py`` and a second spelling in ``mob_loot`` with no call
+        site -- and the inline set wins.  The module was renamed to it, so
+        the claim "there is one vocabulary now" is exactly the claim that
+        what ``mob_loot`` composes appears VERBATIM in what the real
+        dispatcher emitted, both in ``state.events`` and on the console.
+
+        So this asserts equality against the module, not against a literal:
+        a literal here would pass while the two sides drifted apart in the
+        same direction as the copy in this file.  It is a baseline on the
+        chief's file and it can die on its own -- the day he adopts these
+        helpers it keeps passing, and the day either side is renamed
+        without the other it fails with both strings printed.
+        """
+        folder = world_scene_folder.scene_folder_for_scene_id(
+            DESTINATION_SCENE_ID)
+        # LAST OBJECT: one row, taken.  Nothing is composed for an empty
+        # scene, so ``ground_after`` is ``()`` and ``ground_rows_left`` 0.
+        state = self._state("tok-merge-last-object")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state, rows=1)
+        held = ((b"stale-pc", b"stale-frame"),)
+        self._hold(state, held)
+        self._take_one(state)
+        self.assertIn(
+            mob_loot.boundary_stash_dropped_event(
+                folder, held, published_generations=(), ground_rows_left=0),
+            state.events,
+            [event for event in state.events if "mob_loot_boundary" in event])
+        self.assertIn(
+            mob_loot.boundary_stash_cleared_console_line(
+                folder, held, published_generations=(), ground_rows_left=0),
+            self.console, self.console)
+        # SUPERSEDED: three rows, one taken, so a post-take floor really
+        # did go out in the same reply and two rows are left standing.
+        state = self._state("tok-merge-superseded")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state, rows=3)
+        self._hold(state, held)
+        actions = self._take_one(state)
+        self.assertEqual(
+            [action[0] for action in actions],
+            ["MOB_PICKUP_REQUEST_DELTA", "MOB_PICKUP_GROUND_AFTER"])
+        self.assertIn(
+            mob_loot.boundary_stash_dropped_event(
+                folder, held, published_generations=(("pc", "frame"),),
+                ground_rows_left=2),
+            state.events,
+            [event for event in state.events if "mob_loot_boundary" in event])
+        self.assertIn(
+            mob_loot.boundary_stash_cleared_console_line(
+                folder, held, published_generations=(("pc", "frame"),),
+                ground_rows_left=2),
+            self.console, self.console)
+        # AND THE STRUCK SPELLINGS REACH NOTHING.  They are kept readable
+        # in the module's registry; a dispatcher that still emitted one
+        # would mean the rename landed on one side only.
+        for retired in mob_loot.BOUNDARY_STASH_RETIRED_EVENTS:
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, "".join(state.events))
+                self.assertNotIn(retired, self.console)
+
     def test_a_refused_take_leaves_the_boundary_generation_owed(self):
         """A click that takes nothing leaves the arrival generation OWED.
 

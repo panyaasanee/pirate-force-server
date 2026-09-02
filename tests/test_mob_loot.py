@@ -2910,14 +2910,294 @@ class TheDroppedBoundaryStashHasThreeNamesTests(unittest.TestCase):
         self.assertEqual(
             mob_loot.BOUNDARY_STASH_SUPERSEDED_EVENT,
             "mob_loot_boundary_superseded_by_pickup")
+        # ROUND li9nce, COO-DECISION 2026-09-03T00:54+07:00 question 2: the
+        # two spellings on main merge and the INLINE set wins, because that
+        # is the set an operator has seen and GT-204 greps for.
         self.assertEqual(
             mob_loot.BOUNDARY_STASH_STALE_EVENT,
-            "mob_loot_boundary_dropped_after_last_object_pickup")
+            "mob_loot_boundary_last_object_pickup")
         self.assertEqual(
             mob_loot.BOUNDARY_STASH_UNPUBLISHED_EVENT,
-            "mob_loot_boundary_dropped_after_pickup_published_nothing")
+            "mob_loot_boundary_publication_refused")
         self.assertEqual(
             mob_loot.BOUNDARY_STASH_SCENE_UNNAMED, "scene_unnamed")
+
+    def test_the_retired_spellings_are_readable_and_produced_by_nothing(self):
+        """ROUND li9nce.  A struck name stays looked-up-able, not alive.
+
+        The two spellings this module used between ``veby94`` and ``li9nce``
+        are in round files and in one letter, so they are kept in the
+        registry -- and every family is driven through the composer here to
+        prove that nothing produces them any more.  Deleting them instead
+        would leave a reader of those artifacts with a word and no source;
+        leaving them live would be the two-name-sets defect kept under a
+        different roof.
+        """
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_RETIRED_EVENTS,
+            ("mob_loot_boundary_dropped_after_last_object_pickup",
+             "mob_loot_boundary_dropped_after_pickup_published_nothing"))
+        produced = [
+            self._event(published=1, rows_left=1),
+            self._event(published=0, rows_left=0),
+            self._event(published=0, rows_left=-1),
+            self._event(published=object(), rows_left=object()),
+        ]
+        for retired in mob_loot.BOUNDARY_STASH_RETIRED_EVENTS:
+            for event in produced:
+                with self.subTest(retired=retired, event=event):
+                    self.assertNotIn(retired, event)
+        # pf-adversary D6: "produced by nothing" was proven for the composer
+        # only, and a live alias constant carrying a struck spelling
+        # survived the whole suite.  The MODULE is the surface an adopting
+        # caller reads, so the module is what gets scanned -- everything
+        # except the registry that exists to keep them readable.
+        for name, value in sorted(vars(mob_loot).items()):
+            if name == "BOUNDARY_STASH_RETIRED_EVENTS":
+                continue
+            if not isinstance(value, (str, tuple)):
+                continue
+            haystack = value if isinstance(value, str) else "".join(
+                item for item in value if isinstance(item, str))
+            for retired in mob_loot.BOUNDARY_STASH_RETIRED_EVENTS:
+                with self.subTest(constant=name, retired=retired):
+                    self.assertNotIn(
+                        retired, haystack,
+                        "a struck spelling is live again on %s" % (name,))
+
+    def test_a_published_answer_wins_even_when_the_floor_is_empty(self):
+        """pf-adversary D4 of this round: the ORDER of the two questions.
+
+        ``published`` and ``rows_left == 0`` are both true in the family
+        this pins, and a comment saying "in the order the questions are
+        asked" is not a test of the order.  It is unreachable today only
+        because nothing composes an empty generation (RE-208, still open);
+        the day that changes, a swapped pair would call a reply that DID
+        send a fresh floor "the last object was taken".
+
+        MUTATION-PROOF: test ``rows_left == 0`` before ``published`` and
+        this is the case that goes red.
+        """
+        self.assertEqual(
+            mob_loot.boundary_stash_reason(
+                published_generations=(("pc", "frame"),), ground_rows_left=0),
+            "superseded_by_pickup")
+
+    def test_the_two_arguments_are_not_read_by_the_same_rule(self):
+        """pf-adversary D2 and D3, and both were real defects in this round.
+
+        ``published_generations`` is a YES/NO and ``ground_rows_left`` is a
+        COUNT, and the first draft read both through ``_console_count`` --
+        a DISPLAY sentinel that answers ``-1`` for a bool.
+
+          * D2: an adopting caller writing
+            ``published_generations=bool(outcome.ground_after)`` -- the most
+            natural reading of "anything published" -- got
+            ``publication_refused`` about a reply that published, and with
+            an emptied floor got ``last_object_pickup``: the exact word the
+            third name exists to forbid.
+          * D3: an empty tuple handed to ``ground_rows_left`` by a keyword
+            mix-up counted ``0``, so the console said the player took the
+            last object about a floor nobody counted -- where the inline
+            site prints no line at all.
+
+        MUTATION-PROOF: read either argument with ``_console_count`` again
+        and the matching half below goes red.
+        """
+        published_says = (
+            (True, "superseded_by_pickup"),          # D2, the natural swap
+            (False, "publication_refused"),
+            ((("pc", "frame"),), "superseded_by_pickup"),
+            ((), "publication_refused"),
+            (["gen"], "superseded_by_pickup"),
+            (1, "superseded_by_pickup"),             # the documented length
+            (0, "publication_refused"),
+            (1.0, "publication_refused"),            # no length: no answer
+            (object(), "publication_refused"),
+        )
+        for published, expected in published_says:
+            with self.subTest(published=published):
+                self.assertEqual(
+                    mob_loot.boundary_stash_reason(
+                        published_generations=published, ground_rows_left=7),
+                    expected)
+        for not_a_count in ((), [], 0.0, False, "0", None, object()):
+            with self.subTest(rows_left=not_a_count):
+                self.assertEqual(
+                    mob_loot.boundary_stash_reason(
+                        published_generations=(),
+                        ground_rows_left=not_a_count),
+                    "publication_refused",
+                    "a value that is not a count was read as one")
+                self.assertTrue(
+                    mob_loot.boundary_stash_cleared_console_line(
+                        self.SCENE, 1, published_generations=(),
+                        ground_rows_left=not_a_count).endswith(
+                            "rows_left=-1"))
+
+    def test_the_reason_words_are_pinned_as_literals(self):
+        """The bare words, pinned as literals for the same reason as above.
+
+        These three ARE the deliverable of the merge: the inline site types
+        them into an ``if/elif/else`` three lines apart from the composer,
+        and a swap to this function may not change a single character of
+        what reaches the console.
+        """
+        self.assertEqual(
+            mob_loot.boundary_stash_reason(
+                published_generations=1, ground_rows_left=1),
+            "superseded_by_pickup")
+        self.assertEqual(
+            mob_loot.boundary_stash_reason(
+                published_generations=0, ground_rows_left=0),
+            "last_object_pickup")
+        self.assertEqual(
+            mob_loot.boundary_stash_reason(
+                published_generations=0, ground_rows_left=-1),
+            "publication_refused")
+        self.assertEqual(
+            mob_loot.BOUNDARY_STASH_EVENT_PREFIX, "mob_loot_boundary_")
+
+    def test_an_unreadable_count_is_refused_not_called_the_last_object(self):
+        """The hole the third name exists to keep open, on this function.
+
+        ``-1`` means "nothing was composed" and an unreadable value means
+        "nobody could count the floor".  Neither is "the floor is empty",
+        and only the third word leaves the floor's state open.
+        """
+        class _Hostile:
+            def __bool__(self):
+                raise RuntimeError("no truth value here")
+
+            def __len__(self):
+                raise RuntimeError("no length here")
+
+        for published, rows_left in (
+                (_Hostile(), _Hostile()), (0, None), (0, "0"), (0, 2.9),
+                (0, True)):
+            with self.subTest(published=published, rows_left=rows_left):
+                self.assertEqual(
+                    mob_loot.boundary_stash_reason(
+                        published_generations=published,
+                        ground_rows_left=rows_left),
+                    "publication_refused")
+
+    def test_the_composed_console_line_is_pinned_byte_for_byte(self):
+        """This lane's own composer, including the field order and spaces.
+
+        A MODULE-LAYER assertion with a module-layer name: nothing here
+        executes the chief's file.  What compares the two sides is
+        :meth:`test_the_inline_site_and_this_lane_have_not_drifted_apart`
+        (his format, out of his AST) and the wiring suite (his dispatcher).
+        """
+        self.assertEqual(
+            mob_loot.boundary_stash_cleared_console_line(
+                self.SCENE, ("a", "b"),
+                published_generations=(), ground_rows_left=0),
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=last_object_pickup "
+            "scene=%s frames=2 rows_left=0" % (mob_loot.scene_key(self.SCENE),))
+        self.assertEqual(
+            mob_loot.boundary_stash_cleared_console_line(
+                self.SCENE, (("pc", "frame"),),
+                published_generations=(("pc", "frame"),), ground_rows_left=3),
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=superseded_by_pickup "
+            "scene=%s frames=1 rows_left=3" % (mob_loot.scene_key(self.SCENE),))
+
+    def test_the_console_line_survives_what_costs_the_inline_line_entirely(
+            self):
+        """The inline site interpolates ``rows_left`` with ``%d`` inside a
+        ``try``: a value that is not a number costs the whole line, in
+        exactly the case an operator most needs to see one.  Here the line
+        still goes out, with ``-1`` for the count nobody could read, and it
+        stays ASCII because the bridge console is cp874 strict.
+        """
+        line = mob_loot.boundary_stash_cleared_console_line(
+            object(), object(),
+            published_generations=object(), ground_rows_left=object())
+        self.assertEqual(
+            line,
+            "MOB_LOOT_BOUNDARY_STASH_CLEARED reason=publication_refused "
+            "scene=%s frames=-1 rows_left=-1"
+            % (mob_loot.BOUNDARY_STASH_SCENE_UNNAMED,))
+        line.encode("ascii")
+        line.encode("cp874")
+
+    def test_the_inline_site_and_this_lane_have_not_drifted_apart(self):
+        """A BASELINE ON ANOTHER LANE'S FILE, AND IT MUST BE ABLE TO DIE.
+
+        ``runtime.py`` is the chief's file and this test may not freeze it.
+        What it holds is the merge itself: the inline site either still
+        types the three words and the line this lane mirrors, OR it has
+        adopted these helpers -- either way ONE vocabulary reaches the
+        console.  It fails only on the third state, the two sets drifting
+        apart again, which is what COO-DECISION 2026-09-03T00:54+07:00
+        question 2 exists to end.
+
+        IT READS THE AST, NOT THE TEXT (pf-adversary D1 of this round, which
+        measured the text version at 0 true positives and 1 false positive
+        over four probes).  Reformatting the chief's ``print`` across
+        different line splits changes the source text and changes nothing an
+        operator sees, so a substring check goes red on a non-event; a
+        rename left behind in a STRUCK COMMENT -- this house's own way of
+        retiring a name -- keeps a substring check green on a real drift.
+        Implicit string concatenation folds at parse time, so the AST sees
+        the joined line and neither mistake is available.  The sibling
+        pattern is ``test_mob_pickup_request`` and ``test_mob_drop_presence``,
+        which walk the same file for the same kind of fact.
+        """
+        # The PATH, not an import: importing the chief's module for a string
+        # check would drag a listener-shaped module into this lane's suite
+        # for no gain, and the file is the thing being asked about.
+        runtime_source = Path(mob_loot.__file__).with_name("runtime.py")
+        if not runtime_source.is_file():
+            # A source-less deployment is not a drift, and reporting it as
+            # one would be this test lying about the chief's file.
+            self.skipTest("no runtime.py source beside this module: %s"
+                          % (runtime_source,))
+        tree = ast.parse(runtime_source.read_text(encoding="utf-8"))
+        printed_lines = set()
+        typed_reasons = set()
+        adopted = False
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value.startswith(
+                        "MOB_LOOT_BOUNDARY_STASH_CLEARED")):
+                printed_lines.add(node.value)
+            if (isinstance(node, ast.Assign)
+                    and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)
+                    and any(isinstance(target, ast.Name)
+                            and target.id == "reason"
+                            for target in node.targets)):
+                typed_reasons.add(node.value.value)
+            # An ATTRIBUTE access, so a comment or a docstring mentioning
+            # the helper cannot switch this check off -- comments are not in
+            # the tree at all.
+            if (isinstance(node, ast.Attribute)
+                    and node.attr in ("boundary_stash_cleared_console_line",
+                                      "boundary_stash_reason")):
+                adopted = True
+        words = {mob_loot.BOUNDARY_STASH_SUPERSEDED_REASON,
+                 mob_loot.BOUNDARY_STASH_STALE_REASON,
+                 mob_loot.BOUNDARY_STASH_UNPUBLISHED_REASON}
+        if adopted:
+            # Adoption is the other half of the merge and needs no literals;
+            # what may not survive it is a leftover word of its own.
+            self.assertTrue(typed_reasons <= words, typed_reasons)
+            return
+        self.assertEqual(len(printed_lines), 1, printed_lines)
+        # FILL THE CHIEF'S OWN FORMAT with the four values and require this
+        # lane's composer to have produced the same bytes.  Nothing here is
+        # a literal of the line: it comes out of his file.
+        self.assertEqual(
+            mob_loot.boundary_stash_cleared_console_line(
+                self.SCENE, 2, published_generations=(), ground_rows_left=0),
+            printed_lines.pop() % (mob_loot.BOUNDARY_STASH_STALE_REASON,
+                                   mob_loot.scene_key(self.SCENE), 2, 0),
+            "the inline site's console line and this lane's composer have "
+            "drifted apart")
+        self.assertEqual(typed_reasons, words, typed_reasons)
 
     def test_the_superseded_name_is_the_one_the_runtime_already_emits(self):
         """Adopting this helper may not RENAME a live event.
