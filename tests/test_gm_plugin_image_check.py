@@ -36,12 +36,26 @@ Layout produced by _build_pe:
 """
 from __future__ import annotations
 
+import json
+import sys
+import tempfile
+import unittest
 from pathlib import Path
 import struct
 
 import pytest
 
-from pirateforce_foundation.gm import plugin_image_check as pic
+# Round `kv2vjk`: this module used to import `pirateforce_foundation` with no
+# path of its own and got away with it, because SOME alphabetically earlier
+# module in `tests/` inserts `src` for the whole session.  That is an ordering
+# accident, not a path -- run this file alone and it dies at collection -- and
+# a collection error is one of the two ways #611's work has already been lost.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+from pirateforce_foundation.gm import plugin_image_check as pic  # noqa: E402
 
 
 _PE_OFFSET = 0x80
@@ -1068,3 +1082,635 @@ def test_cli_is_green_when_the_install_is_the_build(tmp_path: Path, capsys) -> N
 def test_cli_needs_at_least_one_target() -> None:
     with pytest.raises(SystemExit):
         pic.main([])
+
+
+# --- the exact CLI contract `patches/gm_plugin/install.bat` depends on ------
+#
+# install.bat revision 3 (COO-DECISION `20260902_2342` item 3) no longer just
+# recommends this tool -- it RUNS it, and decides whether to copy a DLL into
+# the owner's client folder from the tokens below, read with `findstr /c:`.
+# `findstr /c:` is a SUBSTRING match with no anchoring, and the batch cannot
+# import anything from this module, so every one of these assertions is the
+# only thing standing between a rename here and a silent regression there:
+# a changed token sends install.bat down its "no verdict line" branch, which
+# WARNS AND CONTINUES. The failure would be invisible on both sides.
+
+
+def test_the_cli_prints_the_exact_token_install_bat_greps_for(
+    tmp_path: Path, capsys
+) -> None:
+    good = _write(tmp_path, _build_pe())
+
+    assert pic.main(["--dll", str(good)]) == 0
+    out = capsys.readouterr().out
+
+    # Byte for byte what install.bat passes to `findstr /c:`.
+    assert "GM_PLUGIN_IMAGE build verdict=" in out
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+
+
+def test_a_manifest_at_the_exe_id_makes_the_cli_refuse_by_token_and_by_code(
+    tmp_path: Path, capsys
+) -> None:
+    """The one failure the `.rsrc` check in install.bat cannot see.
+
+    A manifest embedded at `;#1` leaves an `.rsrc` section in the image, so
+    `dumpbin /headers | findstr .rsrc` says [ok] and the DLL still answers
+    LoadLibraryW with 14001. install.bat's refusal for this shape rests
+    entirely on the two facts asserted here.
+    """
+    bad = _write(tmp_path, _build_pe(manifest_resource_ids=(1,)))
+
+    exit_code = pic.main(["--dll", str(bad)])
+    out = capsys.readouterr().out
+
+    assert exit_code != 0
+    assert "GM_PLUGIN_IMAGE build verdict=manifest_missing" in out
+
+
+def _every_blocking_verdict() -> tuple[str, ...]:
+    """Read the blocking verdicts off the module, never off a hand list.
+
+    pf-adversary, round `b8xrod`, M2: the first version of the test below
+    hand-listed eight shapes, claimed in its own docstring to cover "every
+    blocking verdict", and missed three. Mutants that planted the string
+    `verdict=image_ok` in the `export_forwarded` and `unreadable` messages
+    both survived the whole suite.
+    """
+    return tuple(
+        getattr(pic, name)
+        for name in sorted(dir(pic))
+        if name.startswith("VERDICT_") and getattr(pic, name) != pic.VERDICT_IMAGE_OK
+    )
+
+
+def _refusal_cases(tmp_path: Path) -> dict[str, list[str]]:
+    """One CLI invocation per blocking verdict. Keys are checked for coverage."""
+    absent = tmp_path / "gone" / "GameMaster.dll"
+    no_dir = tmp_path / "not-a-client-folder"
+    shapes = {
+        pic.VERDICT_MANIFEST_MISSING: _build_pe(manifest_resource_ids=(1,)),
+        pic.VERDICT_EXPORT_DECORATED: _build_pe(exports=("_CreateGameMaster",)),
+        pic.VERDICT_EXPORT_FORWARDED: _build_pe(
+            forwarders=(pic.REQUIRED_EXPORT,)
+        ),
+        pic.VERDICT_EXPORT_MISSING: _build_pe(exports=("SomethingElse",)),
+        pic.VERDICT_NO_EXPORTS: _build_pe(with_export_dir=False),
+        pic.VERDICT_WRONG_MACHINE: _build_pe(machine=0x8664, pe32=False),
+        pic.VERDICT_NOT_A_DLL: _build_pe(is_dll=False),
+        pic.VERDICT_NOT_PE: b"not a PE at all, just text",
+    }
+    cases: dict[str, list[str]] = {}
+    for verdict, image in shapes.items():
+        path = _write(tmp_path, image, name="GameMaster_%s.dll" % verdict)
+        cases[verdict] = ["--dll", str(path)]
+    cases[pic.VERDICT_MISSING] = ["--dll", str(absent)]
+    cases[pic.VERDICT_NO_SUCH_DIR] = ["--client-dir", str(no_dir)]
+    # `unreadable` needs the open to fail, which no file shape can arrange
+    # under a test run as root; the caller patches `read_bytes` for it.
+    cases[pic.VERDICT_UNREADABLE] = ["--dll", str(_write(tmp_path, _build_pe()))]
+    return cases
+
+
+def test_the_refusal_case_table_covers_every_blocking_verdict(
+    tmp_path: Path,
+) -> None:
+    """The coverage claim itself, so it cannot rot silently again."""
+    missing = set(_every_blocking_verdict()) - set(_refusal_cases(tmp_path))
+    assert not missing, "no refusal case for: %s" % sorted(missing)
+
+
+def test_a_refused_image_never_prints_the_substring_that_would_install_it(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    """`findstr /c:` matches anywhere on any line, including inside prose.
+
+    If any advisory, detail or remedy string ever contained the words
+    `verdict=image_ok`, install.bat would copy a DLL this tool just refused.
+    Checked for EVERY blocking verdict, derived from the module.
+    """
+    cases = _refusal_cases(tmp_path)
+    for verdict, argv in cases.items():
+        if verdict == pic.VERDICT_UNREADABLE:
+            def _boom(self, *args, **kwargs):
+                raise OSError(13, "permission denied")
+
+            monkeypatch.setattr(Path, "read_bytes", _boom)
+        exit_code = pic.main(argv)
+        out = capsys.readouterr().out
+        monkeypatch.undo()
+
+        assert exit_code != 0, verdict
+        assert "GM_PLUGIN_IMAGE" in out, verdict
+        assert "verdict=%s" % verdict in out, (verdict, out)
+        assert "verdict=image_ok" not in out, (verdict, out)
+
+
+def test_asking_only_about_the_build_is_green_with_no_install_anywhere(
+    tmp_path: Path, capsys
+) -> None:
+    """Why install.bat passes `--dll` alone and must never add `--client-dir`.
+
+    It runs BELOW the [STOP] guard, which has already proved the target folder
+    holds no GameMaster.dll. Adding `--client-dir "%TARGET%"` there would read
+    `verdict=missing` and exit 1 on every clean folder -- a permanent refusal
+    to install, on exactly the folder an install is for. This test pins the
+    other half: with `--dll` alone the tool is green and invents no report
+    about a client directory it was not asked about.
+    """
+    good = _write(tmp_path, _build_pe())
+
+    assert pic.main(["--dll", str(good)]) == 0
+    out = capsys.readouterr().out
+
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+    assert "GM_PLUGIN_IMAGE install" not in out
+    assert "verdict=missing" not in out
+    assert "same_bytes" not in out
+
+
+def test_the_client_dir_flag_would_refuse_the_very_folder_installs_are_for(
+    tmp_path: Path, capsys
+) -> None:
+    """The negative half of the rule above, measured rather than asserted.
+
+    Kept as a test so that anyone who "helpfully" adds `--client-dir` to
+    install.bat has this failure written down before they spend an attended
+    round on it.
+    """
+    build_dir = tmp_path / "build"
+    clean_target = tmp_path / "client"
+    build_dir.mkdir()
+    clean_target.mkdir()
+    _write(build_dir, _build_pe())
+
+    exit_code = pic.main(
+        [
+            "--dll",
+            str(build_dir / "GameMaster.dll"),
+            "--client-dir",
+            str(clean_target),
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert "GM_PLUGIN_IMAGE install verdict=missing" in out
+
+
+def test_every_console_line_encodes_on_a_thai_console_even_from_a_latin_path(
+    tmp_path: Path, capsys
+) -> None:
+    """pf-adversary, round `b8xrod`, M1 -- a measured false-green, not a nit.
+
+    `install.bat` redirects this tool's output to a file, so on a Thai Windows
+    `sys.stdout` is a cp874 stream. `path=` is the only field carrying text
+    this module did not author and it sits on the verdict line itself, so one
+    character outside cp874 in the folder name used to raise UnicodeEncodeError
+    on the FIRST line: the batch then found a traceback with no verdict token,
+    took its "the checker said nothing" branch, and COPIED THE DLL UNCHECKED.
+
+    The older `test_every_console_line_survives_the_bridge_console` cannot see
+    this: pytest's `tmp_path` is always ASCII, so it is green by construction.
+    """
+    latin = tmp_path / "José"
+    latin.mkdir()
+    report = pic.inspect_plugin_file(_write(latin, _build_pe()))
+
+    for line in pic.console_lines(report, "build"):
+        line.encode("cp874")  # raises UnicodeEncodeError if this ever regresses
+        assert line.isascii()
+
+    assert pic.main(["--dll", str(latin / "GameMaster.dll")]) == 0
+    out = capsys.readouterr().out
+    out.encode("cp874")
+    assert "GM_PLUGIN_IMAGE build verdict=image_ok" in out
+
+
+def test_the_report_names_which_rules_this_copy_of_the_module_enforces(
+    tmp_path: Path, capsys
+) -> None:
+    """pf-adversary, round `b8xrod`, H2.
+
+    `install.bat` finds this module by guessing folder names. A checkout older
+    than round `selrsl` prints `verdict=image_ok` and exits 0 for a manifest at
+    resource id 1 -- see `test_a_manifest_at_the_exe_id_is_not_a_manifest_for_a
+    _dll`, which says exactly that in its docstring -- so the verdict token
+    alone cannot tell an enforcing copy from a permissive one. This line can,
+    by being absent from the old one.
+    """
+    assert "manifest_id2" in pic.CONSOLE_RULES
+
+    assert pic.main(["--dll", str(_write(tmp_path, _build_pe()))]) == 0
+    out = capsys.readouterr().out
+
+    assert "GM_PLUGIN_IMAGE build rules=" in out
+    for rule in pic.CONSOLE_RULES:
+        assert rule in out
+
+
+def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> None:
+    """A caller must be able to attribute a REFUSAL as well as a pass."""
+    bad = _write(tmp_path, _build_pe(manifest_resource_ids=(1,)))
+
+    assert pic.main(["--dll", str(bad)]) != 0
+
+    assert "GM_PLUGIN_IMAGE build rules=" in capsys.readouterr().out
+
+
+# --- the other half of the contract: read install.bat itself ---------------
+#
+# pf-adversary, round `b8xrod`, M3: every assertion above pins the module and
+# none of them opens the batch file, so renaming the literal inside
+# `findstr /c:"..."` leaves the whole suite green while every install silently
+# falls into warn-and-copy. These read the batch.
+#
+# `pf_bridge` is a SEPARATE repository and the Windows gate clones this one
+# alone, so these tests skip there. The skip is named and counted below, never
+# silent (a bare skip is what closed #601 with 3,534 lines of work in it).
+#
+# ROUND `kv2vjk`, AND THIS IS WHY #611 DIED WITH THE WHOLE ROUND IN IT.  The
+# first version of this block raised a BARE `pytest.skip`, which carries no
+# `[precondition:...]` token, so `tools/pf_pytest_precondition_census.py`
+# filed it as `UNDECLARED SKIP ... x 3` and `skip_census` exited 1 while
+# `pytest_subset` was green at 7158 passed.  A bare skip cannot be pinned in
+# either place without lying about one of the two machines:
+#
+#   * as a `design_skips` entry it would be expected UNCONDITIONALLY, so the
+#     bridge -- where `../pf_bridge` IS beside this clone and these three
+#     tests RUN -- would observe 0 against a pin of 3 and go red there
+#     instead;
+#   * and it is not a design decision in the first place.  It is exactly the
+#     shape `tests/pf_preconditions.py` was written for: evidence that lives
+#     outside this repository, present on one machine and absent on the other.
+#
+# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> three
+# declared skips pinned in `docs/PYTEST_SKIP_PINS.json` under `preconditions`,
+# which the census expects to be ZERO on any machine that has the sibling.
+#
+# The key is `bridge_sibling` and not a narrower one for `install.bat` itself,
+# because a narrower key would need a new entry in `tests/pf_preconditions.py`
+# -- another lane's file -- and because the two answers must not be merged: a
+# checkout that HAS `../pf_bridge` and does not have the batch file is not a
+# machine short of evidence, it is a deleted `install.bat`, and that is the
+# regression these three tests exist to catch.  It fails loudly below.
+
+
+def _install_bat() -> Path | None:
+    """`../pf_bridge/patches/gm_plugin/install.bat`, or None.
+
+    One relative candidate and no absolute fallback, deliberately: the two
+    repositories sit side by side both on the bridge
+    (`...\\Pirate Force\\pf_bridge` beside `...\\Pirate Force\\Pirate Force
+    ServerProject`) and in every cloud clone, so an absolute path would only
+    hide the skip from a rehearsal of the machine that actually skips.
+    """
+    candidate = (
+        Path(__file__).resolve().parents[2]
+        / "pf_bridge"
+        / "patches"
+        / "gm_plugin"
+        / "install.bat"
+    )
+    return candidate if candidate.is_file() else None
+
+
+INSTALL_BAT_TESTS = 3
+"""How many tests in this file skip together when pf_bridge is not beside us."""
+
+
+def _missing_install_bat_message(sibling_present: bool) -> str:
+    """What to say when the batch file is not there, per machine.
+
+    Split out and given the answer as an ARGUMENT so both branches can be read
+    back by a test.  Round `kv2vjk`, pf-adversary D4: the first draft stated
+    "../pf_bridge is checked out beside this repository but install.bat is not
+    in it" unconditionally, and that sentence is false on the gate -- it would
+    send the next reader hunting for a deleted file inside a directory that
+    does not exist.
+    """
+    if sibling_present:
+        where = (
+            "../pf_bridge IS beside this repository and "
+            "patches/gm_plugin/install.bat is not in it"
+        )
+    else:
+        where = (
+            "../pf_bridge is NOT beside this repository at all, which means "
+            "this helper was reached from outside InstallBatContractTests -- "
+            "that class's guard is the only thing allowed to answer for an "
+            "absent sibling, and a fourth caller outside it would skip "
+            "undeclared, exactly as pirate-force-server#611 did"
+        )
+    return (
+        "%s.  This is NOT a missing-evidence skip and must never become one: "
+        "the batch file is this lane's own, it landed in pf_bridge#909, and "
+        "the %d tests in InstallBatContractTests are the only thing standing "
+        "between a renamed findstr literal and an install that silently "
+        "warns-and-copies.  Restore the file, or move these tests to whatever "
+        "replaced it." % (where, INSTALL_BAT_TESTS)
+    )
+
+
+def _install_bat_text() -> str:
+    path = _install_bat()
+    if path is None:
+        raise AssertionError(_missing_install_bat_message(
+            BRIDGE_SIBLING.present))
+    return path.read_text(encoding="ascii").replace("\r\n", "\n")
+
+
+# --- reading a .bat as a graph, because a refusal is a control-flow claim ---
+#
+# Small on purpose: it models the three things a `goto`/`exit` batch actually
+# does and nothing else -- labels, jumps, and FALL-THROUGH into the next label.
+# `if ... goto X` is an edge; so is the next label, unless the block ends in an
+# unconditional `goto` or `exit`.  `call` is not modelled (the batch has none),
+# and neither are variables in label names; if either appears, this walker
+# under-reports and the test that uses it must be revisited rather than
+# trusted.
+
+
+def _batch_blocks(text: str) -> dict:
+    """`{label: block text}` in file order, block = up to the next label."""
+    blocks, label, lines = {}, None, []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (stripped.startswith(":") and not stripped.startswith("::")
+                and len(stripped) > 1 and " " not in stripped):
+            if label is not None:
+                blocks[label] = "\n".join(lines)
+            label, lines = stripped[1:], []
+            continue
+        if label is not None:
+            lines.append(line)
+    if label is not None:
+        blocks[label] = "\n".join(lines)
+    return blocks
+
+
+def _batch_successors(block: str, fallthrough: str | None) -> set:
+    targets, ends = set(), False
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith(("REM ", "ECHO ", "::")):
+            continue
+        lowered = stripped.lower()
+        at = lowered.find("goto ")
+        if at != -1:
+            target = stripped[at + len("goto "):].split()[0].lstrip(":")
+            targets.add(target.lower())
+            if at == 0:
+                ends = True
+        elif lowered.startswith("exit"):
+            ends = True
+    if not ends and fallthrough is not None:
+        targets.add(fallthrough)
+    targets.discard("eof")
+    return targets
+
+
+def _labels_reachable_from(text: str, start: str) -> set:
+    blocks = _batch_blocks(text)
+    order = list(blocks)
+    seen, queue = set(), [start]
+    while queue:
+        label = queue.pop()
+        if label in seen or label not in blocks:
+            continue
+        seen.add(label)
+        index = order.index(label)
+        after = order[index + 1] if index + 1 < len(order) else None
+        queue.extend(_batch_successors(blocks[label], after))
+    seen.discard(start)
+    return seen
+
+
+@BRIDGE_SIBLING.skip_unless_present()
+class InstallBatContractTests(unittest.TestCase):
+    """The three tests that read the batch file, guarded as ONE site.
+
+    A `unittest.TestCase` with a class decorator, in a module that is
+    otherwise plain pytest functions, and that is not a style lapse -- it is
+    the only shape `tests/test_pytest_precondition_census.py` can grade.  Its
+    `guarded_tests()` walker counts guard sites inside `ast.ClassDef` and
+    nowhere else, ON PURPOSE (its own comment: guards in module-level code
+    "produce skips that cannot be pinned per test name, so a module using them
+    goes red here until it is restructured").  Measured this round: with these
+    three as module-level functions calling `pytest.skip` from a helper, the
+    walker derived 0 guards against a pin of 3 and TWO tests in that file went
+    red -- the same class of gate failure that closed #611, caught one step
+    earlier.
+    """
+
+    def setUp(self) -> None:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.tmp_path = Path(holder.name)
+
+    def test_install_bat_greps_for_the_tokens_this_module_actually_prints(
+        self,
+    ) -> None:
+        text = _install_bat_text()
+        lines = pic.console_lines(
+            pic.inspect_plugin_file(_write(self.tmp_path, _build_pe())),
+            "build",
+        )
+
+        verdict_line = next(line for line in lines if " verdict=" in line)
+        pass_token = verdict_line.split(" path=")[0]
+        assert pass_token == "GM_PLUGIN_IMAGE build verdict=image_ok"
+
+        # The three literals the batch's decision rests on, derived here.
+        assert 'findstr /c:"GM_PLUGIN_IMAGE build verdict="' in text
+        assert 'findstr /c:"%s"' % pass_token in text
+        assert 'findstr /c:"GM_PLUGIN_IMAGE build rules="' in text
+        assert 'findstr /c:"manifest_id2"' in text
+        assert any(
+            line.startswith("GM_PLUGIN_IMAGE build rules=") for line in lines
+        )
+
+    def test_install_bat_never_asks_about_a_client_dir_when_it_installs(
+        self,
+    ) -> None:
+        """It runs below the [STOP] guard, on a folder proven to hold no
+        plug-in.
+
+        `--client-dir` there reads `verdict=missing` and exits 1 every time: a
+        permanent refusal to install, on exactly the clean folder an install is
+        for. Written down here so the next person to "helpfully" add the flag
+        has to delete a test that says why.
+        """
+        text = _install_bat_text()
+        invocations = [
+            line
+            for line in text.splitlines()
+            if "-m pirateforce_foundation.gm.plugin_image_check" in line
+            and not line.strip().upper().startswith(("REM", "ECHO"))
+        ]
+
+        assert len(invocations) == 1, invocations
+        assert "--dll" in invocations[0]
+        assert "--client-dir" not in invocations[0]
+
+    def test_install_bat_refuses_rather_than_warns_when_the_checker_answers_no(
+        self,
+    ) -> None:
+        """The fail-closed half of COO-DECISION `20260902_2342` item 3.
+
+        A refusal must end the script, not reach the copy -- BY ANY ROUTE.
+
+        The first version of this test forbade the literal `goto do_copy`
+        inside the refusal block and nothing else.  pf-adversary, round
+        `kv2vjk`, D5 named the input that passes it with the feature broken:
+        `COO-DECISION 20260903_0148` §7 amends `2342` to make the batch honour
+        `PFGM_FORCE=1` and copy anyway, and the obvious way to write that is
+        `goto pfgm_forced_copy` -- a different literal, the same fall-through,
+        and this test measured GREEN on a rewritten batch where a refusal
+        really could copy.  Forbidding one spelling is not grading a property.
+
+        So the block graph is walked instead.  FALL-THROUGH IS AN EDGE: a
+        batch label runs into the next one unless the block ends the script or
+        jumps unconditionally, so deleting the `exit /b 1` alone drops control
+        into `:pfgm_stale_tool`, which goes straight to `:do_copy`.  That is
+        the mutation the string test could not see either.
+        """
+        text = _install_bat_text()
+        assert "\n:pfgm_refuse\n" in text
+        assert "exit /b 1" in _batch_blocks(text)["pfgm_refuse"]
+        assert "do_copy" not in _labels_reachable_from(text, "pfgm_refuse")
+
+
+# --- what the census tests upstream cannot answer --------------------------
+#
+# `tests/test_pytest_precondition_census.py` already re-derives the count AND
+# the test names for every pin straight from this file's AST, so a second copy
+# of that comparison here would only be a slower duplicate.  What it cannot do
+# is ask the MACHINE anything: it never touches `../pf_bridge`.  These two do
+# exactly that and nothing else.  Both run everywhere, need no artifact, and
+# are deliberately outside `InstallBatContractTests` so the guarded count in
+# that class stays 3.
+
+
+def _pin_entry() -> dict:
+    pins = json.loads(
+        (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(encoding="utf-8")
+    )
+    module = "tests/" + Path(__file__).name
+    matches = [
+        entry for entry in pins["preconditions"]
+        if entry["key"] == "bridge_sibling"
+        and entry["module"].replace("\\", "/") == module
+    ]
+    assert len(matches) == 1, (
+        "expected exactly one bridge_sibling pin for %s, found %d"
+        % (module, len(matches))
+    )
+    return matches[0]
+
+
+def test_the_module_constant_and_the_pin_say_the_same_number():
+    """`INSTALL_BAT_TESTS` is quoted in a failure message, so it can lie.
+
+    The pin file and the class are graded against each other upstream; this
+    constant is graded against neither, and it is the number the
+    `AssertionError` in `_install_bat_text` tells a human.
+    """
+    methods = [
+        name for name in vars(InstallBatContractTests)
+        if name.startswith("test")
+    ]
+    assert len(methods) == INSTALL_BAT_TESTS, sorted(methods)
+    assert _pin_entry()["count"] == INSTALL_BAT_TESTS
+
+
+def test_a_bridge_beside_this_clone_really_does_carry_install_bat():
+    """The premise the whole guard rests on, asked of THIS machine.
+
+    `bridge_sibling` answers "is `../pf_bridge` there", and the class above
+    treats that as "the batch file is readable".  Those are two different
+    questions, and the gap between them is where a false RUN lives: a checkout
+    that has the sibling and not the file would reach `_install_bat_text` and
+    die.  That is the intended outcome -- a deleted `install.bat` IS a
+    regression -- but it must be legible, so it is named here rather than
+    arriving as a stray AssertionError from a helper.
+    """
+    assert "[precondition:bridge_sibling]" in BRIDGE_SIBLING.reason
+    if not BRIDGE_SIBLING.present:
+        assert _install_bat() is None
+        return
+    assert _install_bat() is not None, (
+        "../pf_bridge is beside this clone but "
+        "patches/gm_plugin/install.bat is missing from it"
+    )
+
+
+def test_a_missing_install_bat_raises_loudly_instead_of_skipping(monkeypatch):
+    """The `AssertionError` branch, which no machine reaches on its own.
+
+    pf-adversary, round `kv2vjk`, D2: on the gate the class is skipped before
+    that line; on the bridge the file is there.  So the one line the whole
+    guard argument rests on -- "a sibling without the batch file is a deleted
+    file, not missing evidence" -- had never executed anywhere, and replacing
+    it with a bare `pytest.skip` left BOTH machines fully green.  That is the
+    shape that closed #611, re-installed in latent form.  It executes here.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "_install_bat", lambda: None)
+    with pytest.raises(AssertionError) as raised:
+        _install_bat_text()
+    assert "must never become one" in str(raised.value)
+
+
+def test_the_missing_install_bat_message_tells_the_two_machines_apart():
+    """D4: the sentence must not assert a sibling nobody looked for."""
+    present = _missing_install_bat_message(True)
+    absent = _missing_install_bat_message(False)
+    assert "IS beside this repository" in present
+    assert "is NOT beside this repository" in absent
+    assert "InstallBatContractTests" in absent
+    for message in (present, absent):
+        assert str(INSTALL_BAT_TESTS) in message
+
+
+_REFUSAL_SHAPED_BATCH = """@echo off
+if not "%PFGM_RC%"=="0" goto pfgm_refuse
+echo [ok] verdict=image_ok
+goto do_copy
+
+:pfgm_refuse
+echo [FAIL] refused. Nothing was copied.
+exit /b 1
+
+:pfgm_stale_tool
+echo [warn] old copy, treated as no checker at all.
+goto do_copy
+
+:do_copy
+copy /y "GameMaster.dll" "%TARGET%\\GameMaster.dll" >nul
+"""
+
+
+def test_the_refusal_walker_sees_the_two_ways_a_refusal_can_reach_the_copy():
+    """The walker is the witness for `pfgm_refuse`, so it needs one too.
+
+    Synthetic text, not the real batch: this runs on the gate, where
+    `../pf_bridge` is absent, and a fourth reader of the real file would
+    either skip undeclared (breaking the pin at 3) or die.  The shape below
+    is the real one -- refusal, a warn label after it that goes to the copy,
+    and the copy -- which is all the walker is asked about.
+
+    Both mutations are ones the old literal `goto do_copy` test measured GREEN
+    on: a differently-spelled jump, and a deleted `exit /b 1` that falls
+    through into the next label.
+    """
+    assert "do_copy" not in _labels_reachable_from(
+        _REFUSAL_SHAPED_BATCH, "pfgm_refuse")
+
+    forced = _REFUSAL_SHAPED_BATCH.replace(
+        "exit /b 1", "if defined PFGM_FORCE goto pfgm_stale_tool\nexit /b 1", 1)
+    assert forced != _REFUSAL_SHAPED_BATCH
+    assert "do_copy" in _labels_reachable_from(forced, "pfgm_refuse")
+
+    dropped = _REFUSAL_SHAPED_BATCH.replace("exit /b 1", "", 1)
+    assert dropped != _REFUSAL_SHAPED_BATCH
+    assert "do_copy" in _labels_reachable_from(dropped, "pfgm_refuse")
