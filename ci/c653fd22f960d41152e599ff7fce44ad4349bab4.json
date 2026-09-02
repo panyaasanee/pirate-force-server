@@ -1,1 +1,1 @@
-{"sha":"c653fd22f960d41152e599ff7fce44ad4349bab4","conclusion":"success","event":"push","ref":"refs/heads/claude/lucid-gauss-t8z97r","run_id":"33646052378","utc":"2026-09-02T15:17:15Z"}
+{"sha":"c653fd22f960d41152e599ff7fce44ad4349bab4","conclusion":"failure","event":"pull_request","ref":"refs/pull/603/merge","run_id":"33646099544","utc":"2026-09-02T15:19:01Z"}
