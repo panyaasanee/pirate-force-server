@@ -120,10 +120,42 @@ production_allowed = True
 # does, so the risk is house-wide, not new here).  Nothing measured covers
 # it -- `GT-205` is where that is first exercised.
 #
-# [assumption of lane A - awaiting COO confirmation, letter
-# notes_to_chief/20260902_0910_LANE-A-ASK-COO-uia-notice-wording.md]
-# THE WORDING IS THE ASSUMPTION, NOT THE MECHANISM.  Changing it later
-# costs this constant and the two test lines that pin it.
+# ~~[assumption of lane A - awaiting COO confirmation; the letter carrying
+# it is pf_bridge/notes_to_chief/20260902_0910_LANE-A-ASK-COO-uia-notice-
+# wording.md]~~ RULED, round 8z9h9n: COO-DECISION 2026-09-02T09:43+07:00
+# (pf_bridge/notes_to_chief/20260902_0943_COO-DECISION-uia-notice-text-
+# back-refused-confirmed.md) confirms this exact spelling.  The
+# strikethrough-plus-RULED shape is this repo's own (mob_scene_recompose.py
+# does the same for a LANE-B assumption): the sweep that hunts for still-
+# open lane assumptions greps for the label text, so a retired one has to
+# be distinguishable from a live one ON the matched line, not three lines
+# further down.
+#
+# WHAT THE DECISION ACTUALLY SAYS, no wider: it confirms option 1 and
+# refuses TWO of the ask letter's four options -- `EXIT REFUSED` (collides
+# with the UI-B button) and staying silent (the outcome that burned two of
+# the owner's attended rounds).  The letter's option 2, `BACK NOT YET`, is
+# NOT adjudicated anywhere: this lane dropped it itself for style, and it
+# stays the honest wording for the day the transition becomes performable,
+# so a later round should reach for it rather than assume it was refused.
+# The one-vocabulary reading (`SPEED DENIED`, `TYPO REFUSED`, `BACK
+# REFUSED`) is the REASONING COO gave, not a house rule anyone wrote down;
+# it also does not decide REFUSED vs DENIED, and `SPEED DENIED` answers a
+# chat command rather than a button, so do not cite this comment as policy.
+#
+# WHAT IS STILL NOT SETTLED (not a complete list -- see point 2 of this
+# module's own docstring for the bigger one): whether a twelve-character
+# body with a space at index 4 RENDERS while the logout dialog is open.
+# `GT-205` is where a human first sees that -- it accepts the line either
+# while the dialog stands or right after it closes -- and a negative result
+# there is worth as much as a positive one.
+#
+# WHAT CHANGING THE SPELLING COSTS, counted rather than guessed: this
+# constant, the two test lines that pin the literal, the two prose lines in
+# this file that quote it (module docstring and the paragraph above), a new
+# COO decision -- and four lines of pf_bridge/GAME_TEST_QUEUE.md's GT-205,
+# including the console line a tester copies by hand, which is a
+# chief-owned queue file only editable from a cloud clone through a PR.
 UIA_NOTICE_TEXT = "BACK REFUSED"
 
 BUTTON_CHARACTER_SELECT = "BACK_TO_CHARSELECT"
