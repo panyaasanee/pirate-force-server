@@ -306,8 +306,23 @@ def shape_cleared(sections) -> bool:
 #   * this one asks "does the number the client would paint survive the next
 #     login?"  It is about the DATABASE, and it is the half `GT-193` measured
 #     from the other side: `persistence_attr_compose.py:289` composes a
-#     hardcoded `400.0` at login because `speed_walk` has no login read yet
-#     (LANE-DB owns the fix -- COO-DECISION `20260902_1846`, NOT this lane).
+#     hardcoded `400.0` at login because ~~`speed_walk` has no login read
+#     yet~~ (LANE-DB owns the fix -- COO-DECISION `20260902_1846`, NOT this
+#     lane).  STRUCK, NOT DELETED, by LANE-GM round `gj77z5`: LANE-DB LANDED
+#     IT (PR #605, `session.py:192` -> `login_speed.resolve_for_character` ->
+#     `player_wire.py:266`).  So this gate's stated rationale -- "does the
+#     number the client would paint survive the next login?" -- now answers
+#     YES, and the flip condition spelled out below ("one line, here, by the
+#     round that can point at the login read ON `main`") is met on the
+#     evidence.  IT IS STILL NOT FLIPPED HERE, and deliberately: COO `2147`
+#     point 3 forbids opening either lock "until the attended round that
+#     deliberately tries a safe `/speed` value has happened and has a result",
+#     and `GT-218` -- that round's own ticket, in `pf_bridge/
+#     GAME_TEST_QUEUE.md` -- will not boot until both locks are already open.
+#     The two rules close a loop that only the COO can cut, and round
+#     `gj77z5` asked for that cut rather than guessing at it (letter
+#     `20260903_0529`).  A lane flipping this on its own reading is exactly
+#     what the "name your evidence in the comment" rule below exists to stop.
 #     A door that painted a number the next login silently discards is a door
 #     that lies to a tester even on a shape a client accepts.
 #

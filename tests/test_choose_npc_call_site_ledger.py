@@ -406,6 +406,10 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
             "legacy", "chosen_identities", "population_indices",
             "last_target_pos", "scene_id", "scene_entry_registry",
             "mob_combat_ledger",
+            # R314: the eighth keyword, lane A's ground-preserve cell.  A
+            # responder that cannot take it loses its whole scene in the
+            # same silent shape D4 measured for the seventh.
+            "mob_loot_cell",
         }
         registered = dict(lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS)
         self.assertTrue(registered, "no ChooseNPC responder is registered")
