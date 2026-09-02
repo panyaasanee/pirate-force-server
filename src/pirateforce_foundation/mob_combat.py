@@ -1493,10 +1493,18 @@ GROUND_ROWS_LEDGER_MOVED_TOKEN = "GROUND_ROWS_MOVED_UNDER_COMPOSITION"
 #: - ``wired_by_name_lookup`` the only evidence is a name lookup: somebody
 #:   fetches it by string and calls what they fetched.  Whether a frame
 #:   ever goes through it depends on a caller ABOVE that module handing it a
-#:   cell, which is the state ``main`` is in today (the chief's one line at
-#:   the ChooseNPC site is what is missing).  A name lookup cannot be proved
-#:   to fire by reading source at all -- which is why the second half of the
-#:   answer is a RUNTIME line, :data:`GROUND_UNDER_PUBLICATION_REACHED_TOKEN`.
+#:   cell.  ~~which is the state ``main`` is in today (the chief's one line
+#:   at the ChooseNPC site is what is missing)~~ IS STRUCK, round ``91tlkk``:
+#:   the chief landed that line the same night, not as the direct call this
+#:   lane asked for but as one keyword at the ``respond(...)`` site
+#:   (``mob_loot_cell=self.mob_loot_cell``, his letter ``20260903_0508``
+#:   item 1), which reaches the same composer through LANE-A's hook.  So the
+#:   cell DOES reach the responder today and this word is still the right
+#:   one: the shape is still a name lookup, and a name lookup cannot be
+#:   proved to fire by reading source at all -- which is why the second half
+#:   of the answer is a RUNTIME line,
+#:   :data:`GROUND_UNDER_PUBLICATION_REACHED_TOKEN`.  THAT LINE IS NOW THE
+#:   ONLY THING THAT SETTLES IT, and an attended round is where it gets read.
 #: - ``called``               a direct (or aliased-import) call site.
 #:
 #: A direct call site wins over a name lookup: the stronger evidence is the

@@ -1617,14 +1617,25 @@ def boundary_stash_reason(
     said ``last_object_pickup`` -- the one word pf-adversary D4 of round
     ``veby94`` exists to forbid -- about a floor nobody counted.
 
-    !! WHERE THIS AND THE INLINE SITE STILL PART, AND IT IS OPEN ON PURPOSE.
-    The inline site asks ``if outcome.ground_after:`` -- pure truth.  On the
-    tuple that field holds today the two agree on every value.  They part on
-    a truthy object with no ``__len__``: that reads as "no" here and as
-    "yes" there.  Closing RE-208 is what would make that field something
-    other than a plain tuple, and the question of which side yields is in
-    the letter to the chief of round ``li9nce``; until it is answered this
-    side takes the reading that leaves the floor's state OPEN.
+    !! WHERE THIS AND THE INLINE SITE STILL PART -- ~~AND IT IS OPEN ON
+    PURPOSE~~ IS STRUCK: THE CHIEF RULED ON IT, 2026-09-03T05:08+07:00
+    (his letter ``20260903_0508`` item 3, answering round ``li9nce``'s
+    question 4; he told COO in ``20260903_0501`` item 4 rather than sending
+    it up for a COO decision).  THIS SIDE'S RULE WINS: a count that cannot
+    be read answers ``publication_refused`` and leaves the floor's state
+    OPEN.  His reason is not that either rule is prettier, it is the
+    DIRECTION OF THE GUESS -- this line exists to tell an operator what is
+    left on the floor, and ``if outcome.ground_after:`` answers "the floor
+    is clear" for a value it merely could not READ, which is the quietest
+    lie this line is able to tell.  When he adopts this composer at the two
+    inline sites (his own next round, his debt, item 2 of the same letter),
+    both sides become one rule by construction.
+    The mechanics, unchanged and still worth stating: the inline site asks
+    ``if outcome.ground_after:`` -- pure truth.  On the tuple that field
+    holds today the two agree on every value.  They part on a truthy object
+    with no ``__len__``: that reads as "no" here and as "yes" there.  Closing
+    RE-208 is what would make that field something other than a plain tuple,
+    and the ruling above is what that day now falls back on.
     """
     published = _published_anything(published_generations)
     rows_left = _rows_left_count(ground_rows_left)
