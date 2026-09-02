@@ -85,6 +85,51 @@ SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
 DROP_AT = (1000.0, 20.0, 3000.0)
 
 
+def _the_ground_after_label_this_lane_publishes():
+    """The action label, read out of the lane's own wiring note.
+
+    pf-adversary D7 (round g1y1yc): renaming the literal in ``runtime.py`` to
+    ``MOB_PICKUP_GROUND_BEFORE`` left the suite green, and that label is not
+    decoration -- v141 writes it into ``[G>] <label>`` and ``SENT label=...``
+    in ``GAME_LIVE.txt``, which is the evidence GT-204 is graded from.  Taking
+    it from ``MOB_PICKUP_REQUEST_WIRING`` rather than retyping it here means
+    the note and the call site cannot drift apart in either direction.
+    """
+    note = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
+    marker = 'out += [("'
+    return note.split(marker, 1)[1].split('"', 1)[0]
+
+
+def _the_runtime_sends_the_ground_generation(runtime_source):
+    """Does ``runtime.py`` actually SEND the removal generation?
+
+    Answered from the AST, never from a substring: the call site's own
+    comment explains itself using the words ``outcome.ground_after``, so a
+    text search is satisfied by prose that sends nothing (pf-adversary D1).
+
+    True only for a real list comprehension that builds
+    ``(<the published label>, gpc, gframe, 0.0)`` tuples by iterating
+    ``outcome.ground_after`` -- which is what the wiring note asks for, name
+    for name.  A comment cannot be a ``ListComp``.
+    """
+    label = _the_ground_after_label_this_lane_publishes()
+    for node in ast.walk(ast.parse(runtime_source)):
+        if not isinstance(node, ast.ListComp):
+            continue
+        elt = node.elt
+        if not (isinstance(elt, ast.Tuple) and elt.elts):
+            continue
+        head = elt.elts[0]
+        if not (isinstance(head, ast.Constant) and head.value == label):
+            continue
+        for generator in node.generators:
+            iterable = generator.iter
+            if (isinstance(iterable, ast.Attribute)
+                    and iterable.attr == "ground_after"):
+                return True
+    return False
+
+
 def _body(object_ref, opaque):
     """One request body, composed the way the delivery table declares it."""
     return (
@@ -1150,7 +1195,18 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
         runtime = (
             ROOT / "src/pirateforce_foundation/runtime.py"
         ).read_text(encoding="utf-8")
-        sends_it = "ground_after" in runtime
+        # 🔴 AN AST, NOT A SUBSTRING, and that was measured rather than
+        # preferred (pf-adversary D1, round g1y1yc).  This test read
+        # `"ground_after" in runtime` until R304 landed the call site -- and
+        # the call site arrived with a COMMENT that explains itself using
+        # the word.  From that commit on, deleting the two executable lines
+        # and keeping the comment left the WHOLE repository suite green,
+        # with the constant still reading "sent": the console would print
+        # PUBLISHED and KEPT on a boot that sends the floor-preserving delta
+        # with no removal generation behind it -- strictly worse than the
+        # boot before the PR, and invisible.  Prose can satisfy a substring.
+        # It cannot satisfy this.
+        sends_it = _the_runtime_sends_the_ground_generation(runtime)
         self.assertEqual(
             mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS,
             "sent" if sends_it else "composed_not_sent",
@@ -1159,13 +1215,6 @@ class TheGroundAfterTheTakeTests(TheWiringHarness):
             "call site landed and the constant was not moved (the console "
             "then reports COMPOSED_NOT_SENT for frames that DO go out), or "
             "the constant says 'sent' for a boot that drops them.")
-        if sends_it:
-            delta_at = runtime.index("MOB_PICKUP_REQUEST_DELTA")
-            ground_at = runtime.index("ground_after")
-            self.assertLess(
-                delta_at, ground_at,
-                "the ground publication is composed into the reply before "
-                "the bag delta; the wiring note forbids that order")
 
     def test_the_success_token_says_composed_not_sent_while_it_is_true(self):
         """The word itself, not only the mechanism that picks it.
@@ -1637,22 +1686,41 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
             setattr, mob_pickup_request, "GROUND_AFTER_CALL_SITE_STATUS",
             original)
 
-    def test_today_the_floor_is_cleared_because_nothing_sends_the_removal(self):
-        """THE HONEST STATE OF THIS BOOT, and the reason it is not a bug.
+    def _pretend_the_chiefs_line_had_not_landed(self):
+        """The inverse patch, and it stopped being hypothetical in R304.
+
+        Until R304 this branch was simply what a boot did, and the test below
+        asserted the constant's value directly.  The chief's line landed
+        (`runtime.py`, MOB_PICKUP_GROUND_AFTER, same PR that moved the
+        constant to "sent"), so asserting the old value is now asserting that
+        the work did not happen.  The BRANCH it covers is still live code --
+        the day anyone reverts the call site, the AST test drags this
+        constant back with it -- so the coverage is kept and only the way it
+        is reached changes: patched on the module, with a cleanup, exactly as
+        the sibling helper does it.
+        """
+        original = mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS
+        mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS = "composed_not_sent"
+        self.addCleanup(
+            setattr, mob_pickup_request, "GROUND_AFTER_CALL_SITE_STATUS",
+            original)
+
+    def test_a_boot_that_does_not_send_the_removal_clears_the_floor(self):
+        """WHAT A BOOT WITHOUT THE CALL SITE DOES, and why it is not a bug.
 
         pf-adversary's D1/D2: keeping the floor is only ever right when
-        something in the same reply takes the taken row off it.  Today
-        `runtime.py` returns the delta and drops the removal generation, so a
-        kept floor would leave the label of an object that is already in the
-        player's bag standing with no upper bound.  The lane sends yesterday's
-        clearing frame and says CLEARED, on a scene that still has a row.
+        something in the same reply takes the taken row off it.  On a boot
+        where `runtime.py` returns the delta and drops the removal
+        generation, a kept floor would leave the label of an object that is
+        already in the player's bag standing with no upper bound.  The lane
+        sends yesterday's clearing frame and says CLEARED, on a scene that
+        still has a row.  That was every boot until R304 and is now only a
+        reverted one.
         """
+        self._pretend_the_chiefs_line_had_not_landed()
         outcome, console = self._run(self._namespace(
             ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
         self.assertTrue(outcome.handled)
-        self.assertEqual(
-            mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS,
-            "composed_not_sent")
         self.assertTrue(outcome.delta[0].endswith(
             mob_pickup.DELTA_PC_SUFFIX_PIN))
         self.assertIn(

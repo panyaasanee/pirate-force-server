@@ -6669,7 +6669,72 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 if outcome.delta is None:
                     return []          # no reply, exactly as an unknown vital
                 pc, frame = outcome.delta
-                return [("MOB_PICKUP_REQUEST_DELTA", pc, frame, 0.0)]
+                # THE HELD BOUNDARY GENERATION GOES FIRST, and it is not
+                # tidiness (pf-adversary D3, round g1y1yc, driven on the real
+                # dispatcher).  This branch RETURNS -- it never reaches the
+                # final sum where _mob_loot_boundary_flush is normally
+                # consulted -- so before this line a pickup taken on the
+                # first dispatch after a GM warp left the stale arrival
+                # generation in the stash, and the NEXT ordinary poll
+                # published it: a PRE-take generation landing after the
+                # POST-take one, which by RE-082 puts the row the player is
+                # already carrying back on the floor.  The console meanwhile
+                # said PUBLISHED.  Flushing here is the same call the final
+                # sum makes and the same order MOB_LOOT_WIRING step 6 fixes
+                # for the kill path: boundary first, this dispatch's own
+                # ground generation LAST.
+                out = list(self._mob_loot_boundary_flush())
+                out.append(("MOB_PICKUP_REQUEST_DELTA", pc, frame, 0.0))
+                # CORE-REQUEST LANE-B 2026-09-02T12:54+07:00, ordered first
+                # for R304 by COO-DECISION 2026-09-02T14:46+07:00.  The
+                # removal publication the same outcome already composed: the
+                # scene's REMAINING rows, which is what takes the picked-up
+                # object off the client's floor (RE-082, a static reading: a
+                # nonempty generation erases the keys it omits).
+                #
+                # NO CONDITION HERE ON PURPOSE.  outcome.ground_after is ()
+                # on every refusal, on a publication that refused, and when
+                # the taken row was the scene's last one, so an `if` at this
+                # call site would only restate what the never-raises call
+                # already decided -- and would be a second place to get it
+                # wrong.  Both entries carry delay 0.0 and ride one return.
+                #
+                # ORDER MATTERS ONE WAY ONLY: the ground publication must not
+                # go out BEFORE the delta.  The delta is the answer to the
+                # click; the floor is the consequence of it.
+                out += [("MOB_PICKUP_GROUND_AFTER", gpc, gframe, 0.0)
+                        for gpc, gframe in outcome.ground_after]
+                # AND THE OTHER HALF OF D3, which the flush above cannot
+                # reach: the flush holds its frames while the arrival census
+                # has neither committed nor refused, so on the first
+                # dispatches after a warp it returns [] and the stash stays
+                # full.  A generation published HERE is the scene's whole
+                # remaining floor, measured after the take -- it supersedes
+                # anything composed for that same scene earlier, and letting
+                # the older one out on a later poll is the rollback this
+                # branch exists to prevent.  Dropped BY NAME, never
+                # silently, and only for the scene the session is standing
+                # in: a stash tagged for another scene is the flush's own
+                # named refusal to make, not this branch's.
+                if outcome.ground_after and self.mob_loot_boundary_frames_pending:
+                    standing = (
+                        world_scene_folder.scene_folder_for_scene_id(
+                            selected.position.scene_id)
+                        if selected is not None else None
+                    )
+                    if (standing is not None
+                            and self.mob_loot_boundary_frames_scene
+                            == mob_loot.scene_key(standing)):
+                        superseded = len(
+                            self.mob_loot_boundary_frames_pending)
+                        self.mob_loot_boundary_frames_pending = ()
+                        self.mob_loot_boundary_frames_scene = None
+                        self.events.append(
+                            "mob_loot_boundary_superseded_by_pickup_"
+                            f"{mob_loot.scene_key(standing)}_frames_"
+                            f"{superseded}"
+                        )
+                return out
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
