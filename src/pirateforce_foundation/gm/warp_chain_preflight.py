@@ -46,6 +46,24 @@ tester looking for a bug that is not there.  Scene 2 is therefore asked of
 its own arm, with the same arguments the runtime's call site passes, and
 ``tests/test_gm_warp_chain_preflight.py`` reads that call site's source to
 keep the two from drifting.
+
+TWO KINDS OF NUMBER, SAID OUT LOUD.  Eleven of the thirteen rows are obtained
+by calling the very composer the runtime calls and counting the bytes that
+come back.  Scenes 1 and 2 have no composer: their rosters ship from arms
+inside ``runtime.py``, a file this lane may not touch, so those two rows are a
+RECONSTRUCTION of chief's call.  Both kinds used to print identically, which
+left a tester with no way to know which number to doubt when the screen
+disagreed -- pf-adversary's closing question on the round that shipped this
+module.  Every row now carries ``route=``, the summary lists the reconstructed
+scenes as ``mirrored_not_measured``, and the AST gates in the test file turn a
+drift in either call site red instead of silent.
+
+AND THE LAST MAP OF THE CHAIN NOW PRINTS ITS NUMBER.  The owner's list closes
+on scene 1, which is judged only after one step, and the count for that step
+was being computed into ``actor_count`` and dropped by ``render`` -- the same
+defect as pf-adversary D4 (a field computed with care and shown to nobody),
+one field over.  ``actors_after_one_step`` is on every line now, ``n/a``
+wherever this tool predicts nothing, never ``0``.
 """
 
 from __future__ import annotations
@@ -82,6 +100,40 @@ SOURCE_HELD_UNTIL_THE_PLAYER_MOVES = "held_until_the_player_moves"
 SOURCE_SHUT_TO_PLAYERS = "shut_to_players"
 SOURCE_NOTHING = "nothing"
 
+# HOW the number under it was obtained.  Not decoration: the counts on this
+# console come from two different kinds of derivation and only one of them is
+# the route the runtime actually walks.  pf-adversary closed the round that
+# shipped this module with the question this field answers -- "when preflight
+# and runtime disagree, what in the OUTPUT tells her which one to doubt" --
+# and the honest answer that day was "nothing", for scenes 1 and 2.
+#
+# `production_composer`: the tool called the very seam the runtime calls
+# (`composer.compose`) and counted the bytes that came back.  A disagreement
+# here means the world changed between the two runs, not that the tool guessed.
+#
+# `mirrored_runtime_arm`: scenes 1 and 2 have NO composer.  Their rosters ship
+# from arms inside `runtime.py`, which this lane may not touch and may not
+# import a call site from, so the tool RECONSTRUCTS the call chief's file
+# makes.  A reconstruction can drift from its original; the AST gates in
+# `tests/test_gm_warp_chain_preflight.py` turn that drift red instead of
+# silent, but they cannot make the reconstruction into the real thing.
+ROUTE_PRODUCTION_COMPOSER = "production_composer"
+ROUTE_MIRRORED_RUNTIME_ARM = "mirrored_runtime_arm"
+ROUTE_NONE = "none"
+
+# Printed once per run, under PRECONDITION.  A tester who sees two rows
+# disagree with her screen needs to know which of them this tool derived and
+# which it copied.
+ROUTE_LEGEND = (
+    "production_composer=this tool called the composer the runtime calls and "
+    "counted the bytes; mirrored_runtime_arm=scenes 1 and 2 have no composer, "
+    "so this tool REBUILDS runtime.py's own call and its number is only as "
+    "true as that reconstruction (AST gates in the tests fail on drift); "
+    "scene 1's number additionally assumes a boot with no "
+    "--world-census-actors, a flag that selects another rung for that scene "
+    "alone"
+)
+
 # `runtime.py:993`.  Printed with every run, because a boot that fails this
 # ships no census on any map and would otherwise read as thirteen bugs.
 BOOT_PRECONDITION = (
@@ -106,6 +158,7 @@ class ScenePreflight:
     scene_id: int
     gm_name: str
     source: str
+    route: str
     module: str | None
     actor_count: int | None
     on_arrival: bool
@@ -133,11 +186,12 @@ def _gm_name(scene_id: int) -> str:
 
 
 def _row(scene_id: int, source: str, module: Any, count: Any, arrival: bool,
-         note: str) -> ScenePreflight:
+         note: str, route: str = ROUTE_NONE) -> ScenePreflight:
     return ScenePreflight(
         scene_id=scene_id,
         gm_name=_gm_name(scene_id),
         source=source,
+        route=route,
         module=module,
         actor_count=count,
         on_arrival=arrival,
@@ -215,11 +269,13 @@ def preflight_for(
             return _row(
                 scene_id, SOURCE_NOTHING, "runtime.py", None, False,
                 "the bg0002 arm refused: %s" % type(error).__name__,
+                route=ROUTE_MIRRORED_RUNTIME_ARM,
             )
         return _row(
             scene_id, SOURCE_RUNTIME_BG0002_ARM, "runtime.py", count, True,
             "ships from the runtime's own arm, not from lane_hooks; the "
             "everyday arrival seam reports clear/0 for this scene",
+            route=ROUTE_MIRRORED_RUNTIME_ARM,
         )
 
     # SCENE 1 SECOND, and for the same structural reason as scene 2: there are
@@ -242,22 +298,40 @@ def preflight_for(
     # which is the design and not a defect.
     if scene_id == world_population.SCENE_ID:
         try:
+            # THE RUNTIME'S OWN EXPRESSION, not a lookalike.  `runtime.py`
+            # takes the count for this arm from `census_count_for_dispatch()`
+            # on the flagless boot GT-192 asks for, and that call returns the
+            # LABEL with the number precisely so a caller cannot reconstruct
+            # the reason from the count.  This branch used to pass
+            # `effective_actor_count()` with `COUNT_SOURCE_MEASURED_CEILING`
+            # hand-picked next to it -- measured: same bytes today, because
+            # `census_count_for_dispatch` calls `effective_actor_count`
+            # itself, but a DIFFERENT recorded reason
+            # (`measured_client_ceiling` where the runtime records
+            # `full_census`), which is exactly the misreport that function's
+            # own docstring exists to prevent.  Mirroring an arm means
+            # copying the expression, not a number that agrees with it today.
+            count_for_dispatch, count_source = (
+                world_population.census_count_for_dispatch()
+            )
             generation = world_population.build_world_population(
-                legacy, anchor, world_population.effective_actor_count(),
+                legacy, anchor, count_for_dispatch,
                 scene_id=scene_id,
-                count_source=world_population.COUNT_SOURCE_MEASURED_CEILING,
+                count_source=count_source,
             )
             count = world_population.wire_actor_count(generation)
         except Exception as error:  # noqa: BLE001
             return _row(
                 scene_id, SOURCE_NOTHING, "runtime.py", None, False,
                 "the home arm refused: %s" % type(error).__name__,
+                route=ROUTE_MIRRORED_RUNTIME_ARM,
             )
         return _row(
             scene_id, SOURCE_HELD_UNTIL_THE_PLAYER_MOVES,
             "runtime.py", count, False,
             "EMPTY ON ARRIVAL BY DESIGN (KA1A-AMENDMENT 20260901_1120); "
             "take ONE STEP and the census follows",
+            route=ROUTE_MIRRORED_RUNTIME_ARM,
         )
 
     composer = lane_hooks.scene_census_composer(scene_id)
@@ -289,16 +363,19 @@ def preflight_for(
                 scene_id, SOURCE_SHUT_TO_PLAYERS, composer.module, None, False,
                 "SHUT ON PURPOSE: the composer declined (login_entry_allowed "
                 "is false for this scene); an empty screen here is the design",
+                route=ROUTE_PRODUCTION_COMPOSER,
             )
         return _row(
             scene_id, SOURCE_NOTHING, composer.module, None, False,
             "the composer raised: %s -- the runtime would latch "
             "world_census_refused and silence later maps too" % outcome,
+            route=ROUTE_PRODUCTION_COMPOSER,
         )
 
     return _row(
         scene_id, SOURCE_LANE_COMPOSER, composer.module, count, True,
         "composed by the registered lane hook at this scene's pinned spawn",
+        route=ROUTE_PRODUCTION_COMPOSER,
     )
 
 
@@ -389,23 +466,32 @@ def render(rows: Any) -> tuple[str, ...]:
     THE PRECONDITION LEADS, because it can invalidate every line under it.
     """
     rows = tuple(rows)
-    lines = ["%s PRECONDITION %s" % (CONSOLE_TOKEN, BOOT_PRECONDITION)]
+    lines = [
+        "%s PRECONDITION %s" % (CONSOLE_TOKEN, BOOT_PRECONDITION),
+        "%s ROUTE %s" % (CONSOLE_TOKEN, ROUTE_LEGEND),
+    ]
     by_design = []
     shut = []
     unexplained = []
+    mirrored = []
     for row in rows:
         lines.append(
-            "%s scene=%d actors_on_arrival=%s source=%s name=%s why=%s"
+            "%s scene=%d actors_on_arrival=%s actors_after_one_step=%s "
+            "source=%s route=%s name=%s why=%s"
             % (
                 CONSOLE_TOKEN,
                 row.scene_id,
                 ("?" if row.actor_count is None else str(row.actor_count))
                 if row.on_arrival else "0",
+                _after_one_step(row),
                 row.source,
+                row.route,
                 _ascii(row.gm_name),
                 _ascii(row.note),
             )
         )
+        if row.route == ROUTE_MIRRORED_RUNTIME_ARM:
+            mirrored.append(row.scene_id)
         if row.on_arrival:
             continue
         if row.source == SOURCE_HELD_UNTIL_THE_PLAYER_MOVES:
@@ -419,13 +505,14 @@ def render(rows: Any) -> tuple[str, ...]:
     # as "scene 1" (pf-adversary D9).  The brackets say which.
     lines.append(
         "%s chain_scenes=%d empty_until_you_step=[%s] shut_on_purpose=[%s] "
-        "empty_unexplained=[%s]"
+        "empty_unexplained=[%s] mirrored_not_measured=[%s]"
         % (
             CONSOLE_TOKEN,
             len(rows),
             _joined(by_design),
             _joined(shut),
             _joined(unexplained),
+            _joined(mirrored),
         )
     )
     lines.append(
@@ -434,6 +521,31 @@ def render(rows: Any) -> tuple[str, ...]:
         "is a real finding for GT-192, not a preflight error" % CONSOLE_TOKEN
     )
     return tuple(lines)
+
+
+def _after_one_step(row: Any) -> str:
+    """The number a tester grades on the ONE map that is empty when she lands.
+
+    THIS FIELD EXISTS BECAUSE THE NUMBER WAS BEING COMPUTED AND SHOWN TO
+    NOBODY.  ``preflight_for`` has always put the home arm's wire count in
+    ``actor_count`` for scene 1, and a test named
+    ``test_it_still_says_what_she_gets_after_the_step`` has always asserted it
+    is there -- but ``render`` printed ``actors_on_arrival=0`` for that row and
+    dropped the count on the floor, so the last map of the owner's own chain,
+    the one ``COO-DECISION 2026-09-02T05:44+07:00`` says to judge only after
+    one step, reached her console with no number to judge against.  That is
+    pf-adversary D4 (a field computed with care and never printed) happening a
+    second time on a different field, in a module that had already been fixed
+    for it once.
+
+    ``n/a`` IS NOT ZERO.  Every other row has already shipped its census on
+    arrival, and this tool has measured nothing about what a step does there;
+    printing a number would be an invention and printing ``0`` would read as a
+    bug.  ``n/a`` says: no second prediction is made for this row.
+    """
+    if row.source != SOURCE_HELD_UNTIL_THE_PLAYER_MOVES:
+        return "n/a"
+    return "?" if row.actor_count is None else str(row.actor_count)
 
 
 def _joined(scene_ids: Any) -> str:

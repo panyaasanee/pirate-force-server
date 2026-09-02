@@ -7461,3 +7461,53 @@ this tool does not model that.
 **Not measured, carried forward as his own suspicion:** `main()` uses the DEFAULT scene registry,
 not a boot-loaded one. `preflight_for` accepts an injected registry (that is how D1's fix is
 tested), but nothing yet reads the registry a scenario boot would install.
+
+## Round `xodi87` (2026-09-02T17:xx+07:00) -- the preflight says which numbers it derived and which it copied, and the last map of the chain finally prints its number
+
+Same file, no new module: `gm/warp_chain_preflight.py` + `tests/test_gm_warp_chain_preflight.py`.
+Three items, all of them opened by the previous round's own written-down debt rather than by a new
+letter.
+
+**1. `actors_after_one_step` -- a number that was computed and shown to nobody.** The owner's chain
+CLOSES on scene 1, and `COO-DECISION 20260902_0544` says that map is judged only after one step.
+The count for that step has been in `ScenePreflight.actor_count` since the module shipped, and a
+test named `test_it_still_says_what_she_gets_after_the_step` asserted it was there -- but `render`
+printed `actors_on_arrival=0` for that row and dropped it. The console she actually reads carried
+NO number for the last map of her own chain. That is pf-adversary D4 (a field computed with care
+and never printed) repeating one field over, in a module already fixed for it once. Every row now
+prints `actors_after_one_step=`; scene 1 prints `108`, every other row prints `n/a` -- never `0`,
+because `0` reads as a bug and this tool has measured nothing about what a step does on a map whose
+census already shipped on arrival.
+
+**2. `route=` -- pf-adversary's closing question from round `0aij4z`, answered.** He asked: when
+the preflight and the runtime disagree, what in the OUTPUT tells her which to doubt? Eleven rows
+walk the runtime's own route (`composer.compose`, counted off the bytes). Scenes 1 and 2 have no
+composer and are a RECONSTRUCTION of a call inside `runtime.py`. Both printed identically. Now
+every row carries `route=production_composer` or `route=mirrored_runtime_arm`, a `ROUTE` legend
+line prints once under `PRECONDITION`, and the summary ends with `mirrored_not_measured=[2,1]`.
+The legend also names the boot flag this tool does not model: `--world-census-actors` selects
+another rung, for scene 1 alone.
+
+**3. The home arm is mirrored from the runtime's own expression, and it was not.** `runtime.py`
+takes scene 1's count from `world_population.census_count_for_dispatch()` on the flagless boot
+`GT-192` asks for -- one call returning the number AND the reason, precisely so a caller cannot
+reconstruct the reason from the number. This module passed `effective_actor_count()` with
+`COUNT_SOURCE_MEASURED_CEILING` hand-picked beside it. **Measured before changing anything: the
+two build BYTE-IDENTICAL frames today (both 108 on the wire), so the printed number was never
+wrong.** What differed was the recorded reason -- `measured_client_ceiling` where the runtime
+records `full_census` -- exactly the misreport `census_count_for_dispatch`'s own docstring exists
+to prevent, and a difference that would only start moving bytes on the day a client ceiling is
+finally measured. The branch now copies the expression. Scene 1's call site also gained the AST
+gate scene 2 already had, and it is the arm with the extra moving part (the boot flag above).
+
+**Mutants run before the adversary pass, five on this module and three on `runtime.py`
+(reverted, never committed) -- all eight die:** `_after_one_step` always `n/a`; `render` drops
+`route=`; scene 1 claims `production_composer`; the old hand-picked `count_source` restored;
+`_after_one_step` printing a number on every row; and in `runtime.py` a literal count at the home
+call site, an aliased second call site, and the flagless branch no longer calling
+`census_count_for_dispatch()`.
+
+**Still not closed, carried forward:** the two mirrored rows are still reconstructions, and no
+AST gate can turn a reconstruction into the real thing -- what stands behind them is
+`test_gm_warp_chain_census_shipped.py` driving the real dispatcher, a test rather than a line on
+her console. And `main()` still uses the DEFAULT scene registry, not a boot-loaded one.
