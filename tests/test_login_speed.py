@@ -48,12 +48,23 @@ the bytes leaving the composer carry the row's number.  Whether the character
 then WALKS at that speed on a real screen is an attended ticket, and the
 `GT-193` evidence says that half is not a formality.
 
-And it does not prove anything CHANGES today.  On a fresh database
-`speed_walk` is NULL for every character born after `migrations/008`, so the
-production path takes `ROW_HAS_NO_VALUE` and sends the same constant `main`
-sends -- `test_a_row_with_no_value_sends_the_constant` is that statement, on
-purpose, rather than a gap in coverage.
+And it does not prove anything CHANGES today -- but the REASON is no longer
+the one this docstring gave when it was written, and the correction matters
+more than the sentence it replaces.  It used to say `speed_walk` is NULL for
+every character born after `migrations/008`.  `migrations/009` then landed
+with `speed_walk REAL DEFAULT 400.0`, so a newborn's row now HOLDS a value
+and the production path takes `FROM_ROW`, not `ROW_HAS_NO_VALUE`.  Nothing on
+the wire changes anyway, because that DEFAULT is numerically the same as
+`player_wire.PLAYER_LOGIN_MOVEMENT_SPEED` -- which is exactly the hazard:
+the two branches are byte-identical on a fresh database, so no assertion
+about the NUMBER can tell them apart, and one that tries is unfalsifiable.
+Only the ATTACHED VALUE separates them (`session.py` attaches on `FROM_ROW`
+alone), and that is what `test_a_row_with_no_value_sends_the_constant` now
+pins, after emptying the column itself instead of trusting a migration
+another lane owns.  [pf-adversary, round `eww6tv`.]
 """
+import ast
+import sqlite3
 import struct
 import sys
 import tempfile
@@ -551,18 +562,69 @@ class TheRealLoginPathTests(_LegacyCase):
             "another number -- which is the entire defect this change is for")
 
     def test_a_row_with_no_value_sends_the_constant(self):
-        """And this is what a FRESH database actually does today.
+        """The ROW_HAS_NO_VALUE branch, driven end to end.
 
-        `migrations/006` adds the column NULLable with no DEFAULT and `008`
-        is a one-shot seed of the EXISTING cohort, so a character born after
-        `008` has no value here.  A round that reports this change as a
-        visible feature is reporting something nobody measured -- this test
-        is what that statement rests on.
+        !! THIS TEST'S ORIGINAL PREMISE WENT STALE UNDER IT AND IT KEPT
+        PASSING, WHICH IS THE WHOLE REASON THE BODY BELOW LOOKS LIKE THIS.
+        It used to say: "`migrations/006` adds the column NULLable with no
+        DEFAULT and `008` is a one-shot seed of the EXISTING cohort, so a
+        character born after `008` has no value here" -- and it asserted only
+        that the constant appears on the wire.  `migrations/009` then landed
+        with `speed_walk REAL DEFAULT 400.0`, so a newborn's row DOES hold a
+        value, this test began walking FROM_ROW instead of ROW_HAS_NO_VALUE,
+        and it stayed green ONLY because that DEFAULT is numerically the same
+        as `player_wire.PLAYER_LOGIN_MOVEMENT_SPEED`.  Two different branches,
+        one byte-identical wire, and nothing said so.  [pf-adversary, round
+        `eww6tv`; the same measurement retired the sibling claim in
+        `login_speed.py`'s docstring.]
+
+        So the row is emptied explicitly rather than assumed empty -- a
+        fixture that STATES its precondition instead of inheriting it from a
+        migration another lane owns -- and the branch is pinned by the
+        attached value, which is `None` for every reason except FROM_ROW, not
+        by a number that both branches produce.
         """
         character = self._born("plain1")
+        # Raw SQL on purpose: `write_typed_attributes` is the write door for
+        # VALUES, and what this test needs is the ABSENCE of one.  Emptying
+        # the column is also the only way to reach this branch now that 009
+        # fills it at birth.
+        # NOT `with sqlite3.connect(...) as db:`.  That form commits and does
+        # NOT close, the surviving handle is invisible on Linux, and on the
+        # Windows gate `TemporaryDirectory.cleanup` then raises
+        # `PermissionError: [WinError 32]` at teardown.  It is what took this
+        # whole change down once already as `#610` (`1 failed / 7148 passed`,
+        # the pull request closed by the workflow, the diff lost, and `main`
+        # left red for every lane meanwhile) after `#495` before it.
+        # This comment is NOT what protects the line -- comments do not fail.
+        # `NoUnclosedSqliteHandleInThisFileTests` at the bottom of this file
+        # does, and it was measured going red on both spellings of the leak
+        # (the bare `with`, and dropping only `close()`).  Deleting that class
+        # takes this file back to `32 passed` with the leak in place, which is
+        # exactly the state `#610` was written and measured in.
+        db = sqlite3.connect(self.path)
+        try:
+            db.execute(
+                "UPDATE characters SET speed_walk = NULL WHERE id = ?",
+                (character.id,))
+            db.commit()
+        finally:
+            db.close()
+        self.assertIsNone(
+            self.store.read_typed_attributes(character.id).get(
+                login_speed.COLUMN),
+            "the fixture failed to empty the column, so this test would be "
+            "measuring FROM_ROW again while claiming ROW_HAS_NO_VALUE")
+
         session = self._session("plain1")
-        _selected, (pc, _frame) = session.select_and_start(character.selector)
+        selected, (pc, _frame) = session.select_and_start(character.selector)
+
         self.assertIn(self.legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED), pc)
+        # THE LINE THAT MAKES THIS TEST FALSIFIABLE.  `session.py` attaches
+        # the resolved value only `if resolved.came_from_the_row`, so `None`
+        # here is the branch itself, distinguishable from a row that happened
+        # to hold the constant.
+        self.assertIsNone(selected.movement_speed)
 
     def test_a_zero_in_the_row_does_not_reach_the_client(self):
         """`/speed 0` stores and encodes; it must not brick a character.
@@ -644,6 +706,109 @@ class TheRealLoginPathTests(_LegacyCase):
             "AttributeError", resolved.detail,
             "the reason must name what actually went wrong; two different "
             "database faults printing one identical line is not evidence")
+
+
+class NoUnclosedSqliteHandleInThisFileTests(unittest.TestCase):
+    """The only thing in this round that can actually GO RED.
+
+    !! THIS CLASS IS HERE BECAUSE PROSE HAS NOW FAILED TWICE.  The trap it
+    pins -- `with sqlite3.connect(path) as db:`, which commits on exit and
+    does NOT close -- has closed two pull requests a month apart: `#495`
+    (`1 failed / 5471 passed`) and `#610` (`1 failed / 7148 passed`, gate run
+    `33660327427`, on the very test above).  `#610` was itself the repair for
+    a red `main`, so the leak took `main` down for every lane, not just this
+    one.  After `#495` the resolution was written down; a month later `#610`
+    walked into the identical hole four metres outside the fence, because the
+    only mechanism that could go red was scoped by `Path(__file__)` to one
+    other module.  A comment does not fail.  A round file does not fail.  An
+    `AGENTS.md` line does not fail.  This does.
+
+    MEASURED, on the commit this class ships with:
+      * the shipped `try/finally: db.close()` form -- GREEN.
+      * restore the bare `with` form and change nothing else -- RED here,
+        and `32 passed` with this class deleted.  That second number is the
+        state `#610` was written and measured in.
+      * keep `db.commit()` and drop only `db.close()` -- RED here, `32
+        passed` with this class deleted.
+
+    Scoped to THIS FILE on purpose, and the scope is the honest part.
+    `COO-DECISION 20260903_0052` point 1 requires a red-`main` recovery to be
+    the smallest change possible and forbids adding a new `tests/test_*.py`
+    FILE; a class in a file the same ticket already edits is neither a new
+    file nor other work.  The repository-wide version -- lifting the runtime
+    `/proc/self/fd` guard out of `tests/test_persistence_typed_attr_columns.py`
+    into a helper every lane can import, and widening a source pin that today
+    reads exactly one module -- is a separate ticket, and this class is what
+    holds the line until it lands.
+
+    An AST pin rather than a text search: `grep` cannot tell a real call from
+    the same characters inside this docstring, and exempting the docstring
+    would put a hole in the pin for the sake of the pin.
+    """
+
+    def _connect_calls(self, tree):
+        """Every `sqlite3.connect(...)` call node in this file."""
+        return [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "connect"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "sqlite3"
+        ]
+
+    def _tree(self):
+        return ast.parse(Path(__file__).read_text(encoding="utf-8"))
+
+    def test_this_file_never_writes_the_leaking_with_form(self):
+        """`with sqlite3.connect(...) as db:` -- the exact line that died."""
+        tree = self._tree()
+        leaking = sorted(
+            item.context_expr.lineno
+            for node in ast.walk(tree) if isinstance(node, ast.With)
+            for item in node.items
+            if item.context_expr in self._connect_calls(tree)
+        )
+        self.assertEqual(
+            leaking, [],
+            "`with sqlite3.connect(...)` commits but does NOT close.  On "
+            "Linux the surviving handle is silent; on the Windows gate "
+            "TemporaryDirectory.cleanup raises PermissionError [WinError 32] "
+            "at TEARDOWN, after the test body has printed its correct "
+            "result.  Write `db = sqlite3.connect(...)` with "
+            "`try: ... db.commit() / finally: db.close()` instead.  "
+            f"Offending line(s): {leaking}")
+
+    def test_every_connection_this_file_opens_is_closed(self):
+        """The other half: assigned, committed, and then never closed.
+
+        The `with` form is not the only way to leak one.  Dropping just the
+        `finally: db.close()` from the fixture above leaves the same three
+        descriptors open and is equally invisible on Linux, so pinning only
+        the `with` spelling would pin the typo rather than the defect.
+        """
+        tree = self._tree()
+        calls = self._connect_calls(tree)
+        unclosed = []
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            owned = [c for c in calls if any(c is n for n in ast.walk(function))]
+            if not owned:
+                continue
+            closes = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "close"
+                for node in ast.walk(function))
+            if not closes:
+                unclosed.append((function.name, owned[0].lineno))
+        self.assertEqual(
+            unclosed, [],
+            "a function opens a sqlite connection and never calls .close() "
+            "on anything.  On the Windows gate that handle makes "
+            "TemporaryDirectory.cleanup raise PermissionError [WinError 32] "
+            f"at teardown.  Offender(s): {unclosed}")
 
 
 if __name__ == "__main__":

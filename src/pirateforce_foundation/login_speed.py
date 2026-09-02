@@ -45,21 +45,30 @@ WHAT THIS DOES NOT CLAIM
   construction value (`player_wire`'s citation of the BasicAttr ctor
   disassembly).  What was wrong was sending the constant even when the row
   held something else.
-* !! IT DOES NOT CLAIM THAT ANY ROW HOLDS ANYTHING ELSE TODAY, AND ON A FRESH
-  DATABASE NONE DOES.  `migrations/006` adds this column NULLable with no
-  DEFAULT; `migrations/008` is a one-shot `UPDATE ... WHERE speed_walk IS
-  NULL` that, in that file's own words, "runs against an empty table [on a
-  fresh install] and every later character has `speed_walk` NULL forever".
-  So on the run-copy database `/speed` requires, the `FROM_ROW` branch below
-  does not execute at all until something writes the column -- every login
-  takes `ROW_HAS_NO_VALUE` and sends the constant, exactly as `main` does.
-  This module is the seam that makes the row reach the wire; it is not
-  evidence that anything on screen changes today, and a round that reports it
-  as a visible feature is reporting something nobody measured.
-  (A migration giving the column a DEFAULT was approved in `COO-DECISION
-  20260902_1607` and is NOT on `main` at the time this file was written --
-  measured, not assumed.  When it lands, the birth row stops being NULL and
-  this paragraph is the thing to re-check, not to delete.)
+* !! IT DOES NOT CLAIM THAT ANY ROW HOLDS ANYTHING ELSE TODAY -- AND THE
+  REASON WHY CHANGED UNDER THIS PARAGRAPH, WHICH IS WORSE THAN IT SOUNDS.
+  This text used to say: `migrations/006` adds the column NULLable with no
+  DEFAULT and `008` is a one-shot seed of the existing cohort, so every later
+  character has `speed_walk` NULL forever and every login takes
+  `ROW_HAS_NO_VALUE`.  It ended by naming its own expiry condition -- "a
+  migration giving the column a DEFAULT was approved in `COO-DECISION
+  20260902_1607` and is NOT on `main` at the time this file was written ...
+  when it lands, this paragraph is the thing to re-check".
+  IT LANDED (`migrations/009_character_birth_defaults.sql`, `speed_walk REAL
+  DEFAULT 400.0`), so a newborn's row DOES hold a value and a fresh-database
+  login now takes `FROM_ROW`, not `ROW_HAS_NO_VALUE`.
+  Nothing reaching the client changed, and that is the trap rather than the
+  reassurance: `400.0` IS `player_wire.PLAYER_LOGIN_MOVEMENT_SPEED`, so on a
+  fresh database "read the row" and "sent the constant" are BYTE-IDENTICAL on
+  the wire.  Only the value attached to the character separates them (the
+  call site attaches on `FROM_ROW` alone), so any test that grades this seam
+  by the NUMBER is unfalsifiable, and one was written and measured green on
+  the exact bug before being removed [pf-adversary, round `eww6tv`; see
+  `tests/test_gm_login_scene_override_position_resync.py` and
+  `tests/test_login_speed.py::TheRealLoginPathTests`].
+  This module is still the seam that makes the row reach the wire; it is
+  still not evidence that anything on screen changes today, and a round that
+  reports it as a visible feature is reporting something nobody measured.
 * It does not claim this makes `GT-193`'s symptom go away.  `COO-DECISION
   20260902_1846` wrote that nonclaim itself and this module stands on it: all
   this does is make the value that reaches the screen the value in the row.
