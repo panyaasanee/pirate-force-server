@@ -477,11 +477,28 @@ class NothingSendsItTests(unittest.TestCase):
        string, not in `Call.func`.  Strings count now.
     E. The send at module scope, outside any `def`.  Module level is walked.
 
-    WHAT IT STILL IS, said plainly rather than left to be discovered: a
-    SOURCE scan.  It cannot see a send assembled at runtime out of pieces no
-    single file names, and a determined author can still get past it.  Its
-    zero is evidence that nobody has written the obvious thing, not proof that
-    the column cannot reach a client.
+    F. `SELECT *` plus a row read by key (`row["speed_walk"]`) -- the marker
+       wanted the column name and the word SELECT in the SAME string literal,
+       and `SELECT *` puts them in different ones.  This is the LIKELIER of
+       the two raw spellings, since reading by key is what `SELECT *` is for.
+    G. The column name assembled as `"speed_" + "walk"`.  Constant string
+       concatenation is folded now.
+
+    *** WHAT IT STILL IS, AND WHY THAT CANNOT BE FIXED BY ADDING A NINTH ROW
+    TO THAT LIST.  This is a SOURCE scan, and every strengthening it has had
+    came from an adversary naming one more spelling.  A property policed by a
+    growing list of defeated spellings HAS NO CLOSURE CONDITION: F and G were
+    found the same way A through E were, and nothing here says the list is
+    finished, because nothing can.  It cannot see a send assembled at runtime
+    out of pieces no single file names.
+
+    So read its zero for exactly what it is: evidence that nobody has written
+    the obvious thing, not proof that the column cannot reach a client.  The
+    day `speed_walk` legitimately has to reach one -- under its own owner/COO
+    decision, which `COO-DECISION 20260902_0742` point 4 reserves -- this
+    class must be REWRITTEN, not widened: the property then belongs at the
+    send site, as a check that the value on the wire is the value on the row,
+    and this scan should be deleted rather than given an exemption.
     """
 
     #: A call to any of these is "putting a typed value on the wire".
@@ -508,6 +525,7 @@ class NothingSendsItTests(unittest.TestCase):
         except SyntaxError:
             return None
         seen = set()
+        strings = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Name):
                 seen.add(node.id)
@@ -515,10 +533,26 @@ class NothingSendsItTests(unittest.TestCase):
                 seen.add(node.attr)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 seen.add(node.value)
-                # a raw SQL read of the column itself, not only the API
-                lowered = node.value.lower()
-                if "speed_walk" in lowered and "select" in lowered:
-                    seen.add("__raw_speed_walk_select__")
+                strings.append(node.value)
+            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                # `"speed_" + "walk"` is the column name, spelled to slip past
+                # a scan that only looks at whole literals.  Folded here.
+                left, right = node.left, node.right
+                if (isinstance(left, ast.Constant)
+                        and isinstance(left.value, str)
+                        and isinstance(right, ast.Constant)
+                        and isinstance(right.value, str)):
+                    joined = left.value + right.value
+                    seen.add(joined)
+                    strings.append(joined)
+        blob = " ".join(strings).lower()
+        # A RAW read of the column, in either of the two spellings that reach
+        # it.  The first version of this marker required the column name and
+        # the word SELECT in the SAME string literal, which `SELECT *` splits
+        # apart -- the likelier spelling of the two, since a row read by key
+        # (`row["speed_walk"]`) is what a `SELECT *` is FOR.
+        if "select" in blob and "characters" in blob and "speed_walk" in blob:
+            seen.add("__raw_speed_walk_select__")
         return seen
 
     @classmethod
@@ -530,7 +564,7 @@ class NothingSendsItTests(unittest.TestCase):
             "__raw_speed_walk_select__" in seen)
         return reads and bool(seen & set(cls.ENCODERS))
 
-    def test_the_predicate_catches_all_five_evasions_that_beat_the_first_one(self):
+    def test_the_predicate_catches_every_evasion_found_so_far(self):
         """The scan below is only worth running if it can fire.  Each string
         here is one shape the earlier version let through."""
         cases = {
@@ -548,6 +582,17 @@ class NothingSendsItTests(unittest.TestCase):
                                "    return encode_field(7, r['speed_walk'])\n"),
             "module_scope": ("VALUES = store.read_typed_attributes(1)\n"
                              "BLOCK = encode_block(VALUES)\n"),
+            "select_star_row_key": (
+                "def send(c):\n"
+                "    row = db.execute('SELECT * FROM characters WHERE id=?', "
+                "(c,)).fetchone()\n"
+                "    return encode_block({7: row['speed_walk']})\n"),
+            "concatenated_column_name": (
+                "_COL = 'speed_' + 'walk'\n"
+                "def send(c):\n"
+                "    row = db.execute('SELECT %s FROM characters WHERE id=?' "
+                "% _COL, (c,)).fetchone()\n"
+                "    return encode_field(7, row[0])\n"),
         }
         for label, source in cases.items():
             with self.subTest(evasion=label):
