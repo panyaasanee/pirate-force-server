@@ -2,19 +2,28 @@
 
 WHAT THIS PINS.  ``runtime.py``'s ChooseNPC dispatch composes its answer
 through lane A's responders, and those responders route the frame through
-``lane_hooks.lane_a_ground_preserve.compose_answer``.  That function keeps
-the ground list alive only when a real ``mob_loot.DropLedgerCell`` reaches
-it; with ``None`` it falls back to v141's own bytes and a row lying on this
-scene's floor is CLEARED by the answer to an unrelated click.  Lane A asked
-for the keyword (``pf_bridge notes_to_chief/20260903_0325``) and lane B's
-``20260903_0152`` item 2 named the two things that had to be on ``main``
+``lane_hooks.lane_a_ground_preserve.compose_answer``.  That function reaches
+the under-publication composer only when a real ``mob_loot.DropLedgerCell``
+is handed to it; with ``None`` it falls back to v141's own bytes.  Lane A
+asked for the keyword (``pf_bridge notes_to_chief/20260903_0325``) and lane
+B's ``20260903_0152`` item 2 named the two things that had to be on ``main``
 first -- ``caller_scene_fold`` and the under-publication composer.  Both are.
+
+WHAT THE DIFFERENCE IS, STATED AT THE LAYER IT WAS MEASURED AT.  One row
+standing in scene 2: the answer is 12,577 bytes with the keyword and 12,574
+without it, which is the delta lane A predicted from its own measurement.
+**Those three bytes are a MARKER, not the list** -- pf-adversary R314 (D1)
+measured the same 12,577 for 1, 3 and 5 rows, matching what
+``lane_a_ground_preserve``'s own docstring records for 1 vs 255.  That the
+CLIENT then keeps its ground pool is ``RE-130``'s claim ABOUT THE CLIENT and
+is proven nowhere in this repository.  So nothing in this file says a row
+"survives" on the player's floor: that sentence belongs to the
+client-observable layer, which has no result yet.  What is pinned is that
+the marker reaches the wire at all, and that it is scene-local.
 
 WHY IT IS A SEPARATE FILE FROM ``test_choose_npc_call_site_ledger.py``:
 that one pins the COMBAT ledger keyword and would stay green with the loot
-cell deleted.  Measured on this tree, one row standing in scene 2: the
-answer is 12,577 bytes with the keyword and 12,574 without it -- exactly
-the three bytes lane A predicted from its own measurement.
+cell deleted.
 
 THE HARNESS SHAPE is reproduced from ``test_choose_npc_call_site_ledger.py``
 rather than imported, for the reason that file gives for reproducing lane
@@ -32,6 +41,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import hashlib
 import io
 import random
 import sys
@@ -57,6 +67,9 @@ from pirateforce_foundation.gm.warp_target_record import (         # noqa: E402
     record_warp_target,
 )
 from pirateforce_foundation import lane_hooks                   # noqa: E402
+from pirateforce_foundation.lane_hooks import (                    # noqa: E402
+    lane_a_ground_preserve as ground_preserve,
+)
 from pirateforce_foundation.lane_hooks import (                    # noqa: E402
     lane_a_choose_npc_scene2 as responder_mod,
 )
@@ -266,35 +279,6 @@ class TheCallSiteHandsOverTheSessionLootCellTests(unittest.TestCase):
         return self._dispatch(
             state, self._choose_npc_pc(placement.actor_identity))
 
-    def _answered_tokens(self, console):
-        """The ANSWERED line as a set of whole tokens.
-
-        NOT ``assertIn("dead_at_ceiling=1", console)``: pf-adversary D3
-        measured that a responder miscounting the corpse debt by 12x prints
-        ``dead_at_ceiling=12``, which CONTAINS that substring, and the whole
-        lane stays green (38 passed).  A count is pinned by its whole token
-        or it is not pinned.
-        """
-        line = next(
-            (line for line in console.splitlines()
-             if f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_ANSWERED" in line),
-            None,
-        )
-        self.assertIsNotNone(line, console)
-        return set(line.split())
-
-    def _wound(self, state, target_identity, damage):
-        """Take HP off a live monster in the session's own ledger."""
-        state._sync_combat_scene_state()
-        row = state.mob_combat_ledger.balance_of(target_identity)
-        state.mob_combat_ledger = state.mob_combat_ledger.with_balance(
-            mob_combat.MobBalance(
-                target_identity, max(0, row.max_hp - damage), 1)
-        )
-        return row.max_hp
-
-    # ---- the pins ---------------------------------------------------
-
 
     def _row_count(self, state):
         return mob_loot.ground_rows_live_here(state.mob_loot_cell, "Bg0002")
@@ -312,13 +296,14 @@ class TheCallSiteHandsOverTheSessionLootCellTests(unittest.TestCase):
     def test_a_row_on_this_floor_survives_an_answer_to_another_click(
         self,
     ) -> None:
-        """The whole benefit of the keyword, measured through dispatch.
+        """The marker reaches the wire, measured through dispatch.
 
         A kill in scene 2 leaves loot on the ground.  The player then
         clicks a CIVILIAN -- nothing to do with the corpse -- and the
-        answer to that click either carries the standing row or wipes it
-        from the player's world until the next publication.  ``GT-204``
-        is written to watch exactly this sequence.
+        answer to that click is composed under the cell's own publication
+        instead of over it.  ``GT-204`` is written to watch this sequence
+        at the layer where a player could see a difference; this test does
+        not reach that layer and does not claim to.
 
         The mutant is applied in-process rather than by editing the file:
         withholding the cell from the same session, on the same click, is
@@ -341,10 +326,16 @@ class TheCallSiteHandsOverTheSessionLootCellTests(unittest.TestCase):
         finally:
             state.mob_loot_cell = held_back
 
+        # Lengths and digests in the message, never the frames: mutant (c)
+        # produced 76 KB of unreadable output when this dumped both bodies
+        # (pf-adversary R314 D6).
         self.assertNotEqual(
             with_cell, without_cell,
             "the standing ground row made no difference to the frame, so "
-            "the call site is not reaching the under-publication composer",
+            "the call site is not reaching the under-publication composer "
+            f"(len {len(with_cell)} vs {len(without_cell)}, "
+            f"sha1 {hashlib.sha1(with_cell).hexdigest()[:12]} vs "
+            f"{hashlib.sha1(without_cell).hexdigest()[:12]})",
         )
         self.assertGreater(
             len(with_cell), len(without_cell),
@@ -378,8 +369,69 @@ class TheCallSiteHandsOverTheSessionLootCellTests(unittest.TestCase):
             state.mob_loot_cell = held_back
 
         self.assertEqual(
-            with_cell, without_cell,
+            len(with_cell), len(without_cell),
+            "passing the cell changed the frame LENGTH on a clean floor",
+        )
+        self.assertEqual(
+            hashlib.sha1(with_cell).hexdigest(),
+            hashlib.sha1(without_cell).hexdigest(),
             "passing the cell changed the frame on a clean floor",
+        )
+
+    def test_no_other_scene_is_armed_with_this_scenes_ground_rows(
+        self,
+    ) -> None:
+        """The cell now reaches EVERY registered responder, not just scene 2.
+
+        pf-adversary R314 (D3): before this test, replacing the fold in
+        ``compose_answer`` with a hard-coded ``"Bg0002"`` -- so that every
+        scene's frame is armed with scene 2's rows -- left the whole file
+        green.  The keyword was pinned, scene 2's behaviour was pinned, and
+        the other twelve registered scenes were executed by nothing.
+
+        Composed directly rather than through thirteen warps: driving each
+        scene through ``dispatch`` costs minutes, and the defect this
+        catches lives in the fold that ``compose_answer`` owns.  Scene 2
+        keeps its dispatcher-driven pin above.
+
+        This is the guard lane B's ``GROUND_LIVENESS_SCENE_MISMATCH`` and
+        ``..._SCENE_ID_AMBIGUOUS`` exist for, seen from the call site's
+        side.  It reads the live registry, so a scene registered tomorrow
+        is covered the day it appears -- and it names lane A as the owner
+        of ``compose_answer`` if it ever has to go red across a rename.
+        """
+        state, _target = self._killed_session_standing_in_scene_2()
+        self.assertEqual(
+            self._row_count(state), 1,
+            "the harness left no loot on the ground, so a leak would be "
+            "invisible to this test",
+        )
+        registered = sorted(lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS)
+        self.assertIn(
+            PRISON_EXILE, registered,
+            "scene 2 is not registered, so this test proves nothing",
+        )
+        leaked = []
+        for scene_id in registered:
+            with self.subTest(scene=scene_id):
+                with_cell = ground_preserve.compose_answer(
+                    self.legacy, [], scene_id, state.mob_loot_cell)
+                without_cell = ground_preserve.compose_answer(
+                    self.legacy, [], scene_id, None)
+                same = with_cell == without_cell
+                if scene_id == PRISON_EXILE:
+                    self.assertFalse(
+                        same,
+                        "the scene the rows actually stand in composed the "
+                        "same bytes with and without the cell",
+                    )
+                elif not same:
+                    leaked.append(scene_id)
+        self.assertEqual(
+            leaked, [],
+            "these scenes were armed with scene 2's ground rows: "
+            f"{leaked} -- the fold in lane_a_ground_preserve.compose_answer "
+            "is not scene-local",
         )
 
     def test_the_call_site_reads_the_attribute_and_does_not_guess(

@@ -8827,20 +8827,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # PASSED SINCE R314 (lane A's letter
                             # 20260903_0325 and lane B's 20260903_0152
                             # item 2, whose two ordering conditions are
-                            # both on main now).  Every responder routes it
-                            # through lane_a_ground_preserve.compose_answer,
-                            # which composes under the cell's OWN
-                            # publication, so a row standing on this scene's
-                            # floor survives the answer instead of being
-                            # cleared by it.  NOT a no-op the day it lands:
-                            # lane A measured scene 2 at 12,574 -> 12,577
-                            # bytes with one row down; an empty floor still
-                            # gets v141's own bytes.  Attribute access, not
-                            # getattr, for the ledger's reason above -- it is
-                            # opened in the same __init__ try that re-raises
-                            # (runtime.py:1401), so a rename must fail loudly
-                            # here rather than drop the ground list in
-                            # silence.
+                            # both on main now).  Every responder registered
+                            # today routes it through
+                            # lane_a_ground_preserve.compose_answer, which
+                            # composes under the cell's OWN publication
+                            # instead of over it.
+                            #
+                            # WHAT THIS IS MEASURED TO DO, AND NOTHING MORE:
+                            # scene 2's answer grows 12,574 -> 12,577 bytes
+                            # when a row stands on this scene's floor, and
+                            # is byte-identical on a clean floor.  THOSE
+                            # THREE BYTES ARE A MARKER, NOT THE LIST --
+                            # measured the same for 1, 3 and 5 rows
+                            # (pf-adversary R314 D1), the same finding
+                            # lane_a_ground_preserve's own docstring records
+                            # for 1 vs 255.  That the CLIENT then keeps its
+                            # ground pool is RE-130's claim about the
+                            # client and is proven nowhere in this
+                            # repository, so no comment, test or letter here
+                            # may say a row "survives" on the player's
+                            # floor: that is the client-observable layer and
+                            # it has no result yet.
+                            #
+                            # Attribute access, not getattr: measured, there
+                            # is exactly one assignment (runtime.py:1328),
+                            # unconditional inside the __init__ try that
+                            # re-raises at 1401, no subclass and no delete,
+                            # so getattr(...) would be dead code today.  It
+                            # is NOT "so a rename fails loudly" -- the
+                            # except six lines below swallows the
+                            # AttributeError and the scene loses its WHOLE
+                            # answer with only LANE_HOOK_FIRED on the
+                            # console (pf-adversary R314 D2, measured).  The
+                            # attribute form is safe because the attribute
+                            # is provably always there, not because failing
+                            # is cheap.
+                            #
+                            # THE CONSOLE STILL PRINTS
+                            # composed_not_called: mob_combat's status token
+                            # re-derives from an AST scan that cannot see
+                            # lane A's getattr call, so it is false the day
+                            # this lands (lane A's own letter, D1).  No
+                            # round may read that token as evidence that
+                            # nothing is wired.
                             mob_loot_cell=self.mob_loot_cell,
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
