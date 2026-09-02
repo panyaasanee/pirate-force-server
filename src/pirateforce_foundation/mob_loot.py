@@ -2598,7 +2598,20 @@ class DropLedgerCell:
         # the same words: an explicit disagreement is never overruled by a
         # membership coincidence.
         self._scene_declared = scene is not None
-        self._lock = threading.Lock()
+        # RE-ENTRANT SINCE ROUND t8z97r, and the reason is
+        # :meth:`compose_under_publication`: that method runs a CALLER'S
+        # composer while holding this lock, which is the only way a read and
+        # the frame it arms can be one atomic thing (COO-DECISION
+        # 20260902_1946, condition a).  A composer that touches the cell
+        # again -- directly, or through a helper three files away -- would
+        # deadlock the v141 listener thread on a plain ``Lock``, and a hung
+        # listener is worse than the race the method exists to close.  An
+        # ``RLock`` is a strict widening: nothing that worked before can
+        # break, and re-entry from ANOTHER thread still blocks exactly as it
+        # did.  What re-entry does NOT buy is freshness -- a composer that
+        # mutates the cell holds a count taken before its own mutation, and
+        # that is the composer's bug, not this lock's.
+        self._lock = threading.RLock()
         # Read once here so a broken clock is refused when the cell is built,
         # not in the middle of somebody's kill.
         self._now = _read_clock(self._clock, None)
@@ -2610,6 +2623,17 @@ class DropLedgerCell:
         # The bounded memory behind REFUSE_DROP_EXPIRED.  A deque, so the
         # structure that explains a refusal cannot itself grow without bound.
         self._expired = _collections.deque(maxlen=EXPIRED_KEY_MEMORY)
+        # HOW MANY ROWS THIS CELL HAS EVER RETIRED BY SWEEPING, monotonic and
+        # only ever touched under the lock, advanced by ``_sweep_locked``
+        # itself so EVERY sweeper counts, not only the publication read.  A TOTAL rather than a per-call
+        # number because the number a reader needs is "how many rows went
+        # away while I held this lock", and a call that raises after sweeping
+        # -- or a composer that reads the cell again from inside
+        # :meth:`compose_under_publication` -- would otherwise take its sweep
+        # with it (pf-adversary, round t8z97r, D5 and D7: both measured,
+        # both reported zero while rows were really retired).  Subtracting a
+        # mark taken at acquisition cannot lose one.
+        self._swept_total = 0
 
     def _read_now_locked(self) -> float:
         """Advance the cell's clock.  Call with the lock held.
@@ -2647,6 +2671,15 @@ class DropLedgerCell:
             removed.append(taken)
             self._expired.append(key)
         self._ledger = ledger
+        # THE COUNTER IS ADVANCED HERE, in the one place every sweeper in
+        # this class goes through -- ``ledger``, ``sweep_expired``, ``take``,
+        # ``loot_a_kill``, ``_enter_scene`` and ``_publication_locked`` all
+        # end up in this method.  An earlier draft advanced it in
+        # ``_publication_locked`` alone, which counted 2 of the 5 nested
+        # paths a composer can sweep through and reported ZERO for the other
+        # 3 (pf-adversary, round t8z97r, second pass, R4): a MOVED line with
+        # no number, and a later ``enter_scene`` boundary reporting 0.
+        self._swept_total += len(removed)
         return tuple(removed)
 
     @property
@@ -3332,16 +3365,189 @@ class DropLedgerCell:
         would have published every scene.  The third element still says how
         many rows are standing, so a caller can still report the ground
         without ever being handed rows it may not send.
+
+        THE SWEEP THIS CALL PERFORMS IS INVISIBLE HERE and that is what
+        :meth:`publication_and_sweep` exists to fix (COO-DECISION
+        20260902_1946, condition b).  This three-element shape is kept
+        unchanged because every existing caller unpacks exactly three.
+        """
+        scene, view, elsewhere, _swept = self.publication_and_sweep()
+        return scene, view, elsewhere
+
+    def _publication_locked(self) -> tuple:
+        """:meth:`publication_and_sweep` with the lock ALREADY held.
+
+        The sweep advances :attr:`_swept_total` inside :meth:`_sweep_locked`
+        itself, so a read that dies after sweeping still leaves its retired
+        rows countable -- and so does a sweep that happens through any OTHER
+        method of this cell.
+        """
+        now = self._read_now_locked()
+        swept = len(self._sweep_locked(now))
+        whole = self._ledger
+        scene = self._scene
+        if scene is None:
+            return None, None, len(whole.drops), swept
+        view = whole.for_scene(scene)
+        return scene, view, len(whole.drops) - len(view.drops), swept
+
+    @property
+    def swept_total(self) -> int:
+        """How many rows this cell has retired by sweeping, ever.
+
+        PUBLIC because a caller that composes through
+        :meth:`compose_under_publication` needs to be able to report what a
+        read retired even on the paths where the count cannot be RETURNED --
+        a composer that raised, or a fallback read taken the old way
+        (pf-adversary, round t8z97r, second pass, R6 and R7).  A difference
+        of two readings is the number; the absolute value means nothing.
         """
         with self._lock:
-            now = self._read_now_locked()
-            self._sweep_locked(now)
-            whole = self._ledger
-            scene = self._scene
-            if scene is None:
-                return None, None, len(whole.drops)
-            view = whole.for_scene(scene)
-            return scene, view, len(whole.drops) - len(view.drops)
+            return self._swept_total
+
+    def publication_and_sweep(self) -> tuple:
+        """:meth:`publication` plus HOW MANY ROWS THIS READ RETIRED.
+
+        ``(scene, scene_ledger, rows_standing_elsewhere, rows_swept)``, one
+        acquisition, same as :meth:`publication` -- which now delegates here,
+        so the two can never disagree about what a read did.
+
+        THE FOURTH ELEMENT IS THE POINT.  Reading is not a pure read: a row
+        past its deadline is retired BY THE READ (see :meth:`_sweep_locked`
+        and the warning on :func:`ground_rows_live_here`).  Before this
+        method the count went nowhere, so a liveness read taken on a click
+        could retire the rows :meth:`enter_scene` was going to report at the
+        scene boundary and the boundary would then truthfully report ZERO --
+        a number that reads as "nothing expired here" and means "somebody
+        else swept it first".  COO-DECISION 20260902_1946 item b: a number
+        that disappears QUIETLY is more expensive than the bug, because an
+        attended round reads the quiet number and concludes the wrong thing.
+        A caller that reports it (``mob_combat.
+        GROUND_ROWS_SWEPT_BY_READ_TOKEN``) leaves the console able to explain
+        a zero at the boundary.
+        """
+        with self._lock:
+            return self._publication_locked()
+
+    def compose_under_publication(self, compose: Any, scene: Any = None,
+                                  ) -> tuple:
+        """Read this cell's liveness AND compose the frame it arms, ONE lock.
+
+        ``(answer, ground_rows_left, rows_swept, ledger_moved_under_compose)``
+        where ``answer`` is whatever ``compose(ground_rows_left)`` returned.
+
+        THE WINDOW THIS CLOSES (COO-DECISION 20260902_1946, condition a).
+        The liveness gate reads the ground, and the caller then composes a
+        frame from what it read.  A kill landing between those two steps
+        drops a row that the just-composed frame -- composed on a read that
+        said "empty" -- clears from the client's pool, and the row stays
+        invisible until the next publication.  That is not a theoretical
+        interleaving: "kill, loot falls, the client answers the click that
+        was already in flight" is the exact sequence ``GT-204`` was written
+        to watch.  This module's own rule for that shape has always been THE
+        CALLER OWES THE ORDERING; this method is how a caller pays, because
+        the ordering can only be owned where the lock is.
+
+        WHAT IT DOES NOT CLOSE, said here so no reader has to infer it: the
+        SEND.  The bytes are composed under the lock, and the socket write
+        happens after the caller gets them back.  A kill that lands after
+        this returns composes and sends its own publication, and which of
+        the two reaches the client first is the caller's ordering problem,
+        not this cell's.  What is closed is composing a frame out of a count
+        that was already false when it was composed.
+
+        ``compose`` runs WITH THE LOCK HELD, AND EVERY KILL WAITS BEHIND IT.
+        MEASURED (pf-adversary, round t8z97r, second pass): this lane's own
+        composer over 97 actors takes ~0.038 ms and a redirected console
+        write ~0.0003 ms, so the COMPOSITION is the cost and the earlier
+        draft of this paragraph had it backwards by two orders of
+        magnitude.  0.038 ms of contention per click is what the atomicity
+        costs, and it is worth paying; a composer that would hold the lock
+        longer -- anything that waits on a socket, a disk or a clock --
+        belongs outside.
+        It must be a composer and nothing else: no socket write, no
+        sleep, and no second call into this cell.  THE RE-ENTRANT CASE IS
+        NOT MERELY DISCOURAGED, IT IS COUNTED (pf-adversary, round t8z97r,
+        D7): on a plain ``Lock`` a composer that read the cell again would
+        hang the listener thread; on this ``RLock`` it proceeds, and if that
+        second read SWEEPS or MUTATES, the frame is being armed by a count
+        that was true when it was handed over and false by the time the
+        bytes existed -- the very failure this method closes, re-entering
+        through its own front door.  So the fourth element says whether the
+        ledger MOVED while the composer ran, and ``rows_swept`` counts every
+        row retired under this acquisition, the composer's nested reads
+        included.  A caller that gets ``True`` there has a composer bug, and
+        ``mob_combat`` prints it rather than letting it pass.
+
+        ``rows_swept`` IS NEVER LOST TO AN EXCEPTION either (D5): it is a
+        difference of :attr:`_swept_total`, which is advanced by the sweep
+        itself, so a read that dies after sweeping still reports what it
+        retired.  The old shape hard-coded zero on that path -- the exact
+        defect condition b was written against.
+
+        A SCENE THIS MODULE CANNOT FOLD NEVER TOUCHES THE CELL (D6), the
+        same invariant :func:`ground_rows_live_here` states: the caller's
+        argument is folded before the publication is taken, so a call site
+        passing an unfoldable scene id cannot retire the ground as a side
+        effect of being refused.
+
+        Whatever ``compose`` raises is raised THROUGH this method, on
+        purpose: a frame that could not be composed is not a liveness
+        failure and must not be reported as one.
+
+        The liveness read itself NEVER raises out of here -- a cell that
+        cannot answer composes ``GROUND_LIVENESS_CELL_REFUSED``, which every
+        gate in this lane reads as "not a count" and answers with v141's own
+        bytes.  That is the same fail-closed direction COO-DECISION
+        20260902_1946 confirmed for the gate itself.
+        """
+        if scene is not None:
+            try:
+                scene_key(scene)
+            except Exception:                    # noqa: BLE001 - see docstring
+                # Refused WITHOUT READING AND WITHOUT LOCKING: nothing is
+                # retired by a call that was never going to answer, and no
+                # kill waits behind a composer this cell never needed to
+                # serve (pf-adversary, round t8z97r, second pass, R12).
+                return (compose(GROUND_LIVENESS_BAD_SCENE),
+                        GROUND_LIVENESS_BAD_SCENE, 0, False)
+        with self._lock:
+            mark = self._swept_total
+            try:
+                publishing, view, _elsewhere, _swept = (
+                    self._publication_locked())
+                rows = ground_liveness_from_publication(
+                    publishing, view, scene)
+            except Exception:                    # noqa: BLE001 - see docstring
+                rows = GROUND_LIVENESS_CELL_REFUSED
+            ledger_at_read = self._ledger
+            scene_at_read = self._scene
+            try:
+                answer = compose(rows)
+            finally:
+                swept = self._swept_total - mark
+            return answer, rows, swept, self._moved_since(
+                ledger_at_read, scene_at_read)
+
+    def _moved_since(self, ledger_at_read: Any, scene_at_read: Any) -> bool:
+        """Did the composer change what the count it was handed describes?
+
+        TWO THINGS, not one (pf-adversary, round t8z97r, second pass, R8):
+        the ledger VALUE, and the SCENE the cell publishes.  A composer that
+        called ``enter_scene`` left the ledger object alone and still made
+        the count describe another scene's floor -- a count that was true
+        when it was handed over and false when the bytes existed, which is
+        the whole definition of what this flag detects.  Comparing the scene
+        cannot raise out of here: an exotic scene value that refuses to
+        compare is reported as MOVED, because "I cannot tell" and "nothing
+        happened" are not the same answer.
+        """
+        if self._ledger is not ledger_at_read:
+            return True
+        try:
+            return self._scene != scene_at_read
+        except Exception:                        # noqa: BLE001 - see docstring
+            return True
 
     def scene_ledger(self) -> DropLedger:
         """The live rows of :attr:`current_scene` only, as a ledger value.
@@ -4514,9 +4720,13 @@ def preserve_ground_in_runtime_res_remote_actors(
 # is a cheap bet.  Ninety-seven NPCs on every click is not.
 #
 # WHAT THIS LANE DECIDES, AND IT IS A DECISION AND NOT A MEASUREMENT
-# ([ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION], pf_bridge notes_to_
-# chief/20260902_1844_LANE-B-ASK-COO-preserve-only-when-a-row-is-standing.md --
-# that letter is in the OTHER repository; this one has no notes_to_chief/):
+# (~~[ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]~~ CONFIRMED BY
+# COO-DECISION 20260902_1946: "the direction is right -- both ways SEND, so
+# the one that may not be worse than yesterday is the one the server already
+# sends today".  Asked in pf_bridge notes_to_chief/20260902_1844_LANE-B-ASK-
+# COO-preserve-only-when-a-row-is-standing.md, answered in that repository's
+# 20260902_1946_COO-DECISION-lane-b-*.md -- both letters are in the OTHER
+# repository; this one has no notes_to_chief/):
 # the two are not one question.  A frame composed while the
 # scene holds NO ground rows has nothing to preserve -- clearing an empty pool
 # takes nothing from the player -- so on that frame the preserve shape buys
@@ -4698,18 +4908,48 @@ def ground_rows_live_here(cell: Any, scene: Any = None) -> int:
     """
     if cell is None:
         return GROUND_LIVENESS_NO_CELL
-    wanted = None
     if scene is not None:
         # The caller's own argument is folded FIRST and in its own guard, so a
-        # scene this module cannot name is never reported as the cell's fault.
+        # scene this module cannot name is never reported as the cell's fault,
+        # and a scene this module cannot fold NEVER TOUCHES THE CELL -- which
+        # matters now that touching it sweeps.
         try:
-            wanted = scene_key(scene)
+            scene_key(scene)
         except Exception:                        # noqa: BLE001 - see docstring
             return GROUND_LIVENESS_BAD_SCENE
     try:
         publishing, view, _elsewhere = cell.publication()
-        if publishing is None or view is None:
-            return GROUND_LIVENESS_NO_SCENE
+    except Exception:                            # noqa: BLE001 - see docstring
+        return GROUND_LIVENESS_CELL_REFUSED
+    return ground_liveness_from_publication(publishing, view, scene)
+
+
+def ground_liveness_from_publication(
+        publishing: Any, view: Any, scene: Any = None) -> int:
+    """The liveness answer for a publication that has ALREADY been taken.
+
+    ONE AUTHORITY, TWO READERS.  :func:`ground_rows_live_here` takes the
+    publication itself; :meth:`DropLedgerCell.compose_under_publication`
+    takes it under the lock it composes in.  Both end here, so "which count
+    arms the gate" has one implementation and cannot drift between the
+    racy path and the closed one -- the same reason
+    ``preserve_ground_in_runtime_res_remote_actors_when_live`` composes
+    through v141's own composer instead of copying it.
+
+    Never raises: every failure is one of the negative sentinels, in the
+    same precedence :func:`ground_rows_live_here` has always used --
+    a caller's unfoldable scene first, then a cell with no scene, then a
+    cell publishing SOMEBODY ELSE'S scene, then the count.
+    """
+    wanted = None
+    if scene is not None:
+        try:
+            wanted = scene_key(scene)
+        except Exception:                        # noqa: BLE001 - see docstring
+            return GROUND_LIVENESS_BAD_SCENE
+    if publishing is None or view is None:
+        return GROUND_LIVENESS_NO_SCENE
+    try:
         if wanted is not None and wanted != scene_key(publishing):
             return GROUND_LIVENESS_SCENE_MISMATCH
         return len(view.drops)
