@@ -529,6 +529,14 @@ MOB_PICKUP_REQUEST_API_ONLY_REASONS = (
     # that reader, because "the count is not a count" and "this is somebody
     # else's vital" are different holes.
     "vital_count_not_positive",
+    # API-ONLY AND MEASURED SO, round di7ers second pass: the only walker
+    # verdict that binds this lane is ``envelope_reread_disagrees``, and both
+    # readers read the same offsets of the same bytes, so a frame that comes
+    # off the wire through ``parse_outer`` can never produce it.  What CAN is
+    # a caller handing over a parse object whose fields describe one frame
+    # and whose ``raw_pc`` is another -- which is exactly the hole D4 found
+    # in the first version of this gate, now closed by the same name.
+    "tail_refused_by_vital_walk",
 )
 MOB_PICKUP_REQUEST_REFUSAL_REASONS = (
     "parse_object_missing_fields",
@@ -935,9 +943,14 @@ class WalkGate:
     """Asks ``vital_walk`` about ONE frame, at most once, and remembers.
 
     WHY A CACHING OBJECT AND NOT A CALL.  The walk is asked only on the
-    relaxed path, so a single-vital frame -- which is every frame the
-    production dispatch hands this lane, because ``R309``'s ``isolate_vital``
-    bounds each body and sets ``vital_count`` to 1 -- never pays for it.  And
+    relaxed path, so a single-vital frame never pays for it.  ~~which is
+    every frame the production dispatch hands this lane~~ IS STRUCK: it was
+    measured false in the same pass that measured D1 (round ``di7ers``,
+    second pass, D3).  ``runtime.py``'s fallback -- ``if pickup_parsed is
+    None and leads_with_pickup`` -- hands this lane the UNBOUNDED parse,
+    ``vital_count`` and all, exactly when ``isolate_vital`` refused; that set
+    is not empty, it is where every batched click with an untabled sibling
+    lands, and it is the set this gate is judged on.  And
     it is asked ONCE per frame: the classifier and
     :func:`read_inbound_pickup_request` both consult the same gate, and a
     walker answering differently the second time would be exactly the
@@ -1021,20 +1034,114 @@ def walk_agrees_with_the_frame(legacy: Any, parsed: Any) -> tuple:
     return False, named or "vital_walk_refused_without_a_name"
 
 
+#: THE ONLY WALKER VERDICTS THIS LANE TREATS AS ITS OWN REFUSAL, and the
+#: list is short on measured grounds rather than cautious ones (pf-adversary,
+#: round ``di7ers``, SECOND pass, D1).
+#:
+#: The first version of this gate refused every frame ``vital_walk`` refused.
+#: An adversarial pass then booted a session and measured what that costs:
+#: the walker's length table has FOUR rows and ``legacy.NAMES`` carries 49
+#: ids, so 46 ids stop the walk -- and one of them, ``UPDATE_SERVER_SETTING_
+#: VITAL`` 0x0F01, is in v141's own ``CAPTURE_NOISE_IDS``, the ids it says
+#: the client sends CONTINUOUSLY.  A real click batched behind one of those
+#: was read before the gate and thrown away after it.  Same for a frame
+#: composed under the OTHER reading of ``TARGET_POS_VITAL``'s width, which
+#: ``vital_walk``'s own docstring says it cannot settle.  A fail-closed fix
+#: that costs the owner her clicks is worse than the hole it closes.
+#:
+#: So the split is by WHAT THE VERDICT IS ABOUT.  ``unknown_vital_id``,
+#: ``truncated_vital`` and ``trailing_bytes_after_last_vital`` are verdicts
+#: about SOMEBODY ELSE'S vital, reached with a table that admits it is
+#: missing 46 ids and unsure about one of the four it has.  They are not
+#: evidence about our seven bytes, which this lane validates itself, tag by
+#: tag, and they are not a reason to refuse a click.  What IS about this
+#: frame's own envelope is ``envelope_reread_disagrees``: the header read
+#: from the raw bytes disagrees with the parse object handed over, which
+#: means the two readers do not even agree what frame this is.
+#:
+#: AND THE FAIL-OPEN THE FIRST PASS FOUND IS ANSWERED BY LOUDNESS, NOT BY A
+#: REFUSAL.  A ``[pickup][noise]`` frame is read again -- and it says so, on
+#: the console, with the walker's own name (``MOB_PICKUP_REQUEST_TAIL_
+#: REFUSED`` for the refusals above, ``MOB_PICKUP_REQUEST_WALK_DISAGREES``
+#: for the rest).  Nobody has been able to name the harm such a frame does
+#: that ``mob_pickup``'s object_ref resolution against the live ground does
+#: not already stop: an accepted read is permission to ASK the transaction,
+#: never a take.  If somebody names one, it belongs here, next to this list.
+MOB_PICKUP_REQUEST_WALK_REFUSALS_THAT_BIND = (
+    "envelope_reread_disagrees",
+)
+
+
+#: EVERY NAME THIS LANE CAN PRINT AFTER ``walk=``, registered rather than
+#: invented at the call site (pf-adversary, round ``di7ers``, second pass,
+#: D6).  Six names were being formatted onto the operator's console from
+#: nowhere, so a reader could not tell ``walk=unknown_vital_id`` -- a name
+#: ``vital_walk`` owns and registers -- from a name this lane made up on the
+#: spot.  The two families are printed and tested as one union, and a name
+#: outside it is a bug in this file, not a fact about a frame.
+MOB_PICKUP_REQUEST_WALK_GATE_NAMES = (
+    # This lane's own, for the ways of not knowing.
+    "vital_walk_not_consulted",
+    "walk_view_unavailable",
+    "raw_pc_unavailable",
+    "vital_walk_unavailable",
+    "vital_walk_refused_to_answer",
+    "vital_walk_refused_without_a_name",
+)
+#: Said when the walker disagreed about a frame this lane READ ANYWAY.  It is
+#: the loud half of the answer to the fail-open: R309's fallback exists so
+#: that "a walk this module refuses still prints its named refusal instead of
+#: turning a loud line into silence", and after the second adversary pass
+#: this lane keeps that promise with a LINE rather than with a verdict --
+#: because the verdict was measured to cost real clicks.
+MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN = "MOB_PICKUP_REQUEST_WALK_DISAGREES"
+
+
+def _walk_disagreement_line(walk_gate: Any) -> str:
+    """One ASCII line, or an empty string when there is nothing to say.
+
+    Never raises: a console line may cost the LINE and never the FRAME, the
+    rule this lane arrived at the hard way in round ``t8z97r``.
+    """
+    try:
+        if walk_gate is None or walk_gate():
+            return ""
+        name = str(walk_gate.reason)
+        if name not in MOB_PICKUP_REQUEST_WALK_GATE_NAMES:
+            try:
+                registered = _vital_walk.VITAL_WALK_REFUSAL_REASONS
+            except Exception:                     # noqa: BLE001 - see above
+                registered = ()
+            if name not in registered:
+                name = "unregistered_walk_reason"
+        return "%s walk=%s" % (
+            MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,
+            mob_pickup_persist.console_safe(name)[:48])
+    except Exception:                             # noqa: BLE001 - see above
+        return "%s walk=unprintable" % (
+            MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,)
+
+
 def _decode_body_for_count(payload: Any, vital_count: Any,
                            walk_gate: Any = None) -> tuple:
     """``(fields, tail_length)``: the body rule THIS outer count implies.
 
     One vital -> the strict walk, byte for byte what this lane has always
-    done: seven bytes, nothing left over.  More than one -> the frame must
-    first WALK (see :class:`WalkGate`), and only then :func:`decode_pickup_
-    request_body_with_vital_tail`, which relaxes NOTHING about our own two
-    records and only allows a tail that begins another vital.
+    done: seven bytes, nothing left over.  More than one -> :func:`decode_
+    pickup_request_body_with_vital_tail`, which relaxes NOTHING about our
+    own two records and only allows a tail that begins another vital --
+    UNLESS the walker says the two readings of this frame's ENVELOPE
+    disagree, which is the one verdict of its that is about our frame rather
+    than somebody else's vital.  See
+    :data:`MOB_PICKUP_REQUEST_WALK_REFUSALS_THAT_BIND` for why that list is
+    one name long and what it cost to find out.
 
-    ``walk_gate`` defaults to None and None REFUSES the relaxed path.  A
-    caller that reaches this helper without consulting the walker is a
-    caller that has not established the tail is a vital, and the default for
-    "not established" in this lane is no.
+    ``walk_gate`` defaults to None, and None means the walker was never
+    asked -- which is NOT a refusal here.  It cannot be: refusing on "not
+    asked" is the same rule as refusing on "the walker does not know that
+    id", and the second was measured to throw the owner's clicks away.  A
+    caller that skips the gate gets the tail rule, and the tail rule was
+    never the thing that granted a take.
 
     Split out so the classifier and :func:`read_inbound_pickup_request` read
     the body under the SAME rule.  Two copies of this decision would be two
@@ -1044,10 +1151,11 @@ def _decode_body_for_count(payload: Any, vital_count: Any,
     """
     if vital_count == PICKUP_REQUEST_VITAL_COUNT:
         return decode_pickup_request_payload(payload), 0
-    if walk_gate is None or not walk_gate():
-        raise MobPickupRequestRefused(
-            "tail_refused_by_vital_walk",
-            "the frame does not walk as nested vitals")
+    if walk_gate is not None and not walk_gate():
+        if walk_gate.reason in MOB_PICKUP_REQUEST_WALK_REFUSALS_THAT_BIND:
+            raise MobPickupRequestRefused(
+                "tail_refused_by_vital_walk",
+                "the two readings of this frame's envelope disagree")
     return decode_pickup_request_body_with_vital_tail(payload)
 
 
@@ -1120,6 +1228,9 @@ def read_inbound_pickup_request(
                 line = "%s vitals=unprintable tail=%d" % (
                     MOB_PICKUP_REQUEST_MULTIVITAL_TOKEN, tail)
             _say(echo, line)
+            disagreement = _walk_disagreement_line(walk_gate)
+            if disagreement:
+                _say(echo, disagreement)
     else:
         if reason not in MOB_PICKUP_REQUEST_REFUSAL_REASONS:
             raise RuntimeError(
@@ -1134,15 +1245,11 @@ def read_inbound_pickup_request(
             # reading the console has to see WHICH refusal it was without a
             # debugger (G-OBS).  Formatting sits in its own guard: a console
             # line may cost a LINE and never a frame.
-            try:
-                line = "%s walk=%s" % (
-                    MOB_PICKUP_REQUEST_TAIL_REFUSED_TOKEN,
-                    mob_pickup_persist.console_safe(
-                        str(walk_gate.reason))[:48])
-            except Exception:                    # noqa: BLE001 - see above
-                line = "%s walk=unprintable" % (
-                    MOB_PICKUP_REQUEST_TAIL_REFUSED_TOKEN,)
-            _say(echo, line)
+            line = _walk_disagreement_line(walk_gate).replace(
+                MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,
+                MOB_PICKUP_REQUEST_TAIL_REFUSED_TOKEN, 1)
+            _say(echo, line or "%s walk=unprintable" % (
+                MOB_PICKUP_REQUEST_TAIL_REFUSED_TOKEN,))
     # ROUND lh21ua: through _say, not print.  This line sits inside the
     # never-raises path too, and the bridge console is cp874 with
     # errors='strict' -- a print() is a statement that can throw.  MEASURED
