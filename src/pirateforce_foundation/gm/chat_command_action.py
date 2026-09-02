@@ -675,6 +675,25 @@ NOTICE_CONSOLE_TOKEN = "GM_CHAT_NOTICE_SENT"
 # cp874 and this line is read there.
 SPEED_DEFERRED_CONSOLE_TOKEN = "SPEED DEFERRED"
 
+# The three fillers for the row fields `_print_speed_deferred` appends after
+# `why=`.  Spelled as constants so a test and an attended grep name the same
+# strings, and kept ASCII and space-free for the reason the token above is.
+#
+# `unknown` is NOT `0` and NOT an empty field: this route runs below a DB
+# write, so "the console could not say what the row holds" and "the row holds
+# nothing" are different facts and the owner's standing rule is that a guessed
+# zero is banned (`COO-DECISION 20260901_1059`, quoted in `login_speed.py`).
+SPEED_DEFERRED_ROW_UNKNOWN = "unknown"
+# The row was never handed to the printer at all -- a caller that has no
+# read-back to report, which on the shipped route cannot happen (the branch
+# runs below `EVENT_SPEED_PERSIST_READBACK_UNUSABLE`) and is therefore its own
+# word rather than being folded into a resolver failure.
+SPEED_DEFERRED_NEXT_LOGIN_NOT_EVALUATED = "not_evaluated"
+# `login_speed.resolve` itself could not answer.  Type name only, the same
+# rule every refusal in this module follows: an exception message can carry
+# text this lane did not write.
+SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX = "unresolved_"
+
 # What each no-bytes outcome is waiting on, as fixed sentences this lane
 # wrote -- never a string built from anything a client typed.  Keyed on the
 # audit outcome so the ndjson word and the console line cannot drift apart:
@@ -2830,7 +2849,9 @@ def _print_staged_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
-def _print_speed_deferred(session: object, token: str, command_name: object) -> bool:
+def _print_speed_deferred(
+    session: object, token: str, command_name: object, stored: object = None,
+) -> bool:
     """Print COO-DECISION `1847`'s line and say whether it reached the stream.
 
     RETURNS WHETHER IT PRINTED, unlike every other printer in this module,
@@ -2865,6 +2886,43 @@ def _print_speed_deferred(session: object, token: str, command_name: object) -> 
     `commands.COMMAND_NAMES`, and `session.token` names a process, not a
     person (see `_print_no_bytes_way_out`).
 
+    IT NAMES THE ROW IT LEFT BEHIND, AND THAT IS THE POINT OF THE TWO FIELDS
+    ADDED AFTER `why=`.  COO `1847` stopped the FRAME and deliberately kept
+    the DB write ("the DB write continues as before ... what has to stop is
+    the outbound frame, and only that"), so on this route the command DID
+    change the character's row and then printed a line that said only that
+    something was deferred.  A tester reading `SPEED DEFERRED` and concluding
+    "nothing happened" was reading the console correctly and the system
+    wrongly -- and since `#605` landed the `speed_walk` login read on `main`
+    (`session.py` -> `login_speed.resolve_for_character` -> `player_wire`),
+    the row this route leaves behind is no longer inert: THE NEXT LOGIN FOR
+    THAT CHARACTER READS IT AND PUTS IT ON THE WIRE.  `GT-218`'s own recovery
+    step is a re-login, so the gap between the two facts is reachable in the
+    ticket that route was written for.
+
+      * `row_written=` -- the store's OWN read-back, the same number the
+        composer below would have carried, never the GM's typed text (the
+        property every printer in this module holds).  `validate` rounds an
+        f32 on the way in, so this is what the row HOLDS, not what was asked
+        for.
+      * `next_login=` / `next_login_sends=` -- answered by
+        `login_speed.resolve`, THE VERY FUNCTION the login path runs, called
+        as a pure predicate on that read-back with `player_wire`'s own
+        constant as the fallback.  It is not a prediction and not a second
+        opinion: `login_speed`'s docstring bans re-typing its range here
+        ("a range typed twice is a range that drifts") and this obeys by
+        calling it instead.  So `next_login=from_row` means the tester's next
+        login sends the number beside it, and `next_login=row_refused_by_
+        validator` / `row_speed_not_positive` mean it sends the constant.
+
+    WHAT THESE FIELDS DO NOT DO: they change no byte, lift no lock, and make
+    no claim that the value is safe on a client.  Both `/speed` locks stand
+    exactly where they stood (`speed_wire.send_deferred`,
+    `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT`); this line only stops
+    under-reporting what the route already did.  The resolve is wrapped for
+    the same reason the print is: a printer may never alter dispatch, so a
+    resolver that raises costs these fields a name and nothing else.
+
     A DIAGNOSTIC MAY NEVER ALTER DISPATCH: a `None` stderr and a stream that
     raises both cost this line and nothing else.  The frame is held either
     way -- the hold is decided by `speed_wire.send_deferred()` before this
@@ -2874,12 +2932,39 @@ def _print_speed_deferred(session: object, token: str, command_name: object) -> 
     if stream is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return False
+    row_written = SPEED_DEFERRED_ROW_UNKNOWN
+    next_login = SPEED_DEFERRED_NEXT_LOGIN_NOT_EVALUATED
+    next_login_sends = SPEED_DEFERRED_ROW_UNKNOWN
+    if stored is not None:
+        # Imported HERE rather than at module scope, and lazily on purpose:
+        # this file is imported by the listener thread's dispatch path, a
+        # printer may never alter dispatch, and an import that fails must cost
+        # two console fields rather than the module.  `login_speed` uses the
+        # same lazy form for `persistence_typed_attrs` for its own reason.
+        try:
+            from .. import login_speed, player_wire
+
+            value = float(stored)
+            row_written = repr(value)
+            resolved = login_speed.resolve(
+                value, fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
+            )
+            next_login = str(resolved.reason)
+            next_login_sends = repr(float(resolved.value))
+        except Exception as error:  # noqa: BLE001 - a printer never raises
+            next_login = (
+                f"{SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
+                f"{type(error).__name__}"
+            )
+            next_login_sends = SPEED_DEFERRED_ROW_UNKNOWN
     try:
         name = command_name if command_name in COMMAND_NAMES else "unnamed"
         print(
             f"{SPEED_DEFERRED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command={name} why={OUTCOME_SPEED_DEFERRED} "
+            f"row_written={row_written} next_login={next_login} "
+            f"next_login_sends={next_login_sends} "
             f"{_identity_fields(session, stream)}",
             file=stream,
         )
@@ -3842,10 +3927,15 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         # `line_printed` carries the printer's OWN answer: a console this
         # line could not reach falls through to `GM_CHAT_NO_BYTES_SENT`
         # rather than leaving an accepted command silent.
+        # `stored`, not `value`: the read-back is the number the row HOLDS
+        # and the number the next login will resolve, and it is the same
+        # source the composer below would have used.  See the printer's own
+        # "IT NAMES THE ROW IT LEFT BEHIND" paragraph.
         printed = _print_speed_deferred(
             session,
             getattr(session, "token", None),
             getattr(command, "name", None),
+            stored,
         )
         # No notice action, and that is the one thing here this lane decided
         # rather than was told -- COO `1847` says "refuse AND PRINT" and its

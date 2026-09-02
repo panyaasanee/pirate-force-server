@@ -185,6 +185,22 @@ class _Case(unittest.TestCase):
             action = self.act(session, text)
         return action, buffer.getvalue()
 
+    def _deferred_line(self, console):
+        """The one `SPEED DEFERRED` line, or a failure that shows the console.
+
+        Used by every test that reads a FIELD rather than the token: asserting
+        against the whole capture would pass on a field that landed on some
+        other line, which is the drift `test_the_two_words_are_the_lines_
+        PREFIX_not_merely_present` exists to catch on the token itself.
+        """
+        lines = [
+            line
+            for line in console.splitlines()
+            if line.startswith(chat_command_action.SPEED_DEFERRED_CONSOLE_TOKEN)
+        ]
+        self.assertEqual(len(lines), 1, console)
+        return lines[0]
+
     def audit_outcomes(self):
         if not self.log_path.exists():
             return []
@@ -481,12 +497,171 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         )
         deferred.encode("ascii")  # raises if it is not
 
-    def test_it_never_prints_what_the_gm_typed(self):
-        # This module's standing property, held by every printer in it.
+    def test_it_never_prints_what_the_gm_TYPED_only_what_the_row_HOLDS(self):
+        """~~"the line never prints what the GM typed"~~ -- NARROWED, in the
+        round that added `row_written=`, and narrowed deliberately rather than
+        deleted, because the old spelling would have banned reporting the
+        row at all.
+
+        The property this module actually holds, and the one the threat model
+        in `_print_no_bytes_way_out` describes, is that NO CLIENT-CONTROLLED
+        TEXT reaches the operator's console: text can carry bidi overrides,
+        a line break, a cp874-unencodable byte, or a fake field of its own.
+        `row_written=` carries none of that by CONSTRUCTION -- it is
+        `repr()` of a Python float that came back out of the store's own
+        validator, so its character set is closed over digits, `.`, `e`,
+        `+`, `-` whatever was typed.
+
+        For a canonical input the value and the typing coincide, and that is
+        not an echo: it is the row agreeing with the request.  The tests
+        below prove the difference by measuring a NON-canonical one, where
+        the two provably diverge.
+        """
         _action, console = self.act_capturing_console(
             self.session(), "/speed 1234.5"
         )
-        self.assertNotIn("1234.5", console)
+        # The ROW is reported...
+        self.assertIn("row_written=1234.5", console)
+        # ...and the typed text is still nowhere else on the line: no echo of
+        # the raw argument outside the one canonicalised field.
+        deferred = self._deferred_line(console)
+        self.assertEqual(deferred.count("1234.5"), 2, deferred)
+        self.assertIn("next_login_sends=1234.5", deferred)
+
+    def test_the_row_field_is_the_VALUE_not_the_typing(self):
+        # The proof that `row_written=` is a canonicalisation and not an
+        # echo: three spellings a GM could type for the same number, none of
+        # which survives to the console as typed.
+        for typed, expected in (
+            ("4e2", "400.0"),
+            ("400.", "400.0"),
+            ("0400.00", "400.0"),
+        ):
+            with self.subTest(typed=typed):
+                _action, console = self.act_capturing_console(
+                    self.session(), f"/speed {typed}"
+                )
+                deferred = self._deferred_line(console)
+                field = deferred.split("row_written=", 1)[1].split(" ", 1)[0]
+                # Compared as the WHOLE field, not as a substring of the
+                # line: `400.` IS a prefix of `400.0`, so a `assertNotIn`
+                # here would fail on a canonicalisation that worked.
+                self.assertEqual(field, expected)
+                self.assertNotEqual(field, typed)
+
+    def test_the_row_field_can_only_ever_hold_number_characters(self):
+        # The anti-injection half of the old property, pinned directly on the
+        # field instead of inferred from "nothing typed is printed".  A value
+        # that reaches this field has been through `float()` and `repr()`, so
+        # no typing can put a space, a quote, a `=`, a newline or a non-ASCII
+        # byte inside it -- which is what would let a typed argument forge a
+        # field of its own on a line an attended grep parses.
+        allowed = set("0123456789.e+-")
+        for typed in ("1234.5", "4e2", "1e30", "0.0009765625"):
+            with self.subTest(typed=typed):
+                _action, console = self.act_capturing_console(
+                    self.session(), f"/speed {typed}"
+                )
+                deferred = self._deferred_line(console)
+                field = deferred.split("row_written=", 1)[1].split(" ", 1)[0]
+                self.assertTrue(field, deferred)
+                self.assertLessEqual(set(field), allowed, field)
+
+    def test_the_next_login_fields_come_from_the_login_seam_itself(self):
+        """The two `next_login*` fields are not a prediction this lane wrote.
+
+        `login_speed.resolve` IS the function `session.select_and_start` runs
+        (`login_speed.resolve_for_character` calls it), and this line calls it
+        as a pure predicate on the store's read-back.  `login_speed`'s own
+        docstring forbids re-typing its range anywhere else -- "a range typed
+        twice is a range that drifts" -- so the pin here is that the console
+        agrees with that function, not with a copy of its rules.
+        """
+        from pirateforce_foundation import login_speed, player_wire
+
+        for typed in ("1234.5", "400"):
+            with self.subTest(typed=typed):
+                _action, console = self.act_capturing_console(
+                    self.session(), f"/speed {typed}"
+                )
+                deferred = self._deferred_line(console)
+                expected = login_speed.resolve(
+                    float(typed),
+                    fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED,
+                )
+                self.assertIn(f"next_login={expected.reason}", deferred)
+                self.assertIn(
+                    f"next_login_sends={float(expected.value)!r}", deferred
+                )
+
+    def test_a_row_the_login_would_refuse_says_so_instead_of_the_number(self):
+        # The field that makes the line worth reading: a row the login seam
+        # will NOT honour is named as such, so a tester who re-logs in and
+        # sees the constant is not left thinking the command did nothing.
+        # `-1.0` stores and encodes but is not a speed a player can use
+        # (`login_speed.ROW_SPEED_NOT_POSITIVE`).
+        from pirateforce_foundation import login_speed, player_wire
+
+        _action, console = self.act_capturing_console(
+            self.session(), "/speed -1"
+        )
+        deferred = self._deferred_line(console)
+        self.assertIn("row_written=-1.0", deferred)
+        self.assertIn(f"next_login={login_speed.ROW_SPEED_NOT_POSITIVE}", deferred)
+        self.assertIn(
+            "next_login_sends="
+            f"{float(player_wire.PLAYER_LOGIN_MOVEMENT_SPEED)!r}",
+            deferred,
+        )
+
+    def test_a_resolver_that_raises_costs_the_fields_and_not_the_route(self):
+        # A DIAGNOSTIC MAY NEVER ALTER DISPATCH, applied to the new fields:
+        # the frame is held by `send_deferred()` either way, and a resolver
+        # that blows up is NAMED on the line rather than raised at the
+        # listener thread.
+        session = self.session()
+        from pirateforce_foundation import login_speed
+
+        with mock.patch.object(
+            login_speed, "resolve", side_effect=RuntimeError("boom")
+        ):
+            _action, console = self.act_capturing_console(session)
+        deferred = self._deferred_line(console)
+        self.assertIn(
+            f"next_login="
+            f"{chat_command_action.SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
+            "RuntimeError",
+            deferred,
+        )
+        self.assertIn(
+            f"next_login_sends={chat_command_action.SPEED_DEFERRED_ROW_UNKNOWN}",
+            deferred,
+        )
+        self.assertIn(chat_command_action.EVENT_SPEED_DEFERRED, session.events)
+
+    def test_a_printer_handed_no_read_back_says_not_evaluated(self):
+        # The shipped route cannot reach this (the branch runs below
+        # `EVENT_SPEED_PERSIST_READBACK_UNUSABLE`), so it gets its own word
+        # rather than being spelled like a resolver failure.
+        import io
+        from contextlib import redirect_stderr
+
+        session = self.session()
+        buffer = io.StringIO()
+        with redirect_stderr(buffer):
+            printed = chat_command_action._print_speed_deferred(
+                session, "GM_ONE", "speed"
+            )
+        self.assertTrue(printed)
+        line = buffer.getvalue()
+        self.assertIn(
+            f"row_written={chat_command_action.SPEED_DEFERRED_ROW_UNKNOWN}", line
+        )
+        self.assertIn(
+            "next_login="
+            f"{chat_command_action.SPEED_DEFERRED_NEXT_LOGIN_NOT_EVALUATED}",
+            line,
+        )
 
     def test_a_dead_console_costs_the_line_and_nothing_else(self):
         # A DIAGNOSTIC MAY NEVER ALTER DISPATCH: the frame is held by
