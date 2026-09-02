@@ -198,9 +198,19 @@ class _MigratedWorkspace(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.older = self.root / "migrations_upto_007"
         self.older.mkdir()
+        # And a directory that stops at 008, so this file's subject stays 008.
+        # `_apply_008` used to run the WHOLE directory, which was the same
+        # thing until `migrations/009_character_birth_defaults.sql` existed;
+        # after it, running the whole directory would silently make every test
+        # below a test of 008 AND 009 together.
+        self.upto_008 = self.root / "migrations_upto_008"
+        self.upto_008.mkdir()
         for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if int(path.name[:3]) < 8:
+            version = int(path.name[:3])
+            if version < 8:
                 shutil.copy2(path, self.older / path.name)
+            if version <= 8:
+                shutil.copy2(path, self.upto_008 / path.name)
         self.path = self.root / "state.sqlite3"
         self.births = []
 
@@ -253,7 +263,8 @@ class _MigratedWorkspace(unittest.TestCase):
             db.close()
 
     def _apply_008(self):
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        """Exactly 001..008 -- see the note in `setUp`."""
+        SQLiteStore(self.path, self.upto_008).migrate()
 
     def _applied_versions(self):
         db = sqlite3.connect(self.path)
@@ -389,22 +400,39 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         """The limitation the header states, kept as a measurement so the
         sentence in the round file cannot drift from the code.
 
-        A character created AFTER 008 has run holds no speed, and
-        `create_character` cannot give it one:
-        `persistence_vitals.new_character_vitals()` is forbidden from carrying
-        a fourth column, so the insertion point of `COO-DECISION 20260902_0444`
-        closes the cohort gap for the three vitals and not for this column.
+        A character created after 008 and BEFORE 009 holds no speed: 008
+        writes the rows that exist when it runs and the ledger stops it ever
+        running again, and the insertion point of `COO-DECISION 20260902_0444`
+        is for the three vitals and not for this column.  That gap is what
+        `migrations/009_character_birth_defaults.sql` closed, at the schema
+        rather than at the insertion point (`COO-DECISION 20260902_1607`), so
+        the two halves are measured separately here: 008 alone leaves the
+        newborn empty, and 009 is what fills it.
         """
         self._make(["Before"])
         self._apply_008()
         self.assertEqual(self._rows()[0][SEEDED_COLUMN], SEEDED_VALUE)
-        store = SQLiteStore(self.path, MIGRATIONS)
-        later = store.create_character(
-            store.ensure_account("after-008"), "After", "after",
+        store_at_008 = SQLiteStore(self.path, self.upto_008)
+        during_the_gap = store_at_008.create_character(
+            store_at_008.ensure_account("after-008"), "After", "after",
             "fingerprint-after-008", _build_wire_for(0x30000001),
             Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
         self.assertNotIn(
-            SEEDED_COLUMN, store.read_typed_attributes(later.id))
+            SEEDED_COLUMN,
+            store_at_008.read_typed_attributes(during_the_gap.id))
+
+        # 009, and only 009, is what gives the NEXT one a speed -- and it does
+        # not reach backwards for the one born during the gap.
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        later = store.create_character(
+            store.ensure_account("after-009"), "Later", "later",
+            "fingerprint-after-009", _build_wire_for(0x30000009),
+            Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        self.assertEqual(
+            store.read_typed_attributes(later.id)[SEEDED_COLUMN], SEEDED_VALUE)
+        self.assertNotIn(
+            SEEDED_COLUMN, store.read_typed_attributes(during_the_gap.id))
         self.assertNotIn(SEEDED_COLUMN, vitals.new_character_vitals())
 
 
@@ -739,8 +767,11 @@ class BootSnapshotProtects008Tests(_MigratedWorkspace):
         take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
         self.assertTrue(take, reason)
         self.assertIn("008", reason)
-        self.assertEqual([8],
-                         persistence_backup.pending_versions(self.path,
+        # 009 joined the directory after this test was written, and a database
+        # that stopped at 007 has both files pending.  What the test is about
+        # -- that a snapshot is DUE while 008 has not been applied -- is the
+        # membership, not the length.
+        self.assertIn(8, persistence_backup.pending_versions(self.path,
                                                              MIGRATIONS))
 
     def test_a_snapshot_that_dies_in_its_prologue_still_aborts_the_boot(self):

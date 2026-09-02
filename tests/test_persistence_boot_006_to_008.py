@@ -654,11 +654,23 @@ class TheBirthGateRefusesTests(unittest.TestCase):
     def _seeded(self):
         return birth_state.seeded_birth()
 
-    def test_it_accepts_the_two_states_it_names_and_they_differ(self):
-        unseeded, seeded = birth_state.accepted_birth_states()
+    def test_it_accepts_the_states_it_names_and_they_all_differ(self):
+        """Three since `migrations/009_character_birth_defaults.sql`.
+
+        The list grew when `COO-DECISION 20260902_1607` had this lane install
+        the four birth values as column defaults; the states are asserted
+        DISTINCT because a helper that returned the same dict three times
+        would pass a per-state loop while measuring one state.
+        """
+        accepted = birth_state.accepted_birth_states()
+        self.assertEqual(3, len(accepted))
+        unseeded, seeded, defaulted = accepted
         self.assertEqual({}, unseeded)
-        self.assertNotEqual(unseeded, seeded)
-        for state in (unseeded, seeded):
+        self.assertEqual(len({tuple(sorted(state.items()))
+                              for state in accepted}), 3)
+        self.assertEqual(sorted(defaulted),
+                         sorted(list(seeded) + ["speed_walk"]))
+        for state in accepted:
             store = _FakeStore({1: state})
             self.assertEqual(state,
                              birth_state.measure_birth_typed_state(store, 1))
@@ -720,13 +732,30 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         first["level"] = 999
         self.assertNotEqual(first, birth_state.seeded_birth())
 
-    def test_it_refuses_a_fourth_column(self):
-        state = dict(self._seeded())
-        state["speed_walk"] = 400.0
+    def test_it_refuses_a_fifth_column(self):
+        """It used to be a FOURTH column, and the fourth was `speed_walk`.
+
+        `COO-DECISION 20260901_1447` point 2 forbade that column at birth;
+        `RE-194`, `COO-DECISION 20260902_0742` and finally `COO-DECISION
+        20260902_1607` (the owner, in session) made it one of the four the
+        schema now supplies.  So the state this test refuses moved up by one
+        column -- the guard did not weaken, and `mp_current` is one of the
+        seventeen that still have no adjudicated value at all.
+        """
+        state = dict(birth_state.default_birth())
+        state["mp_current"] = 0
         store = _FakeStore({1: state})
         with self.assertRaises(AssertionError) as caught:
             birth_state.measure_birth_typed_state(store, 1)
-        self.assertIn("speed_walk", str(caught.exception))
+        self.assertIn("mp_current", str(caught.exception))
+
+    def test_it_refuses_the_fourth_column_with_the_wrong_number(self):
+        """The accepted fourth column is one NUMBER, not any number."""
+        state = dict(birth_state.default_birth())
+        state["speed_walk"] = 150.0
+        store = _FakeStore({1: state})
+        with self.assertRaises(AssertionError):
+            birth_state.measure_birth_typed_state(store, 1)
 
     def test_it_refuses_a_level_of_zero(self):
         state = dict(self._seeded())
@@ -774,7 +803,7 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         `self.birth, self.second_birth = measure_every_birth(...)`, so a
         reversal silently grades the wrong row.
         """
-        unseeded, seeded = birth_state.accepted_birth_states()
+        unseeded, seeded, _defaulted = birth_state.accepted_birth_states()
         store = _FakeStore({1: unseeded, 2: seeded, 3: unseeded})
         self.assertEqual(
             [unseeded, seeded, unseeded],
