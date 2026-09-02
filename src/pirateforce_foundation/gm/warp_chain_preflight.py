@@ -104,6 +104,18 @@ BOOT_PRECONDITION = (
 )
 
 if __name__ == "__main__":  # pragma: no cover - the script entry only
+    if not __package__:
+        # Run BY PATH (`python src/.../warp_chain_preflight.py`) the relative
+        # imports below cannot resolve, and the line above would otherwise
+        # report a confident precondition for a module that is about to die of
+        # ImportError two lines later (pf-adversary, round `et2ux4`, D10).
+        # Refuse by name instead, the way `main()` refuses a junk argument.
+        print(
+            "%s REFUSED run this as a module: python -m "
+            "pirateforce_foundation.gm.warp_chain_preflight" % CONSOLE_TOKEN,
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
     print(
         "%s PRECONDITION %s" % (CONSOLE_TOKEN, BOOT_PRECONDITION),
         file=sys.stderr,

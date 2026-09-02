@@ -1,6 +1,8 @@
+import random
 import sqlite3
 import hashlib
 import math
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +22,73 @@ from .model import Character, Position
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+#: How long ONE `BEGIN IMMEDIATE` in the healing path may block on a database
+#: another connection is writing, before SQLite gives up on that attempt.  The
+#: attempt's real ceiling is this OR whatever is left of the budget below,
+#: whichever is smaller, so the call cannot outrun the budget by a whole
+#: ceiling -- a `pf-adversary` pass measured the version that could: budget
+#: 1000 ms, ceiling 2000 ms, returned after 2006 ms with a message that
+#: contradicted itself.
+#:
+#: WHY THIS EXISTS AND WHY IT IS NOT `connect`'s 5000.  `COO-DECISION
+#: 20260902_1646`: the eight-thread lock test in
+#: `tests/test_persistence_vitals_heal.py` closed a pull request belonging to
+#: ANOTHER lane -- `server#582`, gate run 33613043185 -- whose diff touched
+#: neither `store.py` nor that test.  LANE-B measured the mechanism on the
+#: same primitives this method uses (WAL, `synchronous=FULL`,
+#: `busy_timeout=5000`, `BEGIN IMMEDIATE`, a fresh connection per call) and
+#: reported it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`:
+#: at 8 threads x 60 heals, a transaction taking ~40ms makes a thread wait
+#: 5,054ms and die with `OperationalError('database is locked')`.  SQLite's
+#: busy handler makes no fairness guarantee, so the ceiling has to grow with
+#: competitors x transaction time, and a Windows runner under load is exactly
+#: where it does not.  The test was losing on TIME, not on logic.
+#:
+#: `SQLiteStore.connect` is NOT touched: it is an existing method and this
+#: lane's charter (`COO-DECISION 20260901_1100`) forbids changing the
+#: behaviour of one, and raising the number for every path in the server to
+#: fix one path would be a change nobody measured.  This pragma is applied to
+#: THIS path's own connection, after `connect` has opened it.
+HEAL_LOCK_BUSY_TIMEOUT_MS = 30000
+
+#: Total wall-clock budget for ACQUIRING the healing lock, across retries.
+#: A bound, not a promise of success: when it is spent the call raises
+#: `WriteLockTimeout` saying how long it waited and how many attempts it made,
+#: instead of a bare `database is locked` that names nothing.
+HEAL_LOCK_TOTAL_WAIT_S = 120.0
+
+#: Backoff between attempts: a random wait in [0, HEAL_LOCK_RETRY_BACKOFF_S *
+#: 2**min(attempt, 5)).  Randomised on purpose -- a fixed sleep re-synchronises
+#: the very threads that just collided, which is the shape that starves one of
+#: them.
+HEAL_LOCK_RETRY_BACKOFF_S = 0.01
+
+#: The message SQLite produces for the contention this retries, and NOTHING
+#: else.  Every other `OperationalError` -- a missing table, a read-only
+#: database, a corrupt file -- is re-raised on the first attempt.
+#:
+#: THE WIDTH IS LOAD-BEARING IN BOTH DIRECTIONS, measured by a `pf-adversary`
+#: pass.  Too narrow and the starvation is not retried at all.  Too wide --
+#: `"locked"` alone, the obvious "make it robust" edit -- and `SQLITE_LOCKED`
+#: ("database TABLE is locked", a different condition that retrying cannot
+#: fix) is retried for the whole budget: the same pass measured this file's
+#: own suite going from 3.97 s to 123.95 s when the classification was
+#: removed, which on the Windows gate turns a fast named failure into a
+#: two-minute hang.  `tests/test_persistence_vitals_heal.py` pins both edges.
+_LOCKED = "database is locked"
+
+
+class WriteLockTimeout(sqlite3.OperationalError):
+    """A write lock could not be acquired inside the budget, said in full.
+
+    Subclasses `sqlite3.OperationalError` deliberately: a caller that already
+    handles that type keeps working unchanged, and one that wants the detail
+    (how long, how many attempts) can ask for this type by name.  Nothing has
+    been written when it is raised -- it is raised at `BEGIN IMMEDIATE`, so
+    the transaction never opened.
+    """
 
 class SQLiteStore:
     def __init__(self, path: str | Path, migrations: str | Path):
@@ -229,7 +298,87 @@ class SQLiteStore:
                 raise ValueError("no selector available")
             wire, avatar_wire, lo, hi = build_wire(selector)
             now = _now()
-            cur = db.execute("INSERT INTO characters(account_id,selector,name,name_key,create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (account_id,selector,name,name_key,fingerprint,wire,avatar_wire,None,lo,hi,now,now))
+            # COO-DECISION 20260902_0443 point 1, chief's half in
+            # 20260902_0444: the three vitals are written HERE, at birth, and
+            # not as a schema DEFAULT (point 2 forbids that outright).
+            #
+            # WHY THIS METHOD AND NOT 007.  `migrations/007_character_vitals_
+            # seed.sql` seeds a COHORT: the rows that exist the moment it
+            # runs, and never again (the migration ledger stops it).  A
+            # character created afterwards -- and EVERY character on a fresh
+            # install, where 007 meets an empty table -- reached
+            # `read_character_vitals(...).require()` with all three columns
+            # NULL and was refused, on a server that had just been told what
+            # those three numbers are.  This INSERT is the only place a
+            # character is born, so it is the only place that can close it.
+            #
+            # THE NUMBERS COME FROM THE CALL, not from this file.  No literal
+            # 1/100/100 appears here on purpose: the day an RE answers what
+            # the original game's birth values were, `persistence_vitals.
+            # _NEW_CHARACTER_VITALS` changes and nothing else does.
+            # `tests/test_persistence_vitals_seed_007.py::...::test_the_
+            # numbers_on_a_newborn_row_came_from_the_call_itself` measures
+            # exactly that by making the function return numbers nobody could
+            # type by accident and looking for THOSE on the row -- a literal,
+            # a trigger, or a schema DEFAULT is red there even though all
+            # three would hold 1/100/100.
+            #
+            # Module-attribute call (`vitals.new_character_vitals()`), the
+            # same local-import idiom `read_character_vitals` and
+            # `apply_damage_to_character` already use in this file, so the
+            # name resolves at call time.
+            from . import persistence_vitals as vitals
+            # The same schema check every other vitals-writing method in this
+            # file makes (lines ~1051, ~1204, ~1278, ~1398).  It was missing
+            # here in the first draft and a `pf-adversary` pass named the
+            # asymmetry: without it, a database where `006`'s columns have
+            # been renamed -- the one rename `006`'s own header pre-announces
+            # -- makes THIS method raise a raw `sqlite3.OperationalError`
+            # from an INSERT, while every sibling raises a named
+            # `SchemaDriftError`.  Character creation is rare enough that one
+            # extra `PRAGMA table_info` is not a cost worth arguing about.
+            vitals.verify_schema(db)
+            birth = vitals.new_character_vitals()
+            # NO FOURTH COLUMN (COO-DECISION 20260901_1447 point 2, restated
+            # by LANE-DB 20260902_1032 point 3).
+            #
+            # HONEST ABOUT WHAT THIS GUARD IS, because the comment that stood
+            # here made two claims a `pf-adversary` pass measured and refuted.
+            # It said a short dict "would otherwise reach the INSERT below as
+            # a KeyError DURING a transaction rather than before it".  Both
+            # halves were wrong: a short dict cannot reach the INSERT at all
+            # (`resolve()` reports the missing column as a gap and
+            # `new_character_vitals()` raises on `resolution.gaps` before it
+            # returns -- measured for both a short and an extra key), and this
+            # line already runs INSIDE the transaction, since `BEGIN
+            # IMMEDIATE` is this method's first statement ~25 lines above.
+            #
+            # So this is DEAD CODE against the shipped module and it is kept
+            # deliberately, as a belt on a second belt: it is reachable only
+            # if `new_character_vitals` is replaced (a monkeypatch, or a later
+            # round rewriting it to return a partial mapping), and in that
+            # case it fails loudly and writes nothing rather than composing an
+            # INSERT out of whatever arrived.  Rollback is identical either
+            # way; zero rows, measured.
+            if set(birth) != set(vitals.VITAL_COLUMNS):
+                raise vitals.VitalsError(
+                    "new_character_vitals() must name exactly the three "
+                    "vital columns for a birth INSERT; got %r"
+                    % (sorted(birth),)
+                )
+            # Read by literal key, deliberately, so that a rename in
+            # `persistence_vitals` fails loudly here instead of quietly
+            # swapping hp_current and hp_max through a reordered tuple.
+            birth_level = birth["level"]
+            birth_hp_current = birth["hp_current"]
+            birth_hp_max = birth["hp_max"]
+            # One statement, inside the `BEGIN IMMEDIATE` this method already
+            # opened: the row is never visible without its vitals, so there is
+            # no window in which a login could read a half-born character.
+            # No UPDATE, so there is no `WHERE` to get wrong and no way to
+            # touch a row that is not this one -- the reset-a-veteran failure
+            # `_second_birth` was written to catch cannot be spelled here.
+            cur = db.execute("INSERT INTO characters(account_id,selector,name,name_key,create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at,level,hp_current,hp_max) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (account_id,selector,name,name_key,fingerprint,wire,avatar_wire,None,lo,hi,now,now,birth_level,birth_hp_current,birth_hp_max))
             cid = int(cur.lastrowid)
             db.execute(
                 "INSERT INTO character_positions(character_id,scene_id,scene_seq,x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
@@ -968,13 +1117,23 @@ class SQLiteStore:
         be here -- "all three columns are NULL on every existing character" --
         is no longer true, so it is replaced rather than left to rot.  After
         `007` a character that EXISTED when the migration ran resolves
-        complete, at `level 1, hp 100/100`.  A character created AFTER it does
-        not: `create_character` writes none of the three, `006` set no
-        DEFAULT, and the ledger stops `007` running twice, so this still
-        returns three `vital_column_not_seeded` gaps for every character born
-        after the migration -- including every character on a fresh install.
-        Both answers are correct; which one a caller gets depends on when the
-        row was made, and that gap is with COO.
+        complete, at `level 1, hp 100/100`.
+
+        REWRITTEN AGAIN 2026-09-02 (chief, R308), and the sentence it replaces
+        is quoted so a reader can see what changed: "A character created AFTER
+        it does not: `create_character` writes none of the three ... so this
+        still returns three `vital_column_not_seeded` gaps for every character
+        born after the migration -- including every character on a fresh
+        install."  Every clause of that is now false.  `create_character`
+        writes all three at birth from `persistence_vitals.
+        new_character_vitals()` (`COO-DECISION 20260902_0443` point 1), so a
+        character born after `007` -- and every character on a fresh install,
+        which is where the old sentence bit hardest -- resolves COMPLETE, by
+        the same numbers, and this returns no gaps for it.
+
+        A caller can therefore stop branching on when the row was made.  What
+        it may still meet is a row written before `006`/`007` by a database
+        this project no longer produces, and the `level = 0` case below.
 
         A THIRD answer exists from `COO-DECISION 20260902_0443` point 4: a row
         holding `level = 0` resolves with a `level_zero_is_not_an_adjudicated_
@@ -1276,6 +1435,78 @@ class SQLiteStore:
                     )
         return outcome
 
+    @staticmethod
+    def _begin_immediate_under_contention(db):
+        """`BEGIN IMMEDIATE`, kept waiting instead of allowed to starve.
+
+        WHAT IT IS FOR.  `COO-DECISION 20260902_1646` -- and the measurement
+        behind it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`
+        -- named the defect: the healing lock is correct and the test that
+        proves it was losing on TIME on a loaded runner, taking another lane's
+        pull request down with it.  Four repairs were forbidden by name
+        (weakening or removing `BEGIN IMMEDIATE`, shrinking the test's thread
+        or heal counts, skipping or xfailing it, and any green that comes
+        without a test proving no heal is lost or double-counted).  This is
+        the fifth: tolerate contention.
+
+        WHY RETRYING HERE CANNOT DOUBLE-APPLY A HEAL, which is the only reason
+        a retry is safe at all.  The only statement retried is `BEGIN
+        IMMEDIATE` itself, and only when SQLite refused it with
+        `database is locked`.  A refused `BEGIN IMMEDIATE` has opened no
+        transaction, so the read, the plan and the guarded `UPDATE` above have
+        not run and there is nothing to repeat.  A lock lost or an error
+        raised at any LATER statement is not retried by this method at all --
+        it propagates, and the caller's `connect()` rolls back.  The
+        write-once property therefore rests where it always rested: on
+        `BEGIN IMMEDIATE` plus the `hp_current=?` predicate in the UPDATE.
+
+        Raises `WriteLockTimeout` when the budget is spent, saying how long it
+        waited and how many attempts it made -- the thing a bare
+        `database is locked` never said, and the reason a reader of a red gate
+        could not tell contention from a real defect.
+        """
+        started = time.monotonic()
+        deadline = started + HEAL_LOCK_TOTAL_WAIT_S
+        attempts = 0
+        while True:
+            attempts += 1
+            # PER ATTEMPT, and never longer than the budget has left: SQLite
+            # blocks inside `BEGIN IMMEDIATE` for the whole ceiling, so a
+            # ceiling larger than the remaining budget would be spent past the
+            # deadline before this loop could look at the clock again.  The
+            # pragma stays in force for the rest of this connection's
+            # statements too (the SELECT, the UPDATE, the COMMIT); that is a
+            # wider effect than the name suggests and it is deliberate --
+            # those statements are inside the same contended transaction.
+            ceiling = min(
+                HEAL_LOCK_BUSY_TIMEOUT_MS,
+                max(1, int((deadline - time.monotonic()) * 1000.0)),
+            )
+            try:
+                db.execute("PRAGMA busy_timeout=%d" % ceiling)
+            except sqlite3.Error:
+                # A connection that will not accept the pragma still gets its
+                # attempts; it just makes them at whatever timeout it has.
+                pass
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                return attempts
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WriteLockTimeout(
+                        "could not take the write lock for this character's "
+                        "healing after %d attempt(s) over %.0f ms (budget "
+                        "%.0f ms, per-attempt busy_timeout at most %d ms): %s"
+                        % (attempts, (time.monotonic() - started) * 1000.0,
+                           HEAL_LOCK_TOTAL_WAIT_S * 1000.0,
+                           HEAL_LOCK_BUSY_TIMEOUT_MS, error)
+                    ) from error
+                window = HEAL_LOCK_RETRY_BACKOFF_S * (2 ** min(attempts, 5))
+                time.sleep(min(random.random() * window, remaining))
+
     def _apply_hp_transition(self, character_id: int, plan):
         """The shared transactional body of the two HEALING doors below.
 
@@ -1339,7 +1570,7 @@ class SQLiteStore:
 
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            self._begin_immediate_under_contention(db)
             vitals.verify_schema(db)
             row = db.execute(
                 f"SELECT {','.join(columns)} FROM characters "

@@ -7570,25 +7570,46 @@ reacted to bytes this lane put on the wire.
 
 **What "trailing zero fields" are, named from this clone's own composer.** `encode_block` always
 emits both sections of the DBAttribute body. A door that sets one BasicAttr field and nothing else
-therefore announces an ActorAttr section with a **zero mask and no fields**:
-`... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00`. `cash` (offset `0x0A8`,
-mask `1<<11`) is one of the fields that section carries, and money read 0 on screen.
+therefore announces an ActorAttr section with a **zero mask and no fields**. The composer's first
+return value (`pc`, 63 bytes) ends
+`... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00`; the DBAttribute body itself
+is 30 bytes and the FRAME the dispatcher counts -- the `(74 bytes)` in the tester's tally -- is the
+second return value. (The first draft of this section called the 74 "the body"; pf-adversary
+measured that it is not. Three different objects, now each named.) `cash` (offset `0x0A8`, mask
+`1<<11`) is one of the fields the empty section carries, and money read 0 on screen.
 
 **What was NOT proven, and is not claimed anywhere in the code:** which byte killed the character.
 The tester's own nonclaim is explicit. The hold below is a correlation that earns a hold, never a
 root cause.
 
-**The mechanism.** `speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` is `False` on `main`;
-`speed_wire.declared_empty_sections()` measures which sections the frame about to be sent announces
-empty; `_speed_action` withholds when a section is empty and the shape is not cleared, or whenever
-the shape cannot be measured at all. It fires **before** the DB write, so a held frame never leaves
-a moved row behind it, and it returns the same `SPEED DENIED` LocalTalk notice every other refusal
-returns -- letter `0311`'s nine refusal paths are now ten.
+**The mechanism.** `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is an EMPTY SET on `main`.
+`speed_wire.declared_empty_sections()` computes the shape's signature -- which DBAttribute sections
+the door announces with nothing in them, today `("actor_attr",)` -- and `_speed_action` withholds
+unless that exact signature is in the cleared set, or whenever the signature cannot be computed at
+all. It fires **before** the DB write, so a held frame never leaves a moved row behind it, and it
+returns the same `SPEED DENIED` LocalTalk notice every other refusal returns -- letter `0311`'s
+nine refusal paths are now ten.
 
-**How it opens.** One line, with the measurement that cleared it named in the comment above the
-flip: an attended round that sees a client accept the shape, or an RE result that says which shape
-is safe. Not by a lane deciding it is probably fine. `tests/test_gm_speed_shape_hold.py` runs
-against the shipped default and is what turns red if anyone flips it without evidence.
+> ~~"withholds when a section is empty and the shape is not cleared ... a future door that fills the
+> section opens this gate by itself"~~ -- **struck in the same round it was written.** pf-adversary
+> (D6) measured what that meant: filling the section was an independent opening path that never
+> consulted the clearance, so a lane adding an ActorAttr field would have shipped a new,
+> never-measured ~90-byte shape to an attended tester, on the strength of a causal link the R303
+> letter explicitly disclaims. The clearance is now keyed on the signature and is required on
+> **every** send.
+
+**How it opens.** One entry added to the set, with the measurement that earned it named in the
+comment above: an attended round that sees a client accept a shape, or an RE result that says which
+shape is safe. Not by a lane deciding it is probably fine, and not by changing the shape.
+`tests/test_gm_speed_shape_hold.py` runs against the shipped default and is what turns red if
+anyone clears a shape without evidence.
+
+**What the hold does NOT prove.** Nobody has seen `SPEED DENIED` on a screen: the same R303 letter
+records `SPEED DENIED count in this run = 0`, because the command succeeded that round and no
+refusal path fired. So `/speed` does not now send *nothing* -- it sends a **different**, also
+never-client-observed frame, on every invocation instead of none. That is a trade (one chat line
+against a character, a client and a re-login), not a proof, and no test in this lane may be named
+as if it were one.
 
 **What GT-193's other half is, and whose:** on re-login the sheet read **400**, not 300, because
 `speed_walk` has no login read -- the client is painting `CLIENT_CONSTRUCTION_DEFAULTS`

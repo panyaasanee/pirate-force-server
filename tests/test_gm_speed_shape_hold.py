@@ -19,10 +19,25 @@ BYTES THIS LANE PUT ON THE WIRE.
 
 WHAT IS PINNED HERE, AND WHAT IS DELIBERATELY NOT
 -------------------------------------------------
-PINNED: the production default is HELD; the hold is measured off the frame
-about to be composed rather than hardcoded; it fires BEFORE the DB write; the
-refusal reaches the screen like every other one; and the exact byte tail
-GT-193 shipped, so a future edit that changes the shape cannot do it quietly.
+PINNED: the production default is HELD, and held for EVERY shape (the
+clearance set is empty, and a shape that merely fills both sections is not a
+cleared shape -- pf-adversary D6); the signature is measured off the composer
+rather than hardcoded; the hold fires BEFORE the DB write; the refusal is
+answered to the connection the same way every other refusal in this module is;
+and the exact byte tail GT-193 shipped, so a future edit that changes the shape
+cannot do it quietly.
+
+WHAT "ANSWERED TO THE CONNECTION" DOES AND DOES NOT MEAN (pf-adversary D8).
+These tests assert that the action returned is the `SPEED DENIED` LocalTalk
+notice and that the audit row names the hold.  That is composition inside this
+process.  NOBODY HAS SEEN `SPEED DENIED` ON A SCREEN: the R303 letter this file
+rests on records `SPEED DENIED count in this run = 0`, because the command
+succeeded that round and no refusal path fired.  So the hold does not make
+`/speed` send nothing -- it makes it send a DIFFERENT, also never-client-
+observed frame, on every invocation instead of none.  That trade is the point
+(the notice is one chat line; the held shape cost a character, a client and a
+re-login), but it is a trade, and this file must not be read as proof that the
+tester will see anything at all.
 
 NOT PINNED, BECAUSE NOBODY HAS MEASURED IT: which byte killed the character.
 The tester's own nonclaim is explicit -- "I did NOT prove the client death is
@@ -71,7 +86,12 @@ GT193_VALUE_BYTES = bytes((0x00, 0x00, 0x96, 0x43))
 GT193_EMPTY_ACTOR_SECTION = bytes(
     (0x32, 0, 0, 0, 0, 0, 0, 0, 0, 0x05, 0x01)
 )
-GT193_BODY_LENGTH = 74
+# Each object named, because the first draft of this file called the 74 "the
+# body" and it is not (pf-adversary D7): the DBAttribute body is 30 bytes, the
+# composer's first return value (`pc`, which carries the tail above) is 63, and
+# the FRAME the dispatcher counts -- what the tester logged as `(74 bytes)` --
+# is the second.
+GT193_FRAME_LENGTH = 74
 
 
 def make_chat_payload(message: str, speaker: str = "") -> bytes:
@@ -200,27 +220,54 @@ class _Case(unittest.TestCase):
                 out.append(outcome)
         return out
 
-    def opened(self):
-        """A TEST-ONLY simulation of a future attended clearance."""
+    def cleared(self, *shapes):
+        """A TEST-ONLY simulation of a future attended clearance.
+
+        Defaults to clearing THIS door's own signature.  Nothing that happens
+        in this file is evidence about a real client.
+        """
+        if not shapes:
+            shapes = ((speed_wire.SECTION_ACTOR_ATTR,),)
         return mock.patch.object(
-            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+            speed_wire, "SHAPES_CLEARED_BY_A_REAL_CLIENT", frozenset(shapes)
         )
 
 
 class TheShippedDefaultIsHeldTests(_Case):
-    def test_the_constant_on_main_is_false(self):
-        self.assertIs(speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT, False)
+    def test_no_shape_is_cleared_on_main(self):
+        self.assertEqual(speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT, frozenset())
 
-    def test_the_reader_agrees_with_the_constant(self):
-        self.assertFalse(speed_wire.sparse_shape_cleared())
+    def test_this_doors_own_shape_is_not_cleared(self):
+        self.assertFalse(
+            speed_wire.shape_cleared(
+                speed_wire.declared_empty_sections(self.legacy, 1, 0, 400.0)
+            )
+        )
+
+    def test_a_full_both_sections_shape_is_not_cleared_either(self):
+        # D6: filling the section is not evidence about a client, so it is not
+        # a clearance.  `()` is just another uncleared signature.
+        self.assertFalse(speed_wire.shape_cleared(()))
+
+    def test_an_unmeasurable_shape_is_never_cleared(self):
+        with self.cleared((), (speed_wire.SECTION_ACTOR_ATTR,)):
+            self.assertFalse(speed_wire.shape_cleared(None))
 
     def test_the_reader_is_live_not_a_snapshot(self):
-        # A gate that copied the constant at import time could not be opened
-        # by a future round editing one line, which is the whole contract
+        # A gate that copied the set at import time could not be opened by a
+        # future round editing one line, which is the whole contract
         # `shared_vital_version_confirmed()` already keeps for its own byte.
-        with self.opened():
-            self.assertTrue(speed_wire.sparse_shape_cleared())
-        self.assertFalse(speed_wire.sparse_shape_cleared())
+        shape = speed_wire.declared_empty_sections(self.legacy, 1, 0, 400.0)
+        with self.cleared():
+            self.assertTrue(speed_wire.shape_cleared(shape))
+        self.assertFalse(speed_wire.shape_cleared(shape))
+
+    def test_clearing_one_shape_does_not_clear_another(self):
+        with self.cleared(()):
+            self.assertTrue(speed_wire.shape_cleared(()))
+            self.assertFalse(
+                speed_wire.shape_cleared((speed_wire.SECTION_ACTOR_ATTR,))
+            )
 
     def test_the_measurement_that_earned_the_hold_is_named_in_the_source(self):
         self.assertIn("GT-193", speed_wire.SPARSE_SHAPE_MEASURED_BY)
@@ -253,17 +300,31 @@ class TheShapeIsMeasuredNotHardcodedTests(_Case):
                 (speed_wire.SECTION_BASIC_ATTR,),
             )
 
-    def test_a_door_that_filled_both_sections_would_not_be_held(self):
-        # The hold's own escape hatch, stated as a test rather than as a
-        # promise in a comment: this is what "the gate opens itself for a
-        # shape it was never measured against" means.
-        both = mock.patch.object(
-            speed_wire,
-            "declared_empty_sections",
-            return_value=(),
-        )
+    def test_a_door_that_filled_both_sections_is_still_held(self):
+        """pf-adversary D6, turned into the test that would have caught it.
+
+        The first draft of this hold opened for ANY shape with both sections
+        filled, without consulting the clearance at all -- so a lane that added
+        an ActorAttr field would have shipped a new, never-measured shape to an
+        attended tester.  Filling the section is not evidence about a client.
+        """
         store = self.store()
-        with both:
+        with mock.patch.object(
+            speed_wire, "declared_empty_sections", return_value=()
+        ):
+            action = self.act(self.session(store))
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
+        self.assertEqual(store.calls, [])
+
+    def test_that_same_door_sends_once_its_own_shape_is_cleared(self):
+        # The control for the test above: `()` is not un-clearable, it is
+        # merely uncleared.  A round that measures it clears it by name.
+        store = self.store()
+        with mock.patch.object(
+            speed_wire, "declared_empty_sections", return_value=()
+        ), self.cleared(()):
             action = self.act(self.session(store))
         self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
 
@@ -278,7 +339,7 @@ class TheFrameGT193ShippedTests(_Case):
         _pc, frame = speed_wire.compose_sparse_speed_update(
             self.legacy, 1, 0, GT193_TYPED_VALUE
         )
-        self.assertEqual(len(bytes(frame)), GT193_BODY_LENGTH)
+        self.assertEqual(len(bytes(frame)), GT193_FRAME_LENGTH)
 
     def test_the_composed_frame_still_carries_the_measured_tail(self):
         pc, _frame = speed_wire.compose_sparse_speed_update(
@@ -306,7 +367,9 @@ class TheFrameGT193ShippedTests(_Case):
         self.assertEqual(actor_mask, 0)
 
 
-class TheHoldReachesTheScreenTests(_Case):
+class TheHoldAnswersTheConnectionTests(_Case):
+    """In-process composition only -- see this file's docstring, D8."""
+
     def test_a_healthy_speed_line_is_withheld_by_default(self):
         session = self.session()
         action = self.act(session)
@@ -368,7 +431,7 @@ class NothingMovesWhileHeldTests(_Case):
         # Fail-closed: a composer that raises is a shape this lane cannot
         # measure, and an unmeasurable shape is not one it may ship.
         store = self.store()
-        with self.opened(), mock.patch.object(
+        with self.cleared(), mock.patch.object(
             speed_wire,
             "declared_empty_sections",
             side_effect=ValueError("cannot measure"),
@@ -383,17 +446,65 @@ class NothingMovesWhileHeldTests(_Case):
 class TheControlTests(_Case):
     """If these fail, the tests above are proving nothing about the hold."""
 
-    def test_the_same_line_composes_once_the_hold_is_opened(self):
+    def test_the_same_line_composes_once_the_shape_is_cleared(self):
         store = self.store()
-        with self.opened():
+        with self.cleared():
             action = self.act(self.session(store))
         self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
         self.assertEqual(len(store.calls), 1)
 
-    def test_opening_the_hold_is_the_only_difference(self):
+    def test_clearing_the_shape_is_the_only_difference(self):
         held_store = self.store()
         held = self.act(self.session(held_store))
         open_store = self.store()
-        with self.opened():
+        with self.cleared():
             opened = self.act(self.session(open_store))
         self.assertNotEqual(held[0], opened[0])
+
+
+class TheShapeDoesNotDependOnIdentityOrValueTests(_Case):
+    """The pin `declared_empty_sections`'s docstring names (pf-adversary D5).
+
+    `_speed_action` checks the shape BEFORE the store write, using the parsed
+    value, while the frame that actually ships is composed AFTER the write from
+    the store's read-back (`400.1` goes in and `400.1000061035156` comes back).
+    That is only legitimate while the signature cannot depend on the value or
+    the identity.  These tests are what makes it legitimate; a field whose
+    presence depends on the value turns them red, and the check then has to
+    move below the read-back.
+    """
+
+    VALUES = (0.0, 1, 5.0, 300.0, 400.1, 400.1000061035156, -12.5, 1e30)
+    IDENTITIES = ((1, 0), (0, 0), (0x11223344, 0x55667788), (7, 3))
+
+    def test_every_value_gives_the_same_signature(self):
+        first = speed_wire.declared_empty_sections(self.legacy, 1, 0, 400.0)
+        for value in self.VALUES:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    speed_wire.declared_empty_sections(
+                        self.legacy, 1, 0, value
+                    ),
+                    first,
+                )
+
+    def test_every_identity_gives_the_same_signature(self):
+        first = speed_wire.declared_empty_sections(self.legacy, 1, 0, 400.0)
+        for lo, hi in self.IDENTITIES:
+            with self.subTest(identity=(lo, hi)):
+                self.assertEqual(
+                    speed_wire.declared_empty_sections(
+                        self.legacy, lo, hi, 400.0
+                    ),
+                    first,
+                )
+
+    def test_the_typed_value_and_its_f32_readback_agree(self):
+        # The exact divergence the DB-first ordering introduces: what the GM
+        # typed, and what the store hands back after an f32 round trip.
+        self.assertEqual(
+            speed_wire.declared_empty_sections(self.legacy, 1, 0, 400.1),
+            speed_wire.declared_empty_sections(
+                self.legacy, 1, 0, 400.1000061035156
+            ),
+        )

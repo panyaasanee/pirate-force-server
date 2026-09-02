@@ -427,9 +427,11 @@ class TestTheAnswer(unittest.TestCase):
         # built it, same shape as bg0011 -- UNLIKE bg0011, NOT an
         # elevated-risk row.  Every one of the ten doors round 12lyda
         # surveyed is now open.
-        # ROUND 4uztfj (lane A): +1 each, the Bg3001 (Atlantis)
-        # census -- one entry builder, one carrier, one module.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 38)
+        # ROUND 4uztfj (lane A) and round suovqw (lane B) both moved
+        # these in the same window, on different call sites: the merge is
+        # additive and the numbers are re-counted from src/, not taken
+        # from either branch.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 39)
         self.assertEqual(counts["src_actor_entry_call_sites"], 29)
         self.assertEqual(counts["src_modules_building_actor_entries"], 28)
         self.assertIn(

@@ -260,7 +260,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
   "src_actor_entry_call_sites": 29,
-  "src_actor_stream_call_sites": 38,
+  "src_actor_stream_call_sites": 39,
   "src_modules_building_actor_entries": 28,
   "src_modules_building_actor_entries_names": [
     "field_mob_hostile_bg0015.py",

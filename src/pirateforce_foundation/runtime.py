@@ -23,6 +23,7 @@ from . import mob_pickup_request
 from . import mob_scene_recompose
 from . import scene_admission_gate
 from . import trace_path
+from . import vital_walk
 from . import world_density
 from . import world_face_frame
 from . import world_logout_button_notice
@@ -1344,6 +1345,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # registry at teardown (see close_connection below).
                 self.mob_pickup_bag_cell = None
                 self.mob_pickup_character_id = None
+                # VITAL-WALK-001.  One console line per connection, not one
+                # per frame: the walk promotes a TargetPos on EVERY batched
+                # movement report a walking player sends, and a line each
+                # would bury the console the owner reads during an attended
+                # round.  The events trail carries every one of them.
+                self.vital_walk_target_pos_announced = False
                 if world_census_enabled:
                     # The inherited P0/P30/P91 branch is disarmed HERE, at
                     # construction, exactly the way the population and
@@ -6382,8 +6389,175 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 for pc, frame in frames
             ]
 
+        def _vital_walk_say(self, line: str) -> None:
+            """One console line, and a lost line is never a lost session.
+
+            The bridge console can be closed or redirected -- stderr into a
+            pipe whose reader has exited raises BrokenPipeError -- and this
+            runs on the listener thread inside a method that promises never
+            to raise.  The neighbouring MOB_LOOT_BOUNDARY print two hundred
+            lines below wraps itself for the same reason and in the same
+            words: a line is lost rather than a reply.  [pf-adversary D4.]
+            """
+            try:
+                print(line, file=sys.stderr)
+            except Exception:                        # noqa: BLE001
+                pass
+
+        def _vital_walk_note_refusal(self, walk, parsed) -> str:
+            """Say once per connection per reason that a frame would not walk.
+
+            ONCE PER REASON, NOT ONCE PER FRAME, and the arithmetic is the
+            reason: a client that batches an untabled vital does it on every
+            movement frame, so a line each would bury the console an attended
+            round is reading -- the very failure this reporting exists to
+            prevent.  One line names the reason the first time it happens;
+            the events trail carries every occurrence for counting.
+            """
+            self.events.append("vital_walk_refused_%s" % (walk.reason,))
+            seen = getattr(self, "vital_walk_refusals_announced", None)
+            if seen is None:
+                seen = set()
+                self.vital_walk_refusals_announced = seen
+            if walk.reason not in seen:
+                seen.add(walk.reason)
+                self._vital_walk_say(vital_walk.walk_refused_console_line(
+                    walk, getattr(parsed, "vital_count", "?")))
+            return "walk_refused_%s" % (walk.reason,)
+
+        def _vital_walk_promote_target_pos(self, parsed) -> str:
+            """Learn the position out of a TargetPos vital v141 cannot see.
+
+            Returns a reason name on every path, never raises, and writes
+            NOTHING except ``last_target_pos`` -- the one value R303 measured
+            frozen while the player kept walking (ka1-A, pf_bridge letter
+            20260902_1800: five multi-vital TargetPos blocks dropped, and the
+            server refusing a player 173 units from a drop on the grounds she
+            was 9250 units away, which was the last position it had been
+            allowed to learn).
+
+            The return value is for the tests and for a reader; no caller
+            branches on it, because there is nothing to do differently: a
+            frame with no readable TargetPos in it is the ordinary case.
+            """
+            # ONE GATE, AND THE SECOND ONE WAS MEASURED INTO THE BIN.
+            #
+            # No character selected, no position.  A connection that has not
+            # selected a character has nobody to be standing anywhere, and
+            # every neighbouring inbound lane in this method carries the same
+            # guard for the same reason.
+            #
+            # WHAT WAS HERE AND WHY IT IS GONE.  A draft of this method also
+            # required npc_spawn_sent, on the theory that v141:4292 fires the
+            # one-time NPC population the instant last_target_pos becomes
+            # non-None, so learning a position early could reorder login.  An
+            # adversarial pass measured what that gate actually does (D2): on
+            # a census boot runtime.py:1378 sets npc_spawn_sent True AT
+            # CONSTRUCTION, so the gate is already open and buys nothing; and
+            # on a NON-census boot the only thing that can set npc_spawn_sent
+            # is v141:4292 itself, which needs last_target_pos, which needs a
+            # SINGLE-VITAL TargetPos -- the frame R303 says this client does
+            # not send.  The gate was therefore a deadlock: on exactly the
+            # boots it claimed to protect it killed this whole lane for the
+            # life of the connection, silently.  Firing that population once
+            # the player's position is finally known is the behaviour main
+            # wanted and could not reach.
+            #
+            # getattr on BOTH hops.  This method is the first statement of
+            # the dispatch method now, and it promises never to raise; a bare
+            # ``self.foundation`` would make that promise depend on an
+            # attribute this method does not own.
+            if getattr(getattr(self, "foundation", None),
+                       "selected", None) is None:
+                return "no_character_selected"
+            walk = vital_walk.walk_nested_vitals(legacy, parsed)
+            if not walk.walked:
+                # THE REFUSAL IS REPORTED, NOT SWALLOWED, and this is the
+                # single most important line in the method.  Every refusal
+                # used to be silent -- no event, no console line, no counter
+                # -- which meant an attended round could not tell "the player
+                # never clicked" from "the walk refused every frame because
+                # the client batches a vital whose length this table has
+                # never heard of".  Absence had two causes and the round's
+                # whole measurement plan rests on it having one.
+                # [pf-adversary D3, round mvtiw5.]
+                return self._vital_walk_note_refusal(walk, parsed)
+            isolated = None
+            for vital in walk.vitals:
+                # THE LAST ONE, NOT THE FIRST.  A position is a report of
+                # where the player IS; when a frame carries two, the later is
+                # the true one, and recording the older then range-checking
+                # against it is the R303 freeze in miniature (D8).
+                if vital.nested_id == legacy.TARGET_POS_VITAL:
+                    isolated = vital
+            if isolated is None:
+                return "no_readable_target_pos_in_this_frame"
+            if (getattr(parsed, "nested_id", None) == legacy.TARGET_POS_VITAL
+                    and vital_walk.isolate_vital(
+                        legacy, parsed,
+                        mob_pickup_request.PICKUP_REQUEST_VITAL_ID) is None):
+                # STAND DOWN ONLY WHEN v141 WILL ACTUALLY GET THE FRAME.
+                #
+                # v141 reads a leading TargetPos in its own branch, with its
+                # own marker logic, during super().dispatch -- so writing it
+                # here too would make two authors of one field on one frame.
+                # But "v141 reads it" is conditional on the frame REACHING
+                # super().dispatch, and the pickup branch below claims the
+                # frame and returns ~1370 lines above that call.  A frame
+                # that leads with TargetPos AND carries a pickup click would
+                # therefore be read by nobody: v141 never runs, and this
+                # method had stood down for it.  That is the R303 freeze
+                # reintroduced on the one frame that most needs the position,
+                # measured on the real dispatcher -- the position did not
+                # move, and the range check three hundred lines below then
+                # answered the click with the previous frame's position.
+                # [pf-adversary D1, round mvtiw5.  It was a REGRESSION, not a
+                # missed improvement: that frame moves the player on main.]
+                return "v141_reads_this_frame_itself"
+            try:
+                pos = legacy.parse_target_pos_vital(isolated)
+            except Exception:
+                # Same shape as v141's own guard on the same call
+                # (v141:4236-4240): a body that will not decode is an event,
+                # never an exception out of dispatch.
+                self.events.append("vital_walk_target_pos_parse_error")
+                return "parse_error"
+            if pos is None:
+                return "parse_returned_nothing"
+            if not all(math.isfinite(value) for value in pos[:4]):
+                # v141:4241-4246 rejects exactly this, for exactly this
+                # reason: one non-finite coordinate poisons every range check
+                # that reads the field afterwards, including the pickup
+                # radius the branch below is about to consult.
+                self.events.append("vital_walk_target_pos_nonfinite_rejected")
+                return "nonfinite_rejected"
+            x, y, z, heading = pos[0], pos[1], pos[2], pos[3]
+            self.last_target_pos = (x, y, z, heading)
+            # A DISTINCT EVENT NAME, not v141's ``target_pos_...``.  An
+            # attended round has to be able to tell a position v141 read from
+            # one this walk rescued; borrowing the frozen snapshot's event
+            # name would make the fix invisible in the trail that proves it.
+            self.events.append(
+                f"vital_walk_target_pos_{x:.2f}_{y:.2f}_{z:.2f}")
+            if not getattr(self, "vital_walk_target_pos_announced", False):
+                # getattr, not a bare read: the flag is set in the session
+                # state's constructor, and a session object built by a test
+                # or by a path that does not run that constructor must get
+                # the line, not an AttributeError out of dispatch.
+                self.vital_walk_target_pos_announced = True
+                self._vital_walk_say(vital_walk.walk_promoted_console_line(
+                    legacy.TARGET_POS_VITAL, parsed.vital_count))
+            return "promoted"
+
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
+            # VITAL-WALK-001, second of the two call sites COO-DECISION
+            # 20260902_1845 scoped this round to.  PLACED FIRST IN THE
+            # METHOD because the client batches a movement report and a
+            # click into ONE packet: the position this frame reports has to
+            # be learned before the pickup branch below reads it, or the
+            # range check answers with the previous frame's position.
+            self._vital_walk_promote_target_pos(parsed)
             # CORE-REQUEST (LANE-A, pf_bridge notes_to_chief
             # 20260902_0905_LANE-A-CORE-REQUEST-one-call-site-for-the-uia-
             # button-notice.md).  The player's "back to character select"
@@ -6915,7 +7089,49 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # later unmatched vital returns no reply and no per-vital
                 # event.
                 return self._dispatch_pickup_listener_hypothesis(parsed)
-            if nested_id == mob_pickup_request.PICKUP_REQUEST_VITAL_ID:
+            # VITAL-WALK-001, COO-DECISION 20260902_1845 (ordered first, above
+            # everything else in the round).  R303 measured 42 of 46 pickup
+            # clicks thrown away before the body was decoded, because the
+            # client batches the click with the movement vitals in flight and
+            # v141's parser reads the FIRST nested vital only.
+            #
+            # ADDITIVE BY CONSTRUCTION, and that is the whole safety argument.
+            # ``isolate_vital`` hands back the caller's OWN ``parsed`` object
+            # for the single-vital frames that work on main today (byte for
+            # byte, same path), a rebuilt one-vital parse when the frame
+            # walked cleanly, and None when the walk refused.  The second
+            # `if` below is not a fallback that guesses: when the frame LEADS
+            # with the pickup id it keeps that frame VISIBLE to the branch it
+            # already entered on main, so a walk this module refuses still
+            # prints its named refusal instead of turning a loud line into
+            # silence.  A frame that does NOT lead with the pickup id and
+            # does not walk stays None -- which is main's behaviour exactly,
+            # since main never entered this branch for it.
+            #
+            # THE WALKED PATH IS GATED ON A SELECTED CHARACTER; THE LEADING
+            # PATH IS NOT.  On main this branch was reachable only by a frame
+            # whose FIRST vital was the pickup id, so a connection that had
+            # only logged in could reach it with that one frame shape and no
+            # other.  Keying on walked content widens that: an adversarial
+            # pass drove a not-yet-selected connection through
+            # ``[OnLand, Pickup]`` and got three console lines and two
+            # unbounded ``self.events`` entries per frame -- into the console
+            # an attended round is reading -- for a frame main would have
+            # ignored.  Nothing was granted (the lane refused by name,
+            # session_has_no_bag_cell), so this is noise and reach, not a
+            # take.  The gate closes the widening and leaves main's own
+            # channel exactly as wide as it was.  [pf-adversary D7.]
+            leads_with_pickup = (
+                nested_id == mob_pickup_request.PICKUP_REQUEST_VITAL_ID)
+            pickup_parsed = None
+            if (leads_with_pickup
+                    or getattr(self.foundation, "selected", None) is not None):
+                pickup_parsed = vital_walk.isolate_vital(
+                    legacy, parsed,
+                    mob_pickup_request.PICKUP_REQUEST_VITAL_ID)
+            if pickup_parsed is None and leads_with_pickup:
+                pickup_parsed = parsed
+            if pickup_parsed is not None:
                 # P-1 PICKUP.  CORE-REQUEST 20260902_0443 (LANE-B), landed
                 # verbatim, authorized by COO-DECISION 20260902_0541 (route 1)
                 # and ordered first in R300 by COO-DECISION 20260902_0645.
@@ -6973,7 +7189,46 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # "[G< #{rx_frames + 1}]" BEFORE dispatch, so a claiming
                 # branch that does not bump makes the NEXT frame reuse this
                 # frame's number, and GT-146/GT-203 grade on those numbers.
+                # THE REBINDING, AND WHY IT IS A REBINDING RATHER THAN A NEW
+                # NAME AT THE CALL.  LANE-B publishes its call site as an
+                # executable string, ``MOB_PICKUP_REQUEST_HEADLINE_CALL``,
+                # and its own test compares this call against it argument
+                # for argument -- the pin that catches a swapped bag_cell /
+                # drop_ledger_cell pair, which would refuse every pickup for
+                # good and silently.  Passing the isolated vital under a
+                # different name would have edited another lane's published
+                # contract to buy nothing, so the frame this branch is
+                # handling is rebound instead and the published call is left
+                # exactly as the lane wrote it.
+                #
+                # SAFE BECAUSE THIS BRANCH CLAIMS THE FRAME: it returns on
+                # every path, so the rebinding cannot reach a line outside
+                # it.  That is not left as a promise -- ``test_vital_walk``
+                # walks this method's AST and fails if any path out of this
+                # branch falls through instead of returning.
+                walked_pickup = pickup_parsed is not parsed
+                # Read off the FRAME, before the rebinding: the isolated
+                # parse says vital_count 1 by construction, and printing
+                # that would report the shape of the thing this branch made
+                # rather than the shape of the thing the client sent.
+                walked_frame_vital_count = parsed.vital_count
+                parsed = pickup_parsed
                 self.rx_frames += 1
+                if walked_pickup:
+                    # G-OBS.  One line, only on the frames the walk rescued,
+                    # so an attended round can grep the console it is already
+                    # watching and tell "the walk is carrying clicks" apart
+                    # from "the click never arrived".  Identity comparison,
+                    # not equality: the fast path returns the very same
+                    # object, so `is not` is exactly "this frame needed the
+                    # walk" and no dataclass __eq__ can blur it.
+                    self.events.append("vital_walk_pickup_promoted")
+                    print(
+                        vital_walk.walk_promoted_console_line(
+                            mob_pickup_request.PICKUP_REQUEST_VITAL_ID,
+                            walked_frame_vital_count),
+                        file=sys.stderr,
+                    )
                 foundation = self.foundation
                 store = getattr(
                     getattr(foundation, "lifecycle", None), "store", None)
@@ -8549,6 +8804,41 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             last_target_pos=self.last_target_pos,
                             scene_id=self.foundation.selected.position.scene_id,
                             scene_entry_registry=scene_entry_registry,
+                            # NOT PASSED, AND THE OMISSION IS A DECISION.
+                            # CORE-REQUEST (LANE-A, 20260902_1735) asks for
+                            # `mob_combat_ledger=` here so a responder can
+                            # answer a click with a wounded monster's real
+                            # HP instead of the table's ceiling.  R308 wrote
+                            # that keyword, measured what it does, and took
+                            # it back out; the answer is in
+                            # notes_to_chief/20260902_19xx_CHIEF-TO-LANE-A-*.
+                            #
+                            # WHAT IT DOES TODAY, driven end to end through
+                            # this dispatcher with real frames (kill in
+                            # scene 2, then click): the scene-2 responder's
+                            # dead-row branch refuses the WHOLE click -- it
+                            # loops over all 97 members, and the first
+                            # hostile whose ledger row reads current_hp == 0
+                            # returns a decline for every one of them.  So
+                            # one kill turns every click in the scene, on
+                            # civilians included, into no bytes at all, and
+                            # it survives a warp out and back (the ledger
+                            # rehydrates deaths from mob_death_register at
+                            # runtime.py:4245-4255).  Only a reconnect
+                            # clears it.  A scene whose purpose is killing
+                            # things would stop answering clicks after the
+                            # first kill.
+                            #
+                            # A stale full bar until the next combat frame
+                            # is a worse-looking bug than it is a bug; a
+                            # scene that silently stops answering is
+                            # indistinguishable from a dead server.  So the
+                            # keyword lands the round the dead path answers
+                            # with a body instead of with silence -- which
+                            # needs `mob_death_register` at this same call
+                            # site, and lane A offered that swap in the
+                            # request itself.  This comment is the record so
+                            # the next round does not re-derive it.
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down

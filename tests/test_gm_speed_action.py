@@ -188,19 +188,21 @@ class _Case(unittest.TestCase):
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
-        # GT-193's shape hold (`speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_
-        # CLIENT`) sits ABOVE every path this file exercises: with it shut --
-        # which is the production default, pinned as the default by
+        # GT-193's shape hold sits ABOVE every path this file exercises: with
+        # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` empty -- the production
+        # default, pinned as the default by
         # `tests/test_gm_speed_shape_hold.py` -- `/speed` never reaches the DB
         # write or the composer at all.  These tests are about what happens
-        # BELOW that gate, so they open it explicitly.  Opening it here is a
-        # TEST-ONLY simulation of a future attended clearance; it is not
-        # evidence that any client has ever accepted this frame shape.
-        _shape_hold_opened = mock.patch.object(
-            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+        # BELOW that gate, so they clear THIS DOOR'S OWN SIGNATURE explicitly.
+        # Doing so here is a TEST-ONLY simulation of a future attended
+        # clearance; no client has ever accepted this frame shape.
+        _shape_cleared = mock.patch.object(
+            speed_wire,
+            "SHAPES_CLEARED_BY_A_REAL_CLIENT",
+            frozenset({(speed_wire.SECTION_ACTOR_ATTR,)}),
         )
-        _shape_hold_opened.start()
-        self.addCleanup(_shape_hold_opened.stop)
+        _shape_cleared.start()
+        self.addCleanup(_shape_cleared.stop)
 
     def act(self, session, text):
         return chat_command_action.make_gm_chat_command_action(
@@ -277,12 +279,20 @@ class SpeedVersionGateTests(_Case):
         # RE-105/RE-129, not a byte lifted from either).
         self.assertEqual(attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED, 0)
 
-    def test_a_valid_gm_speed_composes_with_the_gate_open_by_default(self):
-        # Unlike `say`'s gate (still None today), this one does not need a
-        # test to open it -- proving that IS what this test pins.
+    def test_a_valid_gm_speed_composes_with_the_version_gate_open(self):
+        """~~"this one does not need a test to open it"~~ -- struck.
+
+        That was true of the VERSION gate and still is; it stopped being true
+        of this test the round GT-193's shape hold landed, because `setUp`
+        now clears this door's signature for every test in this file.  And the
+        assertion could not tell: `assertIsNotNone` is satisfied by the
+        `SPEED DENIED` notice too, so the test stayed green with nothing sent
+        (pf-adversary, round `et2ux4`, D9).  It names the action now.
+        """
         session = FakeSession()
         action = self.act(session, "/speed 5.0")
         self.assertIsNotNone(action)
+        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
 
     def test_a_valid_gm_speed_withholds_when_the_gate_is_forced_shut(self):
         session = FakeSession()
@@ -490,7 +500,9 @@ class SpeedRunCopyDbGateTests(_Case):
             db_path="state/pirateforce_gt193_20260901.sqlite3"
         )
         action = self.act(session, "/speed 5.0")
-        self.assertIsNotNone(action)
+        # The LABEL, not just "not None" -- see the sibling test below and
+        # pf-adversary D9: this gate's control must prove a SEND happened.
+        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
         self.assertNotIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -564,7 +576,10 @@ class SpeedRunCopyDbGateTests(_Case):
         run_copy = self.tmp / "pirateforce_gt193_20260902_0129.sqlite3"
         run_copy.write_bytes(b"")
         session = FakeSession(db_path=str(run_copy))
-        self.assertIsNotNone(self.act(session, "/speed 5.0"))
+        # The LABEL, not just "not None": a `SPEED DENIED` notice is also not
+        # None, so this used to pass with nothing sent (pf-adversary D9).
+        action = self.act(session, "/speed 5.0")
+        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
         self.assertNotIn(
             chat_command_action.EVENT_SPEED_WITHHELD_CANONICAL_DB,
             session.events,
@@ -885,6 +900,13 @@ class SpeedPersistenceTests(_Case):
         session = FakeSession()
         self.store_of(session).readback = {}
         self.assertRefusalWentToTheScreen(self.act(session, "/speed 5.0"))
+        # WHICH refusal, not just "a refusal": every gate above this one also
+        # answers with the same notice, so without this line the test passes
+        # for the wrong reason (pf-adversary D9).
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_PERSIST_READBACK_UNUSABLE,
+            session.events,
+        )
 
     def test_a_boolean_readback_is_refused_rather_than_encoded_as_one(self):
         # `True` is an `int` in python and would ride the wire as `1.0`.
