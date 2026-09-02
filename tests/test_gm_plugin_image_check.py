@@ -1379,20 +1379,111 @@ INSTALL_BAT_TESTS = 3
 """How many tests in this file skip together when pf_bridge is not beside us."""
 
 
+def _missing_install_bat_message(sibling_present: bool) -> str:
+    """What to say when the batch file is not there, per machine.
+
+    Split out and given the answer as an ARGUMENT so both branches can be read
+    back by a test.  Round `kv2vjk`, pf-adversary D4: the first draft stated
+    "../pf_bridge is checked out beside this repository but install.bat is not
+    in it" unconditionally, and that sentence is false on the gate -- it would
+    send the next reader hunting for a deleted file inside a directory that
+    does not exist.
+    """
+    if sibling_present:
+        where = (
+            "../pf_bridge IS beside this repository and "
+            "patches/gm_plugin/install.bat is not in it"
+        )
+    else:
+        where = (
+            "../pf_bridge is NOT beside this repository at all, which means "
+            "this helper was reached from outside InstallBatContractTests -- "
+            "that class's guard is the only thing allowed to answer for an "
+            "absent sibling, and a fourth caller outside it would skip "
+            "undeclared, exactly as pirate-force-server#611 did"
+        )
+    return (
+        "%s.  This is NOT a missing-evidence skip and must never become one: "
+        "the batch file is this lane's own, it landed in pf_bridge#909, and "
+        "the %d tests in InstallBatContractTests are the only thing standing "
+        "between a renamed findstr literal and an install that silently "
+        "warns-and-copies.  Restore the file, or move these tests to whatever "
+        "replaced it." % (where, INSTALL_BAT_TESTS)
+    )
+
+
 def _install_bat_text() -> str:
     path = _install_bat()
     if path is None:
-        raise AssertionError(
-            "../pf_bridge is checked out beside this repository but "
-            "patches/gm_plugin/install.bat is not in it.  This is NOT a "
-            "missing-evidence skip and must never become one: the batch file "
-            "is this lane's own, it landed in pf_bridge#909, and the %d tests "
-            "in InstallBatContractTests are the only thing standing between a "
-            "renamed findstr literal and an install that silently "
-            "warns-and-copies.  Restore the file, or move these tests to "
-            "whatever replaced it." % INSTALL_BAT_TESTS
-        )
+        raise AssertionError(_missing_install_bat_message(
+            BRIDGE_SIBLING.present))
     return path.read_text(encoding="ascii").replace("\r\n", "\n")
+
+
+# --- reading a .bat as a graph, because a refusal is a control-flow claim ---
+#
+# Small on purpose: it models the three things a `goto`/`exit` batch actually
+# does and nothing else -- labels, jumps, and FALL-THROUGH into the next label.
+# `if ... goto X` is an edge; so is the next label, unless the block ends in an
+# unconditional `goto` or `exit`.  `call` is not modelled (the batch has none),
+# and neither are variables in label names; if either appears, this walker
+# under-reports and the test that uses it must be revisited rather than
+# trusted.
+
+
+def _batch_blocks(text: str) -> dict:
+    """`{label: block text}` in file order, block = up to the next label."""
+    blocks, label, lines = {}, None, []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if (stripped.startswith(":") and not stripped.startswith("::")
+                and len(stripped) > 1 and " " not in stripped):
+            if label is not None:
+                blocks[label] = "\n".join(lines)
+            label, lines = stripped[1:], []
+            continue
+        if label is not None:
+            lines.append(line)
+    if label is not None:
+        blocks[label] = "\n".join(lines)
+    return blocks
+
+
+def _batch_successors(block: str, fallthrough: str | None) -> set:
+    targets, ends = set(), False
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith(("REM ", "ECHO ", "::")):
+            continue
+        lowered = stripped.lower()
+        at = lowered.find("goto ")
+        if at != -1:
+            target = stripped[at + len("goto "):].split()[0].lstrip(":")
+            targets.add(target.lower())
+            if at == 0:
+                ends = True
+        elif lowered.startswith("exit"):
+            ends = True
+    if not ends and fallthrough is not None:
+        targets.add(fallthrough)
+    targets.discard("eof")
+    return targets
+
+
+def _labels_reachable_from(text: str, start: str) -> set:
+    blocks = _batch_blocks(text)
+    order = list(blocks)
+    seen, queue = set(), [start]
+    while queue:
+        label = queue.pop()
+        if label in seen or label not in blocks:
+            continue
+        seen.add(label)
+        index = order.index(label)
+        after = order[index + 1] if index + 1 < len(order) else None
+        queue.extend(_batch_successors(blocks[label], after))
+    seen.discard(start)
+    return seen
 
 
 @BRIDGE_SIBLING.skip_unless_present()
@@ -1467,17 +1558,27 @@ class InstallBatContractTests(unittest.TestCase):
     ) -> None:
         """The fail-closed half of COO-DECISION `20260902_2342` item 3.
 
-        A refusal must end the script, not fall through to the copy. Checked by
-        reading the batch's own control flow: the refusal label exists and its
-        block contains `exit /b 1` before any `goto do_copy`.
+        A refusal must end the script, not reach the copy -- BY ANY ROUTE.
+
+        The first version of this test forbade the literal `goto do_copy`
+        inside the refusal block and nothing else.  pf-adversary, round
+        `kv2vjk`, D5 named the input that passes it with the feature broken:
+        `COO-DECISION 20260903_0148` §7 amends `2342` to make the batch honour
+        `PFGM_FORCE=1` and copy anyway, and the obvious way to write that is
+        `goto pfgm_forced_copy` -- a different literal, the same fall-through,
+        and this test measured GREEN on a rewritten batch where a refusal
+        really could copy.  Forbidding one spelling is not grading a property.
+
+        So the block graph is walked instead.  FALL-THROUGH IS AN EDGE: a
+        batch label runs into the next one unless the block ends the script or
+        jumps unconditionally, so deleting the `exit /b 1` alone drops control
+        into `:pfgm_stale_tool`, which goes straight to `:do_copy`.  That is
+        the mutation the string test could not see either.
         """
         text = _install_bat_text()
         assert "\n:pfgm_refuse\n" in text
-
-        block = text.split("\n:pfgm_refuse\n", 1)[1]
-        block = block.split("\n:", 1)[0]
-        assert "exit /b 1" in block
-        assert "goto do_copy" not in block
+        assert "exit /b 1" in _batch_blocks(text)["pfgm_refuse"]
+        assert "do_copy" not in _labels_reachable_from(text, "pfgm_refuse")
 
 
 # --- what the census tests upstream cannot answer --------------------------
@@ -1542,3 +1643,74 @@ def test_a_bridge_beside_this_clone_really_does_carry_install_bat():
         "../pf_bridge is beside this clone but "
         "patches/gm_plugin/install.bat is missing from it"
     )
+
+
+def test_a_missing_install_bat_raises_loudly_instead_of_skipping(monkeypatch):
+    """The `AssertionError` branch, which no machine reaches on its own.
+
+    pf-adversary, round `kv2vjk`, D2: on the gate the class is skipped before
+    that line; on the bridge the file is there.  So the one line the whole
+    guard argument rests on -- "a sibling without the batch file is a deleted
+    file, not missing evidence" -- had never executed anywhere, and replacing
+    it with a bare `pytest.skip` left BOTH machines fully green.  That is the
+    shape that closed #611, re-installed in latent form.  It executes here.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "_install_bat", lambda: None)
+    with pytest.raises(AssertionError) as raised:
+        _install_bat_text()
+    assert "must never become one" in str(raised.value)
+
+
+def test_the_missing_install_bat_message_tells_the_two_machines_apart():
+    """D4: the sentence must not assert a sibling nobody looked for."""
+    present = _missing_install_bat_message(True)
+    absent = _missing_install_bat_message(False)
+    assert "IS beside this repository" in present
+    assert "is NOT beside this repository" in absent
+    assert "InstallBatContractTests" in absent
+    for message in (present, absent):
+        assert str(INSTALL_BAT_TESTS) in message
+
+
+_REFUSAL_SHAPED_BATCH = """@echo off
+if not "%PFGM_RC%"=="0" goto pfgm_refuse
+echo [ok] verdict=image_ok
+goto do_copy
+
+:pfgm_refuse
+echo [FAIL] refused. Nothing was copied.
+exit /b 1
+
+:pfgm_stale_tool
+echo [warn] old copy, treated as no checker at all.
+goto do_copy
+
+:do_copy
+copy /y "GameMaster.dll" "%TARGET%\\GameMaster.dll" >nul
+"""
+
+
+def test_the_refusal_walker_sees_the_two_ways_a_refusal_can_reach_the_copy():
+    """The walker is the witness for `pfgm_refuse`, so it needs one too.
+
+    Synthetic text, not the real batch: this runs on the gate, where
+    `../pf_bridge` is absent, and a fourth reader of the real file would
+    either skip undeclared (breaking the pin at 3) or die.  The shape below
+    is the real one -- refusal, a warn label after it that goes to the copy,
+    and the copy -- which is all the walker is asked about.
+
+    Both mutations are ones the old literal `goto do_copy` test measured GREEN
+    on: a differently-spelled jump, and a deleted `exit /b 1` that falls
+    through into the next label.
+    """
+    assert "do_copy" not in _labels_reachable_from(
+        _REFUSAL_SHAPED_BATCH, "pfgm_refuse")
+
+    forced = _REFUSAL_SHAPED_BATCH.replace(
+        "exit /b 1", "if defined PFGM_FORCE goto pfgm_stale_tool\nexit /b 1", 1)
+    assert forced != _REFUSAL_SHAPED_BATCH
+    assert "do_copy" in _labels_reachable_from(forced, "pfgm_refuse")
+
+    dropped = _REFUSAL_SHAPED_BATCH.replace("exit /b 1", "", 1)
+    assert dropped != _REFUSAL_SHAPED_BATCH
+    assert "do_copy" in _labels_reachable_from(dropped, "pfgm_refuse")
