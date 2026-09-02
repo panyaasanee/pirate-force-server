@@ -193,6 +193,7 @@ from .. import lane_a_click_hp
 from .. import lane_hooks
 from .. import world_census_level
 from .. import world_bg0015_identity as identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
 # WHY THIS IS True, NOT False, AS OF LANE-A round `n8fq3w`: see "WHY THIS
@@ -266,6 +267,7 @@ def respond(
     scene_id: int = SCENE_N_ID,
     scene_entry_registry: Any = None,
     mob_combat_ledger: Any = None,
+    mob_loot_cell: Any = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 14, or decline (see module doc).
@@ -440,7 +442,17 @@ def respond(
             ))
         if not entries:
             continue
-        pc, frame = legacy.make_runtime_remote_actors(entries)
+        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # call-site half COO-DECISION 20260902_1946 approved).  Same
+        # bytes as ``legacy.make_runtime_remote_actors`` whenever no
+        # row is standing in THIS scene, which includes every boot
+        # where chief has not passed a cell yet.  The scene naming
+        # and the fail-closed path live in one module for all four
+        # responders - see ``lane_a_ground_preserve``, including why
+        # the letter's own ``scene_id`` argument had to be resolved
+        # to a scene FOLDER before it could gate anything.
+        pc, frame = compose_answer(
+            legacy, entries, scene_id, mob_loot_cell)
         # ``wounded=`` is the number that may be quoted as evidence that a
         # wound survived a click; ``hp=ledger`` is not (see scene 2's
         # responder for the same paragraph and the ruling behind it).

@@ -110,6 +110,7 @@ from typing import Any
 from .. import lane_hooks
 from .. import world_population
 from .. import world_port_royal_identity as identity
+from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
 # See "WHY THE GATE STAYS CLOSED THIS ROUND" in the module docstring.  Flip
@@ -174,6 +175,7 @@ def respond(
     last_target_pos: tuple[float, float, float, float] | None,
     scene_id: int = SCENE_N_ID,
     scene_entry_registry: Any = None,
+    mob_loot_cell: Any = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 1, or decline (see module doc).
@@ -240,7 +242,17 @@ def respond(
             ))
         if not entries:
             continue
-        pc, frame = legacy.make_runtime_remote_actors(entries)
+        # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # call-site half COO-DECISION 20260902_1946 approved).  Same
+        # bytes as ``legacy.make_runtime_remote_actors`` whenever no
+        # row is standing in THIS scene, which includes every boot
+        # where chief has not passed a cell yet.  The scene naming
+        # and the fail-closed path live in one module for all four
+        # responders - see ``lane_a_ground_preserve``, including why
+        # the letter's own ``scene_id`` argument had to be resolved
+        # to a scene FOLDER before it could gate anything.
+        pc, frame = compose_answer(
+            legacy, entries, scene_id, mob_loot_cell)
         console_lines = (
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
             f"placement={selected_idx} visible={len(entries)} "
