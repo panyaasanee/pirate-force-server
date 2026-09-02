@@ -1069,6 +1069,65 @@ class NonclaimTests(unittest.TestCase):
                     "0x4543 has never been seen on any wire, and a reader "
                     "of runtime.py must not have to find that out from "
                     "another repository." % (anchor + 1, needle))
+        # THE TWO SUBSTRING CHECKS ABOVE ARE NOT ENOUGH, AND THAT WAS
+        # MEASURED, NOT SUSPECTED.  pf-adversary (round ls5m3c) mutated the
+        # landed call site ten ways and ran the full suite on each.  Two
+        # mutations stayed GREEN and both are the kind this lane already has
+        # scar tissue for:
+        #   * keying the branch on the OUTER id instead of the nested one --
+        #     the layer error MOB_PICKUP_REQUEST_WIRING forbids by name.  The
+        #     branch simply becomes dead and every test passes.
+        #   * swapping bag_cell and drop_ledger_cell inside the published
+        #     call.  Every pickup then refuses type_not_typed_record forever,
+        #     silently.  This is the SAME defect mob_pickup.py records an
+        #     adversarial pass proving on the sibling lane, which is why
+        #     MOB_PICKUP_REQUEST_HEADLINE_CALL is published as an executable
+        #     string in the first place -- and nothing was comparing the call
+        #     site against it.
+        # So compare the parsed call against the published string, and pin
+        # what the enclosing `if` tests.  A substring cannot see argument
+        # order; an AST can.
+        tree = ast.parse(runtime)
+        published = ast.dump(ast.parse(
+            mob_pickup_request.MOB_PICKUP_REQUEST_HEADLINE_CALL,
+            mode="eval").body)
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "dispatch_inbound_pickup_request"
+        ]
+        self.assertTrue(calls, "the call vanished from the AST")
+        for call in calls:
+            with self.subTest(line=call.lineno):
+                self.assertEqual(
+                    ast.dump(call), published,
+                    "runtime.py:%d does not make the call this lane "
+                    "PUBLISHES, argument for argument.  Compare it against "
+                    "mob_pickup_request.MOB_PICKUP_REQUEST_HEADLINE_CALL: a "
+                    "swapped pair of cells refuses every pickup for good and "
+                    "no other test in this repository can see it."
+                    % call.lineno)
+        # And the branch must key on the NESTED id constant, never the outer
+        # one: `nested_id == mob_pickup_request.PICKUP_REQUEST_VITAL_ID`.
+        keyed_on_nested_id = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            if not (isinstance(node.left, ast.Name)
+                    and node.left.id == "nested_id"):
+                continue
+            for comparator in node.comparators:
+                if (isinstance(comparator, ast.Attribute)
+                        and comparator.attr == "PICKUP_REQUEST_VITAL_ID"):
+                    keyed_on_nested_id = True
+        self.assertTrue(
+            keyed_on_nested_id,
+            "runtime.py makes this lane's call but nothing in it compares "
+            "`nested_id` against PICKUP_REQUEST_VITAL_ID.  0x4543 is a NESTED "
+            "runtime type id; keying on it at the top level is a layer error "
+            "the wiring note forbids by name, and it fails silently -- the "
+            "branch goes dead and every other test stays green.")
 
 
 if __name__ == "__main__":

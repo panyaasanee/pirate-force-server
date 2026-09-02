@@ -19,6 +19,7 @@ from . import mob_death
 from . import mob_drop_presence
 from . import mob_loot
 from . import mob_pickup
+from . import mob_pickup_request
 from . import mob_scene_recompose
 from . import scene_admission_gate
 from . import trace_path
@@ -6125,6 +6126,162 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # later unmatched vital returns no reply and no per-vital
                 # event.
                 return self._dispatch_pickup_listener_hypothesis(parsed)
+            if nested_id == mob_pickup_request.PICKUP_REQUEST_VITAL_ID:
+                # P-1 PICKUP.  CORE-REQUEST 20260902_0443 (LANE-B), landed
+                # verbatim, authorized by COO-DECISION 20260902_0541 (route 1)
+                # and ordered first in R300 by COO-DECISION 20260902_0645.
+                #
+                # THE FACT 0541 MADE A CONDITION OF LIFTING RE-125's
+                # PROHIBITION, WRITTEN HERE BECAUSE A READER OF runtime.py MUST
+                # NOT HAVE TO FIND IT IN ANOTHER REPOSITORY: the nested id
+                # 0x4543 is DERIVED from the client's class name on the
+                # static-image layer and has NEVER BEEN OBSERVED ON ANY WIRE
+                # (RE-125, CLOSED BOUNDED-NEGATIVE; GT-146 clicked and captured
+                # no such frame).  A real pickup frame wearing some OTHER id
+                # still reaches the unchanged unknown-vital path, which is the
+                # capture GT-146 wants -- v141 prints the capture line BEFORE
+                # dispatch, so nothing here can hide a frame from it.
+                # tests/test_mob_pickup_request.py enforces this comment.
+                #
+                # WHAT AN EARLIER DRAFT OF THIS COMMENT CLAIMED, AND WHY IT
+                # IS STRUCK: ~~"if the id is wrong this branch never fires and
+                # every frame keeps today's behaviour"~~.  Measured false by
+                # pf-adversary.  The branch claims on the NESTED ID ALONE,
+                # before any shape check, so if 0x4543 turns out to be some
+                # other live message this branch swallows it: on a flagless
+                # boot that cost the world census, the server-online line and
+                # the music control one frame of deferral each (they are
+                # latched and do fire on the next runtime-protocol frame, so
+                # it is a deferral, not a loss).  The cost of a wrong id is
+                # small and bounded -- it is NOT zero, and saying zero was the
+                # kind of convenient sentence this project keeps getting
+                # caught by.  WHO WITHDRAWS THIS BRANCH if 0x4543 turns out to
+                # be another live message is an open question with no named
+                # owner; it is raised with COO in the R300 handback.
+                #
+                # A PRODUCTION branch: no scenario object in the condition, no
+                # flag, no allowlisted profile.  It sits AFTER the scenario-
+                # gated PICKUP-LISTENER-001 probe just above, which keys on the
+                # same id, so a boot that opts into that probe keeps exactly
+                # the behaviour it has today and this branch is what a boot
+                # WITHOUT it now gets.
+                #
+                # WHERE THE NAMES COME FROM -- none is invented here, and every
+                # one of them is read in a way that CANNOT RAISE, because the
+                # never-raises promise of dispatch_inbound_pickup_request is
+                # worth nothing if composing its arguments throws first (the
+                # read-only session facade has no lifecycle and no session_id;
+                # session.py:266).  A None reaching the store is refused BY
+                # NAME as store_cannot_be_asked, never crashed on
+                # (mob_pickup_persist.precheck_persistable wraps every store
+                # failure), and the readiness guards for the two cells are
+                # inside the function, not in this comment.
+                # This branch CLAIMS the frame (it returns on both paths), so
+                # it counts it, exactly as every other claiming lane in this
+                # method does -- the trace_path branch above is the closest
+                # analogue.  Not bookkeeping for its own sake: the capture
+                # line the attended rounds read is printed as
+                # "[G< #{rx_frames + 1}]" BEFORE dispatch, so a claiming
+                # branch that does not bump makes the NEXT frame reuse this
+                # frame's number, and GT-146/GT-203 grade on those numbers.
+                self.rx_frames += 1
+                foundation = self.foundation
+                store = getattr(
+                    getattr(foundation, "lifecycle", None), "store", None)
+                sid = getattr(foundation, "session_id", None)
+                # The character the CELL was claimed for, not whoever is
+                # selected now: the pair has to describe one character or the
+                # row is written under an id that cannot reach it
+                # (mob_pickup_persist REFUSE_CELL_IS_ANOTHER_CHARACTERS).
+                character_id = self.mob_pickup_character_id
+                bag_cell = self.mob_pickup_bag_cell
+                drop_ledger_cell = getattr(self, "mob_loot_cell", None)
+                # The claimant's OWN identity and position, out of
+                # authenticated session state and NEVER out of the request --
+                # the body carries seven bytes and none of them is a position
+                # (RE-125 closed that in the same words).  Composed exactly as
+                # the lane_b_mob_ai_tick call site above composes them
+                # (runtime.py, the TARGET_POS_VITAL branch).
+                selected = getattr(foundation, "selected", None)
+                identity = None
+                if selected is not None:
+                    identity_hi = getattr(selected, "identity_hi", None)
+                    identity_lo = getattr(selected, "identity_lo", None)
+                    if type(identity_hi) is int and type(identity_lo) is int:
+                        identity = (
+                            (identity_hi & 0xFFFFFFFF) << 32
+                            | (identity_lo & 0xFFFFFFFF)
+                        )
+                #
+                # ONE SOURCE, AND THE SECOND ONE WAS TRIED AND WITHDRAWN
+                # BEFORE IT EVER MERGED.  Both halves of that are measured
+                # and both are worth more than the line.
+                #
+                # last_target_pos is None in two ordinary production states:
+                # from character select until the player's FIRST movement
+                # report, and after every GM cross-scene warp, which clears
+                # it.  In both, x/y/z of None reach PickupClaim and the
+                # pickup refuses BY NAME as position_not_finite.  A draft of
+                # this branch therefore fell back to selected.position.
+                #
+                # pf-adversary measured what that fallback actually buys and
+                # what it costs.  _gm_warp_resync_selected_scene rewrites
+                # ONLY scene_id and leaves selected.position's x/y/z alone,
+                # and its own docstring says that is deliberate BECAUSE
+                # nothing reads those coordinates.  DropLedger has no scene
+                # term and reconcile_scene_transition is deliberately not
+                # wired, so scene A's drops stay live after a warp.  Put
+                # together: with the fallback, a player standing in scene 14
+                # took an object off scene 1's floor and the row was
+                # COMMITTED -- executed end to end, not argued.  The
+                # fallback converted a fail-closed refusal into a granted
+                # cross-scene take.
+                #
+                # What it bought was almost nothing: a player has to WALK to
+                # a drop before clicking it, and walking is what sets
+                # last_target_pos.  So the window it closed is "pick up
+                # without ever moving", and the window it opened is "take
+                # another scene's floor".  Fail-closed wins.  Refusing
+                # position_not_finite for one frame is correct; the player
+                # takes one step and pickup works.  If that window must be
+                # closed later it belongs in the resync, which knows a scene
+                # changed, not here, which does not.
+                #
+                # NONCLAIM: last_target_pos is a client-REPORTED position the
+                # server recorded, not server-authoritative.  The 450-unit
+                # pickup radius is the only bound on it.
+                x = y = z = None
+                last_pos = getattr(self, "last_target_pos", None)
+                if isinstance(last_pos, tuple) and len(last_pos) == 4:
+                    x, y, z, _heading = last_pos
+                # RE-125, restated ON the call because ten lines is all a
+                # reader gets.  The id this branch keys on, 0x4543, has
+                # never been observed on any wire: a DERIVED, static-image
+                # reading, so a wrong id costs nothing -- the branch simply
+                # never fires and the frame keeps today's behaviour.
+                outcome = mob_pickup_request.dispatch_inbound_pickup_request(
+                    legacy, parsed, store, sid, character_id, bag_cell,
+                    drop_ledger_cell, identity, x, y, z)
+                # One event per outcome, named by the transaction's own reason
+                # rather than by anything composed here, so the events trail an
+                # attended round reads says which refusal fired.
+                #
+                # ONLY THE FIRST COLON-SEPARATED TOKEN, and that is not
+                # cosmetic: MobPickupPersistError composes args[0] as
+                # "<reason>: <detail>", so the whole persist family arrives
+                # here as a sentence carrying the session id, the character id
+                # and, in one measured case, a Windows filesystem path -- 237
+                # characters of unbounded, unequal-comparable text going into
+                # self.events.  The mob_pickup claim family arrives as a bare
+                # name.  Taking the head makes the vocabulary one kind of thing
+                # (pf-adversary, round ls5m3c).
+                self.events.append(
+                    "mob_pickup_request_%s"
+                    % (str(outcome.reason).split(":", 1)[0].strip(),))
+                if outcome.delta is None:
+                    return []          # no reply, exactly as an unknown vital
+                pc, frame = outcome.delta
+                return [("MOB_PICKUP_REQUEST_DELTA", pc, frame, 0.0)]
             if (
                 delete_actor_hypothesis_scenario is not None
                 and nested_id == DELETE_ACTOR_VITAL_ID
