@@ -7321,3 +7321,143 @@ by pointing at row `0x9F2C` of this document instead.
 8.5 gives proven meanings only for `0x2A`/`0x12`. This round reproduces a byte; it does not claim to know what
 that byte encodes. `GM_RunGMCommandVital` remains `NOT_OBSERVED` (0 captured frames), so nothing here is
 confirmed by a real frame of that message. No GM status was granted to any account and no milestone moved.
+
+## Round `0aij4z` (2026-09-02T15:2x+07:00) -- the GT-192 preflight, and the seam that lies about scene 2
+
+`gm/warp_chain_preflight.py` (new) + `tests/test_gm_warp_chain_preflight.py` (new). No existing
+file in either repository is touched, no production code path changes, nothing is wired into
+`runtime.py`.
+
+### What it is for
+
+`GT-192` is GM-A's acceptance entry: a GM types `/warp <scene>` across the owner's closed list
+(`2-11`, `14`, `130`, closing with `1`, per `COO-DECISION 20260902_0544`) inside ONE login and
+must see a normal NPC population on every map. An attended round is the most expensive resource
+this project has, and until this round a tester who saw an empty map had no way to tell three
+different things apart:
+
+1. the census-latch bug the entry exists to catch -- a real FAIL;
+2. **scene 1**, which is empty ON ARRIVAL BY DESIGN and fills one step later
+   (`KA1A-AMENDMENT 20260901_1120` holds the walk-before-census disjunct shut on purpose);
+3. **scene 2**, whose roster does not come from a `lane_hooks` composer at all.
+
+The tool prints one ASCII line per scene before she boots, so an empty map is graded against a
+stated prediction instead of being a surprise.
+
+### The trap it was built around -- MEASURED, not reasoned
+
+The obvious implementation is to ask `world_population_handoff.handoff_for_arrival` for every
+reachable scene and print its `actor_count`. Measured on this clone, that seam answers
+`kind='clear'`, `actor_count=0` **for scene 2**, because `lane_a_scene_census.skipped_scenes()`
+records scene 2 as `reserved_by_a_runtime_branch` and its roster ships from the runtime's own
+bg0002 arm (`runtime.py:8536`). Scene 2 is the FIRST map on the owner's list. A preflight built
+the obvious way prints `0` for it and sends a tester hunting a bug that is not there.
+
+Scene 2 is therefore asked of its own arm with the same arguments that call site passes
+(`count_source=COUNT_SOURCE_FULL_ROSTER`, default `actor_count`) -- and because `runtime.py` is
+chief's file and this lane cannot stop it changing, a test READS THAT CALL SITE'S SOURCE with
+`ast` and goes red if the arguments drift. Both halves are pinned: that the seam really does say
+clear/0, and that the tool does not repeat it.
+
+### What it measured (the whole reachable world, this clone)
+
+The production gate `warp_executor.warp_no_coords_live_target`, asked for all 330 scene ids in
+`gm/scene_catalog.py`, answers **exactly thirteen**: `1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14,
+130` -- the owner's list, independently derived. Anything outside it is REFUSED BY NAME, which
+is a different outcome from an empty map and must not be graded as one.
+
+Actors composed on arrival: scene 2 = 97 (runtime arm) - 3 = 62 - 4 = 109 - 5 = 87 - 6 = 66 -
+7 = 56 - 8 = 69 - 9 = 57 - 10 = 94 - 11 = 51 - 14 = 81 - 130 = 41 - scene 1 = 0 on arrival,
+108 after one step. `empty_by_design=1 empty_unexplained=none`.
+
+### Design rules this module keeps, and the test that kills each
+
+~~* **The count is read off `world_population_handoff.handoff_for_arrival`.**~~ **STRUCK the same
+  round it was written** -- pf-adversary D1 measured that seam answering with a full roster for a
+  scene the runtime DECLINES, because it never sees the composer's own admission check. See the
+  correction below; the count now comes from calling the composer, the route the runtime takes.
+* **`0` never stands in for "do not know."** `actor_count` is `None` whenever a number could not
+  be derived. `_lane_count` returning `0` on a non-census handoff survived the first five
+  mutations this lane ran and was only killed by a test added afterwards, driven against the one
+  scene whose seam really answers `clear`.
+* **Fail closed and NAMED.** Every failure returns a row carrying the exception type; a preflight
+  that crashes on one map takes the other twelve with it.
+* **The nonclaim rides the OUTPUT, not only the docstring.** The last line the tool prints says it
+  predicts what the server composes and never what the client draws. A tester reads a console, not
+  this repository.
+* **The reachable set is asked of the production gate, never listed.** The day LANE-A opens a
+  scene this covers it without an edit.
+
+### nonclaim
+
+1. No GM status is granted or used, no account is touched, no socket is opened, no frame is sent,
+   nothing is wired into `runtime.py`, and no flag is flipped. The tool runs with
+   `production_allowed` false everywhere.
+2. **No milestone moves.** P-1, P-2, P-3, GM-A, GM-B are exactly where they were. This is a tool
+   for reaching a testable state, not evidence that anything works.
+3. It predicts the SERVER side only. Nothing here says the client renders any of these actors --
+   that is `GT-192`'s client-observable layer and no number printed here substitutes for it.
+4. `GT-192`'s own header is chief's (opened round `liq4ri`); this lane did not touch it. The debt
+   it still carries -- no status tag, and step 3 still saying "pick e.g. scene 4/5/6/8/10" rather
+   than the closed list `COO-DECISION 20260902_0544` ordered at 05:44 -- is reported in
+   `pf_bridge/notes_to_chief/20260902_1526_LANE-GM-TO-CHIEF-*`, not fixed here.
+5. Six of the thirteen scenes on the chain (`7 8 9 10 11 130`) print
+   `LANE_A_CHOOSE_NPC_ROSTER_SKIPPED ... columbus_placement_index_collision_needs_runtime_scene_guard`
+   at hook registration. The census still ships (the counts above stand); what is skipped is the
+   ChooseNPC roster, i.e. CLICKING an NPC. That is chief's Columbus work in R304, reported not fixed.
+
+### `pf-adversary` on this round -- **NOT APPROVED on the first design**, ten defects, all taken
+
+The result came back BEFORE anything was undrafted, which is `COO-DECISION 20260902_1446` and is
+the rule this lane's own failure the previous round caused to be written. Everything below was
+measured by him with a control, most of it against the REAL dispatcher, not argued.
+
+**What he could not break, stated first because it is the load-bearing half.** He built a control
+that drives the real dispatcher (reusing `test_gm_warp_chain_census_shipped.py`'s harness), warps
+to every reachable scene in one login, reads each count back OFF THE QUEUED BUFFER with
+`wire_count_of`, and diffed it row by row against this tool: **thirteen scenes, zero
+disagreements.** Scene 1's after-the-step number is right (driven twice, a 10-unit and a
+9000-unit step; only the byte ORDER differs). The hostility splice cannot move scene 2's number.
+The output is ASCII and cp874-safe and the `LANE_HOOK_*` noise goes to stderr, not stdout. It
+grants nothing and sends nothing.
+
+| # | What he measured | What this round did |
+|---|---|---|
+| **D1 (HIGH)** | The tool read two of the runtime's THREE census gates. The third -- `lane_a_scene_census.scene_is_open_to_players`, reading `login_entry_allowed` -- is the only one whose purpose is to say "this map is shut on purpose". With scene 10 shut he measured the tool printing **94 actors** while the real dispatcher shipped **nothing**. Scenes 17 and 126 are shut in the registry TODAY. The tool would have sent a tester into a deliberately closed map and, by its own NOTE line, told her to file it as the census bug. | **The count no longer comes from the seam at all.** It comes from CALLING THE COMPOSER, the runtime's own route, and is read back off the composed BYTES. A shut map gets its own answer word `shut_to_players` and its own summary bucket -- it is never `empty_unexplained`. |
+| **D2 (HIGH)** | `actor_count` is the THIRD POSITIONAL parameter of `build_bg0002_population`. The AST guard read only keywords, so `legacy, anchor, 12, scene_id=...` shipped **12 actors** on the wire with both test files GREEN and the tool still saying 97 -- while the guard's own failure message names that exact drift. He also noted `count_source` is a LABEL the arm records, not a count selector, so the guard's one substantive assertion pinned a string with no effect on the number. | The guard now asserts `len(call.args) == 2` -- the position that carries the count. `count_source` stays pinned but is named in the test as the weaker check it is. |
+| **D2b (HIGH)** | Adding an ALIASED second call site kept `len(calls) == 1`, because the guard counted only `ast.Attribute` calls. Wire shipped 7; everything green. | The guard counts the NAME in the source text first (exactly one occurrence), then walks both `ast.Attribute` and `ast.Name` calls. |
+| **D3 (HIGH)** | `runtime.py:993` arms the census only when no lane/scenario object is active AND `second_password_mode == "required"`. Measured: with `bypass`, **every scene ships nothing**. The tool printed twelve nonzero predictions and said nothing about it, so the single most likely cause of all thirteen maps being empty was unnamed -- and its NOTE line actively instructed the tester to file a deliberate containment rule as a finding. | A `PRECONDITION` line LEADS the output, and a test reads `runtime.py`'s arming condition from source so it cannot drift. |
+| **D4 (MED)** | `render()` threw the `note` field away, so a `/warp` REFUSED BY NAME, a shut map, and the real bug all printed the same line and were all swept into `empty_unexplained` -- while the module docstring insisted those must not be confused. `test_a_scene_warp_refuses_is_not_reported_as_an_empty_map` was green on a field the tool showed nobody. | Every row prints `why=<its own note>`. |
+| **D5 (MED)** | A composer that RAISES was labelled "the composer declined". The runtime distinguishes them by effect: a decline latches `world_census_sent` for that map, a raise latches `world_census_refused`, which **silences every remaining map of the login**. The tool collapsed them and picked the harmless word. | Separate answers, and the raise row names the exception type and the latch it would cause. |
+| **D6 (MED)** | `preflight_for(True)` printed Port Royal's NAME and then "the registry does not pin a spawn" -- rendered as an unexplained empty map -- while `preflight_for(1)` said 108. Two entry points, opposite verdicts, one scene. The test added mid-round PINNED the wrong answer. | `type(scene_id) is not int` is refused by name at the top; the bad test is replaced by one that requires the bool NOT to be answered as Port Royal. |
+| **D7 (MED)** | `test_the_gate_this_module_asks_is_the_production_gate` re-typed the function's own comprehension and compared a value to itself. He replaced the whole function with a hardcoded thirteen-id tuple: **21 passed**. | The test now MOVES the gate and requires the answer to follow. |
+| **D8 (MED)** | `main()` -- the only thing a human runs -- had no test; a junk argument died with a bare `int()` traceback and printed nothing; it returned 0 whether every scene resolved or none did. Two fail-closed branches had never executed, in a file that argues a branch no test kills is not a branch. | `main()` refuses by name, returns non-zero when any scene is empty for a reason it could not explain, and has four tests. Both branches now have one. |
+| **D9 (LOW)** | `empty_by_design=1` read identically as "one scene" and "scene 1". | `chain_scenes=<count>` and bracketed id lists. |
+
+**All four of his own mutants were re-run after the fixes and all four now die**: the positional
+`actor_count`, the aliased second call site, the hardcoded reachable list, and (from the real
+registry file, not an injection) scene 10 shut -> `source=shut_to_players`, `shut_on_purpose=[10]`,
+`empty_unexplained=[]`.
+
+**His closing question -- "when the preflight and the runtime disagree, what in the output tells
+her?" -- is answered for the lane arm and OPEN for the other two.** The lane arm now takes the
+runtime's own route, so there is no second opinion left to disagree with. Scene 1 (home arm) and
+scene 2 (bg0002 arm) are still predicted through routes the runtime merely resembles, and nothing
+in the output says so. What stands behind those two is
+`test_gm_warp_chain_census_shipped.py`, which drives the real dispatcher -- a test, not a line on
+her console. Named here rather than closed.
+
+**One more defect the FULL SUITE found after his pass, and it is worth naming as loudly.** The
+first scene-1 branch reached the count through `world_population_handoff.handoff_for_arrival` --
+and `tests/test_world_population_bg0015.py::test_only_the_population_seam_imports_this_module` is
+ANOTHER LANE'S GATE naming the exact files allowed to be call sites of that seam. This module is
+not one of them, and it went red. The branch was rewritten to ask the home arm directly
+(`world_population.build_world_population`) rather than the gate widened: going around another
+lane's gate to make a diagnostic prettier is how a diagnostic starts altering dispatch, which is
+the rule `gm/chat_command_action.py` carries in capitals for its own console line. Scene 1's
+number is now the DEFAULT ceiling rung; the runtime's staircase argument can select another, and
+this tool does not model that.
+
+**Not measured, carried forward as his own suspicion:** `main()` uses the DEFAULT scene registry,
+not a boot-loaded one. `preflight_for` accepts an injected registry (that is how D1's fix is
+tested), but nothing yet reads the registry a scenario boot would install.
