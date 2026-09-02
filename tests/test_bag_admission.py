@@ -70,6 +70,9 @@ ITEM = 2400046  # the roster's most common drop, as tests/test_mob_pickup.py use
 KEY = mob_loot.DROP_KEY_BASE
 MOB = 0x2068
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 
 
 def issued_through_for(bag):
@@ -90,7 +93,7 @@ def a_drop(key=KEY, item=ITEM, quantity=1, at=(10.0, 20.0, 30.0)):
     return mob_loot.GroundDrop(
         key, item, quantity,
         mob_loot.as_wire_float(at[0]), mob_loot.as_wire_float(at[1]),
-        mob_loot.as_wire_float(at[2]), MOB, KILLER,
+        mob_loot.as_wire_float(at[2]), MOB, KILLER, SCENE,
     )
 
 
@@ -398,6 +401,7 @@ class WholeM5ChainTests(unittest.TestCase):
             mob_loot.DROP_KEY_BASE, dropped.item_id, dropped.quantity,
             mob_loot.as_wire_float(mob.x), mob_loot.as_wire_float(mob.y),
             mob_loot.as_wire_float(mob.z), mob.actor_identity, KILLER,
+            SCENE,
         )
         after, item = mob_pickup.place_in_bag(INITIAL_BACKPACK, drop)
 

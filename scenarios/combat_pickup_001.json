@@ -71,7 +71,9 @@
     "identity_high_water_below_the_bag",
     "bag_already_claimed",
     "drop_left_the_ground",
-    "composed_bytes_off_pin"
+    "composed_bytes_off_pin",
+    "drop_is_in_another_scene",
+    "cell_has_no_scene"
   ],
   "scenario": null,
   "schema": 1,
@@ -94,6 +96,8 @@
       "out_of_range",
       "not_the_killer",
       "never_issued",
+      "in_another_scene",
+      "cell_has_no_scene",
       "composer"
     ],
     "resolves_object_ref_against_the_ledger": true,

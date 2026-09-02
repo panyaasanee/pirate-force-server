@@ -184,6 +184,9 @@ def _call_names(module_name):
 # three files: a roster monster, and a session-shaped player identity.
 MOB = 0x201F
 KILLER = 0x750059
+SCENE = "bg0001"           # round 4e9r7g: a GroundDrop owns the scene it
+                          # fell in (COO-DECISION 2026-09-02T02:52+07:00
+                          # way 1); there is no default, on purpose
 STRANGER = 0x750060
 ITEM = 2400046            # the roster's most common drop
 KEY = mob_loot.DROP_KEY_BASE
@@ -192,21 +195,27 @@ EMPTY_BAG = BackpackState(BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1, ())
 
 
 def a_drop(key=KEY, item=ITEM, quantity=1, at=(10.0, 20.0, 30.0),
-           mob=MOB, killer=KILLER):
+           mob=MOB, killer=KILLER, scene=SCENE):
     return GroundDrop(
         key, item, quantity,
         mob_loot.as_wire_float(at[0]), mob_loot.as_wire_float(at[1]),
-        mob_loot.as_wire_float(at[2]), mob, killer,
+        mob_loot.as_wire_float(at[2]), mob, killer, scene,
     )
 
 
-def a_cell(*drops):
-    """A ground cell holding exactly these rows, with the keys marked issued."""
+def a_cell(*drops, scene=SCENE):
+    """A ground cell holding exactly these rows, with the keys marked issued.
+
+    ROUND 4e9r7g: the cell is pointed at a scene, because a claim is now
+    resolved against the rows of the cell's CURRENT scene (COO-DECISION
+    2026-09-02T02:52+07:00 way 1).  ``scene=None`` builds the cell that does
+    not know -- the fail-closed case, which has its own test.
+    """
     issued = mob_loot.DROP_KEY_BASE
     for drop in drops:
         if drop.drop_key + 1 > issued:
             issued = drop.drop_key + 1
-    return DropLedgerCell(DropLedger(tuple(drops), 1, issued, ()))
+    return DropLedgerCell(DropLedger(tuple(drops), 1, issued, ()), scene=scene)
 
 
 def a_claim(key=KEY, identity=KILLER, at=(10.0, 20.0, 30.0), opaque=0):
@@ -1814,10 +1823,70 @@ class MobPickupTests(unittest.TestCase):
                 return getattr(self.legacy, name)
 
         note(bag_delta_pc, MovedVital(), ItemAttrState(1, ITEM, 1, 0))
+        # ROUND 4e9r7g, both reached the way a player reaches them: a key from
+        # the scene the player LEFT, and a cell nobody pointed at a scene.
+        elsewhere = a_cell(a_drop(scene="Bg0002"), scene="bg0001")
+        note(BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+             elsewhere, a_claim())
+        note(BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+             a_cell(a_drop(), scene=None), a_claim())
         self.assertEqual(
             set(MOB_PICKUP_REFUSAL_REASONS) - provoked, set(),
             "refusal names nothing in this suite can provoke through the "
             "module's own surface")
+
+    def test_a_claim_cannot_reach_a_row_standing_in_another_scene(self):
+        """ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.
+
+        THE HOLE THIS CLOSES, and it is not hypothetical once way 1 keeps a
+        scene's drops standing: the claimant IS the killer (their own earlier
+        kill left the row), and the range check passes whenever the two maps'
+        coordinate spaces overlap at that point -- every scene has its own
+        origin, so they freely do.  Both existing guards say yes.  Only the
+        scene says no.
+        """
+        row = a_drop(scene="Bg0002")                    # fell in the field
+        cell = a_cell(row, scene="bg0001")              # player is in town
+        bag = BagCell(INITIAL_BACKPACK, CHARACTER)
+        reason = self._refusal(
+            bag.commit_pickup, cell, a_claim())         # same killer, in range
+        self.assertEqual(reason, "drop_is_in_another_scene")
+        # It is a DIFFERENT fact from "somebody took it", and the row proves
+        # it by still being there afterwards.
+        self.assertNotEqual(reason, "drop_already_taken")
+        self.assertEqual(
+            [drop.drop_key for drop in cell.ledger.drops], [row.drop_key])
+        self.assertIn(
+            reason, mob_pickup.REFUSALS_THAT_LEAVE_THE_DROP_ON_THE_GROUND)
+
+    def test_the_same_row_is_taken_the_moment_the_player_is_in_its_scene(self):
+        """The control for the test above: nothing but the scene differs."""
+        row = a_drop(scene="Bg0002")
+        cell = a_cell(row, scene="Bg0002")
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            cell, a_claim())
+        self.assertEqual(outcome.drop.drop_key, row.drop_key)
+        self.assertEqual(cell.ledger.drops, ())
+
+    def test_a_cell_with_no_scene_refuses_rather_than_using_every_row(self):
+        """FAIL-CLOSED.  'I do not know which scene' must not become 'any
+        row will do' -- that is the take way 1 exists to prevent."""
+        cell = a_cell(a_drop(), scene=None)
+        self.assertIsNone(cell.current_scene)
+        reason = self._refusal(
+            BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup,
+            cell, a_claim())
+        self.assertEqual(reason, "cell_has_no_scene")
+        self.assertEqual(len(cell.ledger.drops), 1)
+
+    def test_scene_spelling_does_not_split_a_players_own_ground(self):
+        """``bg0002`` and ``Bg0002`` are one scene everywhere, including here:
+        a case difference between the roster string and the scene folder must
+        not refuse a player their own drop."""
+        cell = a_cell(a_drop(scene="Bg0002"), scene="bg0002")
+        outcome = BagCell(INITIAL_BACKPACK, CHARACTER).commit_pickup(
+            cell, a_claim())
+        self.assertEqual(outcome.drop.scene, "Bg0002")
 
     def test_the_refusal_names_are_unique(self):
         self.assertEqual(

@@ -341,16 +341,26 @@ MOB_LOOT_WIRING = (
     "and refresh_frames() remain EXPERIMENT TOOLS -- do not put either on a "
     "timer in runtime.py.  What reopens the question is a measurement of the "
     "label's lifetime from real play, not a cheaper number.\n"
-    "  6. SCENE TRANSITION, ADDED round CODEX_URGENT 2026-09-01T20:40+07:00 / "
-    "COO-DECISION 2026-09-01T21:48+07:00 item 2: call "
-    "cell.reconcile_scene_transition() ONCE at the scene boundary, before the "
-    "first publish in the new scene -- same place the census-anchor / combat "
-    "/ AI reset already happens for a scene sync.  Without this, a drop still "
-    "standing in scene A rides along into scene B's first kill publication, "
-    "because the cell is one ledger with no scene term and every kill sends "
-    "the whole live ledger.  This is a NEW call site this lane cannot add "
-    "itself -- runtime.py owns the scene-sync path -- named here rather than "
-    "only in a letter, per this round's own CORE-REQUEST.\n"
+    "  6. SCENE TRANSITION.  ~~call cell.reconcile_scene_transition() ONCE at "
+    "the scene boundary~~ IS STRUCK, round 4e9r7g, and runtime.py was RIGHT "
+    "not to have wired it (its own comment at the boundary says so): "
+    "COO-DECISION 2026-09-02T02:52+07:00 chose WAY 1 -- bind ownership to the "
+    "scene -- and reconcile DELETES rows, which COO-DECISION 2026-09-02T02:53 "
+    "+07:00 forbids until a removal publisher exists.  WHAT TO CALL INSTEAD, "
+    "one line, at the SAME boundary (right where mob_combat_scene_folder is "
+    "assigned), before the first publish in the new scene:\n"
+    "       self.mob_loot_cell.enter_scene(folder)\n"
+    "     It removes nothing and expires nothing: scene A's drops keep "
+    "standing in scene A, out of scene B's publications, and they are still "
+    "there when the player walks back.  Calling it for the scene the cell is "
+    "already in is a no-op, so it is safe to call on every sync.  WITHOUT IT "
+    "the cell keeps publishing for whatever scene its last kill was in, and "
+    "before the FIRST kill of a boot it does not know a scene at all, so "
+    "mob_drop_presence.sustain_a_kill returns "
+    "refused_cell_has_no_scene_to_publish and sends nothing (fail-closed, by "
+    "name, never 'send them all').  This is a NEW call site this lane cannot "
+    "add itself -- runtime.py owns the scene-sync path -- named here rather "
+    "than only in a letter, per this round's own CORE-REQUEST.\n"
     "  7. THE OTHER RUNTIMERES FRAMES, ADDED round ewm6ff.  app.py's "
     "install_ground_heartbeat_preserve substitutes the PRESERVE body for ONE "
     "caller (co_name == 'heartbeat_worker').  v141's make_runtime_vitals ends "
@@ -1038,6 +1048,23 @@ REFUSE_CLOCK_IS_NOT_A_CLOCK = "clock_is_not_a_clock"
 #: where the derived mask is, and a composer that moved has taken that proof
 #: away.  See :func:`preserve_ground_in_runtime_res_vitals`.
 REFUSE_VITALS_COMPOSER_MOVED = "vitals_composer_moved"
+#: ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 (way 1).  A scene name is
+#: not a usable scene name: not a str, empty, non-ASCII, or carrying
+#: whitespace.  A drop now OWNS the scene it fell in, and a row whose scene
+#: cannot be compared is a row no publication can decide about -- so it is
+#: refused where it is built, not where it would have been published.
+REFUSE_SCENE_NOT_A_SCENE = "scene_not_a_scene"
+#: ROUND 4e9r7g.  One commit is one kill, and one kill happens in ONE scene.
+#: Two scenes in one commit means the caller assembled rows from two kills, or
+#: built a row with the wrong scene; either way the ledger would carry a kill
+#: split across two publications with nothing raised.
+REFUSE_COMMIT_SPANS_TWO_SCENES = "commit_spans_two_scenes"
+#: ROUND 4e9r7g.  A publication was asked for before the cell knew which scene
+#: it is publishing.  FAIL-CLOSED BY NAME: the alternative -- publishing every
+#: row the ledger holds -- is exactly the cross-scene leak COO-DECISION
+#: 2026-09-02T02:52+07:00 way 1 exists to close, so "I do not know the scene"
+#: must not degrade into "send them all".
+REFUSE_NO_SCENE_TO_PUBLISH = "no_scene_to_publish"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1075,6 +1102,9 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_LIFETIME_OUT_OF_RANGE,
     REFUSE_CLOCK_IS_NOT_A_CLOCK,
     REFUSE_VITALS_COMPOSER_MOVED,
+    REFUSE_SCENE_NOT_A_SCENE,
+    REFUSE_COMMIT_SPANS_TWO_SCENES,
+    REFUSE_NO_SCENE_TO_PUBLISH,
 )
 
 
@@ -1204,6 +1234,63 @@ def _require_float32(value: Any, label: str) -> float:
 def as_wire_float(value: float) -> float:
     """Quantize to the exact f32 the wire will carry."""
     return struct.unpack("<f", struct.pack("<f", float(value)))[0]
+
+
+#: The longest scene name this lane will carry.  ``bg0001``/``Bg0002``/
+#: ``Bg0015`` are six; the ceiling is generous on purpose and exists only so a
+#: scene field cannot become an unbounded string somebody stores a message in.
+SCENE_NAME_MAX = 32
+
+
+def _require_scene(value: Any, label: str) -> str:
+    """A usable scene name, returned EXACTLY as given.
+
+    ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.
+
+    CASE IS NOT NORMALISED HERE, and that is deliberate: the scene strings
+    this project already uses disagree about case (``field_mob_tables.SCENE``
+    is ``bg0001`` while ``field_mob_tables_bg0002.SCENE`` is ``Bg0002``), and
+    a store that silently lower-cases would make a row's scene stop matching
+    the string its own roster module publishes.  So the row keeps what it was
+    given, and every COMPARISON goes through :func:`scene_key`.
+    """
+    if type(value) is not str:
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE,
+            "%s must be a str scene name, got %s" % (label, type(value).__name__))
+    if not value:
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE, "%s must not be empty" % label)
+    if len(value) > SCENE_NAME_MAX:
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE,
+            "%s is %d characters; the ceiling is %d"
+            % (label, len(value), SCENE_NAME_MAX))
+    if not value.isascii():
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE,
+            "%s must be ASCII; the console this lane prints to is cp874" % label)
+    if any(character.isspace() for character in value):
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE,
+            "%s must not carry whitespace, got %r" % (label, value))
+    if not value.isprintable():
+        raise MobLootContractError(
+            REFUSE_SCENE_NOT_A_SCENE,
+            "%s must be printable, got %r" % (label, value))
+    return value
+
+
+def scene_key(scene: Any) -> str:
+    """The comparison form of a scene name.  Case-folded, nothing else.
+
+    THE ONLY WAY TWO SCENE NAMES ARE COMPARED IN THIS LANE.  ``bg0002`` and
+    ``Bg0002`` are one scene: the roster modules, the mined tables and the
+    letters all spell them differently, and a publication that treated them as
+    two scenes would hide a player's own drops from them -- the exact failure
+    way 1 is meant to end, arrived at from the other side.
+    """
+    return _require_scene(scene, "scene").casefold()
 
 
 def _require_draw(draw: Any) -> float:
@@ -1618,7 +1705,24 @@ def roll_drops(mob: Any, rng: Any) -> DropRoll:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class GroundDrop:
-    """One object standing where a monster fell."""
+    """One object standing where a monster fell, IN THE SCENE IT FELL IN.
+
+    ``scene`` IS REQUIRED AND HAS NO DEFAULT, round 4e9r7g (COO-DECISION
+    2026-09-02T02:52+07:00, way 1).  A default -- ``field_mob_tables.SCENE``
+    was the obvious one, and ``FieldMob.scene`` carries exactly that -- would
+    mean a row built in Bg0015 by a caller who forgot the argument claims to
+    be a bg0001 row, and the publication filter would then hide it from the
+    player standing over it while showing it to a player in the town.  A
+    silent wrong answer, in the one field this whole change exists to make
+    trustworthy.  Every construction site says which scene, or it does not
+    build a row.
+
+    THE SCENE DOES NOT TRAVEL ON THE WIRE.  ``drop_element``* compose key,
+    item, position and (since round KA1B-DROPMODEL) model type; none of them
+    reads this field.  It is server-side OWNERSHIP -- which publication a row
+    belongs to -- so this change moves no pinned byte, and the element and
+    frame pins are unchanged by it.
+    """
 
     drop_key: int
     item_id: int
@@ -1628,6 +1732,7 @@ class GroundDrop:
     z: float
     mob_identity: int
     killer_identity: int
+    scene: str
 
     def __post_init__(self) -> None:
         _require_int(self.drop_key, "drop key", 0, 0xFFFFFFFF)
@@ -1652,10 +1757,16 @@ class GroundDrop:
                 REFUSE_ROLL_NAMES_ANOTHER_MONSTER,
                 "a monster cannot loot itself on this lane")
         _require_known_item(self.item_id, "ground drop")
+        _require_scene(self.scene, "drop scene")
 
     @property
     def display_name(self) -> str:
         return field_drop_tables.ITEMS[self.item_id][2]
+
+    @property
+    def scene_key(self) -> str:
+        """This row's scene in comparison form.  See :func:`scene_key`."""
+        return scene_key(self.scene)
 
 
 @dataclass(frozen=True)
@@ -1673,6 +1784,18 @@ class DropLedger:
     drops: tuple = ()
     generation: int = 0
     issued_through: int = DROP_KEY_BASE
+    # ~~NO SCENE TERM~~ IS STRUCK, round 4e9r7g: COO-DECISION 2026-09-02T02:52
+    # +07:00 chose WAY 1 -- every row owns the scene it fell in
+    # (``GroundDrop.scene``) and a publication carries only the rows of the
+    # scene being published (:meth:`for_scene`).  The ledger itself is now
+    # explicitly CROSS-SCENE: rows from scene A stay in it while the player is
+    # in scene B, and they are still there when the player comes back.  NOTHING
+    # IS DELETED AT A SCENE BOUNDARY (COO-DECISION 2026-09-02T02:53+07:00: no
+    # ledger row may be removed until a removal publisher exists).
+    #
+    # The paragraph below is KEPT, not deleted, because the reasoning it
+    # records is still the reasoning behind the LOOTED REGISTER, which is
+    # keyed by identity alone and is NOT scene-scoped:
     # NO SCENE TERM.  Keyed by ``actor_identity`` alone (round `h40iwu`,
     # answering the risk `pf_bridge/notes_to_chief/20260901_0106_LANE-B-
     # STATUS-bg0015-combat-ledger-gap-measured-*.md` recorded but left
@@ -1772,6 +1895,52 @@ class DropLedger:
             REFUSE_DROP_NOT_IN_LEDGER,
             "no drop with key 0x%X is on the ground" % drop_key)
 
+    @property
+    def scenes(self) -> tuple:
+        """Every scene this ledger holds rows for, in comparison form, sorted.
+
+        For a console line and for a test that wants to say "the ledger still
+        remembers scene A" without reaching into rows one by one.
+        """
+        return tuple(sorted({drop.scene_key for drop in self.drops}))
+
+    def rows_in_scene(self, scene: Any) -> tuple:
+        """The rows that fell in ``scene``, in key order.  Compares by
+        :func:`scene_key`, so ``bg0002`` and ``Bg0002`` are one scene."""
+        wanted = scene_key(scene)
+        return tuple(
+            drop for drop in self.drops if drop.scene_key == wanted)
+
+    def for_scene(self, scene: Any) -> "DropLedger":
+        """This ledger as the scene ``scene`` sees it.  A VIEW, NOT A PRUNE.
+
+        ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.  Returns a
+        ledger carrying ONLY this scene's rows -- what a publication in this
+        scene may announce -- while the ledger it was derived from keeps
+        every row it had.  Rows of other scenes are not removed, not
+        expired, and not counted here; they are simply not this scene's
+        business.
+
+        ``generation``, ``issued_through`` AND ``looted`` ARE CARRIED
+        UNCHANGED, and each for its own reason.  ``generation`` because the
+        view is not a mutation: a caller that commits against this view's
+        generation is committing against the real one, which is what makes
+        the stale check keep working.  ``issued_through`` because keys are a
+        run-wide high-water mark and are never reused per scene.  ``looted``
+        because a mob is looted once per kill token wherever it fell.
+
+        NONCLAIM.  This does NOT make the client forget scene A's rows.  A
+        client that was shown a row and then walked away still has whatever
+        the client does with it; the only thing this fixes is what the
+        SERVER announces.  RE-130 says a nonempty generation erases the keys
+        it omits, so scene B's first publication is also what removes scene
+        A's keys from the client's list -- but that is the client's list,
+        not this ledger.
+        """
+        return DropLedger(
+            self.rows_in_scene(scene), self.generation, self.issued_through,
+            self.looted)
+
 
 def place_drops(
     mob: Any,
@@ -1789,6 +1958,14 @@ def place_drops(
     ``position`` is where it fell.  ``None`` means the roster placement
     position, which is a fallback and not a truth: a monster that chased a
     player died somewhere else, and this lane has no live position of its own.
+
+    THE SCENE COMES FROM THE MONSTER, round 4e9r7g, and there is no argument
+    for it: ``FieldMob.scene`` is the roster this mob was loaded from, so the
+    scene a drop belongs to is the scene the thing that dropped it belonged
+    to.  A ``scene=`` parameter here would be a second, guessable source of
+    truth for the one field that decides which publication a row rides in --
+    and the caller that would have to fill it in is ``runtime.py``, which is
+    not this lane's file.
 
     Object N stands at position + ``DROP_SCATTER_STEP`` * N on X so two drops
     of one kill are not one object at one point.  Money is not placed: see
@@ -1834,6 +2011,7 @@ def place_drops(
     x0 = _require_float32(base[0], "position x")
     y0 = as_wire_float(_require_float32(base[1], "position y"))
     z0 = as_wire_float(_require_float32(base[2], "position z"))
+    scene = _require_scene(getattr(mob, "scene", None), "mob scene")
     drops = []
     for offset, item in enumerate(roll.items):
         key = first_key + offset
@@ -1848,7 +2026,7 @@ def place_drops(
                 "the scattered position does not survive the f32 round trip")
         drops.append(GroundDrop(
             key, item.item_id, item.quantity, x, y0, z0,
-            actor_identity, killer_identity,
+            actor_identity, killer_identity, scene,
         ))
     return tuple(drops)
 
@@ -1922,6 +2100,17 @@ def commit_drops(
             "one commit is one kill: name exactly one monster, got %r"
             % (sorted(identities),))
     identity = identities.pop()
+    # ONE COMMIT IS ONE KILL, AND ONE KILL IS IN ONE SCENE, round 4e9r7g.
+    # place_drops takes every row's scene from the same mob, so incoming rows
+    # agree by construction -- which is exactly why a caller that assembled
+    # rows by hand, or built one with the wrong scene, has to be refused HERE
+    # rather than discovered later as a row that never appears in any
+    # publication.
+    scenes = {drop.scene_key for drop in incoming}
+    if len(scenes) > 1:
+        raise MobLootContractError(
+            REFUSE_COMMIT_SPANS_TWO_SCENES,
+            "one commit is one kill in one scene, got %r" % (sorted(scenes),))
     looted = dict(ledger_now.looted)
     previous = looted.get(identity)
     if previous is not None and previous >= kill_token:
@@ -1981,8 +2170,36 @@ def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
     )
 
 
+#: ROUND 4e9r7g.  What replaced the clear-the-ground reconcile, named so a
+#: reader who lands on that function first is told where to go instead.
+SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY = (
+    "COO-DECISION 2026-09-02T02:52+07:00 way 1: GroundDrop.scene + "
+    "DropLedger.for_scene + DropLedgerCell.enter_scene.  Do NOT call "
+    "reconcile_scene_transition at a scene boundary any more; it DELETES rows, "
+    "and COO-DECISION 2026-09-02T02:53+07:00 forbids removing a ledger row "
+    "until a removal publisher exists."
+)
+
+
 def reconcile_scene_transition(ledger_now: DropLedger) -> tuple:
-    """Clear every LIVE drop off the ground.  A scene boundary, not a pickup.
+    """~~The scene boundary~~ SUPERSEDED, round 4e9r7g.  Do not call this.
+
+    KEPT, NOT DELETED, because this lane strikes through and does not erase --
+    and because it is still an honest primitive for "clear the ground",
+    should something ever want that with a removal publisher behind it.  What
+    is struck is its ROLE: it was the answer to the cross-scene leak, and
+    COO-DECISION 2026-09-02T02:52+07:00 chose the OTHER of Codex's two
+    bounded options.  See :data:`SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY`.
+
+    Why the replacement is better, in the words of the decision itself:
+    clearing at the boundary means a player who walks back into scene A finds
+    their own drop gone, and a server that has already announced an object has
+    no removal publisher to tell the client the object is gone -- so the clear
+    was invisible to the client anyway.  Way 1 keeps the rows, keeps them out
+    of other scenes' publications, and gives them back on return.
+
+    ~~Everything below is the reasoning of the superseded role, kept for the
+    record.~~
 
     CODEX_URGENT 2026-09-01T20:40+07:00 (P0-5 corpse/drop state scope),
     approved for LANE-B by COO-DECISION 2026-09-01T21:48+07:00, item 2:
@@ -2079,6 +2296,7 @@ class DropLedgerCell:
         ledger: Any = None,
         lifetime_seconds: Any = DROP_LIFETIME_SECONDS,
         clock: Any = None,
+        scene: Any = None,
     ) -> None:
         if ledger is None:
             ledger = DropLedger()
@@ -2099,6 +2317,12 @@ class DropLedgerCell:
         # take NO argument -- see its docstring for why an argument was the
         # defect rather than the feature.
         self._newest_kill_first_key = None
+        # WHICH SCENE THIS CELL IS PUBLISHING, round 4e9r7g.  ``None`` until a
+        # scene is known, and a publication asked for while it is None is
+        # REFUSED by name rather than falling back to "every row" -- see
+        # :meth:`frames`.  A kill sets it (a kill happens in a scene) and
+        # :meth:`enter_scene` sets it at a boundary where nothing was killed.
+        self._scene = None if scene is None else _require_scene(scene, "scene")
         self._lock = threading.Lock()
         # Read once here so a broken clock is refused when the cell is built,
         # not in the middle of somebody's kill.
@@ -2259,10 +2483,20 @@ class DropLedgerCell:
             current = self._ledger
             drops = place_drops(
                 mob, record, roll, current.next_key, position=position)
+            # A KILL IS A SCENE FACT, round 4e9r7g: the mob that died belongs
+            # to a roster, the roster belongs to a scene, and that is the scene
+            # this cell is publishing for from here on.  Set BEFORE the commit
+            # can raise?  No -- AFTER, together with the ledger, so a refused
+            # kill leaves the cell exactly as it was (the promise this method's
+            # own docstring makes).  A kill that drops NOTHING still moves it:
+            # the player is standing in that scene either way, which is what
+            # the field means.
+            kill_scene = _require_scene(getattr(mob, "scene", None), "mob scene")
             self._ledger = commit_drops(
                 current, drops, base_generation=current.generation,
                 kill_token=kill_token,
                 mob_identity=getattr(record, "actor_identity", None))
+            self._scene = kill_scene
             deadline = now + self._lifetime
             for drop in drops:
                 self._deadlines[drop.drop_key] = deadline
@@ -2314,6 +2548,20 @@ class DropLedgerCell:
         yet, and empty when the newest kill is the only one -- both are
         no-ops rather than "prune everything", which is the direction that
         costs a player their drop.
+
+        ROUND 4e9r7g, AND THIS METHOD IS NOW SCENE-BLIND IN A WAY THAT
+        MATTERS.  It cuts by KEY, and keys are issued across scenes from one
+        block, so after a player crosses a scene the "older" rows it removes
+        are the ones standing in the scene they left -- which
+        COO-DECISION 2026-09-02T02:53+07:00 forbids removing until a removal
+        publisher exists.  NOTHING IN PRODUCTION CALLS IT (``runtime.py``
+        says so at its own MOB_LOOT block: expiry plus
+        ``mob_drop_presence.sustain_a_kill``'s trim are the only bounds), and
+        it is not deleted here because it is still correct for what it says
+        it does inside ONE scene.  A caller that wants it back under way 1
+        needs a scene-scoped cut point, which is a change for the round that
+        needs it -- named here rather than discovered by a player whose
+        ground vanished when they walked through a door.
         """
         with self._lock:
             mark = self._newest_kill_first_key
@@ -2428,9 +2676,109 @@ class DropLedgerCell:
             self._newest_kill_first_key = None
             return removed
 
+    @property
+    def current_scene(self):
+        """The scene this cell publishes for, or ``None`` if it does not know.
+
+        ``None`` is a real state and not a bug: a cell that has been built and
+        never entered a scene nor looted a kill has nothing to publish for.
+        Every publication path treats it as "refuse", never as "all".
+        """
+        with self._lock:
+            return self._scene
+
+    def enter_scene(self, scene: Any) -> tuple:
+        """Point this cell at a scene.  DELETES NOTHING.  Returns
+        ``(previous_scene, current_scene, rows_left_standing_elsewhere)``.
+
+        ROUND 4e9r7g -- the replacement for
+        :meth:`reconcile_scene_transition` at a scene boundary, per
+        COO-DECISION 2026-09-02T02:52+07:00 way 1.  Call it ONCE at the scene
+        boundary, BEFORE the first publish in the new scene, at the same place
+        the census-anchor / combat / AI reset already happens for a scene sync.
+
+        WHAT IT DOES NOT DO IS THE POINT.  It removes no row, expires nothing
+        early, and moves neither ``generation`` nor ``issued_through``: the
+        drops of the scene being left STAY on the ground, and a player who
+        walks back gets them back in that scene's next publication.  The whole
+        cross-scene guarantee is carried by the filter in :meth:`frames`, not
+        by taking anything away (COO-DECISION 2026-09-02T02:53+07:00: no
+        ledger row may be removed until a removal publisher exists).
+
+        Entering the scene the cell is already in is a no-op that still
+        answers, so a call site may call it unconditionally on every sync.
+
+        The third element of the return is how many rows are standing in
+        OTHER scenes after this call -- the number a console line wants, and
+        the number a test uses to prove nothing was thrown away.
+        """
+        scene = _require_scene(scene, "scene")
+        wanted = scene_key(scene)
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            previous = self._scene
+            self._scene = scene
+            elsewhere = sum(
+                1 for drop in self._ledger.drops if drop.scene_key != wanted)
+            return previous, scene, elsewhere
+
+    def publication(self) -> tuple:
+        """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.
+
+        THE REASON THIS EXISTS RATHER THAN TWO READS, and it is the same
+        reason :attr:`ledger` sweeps: a caller that reads the ledger and then
+        reads :attr:`current_scene` holds two values that a kill landing
+        between them can make disagree.  The kill would move the scene AND
+        add that scene's rows, so the caller would compose scene B's
+        generation out of a ledger snapshot taken before B's rows existed --
+        a generation that omits a live key of its own scene, which RE-130
+        says ERASES that key on the client.  Narrow, real, and free to close:
+        both facts come out of one lock here.
+
+        ``scene`` is ``None`` when the cell does not know its scene; the
+        ledger returned then is the whole ledger, so a caller can still say
+        how many rows are standing.  It is NEVER a publication -- see
+        :meth:`frames`, which refuses.
+        """
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            whole = self._ledger
+            scene = self._scene
+            if scene is None:
+                return None, whole, len(whole.drops)
+            view = whole.for_scene(scene)
+            return scene, view, len(whole.drops) - len(view.drops)
+
+    def scene_ledger(self) -> DropLedger:
+        """The live rows of :attr:`current_scene` only, as a ledger value.
+
+        Sweeps first, exactly like :attr:`ledger`, so a caller cannot compose
+        a publication from a row whose deadline has already passed.  Refuses
+        by name when the cell does not know its scene.
+        """
+        scene, ledger, _elsewhere = self.publication()
+        if scene is None:
+            raise MobLootContractError(
+                REFUSE_NO_SCENE_TO_PUBLISH,
+                "this cell does not know which scene it is publishing; "
+                "call enter_scene() at the scene boundary (a kill sets it "
+                "too).  It will NOT fall back to publishing every scene's "
+                "rows -- that is the leak way 1 closed")
+        return ledger
+
     def frames(self, legacy: Any) -> tuple:
-        """Re-emit every live row.  See :func:`refresh_frames` for the caveat."""
-        return refresh_frames(legacy, self.ledger)
+        """Re-emit this scene's live rows.  See :func:`refresh_frames` for the
+        caveat, and :meth:`enter_scene` for what "this scene" means.
+
+        ROUND 4e9r7g: ~~"every live row"~~ IS STRUCK.  This composes the rows
+        of :attr:`current_scene` and nothing else, so a drop still standing in
+        scene A cannot ride along into a publication the player receives while
+        standing in scene B.  A cell that does not know its scene refuses by
+        name rather than publishing everything.
+        """
+        return refresh_frames(legacy, self.scene_ledger())
 
 
 # ---------------------------------------------------------------------------
@@ -3466,9 +3814,14 @@ PIN_LANE = MOB_LOOT_LANE
 
 def pin_document(legacy: Any) -> dict:
     """What this lane emits, computed rather than typed, for scenarios/."""
+    # ``field_drop_tables.SCENE`` and not a literal: the pin document
+    # describes what THIS build emits, and the scene the sample belongs to is
+    # the scene the shipped drop tables were mined from.  It changes no
+    # composed byte -- the scene does not travel (see GroundDrop) -- so the
+    # pinned bytes in scenarios/ are unchanged by round 4e9r7g.
     sample = GroundDrop(
         DROP_KEY_BASE, 2400046, 1, as_wire_float(1.0), as_wire_float(2.0),
-        as_wire_float(3.0), 0x201F, 0x0101,
+        as_wire_float(3.0), 0x201F, 0x0101, field_drop_tables.SCENE,
     )
     pc = drop_pc(legacy, sample)
     frame = legacy.frame_pc(pc)
@@ -3486,6 +3839,7 @@ def pin_document(legacy: Any) -> dict:
             DROP_KEY_BASE + 1, 2400047, 1,
             as_wire_float(1.0 + DROP_SCATTER_STEP),
             as_wire_float(2.0), as_wire_float(3.0), 0x201F, 0x0101,
+            field_drop_tables.SCENE,
         ),
     )
     (pair_pc, pair_frame), = drop_frames(legacy, sample_pair)

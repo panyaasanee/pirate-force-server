@@ -328,6 +328,15 @@ MOB_PICKUP_WIRING = (
     "ONE of them means the row is gone: drop_left_the_ground.  Every other "
     "refusal, including object_ref_never_issued and drop_already_taken, "
     "leaves the ground untouched.  Do not retry drop_left_the_ground.\n"
+    "     - ROUND 4e9r7g, AND IT NEEDS THE SCENE BOUNDARY LINE: a claim is "
+    "resolved against the rows of the CELL'S CURRENT SCENE, so runtime.py "
+    "must call drop_ledger_cell.enter_scene(folder) at the scene boundary "
+    "(mob_loot.MOB_LOOT_WIRING step 6 -- the same one line, asked for once).  "
+    "Two more refusals come from that, and both leave the row on the ground: "
+    "drop_is_in_another_scene (the key names a row still standing in the "
+    "scene the player left -- NOT the same fact as drop_already_taken) and "
+    "cell_has_no_scene (the cell was never pointed at a scene; fail-closed "
+    "rather than resolving against every scene's rows).\n"
     "     - THE LOSER OF A RACE USUALLY SEES drop_already_taken, not "
     "drop_left_the_ground: the window between resolve and take is a handful "
     "of instructions and the row is normally gone before resolve runs.  "
@@ -688,6 +697,17 @@ REFUSE_IDENTITY_HIGH_WATER_BELOW_THE_BAG = "identity_high_water_below_the_bag"
 REFUSE_BAG_ALREADY_CLAIMED = "bag_already_claimed"
 # The ONLY refusal in this module that means the row is already off the ground.
 REFUSE_DROP_LEFT_THE_GROUND = "drop_left_the_ground"
+#: ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.  The key names a
+#: row that IS on the ground -- in a scene the claimant is not in.  A separate
+#: name from ``drop_already_taken`` because they are opposite facts: that one
+#: says the row is gone, this one says the row is standing exactly where it
+#: fell and the claimant walked away from it.  The claim leaves it there.
+REFUSE_DROP_IS_IN_ANOTHER_SCENE = "drop_is_in_another_scene"
+#: ROUND 4e9r7g.  A pickup was attempted through a cell that does not know
+#: which scene it is publishing, so "is this row in the claimant's scene" has
+#: no answer.  FAIL-CLOSED: the pickup refuses rather than falling back to the
+#: whole ledger, which is the cross-scene take this round exists to close.
+REFUSE_CELL_HAS_NO_SCENE = "cell_has_no_scene"
 REFUSE_COMPOSED_BYTES_OFF_PIN = "composed_bytes_off_pin"
 
 MOB_PICKUP_REFUSAL_REASONS = (
@@ -707,6 +727,8 @@ MOB_PICKUP_REFUSAL_REASONS = (
     REFUSE_BAG_ALREADY_CLAIMED,
     REFUSE_DROP_LEFT_THE_GROUND,
     REFUSE_COMPOSED_BYTES_OFF_PIN,
+    REFUSE_DROP_IS_IN_ANOTHER_SCENE,
+    REFUSE_CELL_HAS_NO_SCENE,
 )
 
 # The refusals a caller may treat as "the row is still there, the claim was
@@ -1404,6 +1426,48 @@ class BagCell:
         with self._lock:
             return self._issued_through
 
+    @staticmethod
+    def _scene_ledger(ledger_cell: Any, claim: Any) -> Any:
+        """The rows a claim in this cell's scene may name.  Never every row.
+
+        ROUND 4e9r7g.  Two named refusals instead of one silent fallback:
+
+        * the cell does not know its scene -> ``cell_has_no_scene``.  Nothing
+          is taken.  ``runtime.py`` is meant to call
+          ``cell.enter_scene(folder)`` at the scene boundary (this round's
+          CORE-REQUEST), and a kill sets it too, so this is reachable mainly
+          before the first kill of a boot -- where refusing is right.
+        * the key is on the ground IN ANOTHER SCENE ->
+          ``drop_is_in_another_scene``, which is a DIFFERENT fact from
+          ``drop_already_taken`` and must not be collapsed into it: that one
+          means the row is gone, this one means it is still standing where it
+          fell.  Telling a player "somebody took it" about a thing that is
+          lying untouched on another map is the same class of lie round
+          0n9inw removed between expiry and pickup.
+        """
+        try:
+            scene_view = ledger_cell.scene_ledger()
+        except mob_loot.MobLootContractError as exc:
+            if exc.args[0] == mob_loot.REFUSE_NO_SCENE_TO_PUBLISH:
+                raise MobPickupContractError(
+                    REFUSE_CELL_HAS_NO_SCENE,
+                    "this ground cell does not know which scene it is in, so "
+                    "a claim cannot be resolved against the claimant's own "
+                    "scene; nothing was taken (%s)" % exc.args[0]) from None
+            raise
+        reference = getattr(claim, "object_ref_u32", None)
+        if type(reference) is int and not any(
+                row.drop_key == reference for row in scene_view.drops):
+            for row in ledger_cell.ledger.drops:
+                if row.drop_key == reference:
+                    raise MobPickupContractError(
+                        REFUSE_DROP_IS_IN_ANOTHER_SCENE,
+                        "drop 0x%X is on the ground in scene %s and the claim "
+                        "comes from scene %s; it was NOT taken and it is "
+                        "still standing where it fell"
+                        % (reference, row.scene, ledger_cell.current_scene))
+        return scene_view
+
     def commit_pickup(self, ledger_cell: Any, claim: Any,
                       legacy: Any = None) -> PickupOutcome:
         """Take one drop off the ground and put it in this bag.  Once.
@@ -1443,7 +1507,20 @@ class BagCell:
                 "claim must be a typed PickupClaim")
         with self._lock:
             bag = self._bag
-            drop = resolve_claim(ledger_cell.ledger, claim)
+            # ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1: THE
+            # CLAIM IS RESOLVED AGAINST THE CLAIMANT'S SCENE, not against
+            # every row the cell holds.  Way 1 keeps scene A's drops standing
+            # while the player is in scene B, which is the whole point of it
+            # -- and it also means the WHOLE ledger is no longer a legal thing
+            # to resolve a claim against: the two guards that used to be
+            # enough are not.  ``not_the_killer`` passes, because the
+            # claimant's own earlier kill is exactly what left that row in
+            # scene A; and ``claimant_out_of_range`` passes whenever the two
+            # maps' coordinate spaces overlap at that point, which they freely
+            # do -- every scene has its own origin.  So a stale key from
+            # another map would have been a legal pickup of an object standing
+            # in a place the player is not.
+            drop = resolve_claim(self._scene_ledger(ledger_cell, claim), claim)
             bag_after, item = place_in_bag(bag, drop, self._issued_through)
             row_write = BagRowWrite(
                 claim.claimant_identity, self._character_id, item.identity,
@@ -1832,9 +1909,11 @@ def _observed_behaviour(legacy: Any = None) -> dict:
     mob, killer, stranger = 0x201F, 0x750059, 0x750060
     where = (mob_loot.as_wire_float(0.0),) * 3
     first = mob_loot.GroundDrop(
-        mob_loot.DROP_KEY_BASE, 2400046, 1, *where, mob, killer)
+        mob_loot.DROP_KEY_BASE, 2400046, 1, *where, mob, killer,
+        field_drop_tables.SCENE)
     second = mob_loot.GroundDrop(
-        mob_loot.DROP_KEY_BASE + 1, 2400046, 1, *where, mob, killer)
+        mob_loot.DROP_KEY_BASE + 1, 2400046, 1, *where, mob, killer,
+        field_drop_tables.SCENE)
     ledger = mob_loot.DropLedger(
         (first, second), 1, mob_loot.DROP_KEY_BASE + 2, ())
     here = PickupClaim(killer, 0.0, 0.0, 0.0, first.drop_key)
@@ -1865,27 +1944,50 @@ def _observed_behaviour(legacy: Any = None) -> dict:
         def __getattr__(self, name):
             return getattr(legacy, name)
 
+    # ROUND 4e9r7g: THE EXPECTED NAME IS PART OF EACH ATTEMPT NOW.  The walk
+    # used to accept "some refusal happened", and this round showed what that
+    # costs: pointing the cell at no scene made all five attempts refuse with
+    # cell_has_no_scene, every flag stayed True, and the evidence that four
+    # named refusals still fire before the take quietly became evidence of
+    # nothing.  A walk that cannot tell WHICH refusal it provoked is not a
+    # walk.  The cell also carries the scene its rows fell in, because a
+    # claim is resolved against the claimant's scene (COO-DECISION
+    # 2026-09-02T02:52+07:00 way 1).
     attempts = [
-        ("bag_is_full", full, here, None),
+        ("bag_is_full", full, here, None, REFUSE_BAG_IS_FULL),
         ("out_of_range", empty,
-         PickupClaim(killer, 1e6, 0.0, 0.0, first.drop_key), None),
+         PickupClaim(killer, 1e6, 0.0, 0.0, first.drop_key), None,
+         REFUSE_CLAIMANT_OUT_OF_RANGE),
         ("not_the_killer", empty,
-         PickupClaim(stranger, 0.0, 0.0, 0.0, first.drop_key), None),
+         PickupClaim(stranger, 0.0, 0.0, 0.0, first.drop_key), None,
+         REFUSE_NOT_THE_KILLER),
         ("never_issued", empty,
          PickupClaim(killer, 0.0, 0.0, 0.0, mob_loot.DROP_KEY_LIMIT - 1),
-         None),
+         None, REFUSE_OBJECT_REF_NEVER_ISSUED),
+        ("in_another_scene", empty, here, None,
+         REFUSE_DROP_IS_IN_ANOTHER_SCENE),
+        ("cell_has_no_scene", empty, here, None, REFUSE_CELL_HAS_NO_SCENE),
     ]
     if legacy is not None:
-        attempts.append(("composer", empty, here, _BrokenLegacy()))
+        attempts.append(
+            ("composer", empty, here, _BrokenLegacy(),
+             REFUSE_COMPOSED_BYTES_OFF_PIN))
     refused_before_the_take = True
     refusals_walked = []
-    for name, bag, attempt, shim in attempts:
-        cell = mob_loot.DropLedgerCell(ledger)
+    for name, bag, attempt, shim, expected in attempts:
+        if name == "cell_has_no_scene":
+            cell = mob_loot.DropLedgerCell(ledger)
+        elif name == "in_another_scene":
+            # The rows fell in one scene; the cell is publishing another.
+            cell = mob_loot.DropLedgerCell(ledger, scene="Bg0002")
+        else:
+            cell = mob_loot.DropLedgerCell(
+                ledger, scene=field_drop_tables.SCENE)
         before = cell.ledger
         reason = refusal_of(
             BagCell(bag, 1).commit_pickup, cell, attempt, shim)
         refusals_walked.append(name)
-        if reason is None or cell.ledger != before:
+        if reason != expected or cell.ledger != before:
             refused_before_the_take = False
 
     # And the registry: a second claim on one character must LOSE.
@@ -1927,6 +2029,7 @@ def pin_document(legacy: Any) -> dict:
         mob_loot.DROP_KEY_BASE, 2400046, 1,
         mob_loot.as_wire_float(1.0), mob_loot.as_wire_float(2.0),
         mob_loot.as_wire_float(3.0), 0x201F, 0x0101,
+        field_drop_tables.SCENE,
     )
     sample_bag = BackpackState(
         BACKPACK_BASE_MASK, BACKPACK_BASE_IDENTITY, 1, ())

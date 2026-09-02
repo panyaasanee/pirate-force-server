@@ -212,6 +212,12 @@ REFUSE_COMPOSE_RAISED = REFUSED_PREFIX + "compose_raised"
 # refusal counter can see it: a generation built from one kill's rows while
 # other rows are live erases those other rows from the client (RE-130).
 REFUSE_PARTIAL_GENERATION = REFUSED_PREFIX + "partial_generation_would_erase"
+# ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1: the cell does not
+# know which scene it is publishing, so this module refuses instead of
+# composing a generation out of every scene's rows.  Sending nothing is the
+# conservative half of a wrong answer; sending scene A's drops to a player
+# standing in scene B is the loud one, and it is the one way 1 closed.
+REFUSE_NO_SCENE = REFUSED_PREFIX + "cell_has_no_scene_to_publish"
 
 
 class PresenceRow(NamedTuple):
@@ -255,6 +261,15 @@ class PresenceStep(NamedTuple):
     # still travel in the generation; only their number is unknown.
     stale: int
     detail: str
+    # ROUND 4e9r7g.  The scene this step published for, and how many rows are
+    # standing in OTHER scenes and were deliberately not published.  Both have
+    # defaults so every existing construction site keeps working, and both are
+    # printed by ``describe_presence`` so "where did my other drops go" has an
+    # answer on the console instead of only in this docstring.  ``elsewhere``
+    # is a count of rows STILL ON THE GROUND -- nothing was deleted to reach
+    # it (COO-DECISION 2026-09-02T02:53+07:00).
+    scene: str | None = None
+    elsewhere: int = 0
 
     @property
     def live(self) -> int:
@@ -380,6 +395,19 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
     already on the ground.  Passing ``()`` is legal and only costs that
     distinction -- the generation is composed from the cell either way, which
     is the property that makes a partial generation unrepresentable here.
+
+    ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.  ~~"the WHOLE
+    LIVE LEDGER as one generation"~~ IS STRUCK and replaced by: THE WHOLE LIVE
+    LEDGER OF THE SCENE BEING PUBLISHED.  The two were the same thing while a
+    ledger could only hold one scene's rows; now that a row owns the scene it
+    fell in, they are not, and the difference is a drop from the town riding
+    into the first publication a player receives in the field.  The property
+    that mattered is untouched: within the scene, the generation is still the
+    WHOLE of it, so no live key of this scene is ever omitted (RE-130).
+
+    Rows in other scenes are neither published nor removed -- they keep
+    standing where they fell, and ``elsewhere`` on the returned step counts
+    them.
     """
     if not isinstance(cell, mob_loot.DropLedgerCell):
         return _refusal(
@@ -395,11 +423,28 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
     # twice is not the same as reading it once: the property sweeps expired
     # rows, so a second read can legally return fewer rows than the first --
     # which would let this record describe a generation it did not compose.
+    # ONE ACQUISITION for the scene, the scene's rows and the count standing
+    # elsewhere.  ``cell.ledger`` followed by ``cell.current_scene`` would be
+    # two, and a kill landing between them moves the scene while the rows it
+    # added are not in the snapshot -- a generation that omits a live key of
+    # its own scene, which is the erasure (RE-130) this whole module exists to
+    # make unrepresentable.  See DropLedgerCell.publication.
     try:
-        ledger = cell.ledger
-        live = tuple(ledger.drops)
+        scene, ledger, elsewhere = cell.publication()
     except Exception as error:
         return _refusal(REFUSE_CELL_RAISED, repr(error), lifetime)
+
+    if scene is None:
+        return _refusal(
+            REFUSE_NO_SCENE,
+            "the cell does not know which scene it is publishing; "
+            "runtime.py must call cell.enter_scene(<scene folder>) at the "
+            "scene boundary (a kill through cell.loot_a_kill sets it too).  "
+            "Nothing was sent and nothing was removed: %d row(s) are still "
+            "standing" % elsewhere,
+            lifetime)
+
+    live = tuple(ledger.drops)
 
     mine = _keys(drops)
     trimmed = 0
@@ -454,7 +499,10 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
             announced=0, carried=0, trimmed=trimmed,
             lifetime_seconds=lifetime, oldest_seconds_left=None,
             newest_seconds_left=None, stale=0,
-            detail="no live rows; a kill that dropped nothing sends nothing")
+            detail="no live rows in scene %s; a kill that dropped nothing "
+                   "sends nothing (%d row(s) standing in other scenes)"
+                   % (scene, elsewhere),
+            scene=scene, elsewhere=elsewhere)
 
     try:
         rows = tuple(_row(cell, drop, mine) for drop in live)
@@ -479,6 +527,7 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         newest_seconds_left=_newest(rows),
         stale=sum(1 for row in rows if row.seconds_left is None),
         detail=PRESENCE_SHAPE,
+        scene=scene, elsewhere=elsewhere,
     )
 
 
@@ -489,6 +538,15 @@ def presence_snapshot(cell: Any) -> PresenceStep:
     tester asking "is it still there".  ``frames`` is always empty: a
     snapshot that could emit would be a second, quieter emission path, and
     the cadence rule this module keeps has exactly one.
+
+    ROUND 4e9r7g: THIS ONE IS DELIBERATELY NOT SCENE-SCOPED, and the asymmetry
+    with :func:`sustain_a_kill` is the point.  A publication is the client's
+    business and must carry one scene; a snapshot is the OPERATOR's, and an
+    operator asking "what is on the ground" while a player crosses scenes
+    wants the true total -- including the rows way 1 keeps standing in the
+    scene that was left.  ``scene`` and ``elsewhere`` on the returned step say
+    which scene the cell would publish for and how many of these rows are not
+    in it, so the console line can never be read as "these all travel".
     """
     if not isinstance(cell, mob_loot.DropLedgerCell):
         return _refusal(
@@ -496,7 +554,15 @@ def presence_snapshot(cell: Any) -> PresenceStep:
     try:
         lifetime = float(cell.lifetime_seconds)
         live = tuple(cell.ledger.drops)
+        scene = cell.current_scene
         rows = tuple(_row(cell, drop, frozenset()) for drop in live)
+        if scene is None:
+            # Every row is "elsewhere" when there is no scene to be here in.
+            elsewhere = len(live)
+        else:
+            wanted = mob_loot.scene_key(scene)
+            elsewhere = sum(
+                1 for drop in live if drop.scene_key != wanted)
     except Exception as error:
         return _refusal(REFUSE_CELL_RAISED, repr(error))
     if not rows:
@@ -504,14 +570,16 @@ def presence_snapshot(cell: Any) -> PresenceStep:
             state=STATE_NOTHING_ON_THE_GROUND, frames=(), rows=(), announced=0,
             carried=0, trimmed=0, lifetime_seconds=lifetime,
             oldest_seconds_left=None, newest_seconds_left=None, stale=0,
-            detail="nothing is on the ground")
+            detail="nothing is on the ground",
+            scene=scene, elsewhere=0)
     return PresenceStep(
         state=STATE_SNAPSHOT, frames=(), rows=rows, announced=0,
         carried=len(rows), trimmed=0, lifetime_seconds=lifetime,
         oldest_seconds_left=_oldest(rows),
         newest_seconds_left=_newest(rows),
         stale=sum(1 for row in rows if row.seconds_left is None),
-        detail=PRESENCE_SHAPE)
+        detail=PRESENCE_SHAPE,
+        scene=scene, elsewhere=elsewhere)
 
 
 def _seconds(value: Any) -> str:
@@ -537,13 +605,22 @@ def describe_presence(step: Any) -> str:
     redraw = {None: "unmeasured", True: "yes", False: "no"}.get(
         REEMISSION_REDRAWS_THE_LABEL, "unmeasured")
     frame_bytes = sum(len(frame) for _pc, frame in step.frames)
+    # ROUND 4e9r7g: ``scene=`` and ``elsewhere=`` are on the line because the
+    # question way 1 creates -- "there were four things on the ground, why did
+    # two travel" -- has to be answerable from the console, not from a
+    # docstring.  ``elsewhere`` counts rows STILL STANDING in other scenes;
+    # it is never a count of anything deleted.
+    scene = "none" if step.scene is None else str(step.scene)
     return (
-        "%s state=%s shape=%s live=%d announced=%d carried=%d trimmed=%d "
+        "%s state=%s shape=%s scene=%s elsewhere=%d live=%d announced=%d "
+        "carried=%d trimmed=%d "
         "stale=%d frames=%d frame_bytes=%d declared_lifetime=%.1fs "
         "oldest_left=%ss newest_left=%ss label_life=%.1f-%.1fs redraw=%s "
         "detail=%s"
         % (
-            CONSOLE_TOKEN, step.state, PRESENCE_SHAPE, step.live,
+            CONSOLE_TOKEN, step.state, PRESENCE_SHAPE,
+            scene.encode("ascii", "backslashreplace").decode("ascii"),
+            step.elsewhere, step.live,
             step.announced, step.carried, step.trimmed, step.stale,
             len(step.frames),
             frame_bytes, step.lifetime_seconds,
