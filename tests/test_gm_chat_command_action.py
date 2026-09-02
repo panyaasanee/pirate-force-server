@@ -1290,6 +1290,16 @@ class EventNameContractTests(_Case):
             "gm_chat_action_speed_no_selected_character"
         ),
         "EVENT_SPEED_REFUSED_PREFIX": "gm_chat_action_speed_refused_",
+        # GT-193 [FAIL], attended round R303: the shape `/speed` composes
+        # was measured killing a real character and locking the client out.
+        # The hold that fires this is keyed on the EMPTY ActorAttr SECTION
+        # the frame announces, not on the command -- see
+        # `speed_wire.declared_empty_sections` and
+        # `tests/test_gm_speed_shape_hold.py`.
+        "EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED": (
+            "gm_chat_action_speed_withheld_sparse_shape_not_cleared_by_a_"
+            "real_client"
+        ),
         # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
         # `store.write_typed_attributes_and_compose_sparse` was live on
         # `main`.  All four are NO-FRAME outcomes: DB first, wire second, a

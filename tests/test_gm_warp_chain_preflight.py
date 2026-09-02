@@ -28,6 +28,7 @@ import ast
 import contextlib
 import dataclasses
 import io
+import os
 import pathlib
 import sys
 import unittest
@@ -1126,3 +1127,92 @@ class TheConsoleNeverInventsAZeroTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatChiefsLetter1712AskedForTests(unittest.TestCase):
+    """The two asks of `20260902_1712_CHIEF-TO-LANE-GM-gt192-debt-paid-*`.
+
+    Both are about ONE thing: what the tester's eye actually meets on the
+    console during `GT-192`.  Neither changes a number this tool derives.
+    """
+
+    def test_the_note_says_a_skipped_scene_is_not_an_empty_one(self):
+        rows = preflight.preflight_chain(legacy=_legacy())
+        note = [line for line in preflight.render(rows) if " NOTE " in line]
+        self.assertEqual(len(note), 1, "the note is one framing line")
+        self.assertIn("LANE_A_CENSUS_SKIPPED", note[0])
+        self.assertIn("NOT a licence for an empty map", note[0])
+
+    def test_the_notes_count_is_the_rows_count_not_a_typed_in_number(self):
+        rows = preflight.preflight_chain(legacy=_legacy())
+        mirrored = [
+            row for row in rows
+            if row.source == preflight.SOURCE_RUNTIME_BG0002_ARM
+        ]
+        self.assertTrue(mirrored, "the reachable world still has scene 2")
+        note = [line for line in preflight.render(rows) if " NOTE " in line][0]
+        for row in mirrored:
+            with self.subTest(scene=row.scene_id):
+                self.assertIn("map %d " % row.scene_id, note)
+                self.assertIn("%d actors" % row.actor_count, note)
+
+    def test_a_chain_without_the_mirrored_arm_gets_no_clause(self):
+        # The clause is derived, so a chain that never touches scene 2 must
+        # not carry a sentence about scene 2.
+        rows = preflight.preflight_chain([3, 14], legacy=_legacy())
+        note = [line for line in preflight.render(rows) if " NOTE " in line][0]
+        self.assertNotIn("LANE_A_CENSUS_SKIPPED", note)
+
+    def test_the_precondition_is_the_first_line_on_a_real_console(self):
+        """Ask (a), measured the only way that can prove it: a real run.
+
+        Importing this module registers the lane hooks, which write 28 lines
+        to STDERR before `main()` gets to print anything.  In a console where
+        both streams land together -- the tester's -- that pushed the
+        PRECONDITION to roughly line 29.  Asserting on `render()` cannot see
+        this at all; only a subprocess can.
+        """
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, "-m",
+             "pirateforce_foundation.gm.warp_chain_preflight", "3"],
+            cwd=str(ROOT),
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        first = proc.stderr.splitlines()[0]
+        self.assertTrue(
+            first.startswith(
+                "%s PRECONDITION " % preflight.CONSOLE_TOKEN
+            ),
+            "the first stderr line is %r, so the boot precondition is not "
+            "what she reads first" % first,
+        )
+        # And stdout keeps its own line 1, so a redirected capture is
+        # unchanged for anyone reading the file afterwards.
+        self.assertTrue(
+            proc.stdout.splitlines()[0].startswith(
+                "%s PRECONDITION " % preflight.CONSOLE_TOKEN
+            )
+        )
+
+    def test_an_importer_never_gets_the_stderr_line(self):
+        """The guard is `__main__`-only: a test run must stay quiet."""
+        import subprocess
+
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import pirateforce_foundation.gm.warp_chain_preflight"],
+            cwd=str(ROOT),
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        self.assertNotIn("GM_WARP_PREFLIGHT PRECONDITION", proc.stderr)
+        self.assertEqual(proc.stdout, "")

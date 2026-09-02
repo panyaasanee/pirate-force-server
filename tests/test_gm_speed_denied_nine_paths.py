@@ -108,7 +108,17 @@ NOTICE_SPEAKER = ""
 # `test_every_word_is_an_outcome_constant_this_module_defines` below closes
 # half that gap by re-deriving every entry from the module's own
 # `OUTCOME_*` constants; the ORDER still rests on the letter.
-NINE_PATHS = (
+#
+# ~~REFUSAL_PATHS~~ -- renamed, not just extended: GT-193's shape hold made it
+# TEN, and a tuple called `NINE` holding ten entries is the drift this file
+# exists to catch.  The first nine are still letter 0311's, unchanged and in
+# its order; the tenth is this lane's own, added in round `et2ux4` after the
+# attended round measured what the held shape does to a real client.  It is
+# LAST in this tuple but fires FOURTH-AND-A-HALF in the source (between the
+# unparseable value and the no-store path) -- the drivers below are numbered
+# to match this tuple, and `drivers()` orders by that number, so the pairing
+# stays exact; source order is asserted by nothing here and never was.
+REFUSAL_PATHS = (
     "withheld_speed_canonical_db",
     "refused_speed_no_selected_character",
     "withheld_update_attr_vital_version",
@@ -118,8 +128,9 @@ NINE_PATHS = (
     "refused_speed_persist_",            # prefix: the store raised
     "refused_speed_persist_readback_unusable",
     "refused_speed_persist_compose_",    # prefix: post-commit composer
+    "withheld_sparse_shape_empty_section",   # GT-193's hold, this lane's own
 )
-EXPECTED_PATH_COUNT = len(NINE_PATHS)
+EXPECTED_PATH_COUNT = len(REFUSAL_PATHS)
 
 CANONICAL_DB_FILENAME = "pirateforce.sqlite3"
 RUN_COPY_DB_FILENAME = "pirateforce_lane_gm_20260902_0617.sqlite3"
@@ -272,6 +283,20 @@ class _Case(unittest.TestCase):
         )
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+        # GT-193's shape hold (`speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_
+        # CLIENT`) sits ABOVE every path this file exercises: with it shut --
+        # which is the production default, pinned as the default by
+        # `tests/test_gm_speed_shape_hold.py` -- `/speed` never reaches the DB
+        # write or the composer at all.  These tests are about what happens
+        # BELOW that gate, so they open it explicitly.  Opening it here is a
+        # TEST-ONLY simulation of a future attended clearance; it is not
+        # evidence that any client has ever accepted this frame shape.
+        _shape_hold_opened = mock.patch.object(
+            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+        )
+        _shape_hold_opened.start()
+        self.addCleanup(_shape_hold_opened.stop)
         # 🔴 ABSOLUTE, AND INSIDE THIS TEST'S OWN TEMP DIRECTORY.  The
         # run-copy gate resolves `os.path.dirname(store.path)` against the
         # PROCESS CWD and fails closed when it cannot ask, so a relative
@@ -376,6 +401,22 @@ class _Case(unittest.TestCase):
             speed_wire,
             "compose_sparse_speed_update",
             side_effect=ValueError("composer refused"),
+        ):
+            return self.act(self.session(store)), store
+
+    def path_10_shape_hold_not_cleared(self):
+        """The tenth path, and the only one this lane added to its own door.
+
+        `_Case.setUp` OPENS the hold for every test in this file, because the
+        other nine paths live below it; this driver shuts it again, which is
+        the production default (`speed_wire.
+        SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` is `False` on `main`).  So this
+        is the one driver that patches a gate BACK to its shipped value rather
+        than away from it.
+        """
+        store = self.store()
+        with mock.patch.object(
+            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", False
         ):
             return self.act(self.session(store)), store
 
@@ -628,7 +669,7 @@ class ThePathsAreDistinctTests(_Case):
 
     def test_the_words_are_letter_0311s_own_list(self):
         words = self._walk_every_driver()
-        for expected, actual in zip(NINE_PATHS, words):
+        for expected, actual in zip(REFUSAL_PATHS, words):
             self.assertTrue(
                 actual.startswith(expected),
                 "letter 0311 named %r for this path; the audit says %r"
@@ -643,7 +684,7 @@ class ThePathsAreDistinctTests(_Case):
             for name, value in vars(chat_command_action).items()
             if name.startswith("OUTCOME_") and isinstance(value, str)
         }
-        for word in NINE_PATHS:
+        for word in REFUSAL_PATHS:
             with self.subTest(word=word):
                 self.assertTrue(
                     any(

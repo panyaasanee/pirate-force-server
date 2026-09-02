@@ -7551,3 +7551,56 @@ real row (`_after_one_step` keys on `source`, not on `on_arrival`, which he conf
 key); "byte-identical today" is TRUE and he reproduced it; no scene was found where a step changes
 the census after the arrival dispatch; and the preflight-side pin is backstopped by a real
 behavioural oracle. He also confirmed the round touched no file outside this lane's zone.
+
+## Round `et2ux4` -- GT-193 came back [FAIL], and this door now withholds by default
+
+`GT-193` was the first time anything this lane composed reached a real client's screen. It went
+badly, and the round file `pf_bridge/rounds/GM_20260902_1824_et2ux4_*` carries the full account.
+What is recorded here is the mechanism, because a future round reading only this file must not
+re-open the door by accident.
+
+**What the attended round measured** (results letter `20260902_1755_KA1A-R303-RESULTS-*`,
+owner at the keyboard): `/speed 300` composed and sent
+`LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL (74 bytes)` carrying `00 00 96 43` = 300.0 "followed by
+trailing zero fields". The character showed HP 0, money 0 and died. Afterwards: 426 inbound
+frames, **zero of them non-heartbeat** -- the revive buttons produced no server traffic at all.
+The client locked itself out and the attended round lost it until a re-login. The run DB was
+healthy the whole time (`speed_walk = 300.0`, hp 100/100), so nothing was persisted: the client
+reacted to bytes this lane put on the wire.
+
+**What "trailing zero fields" are, named from this clone's own composer.** `encode_block` always
+emits both sections of the DBAttribute body. A door that sets one BasicAttr field and nothing else
+therefore announces an ActorAttr section with a **zero mask and no fields**:
+`... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00`. `cash` (offset `0x0A8`,
+mask `1<<11`) is one of the fields that section carries, and money read 0 on screen.
+
+**What was NOT proven, and is not claimed anywhere in the code:** which byte killed the character.
+The tester's own nonclaim is explicit. The hold below is a correlation that earns a hold, never a
+root cause.
+
+**The mechanism.** `speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` is `False` on `main`;
+`speed_wire.declared_empty_sections()` measures which sections the frame about to be sent announces
+empty; `_speed_action` withholds when a section is empty and the shape is not cleared, or whenever
+the shape cannot be measured at all. It fires **before** the DB write, so a held frame never leaves
+a moved row behind it, and it returns the same `SPEED DENIED` LocalTalk notice every other refusal
+returns -- letter `0311`'s nine refusal paths are now ten.
+
+**How it opens.** One line, with the measurement that cleared it named in the comment above the
+flip: an attended round that sees a client accept the shape, or an RE result that says which shape
+is safe. Not by a lane deciding it is probably fine. `tests/test_gm_speed_shape_hold.py` runs
+against the shipped default and is what turns red if anyone flips it without evidence.
+
+**What GT-193's other half is, and whose:** on re-login the sheet read **400**, not 300, because
+`speed_walk` has no login read -- the client is painting `CLIENT_CONSTRUCTION_DEFAULTS`
+(`persistence_attr_compose.py:289`). That is LANE-DB's CORE-REQUEST (letter `1035`, COO approved
+`1143`), untouched by this lane.
+
+### Round `et2ux4` -- chief's two asks on `warp_chain_preflight` (letter `1712`)
+
+(a) The `PRECONDITION` was stdout line 1 and the tester still met it at roughly line 29, because
+importing the package writes 28 `LANE_HOOK_REGISTERED`/`LANE_A_CENSUS_SKIPPED` lines to stderr
+first. It is now printed to stderr **above the package imports**, guarded on `__main__` so no
+importer sees it, and duplicated rather than moved so a redirected `*>` capture is unchanged.
+(b) The "a skipped scene is not an empty scene" warning lived in the module docstring, which a
+tester does not open. It now rides the existing `NOTE` framing line, with the map number and its
+actor count read off the row rather than typed in.
