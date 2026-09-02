@@ -1875,14 +1875,46 @@ class TheSecondAdmissionArmTests(unittest.TestCase):
         """The sentence the round file and the PR body both make: this arm
         opens no door.  ``resolve_entry(..., via_login=True)`` is the
         ordinary login, and it must still refuse scene 126 with the pin
-        this round did not touch."""
+        this round did not touch.
+
+        WIDENED ROUND ``l6at2v`` to be condition 1 of ``COO-DECISION
+        20260902_2145`` exactly as that letter words it: the refusal and
+        the census arm's ``True`` are asserted IN THE SAME TEST, on the
+        same process state, against a session that holds no GM grant.
+        Split across two tests -- which is how round ``4uztfj`` left it --
+        the pair proves each half separately and nothing about the pair,
+        and the pair is the whole claim: the arm may answer yes while the
+        door stays shut.  The reason is read off the module's own
+        constant rather than retyped, so renaming the token moves this
+        test with it instead of leaving it green on a string nothing
+        raises any more.
+        """
+        # No grant is staged anywhere in this test: this is the ordinary
+        # login path, and the arm below is answering about a scene it
+        # cannot put anybody into.
+        self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
+
+        emitted = []
         with self.assertRaises(world_scene_entry.SceneEntryRefused) as raised:
             world_scene_entry.resolve_entry(
                 Position(ATLANTIS, 0, 0.0, 0.0, 0.0, 0),
-                emit=lambda line: None,
+                emit=emitted.append,
                 via_login=True,
             )
-        self.assertIn("scene_not_allowed_at_login", str(raised.exception))
+        self.assertIn(
+            world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+            str(raised.exception),
+        )
+        # And the refusal is silent on the wire: a census line for this
+        # scene reaching a client that was never admitted is the failure
+        # this condition exists to make impossible.
+        self.assertEqual(
+            [], [line for line in emitted if str(ATLANTIS) in str(line)
+                 and "CENSUS" in str(line).upper()],
+        )
+        # The arm still says yes AFTER the refusal, so the refusal is the
+        # door doing its job rather than the arm having quietly flipped.
+        self.assertTrue(lane_a.scene_is_sanctioned_for_a_gm_entry(ATLANTIS))
 
 
 class AtlantisRegistrationTests(unittest.TestCase):

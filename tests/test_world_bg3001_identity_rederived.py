@@ -20,37 +20,96 @@ the shipped literal FIELD BY FIELD -- and skips, loudly and by name, when
 they are not.  A skip is honest; a green suite that never opened the
 source is not.
 
-WHERE IT LOOKS, in order: ``$PF_BRIDGE_GAMEDATA``, then ``../pf_bridge/
-gamedata`` beside this repository (the layout both the bridge machine and
-the cloud clones use).  Nothing here writes, and nothing here reads the
-canonical DB.
+WHERE IT LOOKS: ``../pf_bridge/gamedata`` beside this repository, the one
+layout the bridge machine and the cloud clones share -- asked through
+``tests/pf_preconditions.BRIDGE_GAMEDATA``, which is the single authority
+on that question for the eleven modules that already ask it.
+
+WHAT THIS FILE CANNOT DO, SAID BEFORE ANYTHING ELSE, BECAUSE THE GATE IS
+THE ONLY EYE THAT CLOSES PULL REQUESTS.  ``.github/workflows/
+gate-windows.yml`` checks out ONE repository and will never have
+``pf_bridge`` beside it, so on the machine that decides the merge this
+class always skips and grades nothing.  pf-adversary measured the cost
+this round rather than leaving it implied: with no sibling, five separate
+single-value mutations of ``world_bg3001_identity.py`` -- a
+``SOURCE_SHA256`` digest replaced with ``0...0ff``, an HP 106 -> 1, a
+placement moved 800 units, a ``MOBS.n_ID`` 8001 -> 8002, an island wearing
+a ship's outfit -- leave this lane's suite byte-identical to the clean
+control at ``115 passed, 6 skipped`` AND leave the skip census printing
+``RESULT: PASS``.  So "the mutants are dead" is true of a machine with the
+bridge clone beside it, and of no other.  The gate-runnable half of the
+digest claim is ``test_world_bg3001_identity.py::
+test_the_source_digests_are_pinned``, which this round widened from
+"64 hex characters" (``000...00ff`` passed by construction) to also refuse
+a degenerate digest -- a fix for one mutant, not for the hole.  Closing
+the hole needs a decision this lane may not make alone (a vendored slice
+of the six source files, a digest-of-digests committed here, or a second
+gate job that clones the sibling); it is the open question in
+``pf_bridge/notes_to_chief/20260902_2240_LANE-A-TO-COO-...``.
+
+WHY THE PRECONDITION AND NOT AN ENV VAR (round ``l6at2v``, and it is why
+the round before this one never reached ``main``).  The first draft
+resolved the root itself, honouring ``$PF_BRIDGE_GAMEDATA`` first, and
+wrote a bare ``unittest.skipIf`` with its own prose reason.  On the
+Windows gate that is an UNDECLARED SKIP: ``tools/
+pf_pytest_precondition_census.py`` counts every skip and demands each one
+carry a ``[precondition:<key>]`` token or a pin, so ``skip_census`` went
+RED and the merge workflow closed ``pirate-force-server#601`` with the
+whole round on it.  This shape has closed pull requests repeatedly and in
+more than one lane -- ``docs/PYTEST_SKIP_PINS.json`` names ``#231``
+(round ``vyi2ud``), ``#540`` (round ``h6bl53``) and ``#545`` (round
+``qtxdpr``) in its own notes, and records rounds ``ctflxc``, ``2vxlx2``,
+``y7koj9``, ``szdkgs`` and ``0n9inw`` shipping or converting the same
+defect.  A single total is deliberately NOT quoted here: pf-adversary
+showed this round's first draft miscounted it in both directions from
+those same notes.  Asking the house precondition
+instead also closes the false-SKIP window ``pf_preconditions`` documents
+on ``BRIDGE_SERIALIZER_TABLE``: a private env var would let this module
+RUN on a machine the census believes has nothing, and skip on one it
+believes has everything, with the census green either way because it
+never saw the token.  One question, one answer, one place.  Nothing here
+writes, and nothing here reads the canonical DB.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
-import os
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
 
+from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 from pirateforce_foundation import world_bg3001_identity as identity  # noqa: E402
 
+#: DERIVED, not retyped (pf-adversary D5, round ``l6at2v``): the guard and
+#: the reader must never be able to point at different trees.  The day
+#: ``BRIDGE_GAMEDATA`` is repointed -- and its own comments propose naming
+#: a file rather than the directory -- a hand-written copy of this path
+#: would keep reading the old place with the census still green.
+#: ``tests/test_world_scene_folder_on_the_bridge.py`` already derives it
+#: this way, for the same reason.
+GAMEDATA = BRIDGE_GAMEDATA.paths[0].parent
 
-def _gamedata_root() -> Path | None:
-    named = os.environ.get("PF_BRIDGE_GAMEDATA")
-    candidates = [Path(named)] if named else []
-    candidates.append(ROOT.parent / "pf_bridge" / "gamedata")
-    for candidate in candidates:
-        if (candidate / "tables" / "CONSTDATA_TH__CLINE.tsv").is_file():
-            return candidate
-    return None
-
-
-GAMEDATA = _gamedata_root()
+#: Every file this class opens.  The precondition guards the ``tables/``
+#: DIRECTORY, and one of these is NOT under it (pf-adversary D3, measured:
+#: a sibling holding a full ``tables/`` and no ``scene/`` made the
+#: precondition answer PRESENT, the class run, and ``setUpClass`` die with
+#: a raw ``FileNotFoundError`` -- six errors, and a census that reports
+#: this key green because a skip is not what happened).  The house rule
+#: for that state is ``tests/test_scene_identity_rule.py`` lines 214-221:
+#: a clone that has the directory without the file is BROKEN, so it is red
+#: rather than skipped -- but red with the missing file NAMED.
+_REQUIRED_SOURCES = (
+    Path("tables") / "CONSTDATA_TH__CLINE.tsv",
+    Path("tables") / "CONSTDATA_TH__MOBS.tsv",
+    Path("tables") / "TEXTDATA_TH__MOBS_TIP.tsv",
+    Path("tables") / "CONSTDATA_TH__STANDARD_MOB.tsv",
+    Path("scene") / "Bg3001" / "Bg3001.placements.tsv",
+)
 
 
 def _rows(path: Path) -> list[dict]:
@@ -58,17 +117,28 @@ def _rows(path: Path) -> list[dict]:
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-@unittest.skipIf(
-    GAMEDATA is None,
-    "the bridge gamedata tables are not reachable from this checkout; set "
-    "PF_BRIDGE_GAMEDATA or clone pf_bridge beside this repository",
-)
+@BRIDGE_GAMEDATA.skip_unless_present()
 class TheShippedTableMatchesTheSource(unittest.TestCase):
     """Field by field, against the files ``SOURCE_SHA256`` names."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.root = GAMEDATA
+        missing = [
+            relative for relative in _REQUIRED_SOURCES
+            if not (cls.root / relative).is_file()
+        ]
+        if missing:
+            # NOT a skip: the precondition already said this clone HAS the
+            # bridge tables.  A tree that answers yes and then cannot
+            # produce the file is broken, and the census must not be able
+            # to read that as "declared and pinned".  See _REQUIRED_SOURCES.
+            raise AssertionError(
+                "the bridge gamedata tree at %s is present but incomplete - "
+                "this class reads %d files and %d are missing: %s"
+                % (cls.root, len(_REQUIRED_SOURCES), len(missing),
+                   ", ".join(str(relative) for relative in missing))
+            )
         cls.cline = _rows(cls.root / "tables" / "CONSTDATA_TH__CLINE.tsv")
         cls.mobs = {
             row["n_ID"]: row

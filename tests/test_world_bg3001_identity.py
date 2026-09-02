@@ -149,11 +149,42 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
             ids[0], 0x2000 + identity._PLACEMENT_ROWS[0][0] + 1)
 
     def test_the_source_digests_are_pinned(self) -> None:
+        """Shape only, and this test says so out loud.
+
+        WIDENED ROUND ``l6at2v`` (pf-adversary D2).  The real check --
+        hashing the files -- lives in
+        ``test_world_bg3001_identity_rederived.py``, which SKIPS on the
+        Windows gate because the gate has no ``pf_bridge`` beside it.  So
+        on the one machine that closes pull requests, this test is the
+        entire digest claim, and as written it accepted the exact mutant
+        the round before this one was built to kill: the adversary
+        replaced a digest with ``0`` x 62 + ``ff`` and every check here
+        passed by construction.
+
+        The three assertions below kill a DEGENERATE digest -- all one
+        character, or a run of one character with a short tail.  They
+        cannot kill a plausible-looking wrong digest, and nothing that
+        runs on the gate can: a hash is only evidence against the file it
+        came from, and the file is not there.  Do not read a green here
+        as "the pins are right".
+        """
         self.assertEqual(len(identity.SOURCE_SHA256), 6)
         for path, digest in identity.SOURCE_SHA256.items():
             with self.subTest(path=path):
                 self.assertEqual(len(digest), 64)
                 self.assertTrue(all(c in "0123456789abcdef" for c in digest))
+                # A real sha256 uses far more than two of the sixteen
+                # nibbles; 0*62+"ff" uses two, and "0"*64 uses one.
+                self.assertGreater(
+                    len(set(digest)), 2,
+                    "%s: this is not a digest, it is a placeholder" % path,
+                )
+        # And no two files hash the same, which is what a copy-paste of one
+        # pinned digest onto another row looks like.
+        self.assertEqual(
+            len(set(identity.SOURCE_SHA256.values())),
+            len(identity.SOURCE_SHA256),
+        )
 
 
 class TheSelfCheckRefusesADriftedTable(unittest.TestCase):
