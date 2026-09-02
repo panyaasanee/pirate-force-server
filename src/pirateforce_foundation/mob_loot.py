@@ -309,7 +309,12 @@ MOB_LOOT_WIRING = (
     "so after a scene boundary the rows it calls 'older' are the ones "
     "standing in the scene the player just left -- which COO-DECISION "
     "2026-09-02T02:53+07:00 forbids removing until a removal publisher "
-    "exists.  A chief following this step would have destroyed the previous "
+    "exists.  ROUND lh21ua BUILT ONE AND IT DOES NOT LICENSE THIS: "
+    "DropLedgerCell.frames_after_a_row_left publishes the CURRENT scene's "
+    "remaining rows after a pickup, so it can withdraw a row of the scene "
+    "the player is standing in and NOTHING ELSE.  A row deleted in the "
+    "scene they left has still never been withdrawn from that client.  "
+    "A chief following this step would have destroyed the previous "
     "scene's whole ground on the first kill in the new one.  DO NOT CALL IT: "
     "what bounds the ledger today is the per-drop expiry plus the trim "
     "inside mob_drop_presence.sustain_a_kill, which is what runtime.py "
@@ -358,7 +363,10 @@ MOB_LOOT_WIRING = (
     "not to have wired it (its own comment at the boundary says so): "
     "COO-DECISION 2026-09-02T02:52+07:00 chose WAY 1 -- bind ownership to the "
     "scene -- and reconcile DELETES rows, which COO-DECISION 2026-09-02T02:53 "
-    "+07:00 forbids until a removal publisher exists.  WHAT TO CALL INSTEAD, "
+    "+07:00 forbids until a removal publisher exists -- AND THE ONE ROUND "
+    "lh21ua BUILT DOES NOT COVER IT (see step 4 and step 8: it withdraws a "
+    "row of the scene the player is IN, never of the one they left).  WHAT "
+    "TO CALL INSTEAD, "
     "~~one line, at the SAME boundary (right where mob_combat_scene_folder is "
     "assigned)~~ -- BOTH HALVES OF THAT ARE STRUCK, round 9jrsei: it is two "
     "lines now (see below), and pf-adversary D3 MEASURED that the place it "
@@ -468,7 +476,24 @@ MOB_LOOT_WIRING = (
     "with it.  WHICH sites must preserve is a question for the COO and not one "
     "this lane may answer by wrapping them all at once.  This lane's own "
     "emission path (the MOB_LOOT block, steps 1-3 above) does not go through "
-    "make_runtime_vitals at all and needs nothing here."
+    "make_runtime_vitals at all and needs nothing here.\n"
+    "  8. AFTER A PICKUP, added round lh21ua -- THE REMOVAL PUBLISHER of "
+    "COO-DECISION 2026-09-02T02:53+07:00, ordered second by COO-DECISION "
+    "2026-09-02T10:44+07:00.  Taking a row through the cell removes it "
+    "SERVER-SIDE and tells the client nothing; RE-082 says a nonempty "
+    "generation erases the keys it omits, so the withdrawal of one row is "
+    "the publication of the rest.  ``cell.frames_after_a_row_left(legacy, "
+    "taken_key)`` composes exactly that, and it is ALREADY WIRED for the "
+    "inbound pickup branch: ``mob_pickup_request.dispatch_inbound_pickup_"
+    "request`` calls it and hands the frames back as "
+    "``outcome.ground_after``, so the only line the chief writes is the one "
+    "that SENDS them -- MOB_PICKUP_REQUEST_WIRING in that module has it, "
+    "spelled and executed by a test.  TWO LIMITS, both named rather than "
+    "discovered later: it publishes for the CURRENT scene only (a row "
+    "deleted in a scene the player left is still unannounceable, which is "
+    "why step 4's prohibition stands), and a scene whose LAST row was taken "
+    "publishes NOTHING -- the empty generation is a client no-op (RE-082) "
+    "and RE-208 is open on whether any message removes one object alone."
 )
 
 production_allowed = True
@@ -1156,6 +1181,14 @@ REFUSE_NO_SCENE_TO_PUBLISH = "no_scene_to_publish"
 #: the player's own drops from them while telling them the row they stand on
 #: is somewhere else.
 REFUSE_KILL_IN_ANOTHER_SCENE = "kill_in_another_scene"
+#: ROUND lh21ua, the removal publisher of COO-DECISION 2026-09-02T02:53+07:00.
+#: A caller asked this cell to publish the removal of a key that is STILL on
+#: this scene's ground.  The generation composed for such a call would carry
+#: that key, so it would remove nothing -- and the caller, which has already
+#: told a player their click succeeded, would be sending a frame whose meaning
+#: is the opposite of the one it thinks it sent.  The take comes first; this
+#: publication only ever reports a removal that already happened.
+REFUSE_ROW_IS_STILL_ON_THE_GROUND = "row_is_still_on_the_ground"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1198,6 +1231,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_COMMIT_SPANS_TWO_SCENES,
     REFUSE_NO_SCENE_TO_PUBLISH,
     REFUSE_KILL_IN_ANOTHER_SCENE,
+    REFUSE_ROW_IS_STILL_ON_THE_GROUND,
 )
 
 
@@ -2996,6 +3030,94 @@ class DropLedgerCell:
             view = DropLedger(
                 rows[:cap], view.generation, view.issued_through, view.looted)
         return refresh_frames(legacy, view)
+
+    def frames_after_a_row_left(self, legacy: Any, taken_key: Any) -> tuple:
+        """THE REMOVAL PUBLISHER of COO-DECISION 2026-09-02T02:53+07:00, for
+        every case but the last object.  ``(rows_remaining, frames)``.
+
+        WHAT IT IS.  A row left this ledger through the one door COO 0253
+        leaves open -- a pickup, taken through :meth:`take` -- and until this
+        method existed nothing told the CLIENT.  The row was gone on the
+        server and the label stayed on the floor until the next kill or the
+        next scene entry composed a generation, which is a wait with no upper
+        bound: stand still after a pickup and the thing you are carrying is
+        still lying there.
+
+        HOW IT REMOVES, and it is not a new message.  ``RE-082`` (closed PASS
+        2026-08-26) measured the ``PickupTerrainThing`` list consumer: A
+        NONEMPTY GENERATION ERASES EVERY KEY IT OMITS.  So the removal of one
+        key is the publication of the others -- this composes the scene's
+        REMAINING rows, exactly the shape :meth:`enter_scene_frames` sends at
+        a boundary, and the taken key is removed by being absent from it.
+        Nothing here invents a wire message, and nothing here deletes a row:
+        the take already happened, and this reports it.
+
+        THE HOLE, NAMED RATHER THAN PAPERED OVER, and it is the whole of
+        ``RE-208``: the LAST object.  Zero remaining rows means the only
+        generation available is the empty one, and the same RE-082 measured
+        that a zero-row generation is a CLIENT NO-OP.  There is no known
+        message that removes the last object one at a time, so this returns
+        ``(0, ())`` and the caller sends nothing -- today's behaviour, held
+        deliberately.  [ASSUMPTION OF LANE B - AWAITING COO] that holding is
+        better than spending this lane's one UNMEASURED shape (a generation
+        carrying no elements) on it: an empty generation that turns out NOT
+        to be a no-op on a real client would wipe the scene's whole ground,
+        and the case it would fix is one label that a scene change or the
+        next kill clears anyway.  ``RE-208`` is open on the question and this
+        lane consumes its own answer.
+
+        THE TRIM IS INHERITED FROM THE BOUNDARY PUBLISHER, and it carries the
+        same cost in the same words: a scene holding more rows than one frame
+        can carry publishes its OLDEST ``cap`` rows, and RE-130 then erases
+        the live keys the trim omitted from the client's list.  Those rows
+        are still on this ledger and the next kill in the scene re-announces
+        them.  Refusing instead would mean a pickup in a crowded scene ends
+        in an exception where a player expects an item.
+
+        WHY THE KEY IS AN ARGUMENT WHEN NOTHING IS COMPOSED FROM IT: it is
+        the assertion that makes the call honest.  A caller that publishes
+        "the ground after a removal" while the key it means is still standing
+        has composed a generation that removes NOTHING, and would have no way
+        to find out.  Still present -> :data:`REFUSE_ROW_IS_STILL_ON_THE_GROUND`,
+        by name, before any byte is composed.
+
+        ONE ACQUISITION, for the reason :meth:`publication` documents: the
+        scene and its rows must agree, or a kill landing between two reads
+        composes a generation that omits a live key of its own scene.  The
+        bytes are composed outside the lock.
+
+        WHAT THE ONE ACQUISITION DOES NOT BUY, in the same words
+        :meth:`enter_scene_frames` had to learn them (pf-adversary D7, round
+        9jrsei): freshness at SEND time.  A kill that lands after this
+        returns composes a NEWER generation, and RE-130 keeps whichever of
+        the two reaches the client last -- so a caller that holds these
+        frames and sends them after a kill's rolls the ground back to the
+        state it had before that kill.  THE CALLER OWES THE ORDERING, and
+        for this publisher it is short: it is composed inside the pickup
+        dispatch and belongs in the SAME return, right after the bag delta.
+        Nothing here may be stashed for a later dispatch.
+
+        NOT A CADENCE.  It fires on ONE EVENT -- a row leaving the ground --
+        exactly as :meth:`enter_scene_frames` fires on a crossing, and the
+        2026-08-26 refusal of ``DROP_REFRESH_MS`` is about timers.  A pickup
+        that refuses produces no event and therefore no frame.
+        """
+        key = _require_int(
+            taken_key, "taken drop key", 0, 0xFFFFFFFF)
+        scene, view, _elsewhere = self.publication()
+        if scene is None:
+            raise MobLootContractError(
+                REFUSE_NO_SCENE_TO_PUBLISH,
+                "this cell does not know which scene it is publishing, so it "
+                "cannot say which ground a removal happened on; nothing was "
+                "composed")
+        if any(row.drop_key == key for row in view.drops):
+            raise MobLootContractError(
+                REFUSE_ROW_IS_STILL_ON_THE_GROUND,
+                "drop 0x%X is still standing in scene %s; a generation "
+                "composed now would carry it and remove nothing.  Take the "
+                "row through the cell first" % (key, scene))
+        return len(view.drops), self._boundary_frames(legacy, view)
 
     def publication(self) -> tuple:
         """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.

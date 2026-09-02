@@ -504,17 +504,14 @@ class ProbeLaneAgreementTests(LegacyFixture):
 # 6. The line handed to the chief, EXECUTED, wire bytes to database row
 # ---------------------------------------------------------------------------
 
-class TheWiringLineRunsTests(unittest.TestCase):
-    """The published branch, EXECUTED -- guards included.
+class TheWiringHarness(unittest.TestCase):
+    """Every name the published branch needs, bound to a real object.
 
-    The first draft of this file exec'd only the two call lines and left the
-    branch's control flow (the readiness check, the refusal path, the order
-    of the calls) as prose in the wiring note.  An adversarial pass mutated
-    that prose six ways -- inverting the accepted check, deleting it,
-    keying on the outer id, emptying the whole string -- and this file
-    stayed GREEN through every one, then crashed the branch-as-written with
-    one trailing byte.  The control flow now lives in a function and this
-    class drives it, which is why a mutation to it turns red here.
+    ROUND lh21ua split this out of ``TheWiringLineRunsTests`` UNCHANGED so a
+    second class can drive the same real transaction -- a store on disk, a
+    real bag cell, a real ground cell and the frozen v141 serializer -- without
+    either copying the setup or re-running the other class's tests.  It holds
+    no test of its own on purpose.
     """
 
     @classmethod
@@ -567,10 +564,12 @@ class TheWiringLineRunsTests(unittest.TestCase):
         )
 
     def _namespace(self, *, key_offset=0, position=DROP_AT, body=None,
-                   bag_cell=True, ground=True):
+                   bag_cell=True, ground=True, ground_cell=None):
         """Every name the published line uses, bound to a real object."""
         if body is None:
             body = _body(mob_loot.DROP_KEY_BASE + key_offset, 0)
+        if ground_cell is None and ground:
+            ground_cell = a_ground_cell(a_drop(key_offset))
         return {
             "mob_pickup_request": mob_pickup_request,
             "legacy": self.legacy,
@@ -579,8 +578,7 @@ class TheWiringLineRunsTests(unittest.TestCase):
             "sid": self.sid,
             "character_id": self.character.id,
             "bag_cell": self._cell() if bag_cell else None,
-            "drop_ledger_cell": (
-                a_ground_cell(a_drop(key_offset)) if ground else None),
+            "drop_ledger_cell": ground_cell if ground else None,
             "identity": KILLER,
             "x": position[0],
             "y": position[1],
@@ -595,6 +593,20 @@ class TheWiringLineRunsTests(unittest.TestCase):
                 + mob_pickup_request.MOB_PICKUP_REQUEST_HEADLINE_CALL,
                 namespace)
         return namespace["outcome"], buffer.getvalue()
+
+
+class TheWiringLineRunsTests(TheWiringHarness):
+    """The published branch, EXECUTED -- guards included.
+
+    The first draft of this file exec'd only the two call lines and left the
+    branch's control flow (the readiness check, the refusal path, the order
+    of the calls) as prose in the wiring note.  An adversarial pass mutated
+    that prose six ways -- inverting the accepted check, deleting it,
+    keying on the outer id, emptying the whole string -- and this file
+    stayed GREEN through every one, then crashed the branch-as-written with
+    one trailing byte.  The control flow now lives in a function and this
+    class drives it, which is why a mutation to it turns red here.
+    """
 
     # ----- the loop the round exists for --------------------------------
 
@@ -801,6 +813,319 @@ class TheWiringLineRunsTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # 7. What this round does NOT claim
 # ---------------------------------------------------------------------------
+
+class TheGroundAfterTheTakeTests(TheWiringHarness):
+    """ROUND lh21ua: the removal publisher, driven through the real branch.
+
+    COO-DECISION 2026-09-02T02:53+07:00 forbids deleting a ledger row until
+    something can tell the client an object is gone; COO-DECISION
+    2026-09-02T10:44+07:00 ordered it second, after the carrier composer.
+    This is the client-facing half: a successful pickup now carries the
+    scene's REMAINING rows out with it, and RE-082 (a nonempty generation
+    erases the keys it omits) is what turns that into a removal.
+
+    Every test here runs the real transaction against a real store: the item
+    lands in the database and the frames are read back out of the outcome.
+    """
+
+    def _ground(self, *offsets):
+        return a_ground_cell(*[a_drop(offset) for offset in offsets])
+
+    def _explode_the_publisher(self, exc):
+        """Make the ground cell's publisher raise, for this test only.
+
+        The method is replaced ON THE CLASS rather than on an instance or
+        through a proxy object, and that is forced rather than chosen: the
+        transaction lane checks ``type(ledger_cell) is DropLedgerCell``
+        exactly, so a wrapper or a subclass is refused before the publication
+        is ever reached -- and the test would then be measuring the type
+        guard instead of the never-raises promise.
+        """
+        original = mob_loot.DropLedgerCell.frames_after_a_row_left
+
+        def boom(*_args, **_kwargs):
+            raise exc
+
+        mob_loot.DropLedgerCell.frames_after_a_row_left = boom
+        self.addCleanup(
+            setattr, mob_loot.DropLedgerCell, "frames_after_a_row_left",
+            original)
+
+    def _keys_on_the_wire(self, frames):
+        """The keys in the composed bytes, found without asking the composer.
+
+        Same second derivation as tests/test_mob_loot_removal_publisher.py:
+        scan for the element key record rather than trusting the module to
+        report its own contents.
+        """
+        seen = []
+        for pc, _frame in frames:
+            cursor = 0
+            while True:
+                index = pc.find(bytes([mob_loot.ELEMENT_KEY_TAG]), cursor)
+                if index < 0 or index + 5 > len(pc):
+                    break
+                key = int.from_bytes(pc[index + 1:index + 5], "little")
+                if mob_loot.DROP_KEY_BASE <= key < mob_loot.DROP_KEY_LIMIT:
+                    seen.append(key)
+                cursor = index + 1
+        return seen
+
+    # ----- the half a player is meant to see ----------------------------
+
+    def test_a_pickup_carries_the_rest_of_the_floor_out_with_it(self):
+        outcome, console = self._run(self._namespace(
+            ground_cell=self._ground(0, 1)))
+        self.assertTrue(outcome.handled)
+        self.assertEqual(outcome.ground_rows_left, 1)
+        self.assertTrue(
+            outcome.ground_after,
+            "the row left the ground and nothing was published; the label "
+            "has nothing to withdraw it")
+        keys = self._keys_on_the_wire(outcome.ground_after)
+        self.assertEqual(keys, [mob_loot.DROP_KEY_BASE + 1])
+        self.assertNotIn(mob_loot.DROP_KEY_BASE, keys)
+        self.assertIn("MOB_PICKUP_GROUND_REMOVAL_PUBLISHED", console)
+
+    def test_the_publication_is_the_ground_cell_s_own_and_not_recomposed_here(
+            self):
+        """The bytes come from the lane that owns the ground, byte for byte.
+
+        A second composer for the same generation is how two lanes start
+        sending a client two shapes of the same thing.
+        """
+        ground = self._ground(0, 1)
+        outcome, _ = self._run(self._namespace(ground_cell=ground))
+        _rows, expected = ground.frames_after_a_row_left(
+            self.legacy, mob_loot.DROP_KEY_BASE)
+        self.assertEqual(outcome.ground_after, expected)
+
+    def test_the_delta_and_the_floor_are_two_different_things(self):
+        """The bag delta answers the click; the generation clears the floor.
+
+        Collapsing them -- reading ``delta`` as though it did both -- is the
+        mistake this field exists to make impossible.
+        """
+        outcome, _ = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        self.assertIsNotNone(outcome.delta)
+        self.assertNotIn(outcome.delta, outcome.ground_after)
+
+    def test_the_transaction_alone_says_nothing_about_the_floor(self):
+        """The gap this round closes, MEASURED rather than asserted.
+
+        The transaction lanes compose exactly one thing -- the bag delta --
+        and it carries no drop key at all.  So before this round a successful
+        pickup left the server with a row taken and the client with nothing
+        said to it about that ground until the next kill or the next scene
+        entry composed a generation of its own.  What the client DRAWS in the
+        meantime is not measured here and is not claimed: RE-082 is the
+        reason the fix takes the shape it does.
+        """
+        outcome, _ = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        self.assertTrue(outcome.handled)
+        self.assertEqual(
+            self._keys_on_the_wire([outcome.delta]), [],
+            "the bag delta carries a ground key; it is the floor's business "
+            "and this test's premise is wrong")
+        self.assertIsNone(
+            getattr(outcome.result.outcome, "ground_after", None),
+            "the transaction lane grew a floor publication of its own; two "
+            "lanes composing the same generation is the drift this separation "
+            "exists to prevent")
+
+    # ----- the hole, held on purpose ------------------------------------
+
+    def test_the_last_object_in_a_scene_publishes_nothing_and_says_so(self):
+        """RE-208.  Zero rows left means the only generation available is the
+        empty one, which RE-082 measured as a client no-op.  Sending it would
+        spend this lane's one unmeasured shape on the case that gains least
+        and risks the scene's whole ground."""
+        outcome, console = self._run(self._namespace(
+            ground_cell=self._ground(0)))
+        self.assertTrue(outcome.handled)
+        self.assertEqual(outcome.ground_rows_left, 0)
+        self.assertEqual(outcome.ground_after, ())
+        self.assertIn("MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT", console)
+        self.assertNotIn("MOB_PICKUP_GROUND_REMOVAL_PUBLISHED", console)
+
+    def test_the_two_empty_answers_are_told_apart_by_the_count(self):
+        """``()`` is not one fact.  ``rows_left`` is what separates "there was
+        nothing left to say" from "nothing was taken"."""
+        held, _ = self._run(self._namespace(ground_cell=self._ground(0)))
+        self.assertEqual((held.ground_after, held.ground_rows_left), ((), 0))
+        self.registry.release(self.character.id)
+        refused, _ = self._run(self._namespace(body=_body(0xDEADBEEF, 0)))
+        self.assertEqual(
+            (refused.ground_after, refused.ground_rows_left), ((), -1))
+
+    # ----- it may not cost a player their item --------------------------
+
+    def test_a_refused_pickup_publishes_no_floor_at_all(self):
+        outcome, console = self._run(self._namespace(
+            body=_body(0xDEADBEEF, 0), ground_cell=self._ground(0, 1)))
+        self.assertFalse(outcome.handled)
+        self.assertEqual(outcome.ground_after, ())
+        self.assertNotIn("MOB_PICKUP_GROUND_REMOVAL", console)
+
+    def test_a_publisher_that_explodes_keeps_the_item_and_names_itself(self):
+        """The never-raises promise, on the half added this round.
+
+        The item is in the bag and in the DATABASE before this runs, so a
+        publication that cannot be composed costs a redraw and nothing else.
+        The shim raises the class of error a moved serializer raises --
+        AttributeError -- which is exactly what a narrower ``except`` would
+        have let through into the session.
+        """
+        self._explode_the_publisher(AttributeError("u32tag"))
+        baseline = self._rows()
+        outcome, console = self._run(self._namespace(
+            ground_cell=self._ground(0, 1)))
+        self.assertTrue(outcome.handled, "the pickup itself must still stand")
+        self.assertEqual(outcome.ground_after, ())
+        self.assertEqual(outcome.ground_rows_left, -1)
+        self.assertIn("MOB_PICKUP_GROUND_REMOVAL_REFUSED", console)
+        self.assertEqual(
+            len(self._rows()), len(baseline) + 1,
+            "a failed publication undid the write it is not part of")
+
+    def test_the_refusal_line_stays_ascii_for_a_cp874_console(self):
+        """The bridge console is cp874 with errors='strict'.
+
+        The detail interpolated here comes out of an exception this lane did
+        not compose, so it is passed through the sibling lane's own
+        ``console_safe`` -- proved by driving a non-ASCII message.
+        """
+        self._explode_the_publisher(ValueError("грунт"))
+        outcome, console = self._run(self._namespace(
+            ground_cell=self._ground(0, 1)))
+        self.assertTrue(outcome.handled)
+        line = [row for row in console.splitlines()
+                if "GROUND_REMOVAL_REFUSED" in row]
+        self.assertEqual(len(line), 1)
+        line[0].encode("cp874")     # raises if this lane let a wide char out
+
+    def test_a_console_that_cannot_be_written_costs_the_line_not_the_frames(
+            self):
+        """The other half of the cp874 lesson, from round jysbar.
+
+        ``console_safe`` fixes the STRING.  It cannot fix a stdout that is
+        closed, redirected into a strict codec, or otherwise broken -- and a
+        ``print`` that raises inside a never-raises function would take the
+        session down over a log line.
+        """
+        ground = self._ground(0, 1)
+
+        class HostileToThisLineOnly:
+            """Refuses the removal line and accepts every other.
+
+            DELIBERATELY NARROW, and the narrowness is a finding rather than
+            a convenience: the TRANSACTION lanes underneath still print
+            through bare ``print()`` (mob_pickup_persist's row line,
+            mob_pickup's own), so a stdout that refuses everything still
+            takes a pickup down through THEIR line.  That is older than this
+            round and outside it; it is named here and in the round's letter
+            rather than left for somebody to discover.  What this test
+            proves is the line this round added.
+            """
+
+            def __init__(self):
+                self.written = []
+
+            def write(self, text):
+                if "GROUND_REMOVAL" in text:
+                    raise UnicodeEncodeError("cp874", "x", 0, 1, "no mapping")
+                self.written.append(text)
+                return len(text)
+
+            def flush(self):
+                pass
+
+        namespace = self._namespace(ground_cell=ground)
+        with redirect_stdout(HostileToThisLineOnly()):
+            outcome = mob_pickup_request.dispatch_inbound_pickup_request(
+                namespace["legacy"], namespace["parsed"], namespace["store"],
+                namespace["sid"], namespace["character_id"],
+                namespace["bag_cell"], namespace["drop_ledger_cell"],
+                namespace["identity"], namespace["x"], namespace["y"],
+                namespace["z"])
+        self.assertTrue(outcome.handled)
+        self.assertTrue(
+            outcome.ground_after,
+            "the frames were lost because a console line could not be "
+            "written; that is the wrong half to drop")
+
+    def test_the_publication_never_runs_before_the_take(self):
+        """The order is the content, and this is what enforces it.
+
+        A caller that composed the floor first would be describing a removal
+        that has not happened; the ground cell refuses that by name, so this
+        drives the refusal directly and shows the dispatch does not meet it.
+        """
+        ground = self._ground(0, 1)
+        with self.assertRaises(mob_loot.MobLootContractError) as caught:
+            ground.frames_after_a_row_left(
+                self.legacy, mob_loot.DROP_KEY_BASE)
+        self.assertEqual(caught.exception.args[0],
+                         "row_is_still_on_the_ground")
+        outcome, _ = self._run(self._namespace(ground_cell=ground))
+        self.assertTrue(outcome.handled)
+        self.assertTrue(outcome.ground_after)
+
+    # ----- the line the chief is asked for, EXECUTED ---------------------
+
+    def test_the_call_site_snippet_this_lane_publishes_actually_runs(self):
+        """The wiring note's new lines, exec'd against a real outcome.
+
+        This lane has been caught twice publishing wiring PROSE that carried
+        a swapped or dead name for days because nothing executed it.  The
+        snippet below is lifted out of MOB_PICKUP_REQUEST_WIRING itself, so a
+        typo in the note turns this red instead of turning up in runtime.py.
+        """
+        outcome, _ = self._run(self._namespace(ground_cell=self._ground(0, 1)))
+        note = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
+        self.assertIn("      return out\n", note)
+        body = note.split("      out = [", 1)[1].split("      return out", 1)[0]
+        snippet = "out = [" + body
+        snippet = "\n".join(
+            row[6:] if row.startswith("      ") else row
+            for row in snippet.splitlines())
+        namespace = {"pc": outcome.delta[0], "frame": outcome.delta[1],
+                     "outcome": outcome}
+        exec(snippet, namespace)      # noqa: S102 - executing it IS the test
+        out = namespace["out"]
+        self.assertEqual(len(out), 1 + len(outcome.ground_after))
+        self.assertEqual(out[0][0], "MOB_PICKUP_REQUEST_DELTA")
+        self.assertEqual(out[0][1:], (outcome.delta[0], outcome.delta[1], 0.0))
+        for action, (gpc, gframe) in zip(out[1:], outcome.ground_after):
+            self.assertEqual(action, ("MOB_PICKUP_GROUND_AFTER", gpc, gframe,
+                                      0.0))
+
+    def test_the_same_snippet_sends_only_the_delta_when_nothing_remains(self):
+        """The call site needs no condition of its own -- proved, not said."""
+        outcome, _ = self._run(self._namespace(ground_cell=self._ground(0)))
+        note = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
+        body = note.split("      out = [", 1)[1].split("      return out", 1)[0]
+        snippet = "\n".join(
+            row[6:] if row.startswith("      ") else row
+            for row in ("out = [" + body).splitlines())
+        namespace = {"pc": outcome.delta[0], "frame": outcome.delta[1],
+                     "outcome": outcome}
+        exec(snippet, namespace)      # noqa: S102 - executing it IS the test
+        self.assertEqual(len(namespace["out"]), 1)
+
+    def test_the_wiring_note_still_states_what_the_branch_may_not_do(self):
+        """The struck sentence and its replacement are load-bearing.
+
+        The old note told a reader that taking the row through the cell was
+        enough for the client.  Deleting the correction would let the next
+        round re-derive the same wrong conclusion.
+        """
+        note = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
+        self.assertIn("COMPOSE a frame of its own", note)
+        self.assertIn("IS STRUCK, round lh21ua", note)
+        self.assertIn("RE-082", note)
+        self.assertIn("outcome.ground_after", note)
+
 
 class PinnedNumbersAreHardPinnedEverywhereTests(unittest.TestCase):
     """The half of the cross-check that runs on the machine that decides.
