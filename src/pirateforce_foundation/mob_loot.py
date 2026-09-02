@@ -1124,6 +1124,14 @@ REFUSE_CLOCK_IS_NOT_A_CLOCK = "clock_is_not_a_clock"
 #: where the derived mask is, and a composer that moved has taken that proof
 #: away.  See :func:`preserve_ground_in_runtime_res_vitals`.
 REFUSE_VITALS_COMPOSER_MOVED = "vitals_composer_moved"
+#: ROUND jysbar.  The same refusal for the OTHER carrier: v141's
+#: ``make_runtime_remote_actors`` no longer composes the body this lane
+#: re-derives for the same entries.  Raised INSTEAD of emitting, and it is the
+#: more dangerous of the two to get wrong -- this carrier holds whole-scene
+#: censuses, so bytes whose mask record this lane can no longer locate would
+#: be bytes that move every actor on the map.
+#: See :func:`preserve_ground_in_runtime_res_remote_actors`.
+REFUSE_ACTORS_COMPOSER_MOVED = "actors_composer_moved"
 #: ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 (way 1).  A scene name is
 #: not a usable scene name: not a str, empty, non-ASCII, or carrying
 #: whitespace.  A drop now OWNS the scene it fell in, and a row whose scene
@@ -1185,6 +1193,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_LIFETIME_OUT_OF_RANGE,
     REFUSE_CLOCK_IS_NOT_A_CLOCK,
     REFUSE_VITALS_COMPOSER_MOVED,
+    REFUSE_ACTORS_COMPOSER_MOVED,
     REFUSE_SCENE_NOT_A_SCENE,
     REFUSE_COMMIT_SPANS_TWO_SCENES,
     REFUSE_NO_SCENE_TO_PUBLISH,
@@ -3987,6 +3996,188 @@ RUNTIME_RES_HEAD_PIN = DROP_ENVELOPE_PIN[:10]
 RUNTIME_RES_INHERITED_MASK_VITALS = 0x02
 RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN = bytes((0x0B, 0x00))
 RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN = bytes((0x0B, 0x08, 0x12, 0x00, 0x00))
+
+# ---------------------------------------------------------------------------
+# THE SECOND CARRIER, ROUND jysbar (COO-DECISION 2026-09-02T10:44+07:00,
+# items 3 and 4).
+#
+# ``make_runtime_remote_actors`` (v141:1267-1288) is the OTHER RuntimeRes
+# composer this lane's frames ride: the bar refresh, the dying frame and the
+# dead frame.  Measured through this repo's own headless dispatcher, all three
+# write the derived change mask as ``0B 02`` -- the ground-list bit CLEAR --
+# and clear means "there is no pool", which the client's reconciler is read
+# (Codex, static) as treating like "clear everything".  So the announce frame
+# that opted in to PRESERVE last round has its work undone 0.0 s later by the
+# bar, and a kill's drop has its work undone 0.7 s later by the dead frame.
+# The measurement is pinned in ``tests/test_mob_combat_dispatch.py`` here,
+# and written up in the round file of the OTHER repository (pf_bridge
+# rounds/B_20260902_1144_jysbar_*): this repo has no rounds/ directory, so a
+# citation to "the round file" alone would point at nothing.
+#
+# THE SHAPE IS NOT ITS SIBLING'S, AND THAT IS THE WHOLE DIFFICULTY.  In
+# ``make_runtime_vitals`` the derived mask is the LAST record, so PRESERVE is
+# an appended tail and every byte before it is v141's own.  Here the derived
+# mask sits BEFORE the actor collection (offset 12, the record that says which
+# derived fields follow), so preserving the ground list means
+#   * one byte of v141's output changes: ``0x02`` -> ``0x02 | 0x08``, and
+#   * one record is appended after the actor collection: the ground list,
+#     present and empty.
+# Everything else is compared byte for byte against what v141 itself composed
+# for the same entries, and any other difference refuses.  ``mob_loot``'s
+# fourth struck refusal from round ewm6ff said this in the negative: "a real
+# actor pc does not end at its mask".
+#
+# WHY THE APPENDED RECORD IS ``12 00 00`` AND WHY THAT IS NOT A GUESS.  It is
+# the same three bytes ``preserve_ground_heartbeat_pc`` composes after its own
+# ``0B 08``, and that body has been on the production wire on every flagless
+# boot, roughly every two seconds, since ``app.py``'s
+# ``install_ground_heartbeat_preserve`` landed.  This function derives the
+# record through the same primitive and pins it against that composer's, so
+# the heartbeat cannot change its final field without this refusing.
+#
+# WHAT THAT CROSS-PIN IS *NOT* (pf-adversary, round jysbar, rank 6): it is not
+# independent corroboration that these three bytes ARE a ground list.  ``12 00
+# 00`` is the generic encoding of "u16 field, value 0" and is byte-identical
+# to a zero actor count; the two records are told apart by POSITION alone.  So
+# the byte identity with the heartbeat is real and worth pinning, and it is
+# the SAME assumption restated rather than a second piece of evidence for it.
+#
+# [ASSUMPTION OF LANE B - AWAITING COO/RE CONFIRMATION] that with BOTH bits
+# set the client reads the actor collection FIRST and the ground list SECOND.
+# The serializer chain in the composer's own docstring puts the actor stream at
+# object +0x1C and this module's own constant comment puts the ground list at
+# +0x20, so ascending field order is what the shape assumes.  What IS measured
+# is each field alone: the actor collection alone in every census this server
+# has ever sent, and the ground list alone in the heartbeat above.  The two
+# together have never been on a wire.  A frame the client rejects here costs
+# the actors in THAT frame, which is why the wrapper in ``mob_combat`` falls
+# back to v141's own bytes and why COO-DECISION 0646/1044 keeps this out of
+# the arrival census until an attended round has seen one accepted.
+# ---------------------------------------------------------------------------
+#: The derived mask v141 writes for an actor collection, and the one this lane
+#: writes in its place.  Neither is a tail: both live at offset 12.
+RUNTIME_RES_ACTORS_DERIVED_MASK = 0x02
+RUNTIME_RES_ACTORS_PRESERVE_DERIVED_MASK = (
+    RUNTIME_RES_ACTORS_DERIVED_MASK | RUNTIME_DERIVED_BIT_GROUND_LIST)
+#: Where that record sits: u16tag class id (3) + u32tag key (5) + u8tag
+#: version (2) + u8tag inherited mask (2).  ``world_population.
+#: WIRE_HEADER_BYTES`` counts the same envelope through to the actor count.
+RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET = 12
+#: The ground list, present and empty, as the heartbeat has been sending it.
+RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN = bytes((0x12, 0x00, 0x00))
+
+
+def _runtime_remote_actors_body(
+        legacy: Any, entries: tuple, derived_mask: int) -> bytes:
+    """Everything ``make_runtime_remote_actors`` composes, mask parameterised.
+
+    Re-derived from the legacy tag primitives for the same reason its vitals
+    sibling is: the point is to be able to say WHERE the derived mask is
+    without reading the end of a buffer and hoping.
+    """
+    pc = bytearray()
+    pc += legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+    pc += legacy.u32tag(ELEMENT_KEY_TAG, 0)
+    pc += legacy.u8tag(0x08, ENVELOPE_VERSION)
+    pc += legacy.u8tag(ELEMENT_MASK_TAG, 0)            # inherited VitalData none
+    pc += legacy.u8tag(ELEMENT_MASK_TAG, derived_mask)
+    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, len(entries))
+    for entry in entries:
+        pc += entry
+    return bytes(pc)
+
+
+def preserve_ground_in_runtime_res_remote_actors(
+        legacy: Any, entries: Any) -> tuple[bytes, bytes]:
+    """``(pc, frame)``: what ``make_runtime_remote_actors`` composes for these
+    entries, with the ground list PRESERVED instead of absent.
+
+    Same argument and same return shape as ``legacy.make_runtime_remote_
+    actors``, so a call site swaps one for the other and changes nothing else.
+    Every actor entry is v141's own bytes, in v141's own order, at v141's own
+    offsets; the derived-mask record says the ground list is present as well as
+    the actor collection, and one empty ground-list record follows.
+
+    Fail-closed at every exit.  The composer is DRIVEN and its output compared
+    against this lane's re-derivation, so a v141 that moved refuses here
+    instead of shipping bytes whose derived mask this lane can no longer
+    locate -- and the comparison is not a prefix check: the whole of v141's
+    output has to be present, in order, either side of the one byte that
+    changes.
+    """
+    entries = tuple(entries)
+    if len(entries) > 0xFFFF:
+        raise MobLootContractError(
+            REFUSE_VALUE_OUT_OF_RANGE,
+            "a remote-actor collection of %d entries does not fit the u16 "
+            "count v141 writes" % len(entries))
+    for position, entry in enumerate(entries):
+        # An entry that encodes to nothing still counts in the collection's
+        # count field, and a stream tail the client cannot align on is the
+        # ErrorData=28317 every wire module in this repo has paid for.
+        if type(entry) is not bytes or not entry:
+            raise MobLootContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "remote-actor entry %d is not a nonempty bytes" % position)
+    composed, _composed_frame = legacy.make_runtime_remote_actors(list(entries))
+    if composed != _runtime_remote_actors_body(
+            legacy, entries, RUNTIME_RES_ACTORS_DERIVED_MASK):
+        raise MobLootContractError(
+            REFUSE_ACTORS_COMPOSER_MOVED,
+            "make_runtime_remote_actors no longer composes this lane's "
+            "re-derivation of the same entries, so where its derived mask "
+            "sits in its pc is no longer provable here")
+    ground = legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 0)
+    if ground != RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the present-and-empty ground list is not the pinned record the "
+            "heartbeat has been sending; the legacy serializer moved under "
+            "this lane and it refuses to emit")
+    if ground != preserve_ground_heartbeat_pc(legacy)[-len(ground):]:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the ground record this composer appends is not the one the "
+            "production heartbeat appends; the two must never drift")
+    pc = _runtime_remote_actors_body(
+        legacy, entries, RUNTIME_RES_ACTORS_PRESERVE_DERIVED_MASK) + ground
+    # THE BYTE-FOR-BYTE COMPARISON COO-DECISION 1044 item 3 asks for, written
+    # for the shape this carrier actually has: v141's output survives whole
+    # except for the mask byte, and the only new bytes are at the end.
+    offset = RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+    if len(pc) != len(composed) + len(ground):
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserved actor pc is not v141's pc plus one ground record")
+    if pc[:offset] != composed[:offset]:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the envelope before the derived mask is not v141's envelope")
+    if pc[offset + 2:len(composed)] != composed[offset + 2:]:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the actor collection is not v141's actor collection byte for "
+            "byte; nothing but the derived mask may move")
+    if (pc[offset] != ELEMENT_MASK_TAG
+            or composed[offset] != ELEMENT_MASK_TAG
+            or composed[offset + 1] != RUNTIME_RES_ACTORS_DERIVED_MASK
+            or pc[offset + 1] != RUNTIME_RES_ACTORS_PRESERVE_DERIVED_MASK):
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the record at the derived-mask offset is not the mask this lane "
+            "sets the ground bit in")
+    frame = legacy.frame_pc(pc)
+    # Re-derived end to end, not spot-checked -- round ewm6ff, finding D5:
+    # a magic-plus-suffix check passed a 75-byte frame with a 0xDEADBEEF
+    # length past it, and refused every pc of 65534 bytes or more, which a
+    # 108-actor census (20 KB today, and this carrier is the one that carries
+    # them) is far closer to than any vitals frame ever gets.
+    if frame != _frame_via_struct(pc):
+        raise MobLootContractError(
+            REFUSE_FRAME_ENCODER_DISAGREES,
+            "the legacy framing layer and this module's re-derivation of it "
+            "disagree about the preserved remote-actor frame")
+    return pc, frame
 
 
 def _runtime_vitals_body(legacy: Any, vitals: Any) -> bytes:

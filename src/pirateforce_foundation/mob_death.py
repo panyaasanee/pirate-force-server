@@ -951,6 +951,22 @@ NETACTOR_PREDICATE_VAS = (0x454A70, 0x454AC0)
 DEATH_TASK_HOLD_MS = 700
 
 MOB_DEATH_NONCLAIMS = (
+    "ROUND jysbar: THE DYING AND DEAD FRAMES NOW SET TWO DERIVED BITS AT "
+    "ONCE (0x02 actor collection | 0x08 ground list present, count 0) AND NO "
+    "CLIENT HAS EVER BEEN SHOWN THAT SHAPE.  Each field alone is measured; "
+    "the two together are this lane's assumption that the client reads +0x1C "
+    "before +0x20, and it fails SILENTLY if it is wrong -- the frame stays "
+    "well-formed and means the opposite, with no ErrorData and no console "
+    "line.  A refusal from the composer falls back to v141's bytes and "
+    "prints GROUND_ACTORS_PRESERVE_REFUSED, so the corpse frame cannot be "
+    "lost with the ground list; nothing covers the backwards reading.  "
+    "NOTHING IS SCHEDULED TO WATCH IT ON A SCREEN yet",
+    "ROUND jysbar: what this module composes here is what reaches the wire "
+    "only BEFORE the first TargetPos.  After a real arrival runtime.py "
+    "replaces both frames with a whole-scene recompose (108 actors) that "
+    "still writes bit 0x08 clear, so on the ordinary post-arrival path the "
+    "loot is still taken off the floor -- by that recompose, not by these "
+    "bytes",
     "the death animation _F_DIE_000 has never been observed by anyone in this "
     "project; GT-025 proved the lying pose belongs to the DYING frame and "
     "requires every reading of GT-022 as evidence of that animation to be "
@@ -1678,7 +1694,20 @@ def death_frames(
         legacy, mob, death_timer=death_timer, faction=faction,
         scene_id=scene_id, scene_sequence=scene_sequence, with_name=with_name,
     )
-    pc, frame = legacy.make_runtime_remote_actors([entry])
+    # ROUND jysbar, COO-DECISION 1044 item 4, the SECOND and THIRD of bar ->
+    # dying -> dead: both the dying frame and the dead frame are composed here
+    # (``dying_frames`` and the dead frame differ by their timer, not by their
+    # carrier), and the dead one arrives 0.7 s AFTER the drop frame of the same
+    # kill.  ~~so this is the frame that was taking the player's loot off the
+    # floor last~~ IS STRUCK BEFORE IT SHIPPED (pf-adversary, round jysbar,
+    # rank 4): true only of the bytes THIS function puts on the wire, which is
+    # the path before the first TargetPos.  After a real arrival runtime.py
+    # replaces both frames with a 20 KB whole-scene recompose that still
+    # writes the bit clear, and THAT is the frame taking the loot off the
+    # floor in an ordinary session.  See MOB_DEATH_NONCLAIMS.
+    # One preserve composer covers both frames this function composes.
+    pc, frame = mob_combat.remote_actors_preserving_the_ground(
+        legacy, [entry], mob_combat.GROUND_ACTORS_PRESERVE_SITE_DEATH)
     if frame != legacy.frame_pc(pc):
         raise MobDeathContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN, "death frame drift")

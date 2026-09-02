@@ -414,8 +414,29 @@ class MobCombatTests(unittest.TestCase):
         one_entry = self.legacy.make_remote_actor_entry(
             mob_combat.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
             [(mob_combat.NPC_ATTR_ID, body)])
+        # ROUND jysbar: ~~compared against ``make_runtime_remote_actors``'s own
+        # bytes~~ IS STRUCK, and struck by a MEASUREMENT rather than by a claim
+        # (COO-DECISION 2026-09-02T10:44, items 3 and 4).  This frame now goes
+        # out through the PRESERVE composer for the same carrier, so it is
+        # v141's bytes with the ground-list bit set in the derived mask and one
+        # empty ground record appended.  What this test exists for is UNCHANGED
+        # and is asserted below in both directions: ONE entry, not zero, not
+        # the roster -- and the entry is still v141's own actor entry, byte for
+        # byte, at v141's own offset.
+        composed = self.legacy.make_runtime_remote_actors([one_entry])[0]
         self.assertEqual(
-            pc, self.legacy.make_runtime_remote_actors([one_entry])[0])
+            pc,
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, [one_entry])[0])
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[:offset], composed[:offset])
+        self.assertEqual(pc[offset + 2:len(composed)], composed[offset + 2:])
+        self.assertEqual(pc[len(composed):],
+                         mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+        self.assertIn(one_entry, pc)
+        # The count field the client reads is still exactly one.
+        self.assertEqual(pc[offset + 2:offset + 5],
+                         self.legacy.u16tag(0x12, 1))
 
     def test_the_two_frames_come_back_in_the_watched_order(self):
         ledger = open_ledger()
@@ -659,6 +680,222 @@ class MobCombatTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             mob_combat.runtime_vitals_preserving_the_ground(
                 NoVitals(), [(CHIT_RESULT_VITAL_ID, 1, b"")])
+
+    # -- the SAME opt-in for the actors carrier (COO-DECISION 1044) --------
+    #
+    # ROUND jysbar, and this block exists because pf-adversary's pass on that
+    # round found the wrapper shipped with ZERO tests: ten mutants survived,
+    # including the two the vitals sibling above bled for (swallow the
+    # fallback exception; print before composing it).  These are those tests,
+    # for the other carrier.
+
+    def _one_entry(self):
+        body = field_mobs.hostile_npc_attr(
+            self.legacy, self.mob, current_hp=self.mob.max_hp)
+        return self.legacy.make_remote_actor_entry(
+            mob_combat.NPC_STYLE_ACTOR_TYPE, self.mob.actor_identity,
+            [(mob_combat.NPC_ATTR_ID, body)])
+
+    def _capture_print(self):
+        printed = []
+        real_print = builtins.print
+        builtins.print = lambda *a, **k: printed.append(
+            " ".join(str(x) for x in a))
+        return printed, real_print
+
+    def test_a_refusing_actors_composer_costs_the_ground_and_says_so(self):
+        class MovedSerializer:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                return self._real.u16tag(tag, value) + b"\x00"
+
+        entries = [self._one_entry()]
+        shim = MovedSerializer(self.legacy)
+        printed, real_print = self._capture_print()
+        try:
+            pc, frame = mob_combat.remote_actors_preserving_the_ground(
+                shim, entries, mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            (pc, frame), self.legacy.make_runtime_remote_actors(entries),
+            "the refusal took the bar frame with it")
+        self.assertEqual(len(printed), 1)
+        fields = printed[0].split(" ", 3)
+        self.assertEqual(
+            fields[0], mob_combat.GROUND_ACTORS_PRESERVE_REFUSED_TOKEN)
+        self.assertEqual(fields[1], "MobLootContractError")
+        self.assertEqual(fields[2], "mob_combat.bar_frames")
+
+    def test_the_site_named_on_the_console_is_the_site_that_refused(self):
+        # The line is what a tester greps for, so the site has to travel and
+        # has to be a name that exists.  A wrapper that dropped the argument
+        # and printed a constant would pass everything else in this file.
+        class Dead:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                raise RuntimeError("moved")
+
+        entries = [self._one_entry()]
+        seen = []
+        for site in (mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR,
+                     mob_combat.GROUND_ACTORS_PRESERVE_SITE_DEATH):
+            printed, real_print = self._capture_print()
+            try:
+                mob_combat.remote_actors_preserving_the_ground(
+                    Dead(self.legacy), entries, site)
+            finally:
+                builtins.print = real_print
+            seen.append(printed[0].split(" ", 3)[2])
+        self.assertEqual(seen, [mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR,
+                                mob_combat.GROUND_ACTORS_PRESERVE_SITE_DEATH])
+        # Both names have to resolve to something a reader can open.
+        self.assertTrue(hasattr(mob_combat, "bar_frames"))
+        module, _dot, function = (
+            mob_combat.GROUND_ACTORS_PRESERVE_SITE_DEATH).partition(".")
+        self.assertEqual(module, "mob_death")
+        import pirateforce_foundation.mob_death as _mob_death
+        self.assertTrue(hasattr(_mob_death, function))
+
+    def test_a_dead_actors_composer_is_not_reported_as_a_ground_refusal(self):
+        """The 9jrsei D4 lesson, for the carrier that carries the corpse:
+        the preserve composer DRIVES make_runtime_remote_actors, so a
+        composer that is down raises through the same except -- and printing
+        'only the ground list was lost' while the corpse frame is being lost
+        is a lie the console would carry."""
+        class Dead:
+            def __getattr__(self, name):
+                def boom(*_a, **_k):
+                    raise RuntimeError("v141 actors composer down")
+                return boom
+
+        printed, real_print = self._capture_print()
+        try:
+            with self.assertRaises(RuntimeError):
+                mob_combat.remote_actors_preserving_the_ground(
+                    Dead(), [b"\x01"],
+                    mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(
+            printed, [],
+            "a lost corpse frame was reported as a ground-list refusal")
+
+    def test_the_fall_back_does_not_swallow_a_broken_actors_composer(self):
+        class NoActors:
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        with self.assertRaises(AttributeError):
+            mob_combat.remote_actors_preserving_the_ground(
+                NoActors(), [b"\x01"],
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+
+    def test_a_console_that_cannot_be_written_costs_the_line_not_the_frame(self):
+        class Nasty(Exception):
+            pass
+
+        class Shim:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                raise Nasty("bad detail 中文 and\na newline")
+
+        entries = [self._one_entry()]
+        printed, real_print = self._capture_print()
+        try:
+            first = mob_combat.remote_actors_preserving_the_ground(
+                Shim(self.legacy), entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(len(printed), 1)
+        self.assertTrue(printed[0].isascii())
+        self.assertNotIn("\n", printed[0])
+        printed[0].encode("cp874")
+
+        def refuse(*_args, **_kwargs):
+            raise ValueError("I/O operation on closed file")
+
+        real_print = builtins.print
+        builtins.print = refuse
+        try:
+            second = mob_combat.remote_actors_preserving_the_ground(
+                Shim(self.legacy), entries,
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        finally:
+            builtins.print = real_print
+        self.assertEqual(first, second)
+        self.assertEqual(
+            second, self.legacy.make_runtime_remote_actors(entries))
+
+    def test_an_iterator_of_entries_is_not_drained_before_the_fall_back(self):
+        """The mutant that survives if ``entries = list(entries)`` goes away:
+        the preserve composer consumes the iterable, and the fall back would
+        then compose a ZERO-entry collection -- which, against a
+        replace-by-omission consumer (RE-092), is a world wipe rather than a
+        lost ground list."""
+        class Shim:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u16tag(self, tag, value):
+                if value == 0 and tag == mob_loot.ELEMENT_LIST_COUNT_TAG:
+                    raise RuntimeError("ground record refused")
+                return self._real.u16tag(tag, value)
+
+        entries = [self._one_entry(), self._one_entry()]
+        printed, real_print = self._capture_print()
+        try:
+            pc, _frame = mob_combat.remote_actors_preserving_the_ground(
+                Shim(self.legacy), iter(entries),
+                mob_combat.GROUND_ACTORS_PRESERVE_SITE_BAR)
+        finally:
+            builtins.print = real_print
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[offset + 2:offset + 5], self.legacy.u16tag(0x12, 2))
+        self.assertEqual(pc, self.legacy.make_runtime_remote_actors(entries)[0])
+
+    def test_a_serializer_that_ignores_the_mask_value_refuses(self):
+        """The byte-for-byte comparisons in the preserve composer are not a
+        restatement of the equality above them: a primitive that ACCEPTS the
+        preserve mask and writes something else passes that equality and is
+        caught here.  Without them this ships a frame whose mask is not the
+        mask this lane asked for."""
+        class IgnoresTheValue:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def u8tag(self, tag, value):
+                if value == mob_loot.RUNTIME_RES_ACTORS_PRESERVE_DERIVED_MASK:
+                    return self._real.u8tag(tag, 0x02)
+                return self._real.u8tag(tag, value)
+
+        with self.assertRaises(mob_loot.MobLootContractError) as caught:
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                IgnoresTheValue(self.legacy), [self._one_entry()])
+        self.assertEqual(
+            caught.exception.args[0], mob_loot.REFUSE_COMPOSED_BYTES_OFF_PIN)
 
     def test_the_announce_frame_refuses_a_mismatched_mob(self):
         ledger = open_ledger()

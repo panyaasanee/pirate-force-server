@@ -481,5 +481,164 @@ class TheCensusOfRuntimeResComposersInV141(unittest.TestCase):
         self.assertIn('f_code.co_name == "heartbeat_worker"', app)
 
 
+class TheOtherCarrierKeepsTheGroundToo(LegacyCase):
+    """ROUND jysbar: ``preserve_ground_in_runtime_res_remote_actors``.
+
+    The vitals sibling appends its PRESERVE record after the last byte v141
+    wrote.  This carrier cannot be done that way -- its derived mask sits
+    BEFORE the actor collection -- so what this class pins is the harder
+    claim: v141's own output survives WHOLE, in order, either side of one
+    byte, and the only new bytes are the ground record at the end.
+    """
+
+    def _entries(self):
+        attrs = [(0x2710, self.legacy.u8tag(0x0B, 1))]
+        return [
+            self.legacy.make_remote_actor_entry(2, 0x2068, attrs),
+            self.legacy.make_remote_actor_entry(2, 0x2069, attrs),
+        ]
+
+    def test_v141s_bytes_survive_whole_except_the_mask(self):
+        entries = self._entries()
+        composed, _frame = self.legacy.make_runtime_remote_actors(entries)
+        pc, _preserved_frame = (
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, entries))
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[:offset], composed[:offset])
+        self.assertEqual(pc[offset + 2:len(composed)], composed[offset + 2:])
+        self.assertEqual(
+            pc[len(composed):], mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+        self.assertEqual(composed[offset + 1], 0x02)
+        self.assertEqual(pc[offset + 1], 0x0A)
+        # And the actor entries themselves are in there untouched, which is
+        # the property a reader of a 20 KB census actually cares about.
+        for entry in entries:
+            self.assertIn(entry, pc)
+
+    def test_the_ground_record_is_the_one_the_heartbeat_already_sends(self):
+        # Named for what it protects: the three bytes appended here are the
+        # three the production heartbeat has been appending on every flagless
+        # boot since app.py's install landed.  If either moves, both must.
+        pc, _frame = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, self._entries())
+        heartbeat = mob_loot.preserve_ground_heartbeat_pc(self.legacy)
+        self.assertEqual(pc[-3:], heartbeat[-3:])
+        self.assertEqual(
+            pc[-3:], mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+
+    def test_the_frame_is_the_framing_layer_and_this_modules_re_derivation(self):
+        pc, frame = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, self._entries())
+        self.assertEqual(frame, self.legacy.frame_pc(pc))
+        self.assertEqual(frame, mob_loot._frame_via_struct(pc))
+        self.assertEqual(frame[len(frame) - len(pc):], pc)
+
+    def test_an_empty_collection_is_composable_and_says_pool_present(self):
+        # Not a refusal: v141 accepts zero entries, and "no actors changed,
+        # the pool is still there" is a sentence this carrier is allowed to
+        # say.  The count field has to be zero and the ground record present.
+        pc, _frame = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, [])
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertEqual(pc[offset + 1], 0x0A)
+        self.assertEqual(
+            pc[offset + 2:], self.legacy.u16tag(0x12, 0)
+            + mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+
+    def test_a_wide_collection_composes_the_same_way(self):
+        # The censuses this carrier really holds are ~108 entries and 20 KB,
+        # far past the sizes the vitals sibling ever sees, and past the point
+        # where a suffix-shaped frame check was measured wrong (round ewm6ff,
+        # D5).  So the wide case is pinned, not assumed.
+        attrs = [(0x2710, self.legacy.u8tag(0x0B, 1))]
+        entries = [
+            self.legacy.make_remote_actor_entry(2, 0x2000 + index, attrs)
+            for index in range(108)
+        ]
+        composed, _frame = self.legacy.make_runtime_remote_actors(entries)
+        pc, frame = mob_loot.preserve_ground_in_runtime_res_remote_actors(
+            self.legacy, entries)
+        self.assertEqual(len(pc), len(composed) + 3)
+        self.assertEqual(frame, mob_loot._frame_via_struct(pc))
+
+    class _MovedActorComposer:
+        """A v141 whose make_runtime_remote_actors composes a different body."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def make_runtime_remote_actors(self, entries):
+            pc, _frame = self._real.make_runtime_remote_actors(entries)
+            moved = pc + self._real.u8tag(0x0B, 0)
+            return moved, self._real.frame_pc(moved)
+
+    class _MovedActorMask:
+        """A v141 that writes the derived mask somewhere else entirely."""
+
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def make_runtime_remote_actors(self, entries):
+            pc, _frame = self._real.make_runtime_remote_actors(entries)
+            offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+            moved = pc[:offset] + self._real.u8tag(0x0B, 0x04) + pc[offset + 2:]
+            return moved, self._real.frame_pc(moved)
+
+    class _MovedActorFramer:
+        def __init__(self, real):
+            self._real = real
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+        def frame_pc(self, pc):
+            return b"\xac\x3e\x25\x5f\xde\xad\xbe\xef" + pc
+
+    def test_a_composer_that_moved_refuses_instead_of_emitting(self):
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self._MovedActorComposer(self.legacy), self._entries())
+        self.assertEqual(
+            caught.exception.args[0], mob_loot.REFUSE_ACTORS_COMPOSER_MOVED)
+
+    def test_a_mask_that_moved_refuses_instead_of_emitting(self):
+        # The dangerous one: bytes whose mask record this lane can no longer
+        # locate are bytes that move every actor on the map.
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self._MovedActorMask(self.legacy), self._entries())
+        self.assertEqual(
+            caught.exception.args[0], mob_loot.REFUSE_ACTORS_COMPOSER_MOVED)
+
+    def test_a_framing_layer_that_disagrees_refuses(self):
+        with self.assertRaises(MobLootContractError) as caught:
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self._MovedActorFramer(self.legacy), self._entries())
+        self.assertEqual(
+            caught.exception.args[0], REFUSE_FRAME_ENCODER_DISAGREES)
+
+    def test_an_entry_that_encodes_to_nothing_refuses_by_name(self):
+        # An empty entry still counts in the collection's count field, and a
+        # stream tail the client cannot align on is ErrorData=28317.
+        with self.assertRaises(MobLootContractError):
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, self._entries() + [b""])
+        with self.assertRaises(MobLootContractError):
+            mob_loot.preserve_ground_in_runtime_res_remote_actors(
+                self.legacy, self._entries() + [bytearray(b"\x01")])
+
+    def test_the_refusal_name_is_declared_with_the_others(self):
+        self.assertIn(
+            mob_loot.REFUSE_ACTORS_COMPOSER_MOVED,
+            mob_loot.MOB_LOOT_REFUSAL_REASONS)
+
+
 if __name__ == "__main__":
     unittest.main()
