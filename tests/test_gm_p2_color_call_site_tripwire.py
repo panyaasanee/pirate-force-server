@@ -45,27 +45,36 @@ of how likely each is to matter:
   the wire -- is not scanned, nor is the rest of ``src/``, ``tools/``,
   ``patches/``, or any ``.pyi``.  That is the biggest hole and it is not
   closed here.
-* RESULT.  NARROWED by round ``9sqec6``, and narrowed by ONE step only: a
-  verdict call whose value is thrown away -- ``p2_color_wiring_verdict()``
-  alone on a line -- no longer counts as consulting anything.  That is the
-  exact shape round ``qhowwu`` wrote into its backlog, and nothing wider is
-  claimed.  Everything that KEEPS the value passes, including shapes that
-  plainly ignore it afterwards.  Measured holes, each pinned by a test that
-  asserts it PASSES rather than by prose: a tautological
-  ``if p2_color_wiring_verdict():`` (the dataclass is truthy, so the body
-  always runs); a consult sitting in dead code; an unreachable consult; a
-  branch that consults and then paints anyway -- OBEDIENCE is not provable
-  here at all -- and, in the row named ``logged`` of the shape table, a value
-  handed to a logger.  An ``assert``-only consult passes too, and in a
+* RESULT.  NARROWED by round ``9sqec6``: a verdict call whose value nothing
+  downstream can act on no longer counts as consulting anything, and NO call
+  in a module may be discarded (``all``, not ``any`` -- otherwise one
+  throwaway binding at module scope launders the discard at the site that
+  matters).  The rule reads the STATEMENT, not the call: a bare expression
+  statement throws away everything inside it, so ``verdict(),`` (one comma),
+  ``[verdict()]``, ``verdict().allowed``, ``not verdict()``,
+  ``f"{verdict()}"``, ``lambda: verdict()`` and a comprehension over it are
+  all discards.  The first version of this rule asked only whether the call
+  was the statement's DIRECT value, and pf-adversary defeated the whole
+  round with a single trailing comma.  Handing the value to another function
+  (``_require_p2(verdict())``) is the one thing that rescues a bare
+  statement, because the callee received the answer.
+  Its premise, stated because it is load-bearing: the gate RETURNS its
+  refusal.  ``try: verdict() / except NameColorGateError:`` reads as a
+  discard here, and would be a real consultation against a gate that raised.
+  What is still NOT proved, each pinned by a test that asserts the shape
+  PASSES rather than by prose: a tautological ``if p2_color_wiring_verdict():``
+  (the dataclass is truthy, so the body always runs); a consult sitting in
+  dead code; an unreachable consult; a ``match`` whose ``case _`` ignores the
+  subject; and a branch that consults and then paints anyway -- OBEDIENCE is
+  not provable here at all.  An ``assert``-only consult passes too, and in a
   scanned module ``python -O`` would compile that assert away entirely; that
   last point is argued rather than tested, because this file reads source
-  text and never executes the module it judges.  An earlier draft of this round tried to
-  require the value to reach an ``assert``/``if``/``raise``/``return``, and
-  pf-adversary showed that a blessed-shape list red-lights this zone's OWN
-  guard idiom (a bare ``_require_x(value)`` statement, ``gm/commands.py``),
-  plus tuple unpacks, attribute and subscript targets, ``with``, ``match``,
-  decorators and ``for`` iterables.  A rule that reds correct code buys its
-  strength from the next author's round; this one does not.
+  text and never executes the module it judges.
+  Finally, and least visible: no module under ``gm/`` other than the gate
+  names a P-2 token in executable code today: this rule has
+  never run against a real module.  Every green in the zone scan below comes
+  from a ``continue``.  It is prospective, and a test below keeps this sentence
+  honest.
 * NAME.  It is a name tripwire, not a semantic one: colour code that names
   no token -- composing the field by a bare index -- walks past.
 * COMPOSITION.  Literal concatenation is folded and caught, but a runtime
@@ -276,10 +285,11 @@ def _consults_the_refusal(source: str) -> bool:
         return False
     if not _imports_the_gate(tree) or _defines_its_own(tree):
         return False
-    # RESULT tier: a call whose answer is thrown away consulted nothing.  This
-    # proves the value is KEPT -- never that it was read, believed, or obeyed
-    # (see the file docstring, and the two witness tests at the end).
-    return _verdict_value_is_kept(tree)
+    # RESULT tier: a call whose answer is thrown away consulted nothing.  What
+    # this proves is that no verdict call in the module is discarded -- never
+    # that the value was read, believed, or obeyed (see the file docstring and
+    # the witness tests at the end).
+    return _every_verdict_is_kept(tree)
 
 
 def _verdict_calls(tree: ast.AST) -> list[ast.Call]:
@@ -300,31 +310,73 @@ def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     return table
 
 
-def _is_discarded(call: ast.Call, parents: dict[ast.AST, ast.AST]) -> bool:
-    """True iff this call's value is thrown away by the statement it sits in.
+def _call_operands(call: ast.Call) -> list[ast.AST]:
+    """The nodes a call RECEIVES -- positional and keyword arguments.
 
-    The rule is deliberately ONE shape wide -- the call IS the value of a bare
-    expression statement -- and everything else counts as consumed.  The first
-    draft of this round instead listed the shapes that DO count (assert / if /
-    while / raise / return / a name they read) and pf-adversary killed it: the
-    zone's own house idiom for a guard is a bare ``_require_x(value)`` call
-    statement (``gm/commands.py:321``, ``gm/teleport_wire.py:346``), and a
-    tuple unpack, an attribute or subscript target, a ``with``, a ``match``, a
-    decorator and a ``for`` iterable were all red-lighted while doing the
-    right thing.  A list of blessed shapes turns every unlisted-but-correct
-    idiom into a red this lane then has to widen the list for.  A discarded
-    value has no such reading: nothing can be done with it.
+    Not ``func``: ``p2_color_wiring_verdict().reason()`` receives nothing; it
+    reads the verdict and drops the string.
+    """
+    return list(call.args) + [kw.value for kw in call.keywords]
+
+
+def _is_discarded(call: ast.Call, parents: dict[ast.AST, ast.AST]) -> bool:
+    """True iff nothing downstream can act on this call's value.
+
+    Walks outward to the STATEMENT the call sits in.  Any statement other
+    than a bare expression statement keeps the value -- it is bound,
+    returned, raised, tested, iterated, entered, matched or decorated with.
+    A bare expression statement throws the whole expression away, and so
+    throws the verdict away with it, no matter how much syntax sits in
+    between: ``p2_color_wiring_verdict(),`` (one comma), ``[...()]``,
+    ``...().allowed``, ``not ...()``, ``f"{...()}"``, ``lambda: ...()`` and
+    a comprehension over it are all discards, and the first version of this
+    rule -- which asked only whether the call was the Expr's DIRECT value --
+    graded every one of them as a consultation (pf-adversary, second pass,
+    D1: one trailing comma defeated the whole round).
+
+    The one thing that rescues a bare expression statement is HANDING THE
+    VALUE TO ANOTHER FUNCTION (``_require_p2(verdict())``, ``log.info(
+    verdict().reason())``): the callee received the answer and may act on
+    it.  That exception is what keeps this zone's own guard idiom -- a bare
+    ``_require_x(value)`` statement, ``gm/commands.py:321``,
+    ``gm/teleport_wire.py:346`` -- legal, and a rule that red-lights the
+    zone's own idiom is how the FIRST design of this round died (D1 of the
+    first pass).
+
+    Premise, written down because it is load-bearing and unstated elsewhere:
+    the gate RETURNS its refusal.  A future gate that RAISED instead would
+    make ``try: verdict() / except NameColorGateError:`` a real consultation
+    through a channel this rule reads as a discard, and this function would
+    have to be revisited with it (pf-adversary, second pass, D9).
     """
     node: ast.AST = call
     parent = parents.get(node)
-    while isinstance(parent, ast.Await):  # `await f()` adds no statement
+    while parent is not None:
+        if isinstance(parent, ast.Call) and any(node is a for a in _call_operands(parent)):
+            return False
+        if isinstance(parent, ast.Expr):
+            return True
         node, parent = parent, parents.get(parent)
-    return isinstance(parent, ast.Expr) and node is parent.value
+    # Fell off the top without meeting a bare expression statement.  No
+    # explicit "any other statement keeps it" clause: a statement's parent is
+    # only ever another statement or the module, so once the walk passes a
+    # non-Expr statement it can never meet an Expr, and such a clause would be
+    # unkillable by any test (pf-adversary, second pass, D4).
+    return False
 
 
-def _verdict_value_is_kept(tree: ast.AST) -> bool:
+def _every_verdict_is_kept(tree: ast.AST) -> bool:
+    """No verdict call in the module may be discarded.
+
+    ``all``, not ``any``: with ``any`` a single throwaway binding at module
+    scope (``_BOOT = p2_color_wiring_verdict()``) launders every discarded
+    call in the file, and no test could tell the two rules apart because no
+    fixture had two calls (pf-adversary, second pass, D4/D5).  A discarded
+    call is never useful, so requiring all of them costs nothing correct.
+    """
     parents = _parents(tree)
-    return any(not _is_discarded(call, parents) for call in _verdict_calls(tree))
+    calls = _verdict_calls(tree)
+    return bool(calls) and all(not _is_discarded(call, parents) for call in calls)
 
 
 def _read(path: pathlib.Path) -> str:
@@ -493,7 +545,16 @@ def test_only_a_real_call_through_the_gate_counts(source, expected):
     [
         (f"{_VERDICT}\n", False),                                        # bare statement
         (f"({_VERDICT})\n", False),                                      # parenthesised
+        (f"{_VERDICT},\n", False),                                       # ONE trailing comma
+        (f"[{_VERDICT}]\n", False),                                      # wrapped in a list
+        (f"{_VERDICT}.allowed\n", False),                                # read, then dropped
+        (f"{_VERDICT}.reason()\n", False),                               # method, dropped
+        (f"not {_VERDICT}\n", False),                                    # negated, dropped
+        (f'f"{{{_VERDICT}}}"\n', False),                                 # f-string, dropped
+        (f"lambda: {_VERDICT}\n", False),                                # never even runs
+        (f"[x for x in [{_VERDICT}]]\n", False),                         # comprehension
         (f"async def f():\n    await {_VERDICT}\n", False),              # awaited, dropped
+        (f"async def f():\n    (await {_VERDICT}),\n", False),           # awaited, comma'
         (f"assert {_VERDICT}.allowed is False\n", True),
         (f"if {_VERDICT}.allowed:\n    paint()\n", True),
         (f"raise RuntimeError({_VERDICT}.reason())\n", True),
@@ -506,12 +567,20 @@ def test_only_a_real_call_through_the_gate_counts(source, expected):
         (f"for b in {_VERDICT}.blockers:\n    pass\n", True),            # for iterable
         (f"@guard({_VERDICT})\ndef paint():\n    pass\n", True),         # decorator
         (f"log.info({_VERDICT}.reason())\n", True),                      # kept, then logged
-        (f"{_VERDICT}.reason()\n", True),                                # read, then dropped
     ],
     ids=[
         "bare-statement",
         "parenthesised-bare-statement",
+        "trailing-comma",
+        "wrapped-in-a-list",
+        "attribute-then-dropped",
+        "method-then-dropped",
+        "negated",
+        "f-string",
+        "lambda-body",
+        "comprehension",
         "awaited-bare-statement",
+        "awaited-then-comma",
         "assert",
         "if-test",
         "raise",
@@ -524,21 +593,90 @@ def test_only_a_real_call_through_the_gate_counts(source, expected):
         "for-iterable",
         "decorator",
         "logged",
-        "attribute-then-dropped",
     ],
 )
 def test_a_discarded_verdict_is_not_a_consultation(body, expected):
-    """One shape fails: the value thrown away.  Every shape that KEEPS it
-    passes, INCLUDING ones that go on to ignore it -- the last rows are the
-    zone's own idioms, and red-lighting them is how the first draft of this
-    rule died (pf-adversary, round ``9sqec6``, D1).
+    """A value thrown away fails, however much syntax hides the throw.
 
-    ``attribute-then-dropped`` is the boundary case, pinned so nobody has to
-    guess: ``p2_color_wiring_verdict().reason()`` as a statement of its own
-    passes, because the verdict itself WAS read -- what gets dropped is the
-    string, not the answer.  Read literally, that is what this rule says.
+    The rule reads the STATEMENT: a bare expression statement discards
+    everything inside it, so a trailing comma, a list, an attribute read, an
+    f-string or a lambda body cannot rescue a call.  The first version of
+    this rule looked only at the Expr's direct value, and pf-adversary
+    defeated the whole round with one comma (second pass, D1).
+
+    The rescue that stays is handing the value to another function: the
+    ``require-helper`` and ``logged`` rows are this zone's own idioms
+    (``gm/commands.py:321``, ``gm/teleport_wire.py:346``), and red-lighting
+    them is how the FIRST design of this round died (first pass, D1).
     """
     assert _consults_the_refusal(_IMPORT + body) is expected
+
+
+def test_one_kept_call_does_not_launder_the_discarded_ones():
+    """``all``, not ``any``.  A throwaway binding at module scope must not buy
+    a discarded call at the site that matters (pf-adversary, second pass,
+    D5)."""
+    laundered = _IMPORT + (
+        f"_BOOT = {_VERDICT}\n"
+        "def paint(actor):\n"
+        f"    {_VERDICT}\n"
+        "    actor.style = 1\n"
+    )
+    assert not _consults_the_refusal(laundered)
+    kept = laundered.replace(f"    {_VERDICT}\n", f"    if {_VERDICT}.allowed:\n        return\n")
+    assert _consults_the_refusal(kept)
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        (_IMPORT + f"match {_VERDICT}:\n    case _:\n        pass\n", True),
+        (_IMPORT + f"try:\n    {_VERDICT}\n"
+         "except name_color_gate.NameColorGateError:\n    pass\n", False),
+        (_IMPORT + "async def p2_color_wiring_verdict():\n    return 1\n"
+         f"async def f():\n    v = await p2_color_wiring_verdict()\n    return v\n", False),
+    ],
+    ids=["match-subject-is-kept", "try-except-reads-as-a-discard", "async-shadow"],
+)
+def test_the_judgement_calls_are_pinned_where_a_reader_can_see_them(source, expected):
+    """Three answers this rule OWES a reader, fixed here rather than left to
+    be rediscovered:
+
+    * a ``match`` subject keeps the value -- ``case _`` then ignoring it is
+      the same class as consulting and disobeying, which this file never
+      claimed to catch;
+    * ``try: verdict() / except ...`` reads as a DISCARD.  It is a real
+      consultation only if the gate RAISES, and today it returns.  If that
+      ever changes, ``_is_discarded`` changes with it;
+    * an ``async def`` of the same name shadows the gate exactly as a ``def``
+      does -- the half of the shadowing guard nothing exercised before.
+    """
+    assert _consults_the_refusal(source) is expected
+
+
+def test_the_scan_visits_real_files_and_says_it_has_never_fired():
+    """Two things nothing else notices.
+
+    A zone scan that silently returned nothing would make every green above
+    meaningless, so the file list is asserted non-empty.  And today NO module
+    under ``gm/`` other than the gate names a P-2 token in executable code,
+    so the whole rule has never run against a real file -- the header has to
+    keep saying so (pf-adversary, second pass, D3).
+    """
+    files = _zone_files()
+    assert len(files) > 5, "the zone scan found almost nothing -- it is broken"
+    assert GATE_MODULE_PATH in files
+    hit = [
+        p.relative_to(ROOT).as_posix()
+        for p in files
+        if p != GATE_MODULE_PATH and _token_hits(_read(p))
+    ]
+    doc = pathlib.Path(__file__).read_text(encoding="utf-8").split('"""')[1]
+    if not hit:
+        assert "never run against a real module" in doc, (
+            "while nothing in the zone trips it, the header must keep saying "
+            "the rule is prospective"
+        )
 
 
 @pytest.mark.parametrize(
