@@ -1,1 +1,1 @@
-{"sha":"3a9b56999323c16ff1d28945a7553a8b36c081c7","conclusion":"failure","event":"push","ref":"refs/heads/claude/intelligent-lamport-eww6tv","run_id":"33660135666","utc":"2026-09-02T17:32:31Z"}
+{"sha":"3a9b56999323c16ff1d28945a7553a8b36c081c7","conclusion":"failure","event":"pull_request","ref":"refs/pull/610/merge","run_id":"33660189951","utc":"2026-09-02T17:38:31Z"}
