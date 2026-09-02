@@ -222,10 +222,15 @@ def compose_sparse_speed_update(
 # `encode_block` always emits BOTH sections of the DBAttribute body -- a
 # BasicAttr u16 mask followed by its set fields, then an ActorAttr u64 mask, a
 # group-flag tag, and its set fields.  A door that sets one BasicAttr field and
-# nothing else therefore announces an ActorAttr section that is EMPTY: measured
-# on this clone, `/speed 300.0` composes a 74-byte body ending
-# `... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00` --
-# the `32` tag plus eight zero bytes IS the ActorAttr mask, and `cash`
+# nothing else therefore announces an ActorAttr section that is EMPTY.
+# Measured on this clone for `/speed 300.0`, with each object named -- the
+# first draft called the 74 "the body" and pf-adversary measured that it is not
+# (round `et2ux4`, D7): the DBAttribute BODY is 30 bytes, the composer's first
+# return value (`pc`) is 63, and the FRAME the dispatcher counts, which the
+# tester logged as `(74 bytes)`, is the second.  `pc` ends
+# `... 12 40 00 2a 00 00 96 43 32 00 00 00 00 00 00 00 00 05 01 0b 00`, where
+# the `32` tag plus eight zero bytes IS the ActorAttr mask, `05 01` is the
+# group flag, and `0b 00` belongs to the outer envelope; `cash`
 # (offset 0x0A8, mask 1<<11) is one of the fields that section carries.  Money
 # went to 0 on the screen.  That correlation is why the hold below is keyed on
 # the empty section rather than on the command name.
@@ -245,27 +250,45 @@ def compose_sparse_speed_update(
 # `20260902_1841_LANE-GM-ASK-COO-hold-the-speed-shape-that-locked-a-client.md`.
 SPARSE_SHAPE_MEASURED_BY = "GT-193 attended round R303 2026-09-02"
 
-# Flip this to True only when a real client has been measured accepting the
-# shape this door composes -- an attended round or an RE result, named in the
-# comment above the flip, the same discipline
-# `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` records for its own byte.
-# Nothing has cleared it: GT-193 is the only measurement that exists and it is
-# a [FAIL].
-SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT = False
-
 SECTION_BASIC_ATTR = "basic_attr"
 SECTION_ACTOR_ATTR = "actor_attr"
 
+# THE CLEARANCE IS A SET OF SHAPES, NOT A BOOLEAN, and pf-adversary is the
+# reason (round `et2ux4`, D6).  The first draft of this hold opened itself for
+# ANY shape with both sections filled: `declared_empty_sections() == ()` was an
+# independent opening path that never consulted the clearance at all.  His
+# question is the one this module could not answer: GT-193 proved a frame with
+# an empty ActorAttr section was sent and the client then died, and the tester
+# wrote in the same letter that she did NOT prove the two are connected -- so
+# "the section became non-empty" is not evidence about anything.  A lane that
+# filled the section would have shipped a NEW, never-measured, ~90-byte shape
+# to an attended tester while this file still said, a few lines up, that the
+# safe shape is unknown and this lane may not guess it.
+#
+# So: every send needs a clearance, and the shape's own signature -- the tuple
+# `declared_empty_sections` returns -- is the KEY.  An empty set means nothing
+# has ever been cleared, which is where GT-193 leaves us.  A future round adds
+# ONE entry with the measurement that earned it named in the comment above:
+#   * `("actor_attr",)` if an attended round finds today's shape is fine after
+#     all (the client death having been something else);
+#   * `()` if a both-sections-filled shape is measured accepted.
+# Adding an entry is a deliberate edit that names its evidence.  Filling the
+# section is no longer a way around that.
+SHAPES_CLEARED_BY_A_REAL_CLIENT: frozenset = frozenset()
 
-def sparse_shape_cleared() -> bool:
-    """Has a real client been measured accepting this door's frame shape?
 
-    Read through a function, never by importing the constant into a caller's
-    own namespace, for the same reason `shared_vital_version_confirmed()`
-    exists: a future round that clears the shape edits ONE line here, and
-    every gate re-reads it live.
+def shape_cleared(sections) -> bool:
+    """Has a real client been measured accepting THIS shape?
+
+    Read through a function, never by importing the set into a caller's own
+    namespace, for the same reason `shared_vital_version_confirmed()` exists:
+    a future round that clears a shape edits ONE line here and every gate
+    re-reads it live.  `None` -- a shape that could not be measured at all --
+    is never cleared, whatever the set contains.
     """
-    return bool(SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT)
+    if sections is None:
+        return False
+    return tuple(sections) in SHAPES_CLEARED_BY_A_REAL_CLIENT
 
 
 def declared_empty_sections(
@@ -273,23 +296,26 @@ def declared_empty_sections(
 ) -> tuple[str, ...]:
     """Which DBAttribute sections this door ANNOUNCES WITH NOTHING IN THEM.
 
-    Measures the frame that is about to be sent instead of hardcoding the
-    answer, which is the whole point: today a `/speed` send always returns
-    `("actor_attr",)`, because `SPEED_FIELD_X` is a BasicAttr field and this
-    door sets no other field.  A future round that gives the door an
-    ActorAttr value to carry gets an EMPTY tuple back from this function
-    without anyone remembering to edit a gate -- the hold opens itself for a
-    shape it was never measured against, rather than blocking work it has no
-    evidence about.
+    This tuple is the SIGNATURE the clearance set above is keyed on.  Today a
+    `/speed` send always returns `("actor_attr",)`, because `SPEED_FIELD_X` is
+    a BasicAttr field and this door sets no other field; a door that carried an
+    ActorAttr value as well would return `()`.  Neither is cleared today.
 
-    Composes through `encode_block` (not `compose_sparse_speed_update`), so
-    the masks are read from the composer's own return value rather than
-    re-derived by parsing bytes back out of a frame.
+    WHAT IT MEASURES, SAID EXACTLY, BECAUSE THE FIRST DRAFT OVERSTATED IT
+    (pf-adversary, round `et2ux4`, D5).  It composes through `encode_block` and
+    reads the masks off the composer's own return value -- so it measures the
+    SHAPE this door builds, not the individual frame one particular call will
+    send.  The shape does not depend on the identity or on the value, and that
+    is pinned by `tests/test_gm_speed_shape_hold.py::
+    TheShapeDoesNotDependOnIdentityOrValueTests`.  That pin is what makes it
+    legitimate for `_speed_action` to check the shape BEFORE the store
+    read-back its shipped frame is actually composed from.  A future round that
+    adds a field whose presence depends on the value turns that pin red, and
+    the check has to move below the read-back.
     """
-    # The value is passed THROUGH, not coerced: this function measures the
-    # frame the caller is about to send, and a caller whose value the encoder
-    # would refuse must see that refusal here rather than have it papered over
-    # by a `float()` this function invented.
+    # The value is passed THROUGH, not coerced: a caller whose value the
+    # encoder would refuse must see that refusal here rather than have it
+    # papered over by a `float()` this function invented.
     _body, basic_mask, actor_mask = attr_wire.encode_block(
         legacy, identity_lo, identity_hi, {SPEED_FIELD_X: value}
     )
