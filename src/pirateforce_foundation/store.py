@@ -229,7 +229,87 @@ class SQLiteStore:
                 raise ValueError("no selector available")
             wire, avatar_wire, lo, hi = build_wire(selector)
             now = _now()
-            cur = db.execute("INSERT INTO characters(account_id,selector,name,name_key,create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (account_id,selector,name,name_key,fingerprint,wire,avatar_wire,None,lo,hi,now,now))
+            # COO-DECISION 20260902_0443 point 1, chief's half in
+            # 20260902_0444: the three vitals are written HERE, at birth, and
+            # not as a schema DEFAULT (point 2 forbids that outright).
+            #
+            # WHY THIS METHOD AND NOT 007.  `migrations/007_character_vitals_
+            # seed.sql` seeds a COHORT: the rows that exist the moment it
+            # runs, and never again (the migration ledger stops it).  A
+            # character created afterwards -- and EVERY character on a fresh
+            # install, where 007 meets an empty table -- reached
+            # `read_character_vitals(...).require()` with all three columns
+            # NULL and was refused, on a server that had just been told what
+            # those three numbers are.  This INSERT is the only place a
+            # character is born, so it is the only place that can close it.
+            #
+            # THE NUMBERS COME FROM THE CALL, not from this file.  No literal
+            # 1/100/100 appears here on purpose: the day an RE answers what
+            # the original game's birth values were, `persistence_vitals.
+            # _NEW_CHARACTER_VITALS` changes and nothing else does.
+            # `tests/test_persistence_vitals_seed_007.py::...::test_the_
+            # numbers_on_a_newborn_row_came_from_the_call_itself` measures
+            # exactly that by making the function return numbers nobody could
+            # type by accident and looking for THOSE on the row -- a literal,
+            # a trigger, or a schema DEFAULT is red there even though all
+            # three would hold 1/100/100.
+            #
+            # Module-attribute call (`vitals.new_character_vitals()`), the
+            # same local-import idiom `read_character_vitals` and
+            # `apply_damage_to_character` already use in this file, so the
+            # name resolves at call time.
+            from . import persistence_vitals as vitals
+            # The same schema check every other vitals-writing method in this
+            # file makes (lines ~1051, ~1204, ~1278, ~1398).  It was missing
+            # here in the first draft and a `pf-adversary` pass named the
+            # asymmetry: without it, a database where `006`'s columns have
+            # been renamed -- the one rename `006`'s own header pre-announces
+            # -- makes THIS method raise a raw `sqlite3.OperationalError`
+            # from an INSERT, while every sibling raises a named
+            # `SchemaDriftError`.  Character creation is rare enough that one
+            # extra `PRAGMA table_info` is not a cost worth arguing about.
+            vitals.verify_schema(db)
+            birth = vitals.new_character_vitals()
+            # NO FOURTH COLUMN (COO-DECISION 20260901_1447 point 2, restated
+            # by LANE-DB 20260902_1032 point 3).
+            #
+            # HONEST ABOUT WHAT THIS GUARD IS, because the comment that stood
+            # here made two claims a `pf-adversary` pass measured and refuted.
+            # It said a short dict "would otherwise reach the INSERT below as
+            # a KeyError DURING a transaction rather than before it".  Both
+            # halves were wrong: a short dict cannot reach the INSERT at all
+            # (`resolve()` reports the missing column as a gap and
+            # `new_character_vitals()` raises on `resolution.gaps` before it
+            # returns -- measured for both a short and an extra key), and this
+            # line already runs INSIDE the transaction, since `BEGIN
+            # IMMEDIATE` is this method's first statement ~25 lines above.
+            #
+            # So this is DEAD CODE against the shipped module and it is kept
+            # deliberately, as a belt on a second belt: it is reachable only
+            # if `new_character_vitals` is replaced (a monkeypatch, or a later
+            # round rewriting it to return a partial mapping), and in that
+            # case it fails loudly and writes nothing rather than composing an
+            # INSERT out of whatever arrived.  Rollback is identical either
+            # way; zero rows, measured.
+            if set(birth) != set(vitals.VITAL_COLUMNS):
+                raise vitals.VitalsError(
+                    "new_character_vitals() must name exactly the three "
+                    "vital columns for a birth INSERT; got %r"
+                    % (sorted(birth),)
+                )
+            # Read by literal key, deliberately, so that a rename in
+            # `persistence_vitals` fails loudly here instead of quietly
+            # swapping hp_current and hp_max through a reordered tuple.
+            birth_level = birth["level"]
+            birth_hp_current = birth["hp_current"]
+            birth_hp_max = birth["hp_max"]
+            # One statement, inside the `BEGIN IMMEDIATE` this method already
+            # opened: the row is never visible without its vitals, so there is
+            # no window in which a login could read a half-born character.
+            # No UPDATE, so there is no `WHERE` to get wrong and no way to
+            # touch a row that is not this one -- the reset-a-veteran failure
+            # `_second_birth` was written to catch cannot be spelled here.
+            cur = db.execute("INSERT INTO characters(account_id,selector,name,name_key,create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,identity_lo,identity_hi,created_at,updated_at,level,hp_current,hp_max) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (account_id,selector,name,name_key,fingerprint,wire,avatar_wire,None,lo,hi,now,now,birth_level,birth_hp_current,birth_hp_max))
             cid = int(cur.lastrowid)
             db.execute(
                 "INSERT INTO character_positions(character_id,scene_id,scene_seq,x,y,z,updated_at,heading) VALUES (?,?,?,?,?,?,?,?)",
@@ -968,13 +1048,23 @@ class SQLiteStore:
         be here -- "all three columns are NULL on every existing character" --
         is no longer true, so it is replaced rather than left to rot.  After
         `007` a character that EXISTED when the migration ran resolves
-        complete, at `level 1, hp 100/100`.  A character created AFTER it does
-        not: `create_character` writes none of the three, `006` set no
-        DEFAULT, and the ledger stops `007` running twice, so this still
-        returns three `vital_column_not_seeded` gaps for every character born
-        after the migration -- including every character on a fresh install.
-        Both answers are correct; which one a caller gets depends on when the
-        row was made, and that gap is with COO.
+        complete, at `level 1, hp 100/100`.
+
+        REWRITTEN AGAIN 2026-09-02 (chief, R308), and the sentence it replaces
+        is quoted so a reader can see what changed: "A character created AFTER
+        it does not: `create_character` writes none of the three ... so this
+        still returns three `vital_column_not_seeded` gaps for every character
+        born after the migration -- including every character on a fresh
+        install."  Every clause of that is now false.  `create_character`
+        writes all three at birth from `persistence_vitals.
+        new_character_vitals()` (`COO-DECISION 20260902_0443` point 1), so a
+        character born after `007` -- and every character on a fresh install,
+        which is where the old sentence bit hardest -- resolves COMPLETE, by
+        the same numbers, and this returns no gaps for it.
+
+        A caller can therefore stop branching on when the row was made.  What
+        it may still meet is a row written before `006`/`007` by a database
+        this project no longer produces, and the `level = 0` case below.
 
         A THIRD answer exists from `COO-DECISION 20260902_0443` point 4: a row
         holding `level = 0` resolves with a `level_zero_is_not_an_adjudicated_

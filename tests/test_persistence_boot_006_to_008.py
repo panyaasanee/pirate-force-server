@@ -932,21 +932,56 @@ class TheSecondAllowlistCannotRotTests(unittest.TestCase):
     def test_it_is_not_also_required_to_name_the_function_and_why(self):
         """The sibling guard on `ALLOWED_TO_NAME_THEM` additionally requires
         each entry to MENTION the methods, and this one deliberately does
-        not.  `src/pirateforce_foundation/store.py` is on this list as the
-        call site `COO-DECISION 20260902_0443` point 1 ORDERS and chief has
-        not written yet -- measured today: it names the function zero times.
-        Requiring the mention here would make the entry that exists for a
-        future line into a red test until that line lands, which is the
-        landmine-in-another-lane's-corridor shape this lane keeps paying for.
-        Pinned so a later round does not "tighten" this guard into one.
+        not.  Pinned so a later round does not "tighten" this guard into one.
+
+        SAID OUT LOUD, 2026-09-02 (chief, R308), because this test asked the
+        round that saw it to say so rather than delete it.  Its premise --
+        `src/pirateforce_foundation/store.py` is on the local allowlist as a
+        call site `COO-DECISION 20260902_0443` point 1 ORDERED and chief had
+        not written, naming the function zero times -- is now out of date:
+        the plug landed in `SQLiteStore.create_character` this round and the
+        file names the function.  The assertion is inverted to measure that
+        instead, so it still costs something to be wrong.
+
+        WHAT THIS TEST IS WORTH AFTER THE INVERSION, stated flatly because a
+        `pf-adversary` pass measured it and the first draft of this rewrite
+        overclaimed.  `new_character_vitals` appears in `store.py` four
+        times: three of them are this round's comment text and one is the
+        call.  Reverting the plug while leaving the comments standing leaves
+        this test GREEN -- measured.  So it is a SOURCE-SCAN PROXY, not a
+        guard on the feature: it catches the file being renamed, gutted, or
+        rewritten to reach the numbers some other way, and it catches
+        nothing else.
+
+        THE GUARD ON THE FEATURE IS ELSEWHERE, and deliberately so, in
+        `tests/test_birth_vitals_plug_is_pinned.py` (chief, R308), which
+        creates a character on a fresh install and grades the row.  It is
+        branchless and it fails on all three mutants this one survives: a
+        full revert, a literal-writing plug, and a positional swap of the
+        two HP values.  If this test is ever the last thing standing between
+        the repository and a silent revert, the repository is unguarded.
+
+        THE POINT THIS FILE ORIGINALLY PINNED IS NOT GRADED ANY MORE, and
+        that is a real loss rather than a tidy: "the local allowlist may
+        carry an entry for a call site an adjudicated decision ORDERED but
+        no round has written yet, so requiring the mention would turn such
+        an entry into a red test in another lane's corridor" is as true now
+        as it was this morning, and nothing asserts it.  It stayed
+        assertable only while `store.py` was the unwritten example.  A round
+        that adds the next ordered-but-unwritten entry to that allowlist
+        should re-pin it against THAT entry rather than reconstruct this
+        one.
         """
         store_source = (ROOT / "src" / "pirateforce_foundation"
                         / "store.py").read_text(encoding="utf-8")
-        self.assertNotIn(
+        self.assertIn(
             "new_character_vitals", store_source,
-            "the ordered call site has landed; this test's premise is out "
-            "of date and the round that sees it should say so rather than "
-            "delete it")
+            "the ordered call site was measured as LANDED on 2026-09-02 and "
+            "store.py no longer names the function -- either the birth plug "
+            "in SQLiteStore.create_character was reverted (a character born "
+            "on a fresh install holds NULL vitals again, COO-DECISION "
+            "20260902_0443 point 1 undone) or it now reaches its numbers by "
+            "some other spelling, which points 1 and 2 do not allow")
 
 
 if __name__ == "__main__":  # pragma: no cover
