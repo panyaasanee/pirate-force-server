@@ -36,12 +36,26 @@ Layout produced by _build_pe:
 """
 from __future__ import annotations
 
+import json
+import sys
+import tempfile
+import unittest
 from pathlib import Path
 import struct
 
 import pytest
 
-from pirateforce_foundation.gm import plugin_image_check as pic
+# Round `kv2vjk`: this module used to import `pirateforce_foundation` with no
+# path of its own and got away with it, because SOME alphabetically earlier
+# module in `tests/` inserts `src` for the whole session.  That is an ordering
+# accident, not a path -- run this file alone and it dies at collection -- and
+# a collection error is one of the two ways #611's work has already been lost.
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+from pirateforce_foundation.gm import plugin_image_check as pic  # noqa: E402
 
 
 _PE_OFFSET = 0x80
@@ -1314,6 +1328,32 @@ def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> 
 # `pf_bridge` is a SEPARATE repository and the Windows gate clones this one
 # alone, so these tests skip there. The skip is named and counted below, never
 # silent (a bare skip is what closed #601 with 3,534 lines of work in it).
+#
+# ROUND `kv2vjk`, AND THIS IS WHY #611 DIED WITH THE WHOLE ROUND IN IT.  The
+# first version of this block raised a BARE `pytest.skip`, which carries no
+# `[precondition:...]` token, so `tools/pf_pytest_precondition_census.py`
+# filed it as `UNDECLARED SKIP ... x 3` and `skip_census` exited 1 while
+# `pytest_subset` was green at 7158 passed.  A bare skip cannot be pinned in
+# either place without lying about one of the two machines:
+#
+#   * as a `design_skips` entry it would be expected UNCONDITIONALLY, so the
+#     bridge -- where `../pf_bridge` IS beside this clone and these three
+#     tests RUN -- would observe 0 against a pin of 3 and go red there
+#     instead;
+#   * and it is not a design decision in the first place.  It is exactly the
+#     shape `tests/pf_preconditions.py` was written for: evidence that lives
+#     outside this repository, present on one machine and absent on the other.
+#
+# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> three
+# declared skips pinned in `docs/PYTEST_SKIP_PINS.json` under `preconditions`,
+# which the census expects to be ZERO on any machine that has the sibling.
+#
+# The key is `bridge_sibling` and not a narrower one for `install.bat` itself,
+# because a narrower key would need a new entry in `tests/pf_preconditions.py`
+# -- another lane's file -- and because the two answers must not be merged: a
+# checkout that HAS `../pf_bridge` and does not have the batch file is not a
+# machine short of evidence, it is a deleted `install.bat`, and that is the
+# regression these three tests exist to catch.  It fails loudly below.
 
 
 def _install_bat() -> Path | None:
@@ -1342,66 +1382,163 @@ INSTALL_BAT_TESTS = 3
 def _install_bat_text() -> str:
     path = _install_bat()
     if path is None:
-        pytest.skip(
-            "pf_bridge is not checked out beside this repository, so the "
-            "install.bat side of this contract cannot be read here. "
-            "%d tests in tests/test_gm_plugin_image_check.py skip together "
-            "for this reason, by design, and they run on the bridge."
-            % INSTALL_BAT_TESTS
+        raise AssertionError(
+            "../pf_bridge is checked out beside this repository but "
+            "patches/gm_plugin/install.bat is not in it.  This is NOT a "
+            "missing-evidence skip and must never become one: the batch file "
+            "is this lane's own, it landed in pf_bridge#909, and the %d tests "
+            "in InstallBatContractTests are the only thing standing between a "
+            "renamed findstr literal and an install that silently "
+            "warns-and-copies.  Restore the file, or move these tests to "
+            "whatever replaced it." % INSTALL_BAT_TESTS
         )
     return path.read_text(encoding="ascii").replace("\r\n", "\n")
 
 
-def test_install_bat_greps_for_the_tokens_this_module_actually_prints(
-    tmp_path: Path,
-) -> None:
-    text = _install_bat_text()
-    lines = pic.console_lines(pic.inspect_plugin_file(_write(tmp_path, _build_pe())), "build")
+@BRIDGE_SIBLING.skip_unless_present()
+class InstallBatContractTests(unittest.TestCase):
+    """The three tests that read the batch file, guarded as ONE site.
 
-    verdict_line = next(line for line in lines if " verdict=" in line)
-    pass_token = verdict_line.split(" path=")[0]
-    assert pass_token == "GM_PLUGIN_IMAGE build verdict=image_ok"
-
-    # The three literals the batch's decision rests on, derived here.
-    assert 'findstr /c:"GM_PLUGIN_IMAGE build verdict="' in text
-    assert 'findstr /c:"%s"' % pass_token in text
-    assert 'findstr /c:"GM_PLUGIN_IMAGE build rules="' in text
-    assert 'findstr /c:"manifest_id2"' in text
-    assert any(line.startswith("GM_PLUGIN_IMAGE build rules=") for line in lines)
-
-
-def test_install_bat_never_asks_about_a_client_dir_when_it_installs() -> None:
-    """It runs below the [STOP] guard, on a folder proven to hold no plug-in.
-
-    `--client-dir` there reads `verdict=missing` and exits 1 every time: a
-    permanent refusal to install, on exactly the clean folder an install is
-    for. Written down here so the next person to "helpfully" add the flag has
-    to delete a test that says why.
+    A `unittest.TestCase` with a class decorator, in a module that is
+    otherwise plain pytest functions, and that is not a style lapse -- it is
+    the only shape `tests/test_pytest_precondition_census.py` can grade.  Its
+    `guarded_tests()` walker counts guard sites inside `ast.ClassDef` and
+    nowhere else, ON PURPOSE (its own comment: guards in module-level code
+    "produce skips that cannot be pinned per test name, so a module using them
+    goes red here until it is restructured").  Measured this round: with these
+    three as module-level functions calling `pytest.skip` from a helper, the
+    walker derived 0 guards against a pin of 3 and TWO tests in that file went
+    red -- the same class of gate failure that closed #611, caught one step
+    earlier.
     """
-    text = _install_bat_text()
-    invocations = [
-        line
-        for line in text.splitlines()
-        if "-m pirateforce_foundation.gm.plugin_image_check" in line
-        and not line.strip().upper().startswith(("REM", "ECHO"))
+
+    def setUp(self) -> None:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.tmp_path = Path(holder.name)
+
+    def test_install_bat_greps_for_the_tokens_this_module_actually_prints(
+        self,
+    ) -> None:
+        text = _install_bat_text()
+        lines = pic.console_lines(
+            pic.inspect_plugin_file(_write(self.tmp_path, _build_pe())),
+            "build",
+        )
+
+        verdict_line = next(line for line in lines if " verdict=" in line)
+        pass_token = verdict_line.split(" path=")[0]
+        assert pass_token == "GM_PLUGIN_IMAGE build verdict=image_ok"
+
+        # The three literals the batch's decision rests on, derived here.
+        assert 'findstr /c:"GM_PLUGIN_IMAGE build verdict="' in text
+        assert 'findstr /c:"%s"' % pass_token in text
+        assert 'findstr /c:"GM_PLUGIN_IMAGE build rules="' in text
+        assert 'findstr /c:"manifest_id2"' in text
+        assert any(
+            line.startswith("GM_PLUGIN_IMAGE build rules=") for line in lines
+        )
+
+    def test_install_bat_never_asks_about_a_client_dir_when_it_installs(
+        self,
+    ) -> None:
+        """It runs below the [STOP] guard, on a folder proven to hold no
+        plug-in.
+
+        `--client-dir` there reads `verdict=missing` and exits 1 every time: a
+        permanent refusal to install, on exactly the clean folder an install is
+        for. Written down here so the next person to "helpfully" add the flag
+        has to delete a test that says why.
+        """
+        text = _install_bat_text()
+        invocations = [
+            line
+            for line in text.splitlines()
+            if "-m pirateforce_foundation.gm.plugin_image_check" in line
+            and not line.strip().upper().startswith(("REM", "ECHO"))
+        ]
+
+        assert len(invocations) == 1, invocations
+        assert "--dll" in invocations[0]
+        assert "--client-dir" not in invocations[0]
+
+    def test_install_bat_refuses_rather_than_warns_when_the_checker_answers_no(
+        self,
+    ) -> None:
+        """The fail-closed half of COO-DECISION `20260902_2342` item 3.
+
+        A refusal must end the script, not fall through to the copy. Checked by
+        reading the batch's own control flow: the refusal label exists and its
+        block contains `exit /b 1` before any `goto do_copy`.
+        """
+        text = _install_bat_text()
+        assert "\n:pfgm_refuse\n" in text
+
+        block = text.split("\n:pfgm_refuse\n", 1)[1]
+        block = block.split("\n:", 1)[0]
+        assert "exit /b 1" in block
+        assert "goto do_copy" not in block
+
+
+# --- what the census tests upstream cannot answer --------------------------
+#
+# `tests/test_pytest_precondition_census.py` already re-derives the count AND
+# the test names for every pin straight from this file's AST, so a second copy
+# of that comparison here would only be a slower duplicate.  What it cannot do
+# is ask the MACHINE anything: it never touches `../pf_bridge`.  These two do
+# exactly that and nothing else.  Both run everywhere, need no artifact, and
+# are deliberately outside `InstallBatContractTests` so the guarded count in
+# that class stays 3.
+
+
+def _pin_entry() -> dict:
+    pins = json.loads(
+        (ROOT / "docs" / "PYTEST_SKIP_PINS.json").read_text(encoding="utf-8")
+    )
+    module = "tests/" + Path(__file__).name
+    matches = [
+        entry for entry in pins["preconditions"]
+        if entry["key"] == "bridge_sibling"
+        and entry["module"].replace("\\", "/") == module
     ]
+    assert len(matches) == 1, (
+        "expected exactly one bridge_sibling pin for %s, found %d"
+        % (module, len(matches))
+    )
+    return matches[0]
 
-    assert len(invocations) == 1, invocations
-    assert "--dll" in invocations[0]
-    assert "--client-dir" not in invocations[0]
 
+def test_the_module_constant_and_the_pin_say_the_same_number():
+    """`INSTALL_BAT_TESTS` is quoted in a failure message, so it can lie.
 
-def test_install_bat_refuses_rather_than_warns_when_the_checker_answers_no() -> None:
-    """The fail-closed half of COO-DECISION `20260902_2342` item 3.
-
-    A refusal must end the script, not fall through to the copy. Checked by
-    reading the batch's own control flow: the refusal label exists and its
-    block contains `exit /b 1` before any `goto do_copy`.
+    The pin file and the class are graded against each other upstream; this
+    constant is graded against neither, and it is the number the
+    `AssertionError` in `_install_bat_text` tells a human.
     """
-    text = _install_bat_text()
-    assert "\n:pfgm_refuse\n" in text
+    methods = [
+        name for name in vars(InstallBatContractTests)
+        if name.startswith("test")
+    ]
+    assert len(methods) == INSTALL_BAT_TESTS, sorted(methods)
+    assert _pin_entry()["count"] == INSTALL_BAT_TESTS
 
-    block = text.split("\n:pfgm_refuse\n", 1)[1]
-    block = block.split("\n:", 1)[0]
-    assert "exit /b 1" in block
-    assert "goto do_copy" not in block
+
+def test_a_bridge_beside_this_clone_really_does_carry_install_bat():
+    """The premise the whole guard rests on, asked of THIS machine.
+
+    `bridge_sibling` answers "is `../pf_bridge` there", and the class above
+    treats that as "the batch file is readable".  Those are two different
+    questions, and the gap between them is where a false RUN lives: a checkout
+    that has the sibling and not the file would reach `_install_bat_text` and
+    die.  That is the intended outcome -- a deleted `install.bat` IS a
+    regression -- but it must be legible, so it is named here rather than
+    arriving as a stray AssertionError from a helper.
+    """
+    assert "[precondition:bridge_sibling]" in BRIDGE_SIBLING.reason
+    if not BRIDGE_SIBLING.present:
+        assert _install_bat() is None
+        return
+    assert _install_bat() is not None, (
+        "../pf_bridge is beside this clone but "
+        "patches/gm_plugin/install.bat is missing from it"
+    )
