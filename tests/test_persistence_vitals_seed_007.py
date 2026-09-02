@@ -45,6 +45,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +58,8 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 from pirateforce_foundation import player_wire  # noqa: E402
+
+import pf_birth_state as birth_state  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
 MIGRATION_007 = MIGRATIONS / "007_character_vitals_seed.sql"
@@ -101,6 +104,59 @@ def _statements(sql: str) -> list[str]:
     return [" ".join(s.split()) for s in body.split(";") if s.strip()]
 
 
+def _build_wire_offset(base):
+    """A wire builder whose identity cannot collide with `_build_wire`'s.
+
+    `004_character_soft_delete_reuse.sql` puts a partial UNIQUE index on
+    `(identity_lo, identity_hi)`, and a second account's selectors also start
+    at zero.
+    """
+    def build(selector):
+        return b"wire", b"avatar", base + selector, 0
+    return build
+
+
+def _columns_written_by_migrations_after_007() -> dict[str, float]:
+    """Typed columns a migration file numbered ABOVE 007 writes, AND the exact
+    value each of them writes.
+
+    Derived from the files themselves, never listed here.  `_apply_007` runs
+    the WHOLE directory on purpose -- that is the boot a server really
+    performs, and running a hand-built prefix instead would stop measuring
+    what the owner's database meets.  The cost is that "every other column is
+    still NULL after this file" stops being true the moment a LATER migration
+    adjudicates one, which `migrations/008_character_speed_walk_seed.sql` did
+    for `speed_walk`.  So the two pins below say what they always meant --
+    007 wrote its three and nothing of ITS OWN leaked -- and the columns a
+    later file owns are checked to hold THAT FILE'S OWN VALUE rather than
+    waved past.
+
+    *** THE VALUE IS PART OF THE RETURN ON PURPOSE.  A `pf-adversary` pass
+    pointed out that an exclusion derived from the migration directory
+    EXCUSES ITSELF: a future 009 seeding, say, `cash = 0` -- a guessed zero,
+    the exact thing `COO-DECISION 20260901_1059` forbids -- would be silently
+    excused by these two pins, and a guard of `assertIsNotNone` would not
+    notice because zero is not None.  Excusing a column now costs naming the
+    number it is excused FOR, so a wrong number is red here even though the
+    column is not 007's.
+    """
+    written = {}
+    for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+        if int(path.name[:3]) <= 7:
+            continue
+        for statement in _statements(path.read_text(encoding="utf-8")):
+            if " SET " not in statement:
+                continue
+            assignments = statement.split(" SET ", 1)[1].split(" WHERE ", 1)[0]
+            for part in assignments.split(","):
+                column, _, value = part.partition("=")
+                column = column.strip()
+                if column not in typed.TYPED_COLUMNS:
+                    continue
+                written[column] = float(value.strip())
+    return written
+
+
 class _MigratedWorkspace(unittest.TestCase):
     """Run 001..006, put real rows in, THEN run the full directory.
 
@@ -119,6 +175,7 @@ class _MigratedWorkspace(unittest.TestCase):
             if int(path.name[:3]) < 7:
                 shutil.copy2(path, self.older / path.name)
         self.path = self.root / "state.sqlite3"
+        self.births = []
 
     def _rows(self):
         db = sqlite3.connect(self.path)
@@ -131,7 +188,24 @@ class _MigratedWorkspace(unittest.TestCase):
             db.close()
 
     def _make(self, names):
-        """Create characters on the pre-007 schema; return their ids."""
+        """Create characters on the pre-007 schema, in the pre-007 VITALS
+        STATE, and return their ids.
+
+        The second half of that sentence used to be inherited rather than
+        built: `create_character` left the three columns NULL, so every test
+        below got the row state it wanted for free.  That is a fact about
+        today, not about 007 -- `COO-DECISION 20260902_0444` has chief seeding
+        the three at creation, and round `cby3pd` measured ten tests in this
+        file going red on it, none of them because 007 had changed.  What this
+        file is ABOUT is what the migration does to a row in a given state, so
+        the fixture now states the state instead of hoping for it.
+
+        The birth state is measured before it is cleared, and
+        `pf_birth_state.measure_birth_typed_state` refuses any state other
+        than the two this lane accepts -- so clearing cannot hide an insertion
+        point that seeds the wrong numbers, a fourth column, or a `level` of
+        zero.  It reads the FIRST character, before any `_set` call has run.
+        """
         store = SQLiteStore(self.path, self.older)
         store.migrate()
         account_id = store.ensure_account("vitals-seed-007")
@@ -142,7 +216,21 @@ class _MigratedWorkspace(unittest.TestCase):
                 account_id, name, name.lower(),
                 "fingerprint-007-%s" % name.lower(), _build_wire, home,
             )
+            # EVERY character, not only the first, and each one before the
+            # next is created: a plug that is correct for an account's first
+            # character and wrong for the rest was green when this measured
+            # `ids[0]` alone.  See `tests/pf_birth_state.py`.
+            self.births.append(birth_state.measure_birth_typed_state(
+                store, character.id))
             ids.append(character.id)
+        # ... and again at the end, because creating character N+1 is exactly
+        # when a plug with a missing `WHERE id` rewrites character N.
+        self.assertEqual(birth_state.measure_every_birth(store, ids),
+                         self.births,
+                         "creating a character changed an earlier "
+                         "character's birth state")
+        self.birth = self.births[0]
+        birth_state.clear_vitals_to_pre_seed(self.path, ids)
         return ids
 
     def _apply_007(self):
@@ -340,17 +428,32 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         for column, value in SEEDED.items():
             self.assertIsNone(before[column], column)
             self.assertEqual(after[column], value, column)
+        later = _columns_written_by_migrations_after_007()
         for column in before:
-            if column not in SEEDED:
+            if column not in SEEDED and column not in later:
                 self.assertEqual(after[column], before[column], column)
+        for column, value in later.items():
+            self.assertEqual(
+                after[column], value,
+                "%s is excused here as a later migration's column, but the row "
+                "does not hold that migration's own value (%r) -- the "
+                "exclusion is covering something it was not opened for"
+                % (column, value))
 
     def test_every_other_typed_column_is_still_null(self):
         self._make(["SeedTwo"])
         self._apply_007()
         row = self._rows()[0]
+        later = _columns_written_by_migrations_after_007()
+        self.assertEqual(set(later) & set(SEEDED), set(),
+                         "a later migration re-writes one of 007's three")
         for column in typed.TYPED_COLUMNS:
-            if column not in SEEDED:
-                self.assertIsNone(row[column], column)
+            if column in SEEDED:
+                continue
+            if column in later:
+                self.assertEqual(row[column], later[column], column)
+                continue
+            self.assertIsNone(row[column], column)
 
     def test_a_row_that_already_holds_a_level_keeps_it(self):
         ids = self._make(["Veteran"])
@@ -815,29 +918,219 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
             % (first_at_birth, second_at_birth),
         )
 
-    def test_a_birth_seed_must_come_from_new_character_vitals(self):
+    def _dump_every_table(self):
+        """Every row of every table, as comparable tuples."""
+        db = sqlite3.connect(self.path)
+        db.row_factory = sqlite3.Row
+        try:
+            names = [r[0] for r in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            return {
+                name: sorted(
+                    tuple((k, r[k]) for k in r.keys())
+                    for r in db.execute("SELECT * FROM %s" % name)
+                )
+                for name in names
+            }
+        finally:
+            db.close()
+
+    def test_creating_a_character_changes_no_row_that_already_existed(self):
+        """*** THE PROPERTY THE OWNER'S DATA ACTUALLY NEEDS, and the one four
+        separate wrong plugs walked past.
+
+        `test_creating_a_character_does_not_touch_any_other_row` above checks
+        the three VITALS of one live veteran.  A `pf-adversary` pass measured
+        what that leaves open, with the plugs installed rather than imagined:
+
+        * a plug that also runs `UPDATE character_positions SET z = z + 1000`
+        * a plug that also blanks every OTHER character's `avatar_typed_json`
+        * a plug that also re-seeds every SOFT-DELETED row in the database
+        * a plug that also stamps every other character's backpack rows
+
+        All four were green.  None of them is exotic; each is one stray
+        statement in the same commit, and each rewrites rows belonging to
+        characters nobody was creating.
+
+        So the rule is stated the only way that covers them: creating a
+        character may ADD rows, and may not change or remove a single row that
+        already existed, in ANY table.  The world here is built to have
+        something to lose -- a second account, a veteran holding real vitals,
+        a soft-deleted character, positions and backpacks for all of them.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        first = store.ensure_account("world-first")
+        second = store.ensure_account("world-second")
+
+        # *** EVERY CREATION FIRST, EVERY DISTINGUISHING VALUE AFTERWARDS.  The
+        # first draft of this test interleaved them and two destructive plugs
+        # stayed GREEN because of it: a plug that re-seeds soft-deleted rows,
+        # and one that blanks other characters' `avatar_typed_json`, had
+        # already done their damage BEFORE the `before` dump was taken, so the
+        # newborn's creation repeated a write that changed nothing and the
+        # subset held.  A test that lets the mutation run before it starts
+        # looking is measuring the wrong interval.
+        veteran = store.create_character(
+            first, "Veteran", "veteran", "fingerprint-world-veteran",
+            _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0))
+        doomed = store.create_character(
+            first, "Doomed", "doomed", "fingerprint-world-doomed",
+            _build_wire, Position(3, 0, 4.0, 5.0, 6.0, heading=0.0))
+        stranger = store.create_character(
+            second, "Stranger", "stranger", "fingerprint-world-stranger",
+            _build_wire_offset(0x40000001),
+            Position(3, 0, 7.0, 8.0, 9.0, heading=0.0))
+        sid = store.open_session(first)
+        store.soft_delete_character(sid, doomed.selector)
+
+        store.write_typed_attributes(
+            veteran.id, {"level": 9, "hp_current": 480, "hp_max": 500,
+                         "speed_walk": 620.5})
+        store.write_typed_attributes(stranger.id, {"level": 2, "cash": 77})
+        # the soft-deleted row holds a COMPLETE and distinctive set, so a plug
+        # that "helpfully" re-seeds deleted rows changes it visibly
+        self._set(doomed.id, level=4, hp_current=40, hp_max=60)
+        # a column no store method writes, given a value so that blanking it
+        # is a change rather than a no-op
+        self._set(veteran.id, avatar_typed_json='{"lane":"db"}')
+
+        before = self._dump_every_table()
+        self.assertTrue(any(before[t] for t in
+                            ("characters", "character_positions",
+                             "character_backpacks")),
+                        "the world this test is about was never built")
+
+        store.create_character(
+            first, "Newborn", "newborn", "fingerprint-world-newborn",
+            _build_wire_offset(0x50000001),
+            Position(3, 0, 10.0, 11.0, 12.0, heading=0.0))
+
+        after = self._dump_every_table()
+        self.assertEqual(sorted(after), sorted(before), "a table appeared or "
+                                                        "vanished")
+        for table, rows in before.items():
+            missing = [row for row in rows if row not in after[table]]
+            self.assertEqual(
+                [], missing,
+                "creating a character CHANGED OR REMOVED %d row(s) that "
+                "already existed in `%s`.  A birth write may add rows; it may "
+                "not touch a row belonging to a character nobody was "
+                "creating.  First one: %r" % (len(missing), table,
+                                              missing[0] if missing else None),
+            )
+
+    def test_a_newborn_is_not_stamped_as_having_been_modified(self):
+        """The fifth plug that walked past everything else: correct values,
+        plus `updated_at` set to something that is not the creation time.
+
+        A character that has only ever been created has not been changed, and
+        `migrations/007`'s header states the same rule for a backfill.  An
+        operator reading `updated_at` must not see a character that nobody has
+        touched claiming otherwise.
+        """
+        store, character_id, _stored = self._newborn("stamp")
+        del store
+        db = sqlite3.connect(self.path)
+        try:
+            created, updated = db.execute(
+                "SELECT created_at, updated_at FROM characters WHERE id=?",
+                (character_id,)).fetchone()
+        finally:
+            db.close()
+        self.assertEqual(updated, created)
+
+    def test_the_numbers_on_a_newborn_row_came_from_the_call_itself(self):
         """`COO-DECISION 20260902_0443` point 1 is about a MECHANISM, not only
         about three numbers: "ผ่านฟังก์ชันเดียว `new_character_vitals()`" --
         one function, so that the day an RE answers, the value changes in one
-        edit in one file.
+        edit in one file.  This is the only test in the repository that
+        actually measures it.
 
-        A state check alone cannot see that.  A `pf-adversary` pass proved it
-        twice: a plug that inlines `(1, 100, 100)` into the INSERT, and a
-        `CREATE TRIGGER` that seeds at the schema level -- the mechanism point
-        2 explicitly forbids -- both left this class fully green.  So when the
-        birth values are present, the source has to name the function too.
+        WHAT IT REPLACED, AND WHY.  Two weaker questions were being asked in
+        its place, and they are independently satisfiable:
+
+        * "does the row hold 1/100/100" -- `_newborn` and the class around it.
+        * "does the source of `store.py` contain a CALL to that name" -- an
+          AST predicate this lane added mid-round and a `pf-adversary` pass
+          then drove straight through: a `CREATE TRIGGER` installed by a
+          migration file, seeding at the schema level (the mechanism point 2
+          explicitly forbids), plus NINE LINES OF DEAD CODE in `store.py` that
+          call the function and throw the result away, was green across the
+          whole 7000-test suite.  The same pass drove a plug that CALLS the
+          function, discards its return, and writes `(1, 100, 100)` literals.
+          Both hold the right numbers and both name the function; neither
+          takes its numbers from it.
+
+        So the question is asked the one way that binds the two: make the
+        function return numbers nobody could have typed by accident, and look
+        for THOSE on the row.  A trigger returns 1/100/100 and is red here.
+        A literal returns 1/100/100 and is red here.
+
+        The patch is applied to the DEFINING module and to every name in
+        `store.py`'s globals whose function is CALLED `new_character_vitals`,
+        so `import ... as _birth` and `persistence_vitals.
+        new_character_vitals()` are both caught, and so is the state left
+        behind by a sibling test's `importlib.reload`.  Matching by name
+        rather than by identity is not fussiness: both the source-scan
+        spelling this replaced AND the first draft of this test produced a
+        FALSE RED on a CORRECT plug, which is the landmine this round exists
+        to remove rather than re-lay.
+
+        WHAT IT CANNOT SEE, stated rather than left to be found: a plug that
+        reaches the function through something whose `__name__` is different
+        (a `functools.partial`, a lambda wrapper).  No patch would land, the
+        row would hold the real numbers, and this test would accuse a correct
+        plug.  That spelling is not a plausible reading of
+        `COO-DECISION 20260902_0443` point 1 -- but if it ever appears, the
+        failure message is wrong and this docstring is where to look.
         """
-        _store, _character_id, stored = self._newborn("mechanism")
+        sentinel = {"level": 7, "hp_current": 33, "hp_max": 77}
+        self.assertNotEqual(sentinel, vitals.new_character_vitals())
+
+        import pirateforce_foundation.store as store_module
+
+        # *** BY NAME, NOT BY IDENTITY, and the difference is a false red this
+        # test produced on the CORRECT plug before it was found.  A sibling
+        # test in `tests/test_persistence_vitals.py` calls
+        # `importlib.reload(persistence_vitals)`; after that reload
+        # `vitals.new_character_vitals` is a NEW function object while
+        # `store.py`'s module global still holds the OLD one, so an
+        # identity match (`value is real`) finds nothing, the patch reaches
+        # nothing, and a perfectly correct plug is accused of taking its
+        # numbers from a literal.  It passed alone and failed in the file --
+        # exactly the shape of test that lands red inside someone else's
+        # pull request.  `__name__` survives a reload and survives
+        # `import ... as _birth`, which is the other spelling that has to work.
+        def _fake():
+            return dict(sentinel)
+
+        aliases = [name for name, value in vars(store_module).items()
+                   if callable(value)
+                   and getattr(value, "__name__", "") == "new_character_vitals"]
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(
+                vitals, "new_character_vitals", _fake))
+            for name in aliases:
+                stack.enter_context(
+                    mock.patch.object(store_module, name, _fake))
+            # the patch really took, on every route a plug could use
+            self.assertEqual(vitals.new_character_vitals(), sentinel)
+            for name in aliases:
+                self.assertEqual(getattr(store_module, name)(), sentinel, name)
+            _store, _character_id, stored = self._newborn("mechanism")
+
         if not any(column in stored for column in SEEDED):
+            # The plug is not in yet; there is no birth write to trace.
             return
-        store_source = (ROOT / "src" / "pirateforce_foundation"
-                        / "store.py").read_text(encoding="utf-8")
-        self.assertIn(
-            "new_character_vitals", store_source,
-            "characters are born holding vitals, but store.py never names "
-            "new_character_vitals(): the numbers came from somewhere else "
-            "(an inline literal, a schema DEFAULT, or a trigger), and "
-            "COO-DECISION 20260902_0443 points 1 and 2 rule out all three",
+        self.assertEqual(
+            {column: stored[column] for column in SEEDED}, sentinel,
+            "a newborn holds birth vitals, but NOT the ones "
+            "new_character_vitals() returned while it was being created -- so "
+            "the numbers came from somewhere else (an inline literal, a schema "
+            "DEFAULT, or a trigger).  COO-DECISION 20260902_0443 points 1 and "
+            "2 rule out all three.  Measured at runtime, not read off source.",
         )
 
     def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
