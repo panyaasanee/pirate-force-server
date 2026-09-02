@@ -65,15 +65,31 @@ class LegacyProjector:
         # stay defined in player_wire.py as the pinned reference other
         # lanes' own offline tests compare against directly, just no longer
         # called from this seam.
+        # CORE-REQUEST `pf_bridge/notes_to_chief/20260902_2010` (COO-DECISION
+        # 20260902_1846 point 3): the speed is read OFF THE CHARACTER, not
+        # threaded in as an argument, and that is the whole reason this seam
+        # needed no new parameter.  This projector is a SINGLETON -- app.py
+        # builds exactly one and hands it to every connection's state class
+        # -- so a per-login value parked on `self` would be one player's speed
+        # leaking into the next player's frame.  Riding the character instead
+        # also means the three `start_game` recomposes in runtime.py (the
+        # faction probe on every flagless production login, the scene-override
+        # resync, and the pinned-identity probe) compose the SAME speed as the
+        # login did without one line of change at any of them: they all pass
+        # `self.foundation.selected`, which is the object session.py resolved.
+        # `None` (a character straight out of the store) keeps the constant.
+        speed = getattr(character, "movement_speed", None)
         actor = (
             make_actor_attr_with_name_and_class(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name,
+                movement_speed=speed,
             )
             if basic_faction is None else
             make_actor_attr_with_name_class_and_faction(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name, basic_faction,
+                movement_speed=speed,
             )
         )
         avatar = character.avatar_wire

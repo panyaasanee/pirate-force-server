@@ -242,11 +242,44 @@ class FoundationPopulationEmitsNoGaitTests(_LegacyCase):
     ``field_mobs.hostile_actor_entry`` for the same reason ``field_mobs.py``
     itself is already named here -- one more scene's hostile composer, same
     mined ``n_SPEED_WALK`` field, not a new gait mechanism.
+
+    WIDENED round gnhlin (R310), and this one is a DIFFERENT KIND of entry
+    from every exception above, so read the distinction before adding to it.
+    Everything named before this paragraph is an NPC/mob composer that asks
+    for a gait.  The four modules added here are the PLAYER'S OWN login
+    composer and the seam feeding it: the CORE-REQUEST recorded in
+    ``login_speed.py``'s docstring makes a character's login send the
+    ``speed_walk`` value on its own row instead of the hardcoded 400.0.
+
+    Why that does not weaken this class's actual claim: the two BYTE-level
+    tests below are the claim, and they are untouched and still green --
+    ``population.py`` and ``world_population.py`` (the ambient census this
+    class is about) are not in this list and do not appear in the sweep.
+    The player's own ActorAttr has carried a movement-speed field since
+    CORE-REQUEST-023 (``player_wire._BASIC_BIT_MOVEMENT_SPEED``, bit 0x0040,
+    wired long before this round); what changed in R310 is only WHERE THE
+    NUMBER COMES FROM, not whether the player's login emits the field.  So
+    this is not gait being wired into the census -- it is the sweep seeing a
+    field the player composer already had.
+
+    !! The sweep is a token grep, so ``model.py`` is named here for a COMMENT
+    plus one dataclass field, and ``session.py`` for reading a row -- neither
+    composes anything.  That bluntness is the point of a blanket sweep and it
+    is why the list is explicit: an entry here means somebody looked, not
+    that the module emits a gait.
     """
 
     KNOWN_GAIT_REQUESTING_MODULES = (
         "field_mob_hostile_bg0015.py", "field_mobs.py", "mob_death.py",
         "mob_diag_multi_object.py",
+        # R310, the player's own login-speed seam -- see the docstring above.
+        # `login_speed.py` is deliberately NOT here: it resolves the column
+        # `speed_walk` and never spells `movement_speed`, and this list is
+        # asserted in BOTH directions (a name that stops matching is a
+        # failure too), so adding it on the strength of "it is part of the
+        # same change" turns the file red.  Measured, not reasoned: the
+        # first draft of this edit listed it and the test caught it.
+        "legacy_bridge.py", "model.py", "player_wire.py", "session.py",
     )
 
     def test_initial_population_carries_no_walk_speed_field(self):
