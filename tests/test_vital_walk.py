@@ -39,7 +39,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -414,8 +414,27 @@ class PickupDefectTests(unittest.TestCase):
     def setUp(self):
         self.legacy = _legacy()
 
-    def test_the_batched_pickup_is_refused_today_by_the_lane_that_owns_it(self):
-        """The defect, executed: this is what main answers a real click."""
+    def test_the_batched_pickup_leading_the_frame_is_no_longer_refused(self):
+        """~~The defect, executed~~ -- HALF of it closed in round t8z97r.
+
+        THE STRIKE, AND WHY THE TEST IS NOT SIMPLY DELETED.  This test used
+        to assert ``vital_count_not_one``: it recorded what ``main``
+        answered a real click on the day the walker was written, and 42 of
+        the owner's 46 clicks in R303 got exactly that answer.  LANE-B's
+        round ``t8z97r`` (re-landed in ``di7ers`` after the reaper closed
+        ``#603`` on a red gate) turned the equality gate on the outer vital
+        count into an "at least one" gate, so the shape below -- OUR vital
+        first, somebody else's behind it -- is now read as the click it is.
+        The name ``vital_count_not_one`` is retired rather than deleted; it
+        still stands in ``MOB_PICKUP_REQUEST_RETIRED_REASONS`` so R303's
+        console stays readable.
+
+        WHAT THIS DOES NOT SAY.  It does not say the walker is redundant.
+        The two lanes close different halves and the next test is the other
+        half: when the pickup vital is NOT first, this lane never sees the
+        click at all, and no gate inside it can help.  That half is the
+        walker's, and only the walker's.
+        """
         pc = _frame(self.legacy, [
             _pickup_vital(self.legacy),
             _on_land_vital(self.legacy),
@@ -423,8 +442,50 @@ class PickupDefectTests(unittest.TestCase):
         self.assertEqual(
             mob_pickup_request.classify_pickup_request(
                 self.legacy, self.legacy.parse_outer(pc)),
-            "vital_count_not_one",
+            "exact_pickup_request",
         )
+        self.assertIn(
+            "vital_count_not_one",
+            mob_pickup_request.MOB_PICKUP_REQUEST_RETIRED_REASONS,
+        )
+
+    def test_a_frame_this_module_refuses_is_read_loudly_by_the_pickup_lane(
+            self):
+        """WHAT THE TWO READERS DO WHEN THEY DISAGREE ABOUT ONE FRAME.
+
+        ~~"a frame whose pickup vital sits behind a movement vital does not
+        reach the pickup lane at all"~~ IS STRUCK before it ever shipped: a
+        pf-adversary pass measured it false on this very tree.  ~~"the
+        walker's refusal IS the lane's refusal"~~ IS STRUCK TOO, one pass
+        later and for a sharper reason: this module's table has four rows
+        and refuses 46 ids, one of which v141 says the client sends
+        continuously, so making its refusal binding was measured throwing
+        real clicks away.
+
+        What stands is the half that costs nobody anything: the pickup lane
+        READS the click its own codec validated, and SAYS on the console
+        that this module disagreed about the rest of the frame.  The one
+        verdict that still binds is the envelope re-read disagreeing, which
+        is about the frame both readers are looking at rather than about
+        somebody else's vital.
+        """
+        noise = bytes([0x12, 0xAA, 0xBB, 0x0B, 0xFF, 0xFF, 0xFF])
+        pc = _frame(self.legacy, [_pickup_vital(self.legacy)],
+                    vital_count=2) + noise
+        parsed = self.legacy.parse_outer(pc)
+
+        walk = vital_walk.walk_nested_vitals(self.legacy, parsed)
+        self.assertFalse(walk.walked, "this frame was supposed to refuse")
+        self.assertEqual(walk.reason, "unknown_vital_id")
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            read = mob_pickup_request.read_inbound_pickup_request(
+                self.legacy, parsed, echo=True)
+        self.assertTrue(read.accepted, "the click this module cannot judge")
+        self.assertIn("%s walk=unknown_vital_id" % (
+            mob_pickup_request.MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,),
+            buffer.getvalue())
 
     def test_the_isolated_pickup_vital_is_accepted_leading_the_frame(self):
         # READING A: the pickup vital is FIRST and the movement vitals
@@ -668,6 +729,43 @@ class DispatchWiringTests(unittest.TestCase):
             "result here means the walked path is not wired",
         )
         self.assertIn("vital_walk_pickup_promoted", state.events)
+
+    def test_a_click_behind_an_untabled_vital_survives_the_dispatcher(self):
+        """THE REGRESSION THIS ROUND ALMOST SHIPPED, AT THE DISPATCHER.
+
+        The first version of LANE-B's walk gate refused every frame this
+        module refuses.  pf-adversary booted a session and measured the
+        cost: `UPDATE_SERVER_SETTING_VITAL` 0x0F01 is in v141's own
+        CAPTURE_NOISE_IDS -- an id it says the client sends continuously --
+        and it has no row here, so a real click batched behind one went from
+        read to thrown away.  Four rows cannot be a licence to refuse the 46
+        ids they do not cover.
+
+        The frame below leads with the pickup vital, so the dispatcher's
+        fallback hands the lane the unbounded parse after `isolate_vital`
+        refuses.  The click must survive that, and the disagreement must be
+        audible.
+        """
+        state = self._started_session("vital_walk_untabled_sibling")
+        untabled = (self.legacy.u16tag(0x12, 0x0F01)
+                    + self.legacy.u8tag(0x0B, 0)
+                    + b"\x2a\x00\x00\x00\x00")
+        pc = _frame(self.legacy, [
+            _pickup_vital(self.legacy, 0x00C0FFEE),
+        ], vital_count=2) + untabled
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(pc))
+        console = buffer.getvalue()
+
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_DECODED_TOKEN, console,
+            "a click behind an untabled vital was thrown away")
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,
+            console,
+            "the walker disagreed and nobody said so")
 
     def test_a_not_yet_selected_connection_gains_no_new_reach(self):
         """D7.  Main's channel stays exactly as wide as it was.

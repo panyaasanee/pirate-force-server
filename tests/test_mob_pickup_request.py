@@ -47,6 +47,7 @@ from pirateforce_foundation import (  # noqa: E402
     mob_pickup,
     mob_pickup_persist,
     mob_pickup_request,
+    vital_walk,
 )
 from pirateforce_foundation.inventory import INITIAL_BACKPACK  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
@@ -244,6 +245,11 @@ class LegacyFixture(unittest.TestCase):
         return read_inbound_pickup_request(
             self.legacy, self.legacy.parse_outer(pc), echo=echo)
 
+    def read_object(self, parsed, *, echo=False):
+        """The same entry point, driven with a parse object rather than
+        bytes -- the API surface, where a hostile parse object lives."""
+        return read_inbound_pickup_request(self.legacy, parsed, echo=echo)
+
 
 # ---------------------------------------------------------------------------
 # 1. The shape, and a second derivation of it
@@ -345,7 +351,14 @@ class EveryRefusalTests(LegacyFixture):
                 legacy, good, outer_id=legacy.GSCN_LOGIN_PROTOCOL),
             "wrong_outer_version": _pc(legacy, good, outer_version=1),
             "wrong_outer_mask": _pc(legacy, good, outer_mask=3),
-            "vital_count_not_one": _pc(legacy, good, vital_count=2),
+            # ~~"vital_count_not_one": _pc(legacy, good, vital_count=2)~~ IS
+            # STRUCK (round t8z97r): that packet is the owner's batched click
+            # and is now ACCEPTED.  No count refusal is wire-reachable at all
+            # -- ``parse_outer`` reads the nested id only ``if vital_count:``,
+            # so count zero refuses one check earlier as
+            # ``not_the_pickup_vital`` -- which is why
+            # ``vital_count_not_positive`` moved to the API-only family and
+            # is driven through the API in ``TheOwnersBatchedClickTests``.
             "not_the_pickup_vital": _pc(legacy, good, vital_id=0x36AA),
             "wrong_vital_version": _pc(legacy, good, vital_version=1),
             "truncated_payload": _pc(legacy, good[:4]),
@@ -354,6 +367,16 @@ class EveryRefusalTests(LegacyFixture):
             "wrong_opaque_u8_tag": _pc(
                 legacy, good[:5] + bytes([0x0B]) + good[6:]),
             "trailing_bytes_after_object": _pc(legacy, good + b"\x99"),
+            # ~~"tail_refused_by_vital_walk"~~ IS NOT HERE, and the second
+            # adversary pass of round di7ers is why.  It was here for one
+            # draft, driven by a tail the walker names ``unknown_vital_id``
+            # -- and that draft was measured throwing away REAL clicks,
+            # because the walker's table has four rows and the client sends
+            # 0x0F01 continuously.  The lane no longer refuses on a verdict
+            # about somebody else's vital; it says so on the console and
+            # reads the click.  The name survives for the one verdict that
+            # IS about our frame, which no wire frame can produce, so it
+            # lives in the API-only family and is driven there.
         }
 
     def test_each_wire_refusal_is_reached_and_named(self):
@@ -378,14 +401,18 @@ class EveryRefusalTests(LegacyFixture):
         readiness = set(
             mob_pickup_request.MOB_PICKUP_REQUEST_READINESS_REASONS)
         api_only = set(mob_pickup_request.MOB_PICKUP_REQUEST_API_ONLY_REASONS)
+        retired = set(mob_pickup_request.MOB_PICKUP_REQUEST_RETIRED_REASONS)
         self.assertEqual(
-            wire | readiness | api_only,
+            wire | readiness | api_only | retired,
             set(MOB_PICKUP_REQUEST_REFUSAL_REASONS),
             "a registered refusal reason belongs to no family, or one of "
             "the families names a reason the registry does not carry")
         self.assertEqual(
             wire & api_only, set(),
             "a reason cannot be both wire-reachable and API-only")
+        self.assertEqual(
+            retired & (wire | api_only | readiness), set(),
+            "a retired reason is one NOTHING produces; this one still is")
 
     def test_each_api_only_reason_is_produced_by_an_api_caller(self):
         """Kept as guards means driven, not merely listed."""
@@ -424,6 +451,104 @@ class EveryRefusalTests(LegacyFixture):
         self.assertEqual(
             classify_pickup_request(self.legacy, Hostile()),
             "parse_object_refused_to_answer")
+
+    def test_the_api_only_family_is_DRIVEN_name_by_name(self):
+        """pf-adversary, round t8z97r, second pass, R11: the test above is a
+        hand-written list of drivers, so a name ADDED to the family and
+        driven by nothing would keep it green -- which is exactly what
+        happened when ``vital_count_not_positive`` joined the family this
+        round.  This one iterates the registry, so an undriven name is red.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE, 0)
+        parsed = self.legacy.parse_outer(_pc(self.legacy, good))
+
+        class Half:
+            outer_id = 0
+
+        class NoLegacy:
+            pass
+
+        class Hostile:
+            outer_id = 0
+            outer_version = 0
+            outer_mask = 0
+            vital_count = 1
+            nested_version = 0
+            nested_payload = b""
+
+            @property
+            def nested_id(self):
+                raise KeyError("hostile getter")
+
+        class ZeroVitals:
+            outer_version = 0
+            outer_mask = 2
+            nested_id = mob_pickup_request.PICKUP_REQUEST_VITAL_ID
+            nested_version = 0
+            nested_payload = good
+            vital_count = 0
+
+            def __init__(self, legacy):
+                self.outer_id = legacy.GSCN_RUNTIME_PROTOCOL_REQ
+
+        class TwoFrames:
+            """Fields that describe one frame, ``raw_pc`` that is another.
+
+            The hole pf-adversary found in the first version of the walk
+            gate (round di7ers, second pass, D4): the gate walks ``raw_pc``
+            and the decode reads ``nested_payload``, and nothing bound the
+            two, so a caller could hand over a clean frame to be walked and
+            a different body to be decoded.  It is closed by the one walker
+            verdict this lane treats as its own -- the envelope re-read
+            disagreeing -- and this is the driver for that name.
+            """
+
+            outer_version = 0
+            outer_mask = 2
+            nested_id = mob_pickup_request.PICKUP_REQUEST_VITAL_ID
+            nested_version = 0
+            vital_count = 2
+
+            def __init__(self, legacy):
+                self.outer_id = legacy.GSCN_RUNTIME_PROTOCOL_REQ
+                body = _body(mob_loot.DROP_KEY_BASE, 9)
+                tail = bytes([0x12, 0xAA, 0xBB, 0x0B, 0xFF, 0xFF, 0xFF])
+                self.nested_payload = body + tail
+                # A DIFFERENT frame, and one that walks cleanly: its
+                # envelope says three vitals where the fields above say two.
+                other = _body(mob_loot.DROP_KEY_BASE + 1, 0)
+                self.raw_pc = _pc(legacy, other, vital_count=3)
+
+        def _payload_not_bytes():
+            try:
+                decode_pickup_request_payload(None)
+            except MobPickupRequestRefused as exc:
+                return exc.reason
+            return "no refusal at all"
+
+        drivers = {
+            "payload_not_bytes": _payload_not_bytes,
+            "parse_object_missing_fields":
+                lambda: classify_pickup_request(self.legacy, Half()),
+            "legacy_module_missing_fields":
+                lambda: classify_pickup_request(NoLegacy(), parsed),
+            "parse_object_refused_to_answer":
+                lambda: classify_pickup_request(self.legacy, Hostile()),
+            "vital_count_not_positive":
+                lambda: classify_pickup_request(
+                    self.legacy, ZeroVitals(self.legacy)),
+            "tail_refused_by_vital_walk":
+                lambda: classify_pickup_request(
+                    self.legacy, TwoFrames(self.legacy)),
+        }
+        self.assertEqual(
+            set(drivers),
+            set(mob_pickup_request.MOB_PICKUP_REQUEST_API_ONLY_REASONS),
+            "an API-only reason has no driver here, or a driver names a "
+            "reason the family does not carry")
+        for reason, drive in drivers.items():
+            with self.subTest(reason=reason):
+                self.assertEqual(drive(), reason)
 
     def test_the_refusal_type_cannot_carry_an_unregistered_reason(self):
         with self.assertRaises(RuntimeError):
@@ -2152,6 +2277,439 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.assertNotIn(
             mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN, console)
         self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items) + 1)
+
+
+class TheOwnersBatchedClickTests(LegacyFixture):
+    """R303's real shape: our vital first, movement vitals behind it.
+
+    ka1-A measured 46 inbound pickup frames and 42 of them refused as
+    ``vital_count_not_one`` -- the click reached this lane and was thrown
+    away on the COUNT, before a byte of it was read.  These tests drive the
+    packet the client actually sends, composed here rather than described.
+    """
+
+    def _movement_vital(self, floats=4):
+        """One nested vital of somebody else's, in the client's own shape.
+
+        ``12 B4 1E 0B 00 <4 f32 records> 0F 01 00`` -- an ON_LAND vital with
+        the 23-byte body ``vital_walk``'s length table declares.
+
+        ~~``struct.pack("<4f")``~~ IS STRUCK (round ``di7ers``, pf-adversary
+        D3).  The first version packed four BARE floats, 19 body bytes, and
+        no tag record in sight -- a shape the client never sends.  It went
+        unnoticed because nothing downstream of this lane checked: the
+        relaxed tail rule reads two bytes of the tail and passes over the
+        rest, so a malformed neighbour vital decoded the click just as
+        happily as a real one.  Now that a frame must WALK before the
+        relaxed rule is allowed to run, the fossil turns red -- which is the
+        point: this file may only claim to drive "the packet the client
+        actually sends" while it composes the vital the way ``R309``'s
+        length table, derived from the R303 capture, says it arrives.
+        """
+        body = b"".join(self.legacy.f32tag(1.5) for _ in range(floats))
+        body += self.legacy.u16tag(0x0F, 1)
+        return bytes(
+            self.legacy.u16tag(0x12, self.legacy.ON_LAND_VITAL)
+            + self.legacy.u8tag(0x0B, 0)
+            + body)
+
+    def test_the_click_batched_behind_four_movement_vitals_is_accepted(self):
+        good = _body(mob_loot.DROP_KEY_BASE + 3, 7)
+        tail = b"".join(self._movement_vital() for _ in range(4))
+        read = self.read(_pc(self.legacy, good + tail, vital_count=5))
+        self.assertTrue(
+            read.accepted,
+            "the shape R303 measured 42 times is still being refused")
+        self.assertEqual(read.reason, mob_pickup_request.ACCEPTED)
+        self.assertEqual(read.fields.object_ref_u32, mob_loot.DROP_KEY_BASE + 3)
+        self.assertEqual(read.fields.opaque_u8, 7)
+
+    def test_the_multivital_line_is_said_every_time_with_both_numbers(self):
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        tail = self._movement_vital()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            read = self.read(
+                _pc(self.legacy, good + tail, vital_count=2), echo=True)
+        console = buffer.getvalue()
+        self.assertTrue(read.accepted)
+        self.assertIn("%s vitals=2 tail=%d" % (
+            mob_pickup_request.MOB_PICKUP_REQUEST_MULTIVITAL_TOKEN,
+            len(tail)), console)
+
+    def test_a_single_vital_click_says_nothing_new_and_still_decodes(self):
+        """The frame that worked before must not change by one byte or line."""
+        good = _body(mob_loot.DROP_KEY_BASE + 1, 2)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            read = self.read(_pc(self.legacy, good), echo=True)
+        self.assertTrue(read.accepted)
+        self.assertEqual(read.fields.object_ref_u32, mob_loot.DROP_KEY_BASE + 1)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_MULTIVITAL_TOKEN,
+            buffer.getvalue())
+
+    def test_a_tail_that_does_not_begin_a_vital_is_still_refused(self):
+        """The prefix rule is relaxed for a VITAL, not for rubbish.
+
+        ROUND ``di7ers``, and the name went out and came back: the first
+        draft of the walk gate refused these one reader earlier, as
+        ``tail_refused_by_vital_walk``.  The second adversary pass measured
+        what that reader costs on real client frames (D1), so the gate no
+        longer decides here -- this lane's own tail rule does, exactly as it
+        did before, and the name is ``trailing_bytes_after_object`` again.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        for tail in (b"\x99\x99\x99\x99\x99",     # wrong first byte
+                     b"\x12\x00",                 # right byte, too short
+                     b"\x00"):
+            with self.subTest(tail=tail):
+                read = self.read(
+                    _pc(self.legacy, good + tail, vital_count=2))
+                self.assertFalse(read.accepted)
+                self.assertEqual(read.reason, "trailing_bytes_after_object")
+                self.assertIsNone(read.fields)
+
+    def test_our_own_two_records_are_not_relaxed_by_a_tail(self):
+        """Every tag and width check still fires on the head."""
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        tail = self._movement_vital()
+        cases = {
+            "wrong_object_ref_tag": bytes([0x15]) + good[1:],
+            "wrong_opaque_u8_tag": good[:5] + bytes([0x0B]) + good[6:],
+        }
+        for reason, head in cases.items():
+            with self.subTest(reason=reason):
+                read = self.read(
+                    _pc(self.legacy, head + tail, vital_count=2))
+                self.assertFalse(read.accepted)
+                self.assertEqual(read.reason, reason)
+
+    def test_a_count_that_is_not_a_count_is_refused_by_its_own_name(self):
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+
+        class Claimed:
+            outer_id = None
+            outer_version = 0
+            outer_mask = 2
+            nested_id = mob_pickup_request.PICKUP_REQUEST_VITAL_ID
+            nested_version = 0
+            nested_payload = good
+
+            def __init__(self, count):
+                self.vital_count = count
+
+        Claimed.outer_id = self.legacy.GSCN_RUNTIME_PROTOCOL_REQ
+        for count in (0, -1, True, None, "1", 1.0):
+            with self.subTest(count=count):
+                self.assertEqual(
+                    classify_pickup_request(self.legacy, Claimed(count)),
+                    "vital_count_not_positive")
+
+    def test_a_tail_whose_version_tag_is_wrong_is_not_a_vital(self):
+        """pf-adversary D9: one byte is a coin flip, two are a shape.
+
+        Round ``di7ers``: caught one reader earlier, by the walk, and named
+        for it -- see the sibling test above.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        tail = bytearray(self._movement_vital())
+        tail[3] = 0x0F                            # not the version record tag
+        read = self.read(_pc(self.legacy, good + bytes(tail), vital_count=2))
+        self.assertFalse(read.accepted)
+        self.assertEqual(read.reason, "trailing_bytes_after_object")
+
+    def test_what_the_tail_check_does_not_prove_is_read_and_said_out_loud(
+            self):
+        """The honest half, twice corrected, and this is the second one.
+
+        ROUND ``t8z97r`` pinned two frames as ACCEPTED and called it the
+        honest half of the tail rule: a tail that begins with a vital header
+        and continues as noise, and a count lying high over a bounded body.
+        ROUND ``di7ers`` first INVERTED that -- both refused, on the grounds
+        that ``vital_walk`` names them -- and then measured, in the same
+        round, what refusing on the walker's verdict costs: real clicks,
+        because the walker's table has four rows and 46 ids stop it, one of
+        which v141 says the client sends continuously.
+
+        So the pin comes back, with the thing that was missing from it:
+        THE CONSOLE SAYS THE WALKER DISAGREED.  What bounds the frame is
+        what always bounded it -- an accepted read is permission to ASK the
+        transaction, which resolves object_ref against the live ground.
+        Nobody has named a harm this frame does that the resolution does not
+        stop; the day somebody does, this test is where the answer changes.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        noise = bytes([0x12, 0x99, 0x99, 0x0B, 0x99, 0x77, 0x77])
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            read = self.read(
+                _pc(self.legacy, good + noise, vital_count=2), echo=True)
+        self.assertTrue(read.accepted, "the tail check is NOT a parse")
+        self.assertIn("%s walk=unknown_vital_id" % (
+            mob_pickup_request.MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,),
+            buffer.getvalue())
+
+        bounded = self.read(_pc(self.legacy, good, vital_count=5))
+        self.assertTrue(
+            bounded.accepted,
+            "an envelope whose count is high over a bounded body is refused "
+            "again, and no reader in this repository can say it is wrong")
+
+    def test_the_real_batched_click_still_walks_and_is_still_read(self):
+        """The gate must refuse the noise WITHOUT refusing the owner's click.
+
+        The frame R303 measured -- our vital first, a real ON_LAND vital
+        behind it -- walks, so the relaxed path runs and the click decodes.
+        Without this test the previous one is satisfied by a gate that
+        refuses everything, which is the cheapest way to pass a fail-closed
+        test and the most expensive way to fail a player.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE + 9, 5)
+        tail = self._movement_vital()
+        read = self.read(_pc(self.legacy, good + tail, vital_count=2))
+        self.assertTrue(read.accepted, "the walked batched click is refused")
+        self.assertEqual(read.fields.object_ref_u32, mob_loot.DROP_KEY_BASE + 9)
+        self.assertEqual(read.fields.opaque_u8, 5)
+
+    def test_a_click_behind_an_untabled_vital_is_still_read(self):
+        """D1, THE REGRESSION THIS ROUND SHIPPED AND THEN MEASURED OUT.
+
+        ``vital_walk``'s length table has four rows; ``legacy.NAMES`` has 49
+        ids, so 46 stop the walk -- and ``UPDATE_SERVER_SETTING_VITAL``
+        0x0F01 is one v141 itself lists in ``CAPTURE_NOISE_IDS``, the ids the
+        client sends CONTINUOUSLY.  The first version of the gate refused
+        every frame the walker refused, so a perfectly good click batched
+        behind one of those was thrown away.  A fail-closed fix that costs
+        the owner her clicks is worse than the hole it closes.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE + 4, 2)
+        untabled = (self.legacy.u16tag(0x12, 0x0F01)
+                    + self.legacy.u8tag(0x0B, 0)
+                    + b"\x2a\x00\x00\x00\x00")
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            read = self.read(
+                _pc(self.legacy, good + untabled, vital_count=2), echo=True)
+        self.assertTrue(
+            read.accepted,
+            "a click behind a vital the walker has no row for was refused")
+        self.assertEqual(
+            read.fields.object_ref_u32, mob_loot.DROP_KEY_BASE + 4)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_WALK_DISAGREES_TOKEN,
+            buffer.getvalue(),
+            "the disagreement was silent, which is the other failure")
+
+    def test_every_name_the_walk_line_can_print_is_registered(self):
+        """D6: six names were being invented at the call site."""
+        registered = set(
+            mob_pickup_request.MOB_PICKUP_REQUEST_WALK_GATE_NAMES)
+        registered |= set(vital_walk.VITAL_WALK_REFUSAL_REASONS)
+
+        class Gate:
+            def __init__(self, reason):
+                self.reason = reason
+
+            def __call__(self):
+                return False
+
+        for name in sorted(registered):
+            with self.subTest(name=name):
+                self.assertIn(
+                    "walk=%s" % name,
+                    mob_pickup_request._walk_disagreement_line(Gate(name)))
+        self.assertIn(
+            "walk=unregistered_walk_reason",
+            mob_pickup_request._walk_disagreement_line(
+                Gate("a_name_nobody_registered")))
+
+    def test_a_gate_that_cannot_ask_names_why_and_does_not_cost_the_click(
+            self):
+        """Every way of not knowing has a NAME, and none of them is a verdict.
+
+        ~~"A gate nobody consulted refuses"~~ IS STRUCK (round di7ers,
+        second pass, D1/D5): refusing on "the walker could not be asked" is
+        the same rule as refusing on "the walker has no row for that id",
+        and the second was measured throwing the owner's clicks away.  What
+        a gate that cannot ask does is SAY SO -- by a registered name, on
+        the console -- while this lane's own tail rule, which never granted
+        a take, decides the frame.
+        """
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        pc = _pc(self.legacy, good + self._movement_vital(), vital_count=2)
+        parsed = self.legacy.parse_outer(pc)
+
+        no_snapshot = mob_pickup_request.WalkGate(self.legacy, parsed)
+        self.assertFalse(no_snapshot())
+        self.assertEqual(no_snapshot.reason, "walk_view_unavailable")
+
+        snapshot = mob_pickup_request._snapshot_envelope(parsed)
+
+        class NoRawPc:
+            @property
+            def raw_pc(self):
+                raise AttributeError("no raw_pc on this parse object")
+
+        blind = mob_pickup_request.WalkGate(
+            self.legacy, NoRawPc(), snapshot)
+        self.assertFalse(blind())
+        self.assertEqual(blind.reason, "raw_pc_unavailable")
+
+        saved = mob_pickup_request._vital_walk
+        buffer = io.StringIO()
+        try:
+            mob_pickup_request._vital_walk = None
+            absent = mob_pickup_request.WalkGate(
+                self.legacy, parsed, snapshot)
+            self.assertFalse(absent())
+            self.assertEqual(absent.reason, "vital_walk_unavailable")
+            with redirect_stdout(buffer):
+                read = self.read(pc, echo=True)
+        finally:
+            mob_pickup_request._vital_walk = saved
+        self.assertTrue(
+            read.accepted,
+            "a missing walker cost a click that decoded cleanly")
+        self.assertIn("walk=vital_walk_unavailable", buffer.getvalue())
+
+        self.assertTrue(self.read(pc).accepted, "the module was not restored")
+
+    def test_the_binding_verdict_is_the_only_one_that_refuses(self):
+        """One name binds, and it is the one about OUR frame.
+
+        Driven at the helper rather than through the wire, because no wire
+        frame can make the two readings of one envelope disagree -- which is
+        exactly why the name lives in the API-only family.
+        """
+
+        class Gate:
+            def __init__(self, reason):
+                self.reason = reason
+
+            def __call__(self):
+                return False
+
+        body = _body(mob_loot.DROP_KEY_BASE, 1) + self._movement_vital()
+        for reason in vital_walk.VITAL_WALK_REFUSAL_REASONS:
+            binds = reason in (
+                mob_pickup_request.MOB_PICKUP_REQUEST_WALK_REFUSALS_THAT_BIND)
+            with self.subTest(reason=reason, binds=binds):
+                if binds:
+                    with self.assertRaises(MobPickupRequestRefused) as caught:
+                        mob_pickup_request._decode_body_for_count(
+                            body, 2, Gate(reason))
+                    self.assertEqual(
+                        caught.exception.reason, "tail_refused_by_vital_walk")
+                else:
+                    fields, tail = mob_pickup_request._decode_body_for_count(
+                        body, 2, Gate(reason))
+                    self.assertEqual(
+                        fields.object_ref_u32, mob_loot.DROP_KEY_BASE)
+                    self.assertTrue(tail)
+
+    def test_the_gate_asks_the_walker_at_most_once_per_frame(self):
+        """Two consultations of one gate are one walk, or the verdict and
+        the decode can disagree about the same frame."""
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        parsed = self.legacy.parse_outer(
+            _pc(self.legacy, good + self._movement_vital(), vital_count=2))
+        snapshot = mob_pickup_request._snapshot_envelope(parsed)
+        gate = mob_pickup_request.WalkGate(self.legacy, parsed, snapshot)
+        calls = []
+        saved = mob_pickup_request.walk_agrees_with_the_frame
+        try:
+            def counted(legacy, view):
+                calls.append(view)
+                return saved(legacy, view)
+
+            mob_pickup_request.walk_agrees_with_the_frame = counted
+            self.assertTrue(gate())
+            self.assertTrue(gate())
+        finally:
+            mob_pickup_request.walk_agrees_with_the_frame = saved
+        self.assertEqual(len(calls), 1)
+
+    def test_a_console_line_may_cost_the_line_and_never_the_frame(self):
+        """pf-adversary D8: formatting the new line used to sit inside the
+        decode guard, so a count whose ``__int__`` raised turned a cleanly
+        decoded body into a refusal."""
+        good = _body(mob_loot.DROP_KEY_BASE, 4)
+        pc = _pc(self.legacy, good + self._movement_vital(), vital_count=2)
+
+        # ~~a vital_count whose __str__ raises~~ IS STRUCK as the driver
+        # (round di7ers): the walk gate requires ``type(vital_count) is
+        # int``, so an int SUBCLASS is now refused by the walker before the
+        # console line is ever formatted, and the frame this test needs --
+        # accepted, with an unprintable count -- cannot exist on the wire
+        # any more.  The property under test is unchanged and still real:
+        # formatting the line may cost the LINE and never the FRAME.  It is
+        # driven at the formatter instead, which is where the guard is.
+        saved = mob_pickup_persist.console_safe
+        buffer = io.StringIO()
+        try:
+            def refuses(text):
+                raise ValueError("this console cannot render that")
+
+            mob_pickup_persist.console_safe = refuses
+            with redirect_stdout(buffer):
+                read = read_inbound_pickup_request(
+                    self.legacy, self.legacy.parse_outer(pc), echo=True)
+        finally:
+            mob_pickup_persist.console_safe = saved
+        self.assertTrue(read.accepted, "a console line cost the frame")
+        self.assertEqual(read.fields.opaque_u8, 4)
+        self.assertIn("vitals=unprintable", buffer.getvalue())
+
+    def test_the_verdict_and_the_decode_read_one_snapshot(self):
+        """pf-adversary D10: the count was read five times on the accept
+        path, so a parse object that changed its mind could be accepted by
+        the classifier and refused by the decode."""
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        tail = self._movement_vital()
+
+        # ROUND ``di7ers``: the object carries the FRAME as well, because the
+        # walk gate reads ``raw_pc`` -- once, and never ``vital_count``,
+        # which is exactly what the counter below still proves.
+        frame = _pc(self.legacy, good + tail, vital_count=2)
+
+        class Flips:
+            outer_version = 0
+            outer_mask = 2
+            nested_id = mob_pickup_request.PICKUP_REQUEST_VITAL_ID
+            nested_version = 0
+            nested_payload = good + tail
+            raw_pc = frame
+
+            def __init__(self, legacy, flip_after):
+                self.outer_id = legacy.GSCN_RUNTIME_PROTOCOL_REQ
+                self._reads = 0
+                self._flip_after = flip_after
+
+            @property
+            def vital_count(self):
+                self._reads += 1
+                return 2 if self._reads <= self._flip_after else 1
+
+        for flip_after in range(1, 6):
+            with self.subTest(flip_after=flip_after):
+                parsed = Flips(self.legacy, flip_after)
+                read = self.read_object(parsed)
+                self.assertEqual(
+                    parsed._reads, 1,
+                    "the envelope was read more than once")
+                self.assertTrue(read.accepted)
+
+    def test_the_retired_name_is_never_said_again(self):
+        """A retired reason must be produced by nothing, wire or API."""
+        good = _body(mob_loot.DROP_KEY_BASE, 1)
+        for count in (0, 1, 2, 5):
+            for tail in (b"", self._movement_vital()):
+                read = self.read(
+                    _pc(self.legacy, good + tail, vital_count=count))
+                self.assertNotIn(
+                    read.reason,
+                    mob_pickup_request.MOB_PICKUP_REQUEST_RETIRED_REASONS)
 
 
 if __name__ == "__main__":

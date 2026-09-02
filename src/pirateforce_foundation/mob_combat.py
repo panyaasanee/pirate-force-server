@@ -1422,6 +1422,66 @@ GROUND_ACTORS_PRESERVE_SITE_CHOOSE_NPC = "lane_hooks.choose_npc_response"
 #: say how many rows are standing.  A missing count is a wiring hole, not a
 #: frame condition, so it is reported once and never per click.
 GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN = "GROUND_ACTORS_LIVENESS_UNKNOWN"
+#: Said ONCE per site AND CAUSE when the gate's count and the frame it arms
+#: were NOT taken under one publication -- COO-DECISION 20260902_1946,
+#: condition a, whose closing sentence is "if it cannot be done, IT MAY NOT BE
+#: SILENT".  The window it names is real and narrow: read says "no rows", a
+#: kill lands, the frame composed from that read clears a pool that now has
+#: something in it, and the row is invisible until the next publication.
+#: :func:`remote_actors_preserving_the_ground_under_publication` closes it
+#: when the cell can host the composition and prints this when it cannot.
+GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN = "GROUND_ROWS_RACE_WINDOW_OPEN"
+#: Said EVERY TIME a liveness read retires rows -- COO-DECISION 20260902_1946,
+#: condition b.  Not once per site: this is a count of something that
+#: happened, not a wiring hole, and the whole complaint is that the number
+#: used to vanish.  ``DropLedgerCell.enter_scene`` reports how many rows it
+#: swept at a scene boundary; a click that swept them first makes that report
+#: read ZERO, and this line is what lets a console reader tell "nothing
+#: expired" from "somebody else's read expired it".
+GROUND_ROWS_SWEPT_BY_READ_TOKEN = "GROUND_ROWS_SWEPT_BY_READ"
+#: Said once when the race family reaches the cap, IN ITS OWN NAME.  An
+#: earlier draft of this round borrowed the liveness family's suppression
+#: token here, so a console could say GROUND_ACTORS_LIVENESS_SUPPRESSED while
+#: zero liveness lines had ever been suppressed (pf-adversary, round t8z97r,
+#: D11) -- which is exactly the "a token that can lie" this lane keeps
+#: ruling against.
+GROUND_ROWS_RACE_SUPPRESSED_TOKEN = "GROUND_ROWS_RACE_WINDOW_SUPPRESSED"
+#: ...and the moved family's own, for the same reason one family down.
+GROUND_ROWS_LEDGER_MOVED_SUPPRESSED_TOKEN = "GROUND_ROWS_MOVED_SUPPRESSED"
+#: Said once per site when the COMPOSER moved the ledger while it ran under
+#: the cell's lock.  It means the frame was armed by a count that the
+#: composer itself made false -- the closure's own failure mode, reachable
+#: only because the lock is re-entrant (pf-adversary D7).  A composer bug,
+#: never a frame condition: the frame is returned either way.
+GROUND_ROWS_LEDGER_MOVED_TOKEN = "GROUND_ROWS_MOVED_UNDER_COMPOSITION"
+#: WHETHER ANY PRODUCTION CALL SITE ACTUALLY USES THE CLOSED PATH.  Not a
+#: preference and not a flag: a statement about ``runtime.py``, re-derived
+#: from that file's AST by this lane's own test on every run, exactly the way
+#: ``mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS`` is.
+#:
+#: WHY IT EXISTS (pf-adversary, round t8z97r, D3, and it is the sharpest
+#: finding of the round): zero ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines on a
+#: console is what a CLOSED window and an UNWIRED closure both look like.
+#: An operator cannot tell them apart, and "the token is silent" would be
+#: read as "the window is shut".  This constant is the difference, in one
+#: greppable word, and it cannot drift: the test is as red for a status left
+#: at "called" after the line is reverted as for one left at
+#: "composed_not_called" after it lands.
+GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS = "composed_not_called"
+#: The token that carries it to the console, said once per process by
+#: :func:`_say_call_site_status_once`.
+GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN = "GROUND_UNDER_PUBLICATION_CALL_SITE"
+#: What the race line says when the caller handed no cell at all.  Kept
+#: separate from ``mob_loot.ground_liveness_reason``'s vocabulary because
+#: this one is about WHERE THE COMPOSITION HAPPENED, not about the count.
+GROUND_ROWS_RACE_REASON_NO_CELL = "no_cell_to_compose_under"
+#: ...and when the cell is too old (or too fake) to host a composition: a
+#: handle without ``compose_under_publication``.  The frame is still composed
+#: and still gated; only the atomicity is missing.
+GROUND_ROWS_RACE_REASON_CANNOT_HOST = "cell_cannot_host_composition"
+#: ...and when the cell HAS the method and the method itself refused.  The
+#: composer's own exceptions never reach this name: they are re-raised.
+GROUND_ROWS_RACE_REASON_CELL_REFUSED = "cell_refused_to_host_composition"
 #: Which ``site + cause`` pairs have already said it.  Two threads racing here
 #: print the line twice, which is the harmless end of that race; the
 #: alternative is a lock on a console line.  THE CAUSE IS PART OF THE KEY
@@ -1429,6 +1489,18 @@ GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN = "GROUND_ACTORS_LIVENESS_UNKNOWN"
 #: refusing its clock is telling a reader two different things and must be
 #: able to say both.
 _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED: set = set()
+#: The same, for :data:`GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN`.  A SECOND set on
+#: purpose: a session that fills the liveness budget must not silence the
+#: line that says a frame was armed by a count taken outside its own
+#: composition, and the two answer different questions.
+_GROUND_ROWS_RACE_WINDOW_REPORTED: set = set()
+#: ...and a THIRD, for :data:`GROUND_ROWS_LEDGER_MOVED_TOKEN`.  It shared the
+#: race family's set for one draft, and that was measured to do both halves
+#: of the harm at once (pf-adversary, round t8z97r, second pass, R3): the
+#: console said the RACE family had been suppressed when no race line had
+#: ever been suppressed, and 32 moved-sites could exhaust the budget of the
+#: one line whose silence D3 says must never be mistaken for a shut window.
+_GROUND_ROWS_LEDGER_MOVED_REPORTED: set = set()
 #: ...and the set is CAPPED, because "one line per site" is only bounded while
 #: the site names are literals, and ``site`` is caller data (pf-adversary D6).
 #: A caller that builds a site string per click would otherwise grow this set
@@ -1480,6 +1552,52 @@ def choose_npc_site(scene_id: Any) -> str:
         _console_safe_one_line(scene_id))
 
 
+def _report_pair_once(reported: set, token: str, suppressed_token: str,
+                      site: Any, reason: Any) -> bool:
+    """The body of every "once per site AND cause" console line in this lane.
+
+    Extracted in round ``t8z97r`` when the second such line arrived
+    (:data:`GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN`): two copies of this logic
+    would be two chances to get the cap, the ordering or the failed-write
+    rule subtly different, and this lane has already paid for a
+    re-implementation once (``preserve_..._when_live``, D13).  Each caller
+    brings ITS OWN registry set, so one family reaching the cap never
+    silences the other.
+
+    Returns whether this call is the one that printed, which is what a test
+    can drive; callers ignore it.  It NEVER raises.
+    """
+    try:
+        key = "%s %s" % (_console_safe_one_line(site),
+                         _console_safe_one_line(reason))
+    except Exception:                            # noqa: BLE001 - see docstring
+        # A site object whose own ``__str__`` raises is still a wiring hole,
+        # and reporting NOTHING for it is how a hole stays invisible for a
+        # session (pf-adversary, second pass, D5).  It reports under a name
+        # that says exactly what is known about it.
+        key = "site_unprintable %s" % (type(site).__name__[:32],)
+    if key in reported:
+        return False
+    if len(reported) >= _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP:
+        if _GROUND_ACTORS_LIVENESS_SUPPRESSED not in reported:
+            reported.add(_GROUND_ACTORS_LIVENESS_SUPPRESSED)
+            try:
+                print("%s %d" % (suppressed_token,
+                                 _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP))
+            except Exception:                    # noqa: BLE001
+                pass
+        return False
+    try:
+        print("%s %s" % (token, key))
+    except Exception:                            # noqa: BLE001 - see docstring
+        # NOT marked as reported: a line that never reached the console is a
+        # line nobody has read, and marking it here would spend the one
+        # report this site gets on a write that failed.
+        return False
+    reported.add(key)
+    return True
+
+
 def _report_liveness_unknown_once(site: Any, reason: Any) -> bool:
     """Say ``GROUND_ACTORS_LIVENESS_UNKNOWN <site> <reason>`` once per pair.
 
@@ -1492,37 +1610,70 @@ def _report_liveness_unknown_once(site: Any, reason: Any) -> bool:
     endless stream -- and one site whose cause CHANGES is not silenced by
     what it said before.
     """
+    return _report_pair_once(
+        _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED,
+        GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN,
+        GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN,
+        site, reason)
+
+
+def _report_race_window_open_once(site: Any, reason: Any) -> bool:
+    """Say ``GROUND_ROWS_RACE_WINDOW_OPEN <site> <reason>`` once per pair.
+
+    COO-DECISION 20260902_1946 condition a allows a call site that cannot
+    read and compose under one publication -- it does not allow one that
+    does so QUIETLY.  Its own registry and its own cap, so a session full of
+    liveness holes cannot use up the budget for this line or the other way
+    round.
+    """
+    return _report_pair_once(
+        _GROUND_ROWS_RACE_WINDOW_REPORTED,
+        GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN,
+        GROUND_ROWS_RACE_SUPPRESSED_TOKEN,
+        site, reason)
+
+
+def _report_ledger_moved_once(site: Any) -> bool:
+    """Say ``GROUND_ROWS_MOVED_UNDER_COMPOSITION <site>`` once per site.
+
+    The composer moved the cell while it composed, so the count it was
+    handed was false by the time the bytes existed.  Once per site and not
+    per click: it is a defect in a call site's composer, which is a wiring
+    hole, not an event.  ITS OWN registry and ITS OWN suppression word:
+    sharing the race family's let a run of moved sites both mis-name the
+    suppression and eat the budget of the one line whose silence must never
+    be read as "the window is shut" (pf-adversary, second pass, R3).
+    """
+    return _report_pair_once(
+        _GROUND_ROWS_LEDGER_MOVED_REPORTED,
+        GROUND_ROWS_LEDGER_MOVED_TOKEN,
+        GROUND_ROWS_LEDGER_MOVED_SUPPRESSED_TOKEN,
+        site, "composer_moved_the_ledger")
+
+
+def report_rows_swept_by_read(rows_swept: Any, site: Any) -> bool:
+    """Say ``GROUND_ROWS_SWEPT_BY_READ <n> <site>`` when a read retired rows.
+
+    Returns whether it printed.  Says NOTHING for zero, for a count that is
+    not a count, and for a negative -- "no rows expired here" is the
+    ordinary case and does not need a line; only a read that MOVED the
+    ledger does (COO-DECISION 20260902_1946, condition b).
+
+    Every time, not once per site: this is an event count, and the defect
+    being closed is that the number used to disappear.  It never raises --
+    a console that cannot take the line loses the LINE, never the FRAME --
+    and it is called AFTER the frame is composed, the same ordering every
+    other console write on this path uses.
+    """
+    if not isinstance(rows_swept, int) or isinstance(rows_swept, bool):
+        return False
+    if rows_swept <= 0:
+        return False
     try:
-        key = "%s %s" % (_console_safe_one_line(site),
-                         _console_safe_one_line(reason))
+        print("%s %d %s" % (GROUND_ROWS_SWEPT_BY_READ_TOKEN, rows_swept,
+                            _console_safe_one_line(site)))
     except Exception:                            # noqa: BLE001 - see docstring
-        # A site object whose own ``__str__`` raises is still a wiring hole,
-        # and reporting NOTHING for it is how a hole stays invisible for a
-        # session (pf-adversary, second pass, D5).  It reports under a name
-        # that says exactly what is known about it.
-        key = "site_unprintable %s" % (type(site).__name__[:32],)
-    if key in _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED:
         return False
-    if (len(_GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED)
-            >= _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP):
-        if _GROUND_ACTORS_LIVENESS_SUPPRESSED not in (
-                _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED):
-            _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.add(
-                _GROUND_ACTORS_LIVENESS_SUPPRESSED)
-            try:
-                print("%s %d" % (GROUND_ACTORS_LIVENESS_SUPPRESSED_TOKEN,
-                                 _GROUND_ACTORS_LIVENESS_UNKNOWN_SITE_CAP))
-            except Exception:                    # noqa: BLE001
-                pass
-        return False
-    try:
-        print("%s %s" % (GROUND_ACTORS_LIVENESS_UNKNOWN_TOKEN, key))
-    except Exception:                            # noqa: BLE001 - see docstring
-        # NOT marked as reported: a line that never reached the console is a
-        # line nobody has read, and marking it here would spend the one
-        # report this site gets on a write that failed.
-        return False
-    _GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.add(key)
     return True
 
 
@@ -1576,6 +1727,7 @@ def remote_actors_preserving_the_ground(
     citing an artifact whose own conclusion refuses the citation.
     """
     entries = list(entries)
+    _say_call_site_status_once()
     if (ground_rows_left is not PRESERVE_WITHOUT_ASKING
             and not mob_loot.ground_is_live(ground_rows_left)):
         # The sibling composes it, so the two can never disagree about what
@@ -1611,6 +1763,202 @@ def remote_actors_preserving_the_ground(
             # the LINE, never a reason to lose the FRAME.
             pass
         return composed
+
+
+#: Whether the status line has already been said in this process.
+_GROUND_UNDER_PUBLICATION_STATUS_SAID: list = []
+
+
+def _say_call_site_status_once() -> bool:
+    """Put :data:`GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS` ON THE CONSOLE,
+    once per process, the first time this lane composes a preserve frame.
+
+    WHY A CONSOLE LINE AND NOT A CONSTANT (pf-adversary, round t8z97r,
+    second pass, R10): the constant answered D3 in the SOURCE, and the
+    person D3 is about is watching a cp874 console during an attended
+    round.  A source-only string cannot tell them whether zero
+    ``GROUND_ROWS_RACE_WINDOW_OPEN`` lines means "the window is shut" or
+    "nothing is wired yet".  This says it in one greppable line, on the
+    first frame this lane composes -- which is the bar frame of the first
+    hit of the session, so it is said on every boot that fights anything.
+
+    Never raises, says nothing twice, and costs a LINE and never a FRAME.
+    """
+    if _GROUND_UNDER_PUBLICATION_STATUS_SAID:
+        return False
+    _GROUND_UNDER_PUBLICATION_STATUS_SAID.append(True)
+    try:
+        print("%s %s" % (GROUND_UNDER_PUBLICATION_CALL_SITE_TOKEN,
+                         GROUND_UNDER_PUBLICATION_CALL_SITE_STATUS))
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+    return True
+
+
+def remote_actors_preserving_the_ground_under_publication(
+    legacy: Any, entries: Any, site: str, *, cell: Any, scene: Any = None,
+) -> tuple[bytes, bytes]:
+    """:func:`remote_actors_preserving_the_ground` WITH THE READ AND THE
+    COMPOSITION UNDER ONE PUBLICATION.  ``(pc, frame)``, same as that
+    function and same as ``legacy.make_runtime_remote_actors``.
+
+    THIS IS THE ENTRY POINT A CALL SITE SHOULD USE, and it is the whole of
+    COO-DECISION 20260902_1946 condition a: hand it the cell instead of a
+    count, and the count that arms the gate is taken inside the same lock
+    that composes the frame.  The window it closes is read-says-empty ->
+    kill lands -> a clearing frame is composed over a row that is now
+    standing; the row would be invisible to the player until the next
+    publication, and "kill, loot falls, answer the click already in flight"
+    is exactly what ``GT-204`` is written to watch.
+
+    WHAT IT DOES WHEN IT CANNOT: it composes the frame anyway, gated on the
+    best count it can get, and says ``GROUND_ROWS_RACE_WINDOW_OPEN <site>
+    <reason>`` once per site and cause.  Three reasons, all named:
+    :data:`GROUND_ROWS_RACE_REASON_NO_CELL` (no handle at all -- the gate
+    then reads ``no_cell`` and composes v141's own bytes),
+    :data:`GROUND_ROWS_RACE_REASON_CANNOT_HOST` (a handle without
+    ``compose_under_publication``: an older cell, a stub, a test double) and
+    :data:`GROUND_ROWS_RACE_REASON_CELL_REFUSED` (the method itself raised).
+    A frame is never lost to any of them.
+
+    THE COMPOSER'S OWN EXCEPTIONS ARE RE-RAISED, not turned into a race
+    report: :func:`remote_actors_preserving_the_ground` already falls back to
+    v141's bytes for every refusal it can absorb, so an exception arriving
+    from inside the composer means the LEGACY composer failed too, and that
+    is a lost frame, not a ground-list condition.  Reporting it as one would
+    be the second time this lane got caught calling one failure by another
+    failure's name.
+
+    Condition b rides along: whatever the read swept is reported through
+    :func:`report_rows_swept_by_read`, after the frame is composed.
+    """
+    entries = list(entries)
+    state: dict = {}
+
+    def _compose(rows_left: Any) -> tuple[bytes, bytes]:
+        try:
+            answer = remote_actors_preserving_the_ground(
+                legacy, entries, site, ground_rows_left=rows_left)
+        except BaseException as exc:             # noqa: BLE001 - see docstring
+            state["compose_exc"] = exc
+            raise
+        # KEPT so the open-window path never composes a second time for a
+        # host that composed successfully and then failed on its own account
+        # (pf-adversary, round t8z97r): composing twice would double every
+        # console line the composer writes and read the cell twice.
+        state["answer"] = answer
+        return answer
+
+    try:
+        host = getattr(cell, "compose_under_publication", None)
+    except Exception:                            # noqa: BLE001
+        # A handle whose own attribute access raises is a handle that cannot
+        # host anything, and finding that out must not cost the frame: this
+        # runs on the v141 listener thread, which has no ``except`` of its
+        # own.  ``getattr`` with a default only swallows AttributeError.
+        host = None
+    # WHAT THE CELL HAD SWEPT BEFORE ANY OF THIS, so a read that retires
+    # rows can be reported on the paths where the count cannot be RETURNED:
+    # a composer that raised, and the old-way fallback read (pf-adversary,
+    # round t8z97r, second pass, R6 and R7 -- both measured retiring rows in
+    # silence, which is condition b's own defect).
+    before = _swept_total_of(cell)
+    said_the_sweep = False
+    try:
+        if cell is None:
+            reason = GROUND_ROWS_RACE_REASON_NO_CELL
+        elif not callable(host):
+            reason = GROUND_ROWS_RACE_REASON_CANNOT_HOST
+        else:
+            try:
+                hosted = host(_compose, scene=scene)
+            except Exception as exc:             # noqa: BLE001 - see docstring
+                if state.get("compose_exc") is not None:
+                    # THE COMPOSER FAILED, whatever the host then did with
+                    # that exception.  Re-raise the COMPOSER's own -- a host
+                    # that wraps it would otherwise have a lost frame
+                    # reported under the cell's name and the composer run a
+                    # second time to fail identically (pf-adversary, second
+                    # pass, R9).  A lost frame is not a ground-list
+                    # condition and must not be named as one.
+                    raise state["compose_exc"]
+                del exc
+                reason = GROUND_ROWS_RACE_REASON_CELL_REFUSED
+            else:
+                answer, swept, moved = _read_hosted_answer(hosted, state)
+                if answer is _HOST_ANSWERED_NOTHING:
+                    # A host whose return shape this lane cannot read is a
+                    # host that cannot be trusted with the ordering -- but
+                    # the frame it composed, if it composed one, is right
+                    # here (pf-adversary, second pass, R2: the unpack used
+                    # to raise IndexError/TypeError straight through the
+                    # listener thread, with a good frame in hand).
+                    reason = GROUND_ROWS_RACE_REASON_CANNOT_HOST
+                else:
+                    # COMPOSE FIRST, PRINT SECOND, the ordering every
+                    # console write on this path uses: the line describes a
+                    # frame the caller now holds.
+                    report_rows_swept_by_read(swept, site)
+                    said_the_sweep = True
+                    if moved:
+                        _report_ledger_moved_once(site)
+                    return answer
+        # The open-window path.  The count is read the old way -- which
+        # sweeps -- so the race line carries the cause and the sweep is
+        # reported from the cell's own counter in the ``finally`` below.
+        composed = state.get("answer")
+        if composed is None:
+            rows_left = mob_loot.ground_rows_live_here(cell, scene)
+            composed = remote_actors_preserving_the_ground(
+                legacy, entries, site, ground_rows_left=rows_left)
+        _report_race_window_open_once(site, reason)
+        return composed
+    finally:
+        if not said_the_sweep and before is not None:
+            after = _swept_total_of(cell)
+            if after is not None:
+                report_rows_swept_by_read(after - before, site)
+
+
+#: The answer of a host whose return shape this lane cannot read.  A
+#: sentinel rather than ``None`` because ``None`` is a shape a host could
+#: legitimately have returned as its first element.
+_HOST_ANSWERED_NOTHING = object()
+
+
+def _swept_total_of(cell: Any) -> Any:
+    """The cell's sweep counter, or ``None`` when it has none.
+
+    Never raises: a handle that cannot be asked is a handle whose sweeps
+    cannot be reported, which costs a LINE and never the FRAME.
+    """
+    try:
+        total = getattr(cell, "swept_total", None)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return None
+    if isinstance(total, int) and not isinstance(total, bool):
+        return total
+    return None
+
+
+def _read_hosted_answer(hosted: Any, state: dict) -> tuple:
+    """``(answer, rows_swept, ledger_moved)`` out of whatever a host returned.
+
+    The cell answers in four; a host that answers in three is taken at its
+    word for the three it gave.  ANY OTHER SHAPE -- two elements, ``None``,
+    a generator -- returns :data:`_HOST_ANSWERED_NOTHING` rather than
+    raising: the unpack used to run unguarded on the v141 listener thread,
+    so a stub host cost the frame while a composed frame sat in ``state``
+    (pf-adversary, round t8z97r, second pass, R2).
+    """
+    del state
+    try:
+        answer = hosted[0]
+        swept = hosted[2]
+        moved = hosted[3] if len(hosted) > 3 else False
+    except Exception:                            # noqa: BLE001 - see docstring
+        return _HOST_ANSWERED_NOTHING, 0, False
+    return answer, swept, moved
 
 
 def announce_frames(

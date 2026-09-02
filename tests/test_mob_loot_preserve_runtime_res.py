@@ -33,7 +33,11 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mob_tables
+from pirateforce_foundation import field_mob_tables_bg0002
+from pirateforce_foundation import field_mob_tables_bg0015
 from pirateforce_foundation import mob_loot
+from pirateforce_foundation import world_scene_folder
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_loot import (
     MobLootContractError,
@@ -951,6 +955,332 @@ class TheLivenessReadNeverCostsTheFrame(LegacyCase):
         self.assertEqual(loaded[offset + 1], 0x0A)
         self.assertEqual(
             loaded[-3:], mob_loot.RUNTIME_RES_GROUND_PRESENT_EMPTY_PIN)
+
+
+class _AClockThatOnlyMovesWhenToldTo:
+    """The injected clock ``tests/test_mob_loot_expiry.py`` uses, because a
+    sweep that only happens past a deadline cannot be driven with the real
+    one."""
+
+    def __init__(self, now=1000.0):
+        self.now = float(now)
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += float(seconds)
+
+
+class TheSceneAResponderKnowsByNumberIsAScene(LegacyCase):
+    """``caller_scene_fold``: a scene ID arms the gate, or nothing ever does.
+
+    WHY THIS CLASS EXISTS, measured and not supposed.  The ChooseNPC
+    responders that compose these frames hold their scene as an ``int``;
+    a row holds the client's FOLDER NAME.  Before this fold every one of
+    those call sites got ``caller_scene_unreadable`` on every click in
+    every scene -- a gate wired exactly as its letter asked for and unable
+    to open once (LANE-A measured it on the wired call sites,
+    ``20260902_2348_LANE-A-TO-LANE-B``; this lane's own letter to chief,
+    ``20260903_0039``, asked for that no-op in as many words).
+    """
+
+    _a_row_in = staticmethod(TheLivenessReadNeverCostsTheFrame._a_row_in)
+
+    @classmethod
+    def _cell_holding(cls, publishing, *kills):
+        return TheLivenessReadNeverCostsTheFrame._cell_holding(
+            publishing, *kills)
+
+    def test_the_expression_that_was_measured_false_now_answers_a_count(self):
+        """The exact line LANE-A ran, which used to say
+        ``caller_scene_unreadable`` for every scene."""
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        measured = mob_loot.ground_rows_live_here(cell, 2)
+        self.assertEqual(mob_loot.ground_liveness_reason(measured), "")
+        self.assertEqual(measured, 1)
+        self.assertTrue(mob_loot.ground_is_live(measured))
+        # and it is the same answer the folder name gives, which is what
+        # "an id is a scene name" has to mean to be worth anything
+        self.assertEqual(
+            measured, mob_loot.ground_rows_live_here(cell, "Bg0002"))
+
+    def test_every_addressed_id_folds_without_a_refusal(self):
+        """WHAT THIS PINS AND WHAT IT DOES NOT (pf-adversary, round
+        ``psce1s``, D4).  It pins that no id the registry addresses is
+        REFUSED by this fold, and that the key is the one public reader's
+        answer put through :func:`scene_key`.  It does NOT pin that the
+        registry's folder names are right -- both sides read the same
+        tuple, so a mutant that moves a folder name keeps this green.  The
+        tests that go red for that are the roster cross-check below and
+        ``tests/test_world_scene_folder.py``."""
+        addressed = 0
+        for scene_id, folder in world_scene_folder._FOLDER_BY_SCENE_ID:
+            with self.subTest(scene_id=scene_id):
+                key, refusal = mob_loot.caller_scene_fold(scene_id)
+                self.assertEqual(refusal, 0)
+                self.assertEqual(key, mob_loot.scene_key(folder))
+                addressed += 1
+        self.assertGreaterEqual(addressed, 17)
+
+    def test_no_addressed_folder_is_named_by_two_ids_today(self):
+        """The premise the whole id branch rests on, derived and not
+        assumed: a folder name may only stand in for a scene IDENTITY while
+        the addressed ids name distinct folders.  ``world_scene_folder``
+        publishes the pair that would end that (17/186) and this is the
+        reading that says which side of it we are on today."""
+        keys = [mob_loot.scene_key(folder)
+                for _id, folder in world_scene_folder._FOLDER_BY_SCENE_ID]
+        self.assertEqual(len(set(keys)), len(keys))
+        for key in keys:
+            self.assertEqual(
+                mob_loot._addressed_ids_naming_the_same_folder(key), 1)
+        for first, second, _folder in (
+                world_scene_folder.SCENE_IDS_SHARING_AN_ADDRESSED_FOLDER):
+            with self.subTest(pair=(first, second)):
+                addressed = {scene_id for scene_id, _f
+                             in world_scene_folder._FOLDER_BY_SCENE_ID}
+                self.assertFalse({first, second} <= addressed)
+
+    def test_the_day_two_addressed_ids_name_one_folder_the_gate_refuses(self):
+        """A FOLDER NAME IS NOT A SCENE IDENTITY, and this gate compares
+        identities.  Driven by making the registry say what it will say the
+        day somebody addresses scene 186: two ids, one folder.  Without the
+        ambiguity guard both fold to ``bg1001`` and a frame for 186 is armed
+        by rows standing in 17."""
+        registry = world_scene_folder._FOLDER_BY_SCENE_ID
+        try:
+            world_scene_folder._FOLDER_BY_SCENE_ID = registry + (
+                (186, "Bg1001"),)
+            for scene_id in (17, 186):
+                with self.subTest(scene_id=scene_id):
+                    key, refusal = mob_loot.caller_scene_fold(scene_id)
+                    self.assertIsNone(key)
+                    self.assertEqual(
+                        refusal, mob_loot.GROUND_LIVENESS_SCENE_ID_AMBIGUOUS)
+                    self.assertEqual(
+                        mob_loot.ground_liveness_reason(refusal),
+                        "caller_scene_id_shares_a_folder")
+            # the scenes that are still unambiguous are untouched
+            self.assertEqual(mob_loot.caller_scene_fold(2)[1], 0)
+        finally:
+            world_scene_folder._FOLDER_BY_SCENE_ID = registry
+        self.assertEqual(mob_loot.caller_scene_fold(17)[1], 0)
+
+    def test_a_registry_this_fold_cannot_read_refuses_every_id(self):
+        """The private-name coupling, fail-closed on purpose: the day
+        ``_FOLDER_BY_SCENE_ID`` is renamed, every scene id is refused.  A
+        gate that stops CHECKING would be the failure; a gate that refuses
+        is only a gate that is shut."""
+        registry = world_scene_folder._FOLDER_BY_SCENE_ID
+        try:
+            del world_scene_folder._FOLDER_BY_SCENE_ID
+            self.assertEqual(
+                mob_loot.caller_scene_fold(2),
+                (None, mob_loot.GROUND_LIVENESS_BAD_SCENE))
+        finally:
+            world_scene_folder._FOLDER_BY_SCENE_ID = registry
+
+    def test_an_int_subclass_is_an_int_here(self):
+        """``type(x) is int`` cost this module once already
+        (:func:`ground_liveness_is_readable`, round ``suovqw`` D2: an
+        ``IntEnum`` count got the loot cleared and the console blamed a
+        correctly wired call site).  A responder holding its scene as an
+        ``IntEnum`` must not re-buy it."""
+        import enum
+
+        class SceneId(enum.IntEnum):
+            BG0002 = 2
+
+        class MyInt(int):
+            pass
+
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        for value in (SceneId.BG0002, MyInt(2)):
+            with self.subTest(value=type(value).__name__):
+                self.assertEqual(
+                    mob_loot.caller_scene_fold(value),
+                    (mob_loot.scene_key("Bg0002"), 0))
+                self.assertEqual(mob_loot.ground_rows_live_here(cell, value), 1)
+
+    def test_the_scene_14_responder_reads_the_ground_of_bg0015(self):
+        """The call site in chief's letter, end to end: scene 14 is the
+        folder ``Bg0015`` and the rows standing there are its rows."""
+        cell = self._cell_holding("Bg0015", [self._a_row_in("Bg0015")])
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, 14), 1)
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(cell, 2),
+            mob_loot.GROUND_LIVENESS_SCENE_MISMATCH)
+
+    def test_an_unaddressed_id_refuses_and_is_never_a_free_pass(self):
+        """``scene_folder_for_scene_id`` answers ``None`` for an id it does
+        not address, and ``None`` at this argument means "do not check the
+        scene at all" -- the cross-scene hole the mismatch value exists to
+        close.  So it must become a REFUSAL, not an absence."""
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        for scene_id in (15, 999, 0, -1, 2 ** 40):
+            with self.subTest(scene_id=scene_id):
+                self.assertIsNone(
+                    world_scene_folder.scene_folder_for_scene_id(scene_id))
+                measured = mob_loot.ground_rows_live_here(cell, scene_id)
+                self.assertEqual(
+                    measured, mob_loot.GROUND_LIVENESS_SCENE_ID_UNADDRESSED)
+                self.assertEqual(
+                    mob_loot.ground_liveness_reason(measured),
+                    "caller_scene_id_unaddressed")
+                self.assertFalse(mob_loot.ground_is_live(measured))
+                # the point of the whole guard: it is NOT the answer a
+                # caller that named no scene at all would have got
+                self.assertNotEqual(
+                    measured, mob_loot.ground_rows_live_here(cell))
+
+    def test_a_bool_is_not_scene_one(self):
+        """``True`` here is a "is there a scene?" answer in a "which scene?"
+        parameter, and scene 1 is a scene this project ships."""
+        row = self._a_row_in("bg0001")
+        cell = self._cell_holding("bg0001", [row])
+        for value in (True, False):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    mob_loot.ground_rows_live_here(cell, value),
+                    mob_loot.GROUND_LIVENESS_BAD_SCENE)
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, 1), 1)
+
+    def test_what_is_still_unreadable_stays_unreadable(self):
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        for value in (object(), 2.0, b"Bg0002", ("Bg0002",), ["Bg0002"],
+                      {"scene": 2}):
+            with self.subTest(value=type(value).__name__):
+                self.assertEqual(
+                    mob_loot.ground_rows_live_here(cell, value),
+                    mob_loot.GROUND_LIVENESS_BAD_SCENE)
+
+    def test_an_id_under_one_publication_answers_the_count(self):
+        """The same fold on the closed path: the composer is handed the
+        real count for the scene the id names."""
+        row = self._a_row_in("Bg0015")
+        cell = self._cell_holding("Bg0015", [row])
+        seen = []
+        answer, rows, swept, moved = cell.compose_under_publication(
+            lambda count: seen.append(count) or "frame", scene=14)
+        self.assertEqual(seen, [1])
+        self.assertEqual((answer, rows, swept, moved), ("frame", 1, 0, False))
+
+    def test_a_refused_id_retires_nothing_and_the_row_is_measured_expired(
+            self):
+        """D6 with the invariant's teeth in (pf-adversary, round ``psce1s``,
+        D3: the first draft of this test used a row that was NOT past its
+        deadline, so ``swept == 0`` whether the guard existed or not, and a
+        mutant that let a refusal through the lock kept it green).
+
+        The row here IS past its deadline, so ANY read that reaches the cell
+        retires it -- which makes the zero below evidence rather than
+        arithmetic, on both guards.
+        """
+        clock = _AClockThatOnlyMovesWhenToldTo()
+        ledger = mob_loot.commit_drops(
+            mob_loot.DropLedger(),
+            (TheLivenessReadNeverCostsTheFrame._a_row_in("Bg0015"),),
+            base_generation=0, kill_token=1)
+        cell = mob_loot.DropLedgerCell(
+            ledger, scene="Bg0015", lifetime_seconds=60.0, clock=clock)
+        clock.advance(61.0)
+
+        refused = []
+        answer, rows, swept, moved = cell.compose_under_publication(
+            lambda count: refused.append(count) or "frame", scene=999)
+        self.assertEqual(
+            refused, [mob_loot.GROUND_LIVENESS_SCENE_ID_UNADDRESSED])
+        self.assertEqual(
+            (answer, rows, swept, moved),
+            ("frame", mob_loot.GROUND_LIVENESS_SCENE_ID_UNADDRESSED, 0,
+             False))
+        self.assertEqual(cell.swept_total, 0)
+
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(cell, 999),
+            mob_loot.GROUND_LIVENESS_SCENE_ID_UNADDRESSED)
+        self.assertEqual(cell.swept_total, 0)
+
+        # the control: a read the fold DOES let through retires it, so the
+        # zeros above are the guard's doing and not the row's
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, 14), 0)
+        self.assertEqual(cell.swept_total, 1)
+
+    def test_a_string_scene_is_still_held_to_the_scene_name_contract(self):
+        """Inherited, not opened, by this round (pf-adversary D10): nothing
+        pinned that the ``str`` branch still runs ``_require_scene``, so a
+        fold that only casefolded would have passed.  The console this lane
+        prints to is cp874 and a scene name is ASCII, printable, unspaced,
+        non-empty and bounded."""
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        for value in ("", "   ", "Bg 0002", "Bg0002\n", "บง",
+                      "B" * (mob_loot.SCENE_NAME_MAX + 1)):
+            with self.subTest(value=repr(value)):
+                self.assertEqual(
+                    mob_loot.ground_rows_live_here(cell, value),
+                    mob_loot.GROUND_LIVENESS_BAD_SCENE)
+
+    def test_none_passed_into_the_fold_is_a_refusal_not_an_absence(self):
+        """The fold cannot tell "I have no scene" from "I have one and it is
+        broken", so it refuses; a caller with no scene leaves the argument
+        unset, and THAT is the documented "keep the cell's own answer"."""
+        row = self._a_row_in("Bg0002")
+        cell = self._cell_holding("Bg0002", [row])
+        self.assertEqual(
+            mob_loot.caller_scene_fold(None),
+            (None, mob_loot.GROUND_LIVENESS_BAD_SCENE))
+        self.assertEqual(mob_loot.ground_rows_live_here(cell), 1)
+        self.assertEqual(mob_loot.ground_rows_live_here(cell, None), 1)
+
+    def test_every_liveness_sentinel_has_its_own_ascii_word(self):
+        """A sentinel with no word prints ``not_a_count`` and sends a reader
+        to the wrong side of the wiring, which is finding D4 all over again.
+        Derived from the module, so a NEW sentinel goes red here."""
+        sentinels = {
+            name: value
+            for name, value in vars(mob_loot).items()
+            if name.startswith("GROUND_LIVENESS_")
+            and isinstance(value, int) and not isinstance(value, bool)
+            and value < 0
+        }
+        self.assertIn("GROUND_LIVENESS_SCENE_ID_UNADDRESSED", sentinels)
+        for name, value in sentinels.items():
+            with self.subTest(sentinel=name):
+                self.assertIn(value, mob_loot.GROUND_LIVENESS_REASONS)
+                word = mob_loot.GROUND_LIVENESS_REASONS[value]
+                self.assertEqual(word, mob_loot.ground_liveness_reason(value))
+                self.assertEqual(word, word.encode("ascii").decode("ascii"))
+                self.assertFalse(mob_loot.ground_liveness_is_readable(value))
+        self.assertEqual(len(set(sentinels.values())), len(sentinels))
+        words = [mob_loot.GROUND_LIVENESS_REASONS[v]
+                 for v in sentinels.values()]
+        self.assertEqual(len(set(words)), len(words))
+
+    def test_the_rosters_scene_string_is_the_registrys_folder_name(self):
+        """The fold is only worth anything if the name it produces is the
+        name the rows really carry.  Both sides read from the modules the
+        server itself loads.
+
+        ITS REACH IS THREE OF THE SEVENTEEN (pf-adversary, round ``psce1s``,
+        D9): scenes 1, 2 and 14 are the only ones with a roster module in
+        ``src/`` carrying a ``SCENE`` constant.  For the other fourteen
+        nothing here proves a row's scene string equals the folder name, and
+        if one of them disagrees the gate answers ``another_scenes_cell`` --
+        which blames the CELL for a caller's fold.  That is the next
+        measurement this branch owes, not a thing this test covers."""
+        for module, scene_id in ((field_mob_tables, 1),
+                                 (field_mob_tables_bg0002, 2),
+                                 (field_mob_tables_bg0015, 14)):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    mob_loot.scene_key(module.SCENE),
+                    mob_loot.caller_scene_fold(scene_id)[0])
 
 
 if __name__ == "__main__":

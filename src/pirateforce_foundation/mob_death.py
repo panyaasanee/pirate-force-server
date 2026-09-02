@@ -199,9 +199,16 @@ MOB_DEATH_LANE = "B_COMBAT"
 # COO-DECISION 2026-08-27T22:49+07:00 (answering LANE-B-ASK-COO 2026-08-27
 # 21:53+07:00, notes_to_chief/20260827_2153_LANE-B-ASK-COO-actor-identity-
 # needs-a-scene-term.md): FieldMob.actor_identity is 0x2000 + placement_index
-# + 1 with NO scene term (field_mobs.cross_scene_identity_collisions() finds
-# 4 real bg0001 x Bg0002 collisions today, e.g. placement 58 -> 0x203B for
-# BOTH bg0001's Jungle Big Tiger and Bg0002's Fighting Fish soldier).  The
+# + 1 with NO scene term (field_mobs.cross_scene_identity_collisions()
+# ~~finds 4 real bg0001 x Bg0002 collisions today, e.g. placement 58 ->
+# 0x203B for BOTH bg0001's Jungle Big Tiger and Bg0002's Fighting Fish
+# soldier~~ FINDS ZERO TODAY -- the pairs went away in round 8ftmbx when the
+# rosters moved, and field_mobs.py has said so since; the number was quoted
+# in THREE places in this file and re-ran in none.  COO-DECISION
+# 20260902_1946 ordered two of them struck; the third was found by
+# pf-adversary in the same round, and it is this one.  The decision below
+# does not depend on the count: what makes a collision POSSIBLE is the
+# identity rule, which has not changed).  The
 # COO's chosen fix is option 3 of 3 offered: do NOT touch that wire formula
 # (options 1/2 would move pins already proven against bg0001) -- instead key
 # this SERVER-SIDE register by the pair (scene, actor_identity), so two
@@ -1249,8 +1256,15 @@ class DeathRecord:
     ``actor_identity`` as long as their ``scene`` differs -- that is the
     whole point: two different mobs in two different scenes that happen to
     compute the same wire identity (``field_mobs.cross_scene_identity_
-    collisions()`` measures 4 such pairs today) are two different graves,
-    not one.
+    collisions()`` ~~measures 4 such pairs today~~ MEASURES ZERO TODAY,
+    struck by COO-DECISION 2026-09-02T19:46+07:00.  THE ANSWER WAS ALREADY
+    PINNED IN CODE -- ``field_mobs.py`` records "ZERO today" since round
+    ``8ftmbx`` and ``tests/test_mob_death.py`` asserts the empty tuple --
+    so what drifted was the PROSE, in three separate places in this file,
+    and nothing pins prose) are two different graves, not one.
+    The key stays ``(scene, actor_identity)`` all the same: what makes a
+    collision possible is the identity RULE (``0x2000 + placement + 1``,
+    no scene term), not today's count of it.
     """
 
     actor_identity: int
@@ -1290,8 +1304,13 @@ class DeathRegister:
     this round by COO-DECISION 2026-08-27T22:49+07:00.  ``FieldMob.
     actor_identity`` is ``0x2000 + placement_index + 1`` with no scene term,
     so two different mobs in two different scenes can and do compute the same
-    wire identity (``field_mobs.cross_scene_identity_collisions()`` measures
-    4 real bg0001 x Bg0002 pairs today).  Before this round a single bare-
+    wire identity (``field_mobs.cross_scene_identity_collisions()``
+    ~~measures 4 real bg0001 x Bg0002 pairs today~~ MEASURES ZERO TODAY --
+    struck by COO-DECISION 2026-09-02T19:46+07:00; the pairs went away in
+    round ``8ftmbx``, ``field_mobs.py`` and this lane's own test have said
+    so ever since, and only the prose in this file kept the old number).
+    The rule that MAKES the collision possible has not changed, so the
+    scene-keyed register stays.  Before this round a single bare-
     identity register would have let killing one of a colliding pair mark the
     OTHER one dead too, in whichever scene it happened to stand in - the
     wrong grave.  Every query method below takes an optional ``scene``
