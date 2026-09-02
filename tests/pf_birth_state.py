@@ -33,11 +33,24 @@ stamp gets written: a ``pf-adversary`` pass (round ``cby3pd``, defect D2)
 took a draft in that shape and drove four different WRONG insertion points
 through it green, the worst of which reset an existing ``level 9, hp 480/500``
 character to ``1, 100/100``.  The refusal in
-:func:`measure_birth_typed_state` is the single place the two accepted states
-are named, and it refuses everything else -- so an insertion point that seeds
-``level = 0``, or that adds ``speed_walk = 400.0`` (a number
-``COO-DECISION 20260901_1447`` point 2 reserves for a migration and forbids at
-birth), turns every file that imports this one red at its fixture.
+:func:`measure_birth_typed_state` is the single place the accepted states are
+named, and it refuses everything else -- so an insertion point that seeds
+``level = 0``, or writes a fifth column, turns every file that imports this one
+red at its fixture.
+
+THE THIRD ACCEPTED STATE, AND WHY IT WAS ADDED RATHER THAN ARGUED WITH.  Until
+``migrations/009_character_birth_defaults.sql`` there were two.  ``009`` gives
+``level``/``hp_current``/``hp_max``/``speed_walk`` a column DEFAULT, so on any
+database carrying it a newborn holds all FOUR -- including ``speed_walk =
+400.0``, the exact value ``COO-DECISION 20260901_1447`` point 2 had reserved
+for a migration and forbidden at birth.  That point was overruled by the
+project owner in person (relayed as ``COO-DECISION 20260902_1607``, which fixes
+all four numbers and forbids changing them), and the pin file that predicted
+this collision said in advance what the fix would be: amend this module, do not
+argue with it from a test.  So :func:`defaulted_birth` is that state, derived
+-- like :func:`seeded_birth` -- from the modules that own the numbers rather
+than written out again here, and a database WITHOUT ``009`` still measures as
+one of the older two.
 
 WHAT IT DOES NOT CLAIM.  It does not check that other TABLES (positions,
 backpacks) or non-vital columns of other rows survived the creation of this
@@ -76,9 +89,70 @@ def seeded_birth() -> dict[str, int]:
     return vitals.new_character_vitals()
 
 
-def accepted_birth_states() -> tuple[dict, dict]:
-    """The only two states this lane accepts from ``create_character``."""
-    return dict(UNSEEDED_BIRTH), seeded_birth()
+def defaulted_birth() -> dict[str, int | float]:
+    """The state a character is born into on a database carrying ``009``.
+
+    ``migrations/009_character_birth_defaults.sql`` installs a column DEFAULT
+    for the three vitals and for ``speed_walk``, so this is
+    :func:`seeded_birth` plus the walk speed.  Both halves are DERIVED from
+    the modules that own the numbers -- ``persistence_vitals`` for the vitals
+    and ``persistence_attr_compose.CLIENT_CONSTRUCTION_DEFAULTS`` for the
+    client's measured ``BasicAttr@0x54`` construction default, reached through
+    ``persistence_typed_attrs.column_for`` so even the COLUMN NAME is not
+    spelled here -- because a copy of ``400.0`` in a test file is a second
+    place the owner's fixed number could drift from ``009``.
+    """
+    from pirateforce_foundation import persistence_attr_compose as compose
+    from pirateforce_foundation import persistence_typed_attrs as typed
+
+    speed_x = 7
+    birth: dict[str, int | float] = dict(seeded_birth())
+    birth[typed.column_for(speed_x)] = (
+        compose.CLIENT_CONSTRUCTION_DEFAULTS[speed_x].value)
+    return birth
+
+
+def accepted_birth_states() -> tuple[dict, dict, dict]:
+    """The only three states this lane accepts from ``create_character``."""
+    return dict(UNSEEDED_BIRTH), seeded_birth(), defaulted_birth()
+
+
+def columns_no_birth_carries() -> tuple[str, ...]:
+    """Typed columns that NO accepted birth state holds, in column order.
+
+    A test whose subject is "an unwritten column arrives absent, never as
+    zero" needs a column it can be sure a newborn does not already carry.
+    Naming one by hand is how such a test rots: ``speed_walk`` was that
+    column until ``migrations/009_character_birth_defaults.sql`` gave it a
+    DEFAULT, and every test that had named it went red at once.  This derives
+    the answer from :func:`accepted_birth_states` instead, so the day a
+    further migration seeds another column the probes move with it -- and if
+    a migration ever seeded ALL of them, this returns empty and the tests
+    that depend on it say so rather than passing vacuously.
+
+    The seventeen it returns today are the ones ``COO-DECISION 20260902_1607``
+    keeps NULL on purpose: the owner's ban on guessing an unknown field as
+    zero (``COO-DECISION 20260901_1059``) is exactly why they have no DEFAULT.
+    """
+    from pirateforce_foundation import persistence_typed_attrs as typed
+
+    carried: set[str] = set()
+    for state in accepted_birth_states():
+        carried |= set(state)
+    return tuple(c for c in typed.TYPED_COLUMNS if c not in carried)
+
+
+def a_column_no_birth_carries() -> str:
+    """One column from :func:`columns_no_birth_carries`, or a refusal."""
+    columns = columns_no_birth_carries()
+    if not columns:
+        raise AssertionError(
+            "every typed column is now carried by some accepted birth state, "
+            "so there is no column left with which to probe 'absent, not "
+            "zero'.  The test that asked for one needs rewriting, not this "
+            "helper."
+        )
+    return columns[0]
 
 
 def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float]:
@@ -89,18 +163,20 @@ def measure_birth_typed_state(store, character_id: int) -> dict[str, int | float
     refusal is what keeps that phrasing from being a rubber stamp.
     """
     state = dict(store.read_typed_attributes(character_id))
-    unseeded, seeded = accepted_birth_states()
-    if state in (unseeded, seeded):
+    unseeded, seeded, defaulted = accepted_birth_states()
+    if state in (unseeded, seeded, defaulted):
         return state
     raise AssertionError(
         "a newly created character holds a typed state this lane does not "
-        "accept: %r.  The two accepted states are %r (no seeding, the world "
-        "as of round cby3pd) and %r (create_character calling "
+        "accept: %r.  The three accepted states are %r (no seeding, the world "
+        "as of round cby3pd), %r (create_character calling "
         "persistence_vitals.new_character_vitals(), COO-DECISION "
-        "20260902_0444).  Anything else -- a fourth column, a level of zero, "
-        "a speed_walk seeded at birth -- is a defect in the insertion point, "
-        "not in the test that just refused it."
-        % (state, unseeded, seeded)
+        "20260902_0444) and %r (the column DEFAULTs of "
+        "migrations/009_character_birth_defaults.sql, COO-DECISION "
+        "20260902_1607).  Anything else -- a fifth column, a level of zero, "
+        "a number that is not the one the owner fixed -- is a defect in the "
+        "insertion point, not in the test that just refused it."
+        % (state, unseeded, seeded, defaulted)
     )
 
 

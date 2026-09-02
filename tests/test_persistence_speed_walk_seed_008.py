@@ -252,8 +252,26 @@ class _MigratedWorkspace(unittest.TestCase):
         finally:
             db.close()
 
+    def _migrations_through_008(self):
+        """A migrations directory holding `001..008` and nothing after it.
+
+        Built inside this test's own temporary tree; the repository's own
+        directory is never touched, and a file is chosen by its VERSION NUMBER
+        rather than by name so the day `010` exists this keeps meaning what it
+        says.  It exists because `009` arrived AFTER this class was written:
+        applying the whole directory would silently make every assertion here
+        about `008 + 009` while the class name, and the sentence each test
+        makes, are about `008` alone.
+        """
+        through = self.root / "migrations_through_008"
+        through.mkdir(exist_ok=True)
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 8:
+                shutil.copy2(path, through / path.name)
+        return through
+
     def _apply_008(self):
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        SQLiteStore(self.path, self._migrations_through_008()).migrate()
 
     def _applied_versions(self):
         db = sqlite3.connect(self.path)
@@ -389,16 +407,24 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         """The limitation the header states, kept as a measurement so the
         sentence in the round file cannot drift from the code.
 
-        A character created AFTER 008 has run holds no speed, and
-        `create_character` cannot give it one:
-        `persistence_vitals.new_character_vitals()` is forbidden from carrying
-        a fourth column, so the insertion point of `COO-DECISION 20260902_0444`
-        closes the cohort gap for the three vitals and not for this column.
+        A character created AFTER 008 has run holds no speed FROM 008: this
+        file writes the rows that exist when it runs and the ledger stops it
+        running again, so the cohort gap is real and stays real.
+
+        WHAT CLOSED THE GAP, AND WHY THIS TEST STILL MEASURES 008's HALF.
+        `migrations/009_character_birth_defaults.sql` gives the column a
+        DEFAULT (`COO-DECISION 20260902_1607`), so a character born on a
+        database carrying `009` DOES hold 400.0 -- from the schema, never from
+        this file.  That is the whole distinction the class is about, so it is
+        measured rather than lost: this test applies `008` and NOT `009`, and
+        the newborn on that database holds nothing.  `009` closing the gap for
+        newborns is its own file's test, and `new_character_vitals()` is still
+        forbidden to carry the column.
         """
         self._make(["Before"])
         self._apply_008()
         self.assertEqual(self._rows()[0][SEEDED_COLUMN], SEEDED_VALUE)
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, self._migrations_through_008())
         later = store.create_character(
             store.ensure_account("after-008"), "After", "after",
             "fingerprint-after-008", _build_wire_for(0x30000001),
@@ -406,6 +432,7 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         self.assertNotIn(
             SEEDED_COLUMN, store.read_typed_attributes(later.id))
         self.assertNotIn(SEEDED_COLUMN, vitals.new_character_vitals())
+
 
 
 class Float32Tests(_MigratedWorkspace):
@@ -739,9 +766,13 @@ class BootSnapshotProtects008Tests(_MigratedWorkspace):
         take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
         self.assertTrue(take, reason)
         self.assertIn("008", reason)
-        self.assertEqual([8],
-                         persistence_backup.pending_versions(self.path,
-                                                             MIGRATIONS))
+        # 008 is PENDING -- listed among the pending files, not necessarily
+        # alone in the list.  It was written as `[8]` when 008 was the last
+        # file in the repository; `009` made that spelling a claim about how
+        # many migrations exist, which is not what this class measures.
+        pending = persistence_backup.pending_versions(self.path, MIGRATIONS)
+        self.assertIn(8, pending)
+        self.assertEqual(pending, sorted(pending))
 
     def test_a_snapshot_that_dies_in_its_prologue_still_aborts_the_boot(self):
         from unittest import mock

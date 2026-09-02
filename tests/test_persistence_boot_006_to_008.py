@@ -654,14 +654,64 @@ class TheBirthGateRefusesTests(unittest.TestCase):
     def _seeded(self):
         return birth_state.seeded_birth()
 
-    def test_it_accepts_the_two_states_it_names_and_they_differ(self):
-        unseeded, seeded = birth_state.accepted_birth_states()
-        self.assertEqual({}, unseeded)
-        self.assertNotEqual(unseeded, seeded)
-        for state in (unseeded, seeded):
+    def test_it_accepts_the_states_it_names_and_they_all_differ(self):
+        """Every accepted state is accepted, and no two of them are the same.
+
+        Written over the whole tuple rather than over two names: `009` added
+        a third (`COO-DECISION 20260902_1607`) and a fourth would otherwise
+        arrive unmeasured.  The pairwise inequality is what stops the tuple
+        being padded with a duplicate to make this test pass.
+        """
+        states = birth_state.accepted_birth_states()
+        self.assertEqual({}, states[0])
+        self.assertGreaterEqual(len(states), 3)
+        for index, state in enumerate(states):
+            for other in states[index + 1:]:
+                self.assertNotEqual(state, other)
             store = _FakeStore({1: state})
             self.assertEqual(state,
                              birth_state.measure_birth_typed_state(store, 1))
+
+    def test_the_defaulted_state_is_derived_and_is_not_a_second_copy(self):
+        """`defaulted_birth` must DERIVE its numbers, exactly as
+        `seeded_birth` does, and for the same reason: `COO-DECISION
+        20260902_1607` fixes them and forbids changing them, so a literal
+        `400.0` or `100` written here would be a second place they live.
+
+        Scanned on the parsed statements with the docstring stripped -- the
+        shape a `pf-adversary` pass drove a literal through when this file
+        scanned prose (see the sibling test above).
+        """
+        import ast
+
+        source = (ROOT / "tests" / "pf_birth_state.py").read_text(
+            encoding="utf-8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "defaulted_birth")
+        body = list(function.body)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            body = body[1:]
+        statements = "\n".join(ast.dump(node) for node in body)
+        self.assertIn("seeded_birth", statements,
+                      "defaulted_birth() no longer builds on seeded_birth()")
+        self.assertIn("CLIENT_CONSTRUCTION_DEFAULTS", statements,
+                      "the walk speed is no longer taken from the module "
+                      "that measured it")
+        for number in ("400.0", "100", "1"):
+            self.assertNotIn(
+                "value=%s" % number, statements,
+                "a number COO-DECISION 20260902_1607 fixed is written out "
+                "here as well as in the module that owns it")
+        # and the state it produces really is the seeded one plus the speed
+        seeded = birth_state.seeded_birth()
+        defaulted = birth_state.defaulted_birth()
+        self.assertEqual({c: defaulted[c] for c in seeded}, seeded)
+        self.assertEqual(sorted(set(defaulted) - set(seeded)), ["speed_walk"])
 
     def test_the_seeded_state_is_derived_and_is_not_a_second_copy(self):
         """`seeded_birth` must DERIVE the numbers, not restate them.
@@ -720,13 +770,24 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         first["level"] = 999
         self.assertNotEqual(first, birth_state.seeded_birth())
 
-    def test_it_refuses_a_fourth_column(self):
-        state = dict(self._seeded())
-        state["speed_walk"] = 400.0
-        store = _FakeStore({1: state})
-        with self.assertRaises(AssertionError) as caught:
-            birth_state.measure_birth_typed_state(store, 1)
-        self.assertIn("speed_walk", str(caught.exception))
+    def test_it_refuses_a_column_no_accepted_state_carries(self):
+        """The refusal, on a column that is genuinely outside every state.
+
+        This was `test_it_refuses_a_fourth_column` and it used `speed_walk`,
+        which `migrations/009_character_birth_defaults.sql` then made a legal
+        FOURTH column (`COO-DECISION 20260902_1607`).  Asking
+        `pf_birth_state` which columns no accepted state carries keeps the
+        refusal measured instead of turning this test into a defence of a
+        superseded decision.
+        """
+        column = birth_state.a_column_no_birth_carries()
+        for base in birth_state.accepted_birth_states():
+            state = dict(base)
+            state[column] = 3
+            store = _FakeStore({1: state})
+            with self.assertRaises(AssertionError) as caught:
+                birth_state.measure_birth_typed_state(store, 1)
+            self.assertIn(column, str(caught.exception))
 
     def test_it_refuses_a_level_of_zero(self):
         state = dict(self._seeded())
@@ -774,7 +835,7 @@ class TheBirthGateRefusesTests(unittest.TestCase):
         `self.birth, self.second_birth = measure_every_birth(...)`, so a
         reversal silently grades the wrong row.
         """
-        unseeded, seeded = birth_state.accepted_birth_states()
+        unseeded, seeded = birth_state.accepted_birth_states()[:2]
         store = _FakeStore({1: unseeded, 2: seeded, 3: unseeded})
         self.assertEqual(
             [unseeded, seeded, unseeded],

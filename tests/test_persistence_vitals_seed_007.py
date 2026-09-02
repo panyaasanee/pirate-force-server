@@ -1288,23 +1288,98 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         if not any(column in stored for column in SEEDED):
             # The plug is not in yet; there is no birth write to trace.
             return
+
+        # *** WHICH MECHANISM SUPPLIED THEM, MEASURED RATHER THAN ASSUMED.
+        # This test used to name "a schema DEFAULT" as one of three forbidden
+        # sources, because `COO-DECISION 20260902_0443` point 2 forbade the
+        # DEFAULT outright.  The project owner overruled that in person and
+        # `migrations/009_character_birth_defaults.sql` is that DEFAULT
+        # (`COO-DECISION 20260902_1607`), so on any database carrying `009` a
+        # newborn holds 1/100/100 whether or not chief's write ever lands, and
+        # the flat sentinel assertion below would accuse a repository that is
+        # exactly right.
+        #
+        # The control separates the two without asking the source code
+        # anything: a row inserted by RAW SQL naming the SAME columns
+        # `create_character` names can only be carrying what the SCHEMA gave
+        # it.  If the newborn holds exactly what that control holds, the
+        # schema supplied the numbers and there is no birth write to trace.
+        # If it holds anything else, something in the create path wrote them
+        # -- and THAT is what has to come from the function.
+        schema_supplied = self._schema_supplied_vitals(_store, _character_id)
+        if {column: stored[column] for column in SEEDED if column in stored} == \
+                {c: v for c, v in schema_supplied.items() if c in SEEDED}:
+            self.assertEqual(
+                {c: v for c, v in schema_supplied.items() if c in SEEDED},
+                dict(birth_state.seeded_birth()),
+                "the schema's own DEFAULTs are not the numbers "
+                "COO-DECISION 20260902_1607 fixed",
+            )
+            return
         self.assertEqual(
             {column: stored[column] for column in SEEDED}, sentinel,
-            "a newborn holds birth vitals, but NOT the ones "
-            "new_character_vitals() returned while it was being created -- so "
-            "the numbers came from somewhere else (an inline literal, a schema "
-            "DEFAULT, or a trigger).  COO-DECISION 20260902_0443 points 1 and "
-            "2 rule out all three.  Measured at runtime, not read off source.",
+            "a newborn holds birth vitals that the schema's DEFAULTs did not "
+            "supply, but they are NOT the ones new_character_vitals() returned "
+            "while it was being created -- so a write in the create path took "
+            "its numbers from somewhere else (an inline literal, or a "
+            "trigger).  COO-DECISION 20260902_0443 point 1 rules both out.  "
+            "Measured at runtime, not read off source.",
         )
 
-    def test_a_birth_seed_may_not_carry_any_other_typed_column(self):
-        """`COO-DECISION 20260901_1447` point 2 -- no value is adjudicated for
-        `speed_walk` or the other seventeen -- holds in both branches, so this
-        one is not conditional at all."""
+    @staticmethod
+    def _schema_supplied_vitals(store, model_character_id):
+        """What a row gets when NOTHING in python writes a typed column.
+
+        Inserted by raw SQL naming exactly the columns
+        `SQLiteStore.create_character`'s own INSERT names -- copied off an
+        existing row so the NOT NULL columns are real -- so every typed value
+        it comes out holding was put there by the SCHEMA and by nothing else.
+        Removed again (hard delete, not a soft one) before returning, so the
+        control cannot be mistaken for a character by anything that counts
+        them afterwards.
+        """
+        db = sqlite3.connect(str(store.path))
+        try:
+            db.row_factory = sqlite3.Row
+            cursor = db.execute(
+                "INSERT INTO characters(account_id,selector,name,name_key,"
+                "create_fingerprint,actor_wire,avatar_wire,avatar_typed_json,"
+                "identity_lo,identity_hi,created_at,updated_at) "
+                "SELECT account_id,255,'SchemaControl','schemacontrol',"
+                "'fingerprint-schema-control',actor_wire,avatar_wire,"
+                "avatar_typed_json,identity_lo+9000,identity_hi,created_at,"
+                "updated_at FROM characters WHERE id=?",
+                (int(model_character_id),),
+            )
+            control_id = int(cursor.lastrowid)
+            columns = list(typed.TYPED_COLUMNS)
+            row = db.execute(
+                "SELECT %s FROM characters WHERE id=?" % ",".join(columns),
+                (control_id,),
+            ).fetchone()
+            supplied = {c: row[c] for c in columns if row[c] is not None}
+            db.execute("DELETE FROM characters WHERE id=?", (control_id,))
+            db.commit()
+        finally:
+            db.close()
+        return supplied
+
+    def test_a_birth_seed_may_not_carry_any_column_nobody_adjudicated(self):
+        """No newborn carries a column no decision has put a number on.
+
+        This used to say "no column other than the three", on
+        `COO-DECISION 20260901_1447` point 2.  The owner then fixed a fourth
+        (`speed_walk = 400.0`, `COO-DECISION 20260902_1607`, installed by
+        `migrations/009_character_birth_defaults.sql`), so the list is asked
+        for rather than written here -- `pf_birth_state` is the one place the
+        accepted states are named.  The seventeen it returns are the ones the
+        same decision keeps NULL on purpose, which is the owner's ban on
+        guessing an unknown field as zero (`COO-DECISION 20260901_1059`).
+        """
         _store, _character_id, stored = self._newborn("no-extras")
-        for column in typed.TYPED_COLUMNS:
-            if column in SEEDED:
-                continue
+        unborn = birth_state.columns_no_birth_carries()
+        self.assertTrue(unborn, "no typed column is left unadjudicated")
+        for column in unborn:
             self.assertNotIn(column, stored, column)
 
     def test_the_birth_values_are_the_same_three_007_wrote(self):

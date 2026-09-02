@@ -614,6 +614,14 @@ class NothingIsWiredTests(unittest.TestCase):
         "src/pirateforce_foundation/store.py",
         "src/pirateforce_foundation/persistence_vitals.py",
         "tests/test_persistence_vitals_heal.py",
+        # LANE-DB round ejrbwx: the `009` file calls `restore_hp_to_full` on a
+        # character it just created on a FRESH INSTALL, to say what closing
+        # the birth hole actually BUYS -- a newborn that can be damaged and
+        # healed, where before `009` both doors refused it as unseeded.  An
+        # exercise of the doors in a test, not a wiring: nothing in that file
+        # is on a send path, it composes no frame, and it is imported by
+        # nothing.
+        "tests/test_persistence_birth_defaults_009.py",
     )
 
     NAMES = r"\b(apply_hp_heal|restore_hp_to_full|apply_heal|heal_to_full)\b"

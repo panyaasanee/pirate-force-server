@@ -757,15 +757,23 @@ class StoreVitalsTests(unittest.TestCase):
         # is carried by `git diff --numstat` on this round (91 insertions, 0
         # deletions in store.py); this test only pins the two methods the new
         # ones are built on top of.
+        # Phrased as `birth + what this test wrote` rather than as a literal
+        # dict: `migrations/009_character_birth_defaults.sql` gives a newborn a
+        # walk speed as well (`COO-DECISION 20260902_1607`), which is not this
+        # test's subject and must not be able to make it red.  The assertion
+        # stays exact -- a method that dropped or invented a column is still
+        # caught.
         self._seed()
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id),
-            {"level": 5, "hp_current": 80, "hp_max": 120},
+            birth_state.with_birth(
+                self.birth, level=5, hp_current=80, hp_max=120),
         )
         self.assertEqual(
             self.store.write_typed_attributes(
                 self.character.id, {"level": 6}),
-            {"level": 6, "hp_current": 80, "hp_max": 120},
+            birth_state.with_birth(
+                self.birth, level=6, hp_current=80, hp_max=120),
         )
 
 
@@ -821,19 +829,17 @@ class NothingIsWiredTests(unittest.TestCase):
         # in a test is an exercise, not a wiring; nothing in that file is on
         # a send path and nothing there composes a frame.
         "tests/test_persistence_boot_006_to_008.py",
-        # LANE-DB round dgx8e5: the birth-hole pin `COO-DECISION 20260902_1546`
-        # ordered.  It reads `read_character_vitals` and
-        # `vitals_seeding_census` on a character it just created on a FRESH
-        # INSTALL, to say out loud that the newborn holds nothing -- the two
-        # doors are what makes "holds nothing" cost something a reader can
-        # see (three named gaps rather than three zeros, and a census of
-        # 0/0/0) instead of an empty dict.  An exercise of the doors, not a
-        # wiring: nothing in that file is on a send path, it composes no
-        # frame, and it is imported by nothing.  It is also the file that
-        # RETIRES first -- the day chief's birth insertion point lands, the
-        # pin fails once with the instruction to delete it, and this entry
-        # goes with it.
-        "tests/test_persistence_birth_hole_pin.py",
+        # LANE-DB round ejrbwx: the birth-hole pin of round `dgx8e5` RETIRED
+        # here, and its entry with it.  `COO-DECISION 20260902_1607` changed
+        # the pin's job -- from pointing at the hole to proving
+        # `migrations/009_character_birth_defaults.sql` closed it -- so the
+        # file was replaced rather than deleted, and the successor reads the
+        # same two doors for the opposite sentence: a newborn on a FRESH
+        # INSTALL now resolves COMPLETE, can be damaged and healed, and the
+        # census counts every row as seeded.  Still an exercise of the doors
+        # and not a wiring: nothing in it is on a send path, it composes no
+        # frame, and it is imported by nothing.
+        "tests/test_persistence_birth_defaults_009.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
