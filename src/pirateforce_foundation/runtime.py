@@ -8824,6 +8824,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # must fail loudly here rather than compose every
                             # answer at the table ceiling in silence.
                             mob_combat_ledger=self.mob_combat_ledger,
+                            # PASSED SINCE R314 (lane A's letter
+                            # 20260903_0325 and lane B's 20260903_0152
+                            # item 2, whose two ordering conditions are
+                            # both on main now).  Every responder routes it
+                            # through lane_a_ground_preserve.compose_answer,
+                            # which composes under the cell's OWN
+                            # publication, so a row standing on this scene's
+                            # floor survives the answer instead of being
+                            # cleared by it.  NOT a no-op the day it lands:
+                            # lane A measured scene 2 at 12,574 -> 12,577
+                            # bytes with one row down; an empty floor still
+                            # gets v141's own bytes.  Attribute access, not
+                            # getattr, for the ledger's reason above -- it is
+                            # opened in the same __init__ try that re-raises
+                            # (runtime.py:1401), so a rename must fail loudly
+                            # here rather than drop the ground list in
+                            # silence.
+                            mob_loot_cell=self.mob_loot_cell,
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down

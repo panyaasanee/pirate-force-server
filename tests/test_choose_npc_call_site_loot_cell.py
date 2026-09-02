@@ -1,32 +1,37 @@
-"""LANE-E: the ChooseNPC call site hands the responder the SESSION's ledger.
+"""LANE-E: the ChooseNPC call site hands the responder the SESSION's cell.
 
-WHAT THIS PINS AND WHY IT IS A SEPARATE FILE.  ``runtime.py``'s ChooseNPC
-dispatch spent five rounds passing no ``mob_combat_ledger=`` at all, because
-the scene-2 responder's dead branch used to refuse the WHOLE click and one
-kill silenced the scene (chief's letter ``20260902_1918``).
-``COO-DECISION 20260903_0251`` lifted that hold after ``#606`` narrowed the
-refusal to the clicked identity, and this file is the guard that the keyword
-is actually AT THE CALL SITE -- not merely accepted by a responder someone
-calls by hand.
+WHAT THIS PINS.  ``runtime.py``'s ChooseNPC dispatch composes its answer
+through lane A's responders, and those responders route the frame through
+``lane_hooks.lane_a_ground_preserve.compose_answer``.  That function keeps
+the ground list alive only when a real ``mob_loot.DropLedgerCell`` reaches
+it; with ``None`` it falls back to v141's own bytes and a row lying on this
+scene's floor is CLEARED by the answer to an unrelated click.  Lane A asked
+for the keyword (``pf_bridge notes_to_chief/20260903_0325``) and lane B's
+``20260903_0152`` item 2 named the two things that had to be on ``main``
+first -- ``caller_scene_fold`` and the under-publication composer.  Both are.
 
-``tests/test_lane_a_click_after_a_kill.py`` (lane A's) proves the responder
-behaves when a ledger is handed to it; it says so in its own docstring, and
-it hands the ledger over by hand precisely because the call site did not.
-This file removes that hand: every frame here goes through
-``state.dispatch``, so if the keyword is deleted from ``runtime.py`` the
-responder sees ``None``, composes at the table ceiling, and the
-``dead_at_ceiling=1`` assertion below goes red.  Nothing else in the
-repository would notice.
+WHY IT IS A SEPARATE FILE FROM ``test_choose_npc_call_site_ledger.py``:
+that one pins the COMBAT ledger keyword and would stay green with the loot
+cell deleted.  Measured on this tree, one row standing in scene 2: the
+answer is 12,577 bytes with the keyword and 12,574 without it -- exactly
+the three bytes lane A predicted from its own measurement.
 
-THE HARNESS SHAPE is reproduced from ``test_lane_a_click_after_a_kill.py``
-rather than imported, for the reason that file gives for reproducing
-LANE-B's: importing another lane's test class makes a production guarantee
-die quietly the day that file is reorganised.
+THE HARNESS SHAPE is reproduced from ``test_choose_npc_call_site_ledger.py``
+rather than imported, for the reason that file gives for reproducing lane
+A's: importing another test class makes a production guarantee die quietly
+the day that file is reorganised, and a subclass would silently re-run the
+parent's whole suite here as well.
+
+NO EXACT BYTE COUNT IS ASSERTED.  The frame's size is lane A's table data
+and lane B's row shape; pinning 12,577 here would make this lane's file the
+trap that kills their round (``COO-DECISION 20260903_0053`` rule b).  What
+is pinned is the DIFFERENCE the seam exists to make, which no other lane
+can change by editing a table.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
-import inspect
 import io
 import random
 import sys
@@ -40,6 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs                      # noqa: E402
 from pirateforce_foundation import mob_combat                      # noqa: E402
 from pirateforce_foundation import mob_combat_membership           # noqa: E402
+from pirateforce_foundation import mob_loot                        # noqa: E402
 from pirateforce_foundation import scene2_prison_exile_tables as tables  # noqa: E402
 from pirateforce_foundation import world_scene_travel              # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (        # noqa: E402
@@ -75,7 +81,7 @@ def _legacy():
     return _legacy.cached
 
 
-class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
+class TheCallSiteHandsOverTheSessionLootCellTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -289,143 +295,139 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
 
     # ---- the pins ---------------------------------------------------
 
-    def test_a_click_after_a_kill_still_puts_bytes_on_the_wire(self) -> None:
-        state, _target = self._killed_session_standing_in_scene_2()
-        index = self._civilian_index()
-        actions, _console = self._click(state, index)
-        answers = [
-            action for action in actions
-            if action[0] == (
-                f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_FACE_P{index}")
-        ]
-        self.assertEqual(len(answers), 1, actions)
-        self.assertTrue(answers[0][1], "the answer carried no pc bytes")
-        self.assertTrue(answers[0][2], "the answer carried no frame bytes")
 
-    def test_the_answer_proves_the_session_ledger_reached_the_responder(
-        self,
-    ) -> None:
-        """``dead_at_ceiling=`` counts corpses the responder had to compose
-        at the table ceiling, and it can only be non-zero if a ledger that
-        KNOWS ABOUT THE KILL arrived.  Delete ``mob_combat_ledger=`` from
-        the call site and this reads ``dead_at_ceiling=0``: the whole point
-        of the round, in one token."""
-        state, _target = self._killed_session_standing_in_scene_2()
-        _actions, console = self._click(state, self._civilian_index())
-        tokens = self._answered_tokens(console)
-        self.assertIn("dead_at_ceiling=1", tokens)
-        self.assertIn("hp=ledger", tokens)
+    def _row_count(self, state):
+        return mob_loot.ground_rows_live_here(state.mob_loot_cell, "Bg0002")
 
-    def test_the_corpse_is_refused_by_name_and_not_by_silence(self) -> None:
-        """The behaviour ``COO-DECISION 20260903_0251`` accepted as the
-        remaining cost: a click on the dead body itself still answers with
-        no bytes -- but it is NAMED, and it is the only click that does.
-
-        !! THIS TEST IS MEANT TO DIE, AND LANE A IS THE LANE THAT KILLS IT
-        (AGENTS.md rule: a test pinning another lane's behaviour as a
-        baseline has to be able to die on purpose).  The same COO note
-        hands lane A the follow-up in which the corpse answers with a
-        ``mob_death`` body instead of with silence; the commit that pays
-        that debt REPLACES this assertion, and needs no letter to chief to
-        do it.  What must survive is the half below it: the refusal is
-        printed with the clicked placement's own number."""
-        state, target = self._killed_session_standing_in_scene_2()
-        dead_index = next(
-            index for index, mob in self._hostile_indices().items()
-            if mob.actor_identity == target
-        )
-        actions, console = self._click(state, dead_index)
+    def _frame_of(self, state, placement_index):
+        actions, console = self._click(state, placement_index)
         self.assertEqual(
-            [action for action in actions
-             if action[0].startswith(
-                 f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_FACE_P")],
-            [], actions,
+            len(actions), 1,
+            f"the click was not answered with one action: {console}",
         )
-        self.assertIn(
-            "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_mob_"
-            f"death_body placement={dead_index} identity=0x", console)
+        return actions[0][2]
 
-    def test_a_click_before_any_kill_is_answered_at_the_ceiling(self) -> None:
-        """The control: the same dispatch on a session with no combat in it
-        answers with ``dead_at_ceiling=0``, so the assertion above is
-        reading the kill and not merely the presence of a ledger."""
-        state = self._state("tok_call_site_ledger_control")
-        spawn = self._warp(state, PRISON_EXILE)
-        self._dispatch(state, self._target_pos_pc(spawn))
-        index = self._civilian_index()
-        actions, console = self._click(state, index)
-        self.assertTrue([
-            action for action in actions
-            if action[0] == (
-                f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_FACE_P{index}")
-        ], actions)
-        self.assertIn("dead_at_ceiling=0", self._answered_tokens(console))
+    # ---- the pins ---------------------------------------------------
 
-    def test_a_wounded_monster_reaches_the_wire_wounded(self) -> None:
-        """The benefit the CORE-REQUEST was actually asking for, end to end.
-
-        pf-adversary D7, measured: throwing every WOUND away inside
-        ``lane_a_click_hp.current_hp_of`` (deaths still honoured) left this
-        file green while the ceiling-heal the request exists to stop was
-        fully back.  The dead path was pinned and the wounded path was not,
-        so this drives a hurt-but-living monster through the dispatcher.
-        """
-        state = self._state("tok_call_site_ledger_wounded")
-        spawn = self._warp(state, PRISON_EXILE)
-        target = self.roster[0].actor_identity
-        max_hp = self._wound(state, target, 1)
-        self.assertGreater(
-            state.mob_combat_ledger.balance_of(target).current_hp, 0,
-            "the harness killed the monster instead of wounding it",
-        )
-        self.assertLess(
-            state.mob_combat_ledger.balance_of(target).current_hp, max_hp,
-            "the harness did not actually take any HP off",
-        )
-        self._dispatch(state, self._target_pos_pc(spawn))
-        _actions, console = self._click(state, self._civilian_index())
-        tokens = self._answered_tokens(console)
-        self.assertIn("wounded=1", tokens)
-        self.assertIn("dead_at_ceiling=0", tokens)
-
-    def test_every_registered_responder_accepts_the_call_sites_keywords(
+    def test_a_row_on_this_floor_survives_an_answer_to_another_click(
         self,
     ) -> None:
-        """A responder that cannot take one keyword loses its WHOLE scene.
+        """The whole benefit of the keyword, measured through dispatch.
 
-        pf-adversary D4, measured on a substituted old-signature responder:
-        the click returns zero bytes and no action, the console still prints
-        ``LANE_HOOK_FIRED`` (which reads as success), and the
-        ``scene_choose_npc_responder_failed_TypeError`` event only reaches a
-        console started with ``--export-events``.  ``lane_hooks``' own
-        docstring ASKS responders to accept ``**kwargs``; nothing enforced
-        it, and this round is the one that grew the call site from six
-        keywords to seven.
+        A kill in scene 2 leaves loot on the ground.  The player then
+        clicks a CIVILIAN -- nothing to do with the corpse -- and the
+        answer to that click either carries the standing row or wipes it
+        from the player's world until the next publication.  ``GT-204``
+        is written to watch exactly this sequence.
+
+        The mutant is applied in-process rather than by editing the file:
+        withholding the cell from the same session, on the same click, is
+        byte-for-byte what deleting ``mob_loot_cell=`` from the call site
+        does, and it keeps the comparison free of table drift.
         """
-        call_site_keywords = {
-            "legacy", "chosen_identities", "population_indices",
-            "last_target_pos", "scene_id", "scene_entry_registry",
-            "mob_combat_ledger",
-            # R314: the eighth keyword, lane A's ground-preserve cell.  A
-            # responder that cannot take it loses its whole scene in the
-            # same silent shape D4 measured for the seventh.
-            "mob_loot_cell",
-        }
-        registered = dict(lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS)
-        self.assertTrue(registered, "no ChooseNPC responder is registered")
-        for scene_id, entry in sorted(registered.items()):
-            with self.subTest(scene=scene_id, module=entry.module):
-                parameters = inspect.signature(entry.respond).parameters
-                takes_var_keyword = any(
-                    p.kind is inspect.Parameter.VAR_KEYWORD
-                    for p in parameters.values()
-                )
-                missing = call_site_keywords - set(parameters)
-                self.assertTrue(
-                    takes_var_keyword or not missing,
-                    f"{entry.module} would raise TypeError on "
-                    f"{sorted(missing)} and lose scene {scene_id} entirely",
-                )
+        state, _target = self._killed_session_standing_in_scene_2()
+        placement = self._civilian_index()
+        self.assertEqual(
+            self._row_count(state), 1,
+            "the harness left no loot on the ground, so this test would "
+            "pass for the wrong reason",
+        )
+        with_cell = self._frame_of(state, placement)
+
+        held_back = state.mob_loot_cell
+        state.mob_loot_cell = None
+        try:
+            without_cell = self._frame_of(state, placement)
+        finally:
+            state.mob_loot_cell = held_back
+
+        self.assertNotEqual(
+            with_cell, without_cell,
+            "the standing ground row made no difference to the frame, so "
+            "the call site is not reaching the under-publication composer",
+        )
+        self.assertGreater(
+            len(with_cell), len(without_cell),
+            "the answer that kept the ground list is not the longer frame",
+        )
+
+    def test_an_empty_floor_is_answered_with_the_bytes_of_the_day_before(
+        self,
+    ) -> None:
+        """The common path must be untouched, byte for byte.
+
+        Every boot before a kill, and every scene whose floor is clean,
+        has to compose exactly what it composed yesterday -- otherwise the
+        seam is a behaviour change on every click instead of on the one
+        click it exists for.
+        """
+        state = self._state("tok_call_site_loot_cell_clean")
+        spawn = self._warp(state, PRISON_EXILE)
+        self._dispatch(state, self._target_pos_pc(spawn))
+        placement = self._civilian_index()
+        self.assertEqual(
+            self._row_count(state), 0, "this scene's floor is not clean",
+        )
+        with_cell = self._frame_of(state, placement)
+
+        held_back = state.mob_loot_cell
+        state.mob_loot_cell = None
+        try:
+            without_cell = self._frame_of(state, placement)
+        finally:
+            state.mob_loot_cell = held_back
+
+        self.assertEqual(
+            with_cell, without_cell,
+            "passing the cell changed the frame on a clean floor",
+        )
+
+    def test_the_call_site_reads_the_attribute_and_does_not_guess(
+        self,
+    ) -> None:
+        """``mob_loot_cell=self.mob_loot_cell`` at the call site, by AST.
+
+        Read as AST and not as text, for the reason lane B measured on its
+        own baseline test (letter ``20260903_0355`` item three): a text
+        pin goes red when the line is merely re-wrapped, and stays green
+        when the name is changed with the old one left behind in a
+        struck-through comment -- this house's own convention.
+
+        ``getattr(self, "mob_loot_cell", None)`` is refused on purpose.
+        The cell is opened in the same ``__init__`` ``try`` that re-raises
+        (``runtime.py`` ~1401), so a session that reaches ``dispatch`` has
+        one; a future rename must then fail loudly here instead of
+        clearing the ground on every answer in silence.
+        """
+        tree = ast.parse(
+            (ROOT / "src" / "pirateforce_foundation" / "runtime.py").read_text()
+        )
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "respond"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "scene_choose_npc_responder"
+        ]
+        self.assertEqual(
+            len(calls), 1,
+            "expected exactly one scene_choose_npc_responder.respond() "
+            f"call site, found {len(calls)}",
+        )
+        keywords = {kw.arg: kw.value for kw in calls[0].keywords}
+        self.assertIn(
+            "mob_loot_cell", keywords,
+            "the call site passes no cell: every answer clears the ground",
+        )
+        value = keywords["mob_loot_cell"]
+        self.assertIsInstance(
+            value, ast.Attribute,
+            "the cell must be read as self.mob_loot_cell, not guessed",
+        )
+        self.assertEqual(value.attr, "mob_loot_cell")
+        self.assertIsInstance(value.value, ast.Name)
+        self.assertEqual(value.value.id, "self")
 
 
 if __name__ == "__main__":
