@@ -34,9 +34,20 @@ proves four things, in the order they matter:
    clamped and REPORTED (``requested`` vs ``applied``), a negative amount is
    refused rather than healing, ``True`` is not one point of damage, and the
    floor is zero.
-4. **Nothing is WIRED.**  No call site outside this lane calls either store
-   method; asserted rather than promised, by scanning every python tree in
-   the repository (``NothingIsWiredTests``), not by trusting a comment.
+4. **Nothing is WIRED.**  No call site outside this lane calls any of the
+   three store methods; asserted rather than promised, by walking every
+   ``.py`` under the repository root (``NothingIsWiredTests``), not by
+   trusting a comment.
+
+   THE WORD "EVERY" IS NEW AND IS THE POINT.  When this headline was
+   rewritten it said "scanning every python tree in the repository" over a
+   scan that walked a hardcoded list of seven directories and skipped the
+   missing ones in silence -- two of the seven do not exist.  A third
+   ``pf-adversary`` pass dropped a real caller in the repository ROOT and
+   another under a new top-level directory, and both left the test green.
+   The claim was corrected by making it TRUE (the scan walks ``ROOT``) rather
+   than by narrowing the sentence, because a directory added next year should
+   join the scan by existing.
 
    It used to read "nothing is seeded and nothing is wired ... by parsing the
    migrations directory".  Both halves had rotted and a ``pf-adversary`` pass
@@ -523,25 +534,50 @@ class NewCharacterVitalsTests(unittest.TestCase):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        # A SMOKE CHECK, AND NOT THE TIE.  `== 2` turned red, with a message
-        # about vitals drift, the day anyone added a third 0x14 tag for an
-        # unrelated reason (0x14 is the generic u32 tag; `basic_faction` uses
-        # it in this same function).  `>= 2` fixed that and a second
-        # `pf-adversary` pass measured what it cost: change hp_max to 150 AND
-        # add one unrelated `u32tag(0x14, 100)` above it, and this test stays
-        # GREEN while `player_wire` sends 150.  A false-red became a
-        # false-green.
+        # THE HP PAIR, BY POSITION, TIED TO THE `level` TAG ABOVE IT.
         #
-        # Neither form is the real tie and neither ever was, so this no longer
-        # pretends to be one.  WHAT ACTUALLY TIES THESE VALUES TO THE WIRE is
-        # `tests/test_persistence_vitals_seed_007.py::WireEqualityTests`,
-        # which encodes x=2/3/4 from what is IN THE DATABASE and finds the
-        # bytes inside the login frame `player_wire` really builds -- it reads
-        # no source text at all, so no amount of editing this function fools
-        # it.  (Measured: the same mutation turns eight other tests red,
-        # golden hashes among them.  The suite is not blind; this test is.)
-        self.assertGreaterEqual(
-            body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        # Three drafts of this assertion were wrong and the history is worth
+        # keeping, because each fix moved the defect instead of removing it.
+        # `== 2` on `body.count("legacy.u32tag(0x14, 100)")` was a false RED:
+        # 0x14 is the generic u32 tag (`basic_faction` uses it in this same
+        # function), so an unrelated third one turned this red with a message
+        # about vitals drift.  `>= 2` fixed that and bought a false GREEN: a
+        # third `pf-adversary` pass changed hp_max to 150 AND added one
+        # unrelated `u32tag(0x14, 100)`, and every test in this lane stayed
+        # green while the login frame sent 150.  The comment written in that
+        # round then claimed `WireEqualityTests` was the real tie -- MEASURED
+        # AND FALSE, twice over: that class stays green under the same
+        # mutation (its byte-substring is still present exactly once), and it
+        # reads `player_wire`'s source text itself.  Naming the wrong test as
+        # the guarantee, inside the comment that authorises this assertion,
+        # is the exact defect this file records as the worst kind.
+        #
+        # So the tie is built instead of cited.  The HP pair is the two
+        # consecutive literal 0x14 tags that FOLLOW the `level` tag, and both
+        # must carry this module's own constant.  An unrelated tag inserted
+        # above them shifts one into the pair and the value check fires; one
+        # added elsewhere in the function is not in the pair and is correctly
+        # ignored, which is what `>= 2` was reaching for and missed.
+        # A WINDOW WITH A NAMED EDGE ON BOTH SIDES, not an offset from one.
+        # Anchoring only on the tag above was the FOURTH wrong version of
+        # this assertion, and it was measured wrong before it shipped: the
+        # adversary's mutation inserts its unrelated tag BETWEEN the level tag
+        # and the pair, so "the first two after level" are still 100, 100 and
+        # the check passes while hp_max is 150.  Bounding the window at both
+        # ends and requiring it to hold EXACTLY the pair catches that -- three
+        # tags in the window is itself the failure -- while a tag added
+        # anywhere outside the run is still correctly ignored.
+        start = body.index("legacy.u16tag(0x12, level)")
+        end = body.index("legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)", start)
+        window = [int(value) for value in re.findall(
+            r"legacy\.u32tag\(0x14,\s*(\d+)\)", body[start:end])]
+        self.assertEqual(
+            window, [vitals.NEW_CHARACTER_HP, vitals.NEW_CHARACTER_HP],
+            "between the level tag and the movement-speed tag player_wire "
+            "emits the literal 0x14 values %r; the HP pair and "
+            "NEW_CHARACTER_HP disagree, or something joined the run" % (
+                window,),
+        )
         born = vitals.new_character_vitals()
         self.assertEqual(
             born[vitals.LEVEL_COLUMN], player_wire.PLAYER_LOGIN_LEVEL)
@@ -1101,22 +1137,33 @@ class NothingIsWiredTests(unittest.TestCase):
             str(Path(__file__).resolve().relative_to(ROOT)).replace("\\", "/"),
             self.ALLOWED_TO_NAME_THEM,
         )
+        # EVERY `.py` UNDER THE REPOSITORY ROOT, not a list of directories.
+        #
+        # The list this replaced named seven trees and `continue`d silently
+        # over any that did not exist -- and two of the seven do not
+        # (`scenarios/` is absent, `drafts/` holds no python), which nothing
+        # counted or pinned.  A third `pf-adversary` pass walked through the
+        # hole twice: a real caller at `wire_probe_root.py` in the repository
+        # ROOT, and another under a new top-level `docs_scripts/`, both left
+        # this test green.  A silent skip over a stale pin, in the one test
+        # whose whole job is to say nobody calls these methods -- and the
+        # headline of this file claimed it scanned the repository.
+        #
+        # `.git` is excluded because it holds no source this claim is about;
+        # everything else is walked, so a directory added next year joins the
+        # scan by existing rather than by somebody remembering this list.
         callers = []
-        trees = [ROOT / "src", ROOT / "tools", ROOT / "scenarios",
-                 ROOT / "current", ROOT / "tests", ROOT / "drafts",
-                 ROOT / "reports"]
-        for tree in trees:
-            if not tree.exists():
+        for path in sorted(ROOT.rglob("*.py")):
+            relative = str(path.relative_to(ROOT)).replace("\\", "/")
+            if relative.startswith(".git/"):
                 continue
-            for path in tree.rglob("*.py"):
-                relative = str(path.relative_to(ROOT)).replace("\\", "/")
-                if relative in self.ALLOWED_TO_NAME_THEM:
-                    continue
-                text = path.read_text(encoding="utf-8", errors="replace")
-                if re.search(
-                        r"\b(apply_hp_damage|read_character_vitals|"
-                        r"vitals_seeding_census)\b", text):
-                    callers.append(str(path.relative_to(ROOT)))
+            if relative in self.ALLOWED_TO_NAME_THEM:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if re.search(
+                    r"\b(apply_hp_damage|read_character_vitals|"
+                    r"vitals_seeding_census)\b", text):
+                callers.append(relative)
         self.assertEqual(
             [], callers,
             "something now calls the vitals store methods (%r).  That is not "

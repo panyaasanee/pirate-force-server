@@ -571,10 +571,27 @@ class WireEqualityTests(_MigratedWorkspace):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        self.assertEqual(body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        # THE SAME WINDOW `tests/test_persistence_vitals.py` USES, and it is
+        # here because a third `pf-adversary` pass found this file carrying
+        # the `== 2` count that the OTHER file had just been corrected for --
+        # while a comment over there named THIS class as the thing that could
+        # not be fooled by editing source, which was false twice over: this
+        # class does read source (right here), and its byte comparison stays
+        # green under the mutation, because `level(1) + 100 + 100` is still
+        # present exactly once in a frame that also carries a 150.
+        #
+        # Measured against the mutation that defeated every earlier form
+        # (hp_max -> 150 with one unrelated 0x14 tag inserted above the pair):
+        # red.  Against an unrelated 0x14 tag outside the run: green.
+        start = body.index("legacy.u16tag(0x12, level)")
+        end = body.index("legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)", start)
+        window = [int(v) for v in re.findall(
+            r"legacy\.u32tag\(0x14,\s*(\d+)\)", body[start:end])]
+        self.assertEqual(
+            window, [SEEDED["hp_current"], SEEDED["hp_max"]],
+            "player_wire's HP run is %r; 007 and the login frame disagree"
+            % (window,))
         self.assertEqual(player_wire.PLAYER_LOGIN_LEVEL, SEEDED["level"])
-        self.assertEqual(SEEDED["hp_current"], 100)
-        self.assertEqual(SEEDED["hp_max"], 100)
 
     def test_the_stored_values_resolve_as_a_complete_vitals_state(self):
         """A seed that the lane's own decision layer refuses would be a seed
@@ -768,8 +785,17 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
 
         `PlugsThatBindWrongValuesTests` below is the answer: it drives this
         method against rows a WRONG plug would leave and requires it to FAIL.
-        Gut any assertion below and those tests go red, because a grader that
-        asserts nothing cannot reject anything.
+
+        WHAT THAT BUYS, STATED EXACTLY, because the first version of this
+        paragraph said "gut any assertion below and those tests go red" and a
+        third `pf-adversary` pass measured that as false: single assertions
+        here are deliberately redundant with each other, and deleting one
+        alone is NOT detected.  What is guaranteed is narrower and is the
+        thing that matters: NO VITAL COLUMN CAN LOSE ALL OF ITS ASSERTIONS
+        without a wrong plug being accepted, because `WRONG_PLUGS` carries a
+        row that is wrong in that column and correct in the other two --
+        and `test_every_vital_column_is_wrong_in_exactly_one_row` counts
+        that property rather than trusting it.
         """
         stored = store.read_typed_attributes(character_id)
         if not self._plug_has_landed(stored):
@@ -919,6 +945,14 @@ class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
     #: the SQL CHECKs allow every one.  The only thing wrong with them is that
     #: they are not what 007 wrote, which is exactly the class of error no
     #: other gate in this repository can see.
+    #: ONE ROW PER COLUMN, EACH WRONG IN THAT COLUMN ALONE.  The first four
+    #: were not enough and a third `pf-adversary` pass showed why with a
+    #: two-line deletion: remove BOTH assertions that mention `hp_max` and
+    #: every one of them still failed for another reason, so the grader
+    #: asserted nothing at all about `hp_max` and the tree stayed green.  A
+    #: plug binding `{level: 1, hp_current: 100, hp_max: 150}` was accepted.
+    #: `hp_max_alone` closes that: it is correct in the two other columns, so
+    #: only an `hp_max` assertion can catch it.
     WRONG_PLUGS = (
         ("half the HP a 007-seeded character has",
          {"level": 1, "hp_current": 50, "hp_max": 50}),
@@ -928,12 +962,33 @@ class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
          {"level": 1, "hp_current": 99, "hp_max": 100}),
         ("the right numbers on the wrong columns",
          {"level": 100, "hp_current": 1, "hp_max": 100}),
+        ("hp_max alone, every other column right",
+         {"level": 1, "hp_current": 100, "hp_max": 150}),
+        ("level alone, every other column right",
+         {"level": 3, "hp_current": 100, "hp_max": 100}),
+        ("hp_current alone, every other column right",
+         {"level": 1, "hp_current": 80, "hp_max": 100}),
     )
 
     def test_every_wrong_plug_is_rejected_by_the_grader(self):
-        for description, values in self.WRONG_PLUGS:
+        for index, (description, values) in enumerate(self.WRONG_PLUGS):
             with self.subTest(plug=description):
-                store = SQLiteStore(self.path, MIGRATIONS)
+                # A FRESH DATABASE FILE PER ROW, not a re-run of setUp.
+                # The first version called `self.tearDown()` and
+                # `self.setUp()` inside this `with` block, and a third
+                # `pf-adversary` pass measured both halves wrong:
+                # `_MigratedWorkspace` defines no `tearDown`, so that call was
+                # `unittest`'s no-op and cleaned nothing (each `setUp` leaked
+                # its predecessor's temp dir through `addCleanup`), and
+                # because the reset sat INSIDE the subTest, a failing row
+                # abandoned the block before reaching it -- so the next three
+                # rows died on `UNIQUE constraint failed: characters.
+                # identity_lo` instead of reporting their own verdict.  Three
+                # of four diagnostics were lost in exactly the case the class
+                # exists to report.  A distinct path per row has no reset to
+                # skip.
+                path = self.root / ("wrong-plug-%d.sqlite3" % index)
+                store = SQLiteStore(path, MIGRATIONS)
                 store.migrate()
                 character = self._new_character(store)
                 store.write_typed_attributes(character.id, values)
@@ -942,8 +997,6 @@ class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
                         "asserts nothing that discriminates"
                         % (description, values))):
                     self._grade_a_newborn(store, character.id)
-                self.tearDown()
-                self.setUp()
 
     def test_the_right_plug_is_accepted_by_the_same_grader(self):
         """The control.  Without it, a grader that raised unconditionally
@@ -954,6 +1007,29 @@ class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
         store.write_typed_attributes(
             character.id, vitals.new_character_vitals())
         self.assertTrue(self._grade_a_newborn(store, character.id))
+
+    def test_every_vital_column_is_wrong_in_exactly_one_row(self):
+        """The property `WRONG_PLUGS` has to keep, checked instead of trusted.
+
+        Every column must be the ONLY thing wrong in at least one row --
+        otherwise the grader can lose that column's assertions entirely and
+        the other rows still fail for their own reasons, which is precisely
+        the hole the third adversary pass found for `hp_max`.  A row added
+        later that is wrong in two columns does not restore the property, so
+        this counts rather than assuming.
+        """
+        right = vitals.new_character_vitals()
+        isolated = set()
+        for _, values in self.WRONG_PLUGS:
+            wrong = [c for c in vitals.VITAL_COLUMNS
+                     if values[c] != right[c]]
+            if len(wrong) == 1:
+                isolated.add(wrong[0])
+        self.assertEqual(
+            isolated, set(vitals.VITAL_COLUMNS),
+            "no row of WRONG_PLUGS is wrong ONLY in %s, so every assertion "
+            "about it could be deleted with the suite staying green"
+            % (sorted(set(vitals.VITAL_COLUMNS) - isolated),))
 
 
 class BootSnapshotProtects007Tests(_MigratedWorkspace):
