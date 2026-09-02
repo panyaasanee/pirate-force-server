@@ -63,6 +63,7 @@ alone), and that is what `test_a_row_with_no_value_sends_the_constant` now
 pins, after emptying the column itself instead of trusting a migration
 another lane owns.  [pf-adversary, round `eww6tv`.]
 """
+import ast
 import sqlite3
 import struct
 import sys
@@ -595,13 +596,12 @@ class TheRealLoginPathTests(_LegacyCase):
         # whole change down once already as `#610` (`1 failed / 7148 passed`,
         # the pull request closed by the workflow, the diff lost, and `main`
         # left red for every lane meanwhile) after `#495` before it.
-        # Nothing on Linux fails when this line is written the wrong way --
-        # measured this round: with the `with` form restored and no other
-        # change, this file reports 32 passed here and dies on the gate.  A
-        # runtime guard that makes it visible on Linux is a SEPARATE change
-        # on purpose (`COO-DECISION 20260903_0052` point 1 forbids attaching
-        # anything to a red-main recovery); until it lands, this comment is
-        # the only thing standing between the next reader and a lost round.
+        # This comment is NOT what protects the line -- comments do not fail.
+        # `NoUnclosedSqliteHandleInThisFileTests` at the bottom of this file
+        # does, and it was measured going red on both spellings of the leak
+        # (the bare `with`, and dropping only `close()`).  Deleting that class
+        # takes this file back to `32 passed` with the leak in place, which is
+        # exactly the state `#610` was written and measured in.
         db = sqlite3.connect(self.path)
         try:
             db.execute(
@@ -706,6 +706,109 @@ class TheRealLoginPathTests(_LegacyCase):
             "AttributeError", resolved.detail,
             "the reason must name what actually went wrong; two different "
             "database faults printing one identical line is not evidence")
+
+
+class NoUnclosedSqliteHandleInThisFileTests(unittest.TestCase):
+    """The only thing in this round that can actually GO RED.
+
+    !! THIS CLASS IS HERE BECAUSE PROSE HAS NOW FAILED TWICE.  The trap it
+    pins -- `with sqlite3.connect(path) as db:`, which commits on exit and
+    does NOT close -- has closed two pull requests a month apart: `#495`
+    (`1 failed / 5471 passed`) and `#610` (`1 failed / 7148 passed`, gate run
+    `33660327427`, on the very test above).  `#610` was itself the repair for
+    a red `main`, so the leak took `main` down for every lane, not just this
+    one.  After `#495` the resolution was written down; a month later `#610`
+    walked into the identical hole four metres outside the fence, because the
+    only mechanism that could go red was scoped by `Path(__file__)` to one
+    other module.  A comment does not fail.  A round file does not fail.  An
+    `AGENTS.md` line does not fail.  This does.
+
+    MEASURED, on the commit this class ships with:
+      * the shipped `try/finally: db.close()` form -- GREEN.
+      * restore the bare `with` form and change nothing else -- RED here,
+        and `32 passed` with this class deleted.  That second number is the
+        state `#610` was written and measured in.
+      * keep `db.commit()` and drop only `db.close()` -- RED here, `32
+        passed` with this class deleted.
+
+    Scoped to THIS FILE on purpose, and the scope is the honest part.
+    `COO-DECISION 20260903_0052` point 1 requires a red-`main` recovery to be
+    the smallest change possible and forbids adding a new `tests/test_*.py`
+    FILE; a class in a file the same ticket already edits is neither a new
+    file nor other work.  The repository-wide version -- lifting the runtime
+    `/proc/self/fd` guard out of `tests/test_persistence_typed_attr_columns.py`
+    into a helper every lane can import, and widening a source pin that today
+    reads exactly one module -- is a separate ticket, and this class is what
+    holds the line until it lands.
+
+    An AST pin rather than a text search: `grep` cannot tell a real call from
+    the same characters inside this docstring, and exempting the docstring
+    would put a hole in the pin for the sake of the pin.
+    """
+
+    def _connect_calls(self, tree):
+        """Every `sqlite3.connect(...)` call node in this file."""
+        return [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "connect"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "sqlite3"
+        ]
+
+    def _tree(self):
+        return ast.parse(Path(__file__).read_text(encoding="utf-8"))
+
+    def test_this_file_never_writes_the_leaking_with_form(self):
+        """`with sqlite3.connect(...) as db:` -- the exact line that died."""
+        tree = self._tree()
+        leaking = sorted(
+            item.context_expr.lineno
+            for node in ast.walk(tree) if isinstance(node, ast.With)
+            for item in node.items
+            if item.context_expr in self._connect_calls(tree)
+        )
+        self.assertEqual(
+            leaking, [],
+            "`with sqlite3.connect(...)` commits but does NOT close.  On "
+            "Linux the surviving handle is silent; on the Windows gate "
+            "TemporaryDirectory.cleanup raises PermissionError [WinError 32] "
+            "at TEARDOWN, after the test body has printed its correct "
+            "result.  Write `db = sqlite3.connect(...)` with "
+            "`try: ... db.commit() / finally: db.close()` instead.  "
+            f"Offending line(s): {leaking}")
+
+    def test_every_connection_this_file_opens_is_closed(self):
+        """The other half: assigned, committed, and then never closed.
+
+        The `with` form is not the only way to leak one.  Dropping just the
+        `finally: db.close()` from the fixture above leaves the same three
+        descriptors open and is equally invisible on Linux, so pinning only
+        the `with` spelling would pin the typo rather than the defect.
+        """
+        tree = self._tree()
+        calls = self._connect_calls(tree)
+        unclosed = []
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            owned = [c for c in calls if any(c is n for n in ast.walk(function))]
+            if not owned:
+                continue
+            closes = any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "close"
+                for node in ast.walk(function))
+            if not closes:
+                unclosed.append((function.name, owned[0].lineno))
+        self.assertEqual(
+            unclosed, [],
+            "a function opens a sqlite connection and never calls .close() "
+            "on anything.  On the Windows gate that handle makes "
+            "TemporaryDirectory.cleanup raise PermissionError [WinError 32] "
+            f"at teardown.  Offender(s): {unclosed}")
 
 
 if __name__ == "__main__":
