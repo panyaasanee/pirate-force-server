@@ -233,6 +233,7 @@ from typing import Any
 from .. import field_mobs
 from .. import lane_a_click_hp
 from .. import lane_hooks
+from .lane_a_ground_preserve import compose_answer
 from .. import scene2_prison_exile_tables as tables
 from .. import world_census_level
 from .lane_a_scene_census import scene_is_open_to_players
@@ -400,6 +401,7 @@ def respond(
     scene_id: int = SCENE_N_ID,
     scene_entry_registry: Any = None,
     mob_combat_ledger: Any = None,
+    mob_loot_cell: Any = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 2, or decline.
@@ -618,7 +620,17 @@ def respond(
             entries.append(legacy.make_remote_actor_entry(
                 _NPC_STYLE_ACTOR_TYPE, placement.actor_identity, attrs,
             ))
-        pc, frame = legacy.make_runtime_remote_actors(entries)
+                # GROUND PRESERVE (LANE-B letter 20260902_1845 item 2, the
+        # call-site half COO-DECISION 20260902_1946 approved).  Same
+        # bytes as ``legacy.make_runtime_remote_actors`` whenever no
+        # row is standing in THIS scene, which includes every boot
+        # where chief has not passed a cell yet.  The scene naming
+        # and the fail-closed path live in one module for all four
+        # responders - see ``lane_a_ground_preserve``, including why
+        # the letter's own ``scene_id`` argument had to be resolved
+        # to a scene FOLDER before it could gate anything.
+        pc, frame = compose_answer(
+            legacy, entries, scene_id, mob_loot_cell)
         # ``hp=`` NAMES THE GAP ON EVERY ANSWER, not in a comment a tester
         # will never read: ``ceiling`` says the 12 hostile bodies in this
         # frame carry their table HP because no ledger reached this

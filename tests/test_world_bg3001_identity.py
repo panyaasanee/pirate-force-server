@@ -32,10 +32,10 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
 
     def test_counts_are_the_ones_the_docstring_states(self) -> None:
         self.assertEqual(identity.PLACEMENT_COUNT, 38)
-        self.assertEqual(len(identity.shippable_placements()), 36)
-        self.assertEqual(len(identity.unshippable_placements()), 2)
-        self.assertEqual(len(identity.IDENTITIES), 23)
-        self.assertEqual(len(identity.UNRESOLVED), 2)
+        self.assertEqual(len(identity.shippable_placements()), 37)
+        self.assertEqual(len(identity.unshippable_placements()), 1)
+        self.assertEqual(len(identity.IDENTITIES), 24)
+        self.assertEqual(len(identity.UNRESOLVED), 1)
 
     def test_control_1_scene_sets_and_the_table_keys_are_the_same_25(
         self,
@@ -60,8 +60,18 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
                 self.assertTrue(row.outfit.isascii())
                 self.assertNotIn(";", row.outfit)
                 self.assertNotIn("|", row.outfit)
-                self.assertTrue(row.name.isascii())
+                # NAMES are no longer flatly ASCII - COO-DECISION
+                # 20260902_2146 shape 1 - but the rule that replaced it is
+                # not weaker: a non-ASCII name must round-trip through
+                # cp874 AND be pinned as its own bytes, and the EVIDENCE
+                # line stays ASCII either way.  Titles are still ASCII.
                 self.assertTrue(row.title.isascii())
+                if not row.name.isascii():
+                    self.assertIn(row.template_id, identity.NAME_CP874_HEX)
+                    self.assertEqual(
+                        row.name.encode("cp874").hex(),
+                        identity.NAME_CP874_HEX[row.template_id])
+                self.assertTrue(identity.evidence_name(row).isascii())
                 self.assertGreaterEqual(row.level, 1)
                 self.assertGreaterEqual(row.max_hp, 1)
 
@@ -94,21 +104,65 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
             with self.subTest(set=set_number):
                 self.assertNotIn(set_number, identity.UNRESOLVED)
 
-    def test_the_two_dropped_placements_are_two_different_shapes(
+    def test_the_one_dropped_placement_is_the_zero_leader_shape(
         self,
     ) -> None:
+        """Was ``the_two_dropped_placements_are_two_different_shapes``.
+
+        Placement 37 (Mob-Set 56, the Thai name) is no longer a drop:
+        ``COO-DECISION 20260902_2146`` shape 1 overruled that reading and
+        it ships.  The zero-leader drop is untouched and is still the one
+        shape this scene has.
+        """
         dropped = identity.unshippable_placements()
         self.assertEqual(
-            sorted(row["placement_index"] for row in dropped), [28, 37])
+            sorted(row["placement_index"] for row in dropped), [28])
         by_set = {row["template_id"]: row for row in dropped}
         self.assertEqual(by_set[16]["leader_n_id"], 0)
         self.assertIn("leader 0", by_set[16]["reason"])
-        self.assertEqual(by_set[56]["leader_n_id"], 8180)
-        self.assertIn("Thai", by_set[56]["reason"])
-        # Two DIFFERENT reasons, not one repeated: a scene whose drops all
-        # read alike is a scene whose drop rule was never exercised.
+        self.assertNotIn(56, by_set)
+        for row in dropped:
+            with self.subTest(placement=row["placement_index"]):
+                self.assertTrue(row["reason"])
+                self.assertTrue(row["reason"].isascii())
+
+    def test_the_thai_named_row_ships_and_prints_as_hex(self) -> None:
+        """Shape 1 of ``COO-DECISION 20260902_2146``, end to end.
+
+        The wire gets the real name; the evidence layer gets ASCII bytes;
+        the row is on the roster rather than in the shortfall.
+        """
+        row = identity.IDENTITIES[56]
+        self.assertEqual(row.mobs_n_id, 8180)
+        self.assertEqual(row.outfit, "M081_000_000_N")
+        self.assertEqual(row.level, 60)
+        self.assertEqual(row.max_hp, 43275)
+        self.assertFalse(row.name.isascii())
+        self.assertEqual(row.name.encode("cp874").hex(), "a1c3d0b7a7")
         self.assertEqual(
-            len({row["reason"] for row in dropped}), 2)
+            identity.evidence_name(row), "name_cp874_hex=a1c3d0b7a7")
+        shipped = {p.placement_index for p in identity.shippable_placements()}
+        self.assertIn(37, shipped)
+
+    def test_a_name_that_is_not_cp874_cannot_be_pinned_at_all(self) -> None:
+        """The exception the decision kept: bg0006's CJK still cannot ship.
+
+        The membership gate is not a comment - it is the only door a
+        non-ASCII name can come through, and these are the four ways
+        through it that are shut.
+        """
+        # A CJK name has no cp874 bytes to pin in the first place.
+        with self.assertRaises(UnicodeEncodeError):
+            "\u6d77\u4e0a".encode("cp874")
+        for bad in ("zz", "", "a1c3d0b7a7ff"):
+            with self.subTest(pin=bad):
+                with self.assertRaises(identity.Bg3001IdentityError):
+                    identity._cp874(bad)
+        # An ASCII pin is refused too: that row must carry the literal.
+        with self.assertRaises(identity.Bg3001IdentityError):
+            identity._cp874("41424344")
+        with self.assertRaises(identity.Bg3001IdentityError):
+            identity._cp874(b"a1c3d0b7a7")
 
     def test_the_multi_set_placements_ship_their_first_leg(self) -> None:
         self.assertEqual(
@@ -119,6 +173,92 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
                 self.assertEqual(raw, "53|54")
                 self.assertEqual(by_index[index], 53)
                 self.assertNotIn(54, identity.IDENTITIES)
+
+    def test_the_multi_set_gate_passes_on_this_scenes_own_pair(self) -> None:
+        """Shape 2 of ``COO-DECISION 20260902_2146``: the six placements
+        PASS the gate rather than being exempt from it."""
+        self.assertEqual(identity.multi_set_placement_refusals(), ())
+        first = identity.IDENTITIES[53]
+        second = identity.SECOND_LEG_IDENTITIES[54]
+        for column in identity.SHIPPED_COLUMNS_EXCEPT_MOBS_ID:
+            with self.subTest(column=column):
+                self.assertEqual(
+                    getattr(first, column), getattr(second, column))
+        self.assertNotEqual(first.mobs_n_id, second.mobs_n_id)
+        self.assertEqual(first.outfit, identity.INVISIBLE_OUTFIT)
+        self.assertEqual(second.outfit, identity.INVISIBLE_OUTFIT)
+        self.assertEqual(
+            identity.MULTI_SET_LEG_HAS_TIP_ROW, {53: False, 54: False})
+
+    def test_the_multi_set_gate_refuses_each_shape_it_was_built_for(
+        self,
+    ) -> None:
+        """Every condition of the decision, fired on a mutated table.
+
+        The gate is the whole reason shipping the first leg was approved,
+        so a green suite that never fires it proves nothing.  Each case
+        restores the table afterwards, and the last assertion checks the
+        restore rather than trusting it.
+        """
+        import dataclasses
+
+        real_second = identity.SECOND_LEG_IDENTITIES[54]
+        cases = {
+            # Condition 1: a shipped column disagrees.
+            "outfit_differs": dataclasses.replace(
+                real_second, outfit="SP_005_000_000_N"),
+            "level_differs": dataclasses.replace(real_second, level=1),
+            "hp_differs": dataclasses.replace(real_second, max_hp=1),
+            "usage_differs": dataclasses.replace(real_second, mob_usage=1),
+            # Condition 2: the leg is visible / carries a name plate.
+            "named": dataclasses.replace(real_second, name="Kraken"),
+        }
+        for label, mutant in cases.items():
+            with self.subTest(case=label):
+                identity.SECOND_LEG_IDENTITIES[54] = mutant
+                try:
+                    refusals = identity.multi_set_placement_refusals()
+                    self.assertTrue(refusals, label)
+                    self.assertEqual(
+                        {row["placement_index"] for row in refusals},
+                        {30, 31, 32, 33, 34, 35})
+                    with self.assertRaises(identity.Bg3001IdentityError):
+                        identity._self_check()
+                finally:
+                    identity.SECOND_LEG_IDENTITIES[54] = real_second
+
+        # Condition 2, the other half: a leg WITH a MOBS_TIP row.
+        identity.MULTI_SET_LEG_HAS_TIP_ROW[54] = True
+        try:
+            refusals = identity.multi_set_placement_refusals()
+            self.assertTrue(refusals)
+            self.assertTrue(
+                all(row["condition"] == 2 for row in refusals), refusals)
+        finally:
+            identity.MULTI_SET_LEG_HAS_TIP_ROW[54] = False
+
+        # Condition 1, the "unknown is not equal" half: a leg this module
+        # has never heard of is refused, not assumed identical.
+        identity.MULTI_SET_PLACEMENTS[30] = "53|99"
+        try:
+            refusals = identity.multi_set_placement_refusals()
+            self.assertTrue(
+                any(row["leg"] == 99 for row in refusals), refusals)
+        finally:
+            identity.MULTI_SET_PLACEMENTS[30] = "53|54"
+
+        # A leg that is not a number at all is REFUSED, not skipped: a gate
+        # that drops what it cannot parse passes the case it exists for.
+        identity.MULTI_SET_PLACEMENTS[30] = "53|weather"
+        try:
+            refusals = identity.multi_set_placement_refusals()
+            self.assertTrue(
+                any(row["leg"] == "weather" for row in refusals), refusals)
+        finally:
+            identity.MULTI_SET_PLACEMENTS[30] = "53|54"
+
+        self.assertEqual(identity.multi_set_placement_refusals(), ())
+        identity._self_check()
 
     def test_no_extra_spawn_triple_becomes_an_actor(self) -> None:
         """814 extra points exist; the roster is still one per placement."""
