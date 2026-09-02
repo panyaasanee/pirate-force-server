@@ -78,10 +78,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
+from pf_vitals_wire_decode import decode_basic_block  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
 
@@ -534,55 +536,49 @@ class NewCharacterVitalsTests(unittest.TestCase):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        # THE HP PAIR, BY POSITION, TIED TO THE `level` TAG ABOVE IT.
+        # THE FRAME IS DECODED, NOT DESCRIBED.
         #
-        # Three drafts of this assertion were wrong and the history is worth
-        # keeping, because each fix moved the defect instead of removing it.
-        # `== 2` on `body.count("legacy.u32tag(0x14, 100)")` was a false RED:
-        # 0x14 is the generic u32 tag (`basic_faction` uses it in this same
-        # function), so an unrelated third one turned this red with a message
-        # about vitals drift.  `>= 2` fixed that and bought a false GREEN: a
-        # third `pf-adversary` pass changed hp_max to 150 AND added one
-        # unrelated `u32tag(0x14, 100)`, and every test in this lane stayed
-        # green while the login frame sent 150.  The comment written in that
-        # round then claimed `WireEqualityTests` was the real tie -- MEASURED
-        # AND FALSE, twice over: that class stays green under the same
-        # mutation (its byte-substring is still present exactly once), and it
-        # reads `player_wire`'s source text itself.  Naming the wrong test as
-        # the guarantee, inside the comment that authorises this assertion,
-        # is the exact defect this file records as the worst kind.
+        # Four versions of this assertion read `player_wire.py`'s SOURCE and
+        # all four were defeated, each by the mutation the previous fix's own
+        # comment invited: `== 2` on a tag count (false red), `>= 2` (false
+        # green -- hp_max 150 plus one unrelated tag), "the first two after
+        # the level tag" (the extra tag goes ABOVE the pair), and finally a
+        # window with a named edge on both sides -- which a fourth
+        # `pf-adversary` pass broke by pasting the four anchor lines into the
+        # function's DOCSTRING, because `body` includes it and `str.index`
+        # takes the first match.  It then broke the byte test too, by keeping
+        # the source text and changing the bytes, leaving a decoy
+        # `level + 100 + 100` later in the frame for the substring check to
+        # find.  Both files green; hp_max 150 on the wire.
         #
-        # So the tie is built instead of cited.  The HP pair is the two
-        # consecutive literal 0x14 tags that FOLLOW the `level` tag, and both
-        # must carry this module's own constant.  An unrelated tag inserted
-        # above them shifts one into the pair and the value check fires; one
-        # added elsewhere in the function is not in the pair and is correctly
-        # ignored, which is what `>= 2` was reaching for and missed.
-        # A WINDOW WITH A NAMED EDGE ON BOTH SIDES, not an offset from one.
-        # Anchoring only on the tag above was the FOURTH wrong version of
-        # this assertion, and it was measured wrong before it shipped: the
-        # adversary's mutation inserts its unrelated tag BETWEEN the level tag
-        # and the pair, so "the first two after level" are still 100, 100 and
-        # the check passes while hp_max is 150.  Bounding the window at both
-        # ends and requiring it to hold EXACTLY the pair catches that -- three
-        # tags in the window is itself the failure -- while a tag added
-        # anywhere outside the run is still correctly ignored.
-        start = body.index("legacy.u16tag(0x12, level)")
-        end = body.index("legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)", start)
-        window = [int(value) for value in re.findall(
-            r"legacy\.u32tag\(0x14,\s*(\d+)\)", body[start:end])]
-        self.assertEqual(
-            window, [vitals.NEW_CHARACTER_HP, vitals.NEW_CHARACTER_HP],
-            "between the level tag and the movement-speed tag player_wire "
-            "emits the literal 0x14 values %r; the HP pair and "
-            "NEW_CHARACTER_HP disagree, or something joined the run" % (
-                window,),
-        )
+        # Every one of those is the same mistake: comparing the frame to a
+        # TRANSCRIPTION of the frame.  So this reads the field back out of the
+        # bytes at its own wire position, through `pf_vitals_wire_decode`,
+        # which walks the mask using `gm/attr_wire.FIELDS` for tags and
+        # widths.  A docstring cannot move it, a decoy cannot be mistaken for
+        # the pair, and mp_current/mp_max -- which `player_wire`'s docstring
+        # pre-announces and whose bits sit between hp_max and movement speed
+        # -- join the walk instead of turning an HP assertion red.
+        legacy = load_legacy(ROOT / "current" / "pf_login_game_server_v141.py")
+        frame = player_wire._make_actor_attr_with_name_and_class(
+            legacy, 0x20000001, 0, 3, 0, "WireProbe", 7,
+            player_wire.PLAYER_LOGIN_LEVEL, basic_faction=1)
+        decoded = decode_basic_block(frame)
         born = vitals.new_character_vitals()
         self.assertEqual(
+            decoded[vitals.HP_CURRENT_X], born[vitals.HP_CURRENT_COLUMN],
+            "the login frame's hp_current field decodes to %r"
+            % (decoded[vitals.HP_CURRENT_X],))
+        self.assertEqual(
+            decoded[vitals.HP_MAX_X], born[vitals.HP_MAX_COLUMN],
+            "the login frame's hp_max field decodes to %r"
+            % (decoded[vitals.HP_MAX_X],))
+        self.assertEqual(
+            decoded[vitals.LEVEL_X], born[vitals.LEVEL_COLUMN],
+            "the login frame's level field decodes to %r"
+            % (decoded[vitals.LEVEL_X],))
+        self.assertEqual(
             born[vitals.LEVEL_COLUMN], player_wire.PLAYER_LOGIN_LEVEL)
-        self.assertEqual(born[vitals.HP_CURRENT_COLUMN], 100)
-        self.assertEqual(born[vitals.HP_MAX_COLUMN], 100)
 
     def test_what_it_returns_is_a_state_the_read_path_accepts(self):
         """A birth value the lane's own door refuses would produce characters
@@ -1081,10 +1077,18 @@ class StoreVitalsTests(unittest.TestCase):
 
     def test_the_two_pre_existing_typed_attribute_methods_still_answer(self):
         # NOT a proof that no existing method changed -- a `pf-adversary` pass
-        # was right that two method calls cannot carry that claim.  The claim
-        # is carried by `git diff --numstat` on this round (91 insertions, 0
-        # deletions in store.py); this test only pins the two methods the new
-        # ones are built on top of.
+        # was right that two method calls cannot carry that claim.  What
+        # carries it is the diff of the round, read for `store.py`.
+        #
+        # The number that used to stand here -- "91 insertions, 0 deletions in
+        # store.py" -- was removed because a fourth `pf-adversary` pass could
+        # not re-derive it at ANY commit of this lane: the round that
+        # introduced it recorded 193/0 in its own message, the next round to
+        # touch `store.py` was 17/7, and on THIS round the file is untouched
+        # (`git diff --numstat e318b37e..HEAD -- src/pirateforce_foundation/
+        # store.py` is empty).  A figure nobody can reproduce is worse than
+        # none, because it reads as evidence.  This test only pins the two
+        # methods the new ones are built on top of.
         self._seed()
         self.assertEqual(
             self.store.read_typed_attributes(self.character.id),
@@ -1196,22 +1200,77 @@ class NothingIsWiredTests(unittest.TestCase):
                 "it is a hole, not an exception" % relative,
             )
 
-    def test_a_decoy_basename_in_another_lane_s_directory_is_still_caught(self):
-        """The measured defect, kept as a test rather than as a comment.
+    #: Paths that share a BASENAME with an allowlisted file but are not it.
+    #: A file named `store.py` under `src/pirateforce_foundation/gm/` -- a
+    #: directory another lane writes in every round -- calling
+    #: `apply_hp_damage` is a real wiring of this lane's method on a live
+    #: path, and under a basename allowlist it was invisible.
+    DECOYS = (
+        "src/pirateforce_foundation/gm/store.py",
+        "tools/persistence_vitals.py",
+        "tests/gm/test_persistence_vitals.py",
+    )
 
-        A file named `store.py` under `src/pirateforce_foundation/gm/` -- a
-        directory another lane writes in every round -- calling
-        `apply_hp_damage` is a real wiring of this lane's method on a live
-        path.  Under a basename allowlist it was invisible.  This asserts the
-        scan's matching rule directly, so the hole cannot come back through a
-        later "simplification" of the loop above.
+    def _scan_for_callers(self):
+        """The scan above, as data, so a test can drive it over a real tree.
+
+        `test_no_call_site_outside_this_lane_calls_either_new_method` is the
+        caller that asserts; this is the same walk with the assertion taken
+        off, and both go through it so neither can drift from the other.
         """
-        decoys = (
-            "src/pirateforce_foundation/gm/store.py",
-            "tools/persistence_vitals.py",
-            "tests/gm/test_persistence_vitals.py",
-        )
-        for decoy in decoys:
+        callers = []
+        for path in sorted(ROOT.rglob("*.py")):
+            relative = str(path.relative_to(ROOT)).replace("\\", "/")
+            if relative.startswith(".git/"):
+                continue
+            if relative in self.ALLOWED_TO_NAME_THEM:
+                continue
+            if re.search(
+                    r"\b(apply_hp_damage|read_character_vitals|"
+                    r"vitals_seeding_census)\b",
+                    path.read_text(encoding="utf-8", errors="replace")):
+                callers.append(relative)
+        return callers
+
+    def test_a_real_decoy_dropped_into_the_tree_is_caught_by_the_scan(self):
+        """THE SCAN IS RUN, over a decoy that really exists on disk.
+
+        The version this replaces asserted two things about the ALLOWLIST
+        TUPLE and never touched the loop, never created a file, never ran the
+        scan -- while its docstring said it "asserts the scan's matching rule
+        directly, so the hole cannot come back through a later
+        'simplification'".  A fourth `pf-adversary` pass reverted the loop to
+        the basename rule -- the exact regression of round `4m48tf` -- and
+        this test stayed green while a live `gm/store.py` wiring went
+        invisible.
+
+        So each decoy is written, scanned for, and removed.  Under the
+        basename rule every one of them is missed and this goes red.
+        """
+        for decoy in self.DECOYS:
+            path = ROOT / decoy
+            existed = path.exists()
+            self.assertFalse(
+                existed, "%s exists; this test would overwrite it" % decoy)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            created = [p for p in path.parents
+                       if p != ROOT and not p.exists()]
+            path.write_text(
+                "store.apply_hp_damage(1, 1)\n", encoding="utf-8")
+            try:
+                self.assertIn(
+                    decoy, self._scan_for_callers(),
+                    "a real caller at %s was not seen by the scan; the "
+                    "matching rule is not full-path" % decoy)
+            finally:
+                path.unlink()
+                for parent in created:
+                    if parent.exists() and not any(parent.iterdir()):
+                        parent.rmdir()
+
+    def test_the_decoys_still_share_a_basename_with_an_allowed_entry(self):
+        """The decoys only test anything while they collide by basename."""
+        for decoy in self.DECOYS:
             self.assertNotIn(decoy, self.ALLOWED_TO_NAME_THEM, decoy)
             self.assertTrue(
                 any(decoy.endswith("/" + Path(allowed).name)

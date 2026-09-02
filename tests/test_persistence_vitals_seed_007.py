@@ -49,6 +49,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pf_vitals_wire_decode import decode_basic_block  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.gm.attr_wire import BY_X, encode_field  # noqa: E402
@@ -571,26 +572,26 @@ class WireEqualityTests(_MigratedWorkspace):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        # THE SAME WINDOW `tests/test_persistence_vitals.py` USES, and it is
-        # here because a third `pf-adversary` pass found this file carrying
-        # the `== 2` count that the OTHER file had just been corrected for --
-        # while a comment over there named THIS class as the thing that could
-        # not be fooled by editing source, which was false twice over: this
-        # class does read source (right here), and its byte comparison stays
-        # green under the mutation, because `level(1) + 100 + 100` is still
-        # present exactly once in a frame that also carries a 150.
+        # DECODED, NOT DESCRIBED -- the same correction as in
+        # `tests/test_persistence_vitals.py`, and it lands here too because
+        # this class was the one being CITED as the thing source edits could
+        # not fool, while carrying the `== 2` source count itself.  A fourth
+        # `pf-adversary` pass then fooled both halves at once: the anchors
+        # pasted into the function's docstring moved the source window onto
+        # prose, and a decoy `level + 100 + 100` after the speed tag satisfied
+        # this class's byte-substring check while hp_max shipped as 150.
         #
-        # Measured against the mutation that defeated every earlier form
-        # (hp_max -> 150 with one unrelated 0x14 tag inserted above the pair):
-        # red.  Against an unrelated 0x14 tag outside the run: green.
-        start = body.index("legacy.u16tag(0x12, level)")
-        end = body.index("legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED)", start)
-        window = [int(v) for v in re.findall(
-            r"legacy\.u32tag\(0x14,\s*(\d+)\)", body[start:end])]
+        # `decode_basic_block` walks the mask and reads each field at its own
+        # wire position, so neither trick reaches it.
+        frame = player_wire._make_actor_attr_with_name_and_class(
+            self.legacy, 0x20000001, 0, 3, 0, "SeedProbe", 7,
+            player_wire.PLAYER_LOGIN_LEVEL, basic_faction=1)
+        decoded = decode_basic_block(frame)
         self.assertEqual(
-            window, [SEEDED["hp_current"], SEEDED["hp_max"]],
-            "player_wire's HP run is %r; 007 and the login frame disagree"
-            % (window,))
+            [decoded[3], decoded[4]],
+            [SEEDED["hp_current"], SEEDED["hp_max"]],
+            "the login frame decodes to hp_current=%r hp_max=%r; 007 and the "
+            "frame disagree" % (decoded[3], decoded[4]))
         self.assertEqual(player_wire.PLAYER_LOGIN_LEVEL, SEEDED["level"])
 
     def test_the_stored_values_resolve_as_a_complete_vitals_state(self):
@@ -930,8 +931,21 @@ class PlugsThatBindWrongValuesTests(SeedsACohortNotADatabaseTests):
     that no gate protects is one tidy-up away from not existing.
 
     So each test here builds the row a WRONG plug would leave and requires the
-    grader to fail on it.  These are the tests that go red when an assertion
-    is deleted from the grader, which is what makes the grader real.
+    grader to fail on it.
+
+    WHAT THAT GUARANTEES, EXACTLY.  Not "these go red when an assertion is
+    deleted from the grader" -- that sentence stood here for a round while
+    the narrowed, true version sat one screen up in `_grade_a_newborn`, and a
+    fourth `pf-adversary` pass measured the difference: eight of the grader's
+    nine assertions are deletable one at a time in silence, because they
+    overlap.  A claim corrected in one place and left standing in another is
+    the same claim.
+
+    What holds is the property `test_every_vital_column_is_wrong_in_exactly_
+    one_row` enforces: NO VITAL COLUMN CAN LOSE ALL OF ITS ASSERTIONS, since
+    each column has a row here that is wrong in it and right in the other
+    two.  Measured: deleting both assertions covering `hp_max` turns one
+    subtest red, both covering `hp_current` two, both covering `level` two.
 
     It subclasses `SeedsACohortNotADatabaseTests` on purpose: the method under
     test is that class's, and inheriting runs its own tests again here.  That
