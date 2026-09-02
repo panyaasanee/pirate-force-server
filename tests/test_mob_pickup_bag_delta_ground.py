@@ -228,8 +228,17 @@ class TheFallBackTests(LegacyFixture):
         self.assertEqual(pc, expected)
 
 
-class TheDecisionInsideTheTransactionTests(LegacyFixture):
-    """Who decides, with what number, and under which lock."""
+class TheTransactionComposesBothTests(LegacyFixture):
+    """The transaction composes both envelopes and chooses NEITHER.
+
+    pf-adversary's correction of this round's first draft, which decided
+    inside the transaction from a row count taken before the take.  Two
+    measured routes to a permanent ghost with that shape: a row expiring
+    between the count's sweep and the take's sweep (the bag cell's lock does
+    not span the ground cell's two acquisitions), and a removal publication
+    that refuses after a floor was kept for it.  The count is gone; the
+    choice belongs to the layer that can see the whole reply.
+    """
 
     def _pick_up(self, cell, key_offset=0):
         claim = PickupClaim(
@@ -237,35 +246,26 @@ class TheDecisionInsideTheTransactionTests(LegacyFixture):
         return BagCell(an_empty_bag(), 1).commit_pickup(
             cell, claim, self.legacy)
 
-    def test_a_floor_with_another_row_on_it_is_kept(self):
+    def test_both_envelopes_come_back_and_the_default_is_yesterdays(self):
         outcome = self._pick_up(a_cell(a_drop(0), a_drop(1)))
-        self.assertTrue(outcome.delta_preserved_ground)
-        self.assertTrue(outcome.delta[0].endswith(DELTA_PC_PRESERVE_SUFFIX_PIN))
-
-    def test_the_last_object_of_a_scene_clears_the_floor_on_purpose(self):
-        outcome = self._pick_up(a_cell(a_drop(0)))
-        self.assertFalse(outcome.delta_preserved_ground)
         self.assertTrue(outcome.delta[0].endswith(DELTA_PC_SUFFIX_PIN))
+        self.assertTrue(
+            outcome.delta_floor_kept[0].endswith(DELTA_PC_PRESERVE_SUFFIX_PIN))
         self.assertEqual(
             outcome.delta, bag_delta_pc(self.legacy, outcome.item))
 
-    def test_rows_standing_in_another_scene_do_not_keep_this_floor(self):
-        """WAY 1 (COO-DECISION 2026-09-02T02:52+07:00) all the way through.
-
-        A row that fell in scene A is still in the ledger while the player is
-        in scene B, and it is NOT on the player's screen.  Counting it would
-        keep a floor that has nothing left on it -- the taken object's label
-        would stay, in the one case this lane can actually remove it.
-        """
-        cell = a_cell(a_drop(0), a_drop(1, scene=ELSEWHERE))
-        outcome = self._pick_up(cell)
-        self.assertFalse(outcome.delta_preserved_ground)
+    def test_the_floor_count_no_longer_decides_anything(self):
+        """The last row of a scene and a scene with rows left compose the SAME
+        pair.  A count taken before the take cannot be trusted, so nothing in
+        here reads one."""
+        beside_another = self._pick_up(a_cell(a_drop(0), a_drop(1)))
+        the_last_one = self._pick_up(a_cell(a_drop(0)))
+        self.assertEqual(beside_another.delta, the_last_one.delta)
         self.assertEqual(
-            [row.drop_key for row in cell.ledger.drops],
-            [mob_loot.DROP_KEY_BASE + 1])
+            beside_another.delta_floor_kept, the_last_one.delta_floor_kept)
 
-    def test_the_flag_reports_the_bytes_and_not_the_intention(self):
-        """A fall back inside the composer must read False on the outcome."""
+    def test_a_refused_preserve_makes_the_two_envelopes_equal(self):
+        """The fall back is visible to the caller without being announced."""
         original = mob_loot.preserve_ground_in_runtime_res_vitals
 
         def boom(*_args, **_kwargs):
@@ -278,8 +278,24 @@ class TheDecisionInsideTheTransactionTests(LegacyFixture):
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             outcome = self._pick_up(a_cell(a_drop(0), a_drop(1)))
-        self.assertFalse(outcome.delta_preserved_ground)
-        self.assertTrue(outcome.delta[0].endswith(DELTA_PC_SUFFIX_PIN))
+        self.assertEqual(outcome.delta, outcome.delta_floor_kept)
+        self.assertTrue(
+            outcome.delta_floor_kept[0].endswith(DELTA_PC_SUFFIX_PIN))
+
+    def test_rows_standing_in_another_scene_are_not_this_floor(self):
+        """WAY 1 (COO-DECISION 2026-09-02T02:52+07:00) still holds underneath.
+
+        A row that fell in scene A stays in the ledger while the player is in
+        scene B and is not on their screen.  The take is resolved against the
+        claimant's scene either way; what this pins is that the OTHER scene's
+        row survives a pickup in this one.
+        """
+        cell = a_cell(a_drop(0), a_drop(1, scene=ELSEWHERE))
+        outcome = self._pick_up(cell)
+        self.assertEqual(outcome.item.slot, 0)
+        self.assertEqual(
+            [row.drop_key for row in cell.ledger.drops],
+            [mob_loot.DROP_KEY_BASE + 1])
 
     def test_the_item_still_reaches_the_bag_when_the_floor_cannot_be_kept(self):
         original = mob_loot.preserve_ground_in_runtime_res_vitals
@@ -306,10 +322,21 @@ class ThePinDocumentSaysBothTests(LegacyFixture):
 
     def test_both_flags_are_observed_true_by_running_the_lane(self):
         observed = mob_pickup._observed_behaviour(self.legacy)
+        self.assertIs(observed["bag_delta_default_clears_the_ground"], True)
         self.assertIs(
-            observed["bag_delta_keeps_the_ground_when_a_row_remains"], True)
-        self.assertIs(
-            observed["bag_delta_clears_the_ground_on_the_last_row"], True)
+            observed["bag_delta_second_envelope_keeps_the_ground"], True)
+
+    def test_no_flag_in_the_document_claims_a_rule_the_code_no_longer_has(self):
+        """pf-adversary D4: a typed True beside four re-derived pins.
+
+        The struck flag named a decision made from a row count inside the
+        transaction, which D1 removed.  Nothing may bring back a claim about
+        it that no code makes.
+        """
+        document = mob_pickup.pin_document(self.legacy)
+        flat = repr(document)
+        self.assertNotIn("ground_kept_when_rows_remain", flat)
+        self.assertNotIn("cleared_on_the_last_row", flat)
 
     def test_the_two_pcs_in_the_document_are_the_two_this_lane_composes(self):
         document = mob_pickup.pin_document(self.legacy)

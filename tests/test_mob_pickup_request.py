@@ -1622,7 +1622,46 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
     assumption, carried since round 9jrsei, and GT-204 is where it is watched.
     """
 
+    def _pretend_the_chiefs_line_landed(self):
+        """Run the choice as it will run once `runtime.py` sends the removal.
+
+        Patched on the MODULE, with a cleanup, because the constant is a
+        statement about another file and this test is about the branch that
+        reads it -- not an invitation to set it by hand anywhere else.  The
+        test that pins the constant to `runtime.py`'s source runs in this same
+        file and is what stops it from being edited for convenience.
+        """
+        original = mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS
+        mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS = "sent"
+        self.addCleanup(
+            setattr, mob_pickup_request, "GROUND_AFTER_CALL_SITE_STATUS",
+            original)
+
+    def test_today_the_floor_is_cleared_because_nothing_sends_the_removal(self):
+        """THE HONEST STATE OF THIS BOOT, and the reason it is not a bug.
+
+        pf-adversary's D1/D2: keeping the floor is only ever right when
+        something in the same reply takes the taken row off it.  Today
+        `runtime.py` returns the delta and drops the removal generation, so a
+        kept floor would leave the label of an object that is already in the
+        player's bag standing with no upper bound.  The lane sends yesterday's
+        clearing frame and says CLEARED, on a scene that still has a row.
+        """
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        self.assertTrue(outcome.handled)
+        self.assertEqual(
+            mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS,
+            "composed_not_sent")
+        self.assertTrue(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_SUFFIX_PIN))
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN, console)
+
     def test_a_pickup_beside_another_object_keeps_the_floor_and_says_so(self):
+        self._pretend_the_chiefs_line_landed()
         outcome, console = self._run(self._namespace(
             ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
         self.assertTrue(outcome.handled)
@@ -1645,6 +1684,7 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
             console)
 
     def test_the_last_object_clears_the_floor_and_says_that_instead(self):
+        self._pretend_the_chiefs_line_landed()
         """The one case no removal publication can carry (RE-208).
 
         HELD_LAST_OBJECT and CLEARED must appear TOGETHER: held alone would
@@ -1662,6 +1702,63 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.assertIn(
             mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, console)
         self.assertEqual(outcome.ground_rows_left, 0)
+
+    def test_a_floor_that_emptied_between_the_count_and_the_take_is_cleared(
+            self):
+        """pf-adversary D1, as a test rather than as a promise.
+
+        The scene has two rows when the claim is resolved and none when the
+        publication is composed -- a row expiring between the ground cell's
+        two lock acquisitions does this with no second thread involved.  The
+        old shape counted "one row left" before the take, kept the floor, and
+        then published nothing: the label of an object already in the bag
+        stood with no upper bound.  Now the publication decides, so an empty
+        one gets the clearing frame.
+        """
+        self._pretend_the_chiefs_line_landed()
+        original = mob_loot.DropLedgerCell.frames_after_a_row_left
+
+        def emptied(*_args, **_kwargs):
+            return 0, ()
+
+        mob_loot.DropLedgerCell.frames_after_a_row_left = emptied
+        self.addCleanup(
+            setattr, mob_loot.DropLedgerCell, "frames_after_a_row_left",
+            original)
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        self.assertTrue(outcome.handled)
+        self.assertTrue(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_SUFFIX_PIN))
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN, console)
+
+    def test_a_publication_that_refused_gets_the_clearing_frame_too(self):
+        """pf-adversary D2.  A floor kept for a removal that never composed
+        would leave the taken object's own label standing forever -- a new
+        failure this round would have introduced, not an inherited one."""
+        self._pretend_the_chiefs_line_landed()
+        original = mob_loot.DropLedgerCell.frames_after_a_row_left
+
+        def boom(*_args, **_kwargs):
+            raise AttributeError("u32tag")
+
+        mob_loot.DropLedgerCell.frames_after_a_row_left = boom
+        self.addCleanup(
+            setattr, mob_loot.DropLedgerCell, "frames_after_a_row_left",
+            original)
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        self.assertTrue(outcome.handled)
+        self.assertTrue(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_SUFFIX_PIN))
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN,
+            console)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
 
     def test_the_delta_this_token_describes_is_a_frame_runtime_py_sends(self):
         """The sibling round's D1 finding, asked of THIS round's token.
@@ -1681,6 +1778,7 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.assertIn("outcome.delta", runtime)
 
     def test_the_console_line_is_ascii_and_one_line(self):
+        self._pretend_the_chiefs_line_landed()
         _outcome, console = self._run(self._namespace(
             ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
         said = [line for line in console.splitlines()
@@ -1705,6 +1803,7 @@ class TheDeltasOwnGroundTests(TheWiringHarness):
         self.addCleanup(
             setattr, mob_loot, "preserve_ground_in_runtime_res_vitals",
             original)
+        self._pretend_the_chiefs_line_landed()
         outcome, console = self._run(self._namespace(
             ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
         self.assertTrue(outcome.handled)
