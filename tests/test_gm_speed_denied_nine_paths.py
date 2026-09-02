@@ -284,19 +284,21 @@ class _Case(unittest.TestCase):
         self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
-        # GT-193's shape hold (`speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_
-        # CLIENT`) sits ABOVE every path this file exercises: with it shut --
-        # which is the production default, pinned as the default by
+        # GT-193's shape hold sits ABOVE every path this file exercises: with
+        # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` empty -- the production
+        # default, pinned as the default by
         # `tests/test_gm_speed_shape_hold.py` -- `/speed` never reaches the DB
         # write or the composer at all.  These tests are about what happens
-        # BELOW that gate, so they open it explicitly.  Opening it here is a
-        # TEST-ONLY simulation of a future attended clearance; it is not
-        # evidence that any client has ever accepted this frame shape.
-        _shape_hold_opened = mock.patch.object(
-            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", True
+        # BELOW that gate, so they clear THIS DOOR'S OWN SIGNATURE explicitly.
+        # Doing so here is a TEST-ONLY simulation of a future attended
+        # clearance; no client has ever accepted this frame shape.
+        _shape_cleared = mock.patch.object(
+            speed_wire,
+            "SHAPES_CLEARED_BY_A_REAL_CLIENT",
+            frozenset({(speed_wire.SECTION_ACTOR_ATTR,)}),
         )
-        _shape_hold_opened.start()
-        self.addCleanup(_shape_hold_opened.stop)
+        _shape_cleared.start()
+        self.addCleanup(_shape_cleared.stop)
         # 🔴 ABSOLUTE, AND INSIDE THIS TEST'S OWN TEMP DIRECTORY.  The
         # run-copy gate resolves `os.path.dirname(store.path)` against the
         # PROCESS CWD and fails closed when it cannot ask, so a relative
@@ -341,7 +343,7 @@ class _Case(unittest.TestCase):
                 out.append(outcome)
         return out
 
-    # -- the nine drivers, one per path -------------------------------------
+    # -- the ten drivers, one per path -------------------------------------
     # Each returns `(action, store)`.  They are methods rather than a table of
     # lambdas so a reader can see what makes each path the path it is without
     # following an indirection.  Every one of them keeps its store, because
@@ -407,16 +409,16 @@ class _Case(unittest.TestCase):
     def path_10_shape_hold_not_cleared(self):
         """The tenth path, and the only one this lane added to its own door.
 
-        `_Case.setUp` OPENS the hold for every test in this file, because the
-        other nine paths live below it; this driver shuts it again, which is
-        the production default (`speed_wire.
-        SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` is `False` on `main`).  So this
-        is the one driver that patches a gate BACK to its shipped value rather
-        than away from it.
+        `_Case.setUp` clears this door's signature for every test in this
+        file, because the other nine paths live below the hold; this driver
+        empties the clearance set again, which is the production default
+        (`speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is `frozenset()` on
+        `main`).  So this is the one driver that patches a gate BACK to its
+        shipped value rather than away from it.
         """
         store = self.store()
         with mock.patch.object(
-            speed_wire, "SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT", False
+            speed_wire, "SHAPES_CLEARED_BY_A_REAL_CLIENT", frozenset()
         ):
             return self.act(self.session(store)), store
 
@@ -587,12 +589,13 @@ class TheParserItselfIsSoundTests(_Case):
 
 
 class TheNinePathsShipTheLineTests(_Case):
-    """One test per path of letter `0311`, each asserted on its own bytes.
+    """One test per refusal path, each asserted on its own bytes.
 
-    Each also answers the second half of a refusal: did the ROW move?  Paths
-    1-7 must not have written anything; paths 8 and 9 run after the store
-    committed and are pinned that way deliberately -- see
-    `WhatARefusalStillCostsTests` at the bottom.
+    Letter `0311` named nine; GT-193's shape hold made it ten (path 10, added
+    in round `et2ux4`).  Each test also answers the second half of a refusal:
+    did the ROW move?  Paths 1-7 and 10 must not have written anything; paths
+    8 and 9 run after the store committed and are pinned that way deliberately
+    -- see `WhatARefusalStillCostsTests` at the bottom.
     """
 
     def test_path_1_canonical_db_withheld(self):
@@ -637,6 +640,14 @@ class TheNinePathsShipTheLineTests(_Case):
     def test_path_9_post_commit_compose_failed(self):
         action, store = self.path_9_post_commit_compose_failed()
         self.assertNoticeCarriesTheMeasuredLine(action, "path 9 (post-commit)")
+
+    def test_path_10_shape_hold_not_cleared(self):
+        # The tenth path had no per-path test of its own for one round; it was
+        # walked only through `drivers()` (pf-adversary, round `et2ux4`, D9).
+        # It belongs with paths 1-7: nothing may be written.
+        action, store = self.path_10_shape_hold_not_cleared()
+        self.assertNoticeCarriesTheMeasuredLine(action, "path 10 (shape hold)")
+        self.assertNothingWasWritten(store, "path 10 (shape hold)")
 
 
 class ThePathsAreDistinctTests(_Case):

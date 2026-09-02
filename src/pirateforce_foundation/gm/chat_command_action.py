@@ -847,15 +847,15 @@ EVENT_SPEED_WITHHELD_NO_VERSION = (
 EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
-# GT-193 [FAIL] (attended R303, 2026-09-02): the shape this door composed
-# was measured on a real client -- HP 0, money 0, the character dead, and 426
-# inbound frames afterwards with ZERO non-heartbeat among them (the client
-# locked itself out and the round lost it until a re-login).  The hold that
-# fires this event is keyed on the EMPTY SECTION the frame announces, not on
-# the command name -- see `speed_wire.declared_empty_sections` and the block
-# comment above `SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT` for what was and was
-# not proven.  `withheld`, not `refused`: nothing about the GM's line was
-# wrong, this lane is holding its own frame.
+# GT-193 [FAIL] (attended R303, 2026-09-02): this door's frame went to a real
+# client, and immediately afterwards the character showed HP 0 and money 0 and
+# died, and 426 inbound frames carried ZERO non-heartbeat (the client locked
+# itself out and the round lost it until a re-login).  WHICH BYTE DID THAT IS
+# NOT KNOWN -- the tester's own nonclaim -- so the hold is keyed on the SHAPE
+# being uncleared, not on a cause: see `speed_wire.shape_cleared` and the
+# block comment above `SHAPES_CLEARED_BY_A_REAL_CLIENT`.  `withheld`, not
+# `refused`: nothing about the GM's line was wrong, this lane is holding its
+# own frame.
 EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED = (
     "gm_chat_action_speed_withheld_sparse_shape_not_cleared_by_a_real_client"
 )
@@ -1152,9 +1152,9 @@ _NO_BYTES_BLOCKERS_SOURCE = {
         " from"
     ),
     OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED: (
-        "GT-193 measured this frame shape killing a real character and"
-        " locking the client out; the empty ActorAttr section it announces"
-        " is held until an attended round or an RE result clears it"
+        "GT-193 sent this frame shape and the character died and the client"
+        " locked out immediately after; no client has been measured accepting"
+        " any shape of this door, so every send is held until one is"
     ),
     OUTCOME_SPEED_NO_STORE: (
         "session.foundation.lifecycle.store is unreadable, so /speed has no"
@@ -3453,15 +3453,16 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     client then answered nothing at all (426 inbound frames, zero of them
     non-heartbeat -- the revive buttons never reached the server).  The run DB
     was healthy throughout, so the client reacted to BYTES THIS LANE SENT.
-    The gate below is keyed on the SHAPE `speed_wire.declared_empty_sections`
-    measures -- today an ActorAttr section announced with a zero mask and no
-    fields, which is what the tester's tally called "trailing zero fields" --
-    and it fires BEFORE the DB write, so a held frame never leaves a moved row
-    behind it.  Which byte killed the character is NOT known and this function
-    does not pretend it is (the tester's own nonclaim); the hold is what a
-    measured client lockout earns until an RE result or a later attended round
-    clears the shape.  See `speed_wire.SPARSE_SHAPE_CLEARED_BY_A_REAL_CLIENT`
-    and `tests/test_gm_speed_shape_hold.py`.
+    The gate below asks one question -- has a real client been measured
+    accepting THIS shape (`speed_wire.shape_cleared`, keyed on the signature
+    `declared_empty_sections` returns; today that set is empty, so the answer
+    is always no) -- and it fires BEFORE the DB write, so a held frame never
+    leaves a moved row behind it.  Which byte killed the character is NOT known
+    and this function does not pretend it is (the tester's own nonclaim); the
+    hold is what a measured client lockout earns until an RE result or a later
+    attended round clears a shape by name.  See
+    `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` and
+    `tests/test_gm_speed_shape_hold.py`.
 
     !! IT NOW WRITES A DB ROW.  ~~"writes no DB row: this composes a WIRE
     FRAME only, never touching `store`/`characters`"~~ -- struck, not
@@ -3581,24 +3582,26 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # one anyway (GT-193 measured that half too -- `speed_walk` has no login
     # read yet, LANE-DB's CORE-REQUEST).
     #
-    # The shape is MEASURED on the frame this call is about to compose -- real
-    # identity, real value -- not hardcoded, so a future door that fills the
-    # section opens this gate by itself.  `declared_empty_sections` composes,
-    # and a composer that raises here is a shape this lane cannot measure,
-    # which is not a shape it may put in front of a tester: that path holds
-    # too, rather than falling through to the send.
+    # EVERY send needs a clearance, and the shape's signature is the key --
+    # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is empty today, so every
+    # send is held.  It is NOT "hold only while a section is empty": that was
+    # this round's first draft, and pf-adversary measured what it meant (D6) --
+    # a lane that filled the section would have shipped a new, never-measured
+    # shape to an attended tester without any clearance at all.  The shape is
+    # measured, not hardcoded, so a future round clears exactly the shape it
+    # measured and no other.  A composer that raises here is a shape this lane
+    # cannot measure, which is not a shape it may put in front of a tester
+    # either: that path holds too, rather than falling through to the send.
     try:
-        empty_sections = speed_wire.declared_empty_sections(
+        shape = speed_wire.declared_empty_sections(
             legacy, identity_lo, identity_hi, value
         )
     except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
         # `None`, not "an empty section": a shape that could not be measured
-        # is held EVEN IF a future round has cleared the shape it expected to
-        # see, because nothing here knows the two are the same shape.
-        empty_sections = None
-    if empty_sections is None or (
-        empty_sections and not speed_wire.sparse_shape_cleared()
-    ):
+        # is never cleared, whatever the clearance set holds -- nothing here
+        # knows which shape it would have been.
+        shape = None
+    if not speed_wire.shape_cleared(shape):
         _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
         return _speed_denied(
             session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED

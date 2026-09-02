@@ -1125,10 +1125,6 @@ class TheConsoleNeverInventsAZeroTests(unittest.TestCase):
         self.assertIn("pinned spawn", legend)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WhatChiefsLetter1712AskedForTests(unittest.TestCase):
     """The two asks of `20260902_1712_CHIEF-TO-LANE-GM-gt192-debt-paid-*`.
 
@@ -1144,6 +1140,14 @@ class WhatChiefsLetter1712AskedForTests(unittest.TestCase):
         self.assertIn("NOT a licence for an empty map", note[0])
 
     def test_the_notes_count_is_the_rows_count_not_a_typed_in_number(self):
+        """~~asserted against the live chain only~~ -- struck (pf-adversary D3).
+
+        The first version asserted `"%d actors" % row.actor_count` against the
+        live chain, where that number happens to be 97.  A literal `97` in
+        `render` survived it: the assertion never varied the count, so the test
+        that promised to catch drift was a tautology.  It now drives `render`
+        with a row whose count is a number no registry produces.
+        """
         rows = preflight.preflight_chain(legacy=_legacy())
         mirrored = [
             row for row in rows
@@ -1155,6 +1159,41 @@ class WhatChiefsLetter1712AskedForTests(unittest.TestCase):
             with self.subTest(scene=row.scene_id):
                 self.assertIn("map %d " % row.scene_id, note)
                 self.assertIn("%d actors" % row.actor_count, note)
+
+        # The half that can actually fail: a synthetic count and scene id.
+        invented = dataclasses.replace(
+            mirrored[0], scene_id=4242, actor_count=8675
+        )
+        note = [
+            line for line in preflight.render((invented,)) if " NOTE " in line
+        ][0]
+        self.assertIn("map 4242 ", note)
+        self.assertIn("8675 actors", note)
+        self.assertNotIn("97 actors", note)
+
+    def test_the_clause_keys_on_the_source_not_on_the_route(self):
+        """pf-adversary D4: swapping the key produced a lie about Port Royal.
+
+        Four rows carry `route=mirrored_runtime_arm`; only scene 2's carries
+        `source=runtime_bg0002_arm`.  Keying the clause on the route made the
+        console tell a tester that map 1 -- which the SAME line reports as
+        `empty_until_you_step=[1]` -- is not allowed to be empty.  Scene 1 and
+        scene 2 are both in this chain, so that mutant fails here.
+        """
+        rows = preflight.preflight_chain([2, 1], legacy=_legacy())
+        by_scene = {row.scene_id: row for row in rows}
+        self.assertEqual(
+            by_scene[2].source, preflight.SOURCE_RUNTIME_BG0002_ARM
+        )
+        self.assertEqual(
+            by_scene[1].route, preflight.ROUTE_MIRRORED_RUNTIME_ARM
+        )
+        self.assertNotEqual(
+            by_scene[1].source, preflight.SOURCE_RUNTIME_BG0002_ARM
+        )
+        note = [line for line in preflight.render(rows) if " NOTE " in line][0]
+        self.assertIn("map 2 ", note)
+        self.assertNotIn("map 1 ", note)
 
     def test_a_chain_without_the_mirrored_arm_gets_no_clause(self):
         # The clause is derived, so a chain that never touches scene 2 must
@@ -1216,3 +1255,14 @@ class WhatChiefsLetter1712AskedForTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
         self.assertNotIn("GM_WARP_PREFLIGHT PRECONDITION", proc.stderr)
         self.assertEqual(proc.stdout, "")
+
+
+# THE `__main__` BLOCK LIVES AT THE BOTTOM, and pf-adversary is why (round
+# `et2ux4`, D10).  It used to sit above the class this round added, so
+# `python tests/test_gm_warp_chain_preflight.py` ran 51 tests while `pytest`
+# ran 57: the missing ones were the entire new class, including the only two
+# tests of chief's ask (a).  CI runs pytest, so it was latent -- but a file
+# that invites direct execution must not silently drop whatever is written
+# after the invitation.
+if __name__ == "__main__":
+    unittest.main()
