@@ -137,8 +137,16 @@ class FakeStore:
     ordering rather than inferring one from the other.  The row moving while
     the frame is held is the state GT-193 also measured from the other side
     (the client painted 400 after a re-login while the row held 300, because
-    `speed_walk` has no login read yet -- LANE-DB's own item), and COO `1847`
-    accepted it deliberately.
+    ~~`speed_walk` has no login read yet~~ -- LANE-DB's own item), and COO
+    `1847` accepted it deliberately.
+
+    !! STRUCK, NOT DELETED, by LANE-GM round `gj77z5`.  PR #605 landed that
+    login read on `main`, so a re-login no longer paints 400 over a row
+    holding 300 -- it paints 300.  What GT-193 measured is still what it
+    measured; what changed is that the state it measured is no longer
+    reachable the same way, and a reader of this file must not carry the old
+    sentence forward as if it still described `main`.  The row a held
+    `/speed` leaves behind now reaches the client at the next login.
     """
 
     def __init__(self, path):

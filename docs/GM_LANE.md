@@ -7612,9 +7612,18 @@ against a character, a client and a re-login), not a proof, and no test in this 
 as if it were one.
 
 **What GT-193's other half is, and whose:** on re-login the sheet read **400**, not 300, because
-`speed_walk` has no login read -- the client is painting `CLIENT_CONSTRUCTION_DEFAULTS`
+~~`speed_walk` has no login read~~ -- the client is painting `CLIENT_CONSTRUCTION_DEFAULTS`
 (`persistence_attr_compose.py:289`). That is LANE-DB's CORE-REQUEST (letter `1035`, COO approved
 `1143`), untouched by this lane.
+
+🔴 **STRUCK, NOT DELETED, round `gj77z5`: LANE-DB LANDED IT.** PR #605 put the login read on `main`
+(`session.py:192` -> `login_speed.resolve_for_character` -> `player_wire.py:266`). A re-login after
+`/speed 300` now paints **300**, not 400. Measured this round with both `/speed` locks held: the
+command sends **zero bytes**, and the **next login frame** carries `f32(300.0)` where it carried
+`f32(400.0)` before. So the two locks shut this lane's own door while the login door beside it
+carries the same field (BasicAttr `+0x54`, x=7) with the same number one re-login later -- and
+`GT-193`'s recovery step is a re-login. Named for the COO in letter `20260903_0529`; **this lane did
+not act on it alone**, because `COO 1847` ruled "the DB write continues as before" in as many words.
 
 ### Round `et2ux4` -- chief's two asks on `warp_chain_preflight` (letter `1712`)
 
@@ -7658,9 +7667,10 @@ client and then fix your guess"), so it is a literal a round edits with its evid
 ~~"the shape hold fires **before** the DB write, so a held frame never leaves a moved row behind
 it"~~ -- **struck**, one round after it was written, by `COO 1847`'s third item. Both gates now
 stand **below** the write. The screen-disagrees-with-the-row state that paragraph feared is now
-accepted deliberately: `speed_walk` has no login read either way, so the row is what a later
-login-read can honour, and the frame is what killed a client. It also keeps `GT-193` step 6 (diff
-the row) gradeable at all.
+accepted deliberately: ~~`speed_walk` has no login read either way, so the row is what a later
+login-read can honour~~, and the frame is what killed a client. It also keeps `GT-193` step 6 (diff
+the row) gradeable at all. **(Struck round `gj77z5` -- the login read is on `main` since #605, so
+that row is no longer inert; see the paragraph above.)**
 
 The shape check is now measured off `stored` -- the store's own read-back, the very number the frame
 beneath it would carry -- rather than off the typed value, so it no longer leans on the
