@@ -14,29 +14,48 @@ LANE-A`` - and ``COO-DECISION 20260902_1946`` approved the call-site half
 WITH TWO CONDITIONS: close the read-then-compose race window, and never
 sweep ground rows silently on a read.
 
-    !! THOSE TWO CONDITIONS ARE NOT MET BY ANYTHING ON ``main`` TODAY, AND
-    THIS FILE DOES NOT PRETEND OTHERWISE.  ~~"Both are the composer's own
+    ~~!! THOSE TWO CONDITIONS ARE NOT MET BY ANYTHING ON ``main`` TODAY~~ -
+    STRUCK, round ``nyxlqs``, MEASURED: they are met now.  The history is
+    kept because the hold-back branch below is still live code and this is
+    the only place that says why it exists.  ~~"Both are the composer's own
     behaviour and this file does not reimplement either"~~ - STRUCK,
     pf-adversary, round ``gx7xtp``, MEASURED: LANE-B closed those two
     conditions in a LATER letter (``20260902_2048``, cc'd to this lane)
     with a DIFFERENT function, ``mob_combat.remote_actors_preserving_the_
     ground_under_publication(..., cell=..., scene=...)``, which reads the
-    count and composes under the cell's single lock.  That function is not
+    count and composes under the cell's single lock.  ~~That function is not
     on ``main``: chief measured the same absence from the other side and
     declined to wire it for exactly this reason (``20260902_2208_CHIEF-TO-
-    LANE-B``).  The composer this file can reach today reads the count
-    FIRST and composes SECOND, which IS the window the first of those
-    two conditions names.
+    LANE-B``)~~ - STRUCK, round ``nyxlqs``: **it reached ``main`` in LANE-B's
+    ``#615``**, so the reason chief declined has expired.  The OTHER composer
+    this file can also reach reads the count FIRST and composes SECOND, which
+    IS the window the first of those two conditions names - which is why the
+    routing below prefers the lock-holding one and why the hold-back branch
+    is not simply deleted: a deploy older than ``#615`` still has only the
+    racy one, and on that tree the safe answer is still to hold.
 
-SO THE CELL IS HELD BACK, AND THAT IS THE WHOLE SAFETY ARGUMENT.  Wiring
+SO THE CELL WAS HELD BACK, AND THAT WAS THE WHOLE SAFETY ARGUMENT.  Wiring
 the four call sites is item 2 of LANE-B's letter and it lands here in full:
 ``mob_loot_cell`` is a real keyword-only parameter of every responder
-instead of something that falls into ``**_ignored``.  But a cell that
-arrives while only the racy composer exists is NOT asked for a count - it
-is held back, the frame is v141's own bytes, and one bounded ASCII console
-line per scene says so by name.  The day
+instead of something that falls into ``**_ignored``.  A cell that arrives
+while only the racy composer exists is NOT asked for a count - it is held
+back, the frame is v141's own bytes, and one bounded ASCII console line per
+scene says so by name.  ~~The day
 ``remote_actors_preserving_the_ground_under_publication`` reaches ``main``,
-this file routes to it and the hold lifts with no call-site change.
+this file routes to it and the hold lifts with no call-site change.~~ - that
+day was ``2026-09-03`` and it happened exactly that way: the lookup is per
+call, so no edit here was needed and no call site moved.
+
+    !! WHAT THAT CHANGES FOR WHOEVER WIRES ``runtime.py``, and it is the
+    one sentence that is no longer true from ``#609``'s PR body: the line
+    chief is asked to add is NO LONGER byte-identical.  With the composer
+    on ``main``, a cell reaching a responder while a row is STANDING in
+    that scene now composes the preserving frame - measured on scene 2,
+    12,574 -> 12,577 bytes.  That is the whole point of the seam and it is
+    what ``COO-DECISION 20260902_1946`` approved, but it is a behaviour
+    change on the day the call site is wired, not a no-op, and nobody
+    should read an older sentence and believe otherwise.  With an EMPTY
+    floor, or with no cell at all, the bytes are still v141's own.
 
     WHY HOLD RATHER THAN USE THE RACY ONE.  The failure it would buy is
     the exact failure the whole letter exists to prevent: a click whose
