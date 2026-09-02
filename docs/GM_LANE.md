@@ -46,13 +46,13 @@ trusting a claim here that a mismatch would invalidate):
 | vital id | name | direction | layout status |
 |---|---|---|---|
 | 0x5A19 | `GM_UpdateGMStateVital` | server->client | **proven**: u8tag(0x0B) + u8tag(0x0B) + u32tag(0x14), span_sha256 `03b18673...033c661` |
-| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE`. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
+| 0x51E9 | `GM_RunGMCommandVital` | client->server | **RE-088 PASS/DONE -- STRUCTURAL-LAYOUT-PINNED** (outer `0x00729E10` span_sha256 `541d82f5...c8554`, nested `0x00726C20` span_sha256 `aa3c7c8d...93559d`): one presence flag `u8tag(0x0B)`; when nonzero, exactly one nested body `u32tag(0x14) + u32tag(0x14) + u8tag(0x0B) + ~~UNTAGGED_WSTRING16LE_LEN32LE + UNTAGGED_WSTRING16LE_LEN32LE~~ **CORRECTED round `q6p0pb` (2026-09-02): each wide string is `tag 0x48 + uint32le byte count + UTF-16LE` = 5+N bytes**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 6266/6267/6279/6280 -- same nested span sha256 as pinned here, tag instructions `0x0089A833`/`0x0089A89C` `push 0x48`. This is the SAME shape row 0x9F2C below already proved against real captured frames, which is what makes the coarse `UNTAGGED_*` label in `PF_SERIALIZER_FIELDS.tsv` the outdated one, not a second opinion. RE-088 closes the earlier "two runtime-selected sub-paths" question this doc used to carry: the presence flag gates one nested serializer call, not a sub-opcode choosing between two shapes, and RE-088 found no field it could prove is a separate sub-opcode. **Field meaning is still NOT proven** -- the two wide strings are not confirmed to be a command name and its argument text, and the live chat-input trigger condition is RE-091 (open). Decoder: `gm/command_wire.py`. |
 | 0x8C77 | `GM_RunGMCommandResultVital` | server->client | **proven**: single u8tag(0x0B) @+0x14, span_sha256 `ad65d125...633e9`. Meaning of the byte not proven (RE-088 explicitly declines to call it success/error). Decoder: `gm/command_wire.py`. |
-| 0x162E | `CheatVital` | both | proven: single UNTAGGED_STRING8_LEN32LE @+0x14 (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`) -- round-trip encode/decode of the untagged length-prefixed raw bytes, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
+| 0x162E | `CheatVital` | both | ~~proven: single UNTAGGED_STRING8_LEN32LE @+0x14~~ **CORRECTED round `q6p0pb` (2026-09-02): tag `0x44` + `uint32le` byte count + payload = 5+N bytes @+0x14**, per `PF_A2_STRING_WIRE_TAG_DELTA.tsv` (sha256 `e1f4f987...e208b3a2`) rows 565/566, tag instructions `0x0089A6F1`/`0x0089A75C` `push 0x44`, same base span sha256 the module already pinned (reference only, not reused as GM wire). Codec: `gm/cheat_wire.py` (round `thhkup`, corrected `q6p0pb`) -- round-trip encode/decode, rejects a wrong tag and rejects the old 4+N shape, tested, NOT wired into `dispatch.py`/`runtime.py`; see that module's docstring for why the "not reused" note stays true. |
 | 0x9F2C | `Channel_GMGlobalMessageVital` | server->client (Global-scope `Channel_*` family) | **already proven elsewhere in this repo -- do not re-derive or re-codec in this lane's zone.** `reports/PF_CHAT_CHANNEL001_CHANNEL_FAMILY_AND_ROUTING_STATIC_20260818.md` (byte-exact static, 69 static guards + `tests/test_chat_channel_family_static.py`, 15 passed) proves `Channel_GMGlobalMessageVital` shares serializer `0x65AD40` with four other channels (LocalTalk/Party/Guild/ActorBoardcast) byte-for-byte identically: `tag 0x48 + u32 byte-length + UTF-16LE` wstring codec, field order `speaker@+0x34` then `body@+0x18`. This is a **different, more specific wire shape** than `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`'s coarser `UNTAGGED_WSTRING16LE_LEN32LE` label for the same offsets implies (no leading tag byte) -- the report's claim is corroborated against real captured GT-006 frames (three independent byte-for-byte hash cross-checks against pins produced by an unrelated code path), which the TSV row alone is not. `src/pirateforce_foundation/channel_message_hypothesis.py` already implements a tested encoder/decoder for all five shared-serializer channels including this one (`CHANNEL_MESSAGE_FIELD_ORDER`, `SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"] = 0x9F2C`). **This lane tried to build its own codec for this message in a since-retracted round (see "Attempted and retracted" below) before finding this.** `gm/say_wire.py` (say-wire round, below) now bridges a parsed `say` `GmCommand` to that existing encoder by import -- no second codec. |
 | 0x0E80 | `ForcePos` | direction NOT_OBSERVED (0 captured frames either way, `PF_FIELD_VALIDATION.tsv`) | **RE-090 PASS/DONE**: vec3 only, three `f32tag(0x2A)` (X/Y/Z), span_sha256 `7c6f6cb7...860e0d`. Vital id is not a table row in `VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` (the client computes it at runtime from the name, it is not a stored constant); reproduced here from that file's own documented formula -- see "Vital id formula" below. Codec: `gm/teleport_wire.py`. |
 | 0x1BA4 | `CWarpResult` | direction NOT_OBSERVED (0 captured frames either way) | **RE-090 PASS/DONE**: flat `qwordtag(0x32)` + vec3 (`f32tag(0x2A)` x3) + `u16tag(0x12)`, span_sha256 `5e3acf83...986c6db6a9`. The name `Result` is not evidence of direction. Codec: `gm/teleport_wire.py`. |
-| 0x25A2 | `TeleportVital` | direction not confirmed, but NOT the same evidentiary state as the two rows above: 132 candidate frames per direction exist at status `A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), unlike `ForcePos`/`CWarpResult`'s genuine zero | **RE-090 PASS/DONE**: `u8tag(0x0B)` field_0x18 -> presence-gated target object (stream order per RE-090's listing: `scene_id` u16tag(0x12), `scene_seq` qwordtag(0x32), then `field_0x10`/`field_0x11` u8 -- **not** ascending object-offset order, same pattern as the aux reorder below; `scene_id`/`scene_seq` are the same RE-077 crosswalk `player_wire.py`/`npc_wire.py` already use -- then vec3 f32tag(0x2A) x3) -> presence-gated auxiliary object (untagged wstring, then four more scalars, **wire order `+0x40` before `+0x38`** even though the object offset is lower -- RE-090 confirms this is real, not a transcription slip) -> `field_0x20` u8 -> `field_0x22` u16tag(0x0F). span_sha256 `fbe813db...df990487` (top), `ec9a5421...9a724df0b5ef` (target), `105bad91...6ccc049c93` (aux). Codec: `gm/teleport_wire.py`. The target field order is this lane's own reading of RE-090's prose listing, not independently re-verified against a real frame -- a follow-up round should run it against the 132 `A2_STATIC_OPEN` candidate frames before this is used against a real client (see the `TeleportTarget` docstring). |
+| 0x25A2 | `TeleportVital` | direction not confirmed, but NOT the same evidentiary state as the two rows above: 132 candidate frames per direction exist at status `A2_STATIC_OPEN` (candidate-matched, not parse-confirmed), unlike `ForcePos`/`CWarpResult`'s genuine zero | **RE-090 PASS/DONE**: `u8tag(0x0B)` field_0x18 -> presence-gated target object (stream order per RE-090's listing: `scene_id` u16tag(0x12), `scene_seq` qwordtag(0x32), then `field_0x10`/`field_0x11` u8 -- **not** ascending object-offset order, same pattern as the aux reorder below; `scene_id`/`scene_seq` are the same RE-077 crosswalk `player_wire.py`/`npc_wire.py` already use -- then vec3 f32tag(0x2A) x3) -> presence-gated auxiliary object (~~untagged wstring~~ **CORRECTED `q6p0pb`: `text` is at DEREF(+0x1C)+0x10 and carries tag `0x48` + `uint32le` byte count = 5+N bytes, per the same delta table rows 580/613**, then four more scalars, **wire order `+0x40` before `+0x38`** even though the object offset is lower -- RE-090 confirms this is real, not a transcription slip) -> `field_0x20` u8 -> `field_0x22` u16tag(0x0F). span_sha256 `fbe813db...df990487` (top), `ec9a5421...9a724df0b5ef` (target), `105bad91...6ccc049c93` (aux). Codec: `gm/teleport_wire.py`. The target field order is this lane's own reading of RE-090's prose listing. ~~a follow-up round should run it against the 132 `A2_STATIC_OPEN` candidate frames~~ 🔴 **SUPERSEDED / RED**: those frames HAVE been replayed and `PF_V5_FIELD_VALIDATION.md` ([MEASURED][CAPTURE], still red at V5) reports **R 190 mismatches, reason `STRING_TAG`**, at the field identity whose `DELTA` component is the dedup_key of delta row 613 -- i.e. at the aux-text tag correction this lane applied on 2026-09-02 -- and **W 188 mismatches, reason `TAG`, at `ORDER:4`** = `PF_SERIALIZER_FIELDS.tsv` row 570 = `TeleportTarget.scene_id`, with no delta component, i.e. base-schema-vs-capture. So the order is not merely unconfirmed, it is contradicted at one of its own fields by 188 real instances. `gm/teleport_wire.py` is therefore a reference codec **KNOWN to disagree with capture** and must not be promoted on its tests. A first written hypothesis (aux presence gate declared ungated in row 579) is in that module's docstring, `[PROPOSED]`. **Note:** the `132 / mismatch 0` figure in `external/PF_FIELD_VALIDATION.tsv` is the V1 aggregate and is stale for this row. |
 
 ### Vital id formula (ForcePos / CWarpResult)
 
@@ -6647,3 +6647,677 @@ present next to the client) instead of an open-ended "still waiting on RE."
 รายละเอียดเต็ม:
 `pf_bridge/rounds/GM_20260901_2132_ku3jz6_re164-item3-closed-plus-gamemasterdll-flag.md`
 PR: `pf_bridge` #756 / `pirate-force-server` #510
+
+## Round `hw6dix` (2026-09-02T01:29+07:00) -- `/speed` writes the row: DB first, wire second (GM-B, `GT-193` condition (b))
+
+### What changed
+
+`_speed_action` in `gm/chat_command_action.py` went from "compose a wire frame only, touch no DB
+row" to **DB FIRST, WIRE SECOND**. It now calls LANE-DB's existing
+`store.write_typed_attributes_and_compose_sparse(character_id, {"speed_walk": value})` and composes
+the frame from THAT call's read-back, not from the text the GM typed.
+
+The premise of last round's letter to LANE-DB (asking them for an `identity_lo`/`identity_hi`-keyed
+overload) was wrong and is withdrawn: `model.Character` has always carried `id` as its first field,
+and `session.foundation.selected` IS that `Character` -- the same read site `_selected_speed_identity`
+already used. The translation is one line and it belongs in this lane, not in theirs. New read site:
+`_selected_speed_character_id` (positive `int` only; `bool` excluded by `type(...) is not int`, and
+`0`/`-1` refused because a rowid starts at 1, so those are a leaked sentinel).
+
+Two more pieces worth naming:
+
+* `_speed_store` is now **the one read site** for `session.foundation.lifecycle.store`, shared by the
+  run-copy-DB gate and by the write. Before this round the gate read the chain itself; leaving it
+  that way would have allowed the gate and the write to mean two different objects, which is a gate
+  in name only.
+* `SPEED_TYPED_COLUMN = persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)` -- resolved at
+  IMPORT time through LANE-DB's own table, never the literal `"speed_walk"` typed twice. If x=7 ever
+  loses its column this lane fails loudly at boot instead of refusing silently in front of a tester.
+
+Four new no-frame outcomes, all TYPE-name-only in the audit row (an exception message can embed the
+GM's typed text): `no_store`, `no_character_id`, `persist_refused_<ExcType>`,
+`persist_readback_unusable`. Pinned in `tests/test_gm_chat_command_action.py`'s event-name contract
+table, which enforces completeness, not just correctness.
+
+### The gate that matters
+
+🔴 The run-copy-DB gate (`_speed_db_is_canonical`) used to guard only a SEND. It now guards a
+**WRITE**, and it is the only thing standing between this lane and the project rule "never touch the
+canonical DB". It fires first and fails closed: a store path that cannot be read counts as canonical
+and refuses. `test_the_canonical_db_gate_fires_before_any_write` asserts `store.calls == []`, and
+`test_a_shut_version_gate_writes_nothing_either` asserts the same for the version gate -- withheld
+means no frame AND no row.
+
+It is still a FILENAME HEURISTIC, exactly as its own docstring has always said. This round made it
+load-bearing for more; it did not make it more accurate.
+
+### Why this is `GT-193` condition (b)
+
+`GT-193` (chief's entry, `PENDING interface`) waits on both (a) LANE-DB's sparse x=7 write path on
+`main` -- closed `20260901_2213` -- and (b) LANE-GM's `/speed` wiring that CALLS that function.
+Before this round step 6 of the entry ("Re-query the same persisted attribute row ... Diff
+field-by-field") would have produced an empty diff every time, and the entry would have graded a
+frame rather than a memory. The head is chief's to flip; letter
+`20260902_0129_LANE-GM-STATUS-speed-writes-the-row-gt193-condition-b-closed.md` asks for it.
+
+### Tests
+
+`SpeedPersistenceTests` (fake store) proves the order, the one-column write, the read-back-not-typed-
+text rule (the double reports 9.5 while the GM typed 5.0, and the test asserts both that the frame is
+9.5's and that it is NOT 5.0's), no-frame-on-store-refusal, and that neither gate lets a write
+through. `PersistenceIntegrationTests` runs the same command against a **real `SQLiteStore` on a real
+temp file** and reads the value back through a SECOND store opened on the same path -- the closest a
+headless test gets to "the GM logs in again tomorrow" -- plus the f32 rounding agreement for `400.1`
+and a refused `1e40` leaving the prior row untouched. It carries its own fd guard on the temp
+directory, because a leaked sqlite handle is what killed PR #495 on the Windows gate (`WinError 32`),
+a failure Linux never shows.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = 6622 passed, 327 skipped, 13796 subtests -- เขียว(cloud sanity).
+`tests/test_gm_*.py` = 1307 passed, 590 subtests -- เขียว(cloud sanity).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+พิมพ์ `/speed 800` แล้วขั้นที่ 6 ของ `GT-193` มีอะไรให้ diff จริง -- คอลัมน์ `speed_walk` ใน run-copy DB
+เปลี่ยน และเลขบนจอเป็นเลขเดียวกับที่แถวถือ เมื่อวานคำสั่งเดียวกันสร้างเฟรมแล้วลืมทันที
+
+### nonclaim
+
+1. Does not claim `GT-193` passed -- no client is in this round's evidence at all. Only the entry's
+   opening condition (b) closed.
+2. Does not claim GM-B is done. `NOW.md`'s own rule: code on `main` is not "เสร็จ"; only Panya ticks.
+3. The DB-first ORDERING is still `[สมมติของสาย GM - รอ COO ยืนยัน]`
+   (`20260902_0017_LANE-GM-ASK-COO-speed-db-first-ordering-change.md`, unanswered). It is live code
+   now rather than a proposal; if COO rules the other way the change is one function and
+   `SpeedPersistenceTests` goes red.
+4. Does not claim the run-copy-DB gate is a cryptographic guarantee -- it is a filename heuristic.
+5. Does not claim x=7 is speed proven on screen. `RE-194` runs in parallel and is not a blocker.
+6. Did not touch `runtime.py` / `app.py` / `current/pf_login_game_server_v141.py` / canonical DB /
+   `scenarios/world_*.json` / `scenarios/combat_*.json` / any LANE-DB file (their method is CALLED,
+   not edited).
+7. No GM status outside `gm_accounts.json`, no client self-elevation, no milestone declared.
+8. GM shortcut used: `/speed` is a GM command; a speed value obtained through it is not evidence that
+   a normal player's movement/attribute path works. It is a way to reach a testable state.
+9. No prior history deleted -- the docstring line that became false (`"writes no DB row"`) is struck
+   through, not removed.
+
+รายละเอียดเต็ม: `pf_bridge/rounds/GM_20260902_0129_hw6dix_speed-persistence-wired-db-first.md`
+PR: `pf_bridge` #777 / `pirate-force-server` #523
+
+### pf-adversary (round `hw6dix`, second pass) -- NOT APPROVED, six defects, all six fixed before the draft came off
+
+The subagent ran 20 minutes of real mutation testing in a separate worktree, sha256-compared its
+copies against the committed blobs (so it measured the shipped code, not a stale patch), and returned
+**Not approved**. Every finding was fixed in a follow-up commit on the same branch, before the PR left
+draft. None was deferred.
+
+* **D1 -- `/speed` had durable state and no `undo`.** `_make_action`'s own rule is "AN EFFECT THAT IS
+  ALREADY ON DISK HAS TO COME BACK OFF IT" when the outcome row cannot be written. Reproduced: an
+  `OSError` on the outcome append left the column at 777.0 while the console printed *"anything it had
+  in hand was dropped with it"* -- false. Fixed with `_speed_undo`, which reads the prior value BEFORE
+  the write and restores it through `write_typed_attributes` (never the compose variant -- an undo a
+  wire-side gate can refuse is not an undo), carried by every verdict from the write down. A column
+  that was NULL before cannot be restored (`write_typed_attributes` refuses `None` by design) and
+  reports `not_reverted` rather than lying. Control: removing the undo turns 4 tests red, including
+  one against a real `SQLiteStore`.
+* **D2 -- one word for two opposite durable states.** `refused_speed_<ExcType>` meant both "parse
+  failed, nothing stored" and "write committed, composer then failed", and the console printed
+  `no blocker recorded` for the dangerous one. Fixed with its own
+  `refused_speed_persist_compose_<ExcType>` and a prefix-matched blocker sentence
+  (`COMMITTED_ROW_BLOCKER_PREFIXES`) that says the row IS committed. The two pre-existing tests whose
+  meaning had silently changed are struck through with the reason and replaced.
+* **D3 -- 🔴 the canonical-DB gate authorized a WRITE to the canonical file.** The exact `==` was
+  case-sensitive, and `app.py:660` keeps the operator's `--db` string verbatim. Measured as allowing
+  `PirateForce.sqlite3`, `PIRATEFORCE.SQLITE3`, a trailing space, a trailing dot, `::$DATA`, and the
+  8.3 short name -- all the same file on Windows. Fixed by normalizing (stream suffix, trailing dots
+  and spaces, casefold), refusing any `~` short name outright (a string cannot resolve one), and
+  adding `os.path.samefile` against a sibling `pirateforce.sqlite3`, which sees through case, 8.3,
+  hard links and junctions. Fail-closed on every error. Controls: the old `==` turns 7 tests red;
+  dropping `samefile` as well turns 8 red, including a real hard link on a real file.
+* **D4 -- the ordering test could not see ordering.** Inserting a compose call ABOVE the write left
+  all 134 tests green. Replaced with a test that wraps the composer and records how many rows the
+  store had written each time it ran; a compose before the write shows up as a `0`. The same mutation
+  is now red.
+* **D5 -- `SPEED_TYPED_COLUMN`'s stated purpose had no control.** Hardcoding the literal survived
+  everything, because the guard compared the constant against itself -- and so did a first fix that
+  compared it against `column_for(7)`, which agrees today. Replaced with an AST guard that reads the
+  source and requires the binding to be a `column_for(...)` call, not a constant. `FakeStore` no
+  longer copies the literal it forbids. The docstring's "loud boot failure in this lane" is corrected:
+  `runtime.py:40` imports this module at module level, so it is the whole server refusing to start --
+  a deliberate trade, now stated as one.
+* **D6 -- three of the four new refusals are unreachable in production.** `no_store`,
+  `no_character_id` and `persist_readback_unusable` cannot occur against a real `SQLiteStore`; only
+  `persist_refused_TypedAttrError` can, and the integration test reaches it. The class docstring now
+  says which is which instead of implying all four are proven against production shapes.
+
+Also fixed from its two non-defect flags: `unittest.main()` sat mid-file above three classes, so
+`python3 tests/test_gm_speed_action.py` ran 29 of 59 tests and printed OK (pytest, and therefore the
+gate, was never fooled) -- moved to the end. And its worktree measured `6562 passed / 387 skipped`
+against this clone's `6638 / 327`: same total, 60 tests moved passed→skipped, none red, almost
+certainly the client-image/capture-corpus modules a sandbox lacks. Recorded rather than smoothed over;
+naming those 60 is next round's backlog.
+
+### The design question it said was unanswered, answered here
+
+**When the row is on disk and the frame is not, who owns the divergence?** Two cases, not one:
+
+1. **The audit row could not be written** -> revert. The house rule is "no effect this lane could not
+   record", and D1's undo is what makes it true. A NULL-before column cannot be restored and reports
+   `not_reverted` instead of claiming success.
+2. **The composer or the store failed after the commit** -> keep the row. The DB is the durable truth
+   and the value IS that character's speed; the client sees it at next login. But it must be
+   distinguishable in the trail, which is what D2's own outcome word and console sentence are for.
+
+**How a tester grading `GT-193` step 6 reads it:** a changed row with an unchanged screen, together
+with `refused_speed_persist_compose_*` or `refused_speed_persist_*` on the console, is NOT a FAIL of
+the entry -- it is the designed state; record it as a separate observation. The same divergence with
+NO such token is something nobody has measured; open a new entry for it. Case 2 is
+`[สมมติของสาย GM - รอ COO ยืนยัน]`; case 1 is the existing house rule.
+
+### เขียว (after the six fixes)
+
+`python3 -m pytest tests/ -q` = 6638 passed, 327 skipped, 13805 subtests -- เขียว(cloud sanity).
+The 6622/327 pinned earlier in this round's first entry was the pre-fix run; the difference is this
+round's own new tests, not a test that had been red.
+
+## Round `c637o1` (2026-09-02T02:5x+07:00) -- the refusal line names the row, and three more refusals stopped vanishing
+
+`COO-DECISION 2026-09-02T01:47+07:00` confirmed DB-before-wire for `/speed` (so that ordering is no
+longer `[สมมติของสาย GM]`) and attached a condition: a refusal may not be SILENT. It asks for two
+things per refusal -- an immediate chat line the GM reads at the client, and one server-side log line
+carrying IDENTITY and the reason. This round delivered the second, widened it after `pf-adversary`
+measured it half-done, and asked COO about the first. **`pf-adversary` returned NOT APPROVED on the
+first draft with six defects; all six are fixed below, in the same branch, before draft was lifted.**
+
+### What changed in `gm/chat_command_action.py`
+
+1. **`_identity_fields`** -- one builder for `character_id=<rowid|none> identity=<lo>:<hi>|none`, used
+   by both printers that carry them. `account=` is not identity: `session.token` is the process-wide
+   `--token`, one string shared by every connection.
+2. **`GM_CHAT_DROPPED_BEFORE_DISPATCH`** -- a THIRD console token, and `_print_server_drop_way_out`
+   behind it, for a well-formed command from an allowlisted GM that the SERVER dropped before
+   dispatch: rate limiter, audit-log quota, unwritable audit log. Its reason set lives in
+   `chat_command.SERVER_SIDE_DROP_REFUSALS`, beside the constants, exactly as
+   `TYPED_COMMAND_REFUSAL_PREFIXES` does for the typo half.
+3. **`WHY_AUDIT_ROW_NOT_WRITTEN_EFFECT_KEPT`** -- a second why-word for the audit failure, chosen when
+   the undo ran and did NOT revert.
+
+### The six defects, and the control that proves each fix
+
+* **D1 -- "every refusal reaches this line" was false; 5 of 25 were silent.** Measured through the
+  real route: 25 rapid `/speed 400` printed 20 route lines and **nothing at all** for the five the
+  rate limiter dropped -- neither `GM_CHAT_NO_BYTES_SENT` (no handler ran) nor
+  `GM_CHAT_COMMAND_REFUSED` (not a typing mistake). From an attended chair that is
+  indistinguishable from "the route was never wired", which is the state COO named as forbidden.
+  Fixed by item 2 above. Control: removing the call kills 3 tests. **Still silent, deliberately, and
+  now said in the source rather than a round file: a non-GM's chat, a GM's ordinary conversation, an
+  unreadable allowlist, a malformed frame** -- all decided above the `is_gm` check. So "no GM command
+  vanishes quietly any more" is STILL FALSE; what is true is that no command from an allowlisted GM
+  that parsed (or was command-shaped and throttled) vanishes quietly.
+* **D2 -- 2 of 9 new tests were green with the whole feature deleted.** The guard named for the
+  account-token mutant was defeated by `identity='GM_ONE'` -- one quote character -- and the
+  "cannot forge a second line" test attempted no forgery. Fixed: assertions now extract the FIELD
+  VALUE and compare it, a real forgery goes through the only door these fields have (a `.selected`
+  whose `id`/`identity_lo` are text), and a new `test_two_rows_in_one_process_get_two_different_lines`
+  kills the hardcode and stale-cache mutants that previously survived 199 of 200 tests.
+* **D3 -- "the only proven server->client text route is `say_wire`" was refuted by this repo's own
+  ledger.** `docs/FUNCTIONAL_COVERAGE.json`'s `chat_input_echo_hypothesis` is `runtime_pass` on
+  attended GT-009: the real client RENDERED echoed text over `0xAC52`, through the same shared
+  serializer `say_wire` imports, while `0x9F2C` has never been seen on a screen. Corrected in the
+  docstring (struck, not deleted) and in the letter, which now puts FOUR options to COO -- the fourth
+  being `PROMOTE-153`, the open chief-owned ticket for landing chat echo on a default boot. Neither
+  route is usable from this zone today, so the conclusion did not change; the reason did.
+* **D4 -- new harm: the line named a row and lied about it.** A first-ever `/speed` on a NULL
+  `speed_walk` commits 400.0, loses the audit write, runs an undo that has nothing to restore, and
+  printed `blocked_on='...anything it had in hand was dropped with it'` -- next to `character_id=`
+  naming the row that was still at 400.0. Fixed by item 3. Control: collapsing the two words back
+  into one turns `test_an_unrevertable_row_is_reported_as_still_in_place` red.
+* **D5 -- the fields are per-CHARACTER, not per-connection.** `store.select_character` has no
+  exclusivity check, every connection shares the process `--token`, and `identity_hi` is `0` for
+  every character this server creates. The claim is now "WHICH ROW", not "WHO", in the code, the
+  tests and the letter -- and the round file no longer cites a multi-connection `GT-193` run this
+  strictly-serial server cannot host.
+* **D6 -- the line's own contract file had zero coverage.** `tests/test_gm_chat_no_bytes_line.py`
+  gained `TheIdentityFieldsOnEveryCommandTests` and `TheServerSideDropLineTests`; its `FakeSelected`
+  now carries identity fields, so the six other commands that share this line are pinned too.
+* **D7 (suspicion, not a live defect) -- the two fields were the only ones bypassing
+  `console_safe`/`_one_line`.** Now sanitised like every other field, with the reason stated: being
+  the only unsanitised fields is a discipline hole, not a proof of safety.
+
+### Mutation controls, re-measured after the fixes
+
+| mutant | tests killed (before -> after) |
+|---|---|
+| delete both identity fields | 5 -> **18** |
+| account token in their place (quoted) | **0** -> **18** |
+| both fields hardcoded to the suite's own values | 1 -> **12** |
+| `identity=` lo/hi swapped | 4 -> **14** |
+| never print the server-drop line | n/a -> **3** |
+| D4 collapsed back to one why-word | n/a -> **1** |
+
+### Measured, not assumed: where the three states separate
+
+* **typo** -- `/speed not-a-number`, `inf`, `nan`, `1e400` are refused by `parse_gm_command` UPSTREAM
+  of `_speed_action` and print `GM_CHAT_COMMAND_REFUSED ... usage='speed <value>'`. Consequence:
+  `_speed_action`'s own `refused_speed_<ExcType>` branch is NOT reachable through the real route, and
+  is defence in depth against a hand-built `GmCommand`.
+* **server drop** -- `GM_CHAT_DROPPED_BEFORE_DISPATCH ... why=rate_limited character_id=.. identity=..`
+* **DB refused** -- `GM_CHAT_NO_BYTES_SENT ... why=refused_speed_persist_* character_id=.. identity=..`
+* **frame sent** -- `LANE_GM_CHAT_ACTION speed route=action`, and no refusal line at all.
+
+### เขียว
+
+`python3 -m pytest tests/ -q` = **6663 passed, 327 skipped, 13821 subtests** -- เขียว(cloud sanity).
+`tools_bridge/pf_gate_preflight.py --repo <server>` = **PREFLIGHT PASS** (cp874 + no new skips), per
+`COO-DECISION 20260902_0148` item 2.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+Two things. Grep one console line and know WHICH character row a refused `/speed` was about --
+yesterday every refusal line said `account='GM_ONE'`, the process-wide `--token`, identical on every
+line. And see a line at all when the rate limiter eats a command: yesterday `/speed` typed too fast
+produced total silence, which reads exactly like dead wiring.
+
+### nonclaim
+
+1. Nothing here is client-observable. This is the server host's stderr. A GM at a real client still
+   sees nothing when `/speed` refuses -- that is the half the letter to COO is about.
+2. Does not claim `GT-193` passes or that GM-B closes. No client is in this round's evidence.
+3. Does not claim silence is eliminated -- four refusal classes above the `is_gm` check stay silent
+   on purpose, and the source says so.
+4. Does not flip either text-route gate and does not build a second composition route.
+5. The identity fields name a ROW, not a person and not a connection.
+6. GM shortcut used: `/speed` is a GM command; a readable refusal line is not evidence that the
+   ordinary player attribute path works.
+
+## Round `ibxaf0` (2026-09-02T04:2x+07:00) -- GM-A measured one layer below the latch: a census really ships on every hop
+
+### What this round did NOT touch, and why that is the headline
+
+`COO-DECISION 20260902_0346` (item "ใครทำอะไรต่อ") tells this lane, in as many words, not to touch
+`gm/say_wire.py` or `gm/chat_command_action.py` for the on-screen half of `/speed` this round -- chief
+holds both files under `COO-DECISION 0345`. So this round changed **no source file at all**, in this
+lane's zone or anywhere else. It added one test file and two letters.
+
+### The gap that was actually open
+
+`NOW.md` records the owner's own criterion for GM-A: warp across SEVERAL maps in a row and find the
+NPCs on EVERY map. `tests/test_gm_warp_position_confirmed.py`'s KA1A class pins the fix that makes
+that possible (each cross-scene hop clears the once-per-login census latch) but stops there: it
+asserts flags and event tokens and never dispatches another frame afterwards, and its chain hops to
+`departure_scene + 1 .. + 7`, scene ids produced by arithmetic rather than taken from the registry.
+Between "latch cleared" and "a frame with bodies in it" sit five more gates, every one of which fails
+closed and silently: the arrival anchor (`runtime.py:7945-7967`), a registered composer
+(`:8184-8194`), the composer's own `login_entry_allowed` admission (declined arm at `:8339`),
+composition itself (`:8326`), and scene 1's walk-before-census disjunct.
+
+### Measured, headless, on the real dispatcher, flagless boot
+
+`tests/test_gm_warp_chain_census_shipped.py`, 10 tests. Twelve consecutive cross-scene warps in ONE
+login (eleven registry scenes plus one revisit -- the chain is read from the composer registry, not
+written down, and guarded against shrinking below eight), each followed by one ordinary runtime poll:
+
+| destination | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 14 | 130 | 3 again |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| actors on the arrival census | 62 | 109 | 87 | 66 | 56 | 69 | 57 | 94 | 51 | 81 | 41 | 62 |
+
+Then the whole reachable world, asked of the production gate rather than listed: bare `/warp <scene>`
+reaches exactly 13 scene ids today (`1, 2, 3-11, 14, 130`), and **12 of the 13 ship an arrival census
+with a non-zero actor count**, scene 2 included (97, from the runtime's own bg0002 arm, which a chain
+built from the lane registry alone would never have touched). Scene 1 is the one exception and is
+asserted AS an exception.
+
+And the way a tester actually plays: land, walk, then type the next `/warp`. That leaves the
+departure map's coordinates in `last_target_pos`, which the arrival census reads before it falls back
+to the destination's spawn -- so the walking chain asserts BOTH the queued buffer and the stamped
+`census_anchor_record` belong to the destination and its own spawn. That is GT-172's F-1 arriving
+through a different door.
+
+### pf-adversary: NOT APPROVED on the first pass, ten defects, all ten answered before un-drafting
+
+The subagent ran mutation experiments in its own worktree and came back with the finding that mattered
+most: **the first version of this file asserted labels, not bytes**. A census label's actor count is an
+integer the LANE hands the runtime -- `runtime.py:8270-8272` coerces it and the runtime's own comment
+there calls it untrusted -- so two mutants that ARE the bug being hunted stayed green:
+
+* blank `lane_pc`/`lane_frame` at `:8270-8271` -> every hop ships `..._SCENE7_INITIAL_56` with an empty
+  buffer behind it. That is the empty map GT-182 reported, and the first version said 9 passed;
+* cache hop one's bytes and replay them for every later hop -> scene 130's arrival ships scene 3's dock
+  NPCs under scene 130's label. Also 9 passed.
+
+Every assertion now goes through the queued buffer: the count is read back off the wire with
+`world_population_handoff.wire_count_of`, and the buffer is compared byte for byte against a census
+composed independently for that scene at that scene's own spawn.
+
+Two more findings were corrections to what this lane had WRITTEN, not to the code:
+
+* the walking-chain docstring claimed a stale anchor "puts the bodies where the player is not". The
+  subagent measured it: same actor count, same buffer length, same multiset of bytes -- only the ORDER
+  actors are listed in changes, which `runtime.py:8237-8248` says in as many words. The claim is now
+  the narrow one it can support, and the sentence that overstated it is gone rather than softened;
+* the "whole reachable world" test visited scene 1 FIRST, and the session boots in scene 1 -- so the
+  warp was a same-scene no-op that returned before the resync ran (`runtime.py:5660`). Scene 1's
+  silence was being "proved" by a session that had never warped anywhere. It is visited LAST now,
+  arrived at from another map, with `gm_warp_selected_scene_resynced_1` asserted so it cannot go
+  vacuous again. The published "12 of the 13" was re-measured after that fix, not carried over.
+
+The rest: once-per-scene latching is asserted (a second poll must ship nothing), scene 2's own label
+spelling is pinned (renaming it to the home census's spelling is the "dock NPCs into Prison Exile
+Island" mix-up), `world_census_refused` gets its own test, and every helper that reads the registry has
+a minimum-size guard so a shrunken registry cannot leave a test asserting nothing.
+
+### Mutation control (separate worktree, deleted; live tree clean)
+
+Measured on the 10-test file that is being merged, not on the draft the subagent reviewed:
+
+| mutant | before this pass | after |
+|---|---|---|
+| neither latch field cleared on a hop (the pre-`67fe6fe` behaviour) | 5 red | **6 red** |
+| only `world_census_sent = False` removed | 5 red | **5 red** |
+| only `world_census_refused = False` removed | **0 red** | **1 red** |
+| `last_target_pos = None` removed (stale anchor) | 1 red | **1 red** |
+| `lane_pc`/`lane_frame` blanked: label says 56, wire is empty | **0 red** | **5 red** |
+| hop one's bytes replayed for every later hop | **0 red** | **4 red** |
+| composed around the previous map's anchor, stamp still correct | **0 red** | **4 red** |
+| the lane census never latches `world_census_sent` | **0 red** | **1 red** |
+| scene 2's label renamed to the home census's spelling | **0 red** | **1 red** |
+
+The `last_target_pos` row is still the whole reason the walking-chain test exists: every other test in
+this file warps from a standing start, so none of them can see a stale anchor.
+
+### The two asterisks GT-192 needs before the owner runs it (letter to COO, `0425`)
+
+1. A warp BACK to scene 1 mid-session stays empty until the character moves one step. That disjunct
+   is held shut ON PURPOSE (`KA1A-AMENDMENT 20260901_1120`) and this lane did not touch it -- but the
+   owner's criterion says "every map", so without one line in the ticket she will read a deliberate
+   gate as GM-A failing again and burn an attended round. Pinned as its own test, which goes red the
+   day the disjunct opens.
+2. The ticket should name a closed list of maps to warp to. Outside those 13 ids a bare `/warp` is
+   REFUSED by name, not silently empty -- but a tester picking numbers off the 330-scene catalog
+   cannot know that from the ticket as written.
+
+Both are chief's to apply: `GT-192`'s head is his ticket, not this lane's.
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+Read one test run and know, before booting a client, which maps a chained `/warp` session will show
+NPCs on and which one will not. Yesterday the only answer to "does hop eight work?" was the attended
+round itself.
+
+### nonclaim
+
+1. **Wire layer only.** Census actions are composed and queued; no client is in this round's
+   evidence. Nothing here may be read as "the NPCs were seen".
+2. Does not claim GM-A passes, does not close it, does not announce a milestone. Only Panya ticks.
+3. GM shortcut used: `/warp` is a GM command, used to reach each map. Reaching a map with GM is not
+   evidence that ordinary travel to it works.
+4. Does not claim scene 1's silence is a defect -- it is a gate this project chose, recorded here so
+   nobody claims "every map" without the asterisk.
+5. No source file changed this round: `runtime.py`, `app.py`, `pf_login_game_server_v141.py`, the
+   canonical DB, `scenarios/world_*.json`, `scenarios/combat_*.json`, LANE-DB's files and other
+   lanes' queue headers are all untouched, and so are `gm/say_wire.py` and
+   `gm/chat_command_action.py` (chief holds those this round).
+6. No history deleted.
+
+## Round `lmqf69` (2026-09-02T05:2x+07:00) -- P-3: the four look-alike failures become four different verdicts, before the game boots
+
+### The gap this round closed
+
+P-3 has produced exactly one observation since RE-104 opened on 2026-08-27: the GM button is visible
+and the click is silent. RE-164 finished the job of listing what can produce that one observation,
+and the list is the problem -- four unrelated failures are indistinguishable from the player's chair:
+`GameMaster.dll` absent [GM-IMG-001]; present but the export decorated so `GetProcAddress` returns
+NULL [GM-IMG-001/002]; loaded and resolvable but slot `+0x04` hands back an empty key so the
+dispatcher returns before the factory [GM-IMG-003/006]; or everything above fine and the gate is
+somewhere else entirely [RE-104, RE-118, RE-126].
+
+`patches/gm_plugin/build_vs2008.bat` already checks the export name and the CRT imports -- of a
+FRESH BUILD, on a machine with `dumpbin`, by reading dumpbin's human text with `findstr` word
+boundaries. It cannot look at the DLL that is actually **installed** beside the client (build copy
+and installed copy are two files, and only one of them is the one the game loads), it cannot run
+without the VC toolchain, and it cannot run in this repository's test suite.
+
+### What landed
+
+`src/pirateforce_foundation/gm/plugin_image_check.py` -- a stdlib-only PE32 reader that parses the
+export directory, the import descriptor table and the resource directory itself, so
+`_CreateGameMaster`, `CreateGameMaster@0` and `?CreateGameMaster@@YAPAXXZ` are told apart from
+`CreateGameMaster` by structure, not by regex. One verdict per file: `missing` / `no_such_dir` /
+`unreadable` / `not_pe` / `wrong_machine` / `not_a_dll` / `no_exports` / `export_decorated` /
+`export_forwarded` / `export_missing` / `manifest_missing` / `image_ok`, each with a sha256 and a
+one-line reason, as grep-able cp874-safe console tokens (`GM_PLUGIN_IMAGE ...`). EVERY blocking
+problem is printed, not only the first: one attended session cannot afford to discover them one
+rebuild at a time. It also compares the built copy against the installed copy and **fails** (exit 1)
+when they differ, because a rebuild whose flag never reached the compiler produces byte-identical
+output and the tester then re-tests yesterday's binary.
+
+CLI, one line on the bridge before the game boots (there is no installed package -- `PYTHONPATH=src`
+is required, and paths with spaces must be quoted):
+
+    PYTHONPATH=src python -m pirateforce_foundation.gm.plugin_image_check \
+        --dll  <path>/GameMaster.dll --client-dir "<client install>"
+
+`tests/test_gm_plugin_image_check.py` -- 44 tests on synthetic PE32 images assembled field by field
+(this clone has no client image, no DLL, no VC toolchain; a test that needed a real DLL could only
+skip here, which this lane has already lost a round to).
+
+### pf-adversary rejected revision 1, and the reason is the interesting part
+
+Twelve defects on this module alone. Five mattered:
+
+1. **The suite could not fail.** Six independent parser mutations -- `span = raw_size`,
+   `span = virtual_size`, `sections[:1]`, deleting the ordinal-only guard, deleting the
+   `NumberOfRvaAndSizes` bound, deleting the no-import-directory early return -- all passed 30/30,
+   because every fixture had ONE section, `VirtualSize == SizeOfRawData`, and 16 data directories.
+   The fixture builder now emits three sections with the export directory in the SECOND one, one
+   section whose VirtualSize is smaller than its raw size and one whose VirtualSize is larger, and
+   the directory count (with the optional-header size that follows from it) is a parameter. Measured
+   after the fix: 9 mutants tried, 9 killed.
+2. **A mistyped path manufactured the finding.** `C:\Pirate Force\Client` unquoted on cmd.exe
+   arrives as `C:\Pirate`, and revision 1 answered that with "the RE-164 operational note is
+   confirmed for this machine". A directory that does not exist now has its own verdict
+   (`no_such_dir`) whose text says it means nothing about the client install.
+3. **The tool died mid-report on the bridge console.** Export names were decoded with
+   `errors="replace"`; U+FFFD has no cp874 mapping, so a corrupt or packed DLL raised
+   `UnicodeEncodeError` inside `print()` after two lines -- no verdict, no sha256. Now
+   `errors="backslashreplace"`, with a test that plants a high byte in an export name.
+4. **`crt_missing` was a red light for a DLL that works.** Revision 2 of the plug-in allocates from
+   the CLIENT's CRT (it walks the client's import table), so a `/MT` build is not wrong. Demoted to
+   an advisory.
+5. **`image_ok` covered two ways to fail anyway.** A forwarded export is byte-identical to a real one
+   in the name table (now read through `AddressOfNameOrdinals` + `AddressOfFunctions` and reported as
+   `export_forwarded`), and a `/MD` build with no embedded RT_MANIFEST is refused by the side-by-side
+   loader with 14001 -- the plug-in README's own triage row -- which `build_vs2008.bat` cannot catch
+   because it never calls `mt.exe`. Now `manifest_missing`.
+
+Cross-validated against real MSVC-built PE images found on this machine (32-bit and 64-bit
+launchers): machine, PE32/PE32+, DLL flag, section walk with mixed VirtualSize/SizeOfRawData, import
+names and RT_MANIFEST all read correctly. **The repo has no real PE fixture** -- the export-directory
+path is exercised by synthetic bytes only. That is a real gap and the round file records it.
+
+### Evidence tier -- the line that must travel with every quote of this module
+
+`image_ok` means "none of the file-level failure modes this module can see is present in these
+bytes". It is NOT evidence that the GM window opens. The client-observable half of P-3 still needs a
+person at the screen, and still needs the GT ticket asked for in
+`notes_to_chief/20260901_2225_LANE-GM-DELIVERY-*`.
+
+The claim "GameMaster.dll is missing from the owner's install" remains, per RE-164 and this lane's
+own 21:32 letter, an UNPINNED OPERATIONAL observation. This module does not settle it; it gives
+whoever stands in front of that install a one-line way to settle it, with a sha256 attached.
+
+### The other seven findings are in the plug-in source, and two are HIGH
+
+`pf-adversary` also re-reviewed `patches/gm_plugin/GameMaster.cpp` (the review this lane promised
+last round). `DllMain` still resolves the wstring constructor with
+`GetModuleHandleW(L"msvcp90.dll")` -- the exact side-by-side base-name ambiguity `FindClientCrt()`
+was written to remove, and worse in consequence (a `_Container_proxy` allocated on one MSVCP90
+instance's heap and freed by the other). And `PF_GM_SLOT0_TOUCH_PLUS4` defaults to writing a
+guessed-size subobject into client-owned memory, while its documented escape hatch (`=0`) produces
+exactly the state the source itself calls "strictly worse than the dead button we already have".
+Both are unfixed here: `patches/` is not this lane's declared write zone and this clone has no
+Windows SDK to compile-check a change. Letter to chief carries the findings and the patch shape.
+
+## Round `ha492g` (2026-09-02T06:2x+07:00) -- the `/speed` refusals, verified from the bytes by this lane, then hardened by pf-adversary against its own first draft
+
+### Why a second test file for something already tested
+
+COO-DECISION `20260902_0346` gave this lane one instruction for the first round after chief's notice
+PR reached `main`: confirm that ALL NINE refusal paths of letter `0311` ship `SPEED DENIED` --
+"เทสของคุณเอง ไม่รับคำพูดใคร" (your own test, taking nobody's word for it). chief's
+`tests/test_gm_speed_denied_notice.py` is a good file and this is not a review of it; the order was
+to verify the claim from a DIFFERENT footing, because a proof that shares the claim's assumptions
+cannot contradict it.
+
+Chief's PR is on `main`: merge `d2d61ff`, code commit `35f1eeb`, `main` tip `98d2767` at the start of
+this round.
+
+### What landed
+
+`tests/test_gm_speed_denied_nine_paths.py` -- 23 tests, 24 subtests, no source change anywhere.
+
+Three things make it an independent check rather than a copy:
+
+1. **Its own byte parser.** `_decode_local_talk_notice` writes the layout out as literals -- channel
+   id at `pc[16:18]` little-endian, the nested vital's `u8tag(0x0B, version)` at `pc[18:20]`, payload
+   at `pc[20:-2]`, each string a `0x48` tag + a 4-byte little-endian BYTE length + UTF-16LE -- and
+   imports nothing from `channel_message_hypothesis`. A day where the project's encoder and its own
+   decoder drift TOGETHER is the one failure an encode/decode round-trip cannot see, and it is red
+   here. Both fields outside the payload are read from the bytes: the channel id (the assertion
+   pf-adversary's channel-swap mutant walked straight through in round `aa9ajr` when it was made
+   against the constant the test passed in) and the vital_version byte RE-132 pinned and GT-101
+   measured as fatal to a real client.
+2. **The paths are proven distinct.** Every path runs through the real
+   `make_gm_chat_command_action` with the real `legacy`, and is identified by the word it wrote to
+   the audit ndjson ON DISK, not by `session.events` in memory. The words are then asserted to be
+   nine DIFFERENT words, matched against letter `0311`'s list AND re-derived from the module's own
+   `OUTCOME_*` constants (the letter lives in `pf_bridge`, which is not this repository).
+3. **The parser is shown to be a parser.** Bodies of 1, 10, 12 and 40 characters, composed through
+   `legacy.make_runtime_vitals` from a payload the test file encodes itself, decode back exactly --
+   so the offsets are not constants tuned to one 12-character frame.
+
+Two guards chief's file does not carry, plus what a refusal costs:
+
+* `test_every_path_prints_both_console_lines` -- `GM_CHAT_NO_BYTES_SENT` (half (b) of COO-DECISION
+  `0147`, the line this lane warned in letter `0419` would disappear) AND `GM_CHAT_NOTICE_SENT`
+  (`GT-193` step 9's own token) on ALL NINE paths, not the one a regression test happened to pick.
+* `NoRefusalMayGoOutSilentTests` -- an `ast` pass over BOTH places a `/speed` verdict is built:
+  every `return` in `_speed_action` (a bare `return` and a `raise` included) and the dispatcher
+  branch that calls it, whose sibling `else` already builds a `_Verdict(None, ...)` of its own.
+* `WhatARefusalStillCostsTests` -- paths 8 and 9 say DENIED while the row already holds the new
+  value. Pinned, not fixed: it predates the notice and is a property of when `_speed_undo` fires.
+
+### pf-adversary found four HIGH defects in the first draft of this file
+
+Run against the draft (15 tests), every finding reproduced as a mutant. All four are fixed above and
+re-killed in a throwaway `git worktree`, never in the live tree:
+
+| finding | what stayed green in the draft | fix |
+|---|---|---|
+| D1 | the canonical-DB gate moved BELOW the write: screen DENIED, ndjson `withheld_speed_canonical_db`, and 400.0 in the canonical row | every pre-write path asserts the store was never called |
+| D2 | a stray `state/pirateforce.sqlite3` in the process CWD -- `app.py`'s own default -- collapsed EIGHT drivers onto path 1, per-path tests still green | store paths are absolute, inside the test's own temp dir |
+| D3 | a tenth refusal written as a bare `return`: no notice, no audit row, no console line | the AST guard rejects a valueless `return` and any `raise` |
+| D4 | a tenth refusal built in the DISPATCHER branch, one `def` above what the guard read | the dispatcher branch is asserted to be one call and nothing else |
+| D5 (med) | `vital_version` flipped to 1 -- outside the payload, so no round-trip sees it | the parser reads `pc[18:20]` and asserts the tag and the version |
+| D6 (med) | renaming the drivers made the console test pass with ZERO subtests | `drivers()` derives 1..9 and raises on any other numbering |
+| D8 (low) | `NINE_PATHS` cited a letter that is not in this repo | every word re-derived from `OUTCOME_*` constants |
+| D9 (low) | `GT-193`'s own `GM_CHAT_NOTICE_SENT` token was never asserted | asserted on every path |
+
+### Measured: the mutants that had to die (all in a `git worktree`, live tree untouched)
+
+| mutant | result |
+|---|---|
+| `SPEED_DENIED_NOTICE_TEXT` -> `"SPEED DENIE"` (11 chars) | 23 red |
+| composer switched to `GM_GLOBAL_CHANNEL_ID` (`0x9F2C`, the LOCKED channel) | 22 red |
+| `vital_version` 0 -> 1 in the shared codec | 22 red |
+| path 5 back to `return _Verdict(None, ...)` (silent) | 7 red |
+| canonical-DB gate moved below the write (D1) | 1 red |
+| bare `return` as a tenth path inside `_speed_action` (D3) | 1 red |
+| `raise` inside `_speed_action` | 1 red |
+| a silent verdict in the dispatcher's speed branch (D4) | 1 red |
+| the nine drivers renamed (D6) | 4 red |
+| stray `state/pirateforce.sqlite3` in the CWD (D2) | 23 GREEN -- the point: the file no longer depends on it |
+
+### What this does NOT say
+
+Every byte here is composed in-process and asserted in-process. **Nobody has seen `SPEED DENIED` on
+a screen.** `GT-193` step 9 is the only thing that can say that. What is asserted is the action this
+module RETURNS; `runtime.py`'s send site is one layer above and is not exercised.
+
+**Eight of the nine are reachable from a chat line; the ninth is not.** `commands._require_number`
+and `speed_wire.parse_speed_value` apply the same `float()` + `math.isfinite` rule, so no typed value
+can pass the grammar and fail the composer: path 4 is a backstop reached here only under
+`mock.patch`. And the refusal a GM will actually meet -- `/speed fast` -- is refused ABOVE all nine
+at `parse_gm_command` and is **still silent on screen** (chief asked COO in `0545`).
+
+**The nine are nine returns of one function, not every refusal of the command.** The dispatcher guard
+closes the one other site that exists today; a refusal invented at a third site is still outside what
+any test in either file can see. That question went to COO in this round's letter.
+
+## Round `q6p0pb` (2026-09-02T08:5x+07:00) -- the string tag byte three of this lane's codecs never wrote, and the capture red that was hiding behind it
+
+Consuming ka1-B's letter `notes_to_chief/20260901_2215_KA1B-TO-LANE-GM-third-untagged-string-module-plus-attr-wire-corrections.md`.
+
+**What changed.** `gm/cheat_wire.py`, `gm/command_wire.py` and `gm/teleport_wire.py` all wrote and read
+`uint32le byte_count + payload` for their string fields. The client's own string helpers push a **type tag
+byte first**, so the real shape is `tag(1) + uint32le byte_count(4) + payload(N)` = **5+N bytes, not 4+N**:
+`0x44` for the narrow helper (`0x0089A6D0` W / `0x0089A740` R) and `0x48` for the wide one
+(`0x0089A810` W / `0x0089A880` R). Both directions of all three modules now write and require the tag, and
+reject the old 4+N shape rather than decoding it.
+
+**Evidence, checked against the source before acting, not taken from the letter.**
+`pf_bridge/notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv`
+sha256 `e1f4f987c31f53d4dd87845aab01857c8415a8dbcd750af12df9c4cde208b3a2`, rows 565/566 (CheatVital),
+580/613 (TeleportVital aux text, and it also names that field's offset: `DEREF(+0x1C)+0x10`),
+6266/6267/6279/6280 (GM_RunGMCommandVital's two strings). Every row's `base_span_sha256` is byte-identical
+to the span each module already pinned in its own docstring -- **which is a reason to look for an outside
+tiebreaker, not a reason to trust the delta on its own**: it is the same IMAGE lineage re-reading the same
+helper bytes, exactly the argument this lane accepted in the other direction for `attr_wire`'s x30.
+
+The tiebreaker exists and is in this repository: `channel_message_hypothesis.py` has carried
+`CHANNEL_WSTRING_TAG = 0x48` / `CHANNEL_WSTRING_HEADER_SIZE = 5` against the **same helper VAs** since
+2026-08-18, corroborated against real captured GT-006 frames; and `current/pf_login_game_server_v141.py:21-24`
+records a **live client rejecting a frame** (`ErrorData=0x2A7A`) because that helper's string went out with
+`0x44` where `0x48` was required. 🔴 That corroboration is for the WIDE tag. The narrow `0x44` in
+`cheat_wire.py` has the delta rows and the helper disassembly and nothing else -- no captured frame in this
+project has ever carried a `0x44` string a client accepted. It is the least-supported of the three.
+
+**Nothing player-visible moves.** `make_teleport_aux_payload`/`make_teleport_vital_frame` have no production
+callers (the live cross-scene warp is `warp_executor.py` -> `legacy.make_login_teleport`, whose payload sets
+aux presence = 0), `CheatVital` is not wired into `dispatch.py`/`runtime.py` at all, and the `0x51E9` path
+only decodes captured bytes and already keeps the raw bytes when the decode raises.
+
+**🔴 The red this uncovered, which is the important part of the round.**
+`PF_V5_FIELD_VALIDATION.md` ([MEASURED][CAPTURE]) has TeleportVital **R: 190 mismatches, reason
+`STRING_TAG`**, at the field identity whose `DELTA` component is the dedup_key of **delta row 613 -- the very
+field this round corrected** -- and **W: 188 mismatches, reason `TAG`, at `ORDER:4`** =
+`PF_SERIALIZER_FIELDS.tsv` row 570 = `TeleportTarget.scene_id`, with no delta component at all. Still red at
+V5. A first draft of this round's docstrings wrote that the 190/188 result "predates the tag correction and
+says nothing about field order"; **that was false in both halves** and pf-adversary caught it before commit.
+The correction is still applied, for the reasons above, but `gm/teleport_wire.py` is now labelled a reference
+codec **KNOWN to disagree with capture**, with the first written hypothesis for why (the static plan declares
+the aux sub-object ungated at row 579 while the real message gates it, so the validator hunts a `0x48` where
+an absent object begins) marked `[PROPOSED]` in the module. Letter opened to chief this round to route it.
+
+**Tests.** `test_gm_cheat_wire.py` / `test_gm_command_wire.py` / `test_gm_teleport_wire.py` /
+`test_gm_command_capture.py` / `test_gm_command_dispatch.py` updated. pf-adversary's second finding was that
+eight guards went **silently vacuous** when the shape changed -- they pinned byte offsets that are now the tag
+byte, so they asserted on the tag check and never reached the branch each was named after, including
+`cheat_wire`'s own `MAX_STRING_LENGTH` DoS cap and the capture-quota regression guard round `whoaop` added.
+All pins moved, three tests added (missing-tag rejection in two modules, a real even-length truncation case),
+and two now assert on the message text so the same disarming cannot happen silently again.
+
+**Two gates in this repo caught this round's own mistakes, and both are worth naming.**
+`test_tree_is_cp874_safe.py` / `test_gm_source_is_cp874_safe.py` rejected the `U+1F534` marker character
+this round put in two of the modules -- their failure message names the pull request that was closed
+automatically the last time a non-cp874 byte reached the Windows gate, so the marker is `!!` now.
+`test_gm_say_gate_lock.py::test_only_say_wire_may_call_the_shared_channel_codec` then rejected the
+corroboration paragraph itself: no module in this package may so much as **name** the shared channel codec,
+because naming leads to calling and calling walks around `say_wire`'s gate. The corroboration is still cited,
+by pointing at row `0x9F2C` of this document instead.
+
+**nonclaim.** The tag byte's own semantics (domain, signedness, sentinels) are NOT proven -- `PF_HANDOFF_V1.md`
+8.5 gives proven meanings only for `0x2A`/`0x12`. This round reproduces a byte; it does not claim to know what
+that byte encodes. `GM_RunGMCommandVital` remains `NOT_OBSERVED` (0 captured frames), so nothing here is
+confirmed by a real frame of that message. No GM status was granted to any account and no milestone moved.

@@ -31,6 +31,7 @@ import ast
 import io
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr
 
@@ -68,7 +69,7 @@ def _imports_bag_admission(path):
     Both spellings the package uses: ``from . import bag_admission`` and
     ``from .bag_admission import ...`` (and the absolute forms of each).
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             if (node.module or "").endswith("bag_admission"):
@@ -82,6 +83,177 @@ def _imports_bag_admission(path):
             ):
                 return True
     return False
+
+
+#: ROUND 78zy6l, after pf-adversary.  ``.txt`` WAS in this set for one draft
+#: and is struck: the argument written for it ("prose") was never made -- and
+#: in this repository a ``.txt`` is not inert prose at all, it is
+#: ``docs/.round_claim_*.txt`` (a round lock) and ``pf_pytest_excluded.txt``
+#: (a gate artifact).  Only markdown is cleared by rule.
+#: Suffixes of files that cannot call anything.  ROUND 78zy6l (LANE-B).
+#: The repo-wide scan at the bottom of this file greps the WHOLE tracked
+#: tree for the module's name, so a round file or a letter that merely
+#: MENTIONS the gate turned the Windows gate red and cost the whole round:
+#: run 33522539202 on pull request #511, whose only change was a new test
+#: file for inventory.py that named two sibling test files in its
+#: docstring.  Markdown is not executed by anything in this repository (no
+#: doctest runner, no literate step -- grepped for one before this line was
+#: written), so prose is cleared by rule here instead of by another
+#: after-the-fact allowlist entry every time somebody writes the name down.
+PROSE_SUFFIXES = frozenset({".md"})
+
+#: Every suffix python actually runs on Windows.  ``.pyw`` is a real entry
+#: point and ``.pyi`` is read by tooling; matching only ``".py"`` sent both
+#: down the "not python" branch, whose reason text tells the next reviewer
+#: to allowlist them -- the wrong action for a file the helper can read.
+PYTHON_SUFFIXES = frozenset({".py", ".pyw", ".pyi"})
+
+#: ROUND 78zy6l, after pf-adversary.  Names whose presence anywhere in a
+#: file means a STRING in that file can still become a lookup.  The first
+#: draft trusted a docstring unconditionally, and pf-adversary measured the
+#: hole in one move: make the module docstring BE the module path and hand
+#: ``__doc__`` to ``import_module``.  The token never appears as an
+#: identifier and never appears outside a docstring, and the file reaches
+#: the gate.  So a docstring is prose only in a file that has no machinery
+#: to turn a string into a module; a file that has that machinery has to
+#: earn an allowlist entry even for prose.  The cost is a false positive on
+#: a file that uses ``getattr`` for ordinary work AND names the predicate in
+#: prose; that fails closed and is one allowlist line, which is the side to
+#: be wrong on.
+DYNAMIC_LOOKUP_NAMES = frozenset({
+    "__doc__", "__import__", "import_module", "importlib", "exec", "eval",
+    "getattr", "modules", "load_module", "spec_from_file_location",
+})
+
+
+def _names_bag_admission_as_code(path):
+    """The reason a python file outside the package is a CALLER, or None.
+
+    ROUND 78zy6l.  Returns ``None`` when every occurrence of the token in
+    the file is text -- a docstring, a comment -- and a short reason string
+    when the file actually reaches the predicate.  The two rules are the
+    ones the package-level mention scan above already argued for and
+    already hardened against pf-adversary, applied to a file outside the
+    package:
+
+      * the token appears in the AST as an IDENTIFIER (an import, an
+        attribute hop, an argument, a definition), or
+      * the token appears in a STRING and the file also carries machinery
+        that can turn a string into a module (:data:`DYNAMIC_LOOKUP_NAMES`)
+        -- ``import_module``, ``getattr``, ``sys.modules``, ``exec``, or
+        ``__doc__``.
+
+    TWO DRAFTS WERE MEASURED WRONG BY pf-adversary BEFORE THIS ONE, and both
+    scars are why the rule reads as it does:
+
+      1. "a string reaching a call or a subscript" walks past
+         ``NAME = "pirateforce_foundation.bag_admission"`` bound first and
+         imported three lines later.
+      2. "any string that is not a docstring" walks past a file whose
+         module docstring IS the module path, imported with
+         ``import_module(__doc__)`` -- and it also turned an assertion
+         MESSAGE naming a sibling test file into a red gate, which is the
+         exact failure (pull request #511) this helper exists to end.
+
+    A file with no such machinery cannot reach the predicate through text,
+    so its prose -- docstring, assertion message, a list of filenames, a
+    ``help=`` string -- is prose.  A comment is not in the AST at all.
+    """
+    try:
+        # utf-8-sig, not utf-8: a BOM (Notepad, Windows PowerShell 5
+        # ``Set-Content -Encoding utf8``) is invisible to python's own
+        # importer and would otherwise be reported here as "unparseable".
+        source = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        return "unreadable (%s)" % (exc.__class__.__name__,)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        # NO SILENT PASS.  A file this helper cannot parse has not been
+        # shown to be prose, so it stays flagged and a human reads it.
+        return "unparseable python"
+    if _imports_bag_admission(path):
+        return "imports bag_admission"
+    machinery = None
+    for node in ast.walk(tree):
+        identifiers = {
+            getattr(node, "id", None),
+            getattr(node, "attr", None),
+            getattr(node, "arg", None),
+            getattr(node, "name", None),
+        }
+        if "bag_admission" in identifiers:
+            return "names bag_admission as an identifier, not as prose"
+        if machinery is None:
+            found = identifiers & DYNAMIC_LOOKUP_NAMES
+            if found:
+                machinery = sorted(found)[0]
+    if machinery is None:
+        return None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "bag_admission" in node.value
+        ):
+            return (
+                "carries the module's name in a string, in a file that also "
+                "uses %r -- a string is a lookup away from the gate there"
+                % (machinery,)
+            )
+    return None
+
+
+def _classify_repo_wide_hits(root, hits, allowed):
+    """Every grep hit that still has to be explained, with its reason.
+
+    ROUND 78zy6l.  Split out of the test below because pf-adversary
+    measured that the two lines which ACT on a hit had never executed once:
+    three mutants (clear every python file; put every suffix in
+    ``PROSE_SUFFIXES``; grep for a token that does not exist) all left the
+    file green.  A helper can be driven with planted files; the live scan
+    cannot.
+    """
+    elsewhere = []
+    for line in hits:
+        if line in allowed:
+            continue
+        suffix = Path(line).suffix.lower()
+        if suffix in PROSE_SUFFIXES:
+            continue
+        if suffix in PYTHON_SUFFIXES:
+            reason = _names_bag_admission_as_code(root / line)
+            if reason is None:
+                continue
+            elsewhere.append("%s: %s" % (line, reason))
+            continue
+        elsewhere.append(
+            "%s: not python and not prose, and not on the allowlist" % (line,)
+        )
+    return sorted(elsewhere)
+
+
+def _repo_wide_hits(root):
+    """Every tracked file naming the predicate, or a loud failure.
+
+    ``-z`` and ``core.quotePath=false`` because the default quotes a path
+    with a non-ASCII byte (``"docs/caf\\303\\251_x.py"``), and a quoted path
+    then misses its own suffix and is reported as a data file.  The return
+    code is checked because ``git grep`` outside a repository exits 128 with
+    an empty stdout, which the old code read as "nothing calls it".
+    """
+    tracked = subprocess.run(
+        ["git", "-c", "core.quotePath=false", "grep", "-lz",
+         "bag_admission", "--", "."],
+        cwd=root, capture_output=True, text=True,
+    )
+    if tracked.returncode not in (0, 1):
+        raise AssertionError(
+            "git grep failed (exit %s) -- an empty result from a broken "
+            "grep is not evidence that nothing calls the predicate: %s"
+            % (tracked.returncode, tracked.stderr.strip())
+        )
+    return [line for line in tracked.stdout.split("\0") if line]
 
 
 class StubProjector:
@@ -468,9 +640,14 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
 
     def test_nothing_outside_the_package_calls_it_either(self):
         """The repo-wide half of the deleted guard: tools/, current/, entrypoints."""
-        tracked = subprocess.run(
-            ["git", "grep", "-l", "bag_admission", "--", "."],
-            cwd=ROOT, capture_output=True, text=True,
+        hits = _repo_wide_hits(ROOT)
+        # A LOWER BOUND, not decoration.  pf-adversary changed the grep
+        # pattern to a token that appears nowhere and the file stayed
+        # green: an empty scan proves nothing and must not read as proof.
+        self.assertGreaterEqual(
+            len(hits), 8,
+            "the repo-wide grep found almost nothing -- the pattern, the "
+            "working directory or the index is wrong, not the repository",
         )
         allowed = {
             "src/pirateforce_foundation/bag_admission.py",
@@ -540,10 +717,247 @@ class OnlyTheCharacterSelectPathAsksThisPredicate(unittest.TestCase):
             # measured, from now on.
             "tests/test_mob_pickup_persist.py",
         }
-        elsewhere = sorted(
-            set(line for line in tracked.stdout.split("\n") if line) - allowed
-        )
+        # ROUND 78zy6l.  Everything past the allowlist used to be a failure
+        # by itself, which made the check fire on files that cannot call
+        # anything (a round file naming the gate in prose) and on python
+        # files whose only mention is a docstring.  That cost two rounds --
+        # the scar two entries up, and pull request #511, closed red for a
+        # docstring.  What is asked now is what the test's own name claims:
+        # does anything outside the package CALL it.  Prose is cleared by
+        # suffix, a python file by the AST rules this file already uses on
+        # the package itself; a real caller still has to earn an allowlist
+        # entry above, with its reason written next to it.
+        elsewhere = _classify_repo_wide_hits(ROOT, hits, allowed)
         self.assertEqual(elsewhere, [], elsewhere)
+
+
+class ProseIsNotACallerButEveryDynamicRouteStillIs(unittest.TestCase):
+    """ROUND 78zy6l.  Pins the rule the repo-wide scan now applies.
+
+    The scan above is only as good as the line it draws between a file that
+    NAMES the predicate and a file that REACHES it.  Each test here writes a
+    real python file and asks the helper, so the line is measured rather
+    than asserted about; the last one asks it about a file that actually
+    ships in this repository.
+    """
+
+    MODULE = "bag_admission"
+
+    def verdict(self, source):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "subject.py"
+            path.write_text(source, encoding="utf-8")
+            return _names_bag_admission_as_code(path)
+
+    def test_a_docstring_and_a_comment_are_not_a_caller(self):
+        source = (
+            '"""Prose that names %s the way a round file does."""\n'
+            "# and a comment that names %s too\n"
+            "VALUE = 1\n" % (self.MODULE, self.MODULE)
+        )
+        self.assertIsNone(self.verdict(source))
+
+    def test_prose_outside_a_docstring_is_still_prose(self):
+        """THE PULL REQUEST #511 CLASS, and a draft of this closed it wrong.
+
+        Naming a sibling test file in an assertion message, a list of paths
+        or a ``help=`` string is what a test file does.  A draft that
+        cleared only docstrings turned every one of those red -- the same
+        lost round, moved one line over.
+        """
+        source = (
+            "import unittest\n"
+            "DOCS = [\"tests/test_%s.py\"]\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_x(self):\n"
+            '        self.assertEqual(1, 1, "see tests/test_%s.py")\n'
+            % (self.MODULE, self.MODULE)
+        )
+        self.assertIsNone(self.verdict(source))
+
+    def test_a_module_docstring_handed_to_import_module_is_a_caller(self):
+        """pf-adversary's own payload against the draft before this one."""
+        source = (
+            '"""pirateforce_foundation.%s"""\n'
+            "import importlib\n"
+            "_GATE = importlib.import_module(__doc__)\n" % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_docstring_payload_reached_by_exec_is_a_caller(self):
+        source = (
+            '"""from pirateforce_foundation import %s"""\n'
+            "exec(__doc__)\n" % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_class_docstring_payload_is_a_caller(self):
+        source = (
+            "import importlib\n"
+            "class Gate:\n"
+            '    """pirateforce_foundation.%s"""\n'
+            "GATE = importlib.import_module(Gate.__doc__)\n" % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_bom_does_not_turn_prose_into_unparseable(self):
+        """Windows writes BOMs; python imports such a file without blinking."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "subject.py"
+            path.write_text(
+                '"""prose naming %s."""\nVALUE = 1\n' % (self.MODULE,),
+                encoding="utf-8-sig",
+            )
+            self.assertIsNone(_names_bag_admission_as_code(path))
+
+    def test_an_import_is_a_caller(self):
+        source = "from pirateforce_foundation import %s\n" % (self.MODULE,)
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_an_attribute_hop_is_a_caller(self):
+        source = (
+            "import pirateforce_foundation as pf\n"
+            "pf.%s.may_enter_world(None)\n" % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_dynamic_import_by_string_is_a_caller(self):
+        source = (
+            "import importlib\n"
+            'importlib.import_module("pirateforce_foundation.%s")\n'
+            % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_sys_modules_subscript_by_string_is_a_caller(self):
+        source = (
+            "import sys\n"
+            'sys.modules["pirateforce_foundation.%s"]\n' % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_getattr_by_string_is_a_caller(self):
+        source = (
+            "import pirateforce_foundation as pf\n"
+            'getattr(pf, "%s")\n' % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_name_bound_for_a_later_dynamic_import_is_a_caller(self):
+        """The route a call/subscript-only check walks straight past."""
+        source = (
+            "import importlib\n"
+            'MODULE = "pirateforce_foundation.%s"\n'
+            "importlib.import_module(MODULE)\n" % (self.MODULE,)
+        )
+        self.assertIsNotNone(self.verdict(source))
+
+    def test_a_docstring_in_a_function_or_a_class_is_still_prose(self):
+        source = (
+            "class C:\n"
+            '    """names %s in a class docstring."""\n'
+            "    def m(self):\n"
+            '        """and %s in a method docstring."""\n'
+            "        return 1\n" % (self.MODULE, self.MODULE)
+        )
+        self.assertIsNone(self.verdict(source))
+
+    def test_an_unparseable_file_is_not_cleared_as_prose(self):
+        source = '"""names %s."""\ndef (\n' % (self.MODULE,)
+        self.assertEqual(self.verdict(source), "unparseable python")
+
+    def test_the_file_this_rule_was_written_for_is_prose_by_it(self):
+        """tests/test_inventory.py -- the file pull request #511 died on.
+
+        It names two sibling test files whose NAMES carry the module's name;
+        it does not import, call or subscript anything of the predicate's.
+        If a later round makes it a real caller, this goes red and that
+        round owes the allowlist an entry with a reason.
+        """
+        subject = ROOT / "tests" / "test_inventory.py"
+        self.assertTrue(subject.exists(), "tests/test_inventory.py is gone")
+        # NO assertIn ON THE FILE'S TEXT.  A draft required the mention to
+        # still be there, so an editorial tidy of an unrelated file's prose
+        # turned THIS gate red, and the failure printed all 458 lines to a
+        # cp874 console.  The claim is about the verdict, not the prose.
+        self.assertIsNone(_names_bag_admission_as_code(subject))
+
+
+class TheRepoWideScanItselfActsOnWhatItFinds(unittest.TestCase):
+    """ROUND 78zy6l, after pf-adversary.
+
+    The scan's two acting lines had never executed in any run: with the
+    real repository green, the loop always fell through.  pf-adversary
+    proved it with three mutants that all stayed green -- clear every
+    python file, put every suffix in the prose set, grep for a token that
+    does not exist.  These tests plant files and drive the classifier, so
+    each of those mutants now has a test that dies with it.
+    """
+
+    def planted(self, files):
+        """A fake repo root: {relative path: text}.  Returns (root, hits)."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        for name, text in files.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        return root, sorted(files)
+
+    def test_a_planted_python_caller_is_reported_not_swallowed(self):
+        root, hits = self.planted({
+            "tools/reach.py":
+                "from pirateforce_foundation import bag_admission\n"
+                "bag_admission.may_enter_world(None)\n",
+        })
+        elsewhere = _classify_repo_wide_hits(root, hits, set())
+        self.assertEqual(len(elsewhere), 1, elsewhere)
+        self.assertIn("tools/reach.py", elsewhere[0])
+
+    def test_a_planted_markdown_file_is_cleared(self):
+        root, hits = self.planted({
+            "rounds/B_round.md": "round file naming bag_admission in prose\n",
+        })
+        self.assertEqual(_classify_repo_wide_hits(root, hits, set()), [])
+
+    def test_a_planted_data_file_is_reported_not_cleared(self):
+        root, hits = self.planted({
+            "tools/wrapper.ps1": "py -3 -c \"import bag_admission\"\n",
+        })
+        elsewhere = _classify_repo_wide_hits(root, hits, set())
+        self.assertEqual(len(elsewhere), 1, elsewhere)
+        self.assertIn("tools/wrapper.ps1", elsewhere[0])
+
+    def test_an_allowlisted_caller_is_cleared_and_only_it(self):
+        root, hits = self.planted({
+            "tools/reach.py":
+                "from pirateforce_foundation import bag_admission\n",
+            "tools/other.py":
+                "from pirateforce_foundation import bag_admission\n",
+        })
+        elsewhere = _classify_repo_wide_hits(root, hits, {"tools/reach.py"})
+        self.assertEqual(len(elsewhere), 1, elsewhere)
+        self.assertIn("tools/other.py", elsewhere[0])
+
+    def test_a_pyw_entry_point_is_read_as_python_not_as_a_data_file(self):
+        root, hits = self.planted({
+            "tools/entry.pyw":
+                "from pirateforce_foundation import bag_admission\n",
+        })
+        elsewhere = _classify_repo_wide_hits(root, hits, set())
+        self.assertEqual(len(elsewhere), 1, elsewhere)
+        self.assertIn("imports bag_admission", elsewhere[0])
+
+    def test_the_grep_refuses_to_report_nothing_when_git_is_not_there(self):
+        """An empty result from a failed grep is not an all-clear."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with self.assertRaises(AssertionError):
+            _repo_wide_hits(Path(tmp.name))
+
+    def test_the_live_repository_still_answers_the_grep(self):
+        self.assertGreaterEqual(len(_repo_wide_hits(ROOT)), 8)
 
 
 if __name__ == "__main__":

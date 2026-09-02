@@ -19,6 +19,60 @@ Layout is PROVEN at the byte level and pinned against the bridge repository:
     TeleportVital  aux-object span [0x005DEF10,0x005DEFE9) sha256
         105bad91394ee1dc636ef80cfe3444c293a4114d5f371fafe3ebc76ccc049c93
 
+CORRECTION 2026-09-02 (LANE-GM round q6p0pb, consuming ka1-B's letter
+notes_to_chief/20260901_2215_KA1B-TO-LANE-GM-third-untagged-string-module-...):
+``TeleportAux.text`` is NOT untagged.  The client's wide string helper pushes
+a type tag byte 0x48 BEFORE the uint32-LE byte count, so the field is
+0x48 + uint32le byte_count + payload = 5+N bytes, not 4+N.  Rows 580 (W ord
+14) and 613 (R ord 20) of
+    pf_bridge/notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv
+    sha256 e1f4f987c31f53d4dd87845aab01857c8415a8dbcd750af12df9c4cde208b3a2
+carry the SAME aux-object span sha256 pinned above
+(105bad91...c049c93), byte for byte -- same lineage, so read the
+corroboration below rather than treating the delta as a second source.
+Corroboration beyond that table -- the delta rows themselves are IMAGE-only
+(`PF_A2_A3_STRING_WIRE_CORRECTION.md`, `source=IMAGE`) and re-read the SAME
+helper bytes as the table they correct, so they are not an independent second
+source on their own:
+  * the shared `Channel_*` string codec that already exists in this
+    repository -- named in `docs/GM_LANE.md` row 0x9F2C, deliberately NOT
+    named here because a lane gate test forbids modules in this package from
+    naming it -- has carried tag 0x48 with a 5-byte header against the SAME
+    helper VAs (W 0x0089A810 / R 0x0089A880) since 2026-08-18, corroborated
+    against real captured frames (GT-006).
+  * `current/pf_login_game_server_v141.py:21-24` records a LIVE client
+    rejecting a frame (ErrorData=0x2A7A) because that helper's string went out
+    with tag 0x44 instead of 0x48.
+What is still NOT proven: the tag byte's own semantics (domain, signedness,
+sentinel values) -- `PF_HANDOFF_V1.md` 8.5 gives proven meanings only for
+0x2A/0x12.  We reproduce the byte; we do not claim to know what it encodes.
+
+!! CONTESTED BY CAPTURE, AND STILL RED.  `PF_V5_FIELD_VALIDATION.md`
+("RED: A5 V5 retains static/capture mismatches", [MEASURED][CAPTURE]) reports
+TeleportVital R mismatching **190 instances at reason STRING_TAG**, at the
+field identity whose DELTA component is 88ee2c5d... -- the dedup_key of delta
+row 613, i.e. THIS field, THIS correction.  The W direction is red too: **188
+instances, reason TAG, at ORDER:4** = PF_SERIALIZER_FIELDS.tsv row 570
+(TeleportTarget.scene_id), with no DELTA component at all, i.e. a
+base-schema-vs-capture conflict.
+Why the tag is applied here anyway: the corroboration above is about the
+client's shared string helper, which this field goes through, and a codec in
+this repo writing 4+N while every other writer writes 5+N would be wrong in a
+way nothing detects.  What is NOT claimed: that this codec agrees with the 132
+captured frames.  It does not, and nobody has explained why.
+[PROPOSED, written down here for the first time] the mismatch may be a
+presence-gate defect rather than a tag defect: the static plan declares the
+aux sub-object ungated (row 579, SUBCALL 0x005DEF10 DEREF(+0x1C), no presence
+condition) while the real message gates it, so the validator looks for a 0x48
+where an absent object begins.  If that is right, this correction did not
+break the codec, it made a pre-existing defect visible.  Until somebody
+settles it, this is a reference codec KNOWN to disagree with capture and must
+not be promoted on the strength of its own tests.
+  The same rows also give that field its
+object offset: DEREF(+0x1C)+0x10, i.e. ``text`` is the aux object's +0x10
+field -- named in the dataclass below, since every sibling there is already
+named by position.  Tag instructions: 0x0089A833 (W) / 0x0089A89C (R).
+
 [สมมติของสาย GM - รอ RE] What RE-090 proves stops at "this many fields, these
 tags, this order, this width".  Fields whose meaning IS established are
 carried over by name from elsewhere in this codebase (``scene_id``,
@@ -31,9 +85,19 @@ mean.  ``PF_FIELD_VALIDATION.tsv`` frame counts differ by message --
 direction), but ``TeleportVital`` has 132 real candidate frames per
 direction at status ``A2_STATIC_OPEN`` (candidate-matched, not
 parse-confirmed) -- do not read this docstring as "no capture data exists
-for any of these three messages": a future round can and should run those
+for any of these three messages": ~~a future round can and should run those
 132 ``TeleportVital`` frames against this codec, in particular to settle
-the ``TeleportTarget`` field-order question its docstring flags.  Do not
+the ``TeleportTarget`` field-order question its docstring flags.~~
+SUPERSEDED 2026-09-02: those frames HAVE been replayed against the current
+plan and the result is RED, not silent -- `PF_V5_FIELD_VALIDATION.md`
+[MEASURED][CAPTURE]: R 190 mismatches (reason STRING_TAG, DELTA component =
+delta row 613 = the aux text field this round corrected) and W 188 mismatches
+(reason TAG, ORDER:4 = TeleportTarget.scene_id, no delta component).  So the
+frames are NOT silent about the declared shape, the R red sits on the tag
+correction, and the W red sits on a TeleportTarget field -- which is the
+closest thing to evidence about field order that exists, and it is negative.
+An earlier draft of this note said the mismatch "predates the tag correction";
+that was wrong, and pf-adversary caught it before commit.  Do not
 rename a positional field without a citation to the RE answer that proves
 it.
 
@@ -355,12 +419,18 @@ class TeleportTarget:
     the top-level body writes +0x18 before the +0x14 presence flag, and the
     aux object explicitly writes +0x40 before +0x38 -- so the listed order
     is treated as literal stream order here too, consistent with how the
-    aux object's out-of-offset-order fields are handled.  This has NOT been
+    aux object's out-of-offset-order fields are handled.  ~~This has NOT been
     checked against a real captured frame (``PF_FIELD_VALIDATION.tsv`` has
     132 ``TeleportVital`` candidate frames per direction at status
     ``A2_STATIC_OPEN`` -- candidate-matched, not parse-confirmed -- that a
     future round should use to settle this if it matters before this is
-    used against a real client).
+    used against a real client).~~  SUPERSEDED 2026-09-02: the frames were
+    replayed and came back RED (`PF_V5_FIELD_VALIDATION.md`, [MEASURED]
+    [CAPTURE]): W 188 mismatches with reason TAG at ORDER:4, which is
+    PF_SERIALIZER_FIELDS.tsv row 570 -- ``scene_id``, a field of THIS object.
+    So this order is not merely unconfirmed, it is contradicted at one of its
+    own fields by 188 real instances, and settling it needs an RE answer, not
+    another replay of the same corpus.
     """
 
     scene_id: int
@@ -380,6 +450,11 @@ class TeleportAux:
     higher -- RE-090 confirms this out-of-offset-order write is real, not a
     transcription error, so the encoder/decoder below preserve that exact
     stream order.
+
+    ``text`` sits at object offset +0x10 (DEREF(+0x1C)+0x10, rows 580/613 of
+    the A2 tag-delta table cited in the module docstring) and carries the
+    0x48 wide-string tag.  Its NAME is still positional: the offset is
+    proven, the meaning is not.
     """
 
     text: str
@@ -446,7 +521,7 @@ def make_teleport_aux_payload(
     _require_u32(field_0x38, "field_0x38")
     _require_u64(field_0x40, "field_0x40")
     return (
-        _write_untagged_wstring(text)
+        _write_tagged_wstring(text)
         + legacy.u16tag(_TAG_U16_A, field_0x2c)
         + legacy.u32tag(_TAG_U32_A, field_0x30)
         + legacy.u32tag(_TAG_U32_B, field_0x34)
@@ -542,7 +617,7 @@ def _decode_teleport_target(buf: bytes, offset: int) -> tuple[TeleportTarget, in
 
 
 def _decode_teleport_aux(buf: bytes, offset: int) -> tuple[TeleportAux, int]:
-    text, offset = _read_untagged_wstring(buf, offset)
+    text, offset = _read_tagged_wstring(buf, offset)
     field_0x2c, offset = _read_tag_u16(buf, offset, _TAG_U16_A)
     field_0x30, offset = _read_tag_u32(buf, offset, _TAG_U32_A)
     field_0x34, offset = _read_tag_u32(buf, offset, _TAG_U32_B)
@@ -660,38 +735,51 @@ def _read_tag_f32(buf: bytes, offset: int) -> tuple[float, int]:
     return value, offset + 5
 
 
-def _write_untagged_wstring(text: str) -> bytes:
+# The client's wide-string helper (W 0x0089A810, R 0x0089A880) pushes this tag
+# byte before the uint32-LE byte count: `push 0x48` at 0x0089A833 (W) and
+# 0x0089A89C (R).  See CORRECTION 2026-09-02 in the module docstring.
+_TAG_WSTRING16 = 0x48
+
+
+def _write_tagged_wstring(text: str) -> bytes:
     if not isinstance(text, str):
         raise TypeError("text must be a str")
     encoded = text.encode("utf-16-le")
     if len(encoded) > 0xFFFFFFFF:
-        raise ValueError("text exceeds the untagged wstring length field")
-    return struct.pack("<I", len(encoded)) + encoded
+        raise ValueError("text exceeds the tagged wstring length field")
+    return bytes((_TAG_WSTRING16,)) + struct.pack("<I", len(encoded)) + encoded
 
 
-def _read_untagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
-    if offset + 4 > len(buf):
+def _read_tagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
+    field_offset = offset  # messages name where the FIELD starts, not the length
+    if offset + 5 > len(buf):
         raise GmTeleportWireError(
-            f"truncated: need 4 bytes for a string length at offset {offset}, "
-            f"have {len(buf) - offset}"
+            f"truncated: need 1 tag byte + 4 bytes for a string length at "
+            f"offset {offset}, have {len(buf) - offset}"
         )
+    if buf[offset] != _TAG_WSTRING16:
+        raise GmTeleportWireError(
+            f"unexpected string tag 0x{buf[offset]:02X} at offset {offset}, "
+            f"expected 0x{_TAG_WSTRING16:02X}"
+        )
+    offset += 1
     byte_len = struct.unpack_from("<I", buf, offset)[0]
     if byte_len % 2 != 0:
         raise GmTeleportWireError(
-            f"string at offset {offset} declares byte_len={byte_len}, not a "
+            f"string at offset {field_offset} declares byte_len={byte_len}, not a "
             "whole number of UTF-16LE code units"
         )
     start = offset + 4
     end = start + byte_len
     if end > len(buf):
         raise GmTeleportWireError(
-            f"truncated: string at offset {offset} declares {byte_len} bytes, "
+            f"truncated: string at offset {field_offset} declares {byte_len} bytes, "
             f"have {len(buf) - start}"
         )
     try:
         text = buf[start:end].decode("utf-16-le")
     except UnicodeDecodeError as exc:
         raise GmTeleportWireError(
-            f"string at offset {offset} is not valid UTF-16LE: {exc}"
+            f"string at offset {field_offset} is not valid UTF-16LE: {exc}"
         ) from exc
     return text, end

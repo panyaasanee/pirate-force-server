@@ -350,7 +350,39 @@ MOB_LOOT_WIRING = (
     "because the cell is one ledger with no scene term and every kill sends "
     "the whole live ledger.  This is a NEW call site this lane cannot add "
     "itself -- runtime.py owns the scene-sync path -- named here rather than "
-    "only in a letter, per this round's own CORE-REQUEST."
+    "only in a letter, per this round's own CORE-REQUEST.\n"
+    "  7. THE OTHER RUNTIMERES FRAMES, ADDED round ewm6ff.  app.py's "
+    "install_ground_heartbeat_preserve substitutes the PRESERVE body for ONE "
+    "caller (co_name == 'heartbeat_worker').  v141's make_runtime_vitals ends "
+    "on an EMPTY derived change mask and never reaches that wrapper, so the "
+    "VitalData responses it composes carry no ground list -- re-derived from "
+    "the frozen file's own AST by tests/test_mob_loot_preserve_runtime_res.py, "
+    "not taken from a capture corpus.\\n"
+    "     ~~'The ask is ONE wrap in app.py: wrap legacy.make_runtime_vitals so "
+    "its (pc, frame) passes through this lane's preserve function.'~~ THAT ASK "
+    "IS WITHDRAWN, same round, before it was acted on.  pf-adversary installed "
+    "exactly that wrapper and MEASURED what it does: mob_pickup.bag_delta_pc "
+    "(mob_pickup.py:1786) re-derives its own pc through make_runtime_vitals "
+    "and compares it byte for byte against DELTA_PC_PREFIX_PIN, so the wrap "
+    "makes EVERY PICKUP REFUSE (composed_bytes_off_pin, 74 bytes vs 71) while "
+    "a drop is on the ground -- the exact state this lane exists to create; "
+    "and delete_refresh_hypothesis.make_delete_actor_list_rebuild_response "
+    "(:347) dies with 'derived-class mask drift'.  Nine other modules call "
+    "that composer, several with byte pins of their own.  A blanket wrap is "
+    "the wrong shape and the measurement says so.\\n"
+    "     THE ASK THAT REPLACES IT is per call site, not global: at an "
+    "emission site that must preserve the ground, call "
+    "mob_loot.preserve_ground_in_runtime_res_vitals(legacy, vitals) INSTEAD "
+    "of legacy.make_runtime_vitals -- same arguments, same (pc, frame) "
+    "back (the call is spelled without its argument list here on purpose: "
+    "tools/pf_runtimeres_actor_entry_static.py counts CALL SITES with a "
+    "regex, and prose that looks like one inflates that census).  "
+    "The body is byte-identical; only the trailing mask record differs.  Each "
+    "site is its own audit, because a site with a byte pin has to move its pin "
+    "with it.  WHICH sites must preserve is a question for the COO and not one "
+    "this lane may answer by wrapping them all at once.  This lane's own "
+    "emission path (the MOB_LOOT block, steps 1-3 above) does not go through "
+    "make_runtime_vitals at all and needs nothing here."
 )
 
 production_allowed = True
@@ -448,6 +480,8 @@ DROP_FRAME_HEADER_SIZE = len(DROP_FRAME_HEADER_PIN)
 # with the body length, so a generation of any width can still be checked
 # against them at run time.
 DROP_FRAME_MAGIC_PIN = DROP_FRAME_HEADER_PIN[:4]
+#: The legacy encoder's literal-chunk stride (v141:564), transcribed with it.
+SNAPPY_LITERAL_CHUNK = 65536
 
 # ---------------------------------------------------------------------------
 # The mask-0x16 element sizes.  Same 27 bytes as DROP_ELEMENT_SIZE above,
@@ -985,6 +1019,25 @@ REFUSE_LIFETIME_OUT_OF_RANGE = "lifetime_out_of_range"
 #: ROUND 0n9inw.  The clock handed to a cell is not callable, or does not return
 #: a finite real number.
 REFUSE_CLOCK_IS_NOT_A_CLOCK = "clock_is_not_a_clock"
+#: ROUND ewm6ff.  ~~Four refusals of a ``preserve_ground_in_runtime_res`` that
+#: took an already-composed pc: pc_is_not_bytes, pc_is_not_a_runtime_res,
+#: pc_tail_is_not_the_derived_mask, derived_mask_is_not_empty.~~  STRUCK the
+#: same round, before any of them shipped to main: pf-adversary measured that
+#: the function those names belonged to could not tell the derived-mask record
+#: from a u32 field ending in 0B 00 (finding D1), and that the fourth name --
+#: written to protect ``make_runtime_remote_actors`` -- never fired for that
+#: composer at all, because a real actor pc does not end at its mask (D3).
+#: Names for a distinction the code could not actually make.  The function was
+#: replaced by one that composes the body itself, and its refusals are declared
+#: with it: the one below, plus the two this module already had for a moved
+#: serializer and a disagreeing framing layer.
+#:
+#: ROUND ewm6ff.  v141's ``make_runtime_vitals`` no longer composes the body
+#: this lane re-derives for the same vitals.  Raised INSTEAD of emitting: the
+#: whole reason that function composes rather than patches is that it can prove
+#: where the derived mask is, and a composer that moved has taken that proof
+#: away.  See :func:`preserve_ground_in_runtime_res_vitals`.
+REFUSE_VITALS_COMPOSER_MOVED = "vitals_composer_moved"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1021,6 +1074,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_CLOCK_WENT_BACKWARDS,
     REFUSE_LIFETIME_OUT_OF_RANGE,
     REFUSE_CLOCK_IS_NOT_A_CLOCK,
+    REFUSE_VITALS_COMPOSER_MOVED,
 )
 
 
@@ -2771,22 +2825,34 @@ def _snappy_raw_literal_via_struct(data: bytes) -> bytes:
     and the legacy encoder share, because they are the same text.  Only the
     ONE-element frame is checked against literal bytes a real client took
     (``DROP_FRAME_HEADER_PIN``, GT-045).
+
+    ROUND ewm6ff -- THIS TRANSCRIPTION WAS ONE LOOP SHORT, and said so about
+    itself without noticing: the legacy encoder walks ``data`` in 65536-byte
+    CHUNKS and opens a fresh literal tag for each (v141:563-574), and this text
+    emitted a single tag for the whole buffer.  Identical output below 65536
+    bytes, which is why every existing caller (drop frames, bounded far below
+    that by ``REFUSE_GENERATION_TOO_WIDE_TO_FRAME``) never saw it -- and a
+    silent divergence above it, where this text would have called the legacy
+    framing layer wrong.  Found by the first pc that crossed the boundary.
     """
-    length = len(data)
     out = bytearray()
-    value = length
+    value = len(data)
     while value >= 0x80:
         out.append((value & 0x7F) | 0x80)
         value >>= 7
     out.append(value)
-    minus_one = length - 1
-    if length <= 60:
-        out.append(minus_one << 2)
-    else:
-        width = max(1, (minus_one.bit_length() + 7) // 8)
-        out.append((59 + width) << 2)
-        out += minus_one.to_bytes(width, "little")
-    out += data
+    position = 0
+    while position < len(data):
+        chunk = data[position:position + SNAPPY_LITERAL_CHUNK]
+        minus_one = len(chunk) - 1
+        if len(chunk) <= 60:
+            out.append(minus_one << 2)
+        else:
+            width = max(1, (minus_one.bit_length() + 7) // 8)
+            out.append((59 + width) << 2)
+            out += minus_one.to_bytes(width, "little")
+        out += chunk
+        position += len(chunk)
     return bytes(out)
 
 
@@ -3209,6 +3275,177 @@ def preserve_ground_heartbeat_frame(legacy: Any) -> tuple[bytes, bytes]:
             REFUSE_COMPOSED_BYTES_OFF_PIN,
             "the framed body is not the pc that was composed")
     return pc, frame
+
+
+# ---------------------------------------------------------------------------
+# THE OTHER RUNTIMERES FRAMES -- THE ONES app.py's PRESERVE PATCH NEVER SEES.
+#
+# app.py's install_ground_heartbeat_preserve substitutes the PRESERVE body for
+# exactly one caller: the frame whose co_name is "heartbeat_worker"
+# (app.py:128).  v141's make_runtime_vitals (line 689) -- which composes the
+# RuntimeRes carrying VitalData responses -- ends its body with
+# ``pc += u8tag(0x0B, 0)`` (line 710), an EMPTY derived change mask, and never
+# reaches that wrapper.  Bit 0x08 clear means the ground list is absent.
+#
+# WHAT IS MEASURED, WHAT IS RELAYED, AND WHAT IS THIS LANE GUESSING.  Stated
+# separately because a previous draft of this section ran the three together.
+#
+#   MEASURED, from our own source: make_runtime_vitals ends on an empty derived
+#   mask.  tests/test_mob_loot_preserve_runtime_res.py re-derives the census of
+#   v141's RuntimeRes composers from that file's AST and goes red when one is
+#   added, renamed, or changes a mask.  That test also records what its own
+#   detector CANNOT see -- it is a census of the composers that write the tag
+#   in one recognisable spelling, not a proof that no other exists.
+#
+#   RELAYED, NOT RULED.  COO-DECISION 20260901_0347's operative text tells THIS
+#   LANE to write a CORE-REQUEST naming exact lines "per Codex's proposal --
+#   pool must always be non-NULL, count=0 when only preserving".  That is the
+#   COO relaying Codex's proposal for this lane to specify, NOT a ruling this
+#   function may cite as settled.  An earlier draft of this comment promoted it
+#   to "the rule COO already wrote" and then leaned on that promotion as the
+#   part that was not an assumption.  It is withdrawn: pf-adversary, round
+#   ewm6ff, finding D6(b).
+#
+#   [ASSUMPTION OF LANE B - AWAITING COO] that an absent ground list means a
+#   NULL TerrainThingPool reaches the reconciler at 0x006AF970 and is read as
+#   "clear everything" (Codex, pf_bridge notes_to_chief/CODEX_URGENT_20260901_
+#   0324).  That reading does not mention the inherited mask, so applying it to
+#   a mask-0x02 frame is this lane's inference.  MOB_LOOT_NONCLAIMS entry 18
+#   stands unchanged: what a RuntimeRes carrying a DIFFERENT derived mask does
+#   to a live ground entry is UNMEASURED.
+#
+#   THE SHAPE THIS COMPOSES HAS NEVER BEEN SEEN ON ANY WIRE.  The same ka1-B
+#   table this section was written from (pf_bridge notes_to_chief/20260901_
+#   2210_KA1B-TO-LANE-B-drop-lane-three-gaps-including-distance-prune.md, point
+#   2) reads: pool bit 0x08 absent 14,536 - PRESENT-COUNT-ZERO 0 -
+#   present-nonempty 23 - unresolved 729.  Present-count-zero is the exact
+#   shape below, and its count in that 15,288-frame corpus is ZERO.  An earlier
+#   draft of this comment quoted the columns that motivated the change and
+#   omitted the one beside them saying the OUTPUT has never been observed
+#   (pf-adversary, round ewm6ff, finding D6(a)).  It is quoted here instead.
+#   That corpus also does not prove which server produced it -- the letter
+#   nonclaims that itself -- which is why the motivating fact above was
+#   re-derived from v141 rather than taken from the count.
+#
+# WHY THIS TAKES THE VITALS, NOT A COMPOSED pc.  The first draft of this
+# section took an already-composed pc and rewrote its last two bytes when they
+# were 0B 00.  pf-adversary refuted that (round ewm6ff, finding D1) by
+# MEASUREMENT, not argument: make_runtime_vital (SINGULAR, v141:747) appends no
+# derived mask at all -- the census below records it as writing (2, "caller") --
+# so the last two bytes of its pc are whatever the caller's payload ends with.
+# A u32tag(0x14, v) for any v in [720896, 786431] ends in 0B 00.  So does a
+# wstring whose final UTF-16LE code unit is U+000B.  The adversary drove
+# legacy_bridge.LegacyProjector.character_list -- a real login-path composer,
+# session.py:50 and :281 -- through the old function and watched a u32 field go
+# from 0x000B0000 to 0x080B0000 with no refusal raised.  Three real composers
+# on this server's login path end in 0B 00 for at least two different reasons.
+#
+# There is no repair for that at the END of the buffer, so this function does
+# not look there.  It calls the composer itself and RE-DERIVES the same body
+# from the legacy tag primitives, exactly the dual-derivation discipline
+# drop_element and _frame_via_struct already use in this module: if the two
+# agree, the record this replaces is the derived mask BY CONSTRUCTION, because
+# this lane just built the bytes in front of it.  If they disagree the
+# composer moved and this refuses.  A caller cannot hand it a pc whose shape
+# nobody can vouch for, because it does not accept a pc.
+#
+# WHAT THIS IS NOT: A WRAPPER FOR make_runtime_vitals.  MOB_LOOT_WIRING step 7
+# once asked app.py to wrap that composer globally.  That ask was REFUTED by
+# measurement in the same review (finding D2) and is withdrawn: mob_pickup.py's
+# bag_delta_pc (:1786) and delete_refresh_hypothesis.py's rebuild response
+# (:347) both re-derive their own pc through make_runtime_vitals and compare it
+# byte for byte against a pin, so a blanket wrap makes EVERY PICKUP REFUSE
+# while a drop is on the ground -- the exact state this lane exists to create --
+# and kills the post-delete character-list rebuild.  Nine other modules call
+# that composer with pins of their own.  This is therefore an OPT-IN composer a
+# call site chooses instead of make_runtime_vitals, one site at a time, each
+# site audited on its own; see MOB_LOOT_WIRING step 7 for the ask that replaced
+# the withdrawn one.
+# ---------------------------------------------------------------------------
+# What v141 appends last, and what this composes in its place.  Both are
+# re-derived from the legacy primitives on every call and compared with these
+# literals, so a moved serializer refuses here instead of shipping bytes no
+# client has accepted.
+RUNTIME_RES_HEAD_PIN = DROP_ENVELOPE_PIN[:10]
+RUNTIME_RES_INHERITED_MASK_VITALS = 0x02
+RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN = bytes((0x0B, 0x00))
+RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN = bytes((0x0B, 0x08, 0x12, 0x00, 0x00))
+
+
+def _runtime_vitals_body(legacy: Any, vitals: Any) -> bytes:
+    """Everything make_runtime_vitals composes BEFORE its derived-mask record.
+
+    Re-derived from the legacy tag primitives rather than sliced off the
+    composer's own output -- that is the whole point: the slice is what this
+    lane cannot justify, and the re-derivation is what lets it say where the
+    derived mask starts without reading the end of a buffer.
+    """
+    pc = bytearray()
+    pc += legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+    pc += legacy.u32tag(ELEMENT_KEY_TAG, 0)
+    pc += legacy.u8tag(0x08, ENVELOPE_VERSION)
+    pc += legacy.u8tag(ELEMENT_MASK_TAG, RUNTIME_RES_INHERITED_MASK_VITALS)
+    pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, len(vitals))
+    for msg_id, vital_version, vital_payload in vitals:
+        pc += legacy.u16tag(ELEMENT_LIST_COUNT_TAG, msg_id)
+        pc += legacy.u8tag(ELEMENT_MASK_TAG, vital_version)
+        pc += vital_payload
+    return bytes(pc)
+
+
+def preserve_ground_in_runtime_res_vitals(
+        legacy: Any, vitals: Any) -> tuple[bytes, bytes]:
+    """``(pc, frame)``: what ``make_runtime_vitals`` composes for these vitals,
+    with the ground list PRESERVED instead of absent.
+
+    Same arguments and same return shape as ``legacy.make_runtime_vitals``, so
+    a call site swaps one for the other and changes nothing else.  The body is
+    byte-identical to that composer's; the only difference is the last record,
+    which carries the ground list PRESENT (bit 0x08) with count 0 and no
+    elements -- "there is a pool and nothing new to reconcile" rather than
+    "there is no pool".
+
+    Fail-closed at every exit, and every exit is reachable by a real body: the
+    composer is DRIVEN and its output compared against this lane's own
+    re-derivation, so a v141 that moved refuses here instead of shipping bytes
+    whose derived mask this lane can no longer locate.
+    """
+    vitals = tuple(vitals)
+    body = _runtime_vitals_body(legacy, vitals)
+    composed, _composed_frame = legacy.make_runtime_vitals(list(vitals))
+    if composed != body + RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN:
+        raise MobLootContractError(
+            REFUSE_VITALS_COMPOSER_MOVED,
+            "make_runtime_vitals no longer composes this lane's re-derivation "
+            "of the same vitals followed by an empty derived mask, so where "
+            "the derived mask sits in its pc is no longer provable here")
+    tail = (
+        legacy.u8tag(ELEMENT_MASK_TAG, RUNTIME_DERIVED_BIT_GROUND_LIST)
+        + legacy.u16tag(ELEMENT_LIST_COUNT_TAG, 0)
+    )
+    if tail != RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN:
+        raise MobLootContractError(
+            REFUSE_COMPOSED_BYTES_OFF_PIN,
+            "the preserve derived-mask tail is not the pinned tail; the "
+            "legacy serializer moved under this lane and it refuses to emit")
+    pc = body + tail
+    frame = legacy.frame_pc(pc)
+    # Re-derived end to end, not spot-checked.  mob_pickup.py:1652-1668 wrote
+    # this lesson down for its own delta: a magic-plus-suffix check is nearly
+    # circular -- the framing layer writes the declared length itself, so a
+    # shim that framed completely different bytes passed it.  The first draft
+    # of this function re-introduced that weaker check and pf-adversary got a
+    # 75-byte frame with a 0xDEADBEEF length past it (round ewm6ff, D5).  The
+    # suffix form also refused every pc of 65534 bytes or more, where
+    # frame_pc's second snappy literal header is CORRECT and the checker was
+    # not.  Comparing against this module's own re-derivation fixes both.
+    if frame != _frame_via_struct(pc):
+        raise MobLootContractError(
+            REFUSE_FRAME_ENCODER_DISAGREES,
+            "the legacy framing layer and this module's re-derivation of it "
+            "disagree about the preserved RuntimeRes frame")
+    return pc, frame
+    return rewritten, frame
 
 
 def money_element(legacy: Any, money: Any) -> bytes:

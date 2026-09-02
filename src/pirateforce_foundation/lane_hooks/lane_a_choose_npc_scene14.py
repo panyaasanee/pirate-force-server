@@ -189,6 +189,7 @@ from typing import Any
 from .. import field_mob_hostile_bg0015 as hostile_bg0015
 from .. import field_mobs
 from .. import lane_hooks
+from .. import world_census_level
 from .. import world_bg0015_identity as identity
 from .lane_a_scene_census import scene_is_open_to_players
 
@@ -311,11 +312,25 @@ def respond(
                     scene_id=scene_id, scene_sequence=0,
                 )
             else:
-                npc_attr_bytes = legacy.make_npc_attr(
-                    placement.n_id, placement.actor_identity, scene_id, 0,
-                    placement.visual_preset, current_hp=placement.max_hp,
+                # EVERY GENERATION (round `2p4n3h`, LANE-A).  Same defect
+                # world_face_frame.build_face_state carried for scene 1: a
+                # bare make_npc_attr here re-sent every civilian in the
+                # roster with no level, reverting round `7ste68` on the wire
+                # the moment anyone was clicked.  The hostile branch above
+                # never had the problem -- field_mobs' body has carried a
+                # level since RE-117 -- which is why the revert showed only
+                # on civilians and was easy to miss.
+                npc_attr_bytes = world_census_level.leveled_npc_attr(
+                    legacy,
+                    template_n_id=placement.n_id,
+                    actor_identity=placement.actor_identity,
+                    scene_id=scene_id,
+                    scene_sequence=0,
+                    visual_preset=placement.visual_preset,
+                    current_hp=placement.max_hp,
                     max_hp=placement.max_hp,
                     basic_name=placement.display_name,
+                    level=placement.identity.level,
                 )
             attrs = [(legacy.NPC_ATTR, npc_attr_bytes)]
             if idx == selected_idx:

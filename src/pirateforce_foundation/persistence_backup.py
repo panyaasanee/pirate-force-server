@@ -604,18 +604,43 @@ def snapshot_database(
     stamp = _utc_stamp() if stamp is None else stamp
     _require_path_safe("stamp", stamp)
 
-    fingerprint = source_fingerprint(source)
-    existing = _find_identical_snapshot(root, fingerprint, pending, source.name)
-    if existing is not None:
-        return existing
+    # EVERYTHING THAT TOUCHES THE FILESYSTEM IS INSIDE A `BackupError` WRAPPER,
+    # INCLUDING THIS PROLOGUE.  It used not to be, and a `pf-adversary` pass
+    # measured what that cost: `source_fingerprint` hashes the live database
+    # and stats its `-wal`, so an `OSError` there -- on Windows, an antivirus
+    # or a backup agent holding `state\pirateforce.sqlite3`, which is a
+    # `PermissionError` -- escaped this module raw.  `app.py` catches
+    # `BackupError` only, so the owner got a traceback and exit 1 instead of
+    # exit 13 and the sentence "your database has NOT been changed", which is
+    # the one thing they need to read at that moment.  The database was never
+    # in danger (the raise still precedes `migrate()`); the DIAGNOSIS was.
+    # This module's own contract at the top of the file says every failure it
+    # can produce is wrapped, and this is what makes that true of the prologue
+    # as well as of the copy.
+    try:
+        fingerprint = source_fingerprint(source)
+        existing = _find_identical_snapshot(root, fingerprint, pending, source.name)
+        if existing is not None:
+            return existing
 
-    final = root / ("%s_%s_%s" % (stamp, label, source.stem))
-    working = final.with_name(final.name + INCOMPLETE_SUFFIX)
-    if final.exists() or working.exists():
+        final = root / ("%s_%s_%s" % (stamp, label, source.stem))
+        working = final.with_name(final.name + INCOMPLETE_SUFFIX)
+        if final.exists() or working.exists():
+            raise BackupError(
+                "snapshot directory already exists, refusing to overwrite: %s"
+                % final
+            )
+        _require_free_space(root, source)
+    except BackupError:
+        # Already the right type, already carrying the right sentence.  Never
+        # re-wrapped: a `BackupError` inside a `BackupError` reads as two
+        # failures to a person looking for one.
+        raise
+    except Exception as error:
         raise BackupError(
-            "snapshot directory already exists, refusing to overwrite: %s" % final
-        )
-    _require_free_space(root, source)
+            "could not prepare a snapshot of %s: %s: %s"
+            % (source, type(error).__name__, error)
+        ) from error
 
     snapshot = working / source.name
     try:

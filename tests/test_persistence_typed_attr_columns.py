@@ -318,12 +318,24 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.older = self.root / "migrations_upto_005"
-        self.older.mkdir()
-        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if path.name != MIGRATION_006.name:
-                shutil.copy2(path, self.older / path.name)
+        # 005 and 006 are built as SEPARATE directories rather than as "every
+        # file except 006".  That spelling was right while 006 was the last
+        # migration and became wrong the moment `migrations/007_character_
+        # vitals_seed.sql` landed: it copied 007 in beside 001..005 and the
+        # run died on `no such column: level`, because 007 writes columns 006
+        # adds.  A directory is now a PREFIX of the real one, by version, which
+        # cannot rot the same way when 008 arrives.
+        self.older = self._prefix("migrations_upto_005", 5)
+        self.through_006 = self._prefix("migrations_upto_006", 6)
         self.path = self.root / "state.sqlite3"
+
+    def _prefix(self, name, last_version):
+        directory = self.root / name
+        directory.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= last_version:
+                shutil.copy2(path, directory / path.name)
+        return directory
 
     def _dump(self, table):
         db = sqlite3.connect(self.path)
@@ -349,7 +361,11 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
         for column in COLUMNS_BEFORE_006:
             self.assertIn(column, before["characters"][0])
 
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        # THROUGH 006, not through `migrations/`: 007 seeds three of these
+        # columns on purpose (COO-DECISION 20260902_0250) and is proved in
+        # `tests/test_persistence_vitals_seed_007.py`.  What is asserted here
+        # is 006's own promise -- it adds columns and seeds nothing.
+        SQLiteStore(self.path, self.through_006).migrate()
 
         after = {t: self._dump(t) for t in before}
         for table in ("character_positions", "character_backpacks"):
@@ -412,10 +428,14 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        # A version PREFIX, not "every file except 006" -- see the same
+        # correction in `MigrationIsNonDestructiveTests.setUp` above: the old
+        # spelling swept `007_character_vitals_seed.sql` in beside 001..005,
+        # where it runs before the columns it writes exist.
         self.older = self.root / "migrations_upto_005"
         self.older.mkdir()
         for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if path.name != MIGRATION_006.name:
+            if int(path.name[:3]) <= 5:
                 shutil.copy2(path, self.older / path.name)
         self.path = self.root / "state" / "pirateforce.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -489,7 +509,17 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         self._at_005_with_a_character()
         take, reason = persistence_backup.should_snapshot(self.path, MIGRATIONS)
         self.assertTrue(take, reason)
-        self.assertEqual([6], persistence_backup.pending_versions(self.path, MIGRATIONS))
+        # Every migration file this repository has added since 005 is pending
+        # here, and the list is derived rather than typed so that the next one
+        # does not turn this pin red for the wrong reason.  What matters to
+        # THIS test is that 006 is among them and the snapshot precedes it.
+        self.assertEqual(
+            [v for v in
+             sorted(int(path.name[:3])
+                    for path in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))
+             if v > 5],
+            persistence_backup.pending_versions(self.path, MIGRATIONS),
+        )
         self.assertIn("006", reason)
 
         snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(

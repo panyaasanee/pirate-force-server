@@ -229,16 +229,54 @@ REFUSAL_UNSAFE_COMMAND_TEXT = "command_text_has_format_characters"
 # -- so "the list lives beside the constants" is true of this module's own
 # refusals only, which is the half that can grow without this file noticing.
 #
-# STILL SILENT AFTER THIS ROUND, AND NAMED SO NOBODY READS THIS SET AS "no
+# ~~STILL SILENT AFTER THIS ROUND, AND NAMED SO NOBODY READS THIS SET AS "no
 # GM command can vanish quietly any more": REFUSAL_RATE_LIMITED,
 # REFUSAL_LOG_QUOTA_EXCEEDED and REFUSAL_LOG_WRITE_FAILED_PREFIX each drop a
 # WELL-FORMED command with no console line at all.  Those are server-side
 # conditions, not typing mistakes, and their way out is a different sentence
 # (and, for the log ones, arguably an alarm rather than a hint) -- so they
-# are a separate piece of work rather than a widening of this one.
+# are a separate piece of work rather than a widening of this one.~~
+# STRUCK, NOT DELETED, by round `c637o1`: that separate piece of work is the
+# one `COO-DECISION 2026-09-02T01:47+07:00` came back and ordered
+# (its own words: silence is the FORBIDDEN outcome, not merely the unwanted
+# one).  The sentence above was right that these three need a
+# DIFFERENT sentence from a usage hint; it was wrong that a different
+# sentence meant a later round.  They now have their own tuple, their own
+# console token and their own blocker sentences -- see
+# `SERVER_SIDE_DROP_REFUSALS` below.
 TYPED_COMMAND_REFUSAL_PREFIXES = (
     REFUSAL_PARSE_ERROR_PREFIX,
     REFUSAL_UNSAFE_COMMAND_TEXT,
+)
+
+# THE OTHER SET: a WELL-FORMED command from an AUTHORIZED GM account that the
+# server itself dropped before dispatch ever saw it.  Kept apart from the
+# tuple above because the two answer different questions and must not share
+# a console token: one says "you typed it wrong, here is the grammar", this
+# one says "you typed it right and the server ate it, here is why".
+#
+# EVERY MEMBER IS `authorized=True` BY CONSTRUCTION -- each is returned below
+# the `is_gm` check in `handle_local_talk_chat`, which is what makes printing
+# them safe under this lane's founding rule.  A non-GM's chat, a GM's
+# ordinary conversation, an unreadable allowlist and a malformed frame are
+# all decided ABOVE that line and are deliberately NOT in here:
+#
+#   REFUSAL_NOT_GM / REFUSAL_LOOKUP_FAILED_PREFIX -- nothing was decoded and
+#       this lane does not know whether a GM typed anything.  STILL SILENT.
+#   REFUSAL_NOT_A_COMMAND -- a GM chatting normally.  STILL SILENT, and must
+#       stay so: one console line per sentence a GM says is the noise this
+#       lane refuses to make.
+#   REFUSAL_PAYLOAD_TOO_LARGE / REFUSAL_UNDECODABLE_PREFIX -- a malformed
+#       frame, which no typing produced and no typing fixes.  STILL SILENT.
+#
+# So "no GM command can vanish quietly any more" is STILL FALSE, and this
+# comment is where that is said out loud rather than in a round file: what is
+# true after round `c637o1` is that no command from an ALLOWLISTED GM that
+# PARSED (or was command-shaped and throttled) vanishes quietly.
+SERVER_SIDE_DROP_REFUSALS = (
+    REFUSAL_RATE_LIMITED,
+    REFUSAL_LOG_QUOTA_EXCEEDED,
+    REFUSAL_LOG_WRITE_FAILED_PREFIX,
 )
 
 # The way out for a line refused by `has_format_characters`.  Fixed text, and

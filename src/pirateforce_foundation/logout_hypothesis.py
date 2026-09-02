@@ -197,11 +197,26 @@ LOGOUT_RESPONSE_POLICY_WORLDINFO_DIALOG_OPEN_PUSH = "worldinfo_dialog_open_push"
 # HYP-PF-040 used (chief wired an unreachable branch first; lane A added
 # the allowlisted profile + scenario file the following round, see the
 # module comment above HYP-PF-040 and ``test_logout_dialog_open_scenario
-# _wired.py``'s own docstring for that precedent).  Until a profile
+# _wired.py``'s own docstring for that precedent).  ~~Until a profile
 # exists in ``require_logout_hypothesis_scenario``'s allowlist, no real
 # boot can ever construct a scenario carrying this value, so the new
 # routing branch is provably unreachable from any default path, exactly
-# like that precedent was before its allowlist profile landed.
+# like that precedent was before its allowlist profile landed.~~
+#
+# [SUPERSEDED 2026-09-01/02 -- struck above, not deleted, because the
+# sentence describes a state this module really was in and a reader of an
+# old audit line needs to know when it ended.]  Lane A's next-round work
+# happened: round 4h2nzu added _PROFILE_ACK_FIRST_REORDER, the scenario
+# file and 18 tests, and chief cloud round dfx8bu registered the ledger
+# entry HYP-PF-042 / LOGOUT-ACK-FIRST-REORDER-001.  A profile DOES now
+# exist in the allowlist, so the second half above is retired: what is
+# still true is the narrower and more useful claim, that reaching this
+# value requires an explicit --logout-hypothesis-scenario naming that one
+# file (which itself requires an explicit --db), and that a default boot
+# passes no such flag -- pinned by
+# test_unreachable_from_a_default_boot_with_no_scenario_at_all and
+# test_default_boot_scenario_files_never_carry_this_policy rather than by
+# this comment.
 LOGOUT_RESPONSE_POLICY_ACK_FIRST_REORDER = "ack_first_reorder"
 
 # The trigger vital id, copied from the proven GT-006 chat-input decode --
@@ -1416,6 +1431,29 @@ _EXPECTED_TEARDOWN_TIMER_VARIANT_NEVER = {
 # [REGISTERED ...] follow-up, added in place rather than replacing the
 # original text, per the R166 amend-not-replace precedent).  Add the marker
 # only after docs/HYPOTHESIS_LEDGER.json carries this id.
+#
+# [REGISTERED 2026-09-02, chief cloud round dfx8bu (R298) -- amended in place,
+# the paragraph above is kept verbatim rather than rewritten, per the R166
+# amend-not-replace precedent HYP-PF-041 followed.]  docs/HYPOTHESIS_LEDGER.json
+# now carries HYP-PF-042 / LOGOUT-ACK-FIRST-REORDER-001 (status active,
+# production_allowed false), tools/verify_hypothesis_ledger.py carries it in
+# EXPECTED_IDS and EXPECTED_META, and CANONICAL_CONTENT_SHA256 was recomputed by
+# the tool's own recipe rather than by hand.  The restraint described above was
+# correct and is now discharged: the annotation line below is added in the SAME
+# commit as the table row, because the verifier rejects either half landing
+# alone.  A declared .py source_ref with no annotation raises "declared emitter
+# is missing adjacent annotation" (exact, confirmed by mutation).  Dropping the
+# EXPECTED_META row does NOT reach verify_source_annotations at all -- the
+# id-set check fires first and the tool exits with "unknown hypothesis id:
+# HYP-PF-042"; an earlier draft of this comment quoted "unregistered emitter
+# annotation" for that case, which is really the message for a different
+# mutation (an annotation naming an id no table knows).  The substantive claim
+# is unchanged: neither half may land alone, confirmed in both directions.
+# Requested by LANE-A round 4h2nzu in pf_bridge/notes_to_chief/
+# 20260901_2252_LANE-A-CORE-REQUEST-026-register-hyp-pf-042-ledger.md; chief's
+# id ruling (HYP-PF-042 is correctly its own id, not HYP-PF-041) is in
+# 20260902_0215_CHIEF-REPLY-hyp-pf-042-registration-queued-next-pr.md.
+# PF-HYPOTHESIS-LEDGER: HYP-PF-042 active
 LOGOUT_ACK_FIRST_REORDER_CHECKPOINT = "LOGOUT-ACK-FIRST-REORDER-001"
 
 _PROFILE_ACK_FIRST_REORDER = LogoutHypothesisScenario(

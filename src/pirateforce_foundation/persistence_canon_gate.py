@@ -66,7 +66,7 @@ canon-gate-spec-and-backuperror-wrapper.md`` section (b.1).
 exit  result                               what the caller must do
 ===== ==================================== ===================================
 0     ``UNCHANGED``                        carry on, as today
-20    ``EXPLAINED_BY_MIGRATION``           rotate ``CANON_SHA.txt`` to the
+75    ``EXPLAINED_BY_MIGRATION``           rotate ``CANON_SHA.txt`` to the
                                            ``NEW_SHA=`` line, log before/after
 13    ``UNEXPLAINED``                      ABORT, exactly as today.  NEVER
                                            rotate.
@@ -77,7 +77,7 @@ other this module itself broke             ABORT.  Never read as ``UNCHANGED``
 sha does not match, so a job that has NOT been rewired yet keeps its current
 behaviour if it ever calls this module by accident.
 
-!! ``NEW_SHA=`` IS PRINTED ON EXIT 20 AND ON NO OTHER PATH.  The whole gate
+!! ``NEW_SHA=`` IS PRINTED ON EXIT 75 AND ON NO OTHER PATH.  The whole gate
 collapses if a caller can grep a rotation candidate out of a run that refused
 to authorise one, so the other results print ``ACTUAL_SHA=`` instead and the
 string ``NEW_SHA`` never appears in their output.
@@ -102,7 +102,7 @@ find a problem.
 ## WHAT THIS MODULE NEVER DOES
 
 It never writes to the canonical database itself, never migrates, never
-rotates ``CANON_SHA.txt`` (the caller does that, and only on 20), and never
+rotates ``CANON_SHA.txt`` (the caller does that, and only on 75), and never
 deletes a snapshot.  Every connection it opens is a strict ``mode=ro`` URI
 borrowed from ``persistence_backup._read_only_connection``.
 
@@ -150,7 +150,20 @@ RESULT_EXPLAINED = "EXPLAINED_BY_MIGRATION"
 RESULT_UNEXPLAINED = "UNEXPLAINED"
 
 EXIT_UNCHANGED = 0
-EXIT_EXPLAINED = 20
+
+#: !! CHANGED FROM 20, and the change is a correction, not a preference.
+#: 20 is ALREADY TAKEN in the bridge, with the opposite meaning, and a caller
+#: that branches on it would read "rotate the pin and go on" out of a script
+#: saying the round is ruined.  Measured on `pf_bridge/staged/*.ps1`
+#: (36 files) this round:
+#:   `TEMPLATE_teardown_generic.ps1:520-521` -- "THIS ROUND IS DEGRADED, NOT
+#:       GREEN (exit 20)"
+#:   `072_gt001_boot.ps1:72` -- "ABORT: no server PID", exit 20
+#: 75 was then measured free across every spelling those scripts use
+#: (`exit N`, `-Code N`, `::Exit(N)`, `SetShouldExit(N)`): zero hits.
+#: Nothing calls this module yet in either repository, so the value can still
+#: be corrected without breaking a caller; once `staged/` is wired it cannot.
+EXIT_EXPLAINED = 75
 EXIT_UNEXPLAINED = 13
 
 #: Returned when this module raises something it did not plan for.  Distinct
@@ -443,8 +456,9 @@ def recoverable_snapshot(
         # date -- so a database that had been migrated correctly last week and
         # then had `DELETE FROM accounts` run on it today still came back
         # EXPLAINED, because a snapshot naming the stale pin was still on
-        # disk.  Measured: 200 rows deleted, verdict `EXPLAINED_BY_MIGRATION
-        # exit 20`.  The letter this module implements says the copy must be
+        # disk.  Measured: 200 rows deleted, verdict `EXPLAINED_BY_MIGRATION`
+        # (exit 20 at the time; the code is 75 now).  The letter this module
+        # implements says the copy must be
         # "of that boot" (`20260901_1515` section b.1); a snapshot with a
         # newer sibling is by definition not the copy of the most recent one.
         # Snapshot directory names begin with a UTC timestamp
@@ -704,7 +718,7 @@ def _schema_came_from_that_boot(
 
 
 def render(verdict: Verdict, db_path: str | Path) -> str:
-    """The log lines.  ``NEW_SHA=`` appears on exit 20 and nowhere else."""
+    """The log lines.  ``NEW_SHA=`` appears on exit 75 and nowhere else."""
     lines = [
         "RESULT=%s" % verdict.result,
         "DB=%s" % Path(db_path).resolve(),
@@ -726,7 +740,7 @@ def _parser() -> argparse.ArgumentParser:
         description=(
             "Decide whether a canonical database whose sha differs from "
             "CANON_SHA.txt is explained by this repository's migrations. "
-            "Exit 0 UNCHANGED, 20 EXPLAINED_BY_MIGRATION (rotate "
+            "Exit 0 UNCHANGED, 75 EXPLAINED_BY_MIGRATION (rotate "
             "CANON_SHA.txt to NEW_SHA), 13 UNEXPLAINED (abort), anything "
             "else means this module broke (abort)."
         ),

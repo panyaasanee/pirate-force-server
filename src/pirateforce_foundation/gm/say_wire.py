@@ -85,6 +85,57 @@ from .commands import MAX_SAY_MESSAGE_LENGTH, GmCommand
 
 GM_GLOBAL_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVital"]
 
+# The OTHER channel this module composes for, and it is a different question
+# from the gated one above in every way that matters.
+#
+# COO-DECISION 2026-09-02T03:45+07:00 (`pf_bridge/notes_to_chief/20260902_
+# 0345_COO-DECISION-speed-refusal-localtalk-via-say-wire-12-ascii.md`) ordered
+# path 1 for GM-B's "a refused /speed must say so ON SCREEN": compose the
+# notice on `Channel_LocalTalkMessageVital` (0xAC52), from THIS file, because
+# `tests/test_gm_say_gate_lock.py::NoSecondCompositionRouteTests` makes this
+# the only module in the lane's zone allowed to reach the shared codec at all.
+#
+# WHAT IS DIFFERENT ABOUT 0xAC52, AND WHAT IS NOT -- CORRECTED after
+# pf-adversary (round `aa9ajr`, D5) refuted the first draft of this block from
+# this repository's own files.  The struck sentence read: ~~"this server
+# already puts 0xAC52 frames composed by this very codec onto real sockets on
+# the production path, so the render is measured at the client-observable
+# rung"~~.  It is not: the echo lane that GT-009 measured runs behind a
+# scenario opt-in whose own file says `"production_allowed": false`, it echoes
+# the CLIENT's own frame rather than server-composed text, and a chat-keyed
+# scenario boot and the GM branch are mutually exclusive.  NO SERVER-COMPOSED
+# 0xAC52 LINE HAS EVER BEEN SEEN ON A SCREEN ON A DEFAULT BOOT.  `GT-193` step
+# 9 is the first attempt.
+#
+# What IS true, and is what the composer below rests on:
+#   * the PAYLOAD codec for this channel is byte-pinned against real captured
+#     frames (CHAT-ECHO-001/002), which 0x9F2C's never was;
+#   * GT-009 measured a 12-printable-ASCII body RENDERING in the client's chat
+#     window, and a 5-character one staying silent -- which is why the length
+#     below is pinned rather than chosen; and
+#   * neither reason the GMGlobal gate is shut applies to this route: it does
+#     not broadcast (the frame answers the one connection whose command is
+#     being refused, so "who may speak to the whole server" is not asked), and
+#     the render question above is exactly what `GT-193` step 9 decides.
+# This constant is NOT a second gate and must never be read as one: it is a
+# channel id, and the locked gate below is untouched by this block.
+LOCAL_TALK_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS[
+    "Channel_LocalTalkMessageVital"
+]
+
+# The 12 ASCII characters, exactly, and the length is evidence, not taste.
+# COO-DECISION `0345` item 2, translated (source files stay ASCII, the bridge
+# console is cp874): "the attended evidence exists at length 12 only -- a
+# 5-character body was silent, a 26-character one nobody measured".
+# In this lane's own words: the only body length anybody has watched
+# render on this channel is 12 (`PFCHATPROBE1`/`PFCHATPROBE2`, GT-006/GT-009);
+# a 5-character body was measured SILENT and a 26-character one has never been
+# measured at all.  Every refusal path uses this one string so that a tester
+# never has to tell two on-screen sentences apart, and so that the round that
+# widens it has to move a pinned length rather than a habit.
+SPEED_DENIED_NOTICE_TEXT = "SPEED DENIED"
+NOTICE_TEXT_EXACT_LENGTH = 12
+
 # Every captured GT-006 frame on this shared serializer has carried an empty
 # speaker (channel_message_hypothesis.py docstring); this module does not
 # invent a GM display name, so a caller who wants one must pass it.
@@ -280,6 +331,90 @@ RE132_HANDLER_VA = 0x0065C850
 class SayWireError(ValueError):
     """A `say` command cannot be composed into a `Channel_GMGlobalMessageVital`
     frame as given."""
+
+
+class NoticeWireError(ValueError):
+    """A one-line notice cannot be composed into a
+    `Channel_LocalTalkMessageVital` frame as given.
+
+    A type of its own, not a `SayWireError`: a caller that wants to keep
+    running when a notice cannot be built must not accidentally swallow a
+    `say` failure with the same clause, and the two failures mean different
+    things to a reader of the event log.
+    """
+
+
+def make_local_talk_notice_frame(
+    legacy, text: str, *, speaker: str = DEFAULT_SPEAKER,
+) -> tuple[bytes, bytes]:
+    """Build a server->client `Channel_LocalTalkMessageVital` frame carrying
+    one short notice line, for the connection that is being answered.
+
+    THIS IS NOT A `say`.  It composes 0xAC52 (the channel the client itself
+    talks on, whose codec CHAT-ECHO-001/002 pinned against real captured
+    bytes and whose render GT-009 measured), never 0x9F2C, and it reads
+    nothing from `GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` because that
+    gate is about the OTHER channel.  It composes bytes and returns them;
+    the caller decides whether they go anywhere, same posture as
+    `make_say_broadcast_frame` and `gm/warp_executor.py`.
+
+    `text` must be exactly `NOTICE_TEXT_EXACT_LENGTH` ASCII characters --
+    see that constant's comment for why the length is a pinned property and
+    not a style rule.  Every failure surfaces as `NoticeWireError`, never a
+    bare `ValueError`/`RuntimeError` out of the codec.
+    """
+    if type(text) is not str:
+        # Exact type, not `isinstance`: a `str` subclass can lie through
+        # `__len__`/`__eq__`, which is the shape this module's own args check
+        # was twice defeated by (see the module docstring).
+        raise NoticeWireError(f"notice text must be a str, got {text!r}")
+    if len(text) != NOTICE_TEXT_EXACT_LENGTH:
+        # Length first, content second: the refusal a caller is most likely
+        # to hit is a longer sentence, and it must not be reported as an
+        # encoding problem.
+        raise NoticeWireError(
+            f"notice text must be exactly {NOTICE_TEXT_EXACT_LENGTH} "
+            f"characters ({len(text)} given)"
+        )
+    if not text.isascii():
+        # The pinned evidence is ASCII; the codec would happily encode any
+        # UTF-16LE, and a lane that sends Thai here would be claiming a
+        # render nobody measured (and the console that reads these logs is
+        # cp874 on the bridge machine).
+        raise NoticeWireError("notice text must be ASCII")
+    if not text.isprintable():
+        # `"\x00" * 12` passes `isascii()` and composes a frame of control
+        # characters (pf-adversary, round `aa9ajr`, D9).  The measured
+        # evidence is printable text; nothing else has been watched render.
+        raise NoticeWireError("notice text must be printable")
+    if speaker != DEFAULT_SPEAKER or type(speaker) is not str:
+        # SPEAKER IS PART OF THE PINNED EVIDENCE, NOT A FREE PARAMETER.
+        # Every captured frame on this serializer carries an empty speaker,
+        # and pf-adversary (round `aa9ajr`, D9) composed an 8 KB one and a
+        # Thai one through the first draft, which type-checked it and
+        # nothing else -- an un-pinned half of the very evidence the
+        # 12-character body length is pinned by.  A round that needs a
+        # speaker moves this line deliberately, with a measurement.
+        raise NoticeWireError(
+            f"notice speaker must be the measured empty speaker, got {speaker!r}"
+        )
+    try:
+        return make_channel_message_response(
+            legacy, LOCAL_TALK_CHANNEL_ID, speaker, text,
+        )
+    except Exception as exc:  # noqa: BLE001 - see the paragraph below
+        # BROADER THAN `make_say_broadcast_frame`'s two-type catch, on
+        # purpose.  That one converts `ValueError`/`RuntimeError` because
+        # those are what the codec's own checks raise -- but the `legacy`
+        # SEAM raises neither: pf-adversary (round `aa9ajr`, D7) passed
+        # `None` and a bare object and got `AttributeError` straight through
+        # a function whose docstring promises one error type, and a caller
+        # writing the obvious `except NoticeWireError` would then meet it as
+        # `gm_chat_action_unexpected_AttributeError` on the listener thread.
+        # The promise is the contract; this makes it true.
+        raise NoticeWireError(
+            f"notice rejected by the channel wire codec: {exc}"
+        ) from exc
 
 
 def make_say_broadcast_frame(

@@ -326,6 +326,17 @@
       "note": "R131: the Codex RE deliverable tables live in the pf_bridge SIBLING repo; the single-repo gate checkout cannot have them, the cloud clone and the bridge both do. First consumer: tools/pf_external_registry.py. R145: the last three tables reached the remote (pf_bridge 579b468) and the precondition now names all eight, so the count rose 12 -> 26 with the internal-consistency checks they made possible (field_offset grammar, evidence->inventory join, priority self-consistency)."
     },
     {
+      "key": "bridge_serializer_table",
+      "module": "tests/test_mob_pickup_request.py",
+      "count": 3,
+      "tests": [
+        "DeliveryTableCrossCheckTests::test_the_table_still_carries_four_symmetric_rows",
+        "DeliveryTableCrossCheckTests::test_every_pinned_number_is_the_tables_number",
+        "DeliveryTableCrossCheckTests::test_the_seven_byte_size_is_the_labelled_inference_it_claims_to_be"
+      ],
+      "note": "round okdfge (LANE-B): mob_pickup_request.py transcribes its pins (object ref tag 0x14 at +0x14, cell tag 0x08 at +0x18, seven-byte body) by hand out of PF_SERIALIZER_FIELDS.tsv; this class re-reads that table itself so the transcription cannot drift, and a clone without the sibling table cannot answer. Pinned here because round h6bl53 shipped the same class with a BARE skipTest in setUp and the Windows gate's skip census closed pull request #540 for it - 'UNDECLARED SKIP: tests/test_mob_pickup_request.py skipped 3 test(s)' - the same defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud, and that round szdkgs shipped again before round 0n9inw converted it. THE KEY IS THE ONE FILE, NOT THE EIGHT: a first draft of this pin guarded the class with external_re_tables, and pf-adversary measured a sibling holding seven of the eight tables (only PF_TAG_CENSUS.tsv missing) skipping this cross-check with a reason whose own tail said the table it reads was present - so bridge_serializer_table names exactly PF_SERIALIZER_FIELDS.tsv. The half of the same check that CAN run on the gate is PinnedNumbersAreHardPinnedEverywhereTests in the same module, which carries no precondition and must never appear in this file."
+    },
+    {
       "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0002.py",
       "count": 4,
@@ -870,6 +881,15 @@
         "Bg0001RegenerateAndDiffTest::test_the_scene_is_fully_accounted_for"
       ],
       "note": "round 0n9inw (LANE-B): this class re-runs tools/pf_mine_scene_mob_roster.py --scene bg0001 against the bridge clone's gamedata so the committed module cannot drift unnoticed - the control bg0002 and bg0015 already had. It shipped in round szdkgs with a BARE unittest.SkipTest in setUpClass, which pf_preconditions' own header names as the exact shape it exists to stop: undeclared, uncounted, invisible to this census. LANE-A measured it on a fresh Linux clone (status letter 20260829_1050 section 3) - tools/pf_pytest_precondition_census.py reported UNDECLARED SKIP (2 tests), RESULT: FAIL - and stated plainly they could not reproduce a red gate and did not claim one; the skip was undeclared either way. Converted to BRIDGE_GAMEDATA.skip_unless_present() and pinned in the same commit as that conversion, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
+      "key": "bridge_attr_corpus",
+      "module": "tests/test_world_avatar_attr.py",
+      "count": 1,
+      "tests": [
+        "AvatarAttrCheckTest::test_the_transcription_matches_the_corpus_file_when_it_is_here"
+      ],
+      "note": "round a2nvx9 (LANE-A): the AvatarAttr check-first module re-derives FIELDS from the corpus TSV instead of trusting its own transcription, so that ONE test can only run where the bridge sibling carries notes_to_chief/reference_codex_attr/PF_ATTR_FIELD_SEMANTICS.tsv.  Round qtxdpr shipped it with a BARE self.skipTest, the Windows gate reported UNDECLARED SKIP (1 test), RESULT: FAIL, and merge-claude-pr closed PR #545 unmerged with the work intact on its branch.  Converted to BRIDGE_ATTR_CORPUS.require(self) and pinned in the same commit as that conversion.  Its own key rather than bridge_sibling because ../pf_bridge can exist WITHOUT the mirrored corpus directory, and the broader key would let the re-derivation start and die on a missing path instead of skipping - the opposite direction from the false SKIP that bridge_serializer_table was split out to stop, not the same argument.  WHAT THE SKIP COSTS, stated because a count of skips is not a count of ungraded claims: with this test skipped, the bit->name assignment would be graded by nothing on the gate, so class FieldTableIsPinnedOnEveryMachineTests in the same module carries the 21 rows a second time WITHOUT a precondition and runs there.  pf-adversary measured the hole first: permuting n_SLOT_RHAND/n_SLOT_LHAND left a gate-shaped run byte-identical at 6174 passed, 72 skipped, exit 0."
     }
   ],
   "windows_gate_excluded_modules": {

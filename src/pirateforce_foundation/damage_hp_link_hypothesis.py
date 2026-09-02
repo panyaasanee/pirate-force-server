@@ -316,6 +316,19 @@ HP_LINK_BASIC_FIELDS = _ordered((
 ))
 HP_LINK_ACTOR_FIELDS = _ordered((
     HpLinkAttrField("cash", "actor", 0x00000800, 0xA8, 0x32, "qword"),
+    # +0x164 IS THE GUILD LABEL, NOT THE CHARACTER NAME.  Round ewm6ff,
+    # assigned to this lane by chief (pf_bridge notes_to_chief/20260902_0205_
+    # CHIEF-TO-LANE-B-0x164-stale-label-and-item-codec-assigned.md, item 1,
+    # from ka1-B).  gm/attr_wire.py:253 calls this same field
+    # ``wstr_164_guild`` -> LABEL_GUILD, and player_wire.py:80-90 records the
+    # correction as a BUG the real login path inherited from the V1-V141
+    # author (PANYA-DECISION 20260828_0125 row x1/x37); the real character-name
+    # field is BasicAttr bit 0x0001 @ +0x28.  The SYMBOL stays as it is on
+    # purpose -- it is a dict key this module's refusals, probe baseline and
+    # tests all read, and chief's ask was "do not change behaviour".  NONCLAIM
+    # from that letter: IMAGE layer only, NameBoard_Player only, and Codex's
+    # ``server_safe = YES`` means "safe to send", not "the original server sent
+    # it".
     HpLinkAttrField("character_name", "actor", 0x01000000, 0x164, TAG_WSTRING,
                     "wstring"),
 ))

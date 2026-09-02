@@ -20,8 +20,10 @@ from pirateforce_foundation.gm.command_capture import (
 
 
 def _wstring(text: str) -> bytes:
+    # 0x48 tag + uint32le byte count + payload (corrected 2026-09-02;
+    # PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 6266/6267/6279/6280).
     payload = text.encode("utf-16-le")
-    return struct.pack("<I", len(payload)) + payload
+    return bytes((0x48,)) + struct.pack("<I", len(payload)) + payload
 
 
 def _nested_body(f10: int, f14: int, f18: int, s1: str, s2: str) -> bytes:

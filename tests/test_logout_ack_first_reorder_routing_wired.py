@@ -27,6 +27,26 @@ demonstrated directly below
 merely asserted, and it is the reason this branch is provably
 unreachable from any default boot this round.
 
+[AMENDED 2026-09-02, chief round dfx8bu -- the paragraph above is kept as
+written and corrected here rather than rewritten, because a test docstring
+that quietly changes its own claim is how a stale unreachability argument
+survives review.]  ``THIS ROUND ADDS ROUTING ONLY`` and ``no allowlisted
+profile exists yet`` STOPPED BEING TRUE when lane A's round 4h2nzu landed
+``_PROFILE_ACK_FIRST_REORDER`` and
+``scenarios/logout_hypothesis_ack_first_reorder.json``; the ledger entry is
+HYP-PF-042 / LOGOUT-ACK-FIRST-REORDER-001, registered by chief round
+dfx8bu.  Read ``test_scenario_carrying_the_new_policy_is_not_yet_
+allowlisted`` below accordingly: it still passes, but only because its
+in-memory probe differs from the now-allowlisted profile in two other
+fields (``scenario_id`` and ``hypothesis_id``).  It therefore proves that
+the allowlist is exact, NOT that no profile carries this policy -- the
+claim its name still implies.  The real, still-standing unreachability
+proofs live in the sibling file
+``test_logout_ack_first_reorder_scenario_wired.py``
+(``test_unreachable_from_a_default_boot_with_no_scenario_at_all`` and
+``test_default_boot_scenario_files_never_carry_this_policy``); do not cite
+this file's probe test for that claim.
+
 To still prove the REAL dispatch path composes the reversed order
 correctly (not just a unit-level composer call), the remaining tests
 build the scenario in memory from the existing allowlisted
@@ -192,12 +212,28 @@ class LogoutAckFirstReorderRoutingWiredTests(unittest.TestCase):
     # --- the routing branch is unreachable from any real construction ---
 
     def test_scenario_carrying_the_new_policy_is_not_yet_allowlisted(self):
-        """No profile exists yet, so the real guard must refuse this value.
+        """The real guard refuses an object that is not on its allowlist.
 
-        This is the direct proof (not an assertion of intent) that the
-        new branch cannot be reached by any accepted boot path this
-        round -- exactly the state HYP-PF-040's routing branch was in
-        before its own allowlisted profile landed.
+        ~~No profile exists yet, so the real guard must refuse this value.
+        This is the direct proof (not an assertion of intent) that the new
+        branch cannot be reached by any accepted boot path this round --
+        exactly the state HYP-PF-040's routing branch was in before its own
+        allowlisted profile landed.~~
+
+        [AMENDED 2026-09-02, chief round dfx8bu -- struck, not deleted, and
+        corrected HERE rather than only in the module docstring 190 lines
+        above, because `pytest -v` and every IDE tooltip show this string
+        without that one.]  A profile DOES now carry this policy
+        (`_PROFILE_ACK_FIRST_REORDER`, ledger entry HYP-PF-042).  This test
+        still passes only because its in-memory probe differs from the
+        allowlisted profile in two OTHER fields, `scenario_id` and
+        `hypothesis_id`.  So what it proves is that the allowlist is EXACT --
+        not that no profile carries this policy, which is what its name
+        implies.  Never cite this test for default-boot unreachability; the
+        proofs for that are
+        `test_unreachable_from_a_default_boot_with_no_scenario_at_all` and
+        `test_default_boot_scenario_files_never_carry_this_policy` in the
+        sibling file.
         """
         with self.assertRaises(ValueError) as ctx:
             make_state_class(

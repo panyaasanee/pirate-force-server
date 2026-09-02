@@ -404,6 +404,60 @@ BRIDGE_GAMEDATA = Precondition(
     "table where they are present (round g627j0)",
 )
 
+#: The ONE serializer table a consumer needs, named on its own.
+#
+#: WHY IT IS NOT EXTERNAL_RE_TABLES (round okdfge, LANE-B, measured).  That key
+#: names all eight Codex tables at once, which is right for
+#: tools/pf_external_registry.py - it joins across them.  A consumer that reads
+#: exactly ONE of the eight and is guarded by the eight-table key skips on a
+#: machine that HOLDS the file it needs: pf-adversary built a sibling carrying
+#: seven of the eight (only PF_TAG_CENSUS.tsv missing) and measured the
+#: delivery-table cross-check skipping with a reason whose own tail reads
+#: "[missing 1/8: PF_TAG_CENSUS.tsv]" - it announced that the table it reads is
+#: present and skipped anyway, with the census still green.  That window is not
+#: hypothetical: this repository lived in it once already, when five of the
+#: eight tables were on the remote and the last three were not (R145).  Name
+#: the object the consumer actually reads, exactly as the history guards below
+#: already do.
+BRIDGE_SERIALIZER_TABLE = Precondition(
+    "bridge_serializer_table",
+    [SIBLING / "pf_bridge" / "external" / "PF_SERIALIZER_FIELDS.tsv"],
+    "the serializer delivery table ../pf_bridge/external/PF_SERIALIZER_FIELDS.tsv",
+    "it is one Codex RE deliverable living in the pf_bridge sibling "
+    "repository, which the single-repo gate checkout does not have; a test "
+    "that re-derives a wire pin FROM that table cannot answer without it, and "
+    "the eight-table key would also hide it on a machine that has it",
+)
+
+#: The attribute-semantics corpus.  Named on its own, like
+#: BRIDGE_SERIALIZER_TABLE above, because a consumer reads exactly this ONE
+#: file - but for a DIFFERENT failure than the one that entry measured, and
+#: the two should not be collapsed into "one file, one key" folklore:
+#
+#:   * BRIDGE_SERIALIZER_TABLE's reason is a too-broad key producing a false
+#:     SKIP on a machine that holds the file the test needs (measured there
+#:     with a sibling carrying seven of the eight tables).
+#:   * This key's reason is the other direction: a false RUN.  BRIDGE_SIBLING
+#:     is present the moment ../pf_bridge exists, and the mirrored corpus
+#:     directory under notes_to_chief/ is a separate thing that can be absent
+#:     from a bridge checkout - so guarding with BRIDGE_SIBLING would let the
+#:     re-derivation start and die on a missing path instead of skipping.
+#
+#: What the file carries: the mask_bit column of PF_ATTR_FIELD_SEMANTICS.tsv,
+#: which is what says which bit of an AvatarAttr body carries which field.
+BRIDGE_ATTR_CORPUS = Precondition(
+    "bridge_attr_corpus",
+    [SIBLING / "pf_bridge" / "notes_to_chief" / "reference_codex_attr"
+     / "PF_ATTR_FIELD_SEMANTICS.tsv"],
+    "the attribute semantics corpus "
+    "../pf_bridge/notes_to_chief/reference_codex_attr/"
+    "PF_ATTR_FIELD_SEMANTICS.tsv",
+    "it is a Codex RE deliverable mirrored into the pf_bridge sibling "
+    "repository, which the single-repo gate checkout does not have; a test "
+    "that re-derives a field table FROM the corpus rows cannot answer "
+    "without it",
+)
+
 GAME_INSTALL_TREE = Precondition(
     "game_install_tree",
     [SIBLING / "GameClient"],
@@ -507,6 +561,8 @@ REGISTRY = {
         LOGIN_REQ_CAPTURE,
         BRIDGE_SIBLING,
         BRIDGE_GAMEDATA,
+        BRIDGE_SERIALIZER_TABLE,
+        BRIDGE_ATTR_CORPUS,
         GAME_INSTALL_TREE,
         EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,
