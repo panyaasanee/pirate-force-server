@@ -1,1 +1,1 @@
-{"sha":"bcd80a9201d457b5e80d6c075819f5a93188bfde","conclusion":"failure","event":"push","ref":"refs/heads/claude/wizardly-dirac-tk59cc","run_id":"33643829164","utc":"2026-09-02T14:59:45Z"}
+{"sha":"bcd80a9201d457b5e80d6c075819f5a93188bfde","conclusion":"failure","event":"pull_request","ref":"refs/pull/602/merge","run_id":"33643889075","utc":"2026-09-02T15:05:36Z"}
