@@ -184,7 +184,11 @@ DEEP_SEA_TEMPLE_FLOOR2_ROSTER_COUNT = 51
 # ``TheSecondAdmissionArmTests`` below, which drives both arms rather than
 # reading the boolean back.
 ATLANTIS = 126
-ATLANTIS_ROSTER_COUNT = 36
+# ~~36~~ 37 since COO-DECISION 20260902_2146 shape 1 (round `gx7xtp`) put
+# the Thai-named Mob-Set 56 back on the roster.  Left as a literal rather
+# than read off the census module: this constant exists so a silent change
+# in that module's roster shows up HERE as a failure.
+ATLANTIS_ROSTER_COUNT = 37
 
 
 def _legacy():
@@ -1955,10 +1959,20 @@ class AtlantisRegistrationTests(unittest.TestCase):
         ]
         self.assertEqual(
             len(unshipped), len(world_population_bg3001.unresolved_lines()))
-        self.assertEqual(len(unshipped), 2)
+        # ~~2~~ 1 since round `gx7xtp`: COO-DECISION 20260902_2146 shape 1
+        # ships the Thai-named row, leaving the zero-leader set as this
+        # scene's only shortfall.
+        self.assertEqual(len(unshipped), 1)
+        # ASCII on EVERY line, including the actor lines that now carry a
+        # name the bridge console cannot print.  This is the assertion the
+        # decision's split of the two name layers has to survive.
         for line in result.console_lines:
             with self.subTest(line=line[:40]):
                 line.encode("ascii")
+        self.assertTrue(
+            any("name_cp874_hex=a1c3d0b7a7" in line
+                for line in result.console_lines),
+            "the Thai-named actor is missing from the headless evidence")
 
     def test_the_census_arms_membership_because_a_responder_answers(self):
         result = lane_hooks.scene_census_composer(ATLANTIS).compose(

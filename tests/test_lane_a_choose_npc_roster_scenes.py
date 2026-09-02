@@ -1077,7 +1077,7 @@ class TheCountsThisRoundClaimsTests(unittest.TestCase):
         lost its registration cannot leave the number standing.  Round
         `4uztfj` added an ELEVENTH scene (126) and did NOT change this
         number: the islands are counted on their own here, and the new
-        scene's own 36 are counted in the test below."""
+        scene's own ~~36~~ 37 are counted in the test below."""
         served = responder_mod.scenes_this_lane_answers_for()
         self.assertEqual(served, EXPECTED_SCENES)
         self.assertEqual(
@@ -1091,9 +1091,12 @@ class TheCountsThisRoundClaimsTests(unittest.TestCase):
         )
 
     def test_the_ocean_panel_holds_the_number_round_4uztfj_reports(self):
-        """36 of 38, the number this round's PR body and ``GT-217`` quote."""
+        """~~36~~ 37 of 38.  Round `gx7xtp`: ``COO-DECISION 20260902_2146``
+        shape 1 put the Thai-named Mob-Set 56 back, so ``GT-217`` and any
+        letter quoting 36 for this scene now read one actor low - the
+        ticket is corrected in the same round as this number."""
         identity = responder_mod._IDENTITY_OF_SCENE[126]
-        self.assertEqual(len(identity.shippable_placements()), 36)
+        self.assertEqual(len(identity.shippable_placements()), 37)
         self.assertEqual(identity.PLACEMENT_COUNT, 38)
 
     def test_the_whole_table_holds_the_number_the_letters_quote(self):
@@ -1101,7 +1104,7 @@ class TheCountsThisRoundClaimsTests(unittest.TestCase):
             len(identity.shippable_placements())
             for identity in responder_mod._IDENTITY_OF_SCENE.values()
         )
-        self.assertEqual(total, 692 + 36)
+        self.assertEqual(total, 692 + 37)
 
     def test_the_nine_on_loan_are_the_difference_between_the_two_rounds(self):
         """What round `gwwpmr` added on top of `326kf4`: 630 actors.

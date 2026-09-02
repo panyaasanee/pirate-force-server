@@ -55,12 +55,12 @@ class Bg3001Census(unittest.TestCase):
 
     def test_the_whole_roster_assembles(self) -> None:
         generation = self._build()
-        self.assertEqual(generation.actor_count, 36)
-        self.assertEqual(len(generation.placement_indices), 36)
-        self.assertEqual(len(generation.n_ids), 36)
+        self.assertEqual(generation.actor_count, 37)
+        self.assertEqual(len(generation.placement_indices), 37)
+        self.assertEqual(len(generation.n_ids), 37)
 
     def test_header_count_equals_the_bodies_in_the_frame(self) -> None:
-        for count in (1, 7, 21, 36):
+        for count in (1, 7, 21, 37):
             with self.subTest(count=count):
                 generation = census.build_bg3001_population(
                     self.legacy, ANCHOR, count, scene_id=census.SCENE_N_ID)
@@ -105,14 +105,27 @@ class Bg3001Census(unittest.TestCase):
                 self.assertIn(self.legacy.u16tag(0x12, 8167), entry)
                 self.assertNotIn(self.legacy.u16tag(0x12, 8171), entry)
 
-    def test_neither_dropped_placement_reaches_the_wire(self) -> None:
+    def test_the_one_dropped_placement_does_not_reach_the_wire(self) -> None:
+        """Was ``neither_dropped_placement_reaches_the_wire``.
+
+        ~~Placement 37 (MOBS 8180) is absent from the frame.~~ STRUCK,
+        round ``gx7xtp``: ``COO-DECISION 20260902_2146`` shape 1 ships that
+        row, so this test now asserts the OPPOSITE for it - its body is on
+        the wire - and keeps the zero-leader drop's absence unchanged.
+        """
         generation = self._build()
         self.assertNotIn(28, generation.placement_indices)
-        self.assertNotIn(37, generation.placement_indices)
-        # And the body of the Thai-named row (MOBS 8180) is nowhere in the
-        # frame, which is the check that the drop happened in the BYTES
-        # rather than only in the count.
-        self.assertNotIn(self.legacy.u16tag(0x12, 8180), generation.pc)
+        self.assertIn(37, generation.placement_indices)
+        # The Thai-named row's REAL MOBS id is in the bytes: a decision to
+        # ship is only kept if the body is in the frame, not in the count.
+        self.assertIn(self.legacy.u16tag(0x12, 8180), generation.pc)
+        # And its name reached the wire as the client reads it - UTF-16LE
+        # via ``wstr_tag``, which is what the frozen serializer does with
+        # every display name.  The premise that the column carries cp874
+        # bytes is corrected in the identity module's THE TWO NAME LAYERS.
+        thai = identity.IDENTITIES[56].name
+        self.assertIn(thai.encode("utf-16le"), generation.pc)
+        self.assertNotIn(thai.encode("cp874"), generation.pc)
 
     def test_the_census_is_ordered_by_distance_and_not_by_file_order(
         self,
@@ -198,7 +211,10 @@ class Bg3001Census(unittest.TestCase):
                 with self.assertRaises(census.Bg3001CensusError):
                     census.build_bg3001_population(
                         self.legacy, anchor, scene_id=census.SCENE_N_ID)
-        for count in (0, -1, 37, True, 3.0):
+        # 38 is one past the roster (37 since ``COO-DECISION 20260902_2146``
+        # shape 1 landed the Thai-named row) - a caller may not ask for more
+        # actors than this scene has bodies for.
+        for count in (0, -1, 38, True, 3.0):
             with self.subTest(count=count):
                 with self.assertRaises(census.Bg3001CensusError):
                     census.build_bg3001_population(
@@ -208,11 +224,11 @@ class Bg3001Census(unittest.TestCase):
     def test_the_console_line_states_the_true_shortfall(self) -> None:
         line = census.census_console_line(self._build())
         self.assertTrue(line.isascii())
-        self.assertIn("assembled=36/38", line)
-        self.assertIn("shippable=36", line)
-        self.assertIn("wire=36", line)
-        self.assertIn("unresolved=2", line)
-        self.assertIn("shortfall=identity_unresolved=2", line)
+        self.assertIn("assembled=37/38", line)
+        self.assertIn("shippable=37", line)
+        self.assertIn("wire=37", line)
+        self.assertIn("unresolved=1", line)
+        self.assertIn("shortfall=identity_unresolved=1", line)
 
     def test_a_caller_truncated_census_says_so_instead_of_blaming_identity(
         self,
@@ -225,13 +241,28 @@ class Bg3001Census(unittest.TestCase):
     def test_the_headless_lines_name_every_actor_and_every_drop(self) -> None:
         generation = self._build()
         actor_lines = census.actor_lines(generation)
-        self.assertEqual(len(actor_lines), 36)
-        self.assertEqual(len(census.unresolved_lines()), 2)
+        self.assertEqual(len(actor_lines), 37)
+        self.assertEqual(len(census.unresolved_lines()), 1)
         joined = "\n".join(actor_lines)
         for name in ("Intrepid", "Santa Maria", "Jellyfish King",
                      "Blood Blade Island", "Tornado", "Repair ship"):
             with self.subTest(name=name):
                 self.assertIn(name, joined)
+        # The Thai-named row is NAMED here too, in the only form a cp874
+        # console can print - and paired with its placement, which is what
+        # ``COO-DECISION 20260902_2146`` shape 1 requires so a tester can
+        # still say which of the 38 rows a hex token means.
+        self.assertIn("name_cp874_hex=a1c3d0b7a7", joined)
+        self.assertIn("placement=37 n_ID=8180 name_cp874_hex=a1c3d0b7a7",
+                      joined)
+        for line in actor_lines:
+            with self.subTest(line=line[:32]):
+                self.assertTrue(line.startswith("placement="))
+        # Every placement the census shipped is identifiable by index, so
+        # no row is reachable only by a name a grader cannot type.
+        indices = sorted(
+            int(line.split()[0].split("=")[1]) for line in actor_lines)
+        self.assertEqual(indices, sorted(generation.placement_indices))
 
     def test_every_console_line_is_cp874_encodable(self) -> None:
         lines = census.census_console_lines(self.legacy, ANCHOR)
