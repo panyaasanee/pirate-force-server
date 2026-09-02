@@ -291,8 +291,16 @@ MOB_PICKUP_REQUEST_REFUSED_TOKEN = "MOB_PICKUP_REQUEST_REFUSED"
 #: ROUND lh21ua.  The outcomes of the removal publisher, one ASCII line each,
 #: so an operator watching a cp874 console can tell them apart without a
 #: debugger.  HELD: nothing remained, so the only available generation is the
-#: empty one, which RE-082 read as a client no-op -- the last object keeps
-#: today's behaviour and RE-208 owns the question.  REFUSED: the publication
+#: empty one, which RE-082 read as a client no-op -- ~~"the last object keeps
+#: today's behaviour and RE-208 owns the question"~~ IS NARROWED, round
+#: ewq4js: RE-208 still owns the question of a message that removes ONE
+#: object, but the last object is no longer left to whatever happens to come
+#: along.  The bag delta one frame earlier now carries v141's clearing derived
+#: mask on exactly this case -- the transaction lane decides it, inside the
+#: same lock as the take, and this file neither passes that decision nor
+#: reimplements it -- and a floor with no rows left is what that mask
+#: truthfully describes.  What is still unanswered is a scene where a row
+#: remains and the publication refuses.  REFUSED: the publication
 #: could not be composed; the pickup still stands, because the item is in the
 #: bag and in the database before this runs, and a floor that redraws late is
 #: not worth undoing that.
@@ -313,6 +321,27 @@ MOB_PICKUP_GROUND_REMOVAL_COMPOSED_TOKEN = (
     "MOB_PICKUP_GROUND_REMOVAL_COMPOSED_NOT_SENT_NO_CALL_SITE")
 MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT"
 MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
+
+#: ROUND ewq4js, step 3 of COO-DECISION 2026-09-02T10:44+07:00.  Which of the
+#: two composed bag deltas this reply carries -- a different question from the
+#: tokens above, decided by :func:`_the_delta_that_matches_the_floor` AFTER
+#: them.  KEPT: the delta carries the ground list present-and-empty, so the
+#: floor survives the frame and the removal generation in the same reply is
+#: what takes the taken row off it.  CLEARED: the delta carries v141's empty
+#: derived mask, which wipes the client's ground pool -- and that is the RIGHT
+#: answer, not a failure, whenever nothing in this reply would reconcile the
+#: floor afterwards: no rows left (where wiping is the truth, and the only
+#: DELIBERATE removal of the last object's label this project has -- other
+#: frames clear the pool too, see D3 below), a publication that refused, or a
+#: boot where ``runtime.py`` does not send the generation yet.
+#:
+#: A KEPT line is therefore a promise about a frame that IS sent -- the bag
+#: delta is returned by the chief's branch (``MOB_PICKUP_REQUEST_DELTA``,
+#: landed in #549) -- AND about a removal that is sent with it.  Until
+#: :data:`GROUND_AFTER_CALL_SITE_STATUS` reads "sent", every line here says
+#: CLEARED, which is exactly what a boot with no removal call site does.
+MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN = "MOB_PICKUP_DELTA_GROUND_KEPT"
+MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN = "MOB_PICKUP_DELTA_GROUND_CLEARED"
 
 #: Does the chief's file SEND what this lane composes?  ``"sent"`` only when
 #: ``runtime.py`` names ``ground_after``; ``"composed_not_sent"`` otherwise.
@@ -613,7 +642,11 @@ class PickupRequestOutcome:
     ``reason`` is ``ACCEPTED`` in that case and a named refusal otherwise --
     from this lane's own registry, or, unchanged and unwrapped, from the
     transaction lanes underneath.  ``delta`` is the (pc, frame) pair to send
-    the claimant, and is None unless ``handled``.
+    the claimant, and is None unless ``handled``.  ROUND ewq4js: the
+    transaction composes TWO of them and this field carries the one that
+    matches what else is in this reply -- see
+    :func:`_the_delta_that_matches_the_floor`.  A caller sends this and reads
+    nothing else; the choice is not the caller's.
 
     ``ground_after`` (round lh21ua) is the REMOVAL PUBLICATION: the (pc,
     frame) pairs that tell the client the taken object is gone, by publishing
@@ -692,9 +725,59 @@ def dispatch_inbound_pickup_request(
         return _refused_after_read(read, str(exc.args[0]), echo)
     rows_left, ground_after = _ground_after_the_take(
         legacy, drop_ledger_cell, result, echo)
+    delta = _the_delta_that_matches_the_floor(
+        result.outcome, ground_after, read.fields.object_ref_u32, echo)
     return PickupRequestOutcome(
-        True, ACCEPTED, read, result, result.outcome.delta,
-        ground_after, rows_left)
+        True, ACCEPTED, read, result, delta, ground_after, rows_left)
+
+
+def _the_delta_that_matches_the_floor(
+        outcome: Any, ground_after: Any, taken_key: int, echo: bool) -> Any:
+    """Which of the two composed deltas this reply actually carries.
+
+    ROUND ewq4js, and the shape is pf-adversary's correction of its first
+    draft.  KEEPING THE FLOOR IS RIGHT ONLY WHEN SOMETHING IN THE SAME REPLY
+    TAKES THE TAKEN ROW OFF IT.  Two conditions, both about what is really
+    going out, and neither of them knowable inside the transaction:
+
+      1. A removal generation was actually COMPOSED (``ground_after`` is not
+         empty).  It is empty when the scene had no row left -- where the
+         clearing delta is the truth and is the only thing that removes the
+         last object's label ~~"in this project"~~ ON PURPOSE, IN THE SAME
+         REPLY (pf-adversary D3 of this round: `mob_combat`'s own measured
+         cadence table has three frames per non-lethal hit -- bar, dying,
+         dead -- carrying derived mask 0x02, and every one of them clears the
+         whole pool, last object included.  So the honest claim is about
+         intent and timing, never about being alone) -- and when the
+         publication REFUSED, where nothing else in this reply removes it
+         either.
+      2. ``runtime.py`` SENDS what this lane composes
+         (:data:`GROUND_AFTER_CALL_SITE_STATUS`).  Until the chief's line
+         lands, a kept floor would be a floor nobody ever reconciles: the
+         player would keep seeing a label for an object already in their bag.
+         The sibling round learned the same lesson one console token earlier.
+
+    The first draft decided this inside the transaction from a row count
+    taken before the take, and pf-adversary measured two ways to a permanent
+    ghost with it: a row expiring between the count's sweep and the take's
+    sweep (two separate acquisitions of the GROUND cell's lock -- the bag
+    cell's lock does not span them), and a publication that refuses after a
+    floor was kept for it.  Both end here instead: no publication, no kept
+    floor, whatever the count said.
+    """
+    keep = bool(ground_after) and GROUND_AFTER_CALL_SITE_STATUS == "sent"
+    delta = outcome.delta_floor_kept if keep else outcome.delta
+    _say(echo, "%s key=0x%X" % (
+        # READ OFF THE BYTES that are about to leave, never off ``keep``:
+        # the composer falls back to v141's own frame when the preserve
+        # composer refuses, and a line that reported the intention would tell
+        # an operator the floor was kept on the exact frame that cleared it.
+        MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN
+        if delta is not None
+        and delta[0].endswith(mob_pickup.DELTA_PC_PRESERVE_SUFFIX_PIN)
+        else MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN,
+        taken_key))
+    return delta
 
 
 def _ground_after_the_take(

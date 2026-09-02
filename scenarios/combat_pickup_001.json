@@ -88,6 +88,8 @@
   },
   "transaction_observed": {
     "a_second_bag_cell_for_one_character_loses": true,
+    "bag_delta_default_clears_the_ground": true,
+    "bag_delta_second_envelope_keeps_the_ground": true,
     "everything_that_refuses_refuses_before_the_take": true,
     "killer_only": true,
     "pickup_radius_reaches_the_furthest_object_of_one_kill": true,
@@ -105,6 +107,9 @@
   },
   "wire": {
     "ever_observed_for_a_new_item": false,
+    "ground_kept_pc_sha256": "2D07358CEE9CC5A9F5B1C8EF60DE32833C9755DB3F8B73A55F307AE28180FF7F",
+    "ground_kept_pc_size": 74,
+    "ground_kept_shared_prefix_size": 70,
     "pc_sha256": "E6FD385907BAADF4AB27EB5081CDF191A56230F84760DFA8B33931692D45C7FA",
     "pc_size": 71,
     "shape": "ITEM_OPERATE_RES, one complete ItemAttr, bag count 1"

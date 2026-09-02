@@ -260,6 +260,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import field_drop_tables
+from . import mob_combat
 from . import mob_loot
 from .inventory import (
     BACKPACK_BASE_IDENTITY,
@@ -1204,6 +1205,22 @@ class PickupOutcome:
     delta: Any = None
     # The request's second field, carried through so a report can show it.
     opaque_u8: int = 0
+    # ROUND ewq4js, step 3 of COO-DECISION 2026-09-02T10:44+07:00.  THE SAME
+    # DELTA WITH THE FLOOR KEPT: identical to ``delta`` in every byte except
+    # the last record, where the ground list is present-and-empty instead of
+    # absent, so a client that reads it leaves its ground pool alone.
+    #
+    # TWO ENVELOPES AND NOT A FLAG, because the choice is not this lane's to
+    # make: keeping the floor is right only when something in the SAME reply
+    # takes the taken row off it, and whether that happened is known one layer
+    # up, after the removal publication has been composed (or has refused).
+    # ``delta`` stays the default so a caller that sends it without reading
+    # this field keeps yesterday's behaviour exactly.
+    #
+    # Equal to ``delta`` byte for byte when the preserve composer refused --
+    # that is the measured fall back, and a caller that compares the two can
+    # tell it happened without being told.
+    delta_floor_kept: Any = None
 
     @property
     def display_name(self) -> str:
@@ -1537,7 +1554,14 @@ class BagCell:
             # do -- every scene has its own origin.  So a stale key from
             # another map would have been a legal pickup of an object standing
             # in a place the player is not.
-            drop = resolve_claim(self._scene_ledger(ledger_cell, claim), claim)
+            # ~~drop = resolve_claim(self._scene_ledger(...), claim)~~ IS
+            # MOVED, not deleted, round ewq4js: the same call, the same
+            # arguments and the same place in the order, with the scene's own
+            # view KEPT in a name because the delta below needs to count its
+            # rows.  ONE acquisition still (``_scene_ledger`` does the one
+            # ``publication()``), and nothing between it and the take.
+            scene_view = self._scene_ledger(ledger_cell, claim)
+            drop = resolve_claim(scene_view, claim)
             bag_after, item = place_in_bag(bag, drop, self._issued_through)
             row_write = BagRowWrite(
                 claim.claimant_identity, self._character_id, item.identity,
@@ -1553,7 +1577,34 @@ class BagCell:
             # ground, nothing get persisted and the client never get told.
             # Composing inside the transaction means a byte problem refuses
             # the pickup instead of eating it.
+            # STEP 3 OF COO-DECISION 2026-09-02T10:44+07:00 (round ewq4js).
+            # The bag delta is a RuntimeRes, so v141's own composer puts an
+            # EMPTY derived mask on it -- "there is no ground pool" -- and the
+            # client clears the floor when it arrives.  BOTH ENVELOPES ARE
+            # COMPOSED HERE AND NEITHER IS CHOSEN HERE, and the split is the
+            # whole correction pf-adversary forced on this round:
+            #
+            #   * COMPOSED here, inside the transaction, for the reason the
+            #     paragraph above gives -- a byte problem must refuse the
+            #     pickup, not be discovered after the row left the ground.
+            #     Both envelopes are pinned, so both refuse before the take.
+            #   * CHOSEN by the caller, AFTER the removal publication is in
+            #     hand.  ~~"which of the two is true depends on how many rows
+            #     this scene has left after the take, and it is known here and
+            #     nowhere else"~~ IS STRUCK AS FALSE, and it was measured
+            #     false rather than argued: this cell's lock is not the ground
+            #     cell's, the count comes from one ``publication()`` and the
+            #     take from a second acquisition, and each of them sweeps
+            #     expiries independently -- so a row can leave between them
+            #     with no second thread involved at all.  A pickup that
+            #     counted "one row left", kept the floor, and then found
+            #     nothing to publish would leave the label of an object that
+            #     is ALREADY IN THE BAG standing with no upper bound.  Keeping
+            #     the floor is only ever right when something in the same
+            #     reply takes the taken row off it.
             delta = None if legacy is None else bag_delta_pc(legacy, item)
+            delta_floor_kept = None if legacy is None else bag_delta_pc(
+                legacy, item, preserve_ground=True)
             try:
                 taken = ledger_cell.take(drop.drop_key)
             except mob_loot.MobLootContractError as exc:
@@ -1573,7 +1624,7 @@ class BagCell:
                 self._issued_through = item.identity
             return PickupOutcome(
                 taken, item, bag, bag_after, row_write, delta,
-                claim.opaque_u8)
+                claim.opaque_u8, delta_floor_kept)
 
 
 def say(line: Any) -> bool:
@@ -1773,6 +1824,29 @@ DELTA_PC_SUFFIX_PIN = bytes((
     0x08, 0x00,
     0x0B, 0x00,
 ))
+# THE SAME SUFFIX WITH THE GROUND LIST KEPT, round ewq4js: the last record is
+# the derived change mask, and this lane's third opt-in site (COO-DECISION
+# 2026-09-02T10:44+07:00, step 3) sends the PRESENT-and-empty form of it --
+#
+#   0B 08        u8  tag 0x0B  derived mask, ground-list bit
+#   12 00 00     u16 tag 0x12  ground list count 0
+#
+# -- instead of ``0B 00``.  "There is a pool and nothing new to reconcile"
+# rather than "there is no pool".  Every byte BEFORE it is unchanged, and the
+# test that proves that compares the two composed pcs directly rather than
+# trusting this literal.  Composed by ``mob_loot`` (which owns the ground and
+# owns that tail's own pin); written out again here because the whole purpose
+# of a pin is to notice the day a module this lane does not own moves -- and
+# the first draft of this literal wrote the count tag as 0x0F, the tag the
+# ItemAttr fields beside it use, which the equality test below caught.
+DELTA_PC_PRESERVE_SUFFIX_PIN = bytes((
+    0x0F, 0x00, 0x00,
+    0x08, 0x00,
+    0x0B, 0x08,
+    0x12, 0x00, 0x00,
+))
+#: The site name that goes on the one console line a refused preserve prints.
+BAG_DELTA_PRESERVE_SITE = "mob_pickup.bag_delta_pc"
 # THE FRAME, RE-DERIVED, because the frame is the half that leaves the process
 # and the first two drafts of this pin did not check it.
 #
@@ -1862,13 +1936,27 @@ def _item_attr_via_struct(item: ItemAttrState) -> bytes:
     return bytes(out)
 
 
-def bag_delta_pc(legacy: Any, item: Any) -> Any:
+def bag_delta_pc(legacy: Any, item: Any, *,
+                 preserve_ground: bool = False) -> Any:
     """One ItemOperate result carrying exactly one complete ItemAttr.
 
     SEE NONCLAIM 3 BEFORE BELIEVING THIS DOES ANYTHING ON A SCREEN.  The shape
     is the item lane's, pinned by that lane against frozen V141 for a MOVE of
     an item the client already had.  Announcing a NEW item with it is this
     lane's decision and is unmeasured.
+
+    ``preserve_ground`` is THE THIRD OPT-IN SITE of COO-DECISION
+    2026-09-02T10:44+07:00 (step 3), and it defaults to False so that every
+    caller that has not thought about the floor keeps yesterday's bytes.  Only
+    ``BagCell.commit_pickup`` passes it, and it passes the one fact that
+    decides the question: whether this scene has any row left after the take.
+    See that method for why "no rows left" is the case that must NOT preserve.
+
+    True does not promise the preserve tail: the composer is DRIVEN through
+    ``mob_combat.runtime_vitals_preserving_the_ground``, which falls back to
+    v141's own bytes and prints one ASCII line if anything under it refuses.
+    What comes back is always one of exactly two pinned envelopes, and the
+    caller reads which one off the bytes.
     """
     if type(item) is not ItemAttrState:
         raise MobPickupContractError(
@@ -1907,9 +1995,15 @@ def bag_delta_pc(legacy: Any, item: Any) -> Any:
         + item_bag
         + legacy.u8tag(0x08, 0)
     )
-    pc, frame = legacy.make_runtime_vitals([(
-        legacy.ITEM_OPERATE_RES_VITAL, 2, payload,
-    )])
+    vitals = [(legacy.ITEM_OPERATE_RES_VITAL, 2, payload)]
+    if preserve_ground:
+        # ONE call, and the fall back, the console fold and the ordering
+        # lessons (compose the fall back FIRST, print SECOND) all live in the
+        # sibling site rather than in a third copy of them here.
+        pc, frame = mob_combat.runtime_vitals_preserving_the_ground(
+            legacy, vitals, site=BAG_DELTA_PRESERVE_SITE)
+    else:
+        pc, frame = legacy.make_runtime_vitals(vitals)
     # THE ENVELOPE IS PINNED AT RUN TIME, NOT ONLY IN A TEST, and this is the
     # lesson mob_loot wrote down after its own adversarial pass: "a shim with a
     # moved constant would have shipped bytes no client has accepted, and the
@@ -1920,14 +2014,24 @@ def bag_delta_pc(legacy: Any, item: Any) -> Any:
     # word.  A shim that moved ITEM_OPERATE_RES_VITAL, or appended one byte
     # inside make_runtime_vitals, emitted happily.  Now the whole pc is
     # rebuilt here from literals and compared.
-    if pc != DELTA_PC_PREFIX_PIN + item_wire + DELTA_PC_SUFFIX_PIN:
+    # TWO PINNED ENVELOPES, NEVER A THIRD.  The suffix that may come back
+    # depends on which composer answered, so the check is an exhaustive match
+    # rather than one equality -- and asking for the ground list is never a
+    # licence to accept an envelope this lane cannot name.
+    head = DELTA_PC_PREFIX_PIN + item_wire
+    if pc == head + DELTA_PC_SUFFIX_PIN:
+        pass
+    elif preserve_ground and pc == head + DELTA_PC_PRESERVE_SUFFIX_PIN:
+        pass
+    else:
         raise MobPickupContractError(
             REFUSE_COMPOSED_BYTES_OFF_PIN,
             "the composed ItemOperate pc is not this lane's pinned envelope "
-            "around this lane's ItemAttr (%d bytes composed, %d expected); "
-            "the legacy module this lane does not own has moved underneath it"
-            % (len(pc), len(DELTA_PC_PREFIX_PIN) + len(item_wire)
-               + len(DELTA_PC_SUFFIX_PIN)))
+            "around this lane's ItemAttr (%d bytes composed, %d or %d "
+            "expected); the legacy module this lane does not own has moved "
+            "underneath it"
+            % (len(pc), len(head) + len(DELTA_PC_SUFFIX_PIN),
+               len(head) + len(DELTA_PC_PRESERVE_SUFFIX_PIN)))
     expected_frame = _frame_via_struct(pc)
     if frame != expected_frame:
         raise MobPickupContractError(
@@ -2042,6 +2146,34 @@ def _observed_behaviour(legacy: Any = None) -> dict:
     registry.claim(1, empty)
     second_claim = refusal_of(registry.claim, 1, empty)
 
+    # ROUND ewq4js.  BOTH ENVELOPES, OBSERVED by running a real pickup rather
+    # than declared: the default one this lane hands its caller, and the one
+    # with the floor kept.  A preserve that silently fell back to v141's bytes
+    # makes the two EQUAL, and the pin file says so instead of claiming a
+    # kept floor that is not in the bytes.
+    def the_two_deltas_of_a_real_pickup():
+        """``(cleared_pc, kept_pc)`` for one executed pickup, or ``None``.
+
+        ``None`` when the pickup did not happen at all, and that branch is
+        not defensive padding: this function is what the pin document is
+        computed from, and a control test drives it with ``commit_pickup``
+        DELIBERATELY BROKEN to prove the ordering flag above can read False.
+        A raise here would take that control down with it -- and a document
+        that cannot be computed says nothing, where ``null`` says "not
+        observed on this run", which is the truth in exactly that case.
+        """
+        cell = mob_loot.DropLedgerCell(
+            mob_loot.DropLedger(
+                (first, second), 1, second.drop_key + 1, ()),
+            scene=field_drop_tables.SCENE)
+        try:
+            done = BagCell(empty, 1).commit_pickup(cell, here, legacy)
+        except MobPickupContractError:
+            return None
+        return done.delta[0], done.delta_floor_kept[0]
+
+    two_deltas = None if legacy is None else the_two_deltas_of_a_real_pickup()
+
     return {
         "resolves_object_ref_against_the_ledger": (
             refusal_of(
@@ -2064,7 +2196,25 @@ def _observed_behaviour(legacy: Any = None) -> dict:
         "refusals_walked_for_that_flag": refusals_walked,
         "a_second_bag_cell_for_one_character_loses": (
             second_claim == REFUSE_BAG_ALREADY_CLAIMED),
+        # Read off the pcs of ONE executed pickup: the default delta clears
+        # the client's ground pool, the second one leaves it alone, and they
+        # are two different byte strings rather than one flag.
+        "bag_delta_default_clears_the_ground": (
+            None if two_deltas is None
+            else two_deltas[0].endswith(DELTA_PC_SUFFIX_PIN)),
+        "bag_delta_second_envelope_keeps_the_ground": (
+            None if two_deltas is None
+            else two_deltas[1].endswith(DELTA_PC_PRESERVE_SUFFIX_PIN)),
     }
+
+
+def _shared_prefix(left: bytes, right: bytes) -> bytes:
+    """The bytes two compositions agree on, MEASURED rather than reasoned."""
+    limit = min(len(left), len(right))
+    index = 0
+    while index < limit and left[index] == right[index]:
+        index += 1
+    return bytes(left[:index])
 
 
 def pin_document(legacy: Any) -> dict:
@@ -2087,6 +2237,7 @@ def pin_document(legacy: Any) -> dict:
     # make_runtime_vitals returns (pc, frame); the pc is what is pinned here
     # because the framing is the same framing every other vitals pc gets.
     body = bag_delta_pc(legacy, item)[0]
+    kept = bag_delta_pc(legacy, item, preserve_ground=True)[0]
     return {
         "schema": 1,
         "id": PIN_ID,
@@ -2134,6 +2285,22 @@ def pin_document(legacy: Any) -> dict:
             "pc_size": len(body),
             "pc_sha256": hashlib.sha256(bytes(body)).hexdigest().upper(),
             "ever_observed_for_a_new_item": False,
+            # ROUND ewq4js.  The same delta with the ground list KEPT, which
+            # is what a pickup out of a scene that still holds another row
+            # sends.  Both pcs are in the document because both go out in
+            # production, and the identical prefix is stated as a length so a
+            # reader can see the difference is one record at the end.
+            "ground_kept_pc_size": len(kept),
+            "ground_kept_pc_sha256": hashlib.sha256(
+                bytes(kept)).hexdigest().upper(),
+            "ground_kept_shared_prefix_size": len(_shared_prefix(body, kept)),
+            # ~~"ground_kept_when_rows_remain_cleared_on_the_last_row": True~~
+            # IS STRUCK BEFORE IT SHIPPED TWICE OVER (pf-adversary D4 of this
+            # round): a TYPED literal sitting among four re-derived pins, in a
+            # document whose stated virtue is "computed rather than typed" --
+            # and, after the same review's D1, it was describing a rule that no
+            # longer exists.  What replaces it is in transaction_observed,
+            # where both halves are read off the pcs of an executed pickup.
         },
         "blocked": {
             "relog_persistence": GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE,

@@ -1316,11 +1316,21 @@ def _console_safe_one_line(text: Any) -> str:
 
 
 def runtime_vitals_preserving_the_ground(
-    legacy: Any, vitals: Any,
+    legacy: Any, vitals: Any, *, site: str = GROUND_VITALS_PRESERVE_SITE,
 ) -> tuple[bytes, bytes]:
     """``(pc, frame)`` for these vitals with the ground list preserved.
 
     Same arguments and same return shape as ``legacy.make_runtime_vitals``.
+
+    ``site`` names the caller on the console line and defaults to this
+    module's own site, so the two sentences an operator greps for are
+    unchanged here.  It exists because round ewq4js opted a SECOND site in
+    (``mob_pickup.bag_delta_pc``, step 3 of COO-DECISION
+    2026-09-02T10:44+07:00) and a third copy of the fall back below -- there
+    is already one in ``action_ack`` -- would be a third place for the two
+    adversarial lessons in this docstring to be forgotten.  The site is folded
+    to one ASCII line like every other part of the message: it is a caller's
+    string, and this branch may never raise.
     On ANY refusal from the preserve composer this returns exactly what that
     composer's argument would have returned -- v141's own bytes -- after
     printing one console line that names the exception type, the site and a
@@ -1358,7 +1368,7 @@ def runtime_vitals_preserving_the_ground(
         try:
             print("%s %s %s %s" % (
                 GROUND_VITALS_PRESERVE_REFUSED_TOKEN, name,
-                GROUND_VITALS_PRESERVE_SITE, detail))
+                _console_safe_one_line(site), detail))
         except Exception:                        # noqa: BLE001
             # A console that cannot be written to at all (closed stdout under
             # pythonw, a detached bridge console, a full disk under
