@@ -133,7 +133,12 @@ def _row(scene_id: int, source: str, module: Any, count: Any, arrival: bool,
 
 
 def preflight_for(scene_id: int, *, legacy: Any) -> ScenePreflight:
-    """One scene's expectation.  Never raises for a scene-shaped input.
+    """One scene's expectation.  Never raises for an INTEGER scene id.
+
+    Non-integers are the warp gate's business, not this module's: it rejects
+    them by name (``WarpExecutorError``), which is the right answer and is
+    allowed to propagate.  Every integer -- negative, enormous, a bool --
+    comes back as a named row.
 
     FAILS CLOSED AND NAMED.  Anything this module cannot derive comes back as
     ``SOURCE_NOTHING`` with the exception type in ``note`` and
@@ -255,7 +260,17 @@ def render(rows: Any) -> tuple[str, ...]:
 
     ASCII on purpose: the bridge console is cp874 (`GT-145`), and a tool whose
     output the owner cannot paste back is a tool that did not run.
+
+    ``rows`` IS MATERIALISED FIRST, and that is a bug fix, not a style.  An
+    earlier version counted the chain with ``len(tuple(rows))`` AFTER the
+    loop above had already walked it; handed a generator -- which
+    ``preflight_chain`` is one comprehension away from returning -- it
+    printed thirteen correct scene lines and then a summary saying
+    ``chain=0``.  Measured, not imagined.  A summary that disagrees with the
+    lines above it is worse than no summary: it is the one line a reader
+    quotes.
     """
+    rows = tuple(rows)
     lines = []
     empty_by_design = []
     empty_unexplained = []
@@ -281,7 +296,7 @@ def render(rows: Any) -> tuple[str, ...]:
         "%s chain=%d empty_by_design=%s empty_unexplained=%s"
         % (
             CONSOLE_TOKEN,
-            len(tuple(rows)),
+            len(rows),
             _joined(empty_by_design),
             _joined(empty_unexplained),
         )

@@ -294,6 +294,27 @@ class TheOutputAnOwnerCanPasteBackTests(unittest.TestCase):
         joined = " ".join(lines)
         self.assertIn("never what the client draws", joined)
 
+    def test_the_summary_counts_the_chain_when_rows_arrive_as_a_generator(self):
+        """The bug this assertion exists for was real and measured.
+
+        ``len(tuple(rows))`` after the render loop counts an ALREADY WALKED
+        generator, so the tool printed thirteen correct scene lines and then
+        ``chain=0``.  The summary is the line a reader quotes.
+        """
+        rows = preflight.preflight_chain(legacy=_legacy())
+        lines = preflight.render(row for row in rows)
+        self.assertEqual(len(lines), len(rows) + 2)
+        summary = [line for line in lines if " chain=" in line]
+        self.assertEqual(summary[0].split("chain=")[1].split()[0], str(len(rows)))
+        self.assertEqual(lines, preflight.render(rows))
+
+    def test_an_integer_scene_id_never_raises_however_odd(self):
+        for scene_id in (True, False, -1, 10 ** 9, 0):
+            with self.subTest(scene=scene_id):
+                row = preflight.preflight_for(scene_id, legacy=_legacy())
+                self.assertEqual(row.source, preflight.SOURCE_NOTHING)
+                self.assertIsNone(row.actor_count)
+
     def test_one_line_per_scene_plus_summary_plus_note(self):
         rows = preflight.preflight_chain(legacy=_legacy())
         self.assertEqual(len(preflight.render(rows)), len(rows) + 2)
