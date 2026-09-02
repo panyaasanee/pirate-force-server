@@ -14,7 +14,7 @@ LANE-A`` - and ``COO-DECISION 20260902_1946`` approved the call-site half
 WITH TWO CONDITIONS: close the read-then-compose race window, and never
 sweep ground rows silently on a read.
 
-    🔴 THOSE TWO CONDITIONS ARE NOT MET BY ANYTHING ON ``main`` TODAY, AND
+    !! THOSE TWO CONDITIONS ARE NOT MET BY ANYTHING ON ``main`` TODAY, AND
     THIS FILE DOES NOT PRETEND OTHERWISE.  ~~"Both are the composer's own
     behaviour and this file does not reimplement either"~~ - STRUCK,
     pf-adversary, round ``gx7xtp``, MEASURED: LANE-B closed those two
@@ -25,7 +25,8 @@ sweep ground rows silently on a read.
     on ``main``: chief measured the same absence from the other side and
     declined to wire it for exactly this reason (``20260902_2208_CHIEF-TO-
     LANE-B``).  The composer this file can reach today reads the count
-    FIRST and composes SECOND, which IS the window condition (ก) names.
+    FIRST and composes SECOND, which IS the window the first of those
+    two conditions names.
 
 SO THE CELL IS HELD BACK, AND THAT IS THE WHOLE SAFETY ARGUMENT.  Wiring
 the four call sites is item 2 of LANE-B's letter and it lands here in full:
