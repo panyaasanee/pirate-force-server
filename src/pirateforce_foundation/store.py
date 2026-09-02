@@ -1276,6 +1276,150 @@ class SQLiteStore:
                     )
         return outcome
 
+    def _apply_hp_transition(self, character_id: int, plan):
+        """The shared transactional body of the two HEALING doors below.
+
+        `plan(vitals_module, current)` returns an outcome carrying
+        `hp_before`, `hp_after` and the rest; this method does the reading,
+        the locking, the guarded write and the honest report, once.
+
+        `apply_hp_damage` above is DELIBERATELY NOT refactored onto this
+        helper.  It is an existing method with an existing contract and
+        LANE-DB's charter forbids this lane from changing the behaviour of
+        one; a shared body would put every future edit to the heal path
+        inside the damage path too.  The duplication is the cheaper of the
+        two mistakes and it is written down rather than left to be
+        discovered.
+
+        THE SHAPE IS `apply_hp_damage`'s, AND WHICH PARTS OF IT ARE MEASURED
+        HERE IS SPELT OUT RATHER THAN INHERITED.  An earlier draft of this
+        docstring said the four items below hold "for the same measured
+        reasons" as the damage path; a `pf-adversary` pass showed that
+        borrowed a measurement made on a different method and promoted two
+        items the cited docstring explicitly labels NOT evidence.  What is
+        true of THIS body, each checked by deleting it and watching this
+        lane's own file go red or stay green:
+
+        * ONE transaction on ONE connection (`BEGIN IMMEDIATE`) so a
+          concurrent heal cannot be lost and then reported as a missing
+          character -- MEASURED (`BeginImmediateHoldsTheHealLockTests`;
+          `BEGIN` and `BEGIN DEFERRED` also fail it).
+        * `persistence_vitals.verify_schema` before the read, so a drifted
+          schema is named instead of producing a confusing miss -- MEASURED
+          (`SchemaDriftReachesTheHealDoorsTests`).
+        * The read value repeated as `hp_current=?` in the UPDATE's
+          predicate, so a write that does not land says the healing was not
+          applied instead of blaming a missing row -- MEASURED
+          (`test_a_lost_heal_is_reported_as_a_lost_heal`), which also
+          executes the `written != 1` branch; without that test the branch
+          had never run once in this repository.
+        * `deleted_at IS NULL` doubled in the UPDATE, and
+          `persistence_typed_attrs.validate` on the way in -- STRUCTURAL, NOT
+          EVIDENCE.  Neither can be made to fail a test: the SELECT above
+          already carries the same predicate, and `hp_after` is an int inside
+          the column's range by construction.  They are written down as
+          belt-and-braces, exactly as `apply_hp_damage`'s own comment writes
+          down the same two, and nobody should cite them as measured.
+
+        FAIL-CLOSED ON AN UNSEEDED CHARACTER, exactly as damage is: a row
+        with no `hp_current` is refused rather than healed from a guessed
+        zero.  Guessing zero here would be the owner's banned guess
+        (`COO-DECISION 20260901_1059`) arriving as a RESURRECTION -- a
+        character whose HP nobody knows would come back at full.
+
+        Raises `KeyError` for a character that does not exist or is
+        soft-deleted, and `persistence_vitals.VitalsError` for an unseeded or
+        inconsistent character -- and, on the paths that TAKE an amount, for
+        an amount that is not a whole number of points (`restore_hp_to_full`
+        has no amount to refuse).  Nothing is written when anything is
+        refused.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
+
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
+            row = db.execute(
+                f"SELECT {','.join(columns)} FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            stored = {c: row[c] for c in columns if row[c] is not None}
+            current = vitals.resolve(stored).require()
+            outcome = plan(vitals, current)
+            if outcome.hp_after != outcome.hp_before:
+                written = db.execute(
+                    "UPDATE characters SET hp_current=?,updated_at=? "
+                    "WHERE id=? AND deleted_at IS NULL AND hp_current=?",
+                    (
+                        typed_attrs.validate(
+                            vitals.HP_CURRENT_COLUMN, outcome.hp_after),
+                        _now(), character_id, outcome.hp_before,
+                    ),
+                ).rowcount
+                if written != 1:
+                    still_there = db.execute(
+                        "SELECT hp_current FROM characters "
+                        "WHERE id=? AND deleted_at IS NULL",
+                        (character_id,),
+                    ).fetchone()
+                    raise vitals.VitalsError(
+                        "the guarded write matched no row (read hp_current="
+                        "%r, row now %r): the healing was NOT applied"
+                        % (outcome.hp_before,
+                           None if still_there is None
+                           else still_there["hp_current"])
+                    )
+        return outcome
+
+    def apply_hp_heal(self, character_id: int, amount: int):
+        """Add `amount` to this character's stored `hp_current`, with a
+        ceiling of `hp_max`, and return the `persistence_vitals.HealOutcome`.
+
+        LANE-DB owns this method; no existing method is touched by it.  It is
+        the other half of M4's `ตีได้ตายได้` on disk: `apply_hp_damage` can
+        already take a character's HP down and nothing could put it back, so
+        the first call site that needed to (a potion, a rest, a respawn)
+        would have had to write its own `UPDATE characters SET hp_current`
+        past every rule in `persistence_vitals`.
+
+        WHAT IT DOES NOT DECIDE.  Whether a character at zero may be healed
+        at all is LANE-B's rule; this method APPLIES the heal and reports
+        `revived` so that the caller's rule is visible in its own code rather
+        than hidden in a refusal here.
+
+        Same raises as `apply_hp_damage`, and nothing is written when
+        anything is refused.
+        """
+        return self._apply_hp_transition(
+            character_id,
+            lambda vitals, current: vitals.apply_heal(
+                current.hp_current, current.hp_max, amount),
+        )
+
+    def restore_hp_to_full(self, character_id: int):
+        """Heal this character's whole missing bar and return the
+        `persistence_vitals.HealOutcome` -- the respawn arithmetic, named
+        once so no call site writes `hp_max - hp_current` itself.
+
+        `hp_max` is read from the ROW inside the same transaction as the
+        write, so "full" means this character's own maximum and never a
+        number a caller passed in.  On a character already at full nothing is
+        written and the outcome reports `was_already_full`.
+
+        It does NOT claim that respawn IS a full heal: that is a game rule
+        LANE-B and the owner own.  This is the door for one.
+        """
+        return self._apply_hp_transition(
+            character_id,
+            lambda vitals, current: vitals.heal_to_full(
+                current.hp_current, current.hp_max),
+        )
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))
