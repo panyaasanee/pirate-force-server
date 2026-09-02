@@ -293,13 +293,35 @@ MOB_PICKUP_REQUEST_REFUSED_TOKEN = "MOB_PICKUP_REQUEST_REFUSED"
 #: debugger.  PUBLISHED: the scene's remaining rows went out and the client's
 #: list loses the taken key by omission (RE-082).  HELD: nothing remained, so
 #: the only available generation is the empty one, which RE-082 measured as a
-#: client no-op -- the last object keeps today's behaviour and RE-208 owns the
-#: question.  REFUSED: the publication itself could not be composed; the
+#: client no-op -- ~~"the last object keeps today's behaviour and RE-208 owns
+#: the question"~~ IS NARROWED, round ewq4js: RE-208 still owns the question
+#: of a message that removes ONE object, but the last object is no longer left
+#: to whatever happens to come along.  The bag delta one frame earlier now
+#: carries v141's clearing derived mask on exactly this case -- the
+#: transaction lane decides it, inside the same lock as the take, and this
+#: file neither passes that decision nor reimplements it -- and a floor with
+#: no rows left is what that mask truthfully describes.  What is still
+#: unanswered is a scene where a row remains and the publication refuses.
+#: REFUSED: the publication itself could not be composed; the
 #: pickup still stands, because the item is in the bag and in the database
 #: before this runs, and a floor that redraws late is not worth undoing that.
 MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_PUBLISHED"
 MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_HELD_LAST_OBJECT"
 MOB_PICKUP_GROUND_REMOVAL_REFUSED_TOKEN = "MOB_PICKUP_GROUND_REMOVAL_REFUSED"
+
+#: ROUND ewq4js, step 3 of COO-DECISION 2026-09-02T10:44+07:00.  What the BAG
+#: DELTA itself did to the floor, which is a different question from the two
+#: tokens above and is answered one frame earlier.  KEPT: the delta carried
+#: the ground list present-and-empty, so the floor survived the frame and the
+#: removal publication above is what takes the taken row off it.  CLEARED: the
+#: delta carried v141's empty derived mask, which wipes the client's ground
+#: pool -- chosen on purpose when the scene has NO row left after the take,
+#: where wiping is the truth and is the only thing in this project that
+#: removes the last object of a scene.  A CLEARED line beside a PUBLISHED line
+#: with rows_left > 0 would mean the preserve composer fell back, and the
+#: GROUND_VITALS_PRESERVE_REFUSED line above it says why.
+MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN = "MOB_PICKUP_DELTA_GROUND_KEPT"
+MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN = "MOB_PICKUP_DELTA_GROUND_CLEARED"
 
 ACCEPTED = "exact_pickup_request"
 
@@ -659,6 +681,15 @@ def dispatch_inbound_pickup_request(
     except (mob_pickup.MobPickupContractError,
             mob_pickup_persist.MobPickupPersistError) as exc:
         return _refused_after_read(read, str(exc.args[0]), echo)
+    _say(echo, "%s key=0x%X" % (
+        # Direct attribute access, like ``result.outcome.delta`` two lines
+        # below: this is this lane's own typed record, and a getattr default
+        # here would report a kept floor as a cleared one on the day the
+        # field is renamed.
+        MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN
+        if result.outcome.delta_preserved_ground
+        else MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN,
+        read.fields.object_ref_u32))
     rows_left, ground_after = _ground_after_the_take(
         legacy, drop_ledger_cell, read.fields.object_ref_u32, echo)
     return PickupRequestOutcome(

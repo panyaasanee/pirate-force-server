@@ -1461,5 +1461,94 @@ class NonclaimTests(unittest.TestCase):
             "branch goes dead and every other test stays green.")
 
 
+class TheDeltasOwnGroundTests(TheWiringHarness):
+    """ROUND ewq4js, step 3: what the BAG DELTA does to the floor.
+
+    Driven through the SAME published line as everything else in this file --
+    an inbound frame at the top, a real store and a real ground cell
+    underneath -- because the decision is made inside the transaction and the
+    only thing this file can honestly check is the bytes that come back out of
+    it and the line that goes on the console beside them.
+
+    NOT MEASURED HERE, and not claimed anywhere: what a client DOES with
+    either envelope.  RE-082 measured that a nonempty generation erases the
+    keys it omits and that an empty one is a no-op; that a RuntimeRes with the
+    ground list present-and-empty leaves a floor standing is this lane's
+    assumption, carried since round 9jrsei, and GT-204 is where it is watched.
+    """
+
+    def test_a_pickup_beside_another_object_keeps_the_floor_and_says_so(self):
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        self.assertTrue(outcome.handled)
+        self.assertTrue(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_PRESERVE_SUFFIX_PIN))
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN, console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
+        # The two halves of the round agree: the delta kept the floor and the
+        # removal publication that follows names what is left on it.
+        self.assertEqual(outcome.ground_rows_left, 1)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_PUBLISHED_TOKEN,
+            console)
+
+    def test_the_last_object_clears_the_floor_and_says_that_instead(self):
+        """The one case no removal publication can carry (RE-208).
+
+        HELD_LAST_OBJECT and CLEARED must appear TOGETHER: held alone would
+        mean nothing at all removed the object the player just took.
+        """
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0))))
+        self.assertTrue(outcome.handled)
+        self.assertTrue(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_SUFFIX_PIN))
+        self.assertFalse(outcome.delta[0].endswith(
+            mob_pickup.DELTA_PC_PRESERVE_SUFFIX_PIN))
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_GROUND_REMOVAL_HELD_TOKEN, console)
+        self.assertEqual(outcome.ground_rows_left, 0)
+
+    def test_the_console_line_is_ascii_and_one_line(self):
+        _outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        said = [line for line in console.splitlines()
+                if line.startswith(
+                    mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN)]
+        self.assertEqual(len(said), 1)
+        said[0].encode("ascii")
+
+    def test_a_refused_preserve_reports_cleared_beside_its_own_reason(self):
+        """The console must never say KEPT about a frame that cleared.
+
+        This is the pair an operator reads: GROUND_VITALS_PRESERVE_REFUSED
+        (why) immediately followed by DELTA_GROUND_CLEARED (what happened),
+        on a pickup that still succeeded.
+        """
+        original = mob_loot.preserve_ground_in_runtime_res_vitals
+
+        def boom(*_args, **_kwargs):
+            raise mob_loot.MobLootContractError("composer_moved", "measured")
+
+        mob_loot.preserve_ground_in_runtime_res_vitals = boom
+        self.addCleanup(
+            setattr, mob_loot, "preserve_ground_in_runtime_res_vitals",
+            original)
+        outcome, console = self._run(self._namespace(
+            ground_cell=a_ground_cell(a_drop(0), a_drop(1))))
+        self.assertTrue(outcome.handled)
+        self.assertIn("GROUND_VITALS_PRESERVE_REFUSED", console)
+        self.assertIn("mob_pickup.bag_delta_pc", console)
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN, console)
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_DELTA_GROUND_KEPT_TOKEN, console)
+        self.assertEqual(len(self._rows()), len(INITIAL_BACKPACK.items) + 1)
+
+
 if __name__ == "__main__":
     unittest.main()
