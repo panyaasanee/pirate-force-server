@@ -44,6 +44,9 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.logout_hypothesis import (  # noqa: E402
+    load_logout_hypothesis_scenario,
+)
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -190,7 +193,67 @@ class UiaNoticeWiringTests(unittest.TestCase):
 
     def test_the_notice_rides_last_and_claims_nothing_ahead_of_the_frame(self):
         _state, actions, _out = self._click("uia_last", UIA_REQUEST_FRAME)
+        # pf-adversary N2: asserting `actions[-1]` alone is satisfied by a
+        # list of length one, which is what a `return uia_notice_actions`
+        # inserted at the composition site produces -- and that mutant
+        # swallows the frame's own inherited replies while leaving this file
+        # green.  So pin that the frame's own actions are STILL THERE and
+        # still ahead, not just that the receipt is at the end.
         self.assertEqual(actions[-1][0], NOTICE_ACTION_LABEL)
+        self.assertGreater(
+            len(actions), 1,
+            "the click's own inherited replies were swallowed",
+        )
+        self.assertEqual(
+            [a[0] for a in actions].count(NOTICE_ACTION_LABEL), 1,
+        )
+
+    def test_a_scenario_boot_composes_nothing_and_never_says_composed(self):
+        # pf-adversary D1, MEASURED: the first draft printed the
+        # byte-identical `LANE_A_UIA_NOTICE_COMPOSED ... pc=56 frame=66` line
+        # on a logout-scenario boot, where the branch below early-returns and
+        # the receipt never leaves the process.  A tester lining the console
+        # up against a screenshot would read "composed, and nothing
+        # rendered" and record a FALSE NEGATIVE GT-205 -- whose negative is
+        # declared to be worth as much as its positive.
+        #
+        # This also closes the mutant that survived the whole suite:
+        # narrowing the branch to `logout_hypothesis_scenario is None` used
+        # to leave 7185 tests green, because every other test boots flagless.
+        scenario = load_logout_hypothesis_scenario(
+            ROOT / "scenarios" / "logout_hypothesis_ack_close.json"
+        )
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            logout_hypothesis_scenario=scenario,
+        )
+        state = state_type("uia_scenario")
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_client_login_pc("uia_scenario")
+            ))
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._V25_REAL_CREATE_PC
+            ))
+            character = self.store.list_characters(
+                state.foundation.account_id
+            )[-1]
+            state.dispatch(self.legacy.parse_outer(
+                self.legacy._synthetic_start_game_pc(character.selector)
+            ))
+            buffer.truncate(0)
+            buffer.seek(0)
+            actions = state.dispatch(
+                self.legacy.parse_outer(UIA_REQUEST_FRAME)
+            )
+        out = buffer.getvalue()
+        self.assertEqual(self._notice_actions(actions), [])
+        self.assertNotIn(NOTICE_COMPOSED_EVENT, state.events)
+        self.assertNotIn(notice.TOKEN_NOTICE_COMPOSED, out)
+        self.assertIn("LANE_A_UIA_NOTICE_NOT_THIS_BOOT", out)
+        self.assertIn("lane_a_uia_notice_scenario_owns_frame", state.events)
+        out.encode("ascii")
 
     # ---- the console line, which is the tester's other half ------------
 
@@ -285,7 +348,12 @@ class UiaNoticeWiringTests(unittest.TestCase):
             ROOT / "src" / "pirateforce_foundation" / "runtime.py"
         ).read_text(encoding="utf-8")
         start = source.index("def _dispatch_with_lanes(self, parsed):")
-        block = source[start:start + 4000]
+        # Up to the call itself, not a fixed byte window: the window version
+        # broke the moment the block grew a branch, which is a test that
+        # fails for a reason that has nothing to do with what it checks.
+        block = source[start:source.index(
+            "world_logout_button_notice.observe_parsed", start,
+        ) + len("world_logout_button_notice.observe_parsed")]
         self.assertIn("world_logout_button_notice.observe_parsed", block)
         # CODE only.  The call site's own comment names the trap it is
         # avoiding, and a check that read comments too would forbid writing

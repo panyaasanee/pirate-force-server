@@ -5758,9 +5758,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # the guard costs the ticket nothing; what it buys is that an
             # unauthenticated connection cannot make this server compose
             # bytes.
+            #
+            # AND THE CONSOLE MUST NOT SAY "COMPOSED" ON A BOOT THAT THROWS
+            # THE BYTES AWAY.  pf-adversary D1, MEASURED: with any logout
+            # scenario flag, or on any frame after `logout_acknowledged`, a
+            # 0x1B40 is claimed by one of the branches below, every one of
+            # which returns before the tail this notice is appended to.  The
+            # first draft printed the byte-identical
+            # `LANE_A_UIA_NOTICE_COMPOSED ... pc=56 frame=66` line in that
+            # case -- so a tester lining the console up against a screenshot
+            # would read "the receipt was built and nothing rendered" from a
+            # boot where the receipt never left the process, and record a
+            # FALSE NEGATIVE `GT-205`.  `GT-205`'s negative is declared to be
+            # worth as much as its positive, so that lie is not a small one:
+            # it would also poison GM-B/`GT-193`, which rests on this same
+            # channel.
+            #
+            # The condition is exact, not a guess: the branch at "logout
+            # hypothesis scenario is not None and nested_id ==
+            # LOGOUT_VITAL_ID" below is unconditional on policy, so a live
+            # scenario owns EVERY LogoutVital frame.  Nothing is composed on
+            # those boots; one distinct ASCII token is printed instead, and
+            # it names why.
             uia_notice_actions = []
             if nested_id == LOGOUT_VITAL_ID and self.foundation.selected is None:
                 self.events.append("lane_a_uia_notice_no_selected_no_reply")
+            elif (
+                nested_id == LOGOUT_VITAL_ID
+                and logout_hypothesis_scenario is not None
+            ):
+                print(
+                    "LANE_A_UIA_NOTICE_NOT_THIS_BOOT reason="
+                    "logout_scenario_owns_the_frame effect=no_bytes_composed"
+                )
+                self.events.append("lane_a_uia_notice_scenario_owns_frame")
             elif nested_id == LOGOUT_VITAL_ID:
                 try:
                     uia_notice, uia_notice_line = (
@@ -5768,18 +5799,23 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             legacy, parsed,
                         )
                     )
+                    print(uia_notice_line)
                 except Exception as error:  # noqa: BLE001 - a courtesy line
                     # must never take the listener thread down for the
                     # player whose click it was.  Named, never silent; type
                     # name only, same discipline as every other refusal
                     # here.  Grep string:
                     # "lane_a_uia_notice_observe_failed_".
+                    #
+                    # The `print` is INSIDE this try, not after it
+                    # (pf-adversary N4): the comment above promises the
+                    # thread survives, and a `print` onto a closed stdout
+                    # raises just as readily as the observer does.
                     self.events.append(
                         "lane_a_uia_notice_observe_failed_"
                         f"{type(error).__name__}"
                     )
                 else:
-                    print(uia_notice_line)
                     if uia_notice is not None:
                         self.events.append(
                             "lane_a_uia_back_refused_notice_composed"
