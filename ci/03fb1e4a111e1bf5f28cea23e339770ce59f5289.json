@@ -1,1 +1,1 @@
-{"sha":"03fb1e4a111e1bf5f28cea23e339770ce59f5289","conclusion":"failure","event":"push","ref":"refs/heads/claude/wizardly-dirac-ejrbwx","run_id":"33630904199","utc":"2026-09-02T12:49:06Z"}
+{"sha":"03fb1e4a111e1bf5f28cea23e339770ce59f5289","conclusion":"failure","event":"pull_request","ref":"refs/pull/596/merge","run_id":"33630949127","utc":"2026-09-02T12:53:26Z"}
