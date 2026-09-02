@@ -482,6 +482,45 @@ class AKillDoesNotSilenceTheIslandTests(unittest.TestCase):
         self.assertIn(
             "clicked_body_is_dead_needs_a_mob_death_body", err.getvalue())
 
+    def test_a_frame_with_no_live_hostile_body_says_so_instead_of_lying(
+        self,
+    ) -> None:
+        """FOUND BY THIS ROUND'S ADVERSARIAL PROBE, NOT BY A REVIEW.  With
+        every hostile row buried, no body took its HP from the ledger AND
+        none carried a ceiling -- and the old expression printed
+        ``hp=ceiling`` about a frame that contained no ceiling at all."""
+        state, _target = self._killed_session()
+        hostile = self._hostile_indices()
+        every_grave = mob_death.DeathRegister(tuple(sorted(
+            (mob_death.DeathRecord(
+                actor_identity=mob.actor_identity,
+                killer_identity=mob_death.SANCTIONED_FIRST_TARGET_IDENTITY,
+                max_hp=mob.max_hp, scene=mob.scene)
+             for mob in hostile.values()),
+            key=lambda row: (row.scene, row.actor_identity),
+        )), len(hostile))
+        with contextlib.redirect_stderr(io.StringIO()):
+            response = responder_mod.respond(
+                legacy=self.legacy,
+                chosen_identities=(
+                    next(
+                        p.actor_identity
+                        for p in tables.load_known_placements()
+                        if p.placement_index == self._civilian_index()
+                    ),
+                ),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=state.mob_combat_ledger,
+                mob_death_register=every_grave,
+            )
+        line = response.console_lines[0]
+        self.assertIn(f"dead_as_corpse={len(hostile)}", line)
+        self.assertIn("dead_at_ceiling=0", line)
+        self.assertIn("hp=no_live_body", line)
+        self.assertNotIn("hp=ceiling", line)
+
     def test_a_live_click_is_unchanged_when_a_register_is_passed(
         self,
     ) -> None:
