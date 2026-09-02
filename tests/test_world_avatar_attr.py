@@ -29,6 +29,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from pf_preconditions import BRIDGE_ATTR_CORPUS
 
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.world_avatar_attr import (
@@ -46,7 +49,7 @@ from pirateforce_foundation.world_avatar_attr import (
     TAG_U8,
     AvatarAttrDrift,
     build_body,
-    check_frozen_walk_against_the_corpus,
+    check_frozen_walk_against_the_transcribed_rows,
     decode_avatar_attr,
     describe_avatar_body,
     encode_avatar_attr,
@@ -60,17 +63,116 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 # The bridge checkout, when this clone has one beside it.  Used to re-derive
 # FIELDS from the corpus file itself rather than trusting the transcription.
-CORPUS_TSV = (
-    ROOT.parent
-    / "pf_bridge"
-    / "notes_to_chief"
-    / "reference_codex_attr"
-    / "PF_ATTR_FIELD_SEMANTICS.tsv"
-)
+# Taken FROM the precondition rather than spelled again here, so the path the
+# guard tests and the path the test opens cannot drift apart.
+#
+# ONE CONSEQUENCE WORTH KNOWING (pf-adversary, round a2nvx9): because this
+# assignment names BRIDGE_ATTR_CORPUS, the census's _guard_aliases() promotes
+# CORPUS_TSV to an alias of the precondition, so a skip mentioning CORPUS_TSV
+# would be COUNTED as a guarded use.  Both misuse directions were probed and
+# both fail safe (an untokenised skip goes red at runtime while the static
+# count goes red too) - but do not write a skip against CORPUS_TSV expecting
+# it to be invisible.
+CORPUS_TSV = BRIDGE_ATTR_CORPUS.paths[0]
 
 CAPTURED_BODY_LENGTH = 103
 CAPTURED_MASK = 0xFFFFFFFF
 CAPTURED_BASE_FLAGS = 0xFF
+
+
+#: The 21 rows, typed here a SECOND time, independently of the module's own
+#: table.  This is the answer to the hole pf-adversary measured in round
+#: a2nvx9: the only test that opens the corpus file needs the bridge sibling,
+#: so on the Windows gate - the machine that decides "green" - nothing graded
+#: the bit->name assignment at all.  Swapping n_SLOT_RHAND and n_SLOT_LHAND in
+#: the module (both u32, both 0x002191C2 in the capture) left the whole
+#: gate-shaped run byte-identical: 6174 passed, 72 skipped, exit 0.
+#:
+#: WHAT THIS PIN IS, AND WHAT IT IS NOT.  It is a second transcription, so it
+#: cannot prove the corpus says this - only the guarded test above can, and
+#: only where the corpus is present.  What it does is make an edit to the
+#: module's table a TWO-file edit, on every machine, gate included.  A silent
+#: permutation of the names is what it stops.
+PINNED_ROWS = (
+    # order, bit, offset, tag, width, structural_type, semantic_name
+    (5, 0, 0x2C, TAG_U32, 4, "uint32", "n_DRESS_HAT"),
+    (6, 1, 0x30, TAG_U32, 4, "uint32", "n_HRID"),
+    (7, 2, 0x34, TAG_U32, 4, "uint32", "n_HDID"),
+    (8, 3, 0x38, TAG_U32, 4, "uint32", "n_FCID"),
+    (9, 4, 0x3C, TAG_U32, 4, "uint32", "n_ETID"),
+    (10, 5, 0x40, TAG_U32, 4, "uint32", "n_DRESS_CHEST"),
+    (11, 6, 0x44, TAG_U32, 4, "uint32", "n_DRESS_LEGGINGS"),
+    (12, 7, 0x48, TAG_U32, 4, "uint32", "equip_projection_slot_0x000800"),
+    (13, 8, 0x4C, TAG_U32, 4, "uint32", "equip_projection_slot_0x001000"),
+    (14, 9, 0x50, TAG_U32, 4, "uint32", "equip_projection_slot_0x002000"),
+    (15, 10, 0x54, TAG_U32, 4, "uint32", "n_SLOT_RHAND"),
+    (16, 11, 0x58, TAG_U32, 4, "uint32", "n_SLOT_LHAND"),
+    (17, 12, 0x5C, TAG_U8, 1, "uint8_enum", "n_GENDER_1_female_other_male"),
+    (18, 13, 0x5D, TAG_S8, 1, "int8", "s_BODYRATIO_component_0_height"),
+    (19, 14, 0x5E, TAG_S8, 1, "int8", "s_BODYRATIO_component_1_width"),
+    (20, 15, 0x64, TAG_ASTR, None, "byte_string",
+     "item_definition_key_to_packed_color_low24_pair_map_text"),
+    (21, 16, 0x60, TAG_U8, 1, "uint8_flags",
+     "avatar_presentation_behavior_flags__0x1_pair_map_application_gate__"
+     "0x4_0x8_effect_suppress__0x10_scale_1_3"),
+    (22, 17, 0x80, TAG_U32, 4, "uint32", "opaque_u32_delta_member"),
+    (23, 18, 0x5F, TAG_U8, 1, "uint8_enum", "avatar_render_record_lookup_key"),
+    (24, 19, 0x84, TAG_U8, 1, "uint8", "n_SKIN"),
+    (25, 20, 0x88, TAG_U32, 4, "uint32", "equip_projection_slot_0x200000"),
+)
+
+
+class FieldTableIsPinnedOnEveryMachineTests(unittest.TestCase):
+    """No precondition ON PURPOSE - this class runs on the gate.
+
+    Everything here is graded on a single-repository checkout with no
+    ``pf_bridge`` beside it, which is the machine that decides whether a pull
+    request merges.
+    """
+
+    def test_the_module_table_matches_the_pinned_rows_slot_for_slot(self):
+        self.assertEqual(len(FIELDS), len(PINNED_ROWS))
+        for field, row in zip(FIELDS, PINNED_ROWS):
+            with self.subTest(order=field.order):
+                self.assertEqual(
+                    (field.order, field.bit, field.offset, field.tag,
+                     field.width, field.structural_type, field.name),
+                    row,
+                )
+
+    def test_the_pin_is_not_vacuous(self):
+        """The control for the test above: permute two names and it goes red.
+
+        This is the exact mutation that stayed green before this class
+        existed - two u32 slots carrying the same value in the only captured
+        body, so no assertion over that body can separate them."""
+        import pirateforce_foundation.world_avatar_attr as module
+
+        original = module.FIELDS
+        try:
+            rows = list(original)
+            right, left = rows[10], rows[11]
+            rows[10] = type(right)(right.order, right.bit, right.offset,
+                                   right.tag, right.width,
+                                   right.structural_type, left.name)
+            rows[11] = type(left)(left.order, left.bit, left.offset, left.tag,
+                                  left.width, left.structural_type, right.name)
+            module.FIELDS = tuple(rows)
+            self.assertNotEqual(
+                [f.name for f in module.FIELDS],
+                [row[6] for row in PINNED_ROWS],
+                "the permuted table must differ from the pin",
+            )
+        finally:
+            module.FIELDS = original
+
+    def test_every_pinned_name_is_unique(self):
+        names = [row[6] for row in PINNED_ROWS]
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_every_pinned_bit_is_used_once_and_the_run_has_no_gaps(self):
+        bits = sorted(row[1] for row in PINNED_ROWS)
+        self.assertEqual(bits, list(range(len(PINNED_ROWS))))
 
 
 def _sample_value(field):
@@ -91,7 +193,7 @@ class AvatarAttrCheckTest(unittest.TestCase):
     # -- the check itself ---------------------------------------------------
 
     def test_the_frozen_walk_and_the_corpus_agree_slot_for_slot(self):
-        ordered = check_frozen_walk_against_the_corpus()
+        ordered = check_frozen_walk_against_the_transcribed_rows()
         self.assertEqual(len(ordered), 21)
         self.assertEqual([f.bit for f in ordered], list(range(21)))
         self.assertEqual([f.order for f in ordered], list(range(5, 26)))
@@ -107,7 +209,7 @@ class AvatarAttrCheckTest(unittest.TestCase):
             mutated[19], mutated[20] = mutated[20], mutated[19]  # u8 <-> u32
             module.FROZEN_WALK = tuple(mutated)
             with self.assertRaises(AvatarAttrDrift):
-                check_frozen_walk_against_the_corpus()
+                check_frozen_walk_against_the_transcribed_rows()
         finally:
             module.FROZEN_WALK = original
 
@@ -124,7 +226,7 @@ class AvatarAttrCheckTest(unittest.TestCase):
             )
             module.FIELDS = tuple(mutated)
             with self.assertRaises(AvatarAttrDrift):
-                check_frozen_walk_against_the_corpus()
+                check_frozen_walk_against_the_transcribed_rows()
         finally:
             module.FIELDS = original
 
@@ -154,8 +256,7 @@ class AvatarAttrCheckTest(unittest.TestCase):
 
     def test_the_transcription_matches_the_corpus_file_when_it_is_here(self):
         """Re-derive FIELDS from the TSV instead of trusting the copy."""
-        if not CORPUS_TSV.exists():
-            self.skipTest("bridge checkout with the corpus file is not present")
+        BRIDGE_ATTR_CORPUS.require(self)
         rows = {}
         with CORPUS_TSV.open(encoding="utf-8", errors="replace") as handle:
             header = handle.readline().rstrip("\n").split("\t")

@@ -73,7 +73,7 @@ the body the player is wearing.
 THE CHECK, and what can make it come back negative
 --------------------------------------------------
 
-1. ``check_frozen_walk_against_the_corpus()`` compares the frozen walker's
+1. ``check_frozen_walk_against_the_transcribed_rows()`` compares the frozen walker's
    tag-and-width sequence, slot by slot, against ``FIELDS`` in ``mask_bit``
    order.  A disagreement raises.  This is a real comparison between two
    sources -- the corpus is not derived from the walker, and the walker
@@ -274,7 +274,7 @@ def field_for_name(name: str) -> Field:
     return field
 
 
-def check_frozen_walk_against_the_corpus() -> tuple[Field, ...]:
+def check_frozen_walk_against_the_transcribed_rows() -> tuple[Field, ...]:
     """The 14.13 (d) check.  Returns ``FIELDS`` in wire order, or raises.
 
     Compares two sources that were produced independently of each other: the
