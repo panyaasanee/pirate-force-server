@@ -145,6 +145,7 @@ from .. import world_population_bg0009
 from .. import world_population_bg0010
 from .. import world_population_bg0011
 from .. import world_population_bg0015
+from .. import world_population_bg3001
 from .. import world_population_bg4001
 from .. import world_population_handoff
 from .. import world_scene_travel
@@ -309,6 +310,17 @@ _CONSOLE_LINES_OF = {
         + world_population_bg0011.actor_lines(generation)
         + world_population_bg0011.unresolved_lines()
     ),
+    # ADDED round 4uztfj (2026-09-02, LANE-A): scene 126, the ocean panel.
+    # Registered here AND in ``world_scene_travel.CENSUS_SOURCES`` in the
+    # same commit, so neither table can be true without the other for even
+    # one round.  This scene's registry door stays SHUT (see that table's
+    # own comment and ``scene_is_sanctioned_for_a_gm_entry`` below), so the
+    # only arrival that reaches these lines today is a GM single-use entry.
+    "bg3001_roster": lambda generation: (
+        (world_population_bg3001.census_console_line(generation),)
+        + world_population_bg3001.actor_lines(generation)
+        + world_population_bg3001.unresolved_lines()
+    ),
     # ADDED round yfbqmg (2026-09-01, LANE-A): the tenth and LAST door of
     # the original ten, same shape as the scene-11 entry above.  Registered
     # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
@@ -381,6 +393,82 @@ def scene_is_open_to_players(scene_id: int, registry: Any = None) -> bool:
     except Exception:  # noqa: BLE001 - fail-closed, see the docstring
         return False
     return bool(getattr(destination, "login_entry_allowed", False))
+
+
+def scene_is_sanctioned_for_a_gm_entry(
+    scene_id: int, registry: Any = None
+) -> bool:
+    """Does the GM lane's OWN predicate say a session may be standing here?
+
+    THE SECOND ADMISSION ARM, added round ``4uztfj`` (LANE-A) for scene 126.
+    It asks ``gm/login_scene_admission.single_use_entry_is_admissible`` --
+    the GM lane's own function, not a re-implementation of its rule -- which
+    admits exactly a scene chief's letter sanctions AND whose only remaining
+    blocker is the login bar ``CORE-REQUEST-GM-038`` bypasses for it.  One
+    scene id qualifies today: 126.
+
+    WHY THIS IS NOT A DOOR, SAID PLAINLY, BECAUSE IT LOOKS LIKE ONE.  This
+    predicate gates what a session STANDING IN A SCENE is sent; it is asked
+    by a composer the arrival path calls after the login has already put the
+    character there.  It cannot move a character, cannot stage a login, and
+    cannot make the ordinary login path admit anything: a session with no GM
+    grant is still refused at ``resolve_entry`` with
+    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code at all.
+    ``login_entry_allowed`` for scene 126 is untouched by this round --
+    ``COO-DECISION 20260829_1444`` wants an attended var2 test before any
+    flip, and this arm is not that flip: it does not widen who may ENTER,
+    only whether a GM who is already there is shown the scene's own cast
+    instead of an empty ocean.
+
+    Fail-closed in every direction, the same as the first arm: an import
+    that is not there, a registry that will not load, a predicate that
+    raises -- all answer False.
+
+    WHAT IT COSTS, MEASURED THIS ROUND RATHER THAN ASSUMED CHEAP.  With no
+    registry passed, the GM lane's predicate performs its OWN registry read
+    (its docstring says so), and its two arms may each perform one -- so a
+    click on scene 126 costs about 3.2 ms against about 1.0 ms for a scene
+    the first arm admits, on this clone.  Two things keep that acceptable:
+    the second arm is only reached for a scene the first one refused (one
+    scene id today), and the production call sites hand this function the
+    ``scene_entry_registry`` they were already given, which both arms then
+    share.  A click is human-paced; a census is not composed in a loop.
+    """
+    try:
+        from ..gm import login_scene_admission
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+    try:
+        # BOTH halves, and the first one is why this is not simply a call to
+        # ``single_use_entry_is_admissible``: that function's own first arm
+        # is PLAIN admission (a scene the registry already pins open), so
+        # calling it alone would make this arm a duplicate of the first one
+        # for every open scene and hide which arm actually admitted.  ANDing
+        # it with the sanction lookup narrows this to what it claims to be:
+        # a scene chief's letter names AND the GM lane itself would admit.
+        # It can never be WIDER than the GM lane's own predicate.
+        return bool(
+            login_scene_admission.is_sanctioned_barred_scene(scene_id)
+            and login_scene_admission.single_use_entry_is_admissible(
+                scene_id, scene_registry=registry,
+            )
+        )
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+
+
+def scene_may_be_populated(scene_id: int, registry: Any = None) -> bool:
+    """Either admission arm.  The question ``compose`` actually asks.
+
+    Kept as its own function rather than an ``or`` inside the composer so
+    that both arms are testable by name, and so a reader who greps for
+    ``scene_is_open_to_players`` still finds the registry pin unchanged
+    where it always was.
+    """
+    return (
+        scene_is_open_to_players(scene_id, registry)
+        or scene_is_sanctioned_for_a_gm_entry(scene_id, registry)
+    )
 
 
 def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
@@ -456,10 +544,15 @@ def _compose_for_scene(scene_id: int):
         scene_entry_registry: Any = None,
         **_ignored: Any,
     ) -> lane_hooks.SceneCensusResult | None:
-        if not scene_is_open_to_players(scene_id, scene_entry_registry):
+        if not scene_may_be_populated(scene_id, scene_entry_registry):
             # THE ADMISSION CHECK.  Decline, which the call site latches with
             # a named event and no frame - the same outcome the not-home skip
-            # produced before this file existed.
+            # produced before this file existed.  TWO ARMS since round
+            # `4uztfj`: the registry pin, and the GM lane's own sanctioned
+            # single-use predicate for a session that is already standing in
+            # a scene whose ordinary door is shut (scene 126 today).  See
+            # ``scene_is_sanctioned_for_a_gm_entry`` for why the second arm
+            # opens nothing.
             return None
         handoff = world_population_handoff.handoff_for_arrival(
             legacy, scene_id, anchor,
