@@ -174,6 +174,51 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
                 self.assertEqual(by_index[index], 53)
                 self.assertNotIn(54, identity.IDENTITIES)
 
+    def test_the_compared_columns_are_every_shipped_one_but_the_mobs_id(
+        self,
+    ) -> None:
+        """pf-adversary D5: the list used to be hand-typed and nothing
+        checked it for completeness - deleting ``rank`` from it left the
+        whole suite green while making a rank-64 leg interchangeable with
+        a rank-0 one.  It is derived now, and this is the check that says
+        so rather than restating the same tuple."""
+        import dataclasses
+
+        every = tuple(f.name for f in dataclasses.fields(identity.SceneIdentity))
+        exempt = set(identity._LEG_COMPARISON_EXEMPT)
+        self.assertEqual(
+            set(identity.SHIPPED_COLUMNS_EXCEPT_MOBS_ID),
+            set(every) - exempt)
+        # The MOBS id is the ONE column the decision lets the legs differ
+        # on; the other two exemptions are locators, not shipped columns.
+        self.assertIn("mobs_n_id", exempt)
+        self.assertIn("cline_row_id", exempt)
+        self.assertIn("template_id", exempt)
+        for column in ("rank", "title", "mob_usage", "level", "max_hp",
+                       "outfit", "name"):
+            with self.subTest(column=column):
+                self.assertIn(column, identity.SHIPPED_COLUMNS_EXCEPT_MOBS_ID)
+
+    def test_an_unmeasured_leg_is_treated_as_having_a_name_plate(
+        self,
+    ) -> None:
+        """pf-adversary D6: the gate's fail-closed default.  ``_self_check``
+        now checks the inputs BEFORE the gate reads them, so this drives the
+        default directly rather than relying on which check runs first."""
+        real = dict(identity.MULTI_SET_LEG_HAS_TIP_ROW)
+        del identity.MULTI_SET_LEG_HAS_TIP_ROW[54]
+        try:
+            refusals = identity.multi_set_placement_refusals()
+            self.assertTrue(refusals)
+            self.assertTrue(
+                all(row["condition"] == 2 for row in refusals), refusals)
+            with self.assertRaises(identity.Bg3001IdentityError):
+                identity._self_check()
+        finally:
+            identity.MULTI_SET_LEG_HAS_TIP_ROW.clear()
+            identity.MULTI_SET_LEG_HAS_TIP_ROW.update(real)
+        identity._self_check()
+
     def test_the_multi_set_gate_passes_on_this_scenes_own_pair(self) -> None:
         """Shape 2 of ``COO-DECISION 20260902_2146``: the six placements
         PASS the gate rather than being exempt from it."""

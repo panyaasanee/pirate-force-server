@@ -195,7 +195,7 @@ NO CREW, AND ONE THING THAT IS NOT CREW AND IS STILL DROPPED.  Measured:
 ``n_CREW6`` all read 0), so there is no pet/crew group this leader-only
 reading silently drops.  BUT ``n_LEADER_BK2``/``n_LEADER_BK3`` are a
 different column family and this scene DOES use them: CLINE row 60410
-(Mob-Set 11, the scene's densest set -- 9 of the 36 shipped placements)
+(Mob-Set 11, the scene's densest set -- 9 of the ~~36~~ 37 shipped rows)
 carries back-up leaders 8165 and 8166, both real ``MOBS`` rows wearing the
 same ``SP_001_000_000_N`` hull at level 1.  Like every crosswalk in this
 project this module implements ``n_LEADER_BK1`` ONLY, so those two are
@@ -272,6 +272,7 @@ WHAT THIS MODULE DOES NOT CLAIM.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 
@@ -511,13 +512,27 @@ SECOND_LEG_IDENTITIES = {
 # Backwards-compatible view of the same rows: set -> (CLINE row, leader).
 SECOND_LEG_ONLY = {row[0]: (row[1], row[2]) for row in _SECOND_LEG_ROWS}
 
+# The fields of ``SceneIdentity`` that are LOCATORS rather than shipped
+# columns, plus the one column the decision allows the legs to differ on.
+# Named here so the derivation below can be read as "everything else".
+_LEG_COMPARISON_EXEMPT = ("template_id", "cline_row_id", "mobs_n_id")
+
 # The columns this module SHIPS, minus the MOBS id.  ``COO-DECISION
 # 20260902_2146`` shape 2 names exactly this set: the legs of a multi-set
 # placement may differ on the MOBS number and on nothing else.  The CLINE
-# row id is a locator, not a shipped column - two legs are two CLINE rows
-# by definition, so comparing it would refuse every pair that exists.
-SHIPPED_COLUMNS_EXCEPT_MOBS_ID = (
-    "outfit", "name", "title", "level", "rank", "max_hp", "mob_usage",
+# row id and the Mob-Set number are locators, not shipped columns - two
+# legs are two CLINE rows by definition, so comparing them would refuse
+# every pair that exists.
+#
+# DERIVED, NOT TYPED (pf-adversary, round ``gx7xtp``, D5).  Written by hand
+# this was a tuple nothing checked for completeness: deleting ``"rank"``
+# from it left the whole suite green, and the next multi-set pair with a
+# rank-64 leg beside a rank-0 leg would have been called interchangeable
+# and shipped a boss as a mook.  Now a column added to ``SceneIdentity``
+# joins the comparison by existing.
+SHIPPED_COLUMNS_EXCEPT_MOBS_ID = tuple(
+    field.name for field in dataclasses.fields(SceneIdentity)
+    if field.name not in _LEG_COMPARISON_EXEMPT
 )
 
 # The one set this scene ships with an empty display name, and the outfit
@@ -616,7 +631,7 @@ PLACEMENT_COUNT = len(_PLACEMENT_ROWS)
 def identity_for(template_id: int) -> SceneIdentity | None:
     """The identity of a Mob-Set number, or ``None`` if it cannot be shipped.
 
-    ``None`` is exactly the 2 sets in ``UNRESOLVED`` and nothing else: this
+    ``None`` is exactly the ~~2~~ 1 set in ``UNRESOLVED`` and nothing else: this
     function never substitutes, and never falls back to the Mob-Set number
     that ``GT-078`` proved wrong on the owner's screen.
     """
@@ -626,7 +641,7 @@ def identity_for(template_id: int) -> SceneIdentity | None:
 
 
 def shippable_placements() -> tuple[Bg3001Placement, ...]:
-    """The 36 placements of the 38 that resolve to a real identity."""
+    """The ~~36~~ 37 placements of the 38 that resolve to an identity."""
     out = []
     for index, template_id, mm_instance, x, y, z in _PLACEMENT_ROWS:
         identity = IDENTITIES.get(template_id)
@@ -638,7 +653,7 @@ def shippable_placements() -> tuple[Bg3001Placement, ...]:
 
 
 def unshippable_placements() -> tuple[dict, ...]:
-    """The 2 that are dropped, each with the id and the reason.
+    """The ~~2~~ 1 that is dropped, with the id and the reason.
 
     The census console line quotes the COUNT of these every boot; this is
     where a reader goes to find out WHICH ones and WHY.
@@ -884,6 +899,21 @@ def _self_check() -> None:
     # MULTI_SET_GATE.  Fail-closed and BEFORE the counts below, so a pair
     # that stops being interchangeable cannot reach a census builder even
     # if the row count still looks right.
+    # ORDER MATTERS HERE (pf-adversary, round ``gx7xtp``, D6).  The gate's
+    # own fail-closed default - an unmeasured leg counts as having a name
+    # plate - was survivable as a mutant only because THIS loop happened to
+    # run after it and raise for a different reason.  Accidental ordering
+    # is not a guard, so the inputs are checked BEFORE the gate reads them.
+    for index, raw in MULTI_SET_PLACEMENTS.items():
+        for leg in raw.split("|"):
+            if not leg.isdigit() or int(leg) not in MULTI_SET_LEG_HAS_TIP_ROW:
+                raise Bg3001IdentityError(
+                    "leg %s of placement %d has no measured MOBS_TIP answer"
+                    % (leg, index))
+    if set(SECOND_LEG_IDENTITIES) != set(SECOND_LEG_ONLY):
+        raise Bg3001IdentityError("the second-leg views disagree")
+    if not SHIPPED_COLUMNS_EXCEPT_MOBS_ID:
+        raise Bg3001IdentityError("the leg comparison compares nothing")
     refusals = multi_set_placement_refusals()
     if refusals:
         raise Bg3001IdentityError(
@@ -892,14 +922,6 @@ def _self_check() -> None:
             % "; ".join(
                 "placement %d: %s" % (row["placement_index"], row["reason"])
                 for row in refusals))
-    if set(SECOND_LEG_IDENTITIES) != set(SECOND_LEG_ONLY):
-        raise Bg3001IdentityError("the second-leg views disagree")
-    for index, raw in MULTI_SET_PLACEMENTS.items():
-        for leg in raw.split("|"):
-            if int(leg) not in MULTI_SET_LEG_HAS_TIP_ROW:
-                raise Bg3001IdentityError(
-                    "leg %s of placement %d has no measured MOBS_TIP answer"
-                    % (leg, index))
     if len(shippable_placements()) != 37:
         raise Bg3001IdentityError("expected 37 shippable placements")
     if len(unshippable_placements()) != 1:
