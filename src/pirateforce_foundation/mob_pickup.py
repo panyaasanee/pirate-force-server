@@ -1576,6 +1576,36 @@ class BagCell:
                 claim.opaque_u8)
 
 
+def say(line: Any) -> bool:
+    """Print one line and LOSE THE LINE, never the transaction, if it fails.
+
+    ROUND lh21ua, and it is an ITEM-LOSS fix rather than a tidy-up.  MEASURED
+    by pf-adversary on this round's own branch: under a stdout that refuses
+    every write -- the cp874 console this project runs on is one bad byte
+    away from that -- the bare ``print`` between the take and the database
+    write raised ``UnicodeEncodeError``, and the measurement is what the
+    consequence was:
+
+        drop 0x100000 had LEFT the ground
+        the backpack table had the SAME 4 rows it started with
+        the exception unwound into the connection listener
+
+    The row was taken, nothing was persisted, and the player's item existed
+    nowhere.  ``mob_pickup_persist``'s whole precheck-before-take ordering
+    exists to make exactly that impossible, and a log line was walking around
+    it.  Every console line in this lane goes through here now: a console is
+    allowed to cost a LINE and is never allowed to cost a ROW.
+
+    Returns whether the line was printed, so a caller (and a test) can tell
+    "said" from "swallowed" instead of assuming.
+    """
+    try:
+        print(line)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Dispatch.  The single call MOB_PICKUP_WIRING now hands the chief for an
 # inbound pickup request: steps 1, 2, 3 (log-only) and 4, collapsed so a
@@ -1693,7 +1723,7 @@ def dispatch_pickup_request(
             "BagCell, the one BagCellRegistry.claim handed back")
     claim = PickupClaim(claimant_identity, x, y, z, object_ref_u32, opaque_u8)
     outcome = bag_cell.commit_pickup(ledger_cell, claim, legacy)
-    print(bag_row_write_console_line(outcome.row_write))
+    say(bag_row_write_console_line(outcome.row_write))
     return outcome
 
 
