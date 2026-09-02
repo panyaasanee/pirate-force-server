@@ -33,13 +33,39 @@ WHAT IS PROVEN HERE AND WHAT IS NOT.
     is read back.  That is what makes a mis-wired call site red:
     pf-adversary (round ``gx7xtp``, D3) showed that swapping the last two
     arguments, or passing ``None`` where the cell goes, left the whole
-    7,158-test suite byte-identical when the only guard was a text scan.
+    suite byte-identical when the only guard was a text scan.  ~~"the whole
+    7,158-test suite"~~ - STRUCK, round ``nyxlqs``: that total was true the
+    day it was written and is 7,233 in the gate subset today.  A total that
+    moves every round does not belong in a sentence about a property.
 
     NOT PROVEN.  That any of this reaches a screen.  No attended ticket is
     scheduled to read ``GROUND_ACTORS_LIVENESS_UNKNOWN`` - LANE-B's letter
     says so plainly and this file does not pretend otherwise.  ``GT-204``
     is the chief's ticket and its scope is loot / left click / into the
     bag; the click-while-loot-is-down case is not in it.
+
+WHO MAY AMEND THE BASELINES IN THIS FILE (``AGENTS.md`` section 7, ``COO-DECISION
+20260903_0053`` rule b, and pf-adversary D2 of round ``nyxlqs`` - the rule
+landed twenty minutes after this file was written and the cherry-pick that
+recovered it carried the code without the rule).
+
+    THIS FILE PINS EIGHT FACTS THAT LANE-B OWNS, not one: that
+    ``mob_combat.remote_actors_preserving_the_ground_under_publication``
+    exists; its signature (``legacy, entries, site`` positional, ``cell``
+    and ``scene`` keyword-only); the three ``GROUND_ROWS_RACE_REASON_*``
+    strings; the private report-once set ``mob_combat._GROUND_ROWS_RACE_
+    WINDOW_REPORTED``; ``mob_loot.ground_rows_live_here`` folding an int
+    scene id; the ``another_scenes_cell`` reason; and
+    ``mob_loot.DropLedgerCell(scene=...)`` with ``compose_under_publication``.
+
+    **LANE-B MAY AMEND EVERY ONE OF THEM WITHOUT ASKING THIS LANE**, in the
+    same pull request that changes the thing being pinned.  They are pinned
+    here because this lane's seam CALLS them and a silent change would be
+    invisible until a click in a live scene - not to hold LANE-B still.
+    Measured cost if they are simply removed (pf-adversary, round
+    ``nyxlqs``): this file goes ``11 failed, 12 passed``, which is a LANE-A
+    file turning ``main`` red over a LANE-B decision.  So: amend them, do
+    not route around them.
 
 WHY THE SCENE IS CARRIED ALL THE WAY DOWN (condition of the LANE-B letter,
 and of pf-adversary's D16/D7 in that round): a session holds ONE loot cell
@@ -48,11 +74,14 @@ scene 1 must not be gated by a row standing in Bg0002, and naming the scene
 is what turns that into ``another_scenes_cell`` - a stated cause and v141's
 bytes - instead of a number.
 
-    AND THE SCENE HAS TO BE NAMED IN THE FORM THE CELL USES.  The letter
-    passes ``scene_id`` straight through, which cannot gate anything: see
-    ``test_an_int_scene_id_is_resolved_to_a_folder_before_it_gates``, the
-    reason ``lane_a_ground_preserve`` exists at all, and this round's
-    letter to LANE-B.
+    AND THE SCENE HAS TO BE NAMED IN THE FORM THE CELL USES.  ~~The letter
+    passes ``scene_id`` straight through, which cannot gate anything~~ -
+    STRUCK, round ``nyxlqs`` (pf-adversary D4): LANE-B FIXED THAT END in
+    ``#615`` after round ``gx7xtp``'s letter reported it, so an int scene id
+    folds now and the letter's literal shape gates correctly.  The lane's
+    own resolve stays because the cell publishes FOLDER names and this lane
+    holds ids; what the test below now pins is that the two shapes AGREE.
+    See ``test_an_int_scene_id_is_resolved_to_a_folder_before_it_gates``.
 """
 from __future__ import annotations
 
@@ -189,14 +218,30 @@ def _without_the_lock_holding_composer():
     fires.  It still fires on a deploy older than ``#615``, which is what an
     operator rolling back has, so the branch is exercised by REMOVING the name
     rather than by hoping for its absence.
+
+    IT MUST ALSO RUN ON THAT OLDER TREE (pf-adversary, round ``nyxlqs``, D3):
+    the first draft read the name with a bare ``getattr``, so on a tree that
+    really is pre-``#615`` the two tests whose whole purpose is "the hold-back
+    branch still works there" raised ``AttributeError`` before their block
+    ever ran.  Absent is now a case, not an error.
+
+    WHAT IS AND IS NOT SIMULATED, said plainly because the docstring above
+    reads bigger than the truth: only the NAME is removed.  ``mob_loot``
+    keeps ``#615``'s int-folding.  That is enough for this branch and only
+    this branch - it reaches ``mob_loot.GROUND_LIVENESS_UNKNOWN`` and
+    ``mob_combat.remote_actors_preserving_the_ground``, both of which
+    ``#615`` left untouched.  It is NOT a rollback of the tree.
     """
     name = preserve.UNDER_PUBLICATION_COMPOSER
-    landed = getattr(mob_combat, name)
-    delattr(mob_combat, name)
+    missing = object()
+    landed = getattr(mob_combat, name, missing)
+    if landed is not missing:
+        delattr(mob_combat, name)
     try:
         yield
     finally:
-        setattr(mob_combat, name, landed)
+        if landed is not missing:
+            setattr(mob_combat, name, landed)
 
 
 class TheHoldLiftsTheDayTheLockHoldingComposerLands(unittest.TestCase):
@@ -327,6 +372,105 @@ class TheHoldLiftsTheDayTheLockHoldingComposerLands(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertNotIn(reason, out)
 
+    def _cell_with_one_row_standing(self, scene: str):
+        """A REAL ``DropLedgerCell`` publishing ``scene`` with one real row.
+
+        pf-adversary D7 of this round: the frame-changing measurement was
+        being taken through ``_Cell``, which cannot host a composition, so
+        the composer that produced it was the RACY one - the very window
+        ``COO-DECISION 20260902_1946`` condition 1 forbids.  Evidence for
+        "the armed path changes the frame" has to come from the armed path.
+
+        The row is built through ``GroundDrop``'s own constructor (which
+        validates the key block, the f32 grid, the item and the scene), not
+        through a stub, so a row this cell publishes is a row the rest of
+        the lane would accept.
+        """
+        from pirateforce_foundation import field_drop_tables
+
+        item_id = sorted(field_drop_tables.ITEMS)[0]
+        drop = mob_loot.GroundDrop(
+            drop_key=mob_loot.DROP_KEY_BASE,
+            item_id=item_id,
+            quantity=1,
+            x=0.0, y=0.0, z=0.0,
+            mob_identity=0x2001,
+            killer_identity=0x1001,
+            scene=scene,
+        )
+        ledger = mob_loot.DropLedger(
+            drops=(drop,), generation=1,
+            issued_through=mob_loot.DROP_KEY_BASE + 1)
+        return mob_loot.DropLedgerCell(ledger=ledger, scene=scene)
+
+    def test_the_armed_path_itself_changes_the_frame_when_a_row_stands(
+        self,
+    ) -> None:
+        """The headline claim of this round, measured on the path it is
+        about: a REAL cell, a REAL row, the LOCK-HOLDING composer, and no
+        race line on the console.
+
+        WHAT THE DELTA IS, and it is a wire fact, not a client one
+        (pf-adversary D8): the preserving frame is a FIXED few bytes longer
+        - the same delta for one row as for 255 - because it carries a
+        MARKER, not the list.  That the client then keeps its ground pool
+        is ``RE-130``'s claim about the client, proven nowhere in this repo
+        and not proven here.
+        """
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        base = legacy.make_runtime_remote_actors(list(entries))
+        cell = self._cell_with_one_row_standing("Bg0002")
+        publishing, view, _elsewhere = cell.publication()
+        self.assertEqual(len(view.drops), 1, "the row must be standing")
+        preserve._HELD_BACK_REPORTED.clear()
+        mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED.clear()
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            armed = preserve.compose_answer(legacy, list(entries), 2, cell)
+        out = buffer.getvalue()
+        self.assertNotEqual(armed, base)
+        self.assertGreater(len(armed[1]), len(base[1]))
+        # It really was the lock-holding composer: none of the three race
+        # causes was reported, and the hold-back line is absent.
+        self.assertNotIn(mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN, out)
+        self.assertNotIn(preserve.CELL_HELD_BACK_TOKEN, out)
+
+    def test_the_composer_is_handed_the_folder_and_never_the_raw_id(
+        self,
+    ) -> None:
+        """pf-adversary D5: mutating ``scene=folder`` to ``scene=scene_id``
+        in the armed path killed no test, because since ``#615`` both fold
+        to the same scene for an ADDRESSED id.  The line is the module's
+        headline correction, so something has to be able to remove it."""
+        seen: dict = {}
+
+        def _spy(legacy, entries, site, *, cell, scene=None):
+            seen["scene"] = scene
+            seen["site"] = site
+            return (b"pc", b"frame")
+
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        name = preserve.UNDER_PUBLICATION_COMPOSER
+        landed = getattr(mob_combat, name)
+        setattr(mob_combat, name, _spy)
+        try:
+            got = preserve.compose_answer(
+                legacy, list(entries), 2, _Cell(1, "Bg0002"))
+        finally:
+            setattr(mob_combat, name, landed)
+        self.assertEqual(got, (b"pc", b"frame"))
+        self.assertEqual(seen["scene"], "Bg0002")
+        self.assertIsInstance(seen["scene"], str)
+        self.assertNotEqual(seen["scene"], 2)
+
     def test_a_cell_that_cannot_host_costs_the_ordering_not_the_frame(
         self,
     ) -> None:
@@ -371,22 +515,37 @@ class EachResponderReallyPassesItsOwnCellAndItsOwnScene(unittest.TestCase):
             placements = module._placements_by_index()
         indices = tuple(sorted(placements))
         preserve._HELD_BACK_REPORTED.clear()
-        mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear()
         # ROUND nyxlqs: the landed composer reports its own causes once per
         # (site, cause) for the life of the process, so a driver that does
-        # not clear this reads an EMPTY console on every call after the
+        # not clear these reads an EMPTY console on every call after the
         # first and cannot tell "said it once" from "never said it".
-        mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED.clear()
+        #
+        # SAVED AND PUT BACK, not clobbered (pf-adversary D10): these two are
+        # LANE-B's private module state and LANE-B's own tests save/restore
+        # them.  A test file of ours that empties them and walks away decides
+        # what another lane's tests see, purely by running first.
+        borrowed = (
+            mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED,
+            mob_combat._GROUND_ROWS_RACE_WINDOW_REPORTED,
+        )
+        kept = tuple(set(each) for each in borrowed)
+        for each in borrowed:
+            each.clear()
         buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
-            answer = module.respond(
-                legacy=self.legacy,
-                chosen_identities=(0x2000 + indices[0] + 1,),
-                population_indices=indices,
-                last_target_pos=(0.0, 0.0, 0.0, 0.0),
-                scene_id=scene,
-                mob_loot_cell=cell,
-            )
+        try:
+            with contextlib.redirect_stdout(buffer):
+                answer = module.respond(
+                    legacy=self.legacy,
+                    chosen_identities=(0x2000 + indices[0] + 1,),
+                    population_indices=indices,
+                    last_target_pos=(0.0, 0.0, 0.0, 0.0),
+                    scene_id=scene,
+                    mob_loot_cell=cell,
+                )
+        finally:
+            for each, before in zip(borrowed, kept):
+                each.clear()
+                each.update(before)
         return answer, buffer.getvalue()
 
     def test_no_cell_says_no_cell_and_a_cell_reaches_the_composer(
@@ -426,10 +585,17 @@ class EachResponderReallyPassesItsOwnCellAndItsOwnScene(unittest.TestCase):
         """~~"the frame is the same either way today"~~ - STRUCK, round
         ``nyxlqs``, MEASURED.  While the cell was held back that was true by
         construction; now that the composer is on ``main`` a cell reporting a
-        LIVE ROW is exactly what the ground list is kept for, so the bytes
-        MUST differ - scene 2 measured 12,574 -> 12,577 bytes.  A cell
-        publishing an EMPTY floor still composes v141's own bytes, which is
-        the half that keeps this safe to land before chief's call-site line.
+        LIVE ROW is exactly what the gate is armed for, so the bytes MUST
+        differ - scene 2 measured 12,574 -> 12,577.  A cell publishing an
+        EMPTY floor still composes v141's own bytes, which is the half that
+        keeps this safe to land before chief's call-site line.
+
+        THREE BYTES IS A MARKER, NOT A LIST (pf-adversary D8): the delta is
+        the same for one row as for 255, so the frame does not carry the
+        ground rows - it tells the client not to clear its pool.  This
+        drives ``_Cell``, which cannot host a composition, so the composer
+        it reaches is the RACY one; the armed path's own measurement is
+        ``test_the_armed_path_itself_changes_the_frame_when_a_row_stands``.
 
         This is a frame nobody can reach from a client today: ``runtime.py``
         passes no cell, so both halves are reachable only from a test."""
@@ -443,6 +609,11 @@ class EachResponderReallyPassesItsOwnCellAndItsOwnScene(unittest.TestCase):
                 empty, _ = self._drive(module, scene, _Cell(0, folder))
                 self.assertNotEqual(without.frame, live.frame)
                 self.assertGreater(len(live.frame), len(without.frame))
+                # pf-adversary D9: the replaced test pinned the pc of the
+                # cell path and this one dropped it, so a mutant that
+                # corrupted the armed pc while keeping the frame length
+                # survived.  Both halves are pinned now.
+                self.assertNotEqual(without.pc, live.pc)
                 self.assertEqual(without.pc, empty.pc)
                 self.assertEqual(without.frame, empty.frame)
 
@@ -489,10 +660,19 @@ class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
         shapes agree instead of one of them being a permanent no-op.
 
         The test stays, pointed at what is true now, because the property it
-        buys is what mattered: THE TWO SHAPES MUST AGREE.  If either side
-        ever stops folding one of them, one of these two lines goes red -
-        and a silent disagreement between them is a gate that never opens
-        with nothing on the console to say so."""
+        buys is what mattered: THE TWO SHAPES MUST AGREE.
+
+        ~~"If either side ever stops folding one of them, one of these two
+        lines goes red"~~ - STRUCK before it shipped (pf-adversary D6 of
+        this round, MEASURED both directions): making LANE-B's
+        ``caller_scene_fold`` refuse ints again turns THIS test red, but
+        deleting this lane's own resolve from ``ground_rows_for_scene``
+        leaves it GREEN - the folder and the id fold alike for an addressed
+        scene now, so this test cannot see that side.  What kills the
+        LANE-A side is ``test_an_unaddressed_scene_id_never_reaches_the_
+        cell`` (measured: 3 subfailures) and, in the armed path,
+        ``test_the_composer_is_handed_the_folder_and_never_the_raw_id``.
+        The claim is one-directional and now says so."""
         cell = _Cell(3, "Bg0002")
         # The letter's literal shape, since LANE-B's #615: a real count.
         self.assertEqual(mob_loot.ground_rows_live_here(cell, 2), 3)

@@ -51,7 +51,10 @@ call, so no edit here was needed and no call site moved.
     chief is asked to add is NO LONGER byte-identical.  With the composer
     on ``main``, a cell reaching a responder while a row is STANDING in
     that scene now composes the preserving frame - measured on scene 2,
-    12,574 -> 12,577 bytes.  That is the whole point of the seam and it is
+    12,574 -> 12,577 bytes.  THOSE THREE BYTES ARE A MARKER AND NOT THE
+    LIST (pf-adversary D8, MEASURED: the same delta for 1 row as for 255);
+    that the client then keeps its ground pool is ``RE-130``'s claim about
+    the CLIENT and is proven nowhere in this repository.  That is the whole point of the seam and it is
     what ``COO-DECISION 20260902_1946`` approved, but it is a behaviour
     change on the day the call site is wired, not a no-op, and nobody
     should read an older sentence and believe otherwise.  With an EMPTY
@@ -64,19 +67,29 @@ call, so no edit here was needed and no call site moved.
     keeps yesterday's behaviour is a bad day; a frame that eats a player's
     loot while a token says the ground is preserved is worse.
 
-THE ONE CORRECTION TO LANE-B'S CALL-SITE BLOCK, AND IT IS MEASURED.  The
-``1845`` letter's code reads ``mob_loot.ground_rows_live_here(mob_loot_
-cell, scene_id)``.  Wired literally, that is a NO-OP FOREVER: this lane's
-``scene_id`` is an int (1, 2, 14, 126, ...) while ``ground_rows_live_here``
-folds its scene argument through ``mob_loot.scene_key``, which is
-``_require_scene`` + ``casefold`` and REFUSES anything that is not a
-``str``.  Every click would return ``GROUND_LIVENESS_BAD_SCENE``
-(``caller_scene_unreadable``), take v141's bytes, and print a line blaming
-a call site wired exactly as instructed.  The loot cell's scenes are
-FOLDER names (``bg0001``, ``Bg0002``, ...), so this file resolves the id
-through ``world_scene_folder.scene_folder_for_scene_id`` - the one public
-reader ``COO-DECISION 20260829_0848`` item 3 names for this - and passes
-THAT.  Reported to LANE-B in round ``gx7xtp``'s letter.
+THE ONE CORRECTION TO LANE-B'S CALL-SITE BLOCK, AND LANE-B HAS SINCE FIXED
+ITS OWN END.  The ``1845`` letter's code reads ``mob_loot.ground_rows_live_
+here(mob_loot_cell, scene_id)``.  ~~Wired literally, that is a NO-OP
+FOREVER: this lane's ``scene_id`` is an int (1, 2, 14, 126, ...) while
+``ground_rows_live_here`` folds its scene argument through ``mob_loot.
+scene_key``, which is ``_require_scene`` + ``casefold`` and REFUSES
+anything that is not a ``str``.  Every click would return ``GROUND_
+LIVENESS_BAD_SCENE`` (``caller_scene_unreadable``), take v141's bytes, and
+print a line blaming a call site wired exactly as instructed.~~ - STRUCK,
+round ``nyxlqs`` (pf-adversary D4), MEASURED: that was true when it was
+written and LANE-B CLOSED IT in ``#615`` after round ``gx7xtp`` reported
+it.  ``ground_rows_live_here(cell, 2)`` now returns a count, because their
+``caller_scene_fold`` folds an int scene id.  The paragraph is kept struck
+rather than deleted because it is why this file exists at all.
+
+The loot cell's scenes are FOLDER names (``bg0001``, ``Bg0002``, ...), so
+this file resolves the id through ``world_scene_folder.scene_folder_for_
+scene_id`` - the one public reader ``COO-DECISION 20260829_0848`` item 3
+names for this - and passes THAT.  It still does, for two reasons that
+survive ``#615``: an id this registry does not address must never reach the
+cell (below), and the ARMED path hands the composer a scene that then
+travels into another lane's publication, where a folder name is the form
+every other reader uses.
 
 FAIL-CLOSED, IN THE ONLY DIRECTION THAT IS SAFE HERE.  An id this
 project's registry does not address resolves to ``None``, and ``None``
