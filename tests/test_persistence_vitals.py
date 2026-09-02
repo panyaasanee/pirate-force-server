@@ -836,6 +836,23 @@ class NothingIsWiredTests(unittest.TestCase):
         # were carried out: the file is deleted and this entry went with it.
         # LANE-DB wrote the permission for both into the pin's own failure
         # message and into this comment before either was needed.
+        # LANE-DB round gop8qq: the login-vitals RESOLVER and its test file.
+        # `persistence_login_vitals.resolve_for_character` really does call
+        # `read_character_vitals` -- deliberately the gap-carrying door and not
+        # `_or_none`, because CORE-REQUEST `pf_bridge/notes_to_chief/
+        # 20260902_1310` point 2 requires a broken row and an unseeded row to
+        # read differently.  READ THE DISTINCTION BEFORE TREATING THIS AS A
+        # PRECEDENT: this class's claim is that nothing on a SEND path calls
+        # these methods, and that claim is intact, because nothing calls the
+        # resolver.  Measured, and by a test that ships:
+        # `tests/test_persistence_login_vitals.py::
+        # TheModuleOwnsNoConstantsTests::test_the_module_is_not_wired_in_by_
+        # this_lane` scans all of `src/` for any file naming the resolver and
+        # requires the list to be empty.  THE DAY A LOGIN SEAM CALLS IT, that
+        # test goes red first and this entry is what must be rewritten -- the
+        # wiring is chief's to land, and it is the wiring this lane asked for.
+        "src/pirateforce_foundation/persistence_login_vitals.py",
+        "tests/test_persistence_login_vitals.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
@@ -1476,6 +1493,14 @@ class NewCharacterVitalsTests(unittest.TestCase):
             # that looked like it covered the plug branches on "or it is not
             # in yet", which was correct until the day it landed.
             "tests/test_birth_vitals_plug_is_pinned.py",
+            # LANE-DB round gop8qq: the login-vitals resolver's test file
+            # DERIVES a newborn's expected level/HP from this function instead
+            # of restating `1/100/100`, which is the same reason
+            # `tests/pf_birth_state.py` is excused above -- it SPENDS point 1's
+            # "one place" nowhere and would go red rather than stale the day
+            # the birth values change.  The resolver MODULE is deliberately
+            # not in this set: it does not name this function at all.
+            "tests/test_persistence_login_vitals.py",
         }
         callers = []
         for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",
