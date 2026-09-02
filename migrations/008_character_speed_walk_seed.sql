@@ -1,0 +1,130 @@
+-- 008_character_speed_walk_seed.sql
+-- LANE-DB / M4.  The second migration of this lane that writes existing rows.
+--
+-- MEASURED from client BasicAttr constructor (RE-194) -- VA 0x00464AF2 -- STORE ONLY, not a send value
+--
+-- That is the header label `COO-DECISION 20260902_0742` point 2 requires,
+-- verbatim, in ASCII (`--` for the em dash).  The second half of it is the
+-- decision's own words and is a LIMIT, not decoration: see "WHAT THIS FILE
+-- DOES NOT AUTHORISE" below.  The tag is placed where 007 places its own for
+-- the same reason 007 gives -- `gate-windows.yml`'s cp874 tripwire reads
+-- tracked `.py` under `tools/`, `src/` and `current/` only, so what reads
+-- this file is a person and a boot's traceback.
+--
+-- WHY THIS FILE IS ALLOWED TO EXIST AT ALL, since 006 and 007 both refused
+-- to seed this exact column.  `COO-DECISION 20260901_1447` point 2 forbade
+-- seeding `speed_walk` because 150.0 and 400.0 were two candidates and "both
+-- numbers are equally a guess without" an RE.  That was a decision WAITING on
+-- a measurement, and the measurement arrived: `RE-194` (result letter
+-- `pf_bridge/notes_to_chief/20260902_0501_...RE-194...md`, 2026-09-02T05:01
+-- +07:00).  `COO-DECISION 20260902_0742` point 1 is where the wait was lifted
+-- and this file approved; this lane did not lift it on its own authority, and
+-- the RE letter's own `BUILD_IMPACT` line is not what lifted it either.
+--
+-- WHERE THE NUMBER COMES FROM, and how far the evidence reaches.
+--
+--   speed_walk   400.0   `BasicAttr::ctor` at VA `0x00464AF2` executes
+--                        `movss [esi+0x54], xmm0` after loading the f32 at
+--                        VA `0x00F0DD9C`, whose four bytes are
+--                        `00 00 C8 43` = IEEE-754 `400.0`.  RE-194 decoded
+--                        the whole chain -- `CMyActor::ctor` ->
+--                        `CNetActor::ctor` -> the ActorAttr pool/factory ->
+--                        `ActorAttr::ctor` -> `BasicAttr::ctor` -- and found
+--                        the store UNCONDITIONAL: no branch, no parameter,
+--                        no player/NPC discrimination.
+--
+-- Cited by VA and by the instruction, deliberately, and NOT by a line number
+-- in any file: the same rule 007's header sets out, for the same reason
+-- (point 3 of `COO-DECISION 20260902_0250` forbids editing a landed migration,
+-- so a pointer written here can never be corrected in place).
+--
+-- WHY 150.0 IS NOT A COMPETING CANDIDATE ANY MORE.  It is a real number in
+-- this repository -- `PROVEN_WALK_SPEED = 150.0` in `tests/test_npc_gait_
+-- wire.py` -- but RE-194 placed it one lifecycle layer later: it is a value a
+-- server-side scenario PACKS into wire tag `0x2A` and the client stores over
+-- the constructed 400.0 on receipt.  `NPCAttr::ctor` calls the same
+-- `BasicAttr::ctor`, so a fresh NPC also begins at 400.0.  The two numbers
+-- were never two answers to one question; they were one answer each to two.
+--
+-- *** WHAT THIS FILE DOES NOT AUTHORISE, and the reason the label says
+-- "STORE ONLY, not a send value".  RE-194's own nonclaims are explicit that
+-- it closed the value only AFTER construction and BEFORE any wire write, and
+-- that tag `0x2A` / mask bit `0x0040` is a genuine overwrite path.
+-- `COO-DECISION 20260902_0742` point 4 turns that into an instruction: NO
+-- code may read `speed_walk` off a row and put it on the wire on the strength
+-- of this file.  Whether the server sends a speed, and when, belongs to
+-- GM-B / `/speed` and to `COO-DECISION 20260902_0345`, which is a separate
+-- decision with a separate owner.  This file makes the column REMEMBER a
+-- number.  It does not make anything SAY it.
+--
+-- *** ONE BEHAVIOUR THIS FILE DOES CHANGE, DISCLOSED RATHER THAN DISCOVERED.
+-- "STORE ONLY" above is about the WIRE.  It is not a claim that nothing in
+-- the server reads this column, because something already does:
+-- `gm/chat_command_action.py`'s `/speed` undo (`_speed_undo`) reads
+-- `speed_walk` off the row to know what to put back if its audit write fails.
+-- Its own docstring names the NULL case explicitly -- "a first-ever `/speed`
+-- for this character ... there is nothing to put back" -- and before this
+-- file that is EVERY existing character.  After it, the same failure restores
+-- 400.0 instead of keeping the new value, and a GM sees the other of two
+-- already-adjudicated console words.
+--
+-- That is arguably the better behaviour and it is NOT what this file was
+-- written for, which is exactly why it is written down here: the change is
+-- real, it belongs to `/speed`'s owner (`COO-DECISION 20260902_0345`, GM-B),
+-- and it went to COO and to chief in writing the round this file landed.  A
+-- `pf-adversary` pass found it; the first draft of this header did not
+-- mention it, and "the migration only makes the column remember a number"
+-- would have been a true sentence hiding a false impression.
+--
+-- WHY IT DOES NOT BREAK THE OWNER'S "NEVER GUESS ZERO" RULE
+-- (PANYA-ORDER relayed verbatim in `COO-DECISION 20260901_1059`).  400.0 is
+-- not zero and is not a guess: it is four bytes read out of the shipped
+-- client image at a named address.  The seventeen columns this file does not
+-- touch stay NULL, `SQLiteStore.read_typed_attributes` keeps omitting them,
+-- and `persistence_attr_compose` keeps refusing a block that would need them.
+-- Fail-closed is unchanged for every other field.
+--
+-- THE SHAPE, and why it is exactly 007's.  `COO-DECISION 20260902_0742`
+-- point 1 requires the same shape as 007: `WHERE speed_walk IS NULL`, so a
+-- row already holding a speed -- whatever wrote it -- is never touched, and
+-- re-running the file (which the ledger prevents anyway) would change
+-- nothing.  There is no partner column here and so no atomic pair: unlike the
+-- HP pair, `speed_walk` has no relation to another column that a per-column
+-- predicate could break.  It does not touch `updated_at`, for 007's reason: a
+-- backfill of a column that was absent is not a change the character made.
+-- It treats soft-deleted rows exactly like live ones, also for 007's reason:
+-- `004_character_soft_delete_reuse.sql` keeps a deleted character's row, and
+-- an undelete must not produce a character with a hole where its speed was.
+-- It inserts nothing, deletes nothing, drops nothing, rebuilds no table and
+-- adds no column.
+--
+-- WHY IT IS SURVIVABLE.  `COO-DECISION 20260901_1112` point 3: a migration
+-- touching existing rows lands with an automatic pre-apply copy of the `.db`
+-- file.  `SQLiteStore.migrate_with_backup` is called on both migrating
+-- branches of `app.py`'s boot, and `persistence_backup.should_snapshot`
+-- returns True whenever a migration file is pending -- which is the boot that
+-- applies this one.  `tests/test_persistence_speed_seed_008.py` drives the
+-- real `migrate_with_backup` over the real `migrations/` directory and
+-- restores the pre-008 database out of the snapshot it leaves, so
+-- "reversible" is measured rather than asserted.  The same limitation 007
+-- names still holds and is repeated here rather than assumed to have been
+-- read: eleven `tools/*_headless_replay.py` and one `reports/` probe call the
+-- plain, snapshot-less `migrate()`, and two of those take an operator-supplied
+-- database path.  Those call sites are outside this lane's write zone.
+--
+-- *** THE SAME LIMITATION 007 CARRIES: THIS FILE SEEDS A COHORT, NOT A
+-- DATABASE.  It writes the characters that EXIST when it runs and no others,
+-- ever, and on a fresh install it runs against an empty table and writes
+-- nothing at all.  A character born after it has a NULL `speed_walk` forever
+-- unless something at creation writes one.  `COO-DECISION 20260902_0443`
+-- answered that question for the three VITAL columns -- `persistence_vitals.
+-- new_character_vitals()` and the `create_character` plug of `COO-DECISION
+-- 20260902_0444` -- and it deliberately did NOT answer it for this column:
+-- `new_character_vitals()` refuses to return a fourth key, and
+-- `tests/test_persistence_vitals.py` has a control that goes red if a birth
+-- starts seeding `speed_walk`.  Closing this gap is a new decision, not an
+-- inference from this file, and until it is made "every character has a
+-- speed" is true of the characters alive when this file runs and of no
+-- others.
+
+UPDATE characters SET speed_walk = 400.0 WHERE speed_walk IS NULL;

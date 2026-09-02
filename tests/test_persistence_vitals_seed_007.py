@@ -49,6 +49,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
@@ -57,6 +58,7 @@ from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 from pirateforce_foundation import player_wire  # noqa: E402
+import pf_lane_db_birth  # noqa: E402  (the birth-state door)
 
 MIGRATIONS = ROOT / "migrations"
 MIGRATION_007 = MIGRATIONS / "007_character_vitals_seed.sql"
@@ -94,6 +96,47 @@ def raw_rows(path):
         db.close()
 
 
+def _calls_new_character_vitals(path):
+    """Whether `path` really CALLS the birth-value function.
+
+    Parsed, not grepped.  The first version of the guard below asked
+    `assertIn("new_character_vitals", source)` and a `pf-adversary` pass
+    walked straight through it: a plug that typed `(1, 100, 100)` into the
+    INSERT and added the comment `# values come from
+    persistence_vitals.new_character_vitals()` left the ENTIRE suite green,
+    byte-identical to the clean baseline -- while doing the one thing
+    `COO-DECISION 20260902_0444` spells out as forbidden.
+
+    That is not a freak spelling either: `COO-DECISION 20260902_0445` point 5
+    tells every lane to write prose mentions of guarded tokens rather than
+    remove guards, so a comment naming this function is HOUSE STYLE.  A guard
+    that fires on a word is therefore guaranteed to be defeated by the house's
+    own rule; only a guard that fires on a CALL is not.
+    """
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = (func.attr if isinstance(func, ast.Attribute)
+                else func.id if isinstance(func, ast.Name) else None)
+        if name is None:
+            continue
+        # A plug may import it under any alias, so the alias is resolved back
+        # to the imported symbol rather than trusted to be spelled out.
+        if name == "new_character_vitals":
+            return True
+        for imported in ast.walk(tree):
+            if isinstance(imported, ast.ImportFrom):
+                for alias in imported.names:
+                    if (alias.name == "new_character_vitals"
+                            and (alias.asname or alias.name) == name):
+                        return True
+    return False
+
+
 def _statements(sql: str) -> list[str]:
     body = "\n".join(
         line for line in sql.splitlines() if not line.lstrip().startswith("--")
@@ -115,9 +158,18 @@ class _MigratedWorkspace(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.older = self.root / "migrations_upto_006"
         self.older.mkdir()
+        # ...and a SECOND prefix that stops at 007.  Both are version
+        # prefixes of the real directory rather than "everything except N",
+        # which is the spelling that broke when 007 arrived (see
+        # `MigrationIsNonDestructiveTests.setUp` in the 006 file).
+        self.through_007 = self.root / "migrations_upto_007"
+        self.through_007.mkdir()
         for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
-            if int(path.name[:3]) < 7:
+            version = int(path.name[:3])
+            if version < 7:
                 shutil.copy2(path, self.older / path.name)
+            if version <= 7:
+                shutil.copy2(path, self.through_007 / path.name)
         self.path = self.root / "state.sqlite3"
 
     def _rows(self):
@@ -131,7 +183,21 @@ class _MigratedWorkspace(unittest.TestCase):
             db.close()
 
     def _make(self, names):
-        """Create characters on the pre-007 schema; return their ids."""
+        """Create characters on the pre-007 schema; return their ids.
+
+        "Pre-007" is the whole subject of this file: rows that exist and hold
+        no vitals, which is what `migrations/007` was written to complete.
+        Once the birth plug of `COO-DECISION 20260902_0444` lands, a character
+        is born already holding them, so a row created here would arrive in a
+        state 007 has nothing to do to -- and every measurement of what 007
+        changed would silently become a measurement of nothing.
+
+        `clear_birth_vitals` is therefore called on each row, and it is not a
+        blunt `UPDATE ... SET NULL`: it refuses any birth state but the two
+        this lane accepts before it clears anything (see `pf_lane_db_birth`).
+        A birth that writes the wrong numbers fails HERE, in setup, instead of
+        being erased into the state this fixture wanted.
+        """
         store = SQLiteStore(self.path, self.older)
         store.migrate()
         account_id = store.ensure_account("vitals-seed-007")
@@ -142,11 +208,30 @@ class _MigratedWorkspace(unittest.TestCase):
                 account_id, name, name.lower(),
                 "fingerprint-007-%s" % name.lower(), _build_wire, home,
             )
+            pf_lane_db_birth.clear_birth_vitals(store, character.id)
             ids.append(character.id)
         return ids
 
     def _apply_007(self):
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        """Apply migrations THROUGH 007, and not one file further.
+
+        This used to run the whole `migrations/` directory, which was the
+        same statement while 007 was the last file and became a different one
+        the day `migrations/008_character_speed_walk_seed.sql` landed: two
+        tests here assert that after 007 every column it does not name is
+        still NULL, and 008 seeds `speed_walk` in the same call.  They would
+        have gone red reporting `400.0 is not None`, blaming 007 for a write
+        it did not make.
+
+        Stopping at 007 is what this file's name claims to measure, so the
+        claim and the fixture now agree.  But it also DELETED the only place
+        007 and 008 ran against one populated database in one boot -- which is
+        the owner's real upgrade path -- and a `pf-adversary` pass caught the
+        forward reference that used to sit here claiming otherwise.  That case
+        is now covered on purpose and by name:
+        `tests/test_persistence_speed_seed_008.OneBootFrom006To008Tests`.
+        """
+        SQLiteStore(self.path, self.through_007).migrate()
 
     def _applied_versions(self):
         db = sqlite3.connect(self.path)
@@ -452,8 +537,13 @@ class MigrationIsNarrowTests(_MigratedWorkspace):
         self._apply_007()
         first = self._rows()[0]
         self.assertIn(7, self._applied_versions())
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        # The SAME set again, not the whole directory: "re-running" means
+        # running these files a second time.  Handing `migrate()` the full
+        # directory here would apply `008_character_speed_walk_seed.sql` for
+        # the FIRST time and then read its write as proof that 007 ran twice.
+        SQLiteStore(self.path, self.through_007).migrate()
         self.assertEqual(self._rows()[0], first)
+        self.assertNotIn(8, self._applied_versions())
 
     def test_a_value_written_after_the_migration_is_not_re_seeded(self):
         """The ledger is what stops a second apply, but the statements are
@@ -782,6 +872,66 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
                 store.read_typed_attributes(first.id),
                 store.read_typed_attributes(second.id))
 
+    def _retried_birth(self, first_vitals):
+        """Create ONE character, level it up, then create it AGAIN with the
+        SAME fingerprint -- the retransmitted-create-packet path.
+
+        `SQLiteStore.create_character` has an idempotency branch: a repeated
+        create with a fingerprint it already holds returns the existing
+        character instead of making a second one.  That branch is a SECOND
+        DOOR into the same room, and until this method existed nothing in
+        this lane looked at it.  A `pf-adversary` pass installed a plug that
+        was correct in every way `_second_birth` checks -- right values, right
+        function, right `WHERE id` -- and ALSO seeded on the retry branch:
+
+            veteran before duplicate create: level 9, hp 480/500
+            veteran AFTER  duplicate create: level 1, hp 100/100
+
+        The whole suite stayed green.  A retransmitted packet -- a lagging
+        client, a reconnect -- would have reset a real player's character to
+        a newborn, silently, and nothing in this repository would have said so.
+        """
+        store = SQLiteStore(self.path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("retried-birth")
+        home = Position(3, 0, 1.0, 2.0, 3.0, heading=0.0)
+        first = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        store.write_typed_attributes(first.id, dict(first_vitals))
+        before = store.read_typed_attributes(first.id)
+        again = store.create_character(
+            account_id, "Veteran", "veteran", "fingerprint-veteran",
+            _build_wire, home)
+        return store, first, again, before, store.read_typed_attributes(first.id)
+
+    def test_a_repeated_create_returns_the_same_row_and_changes_nothing(self):
+        """The retry door, closed.
+
+        Two assertions, and both are needed: that the repeat did not make a
+        second character (the store's existing promise, which would otherwise
+        make the second half vacuous), and that it did not rewrite the vitals
+        of the character it returned.
+        """
+        veteran = {"level": 9, "hp_current": 480, "hp_max": 500}
+        store, first, again, before, after = self._retried_birth(veteran)
+        self.assertEqual(again.id, first.id)
+        with raw_rows(self.path) as db:
+            live = db.execute(
+                "SELECT COUNT(*) FROM characters WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+        self.assertEqual(live, 1)
+        for column, value in veteran.items():
+            self.assertEqual(before.get(column), value, column)
+            self.assertEqual(
+                after.get(column), value,
+                "a repeated create with the same fingerprint rewrote %s of an "
+                "EXISTING character from %r to %r.  The retry branch of "
+                "create_character returns a character that already exists; it "
+                "must not seed it as if it were being born."
+                % (column, value, after.get(column)),
+            )
+
     def test_creating_a_character_does_not_touch_any_other_row(self):
         """The veteran-reset defect, as the test that fails on it.
 
@@ -830,11 +980,10 @@ class SeedsACohortNotADatabaseTests(_MigratedWorkspace):
         _store, _character_id, stored = self._newborn("mechanism")
         if not any(column in stored for column in SEEDED):
             return
-        store_source = (ROOT / "src" / "pirateforce_foundation"
-                        / "store.py").read_text(encoding="utf-8")
-        self.assertIn(
-            "new_character_vitals", store_source,
-            "characters are born holding vitals, but store.py never names "
+        self.assertTrue(
+            _calls_new_character_vitals(
+                ROOT / "src" / "pirateforce_foundation" / "store.py"),
+            "characters are born holding vitals, but store.py never CALLS "
             "new_character_vitals(): the numbers came from somewhere else "
             "(an inline literal, a schema DEFAULT, or a trigger), and "
             "COO-DECISION 20260902_0443 points 1 and 2 rule out all three",

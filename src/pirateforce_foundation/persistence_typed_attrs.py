@@ -27,13 +27,15 @@ WHAT IT DOES NOT DO.
   module, at creation or at migration time; a caller supplies every value.
   Seeding walk speed from the client's proven construction default (400.0,
   written at ``0x00464AF2``, see ``persistence_attr_compose.
-  CLIENT_CONSTRUCTION_DEFAULTS``) is a real and wanted step, and it is a data
-  write on live rows.  The snapshot that a live write needs now exists on the
-  boot path (``app.py:784``/``:787`` call ``SQLiteStore.migrate_with_backup``;
-  ``CORE-REQUEST-DB-001`` answered on main by LANE-E round liq4ri), so what
-  seeding waits on is no longer a mechanism but a NUMBER: ``COO-DECISION
-  20260901_1447`` point 2 forbids seeding ``speed_walk`` with either candidate
-  until an RE says which one a player object uses.
+  CLIENT_CONSTRUCTION_DEFAULTS``) is a data write on live rows, and it now
+  happens -- but in a MIGRATION, not here.  ``COO-DECISION 20260901_1447``
+  point 2 forbade it while 400.0 and 150.0 were two candidates; ``RE-194``
+  closed that question and ``COO-DECISION 20260902_0742`` approved
+  ``migrations/008_character_speed_walk_seed.sql``, which writes the existing
+  rows once, behind the boot snapshot ``migrate_with_backup`` takes
+  (``CORE-REQUEST-DB-001`` answered on main by LANE-E round liq4ri).  This
+  module still seeds nothing itself, and a character created after 008 still
+  arrives with ``speed_walk`` NULL.
 * It does not know whether ``speed_walk`` really is the PLAYER's walk speed.
   The column serves BasicAttr+0x54 (x=7).  ``gm/attr_wire.py:173`` calls it
   ``basic_f32_54``, ``known=False``, and the Codex corpus scopes its row to
@@ -41,8 +43,12 @@ WHAT IT DOES NOT DO.
   ``npc_locomotion_presentation`` ``runtime_pass`` on the same bit (0x0040)
   and ``tests/test_npc_gait_wire.py:59`` pins ``PROVEN_WALK_SPEED = 150.0``
   there.  Identified for NPCs at the wire+visual layer, untested for a player,
-  and carrying two different numbers between layers (150.0 proven on the wire,
-  400.0 as the client's construction default).  [สมมติของสาย DB - รอ RE]
+  and carrying two different numbers between layers -- which ``RE-194``
+  resolved into two layers rather than two answers: 400.0 is what
+  ``BasicAttr::ctor`` constructs for players and NPCs alike, and the 150.0 is
+  a later wire write through tag ``0x2A``.  What that RE did NOT settle is
+  whether ``+0x54`` is the player's walk speed at all, so the naming of this
+  column is still [สมมติของสาย DB - รอ RE].
 * It sends nothing.  No frame, no encoder, no socket.
 """
 from __future__ import annotations

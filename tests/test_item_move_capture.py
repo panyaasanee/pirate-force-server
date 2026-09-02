@@ -369,9 +369,9 @@ class ItemMoveCaptureTests(unittest.TestCase):
             with pinned_store.connect() as db:
                 self.assertEqual(
                     db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    # moves with every new migration file; 7 since
-                    # migrations/007_character_vitals_seed.sql
-                    7,
+                    # moves with every new migration file; 8 since
+                    # migrations/008_character_speed_walk_seed.sql
+                    8,
                 )
             self.assertFalse((capture_root / "capture-source.sqlite3").exists())
         finally:

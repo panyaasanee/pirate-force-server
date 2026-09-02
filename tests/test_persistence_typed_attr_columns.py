@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import pf_preconditions  # noqa: E402  (the census token lives here)
+import pf_lane_db_birth  # noqa: E402  (the birth-state door, see that file)
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
@@ -351,8 +352,16 @@ class MigrationIsNonDestructiveTests(unittest.TestCase):
         old_store.migrate()
         account_id = old_store.ensure_account("typed-attr-006")
         home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
-        old_store.create_character(
-            account_id, "TypedAttrOne", "typedattrone",
+        # NOT `old_store.create_character(...)` directly.  Once the birth plug
+        # of `COO-DECISION 20260902_0444` lands, `create_character` names
+        # `level` in its INSERT and cannot run against ANY database older than
+        # 006 -- this line stopped being an assertion failure and became
+        # `sqlite3.OperationalError: table characters has no column named
+        # level`.  The helper uses the real door whenever the real door works
+        # and writes the 005-shaped row by hand only when the schema genuinely
+        # lacks the columns, which is the state this test is about.
+        pf_lane_db_birth.create_character_at_this_schema(
+            old_store, account_id, "TypedAttrOne", "typedattrone",
             "fingerprint-typed-attr-006", _build_wire, home,
         )
         before = {t: self._dump(t) for t in
@@ -453,8 +462,11 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         store.migrate()
         if not keep_wal_hot:
             account_id = store.ensure_account("boot-snapshot-006")
-            store.create_character(
-                account_id, "SnapshotOne", "snapshotone",
+            # Same reason as `MigrationIsNonDestructiveTests` above: the birth
+            # plug makes the real door unusable below schema 006, and 005 is
+            # the whole point of this fixture.
+            pf_lane_db_birth.create_character_at_this_schema(
+                store, account_id, "SnapshotOne", "snapshotone",
                 "fingerprint-boot-snapshot-006", _build_wire,
                 Position(3, 0, 44.0, 55.0, 66.0, heading=0.25),
             )
@@ -666,6 +678,218 @@ class BootSnapshotProtects006Tests(unittest.TestCase):
         )
 
 
+class ThePre006FallbackWritesTheSameRowTests(unittest.TestCase):
+    """`pf_lane_db_birth.create_character_at_this_schema` falls back to a
+    hand-written row when the schema predates 006, because the birth plug of
+    `COO-DECISION 20260902_0444` makes `store.create_character` unusable
+    there.  Two tests above depend on that fallback, and both of them exist to
+    prove that 006 does not damage a REAL row -- which is worth nothing if the
+    fallback quietly writes a different row from the one the real door writes.
+
+    *** WHY THE COMPARISON RUNS ON THE FULL SCHEMA AND NOT ON 005, WHICH IS
+    WHERE THE FALLBACK IS ACTUALLY USED.  The first version of this class ran
+    both paths at schema 005 and said so in this docstring: "where both can
+    still run".  A `pf-adversary` pass measured that sentence and found it was
+    already the landmine this whole round exists to remove -- after chief's
+    plug lands, the REAL door cannot run at 005 at all, so the comparison
+    would not merely fail, it would be impossible, inside HIS pull request,
+    over a file he may not edit.  Thirty-three mines removed and a
+    thirty-fourth laid in the same commit.
+
+    The full schema is the one place both paths run in BOTH worlds.  What is
+    compared there is every column of `characters`, `character_positions` and
+    `character_backpacks` except two sets: the timestamps, which differ
+    because the two rows are written at two different instants, and the three
+    BIRTH columns, which are the one thing the fallback is supposed not to
+    write.  That the fallback leaves those three alone is asserted directly
+    instead, so nothing about it is merely excluded.
+    """
+
+    VOLATILE = frozenset({"created_at", "updated_at"})
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.older = self.root / "migrations_upto_005"
+        self.older.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 5:
+                shutil.copy2(path, self.older / path.name)
+
+    def _dump(self, path, table):
+        db = sqlite3.connect(str(path))
+        db.row_factory = sqlite3.Row
+        try:
+            return [{k: r[k] for k in r.keys()}
+                    for r in db.execute("SELECT * FROM %s ORDER BY rowid" % table)]
+        finally:
+            db.close()
+
+    def _write(self, label, through_the_door):
+        """One character, on the FULL schema, by one of the two paths.
+
+        `MIGRATIONS` and not `self.older`: see the class docstring.  The real
+        door has to be callable here in both worlds, and 005 is precisely
+        where it stops being callable.
+        """
+        path = self.root / ("%s.sqlite3" % label)
+        store = SQLiteStore(path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("pre-006-compare")
+        home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
+        if through_the_door:
+            character = store.create_character(
+                account_id, "Compare", "compare", "fingerprint-compare",
+                _build_wire, home,
+            )
+            character_id = character.id
+        else:
+            character_id = pf_lane_db_birth._insert_pre_006_character(
+                store, account_id, "Compare", "compare",
+                "fingerprint-compare", _build_wire, home,
+            )
+        return character_id, path, {
+            t: self._dump(path, t) for t in
+            ("characters", "character_positions", "character_backpacks")}
+
+    def test_the_fallback_row_matches_the_real_door_column_for_column(self):
+        _, _, real = self._write("real_door", True)
+        _, _, fallback = self._write("fallback", False)
+        ignored = self.VOLATILE | set(pf_lane_db_birth.BIRTH_COLUMNS)
+        for table in real:
+            self.assertEqual(len(fallback[table]), len(real[table]), table)
+            for expected, got in zip(real[table], fallback[table]):
+                self.assertEqual(set(got), set(expected), table)
+                differing = {
+                    column: (expected[column], got[column])
+                    for column in expected
+                    if expected[column] != got[column]
+                    and column not in ignored
+                }
+                self.assertEqual(differing, {}, table)
+
+    def test_the_fallback_writes_no_birth_column_of_its_own(self):
+        """The one set the comparison above excludes, asserted directly.
+
+        Excluding a column from a comparison and never looking at it again is
+        how a hole gets called a decision.
+        """
+        character_id, path, _ = self._write("fallback_only", False)
+        db = sqlite3.connect(str(path))
+        try:
+            row = db.execute(
+                "SELECT %s FROM characters WHERE id=?"
+                % ",".join(pf_lane_db_birth.BIRTH_COLUMNS), (character_id,),
+            ).fetchone()
+        finally:
+            db.close()
+        self.assertEqual(list(row), [None] * len(pf_lane_db_birth.BIRTH_COLUMNS))
+
+    def test_the_fallback_is_what_actually_runs_below_006(self):
+        """The fallback exists for schema 005, so it is exercised there too --
+        alone, because that is the only way it can be exercised there once the
+        plug lands.  What is graded is that the row it leaves is complete: the
+        character, its position and its whole starting backpack."""
+        path = self.root / "at005.sqlite3"
+        store = SQLiteStore(path, self.older)
+        store.migrate()
+        account_id = store.ensure_account("pre-006-compare")
+        character_id, used_the_door = (
+            pf_lane_db_birth.create_character_at_this_schema(
+                store, account_id, "Old", "old", "fingerprint-old",
+                _build_wire, Position(3, 0, 11.0, 22.0, 33.0, heading=1.5),
+            )
+        )
+        self.assertEqual(len(self._dump(path, "characters")), 1)
+        positions = self._dump(path, "character_positions")
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["character_id"], character_id)
+        # Graded against what the REAL door leaves for the same character, not
+        # against a number typed here: `_insert_initial_backpack` is the store's
+        # own helper and the count it writes is its business, not this test's.
+        _, real_path, _ = self._write("at005_control", True)
+        self.assertEqual(
+            len(self._dump(path, "character_backpacks")),
+            len(self._dump(real_path, "character_backpacks")),
+        )
+        # `used_the_door` is whatever this repository allows TODAY; the row
+        # above has to be right either way, which is the point.
+        self.assertIn(used_the_door, (True, False))
+
+    def test_a_second_create_with_the_same_fingerprint_is_idempotent(self):
+        """The real door returns the existing character for a repeated create
+        (a retransmitted create packet).  A fallback without that branch
+        inserts a duplicate and dies on migration 004's unique index, inside
+        this lane's helper -- measured by a `pf-adversary` pass."""
+        path = self.root / "retry.sqlite3"
+        store = SQLiteStore(path, self.older)
+        store.migrate()
+        account_id = store.ensure_account("pre-006-compare")
+        home = Position(3, 0, 11.0, 22.0, 33.0, heading=1.5)
+        first = pf_lane_db_birth._insert_pre_006_character(
+            store, account_id, "Twice", "twice", "fingerprint-twice",
+            _build_wire, home)
+        second = pf_lane_db_birth._insert_pre_006_character(
+            store, account_id, "Twice", "twice", "fingerprint-twice",
+            _build_wire, home)
+        self.assertEqual(second, first)
+        self.assertEqual(len(self._dump(path, "characters")), 1)
+
+    def test_the_real_door_is_used_whenever_the_real_door_works(self):
+        """The fallback must never be the path taken on a database that has
+        the columns -- otherwise it stops being a fallback and starts being a
+        second `create_character` nobody reviews."""
+        path = self.root / "full.sqlite3"
+        store = SQLiteStore(path, MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("pre-006-compare")
+        character_id, used_the_door = (
+            pf_lane_db_birth.create_character_at_this_schema(
+                store, account_id, "Full", "full", "fingerprint-full",
+                _build_wire, Position(3, 0, 1.0, 2.0, 3.0, heading=0.0),
+            )
+        )
+        self.assertTrue(used_the_door)
+        self.assertEqual(store.get_character(character_id).name, "Full")
+
+    def test_an_unrelated_operational_error_is_not_swallowed(self):
+        """The fallback is reached only for a MISSING BIRTH COLUMN.  A store
+        that fails for any other reason must raise, not silently produce a
+        hand-written row that hides the failure.
+
+        The messages are chosen to pin the WORD-BOUNDARY rule, not just the
+        idea: `no such column: skill_level` and `no such table:
+        character_levels` both CONTAIN "level", and a triage written as a
+        substring test -- which is what the first version of this helper
+        did -- takes the fallback for both, burying a real failure under a
+        row that looks fine.  A `pf-adversary` pass named that; without these
+        two messages the fix for it is unmeasured.
+        """
+        path = self.root / "broken.sqlite3"
+        store = SQLiteStore(path, self.older)
+        store.migrate()
+        account_id = store.ensure_account("pre-006-compare")
+        for message in ("no such table: characters",
+                        "no such column: skill_level",
+                        "no such table: character_levels",
+                        "database is locked"):
+            with self.subTest(message=message):
+                with mock.patch.object(
+                    SQLiteStore, "create_character",
+                    side_effect=sqlite3.OperationalError(message),
+                ):
+                    with self.assertRaises(sqlite3.OperationalError) as caught:
+                        pf_lane_db_birth.create_character_at_this_schema(
+                            store, account_id, "Broken", "broken",
+                            "fingerprint-broken", _build_wire,
+                            Position(3, 0, 1.0, 2.0, 3.0, heading=0.0),
+                        )
+                self.assertEqual(str(caught.exception), message)
+        # ...and nothing was written by any of those four attempts.
+        self.assertEqual(self._dump(path, "characters"), [])
+
+
 class StoreRoundTripTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -681,6 +905,15 @@ class StoreRoundTripTests(unittest.TestCase):
             "fingerprint-typed-attr-store", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # Every assertion below is written against a row with NOTHING typed on
+        # it.  The birth plug of `COO-DECISION 20260902_0444` changes what a
+        # just-created character holds, so this one call checks that the birth
+        # is one of the two states this lane accepts -- and only then hands
+        # the test the blank row it was written for.  `pf_lane_db_birth`
+        # explains why the strictness moved here instead of being deleted.
+        self.birth_vitals = pf_lane_db_birth.clear_birth_vitals(
+            self.store, self.character.id
+        )
 
     def test_a_fresh_character_has_no_typed_values_at_all(self):
         # NOT `{column: 0 for ...}`: the whole rule in one assertion.
@@ -874,6 +1107,12 @@ class TheGateStillRefusesTests(unittest.TestCase):
             self.account_id, "TypedAttrGate", "typedattrgate",
             "fingerprint-typed-attr-gate", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        # See `StoreRoundTripTests.setUp`: the gap counts below are counts on
+        # an unwritten row, and the birth plug would otherwise close three of
+        # them before the test body starts.
+        self.birth_vitals = pf_lane_db_birth.clear_birth_vitals(
+            self.store, self.character.id
         )
 
     def _typed_values(self):
@@ -1122,6 +1361,12 @@ class SparseSendPathTests(NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
             self.account_id, "SparseSend", "sparsesend",
             "fingerprint-sparse-send", _build_wire,
             Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        # See `StoreRoundTripTests.setUp`: three of the controls in this class
+        # compare the WHOLE stored row against the one field written, so a
+        # seeded birth would make them compare four fields against one.
+        self.birth_vitals = pf_lane_db_birth.clear_birth_vitals(
+            self.store, self.character.id
         )
 
     def test_a_speed_write_comes_back_as_the_one_field_block(self):

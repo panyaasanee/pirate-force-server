@@ -52,6 +52,7 @@ from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E40
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+import pf_lane_db_birth  # noqa: E402  (the birth-state door)
 
 MIGRATIONS = ROOT / "migrations"
 MODULE = ROOT / "src" / "pirateforce_foundation" / "persistence_vitals.py"
@@ -346,6 +347,121 @@ class ApplyDamageTests(unittest.TestCase):
             vitals.apply_damage(0, 0, 1)
 
 
+class TheBirthDoorRefusesWhatItSaysItRefusesTests(unittest.TestCase):
+    """`tests/pf_lane_db_birth.py` is a fixture every other test in this lane
+    goes through, and a fixture nothing measures is a fixture that can quietly
+    stop measuring.
+
+    *** WHY THIS CLASS EXISTS.  A `pf-adversary` pass found the door claiming
+    in its docstring to refuse a birth that seeds a FOURTH column while
+    selecting only three.  That was fixed -- and a mutation run then showed
+    the fix itself was unmeasured: disabling the new check changed nothing
+    anywhere, because no other test in the repository installs a fourth-column
+    birth.  A guard nothing can fail is a guard nobody will notice losing, so
+    the door's refusals are driven DIRECTLY here, one row at a time.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("birth-door")
+        self.character = self.store.create_character(
+            self.account_id, "DoorChar", "doorchar", "fingerprint-door",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+
+    def _set(self, **columns):
+        with raw(self.path) as db:
+            for column, value in columns.items():
+                db.execute("UPDATE characters SET %s=? WHERE id=?" % column,
+                           (value, self.character.id))
+
+    def test_an_unseeded_row_is_the_first_accepted_world(self):
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self.assertEqual(
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id), {})
+
+    def test_the_exact_birth_values_are_the_second_accepted_world(self):
+        seed = vitals.new_character_vitals()
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(**seed)
+        self.assertEqual(
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id), seed)
+
+    def test_a_fourth_seeded_column_is_refused(self):
+        """The check whose absence a `pf-adversary` pass measured.
+
+        `speed_walk` is used because it is the concrete case: it is the
+        number `COO-DECISION 20260901_1447` point 2 spent a day refusing to
+        let anyone choose for a newborn, and `COO-DECISION 20260902_0443`
+        answered the birth question for the three vital columns only.
+        """
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(speed_walk=400.0, **vitals.new_character_vitals())
+        with self.assertRaises(pf_lane_db_birth.BirthStateError) as caught:
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id)
+        self.assertIn("speed_walk", str(caught.exception))
+
+    def test_a_fourth_seeded_column_is_refused_even_with_no_vitals(self):
+        """A birth that seeds ONLY a column it may not seed is the same
+        defect wearing the first accepted world's clothes."""
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(speed_walk=400.0)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError):
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id)
+
+    def test_wrong_birth_values_are_refused_and_the_row_is_printed(self):
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(level=1, hp_current=50, hp_max=50)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError) as caught:
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id)
+        self.assertIn("50", str(caught.exception))
+
+    def test_a_half_seeded_birth_is_refused(self):
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(hp_current=100)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError):
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id)
+
+    def test_a_zero_level_birth_is_refused(self):
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(level=0, hp_current=100, hp_max=100)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError):
+            pf_lane_db_birth.observed_birth_vitals(
+                self.store, self.character.id)
+
+    def test_clearing_refuses_before_it_clears(self):
+        """The order matters: a door that NULLed the row first and checked
+        afterwards would erase the evidence of every defect above."""
+        pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        self._set(level=1, hp_current=50, hp_max=50)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError):
+            pf_lane_db_birth.clear_birth_vitals(self.store, self.character.id)
+        with raw(self.path) as db:
+            row = db.execute(
+                "SELECT level,hp_current,hp_max FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()
+        self.assertEqual(tuple(row), (1, 50, 50))
+
+    def test_a_database_with_no_characters_table_is_refused_not_answered(self):
+        """A mistyped path is CREATED by `sqlite3.connect`, and `:memory:`
+        opens a fresh empty database every time.  Both would otherwise come
+        back as "nothing seeded" -- a green fixture over no measurement."""
+        empty = SQLiteStore(Path(self.tmp.name) / "not-a-database.sqlite3",
+                            MIGRATIONS)
+        with self.assertRaises(pf_lane_db_birth.BirthStateError):
+            pf_lane_db_birth.observed_birth_vitals(empty, 1)
+
+
 class SeedingCensusTests(unittest.TestCase):
     """"Is anything seeded" is asked of the DATABASE, and could not be asked
     of the migration text.
@@ -370,15 +486,46 @@ class SeedingCensusTests(unittest.TestCase):
             self.account_id, "CensusChar", "censuschar",
             "fingerprint-census", _build_wire, self.home,
         )
+        # The controls in this class are counts of a row that has NOTHING in
+        # its vital columns, so the character setUp builds is returned to that
+        # state -- after `clear_birth_vitals` has refused any birth but the
+        # two this lane accepts (`pf_lane_db_birth`).  The birth itself is not
+        # left unmeasured: the first test below creates a SECOND character and
+        # grades the census against whatever that one is really holding.
+        self.birth_vitals = pf_lane_db_birth.clear_birth_vitals(
+            self.store, self.character.id
+        )
 
-    def test_the_repository_as_it_stands_has_seeded_nothing(self):
+    def test_the_census_counts_a_new_row_as_whatever_that_row_holds(self):
+        """The census and the row agree, in both worlds.
+
+        This method used to be `test_the_repository_as_it_stands_has_seeded_
+        nothing`, and asserted a flat zero.  That was a true claim about this
+        repository right up until the birth plug of `COO-DECISION 20260902_
+        0444` lands, at which point a character is born holding three values
+        and a census that still answered zero would be WRONG rather than
+        reassuring.  Keeping the old name and clearing the row first would
+        have made the name a lie about a database the test had edited.
+
+        So what is pinned is the relation instead of the constant, which is
+        the thing that has to hold either way: for every vital column, the
+        census says "seeded" exactly when the newborn row is holding a value
+        in it.  A census blind to a birth-written value fails here, and so
+        does one that reports a column no birth touched.
+        """
+        fresh = self.store.create_character(
+            self.account_id, "CensusFresh", "censusfresh",
+            "fingerprint-census-fresh", _build_wire, self.home,
+        )
+        birth = pf_lane_db_birth.observed_birth_vitals(self.store, fresh.id)
         census = self.store.vitals_seeding_census()
-        self.assertEqual(census["characters_any"], 1)
-        self.assertEqual(census["characters_live"], 1)
+        self.assertEqual(census["characters_any"], 2)
+        self.assertEqual(census["characters_live"], 2)
         self.assertEqual(census["database"], str(self.path))
         for column in vitals.VITAL_COLUMNS:
-            self.assertEqual(census[column + "_seeded_any"], 0, column)
-            self.assertEqual(census[column + "_seeded_live"], 0, column)
+            expected = 1 if column in birth else 0
+            self.assertEqual(census[column + "_seeded_any"], expected, column)
+            self.assertEqual(census[column + "_seeded_live"], expected, column)
 
     def test_a_default_on_add_column_seeds_every_row_and_is_counted(self):
         # The shape 006's own header invites ("a rename is a later, cheap
@@ -426,10 +573,14 @@ class SeedingCensusTests(unittest.TestCase):
             self.character.id, {"level": 9, "hp_current": 50, "hp_max": 50})
         sid = self.store.open_session(self.account_id)
         self.store.soft_delete_character(sid, self.character.selector)
-        self.store.create_character(
+        fresh = self.store.create_character(
             self.account_id, "FreshChar", "freshchar", "fingerprint-fresh",
             _build_wire, self.home,
         )
+        # The scenario is "one seeded-then-deleted row beside one row holding
+        # nothing", so the second row is returned to holding nothing.  What it
+        # was holding is checked, not assumed -- see setUp.
+        pf_lane_db_birth.clear_birth_vitals(self.store, fresh.id)
         census = self.store.vitals_seeding_census()
         self.assertEqual(census["characters_live"], 1)
         self.assertEqual(census["characters_any"], 2)
@@ -574,6 +725,15 @@ class StoreVitalsTests(unittest.TestCase):
             "fingerprint-vitals", _build_wire, self.home,
         )
         self.store.select_character(self.sid, self.character.selector)
+        # This class is titled "the unseeded database this repository actually
+        # has today", and every test in it either seeds explicitly through
+        # `_seed()` or measures the refusal an EMPTY row earns.  The birth plug
+        # would hand it a seeded row instead, so the row is returned to the
+        # state the class is about -- through the door that refuses any birth
+        # but the two this lane accepts (`pf_lane_db_birth`).
+        self.birth_vitals = pf_lane_db_birth.clear_birth_vitals(
+            self.store, self.character.id
+        )
 
     def _hp_on_disk(self):
         with raw(self.path) as db:
@@ -1361,6 +1521,13 @@ class NewCharacterVitalsTests(unittest.TestCase):
             "src/pirateforce_foundation/persistence_vitals.py",
             "tests/test_persistence_vitals.py",
             "tests/test_persistence_vitals_seed_007.py",
+            # The birth-state door every test in this lane goes through.  It
+            # is allowed for the reason the rule exists rather than despite
+            # it: it never PRODUCES a birth value, it refuses any row whose
+            # birth is not exactly this function's answer.  A copy of the
+            # numbers there would be the second place point 1 forbids; a
+            # comparison against them is what keeps there being only one.
+            "tests/pf_lane_db_birth.py",
         }
         callers = []
         for tree in (ROOT / "src", ROOT / "tools", ROOT / "scenarios",
@@ -1381,6 +1548,72 @@ class NewCharacterVitalsTests(unittest.TestCase):
             "COO-DECISION 20260902_0443 point 1 names.  Point 1's whole "
             "purpose is that the birth value lives in ONE place and changes "
             "in one edit; a second caller is a second place." % (callers,),
+        )
+
+    def test_the_test_side_door_compares_the_numbers_and_never_repeats_them(self):
+        """The allowance granted to `tests/pf_lane_db_birth.py` above, graded.
+
+        Naming a file in an allow-list is how a guard gets holes, so the file
+        that was let through is measured instead of trusted: it must contain
+        no literal spelling of the three birth numbers of its own.  The day
+        somebody writes `{"level": 1, "hp_current": 100, "hp_max": 100}` into
+        that helper -- the second place point 1 forbids, arriving through the
+        door this lane opened for itself -- this goes red.
+        """
+        import ast
+
+        door = ROOT / "tests" / "pf_lane_db_birth.py"
+        tree = ast.parse(door.read_text(encoding="utf-8"))
+        seed = vitals.new_character_vitals()
+
+        # (1) It must really CALL the function -- parsed, not grepped.  The
+        # first version of this test asked `assertIn("new_character_vitals()",
+        # source)`, which a `pf-adversary` pass satisfied off the module's own
+        # DOCSTRING while deleting the import and the call and installing a
+        # literal copy of the three numbers.  Two tests passed over a genuine
+        # second source of birth values.
+        calls = {
+            node.func.attr if isinstance(node.func, ast.Attribute)
+            else node.func.id if isinstance(node.func, ast.Name) else None
+            for node in ast.walk(tree) if isinstance(node, ast.Call)
+        }
+        self.assertIn(
+            "new_character_vitals", calls,
+            "%s no longer calls new_character_vitals(): whatever it compares "
+            "against now is a SECOND source of birth values, which is the one "
+            "thing COO-DECISION 20260902_0443 point 1 forbids" % door.name,
+        )
+
+        # (2) It must not carry the mapping itself, in any spelling a parser
+        # sees the same way -- `{"level": 1, ...}`, `{'level': 0x1, ...}`, a
+        # dict built from names, all collapse to the same literal keys here.
+        # Checked against the AST rather than against three string spellings,
+        # which is what one deleted space walked through.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            keys = {k.value for k in node.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+            self.assertNotEqual(
+                keys, set(seed),
+                "%s builds a literal mapping of the birth columns at line %d; "
+                "it may only compare against new_character_vitals()"
+                % (door.name, node.lineno),
+            )
+
+        # (3) And it must not carry the VALUES as bare literals either, in any
+        # base.  The three numbers are small and could appear innocently, so
+        # what is refused is the SET of them appearing together in one file
+        # that also names the birth columns.
+        constants = [node.value for node in ast.walk(tree)
+                     if isinstance(node, ast.Constant)
+                     and isinstance(node.value, int)
+                     and not isinstance(node.value, bool)]
+        self.assertFalse(
+            set(seed.values()) <= set(constants),
+            "%s contains every birth value as an integer literal (%r); even "
+            "if it is not spelled as a mapping today, that is the second "
+            "place point 1 exists to prevent" % (door.name, sorted(set(seed.values()))),
         )
 
 
