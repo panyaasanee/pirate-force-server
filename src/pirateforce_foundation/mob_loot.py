@@ -243,6 +243,7 @@ import time as _time
 from typing import Any
 
 from . import field_drop_tables
+from . import world_scene_folder
 from .field_mobs import FieldMob
 
 
@@ -3488,8 +3489,12 @@ class DropLedgerCell:
         A SCENE THIS MODULE CANNOT FOLD NEVER TOUCHES THE CELL (D6), the
         same invariant :func:`ground_rows_live_here` states: the caller's
         argument is folded before the publication is taken, so a call site
-        passing an unfoldable scene id cannot retire the ground as a side
-        effect of being refused.
+        passing a scene this module cannot name cannot retire the ground as
+        a side effect of being refused.  The fold is
+        :func:`caller_scene_fold`, so ``scene=14`` from a responder that
+        knows its scene by number is the folder name ``Bg0015`` here and
+        arms the gate, while an id no registry addresses is
+        :data:`GROUND_LIVENESS_SCENE_ID_UNADDRESSED` and arms nothing.
 
         Whatever ``compose`` raises is raised THROUGH this method, on
         purpose: a frame that could not be composed is not a liveness
@@ -3502,15 +3507,13 @@ class DropLedgerCell:
         20260902_1946 confirmed for the gate itself.
         """
         if scene is not None:
-            try:
-                scene_key(scene)
-            except Exception:                    # noqa: BLE001 - see docstring
+            _key, refusal = caller_scene_fold(scene)
+            if refusal:
                 # Refused WITHOUT READING AND WITHOUT LOCKING: nothing is
                 # retired by a call that was never going to answer, and no
                 # kill waits behind a composer this cell never needed to
                 # serve (pf-adversary, round t8z97r, second pass, R12).
-                return (compose(GROUND_LIVENESS_BAD_SCENE),
-                        GROUND_LIVENESS_BAD_SCENE, 0, False)
+                return (compose(refusal), refusal, 0, False)
         with self._lock:
             mark = self._swept_total
             try:
@@ -4828,6 +4831,23 @@ GROUND_LIVENESS_SCENE_MISMATCH = -5
 #: Kept apart from the mismatch above so a console line never says "another
 #: scene's cell" about a caller's own bad argument.
 GROUND_LIVENESS_BAD_SCENE = -6
+#: The caller named its scene BY ID and this client's registry does not
+#: address that id, so no folder name exists to compare with.  Kept apart
+#: from :data:`GROUND_LIVENESS_BAD_SCENE` because the two are fixed in
+#: different places: an unreadable argument is the call site's bug, an
+#: unaddressed id is a scene ``world_scene_folder`` has never vetted.
+GROUND_LIVENESS_SCENE_ID_UNADDRESSED = -7
+#: The caller named its scene BY ID and the folder that id resolves to is
+#: named by ANOTHER addressed scene id as well, so the folder name cannot
+#: identify which of them this frame is for.  ``world_scene_folder`` says it
+#: in bold -- "A FOLDER NAME IS NOT A SCENE IDENTITY ... a caller may use
+#: this answer to FIND a scene's data, and must not use it to IDENTIFY the
+#: scene" -- and identity is exactly what
+#: :data:`GROUND_LIVENESS_SCENE_MISMATCH` compares.  Unreachable today (only
+#: 17 of the 17/186 pair is addressed) and derived from the registry every
+#: call, so the day a round addresses the other one this gate REFUSES
+#: instead of arming a frame for one scene with the other scene's floor.
+GROUND_LIVENESS_SCENE_ID_AMBIGUOUS = -8
 #: value -> one ASCII word for the console.  A console line that cannot name
 #: its own cause sends a reader to the wrong side of the wiring.
 GROUND_LIVENESS_REASONS = {
@@ -4837,7 +4857,136 @@ GROUND_LIVENESS_REASONS = {
     GROUND_LIVENESS_NO_SCENE: "cell_has_no_scene",
     GROUND_LIVENESS_SCENE_MISMATCH: "another_scenes_cell",
     GROUND_LIVENESS_BAD_SCENE: "caller_scene_unreadable",
+    GROUND_LIVENESS_SCENE_ID_UNADDRESSED: "caller_scene_id_unaddressed",
+    GROUND_LIVENESS_SCENE_ID_AMBIGUOUS: "caller_scene_id_shares_a_folder",
 }
+
+
+def caller_scene_fold(scene: Any) -> "tuple[str | None, int]":
+    """A CALLER's scene argument folded into a comparison key.
+
+    ``(key, 0)`` when it folds, ``(None, <negative sentinel>)`` when it does
+    not.  THE ONE FOLD EVERY LIVENESS GUARD USES, so the racy read, the
+    publication-held read and the answer they share cannot disagree about
+    what a caller was allowed to say.
+
+    IT ACCEPTS A SCENE ID, and that is the whole reason it exists.  The
+    responders that compose these frames know their scene as an ``int``
+    (1, 2, 14, ...) while a row's scene is the client's FOLDER NAME
+    (``bg0001``, ``Bg0002``, ``Bg0015``); :func:`scene_key` refuses
+    everything that is not a ``str``, so a call site handing over the number
+    it has would get :data:`GROUND_LIVENESS_BAD_SCENE` on every click, in
+    every scene, forever -- a gate that can never open, reported as the
+    caller's own bad argument.
+
+    WHO MEASURED WHAT, because the difference decides how much this is worth.
+    LANE-A measured THIS FUNCTION directly
+    (``20260902_2348_LANE-A-TO-LANE-B``:
+    ``ground_liveness_reason(ground_rows_live_here(cell, 2))`` was
+    ``caller_scene_unreadable``) and then avoided it, folding the id to a
+    folder name inside its own hook before calling.  So the permanent no-op
+    is not something a wired call site is paying today; it is what the
+    scene-14 line THIS LANE sent chief (``20260903_0039``, still gated on
+    ``server#607``) would have paid the day it was pasted.  The int branch
+    has no wired caller yet.
+
+    THE ID IS FOLDED THROUGH ``world_scene_folder.scene_folder_for_scene_id``
+    because it is the one public reader ``COO-DECISION 20260829_0848`` item
+    3 names for turning an id into the scene's own name -- the same reader
+    LANE-A's hook uses, so both paths ask one authority rather than two.
+    (The registry's ``model_id`` would in fact fold to the same key here:
+    all fourteen of its disagreements with the folder are case-only and
+    :func:`scene_key` casefolds.  The reason to use the named reader is that
+    it is the named reader, not that the other one would answer differently
+    at this call site.)
+
+    FAIL-CLOSED IN THE TWO DIRECTIONS AN ID CAN BE WRONG.
+
+    * An id the registry does not address folds to ``None`` there, which is
+      a REFUSAL and not an absence; returning it as "no scene named" would
+      hand the cell a ``scene=None``, and ``None`` at that argument means
+      "do not check the scene at all" -- the cross-scene hole
+      ``GROUND_LIVENESS_SCENE_MISMATCH`` exists to close.  So it becomes
+      :data:`GROUND_LIVENESS_SCENE_ID_UNADDRESSED`.
+    * A FOLDER NAME IS NOT A SCENE IDENTITY and this gate compares
+      IDENTITIES.  ``world_scene_folder`` says so in bold and names the pair
+      that reaches inside its own seventeen: scene 17 and scene 186 both
+      name ``Bg1001``.  An id whose folder is named by another ADDRESSED id
+      is therefore :data:`GROUND_LIVENESS_SCENE_ID_AMBIGUOUS` and arms
+      nothing -- derived from the registry on every call, not from a list
+      typed here, so the day somebody addresses 186 this gate refuses in
+      that pair instead of arming 186's frame with 17's floor.  That day is
+      the only day this branch does anything: today no addressed folder is
+      shared, measured by the same loop.
+
+    WHAT IS NOT A SCENE ID.  ``bool`` (``True`` arriving here is an "is
+    there a scene?" answer in a "which scene?" parameter, and scene 1 is a
+    real scene).  ``None`` -- a caller that names no scene must not call
+    this at all, it must leave ``scene`` unset, which is documented on
+    :func:`ground_rows_live_here` as "keep the cell's own answer"; ``None``
+    passed HERE is :data:`GROUND_LIVENESS_BAD_SCENE`, because a fold cannot
+    tell "I have no scene" from "I have one and it is broken".
+
+    AN ``int`` SUBCLASS IS AN ``int``, including an ``IntEnum``: this
+    module already paid for ``type(x) is int`` once at
+    :func:`ground_liveness_is_readable` (round ``suovqw``, second pass, D2 --
+    a responder counting with an ``IntEnum`` got its loot cleared and the
+    console blamed a call site that was wired correctly), and writing it
+    again here would re-buy that defect one type-check away from the note
+    describing it.
+
+    NEVER RAISES.  Every guard that calls it runs on the v141 listener
+    thread with a frame in flight, and this fold may cost the mask; it may
+    never cost the frame.
+    """
+    if isinstance(scene, str):
+        try:
+            return scene_key(scene), 0
+        except Exception:                        # noqa: BLE001 - see docstring
+            return None, GROUND_LIVENESS_BAD_SCENE
+    if isinstance(scene, int) and not isinstance(scene, bool):
+        try:
+            # int() so an ``IntEnum`` or any other subclass reaches the
+            # reader as the exact ``int`` its own guard demands.
+            scene_id = int(scene)
+            folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+        except Exception:                        # noqa: BLE001 - see docstring
+            return None, GROUND_LIVENESS_BAD_SCENE
+        if folder is None:
+            return None, GROUND_LIVENESS_SCENE_ID_UNADDRESSED
+        try:
+            key = scene_key(folder)
+            if _addressed_ids_naming_the_same_folder(key) > 1:
+                return None, GROUND_LIVENESS_SCENE_ID_AMBIGUOUS
+            return key, 0
+        except Exception:                        # noqa: BLE001 - see docstring
+            return None, GROUND_LIVENESS_BAD_SCENE
+    return None, GROUND_LIVENESS_BAD_SCENE
+
+
+def _addressed_ids_naming_the_same_folder(folder_key: str) -> int:
+    """How many ADDRESSED scene ids fold to ``folder_key``.
+
+    Read off ``world_scene_folder._FOLDER_BY_SCENE_ID`` every call rather
+    than cached at import, because the answer this lane needs is about the
+    registry as it stands when the frame is composed -- and because a cache
+    would keep saying "one" for the whole life of the process that adds the
+    second one.  Seventeen entries; the composer beside it costs two orders
+    of magnitude more.
+
+    IT IS THE PRIVATE NAME ON PURPOSE, and the cost is stated here rather
+    than discovered later: the public re-derivation ``derive_folders`` reads
+    a JSON file, which is not a thing this lane does on the v141 listener
+    thread with a frame in flight, and ``scene_folder_for_scene_id`` answers
+    for one id and cannot see a collision.  The coupling FAILS CLOSED: this
+    is called inside :func:`caller_scene_fold`'s own ``try``, so the day the
+    registry renames that name every scene ID becomes
+    :data:`GROUND_LIVENESS_BAD_SCENE` -- a gate that refuses, never a gate
+    that stops checking.
+    """
+    return sum(
+        1 for _scene_id, folder in world_scene_folder._FOLDER_BY_SCENE_ID
+        if scene_key(folder) == folder_key)
 
 
 def ground_liveness_reason(ground_rows_left: Any) -> str:
@@ -4865,8 +5014,9 @@ def ground_rows_live_here(cell: Any, scene: Any = None) -> int:
     Negative when that cannot be read, and the VALUE says why: see
     :data:`GROUND_LIVENESS_NO_CELL` and its siblings.  ``scene``, when a
     caller passes the scene its frame is being composed FOR, is compared with
-    the scene the cell is publishing (by :func:`scene_key`, so ``bg0002`` and
-    ``Bg0002`` are one scene) and a disagreement is
+    the scene the cell is publishing (by :func:`caller_scene_fold`, so
+    ``bg0002``, ``Bg0002`` and the scene ID ``2`` are one scene) and a
+    disagreement is
     :data:`GROUND_LIVENESS_SCENE_MISMATCH` rather than a count -- a frame is
     never armed by another scene's floor.  Callers that cannot name their
     scene keep the cell's answer, and that limit is theirs, not this
@@ -4913,10 +5063,9 @@ def ground_rows_live_here(cell: Any, scene: Any = None) -> int:
         # scene this module cannot name is never reported as the cell's fault,
         # and a scene this module cannot fold NEVER TOUCHES THE CELL -- which
         # matters now that touching it sweeps.
-        try:
-            scene_key(scene)
-        except Exception:                        # noqa: BLE001 - see docstring
-            return GROUND_LIVENESS_BAD_SCENE
+        _key, refusal = caller_scene_fold(scene)
+        if refusal:
+            return refusal
     try:
         publishing, view, _elsewhere = cell.publication()
     except Exception:                            # noqa: BLE001 - see docstring
@@ -4943,10 +5092,9 @@ def ground_liveness_from_publication(
     """
     wanted = None
     if scene is not None:
-        try:
-            wanted = scene_key(scene)
-        except Exception:                        # noqa: BLE001 - see docstring
-            return GROUND_LIVENESS_BAD_SCENE
+        wanted, refusal = caller_scene_fold(scene)
+        if refusal:
+            return refusal
     if publishing is None or view is None:
         return GROUND_LIVENESS_NO_SCENE
     try:
