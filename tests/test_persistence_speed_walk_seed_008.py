@@ -487,13 +487,55 @@ class NothingSendsItTests(unittest.TestCase):
     #: A call to any of these is "putting a typed value on the wire".
     ENCODERS = ("encode_block", "encode_field", "compose_full_block",
                 "compose_sparse_block")
-    #: Names, and strings, that mean "read a typed value off a character row".
-    READERS = ("read_typed_attributes", "read_character_vitals")
+    #: Names, and strings, that mean "read a value off a character row THAT
+    #: COULD BE `speed_walk`".  The tuple is CHOSEN, and each membership
+    #: decision is checked against the code by
+    #: `test_the_reader_list_is_derived_from_what_can_carry_the_column`
+    #: below: `read_typed_attributes` can hand `speed_walk` to a caller and
+    #: `read_character_vitals` cannot, because everything it returns has been
+    #: through `persistence_vitals.resolve()`, which keeps only the three
+    #: vital columns and drops the rest.  (An earlier draft of this comment
+    #: said "derived, not chosen"; a `pf-adversary` pass pointed out that
+    #: nothing derives WHICH methods can carry the column, and the sentence
+    #: was doing work the code does not do.)
+    #:
+    #: *** KNOWN GAP, measured by that same pass and REPORTED rather than
+    #: quietly closed, because closing it needs a decision this lane does not
+    #: own: `write_typed_attributes` is missing from this tuple and it hands
+    #: back THE WHOLE POST-WRITE ROW, so
+    #: `store.write_typed_attributes(cid, {"level": 1})["speed_walk"]`
+    #: reaches the column through a WRITE, with no reader named and no raw
+    #: SQL involved.  It is pre-existing (this scan has never counted it) and
+    #: adding it would turn `store.py` itself red, since its own
+    #: `write_typed_attributes_and_compose_sparse` is exactly that shape --
+    #: escaping only by projecting the caller's own keys, which is pinned by
+    #: `test_the_one_composing_store_method_is_write_first_and_caller_driven`
+    #: below.  Naming it here beats a green test that means less than it
+    #: looks like it means.
+    #:
+    #: LANE-DB round h5csld removed `read_character_vitals` from this tuple,
+    #: and the reason is written here rather than in a commit message because
+    #: a narrowed scan that nobody can audit is worse than no scan.  The claim
+    #: this class exists for is point 4 of `COO-DECISION 20260902_0742`:
+    #: nothing may read `speed_walk` off a row and send it.  A call that
+    #: structurally cannot produce `speed_walk` is not that shape, and
+    #: counting it made the scan fire on `store.py` the moment this lane added
+    #: `read_character_vitals_or_none` -- a method that reads three vitals,
+    #: encodes nothing, and cannot reach x=7 at all.  Widening the exemptions
+    #: or making the unit a function again would have re-opened evasions A-E;
+    #: narrowing WHAT COUNTS AS A READ, on a property derived from the code,
+    #: does not.  Whether anything is wired to the VITALS is a different claim
+    #: with its own home: `NothingIsWiredTests` in
+    #: `tests/test_persistence_vitals.py`.
+    READERS = ("read_typed_attributes",)
     #: The one file this lane expected to need an exemption.  It gets NONE:
     #: measured, `store.py` composes but never READS a row to do it, so it
     #: passes the scan on its merits.  Kept as a named constant only so the
     #: structural test below can point at it.
     COMPOSING_STORE = "src/pirateforce_foundation/store.py"
+
+    #: "This string is a SELECT statement", not "this string says select".
+    _SQL_SELECT_FROM = re.compile(r"\bselect\b[\s\S]*\bfrom\b")
 
     @classmethod
     def _names_and_strings(cls, source):
@@ -515,9 +557,19 @@ class NothingSendsItTests(unittest.TestCase):
                 seen.add(node.attr)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 seen.add(node.value)
-                # a raw SQL read of the column itself, not only the API
+                # A raw SQL read of the column itself, not only the API.
+                #
+                # The shape is required to look like SQL, and that is a
+                # correction rather than a softening (LANE-DB round h5csld):
+                # the first version fired on `"speed_walk" in s and "select"
+                # in s`, and the string that caught it out was a DOCSTRING --
+                # one naming the column and containing the word "selected".
+                # Prose is not a read.  `\bselect\b` does not match
+                # "selected", and a real `SELECT ... FROM characters` still
+                # matches both halves, so every evasion below stays closed.
                 lowered = node.value.lower()
-                if "speed_walk" in lowered and "select" in lowered:
+                if ("speed_walk" in lowered
+                        and cls._SQL_SELECT_FROM.search(lowered)):
                     seen.add("__raw_speed_walk_select__")
         return seen
 
@@ -557,6 +609,71 @@ class NothingSendsItTests(unittest.TestCase):
             "def send(c):\n"
             '    """hands the result to encode_block"""\n'
             "    return store.read_typed_attributes(c)\n"))
+        # nor may PROSE count, which is what the first version of the raw-SQL
+        # half did: this docstring names the column and contains the word
+        # "selected", and it reads nothing at all.
+        self.assertFalse(self._reads_and_encodes(
+            "def compose(c):\n"
+            '    """speed_walk is stored; a character it has just selected\n'
+            '    is not read here."""\n'
+            "    return encode_block({})\n"))
+        # while the real statement still counts, spelled either way round
+        self.assertTrue(self._reads_and_encodes(
+            "def send(c):\n"
+            "    row = db.execute('select speed_walk from characters')\n"
+            "    return encode_block({7: row[0]})\n"))
+
+    def test_the_reader_list_is_derived_from_what_can_carry_the_column(self):
+        """`READERS` is a claim about the CODE, so it is measured against the
+        code rather than declared.  Two halves, and both must hold:
+
+        1. `read_typed_attributes` really can hand `speed_walk` to a caller --
+           if it could not, this scan would be watching nothing.
+        2. `read_character_vitals` really cannot -- everything it returns has
+           been through `persistence_vitals.resolve()`, and the day that stops
+           being true this test goes red and the tuple must grow again.
+        """
+        self.assertIn("read_typed_attributes", self.READERS)
+        self.assertNotIn("read_character_vitals", self.READERS)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "readers.sqlite3"
+        store = SQLiteStore(path, MIGRATIONS)
+        store.migrate()
+        account = store.ensure_account("readers")
+        character = store.create_character(
+            account, "ReaderChar", "readerchar", "fingerprint-readers",
+            _build_wire, Position(1, 0, 1.0, 2.0, 3.0, heading=0.0),
+        )
+        store.write_typed_attributes(
+            character.id,
+            {"speed_walk": SEEDED_VALUE, "level": 4,
+             "hp_current": 20, "hp_max": 40},
+        )
+
+        # 1. the reader that IS on the list hands the column over.
+        self.assertEqual(
+            store.read_typed_attributes(character.id)["speed_walk"],
+            SEEDED_VALUE)
+
+        # 2. the reader that is NOT on the list cannot, on a row that holds
+        #    the column, through the public method and through `resolve()`
+        #    directly -- the second is what makes it structural rather than a
+        #    happy accident of this row.
+        resolution = store.read_character_vitals(character.id)
+        self.assertNotIn("speed_walk", resolution.present)
+        self.assertEqual(
+            sorted(resolution.present), sorted(vitals.VITAL_COLUMNS))
+        self.assertNotIn("speed_walk", vitals.VITAL_COLUMNS)
+        direct = vitals.resolve(
+            {"speed_walk": SEEDED_VALUE, "level": 4,
+             "hp_current": 20, "hp_max": 40})
+        self.assertNotIn("speed_walk", direct.present)
+        # and what `require()` hands out has no room for it either
+        self.assertEqual(
+            sorted(vars(direct.require())),
+            sorted(vitals.VITAL_COLUMNS))
 
     def test_no_file_reads_a_typed_value_off_a_row_and_encodes_it(self):
         offenders = []

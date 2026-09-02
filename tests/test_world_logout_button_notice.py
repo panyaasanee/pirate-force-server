@@ -372,6 +372,33 @@ class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
         # unmeetable with the suite green (pf-adversary D3).
         self.assertEqual(notice.UIA_NOTICE_TEXT, "BACK REFUSED")
 
+    def test_the_retired_assumption_label_cannot_come_back_unstruck(self):
+        # Round 8z9h9n, pf-adversary D11/D14.  COO-DECISION 20260902_0943
+        # settled this wording, so the file must not read as if it were
+        # still waiting for an answer -- a stale "awaiting COO" invites the
+        # next round to re-litigate a decided question, and the sweep that
+        # finds those greps for the label text.  The house shape (see
+        # mob_scene_recompose.py, and the same guard in
+        # tests/test_mob_pickup.py) is strikethrough plus RULED plus the
+        # decision, ON the matched line; nothing pinned that here, so a
+        # revert of the comment block was silently green.
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src/pirateforce_foundation/world_logout_button_notice.py"
+        ).read_text(encoding="utf-8")
+        for line in source.splitlines():
+            if "awaiting COO" in line:
+                self.assertIn("~~", line, msg=(
+                    "a live-looking 'awaiting COO' label is back on this "
+                    "line; retire it with ~~...~~ plus RULED instead"
+                ))
+        self.assertIn("RULED, round 8z9h9n", source)
+        self.assertIn("20260902_0943_COO-DECISION", source)
+        # The alternative COO never adjudicated must stay visible: it is
+        # the wording a later round would need if the transition becomes
+        # performable, and the ask letter offered four options, not two.
+        self.assertIn("BACK NOT YET", source)
+
     def test_the_text_is_twelve_printable_ascii_characters(self):
         text = notice.UIA_NOTICE_TEXT
         self.assertEqual(len(text), say_wire.NOTICE_TEXT_EXACT_LENGTH)
