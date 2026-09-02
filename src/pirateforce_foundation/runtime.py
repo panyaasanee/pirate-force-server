@@ -25,6 +25,7 @@ from . import scene_admission_gate
 from . import trace_path
 from . import world_density
 from . import world_face_frame
+from . import world_logout_button_notice
 from . import world_m2_crossing_handoff
 from . import world_population
 from . import world_population_bg0002
@@ -5710,6 +5711,121 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
 
         def _dispatch_with_lanes(self, parsed):
             nested_id = parsed.nested_id
+            # CORE-REQUEST (LANE-A, pf_bridge notes_to_chief
+            # 20260902_0905_LANE-A-CORE-REQUEST-one-call-site-for-the-uia-
+            # button-notice.md).  The player's "back to character select"
+            # click (LogoutVital 0x1B40, subcode 3) has been answered with
+            # total silence on every normal boot -- no bytes, no console
+            # line -- and has cost the owner two whole attended rounds.
+            # This is the ONE call the letter asks for: observe, print the
+            # ASCII verdict line, and carry the composed receipt down to the
+            # final return.
+            #
+            # PLACED BEFORE THE SCENARIO GATES BELOW, as the letter requires,
+            # so the console line is printed for all five of the module's
+            # verdicts and not only for the boots where no logout scenario
+            # owns the frame.  It changes no branch: the early returns under
+            # a scenario still return exactly what they returned before, and
+            # a scenario boot simply drops the courtesy bytes it never
+            # asked for.
+            #
+            # `observe_parsed` is the module's ONE public door and it reuses
+            # `logout_hypothesis.classify_logout_attempt` -- the same reader
+            # the scenario dispatch uses, not a second one -- so this line
+            # cannot answer a click that dispatch calls `wrong_payload`.
+            # The gate read is the module's own `production_allowed`, NOT
+            # `lane_hooks.module_production_allowed()`, which resolves names
+            # only under `pirateforce_foundation.lane_hooks.` and would
+            # stand this call site down on every click forever (the letter's
+            # own red warning, pf-adversary D7).
+            #
+            # NONCLAIM, carried from the letter so it is not lost: this does
+            # NOT fix UI-A.  Nobody knows what makes the client return to
+            # character select (`GT-184` is still open).  It turns "click and
+            # silence" into "click and a receipt", and `GT-205` is the ticket
+            # that decides whether the receipt renders.  No server-composed
+            # line on this channel has EVER been watched to render on a
+            # normal boot.
+            #
+            # FAIL-CLOSED ON A CONNECTION WITH NO CHARACTER SELECTED, which
+            # the letter did not ask for and this file's own house rule
+            # requires anyway -- `trace_path` above answers the identical
+            # situation with `trace_path_no_selected_no_reply` and an empty
+            # list.  MEASURED, not assumed: without this guard a session
+            # that had never logged in at all still got a composed
+            # `Channel_LocalTalkMessageVital` back for one 0x1B40 frame.
+            # The owner is always logged in when they click the button, so
+            # the guard costs the ticket nothing; what it buys is that an
+            # unauthenticated connection cannot make this server compose
+            # bytes.
+            #
+            # AND THE CONSOLE MUST NOT SAY "COMPOSED" ON A BOOT THAT THROWS
+            # THE BYTES AWAY.  pf-adversary D1, MEASURED: with any logout
+            # scenario flag, or on any frame after `logout_acknowledged`, a
+            # 0x1B40 is claimed by one of the branches below, every one of
+            # which returns before the tail this notice is appended to.  The
+            # first draft printed the byte-identical
+            # `LANE_A_UIA_NOTICE_COMPOSED ... pc=56 frame=66` line in that
+            # case -- so a tester lining the console up against a screenshot
+            # would read "the receipt was built and nothing rendered" from a
+            # boot where the receipt never left the process, and record a
+            # FALSE NEGATIVE `GT-205`.  `GT-205`'s negative is declared to be
+            # worth as much as its positive, so that lie is not a small one:
+            # it would also poison GM-B/`GT-193`, which rests on this same
+            # channel.
+            #
+            # The condition is exact, not a guess: the branch at "logout
+            # hypothesis scenario is not None and nested_id ==
+            # LOGOUT_VITAL_ID" below is unconditional on policy, so a live
+            # scenario owns EVERY LogoutVital frame.  Nothing is composed on
+            # those boots; one distinct ASCII token is printed instead, and
+            # it names why.
+            uia_notice_actions = []
+            if nested_id == LOGOUT_VITAL_ID and self.foundation.selected is None:
+                self.events.append("lane_a_uia_notice_no_selected_no_reply")
+            elif (
+                nested_id == LOGOUT_VITAL_ID
+                and logout_hypothesis_scenario is not None
+            ):
+                print(
+                    "LANE_A_UIA_NOTICE_NOT_THIS_BOOT reason="
+                    "logout_scenario_owns_the_frame effect=no_bytes_composed"
+                )
+                self.events.append("lane_a_uia_notice_scenario_owns_frame")
+            elif nested_id == LOGOUT_VITAL_ID:
+                try:
+                    uia_notice, uia_notice_line = (
+                        world_logout_button_notice.observe_parsed(
+                            legacy, parsed,
+                        )
+                    )
+                    print(uia_notice_line)
+                except Exception as error:  # noqa: BLE001 - a courtesy line
+                    # must never take the listener thread down for the
+                    # player whose click it was.  Named, never silent; type
+                    # name only, same discipline as every other refusal
+                    # here.  Grep string:
+                    # "lane_a_uia_notice_observe_failed_".
+                    #
+                    # The `print` is INSIDE this try, not after it
+                    # (pf-adversary N4): the comment above promises the
+                    # thread survives, and a `print` onto a closed stdout
+                    # raises just as readily as the observer does.
+                    self.events.append(
+                        "lane_a_uia_notice_observe_failed_"
+                        f"{type(error).__name__}"
+                    )
+                else:
+                    if uia_notice is not None:
+                        self.events.append(
+                            "lane_a_uia_back_refused_notice_composed"
+                        )
+                        uia_notice_actions = [(
+                            "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE",
+                            uia_notice.pc,
+                            uia_notice.frame,
+                            0.0,
+                        )]
             if logout_hypothesis_scenario is not None and self.logout_acknowledged:
                 # After the acknowledged logout (HYP-PF-012 lane below) the
                 # lease is closed; every later frame on this connection is
@@ -8975,7 +9091,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     legacy.QUEST_OPERATE_VITAL,
                 ) else []
             )
+            # LANE-A UI-A receipt, composed at the top of this method (see
+            # the CORE-REQUEST comment there).  LAST in the sum on purpose:
+            # it is a courtesy line about a click, so every frame the click
+            # itself is owed keeps first claim on the wire, byte-for-byte
+            # unchanged, and the notice rides alongside instead of ahead.
+            # Empty for every nested_id but 0x1B40, and empty for the UI-B
+            # button (subcode 1) by the module's own standing-down rule,
+            # which exists so `GT-194`'s evidence cannot move under the
+            # owner's feet.
             return (actions + arena_actions + ground_loot_actions
                     + nameprop_actions + census_actions + mob_combat_actions
-                    + columbus_quest_actions)
+                    + columbus_quest_actions + uia_notice_actions)
     return PersistentGameSessionState
