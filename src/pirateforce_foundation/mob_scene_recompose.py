@@ -419,6 +419,22 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "the arrival census; there is simply nothing in field_mobs for it "
         "to recompose against yet."
     ),
+    # ADDED ROUND 4uztfj (LANE-A), same shape as the entries above: scene
+    # 126 (Bg3001, "Atlantis", the ocean panel) entered
+    # ``world_scene_travel.CENSUS_SOURCES`` this round.  Verified rather
+    # than assumed: ``field_mobs.scene_for_scene_id(126)`` also returns
+    # ``None`` -- scene 126 is in neither of field_mobs' two tables, so the
+    # identical reasoning applies verbatim.  UNLIKE scenes 3/5/6/7/8/9/11/
+    # 130, this composer is NOT live for the ordinary login path: scene
+    # 126's login_entry_allowed is still false and this round did not touch
+    # it, so the only session that reaches its arrival census is a GM
+    # single-use entry (CORE-REQUEST-GM-038).
+    126: (
+        "Bg3001 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered this round, ordinary login "
+        "door still shut); field_mobs names no scene 126 at all, so it has "
+        "no combat roster and no strike can reach a recompose."
+    ),
 }
 
 

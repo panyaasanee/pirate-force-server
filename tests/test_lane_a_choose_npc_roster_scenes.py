@@ -74,7 +74,14 @@ MODULE_SOURCE = (
 # The scene this file serves TODAY, and the nine it deliberately does not.
 # Written out rather than read from the module under test: a test that asks
 # the module what it does can only ever agree with it.
-EXPECTED_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
+# ELEVEN SCENES SINCE ROUND `4uztfj`: scene 126 (Bg3001, "Atlantis", the
+# ocean panel) joined the ten islands.  Its registry door is SHUT and stays
+# shut -- what admits it is the census hook's second arm, the GM lane's own
+# sanctioned single-use predicate -- so a click there is answered only for a
+# session a GM grant already put in the scene.
+EXPECTED_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 126, 130)
+# The ten islands alone, for the counts round `gwwpmr` published.
+ISLAND_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 # ~~HELD_BACK_SCENES = (4, 5, 6, 7, 8, 9, 10, 11, 130)~~ -- round `gwwpmr`:
 # chief's scene guard landed, so the nine register and NO scene is held
 # back any more.  The name is DELETED rather than set to `()` (pf-adversary
@@ -85,7 +92,12 @@ EXPECTED_SCENES = (3, 4, 5, 6, 7, 8, 9, 10, 11, 130)
 # disagree with this file.  The nine keep a name below for what they still
 # are: the scenes whose freedom from Port Royal's quest conversation is on
 # loan from one conjunct in runtime.py.
-SCENES_THE_RUNTIME_GUARD_KEEPS_SAFE = (4, 5, 6, 7, 8, 9, 10, 11, 130)
+# TEN SINCE ROUND `4uztfj`: scene 126's own placement table also carries a
+# row at COLUMBUS_PLACEMENT_INDEX (placement 1, Mob_Set_07), measured this
+# round, so the ocean panel joins the nine islands whose safety is on loan
+# from chief's scene conjunct in runtime.py rather than being clear of the
+# collision the way scene 3 is.
+SCENES_THE_RUNTIME_GUARD_KEEPS_SAFE = (4, 5, 6, 7, 8, 9, 10, 11, 126, 130)
 RUNTIME_SOURCE = (
     ROOT / "src" / "pirateforce_foundation" / "runtime.py"
 )
@@ -226,7 +238,7 @@ class RegistrationTests(unittest.TestCase):
     def test_it_reports_the_scenes_it_holds_and_the_reasons_it_refused(self):
         self.assertEqual(
             responder_mod.scenes_this_lane_answers_for(), EXPECTED_SCENES)
-        self.assertEqual(len(EXPECTED_SCENES), 10)
+        self.assertEqual(len(EXPECTED_SCENES), 11)
         self.assertEqual(responder_mod.skipped_scenes(), ())
 
     def test_the_report_reads_the_registry_not_its_own_table(self):
@@ -929,7 +941,7 @@ class ItDeclinesRatherThanGuessesTests(unittest.TestCase):
         it replaces: those nine are the scenes whose rosters could
         actually be delivered to the wrong island."""
         others = [s for s in EXPECTED_SCENES if s != self.scene_id]
-        self.assertEqual(len(others), 9)
+        self.assertEqual(len(others), 10)
         for other in others:
             with self.subTest(other=other):
                 self.assertIsNone(self.responder.respond(
@@ -1062,29 +1074,45 @@ class TheCountsThisRoundClaimsTests(unittest.TestCase):
         """692 across ten islands is the number round `gwwpmr`'s PR body
         and ``GT-212`` both quote.  Counted from the registry's own view of
         what this module answers for, not from the table, so a scene that
-        lost its registration cannot leave the number standing."""
+        lost its registration cannot leave the number standing.  Round
+        `4uztfj` added an ELEVENTH scene (126) and did NOT change this
+        number: the islands are counted on their own here, and the new
+        scene's own 36 are counted in the test below."""
         served = responder_mod.scenes_this_lane_answers_for()
         self.assertEqual(served, EXPECTED_SCENES)
         self.assertEqual(
+            tuple(s for s in served if s in ISLAND_SCENES), ISLAND_SCENES)
+        self.assertEqual(
             sum(
                 len(responder_mod._IDENTITY_OF_SCENE[s].shippable_placements())
-                for s in served
+                for s in ISLAND_SCENES
             ),
             692,
         )
+
+    def test_the_ocean_panel_holds_the_number_round_4uztfj_reports(self):
+        """36 of 38, the number this round's PR body and ``GT-216`` quote."""
+        identity = responder_mod._IDENTITY_OF_SCENE[126]
+        self.assertEqual(len(identity.shippable_placements()), 36)
+        self.assertEqual(identity.PLACEMENT_COUNT, 38)
 
     def test_the_whole_table_holds_the_number_the_letters_quote(self):
         total = sum(
             len(identity.shippable_placements())
             for identity in responder_mod._IDENTITY_OF_SCENE.values()
         )
-        self.assertEqual(total, 692)
+        self.assertEqual(total, 692 + 36)
 
     def test_the_nine_on_loan_are_the_difference_between_the_two_rounds(self):
-        """What round `gwwpmr` added on top of `326kf4`: 630 actors."""
+        """What round `gwwpmr` added on top of `326kf4`: 630 actors.
+
+        Counted over the ISLANDS only: round `4uztfj` put scene 126 in the
+        on-loan set as well (its table has an index-1 placement too), and
+        that scene was not part of either earlier round's number."""
         added = sum(
             len(responder_mod._IDENTITY_OF_SCENE[s].shippable_placements())
             for s in SCENES_THE_RUNTIME_GUARD_KEEPS_SAFE
+            if s in ISLAND_SCENES
         )
         self.assertEqual(added, 692 - 62)
 

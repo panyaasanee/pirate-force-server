@@ -37,7 +37,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation import lane_hooks
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_a_scene_census,
+)  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_handoff  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
@@ -92,6 +95,32 @@ def _scenes_with_a_composer() -> tuple[int, ...]:
             continue
         scenes.append(scene_id)
     return tuple(scenes)
+
+
+def _scenes_open_at_login() -> tuple[int, ...]:
+    """The subset an ORDINARY login can actually arrive in.
+
+    SPLIT OUT ROUND `4uztfj`, because a composer and a login door stopped
+    being the same question that round: scene 126 has a registered,
+    production-allowed composer AND a registry door that is still shut, so
+    an ordinary persisted-position login is refused before any arrival
+    happens.  Asserting that such a scene "fires on arrival" would be
+    asserting that the shut door does not work.  What the door-shut scenes
+    are owed instead is the test below this one.
+    """
+    return tuple(
+        scene_id for scene_id in _scenes_with_a_composer()
+        if lane_a_scene_census.scene_is_open_to_players(scene_id)
+    )
+
+
+def _scenes_with_a_composer_and_a_shut_door() -> tuple[int, ...]:
+    """The complement: a cast is ready, the ordinary door is not open."""
+    open_at_login = set(_scenes_open_at_login())
+    return tuple(
+        scene_id for scene_id in _scenes_with_a_composer()
+        if scene_id not in open_at_login
+    )
 
 
 class _ArrivalHarness(unittest.TestCase):
@@ -274,7 +303,7 @@ class ArrivalTriggerFiresForEveryOpenWorldSceneTests(_ArrivalHarness):
         Driven off the live registry (see ``_scenes_with_a_composer``), so
         the number this test covers is the number that actually exists.
         """
-        scenes = _scenes_with_a_composer()
+        scenes = _scenes_open_at_login()
         # If this ever becomes empty the file above still passes vacuously.
         self.assertGreaterEqual(len(scenes), 9, scenes)
         composed = {}
@@ -291,6 +320,41 @@ class ArrivalTriggerFiresForEveryOpenWorldSceneTests(_ArrivalHarness):
                 self.assertIs(state.world_census_refused, False)
                 composed[scene_id] = census[0][0]
         self.assertEqual(sorted(composed), list(scenes))
+
+    def test_a_composer_behind_a_shut_door_composes_nothing_at_login(self):
+        """The other half of the split above, and the stronger half.
+
+        A scene whose cast is built but whose registry door is shut must
+        send NOTHING to an ordinary login - not a census, not a partial
+        frame - because the login itself never reaches that scene.  Written
+        round `4uztfj` when scene 126 became the first such scene; it is
+        the test that would go red if that round had quietly opened a door
+        while claiming it had not.  Vacuous only while no such scene exists,
+        which the assertion below states rather than hides.
+        """
+        shut = _scenes_with_a_composer_and_a_shut_door()
+        if not shut:
+            self.skipTest("no composer sits behind a shut door today")
+        for scene_id in shut:
+            with self.subTest(scene=scene_id):
+                self.assertFalse(
+                    lane_a_scene_census.scene_is_open_to_players(scene_id))
+                state = self._state_at_scene(
+                    f"shut_door_scene_{scene_id}", scene_id,
+                )
+                actions, _out, _err = self._poll(state)
+                self.assertEqual(self._census(actions), [])
+                # WHAT THE REFUSAL LOOKS LIKE, MEASURED RATHER THAN
+                # ASSUMED.  The stored row still NAMES the scene -- the
+                # login does not rewrite the character's position -- so the
+                # proof is the refusal event plus the empty census, not a
+                # changed scene id.  An earlier draft of this test asserted
+                # the scene id had moved and went red for a reason that had
+                # nothing to do with the door.
+                self.assertIn("world_scene_entry_refused_no_reply",
+                              state.events)
+                self.assertIsNot(getattr(state, "world_census_sent", None),
+                                 True)
 
     def test_a_player_who_does_move_first_still_anchors_on_the_real_report(
         self,

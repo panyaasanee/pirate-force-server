@@ -498,9 +498,22 @@ class TheAnswerCarriesTheWholeIslandTests(unittest.TestCase):
             for scene in roster.scenes_this_lane_answers_for()
         )
         volcano = len(world_bg0015_identity.shippable_placements())
-        self.assertEqual((roster_total, volcano, ROSTER_COUNT),
-                         (692, 81, 97))
-        self.assertEqual(roster_total + volcano + ROSTER_COUNT, 870)
+        # 692 IS THE ISLANDS, and round `4uztfj` added a scene that is not
+        # one (126, the ocean panel, 36 actors) -- so the islands are
+        # counted on their own here and the panel is named beside them,
+        # rather than letting a new scene quietly move a number three
+        # letters and a round file quote.
+        island_total = sum(
+            len(roster._IDENTITY_OF_SCENE[scene].shippable_placements())
+            for scene in roster.scenes_this_lane_answers_for()
+            if scene != 126
+        )
+        ocean_panel = len(
+            roster._IDENTITY_OF_SCENE[126].shippable_placements())
+        self.assertEqual((island_total, volcano, ROSTER_COUNT, ocean_panel),
+                         (692, 81, 97, 36))
+        self.assertEqual(island_total + volcano + ROSTER_COUNT, 870)
+        self.assertEqual(roster_total, island_total + ocean_panel)
 
     def test_a_duplicate_identity_in_one_frame_is_answered_once(self):
         """pf-adversary D10: a double-click is the input v141's own frozen
@@ -570,8 +583,7 @@ class TheLedgerPathTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.legacy = _legacy()
-        cls.mob = sorted(
-            _hostile_by_index().items())[0][1]
+        cls.mob_index, cls.mob = sorted(_hostile_by_index().items())[0]
         cls.civilian_index = next(
             index for index in sorted(
                 p.placement_index for p in tables.load_known_placements())
@@ -643,7 +655,18 @@ class TheLedgerPathTests(unittest.TestCase):
             response.frame,
         )
 
-    def test_a_dead_monster_refuses_the_whole_click_by_name(self):
+    def test_a_dead_monster_does_not_silence_a_click_on_anyone_else(self):
+        """~~test_a_dead_monster_refuses_the_whole_click_by_name~~ REWRITTEN,
+        round `4uztfj`, and the old name is kept here because the test that
+        bore it PINNED A DEFECT AS DESIRED BEHAVIOUR.  It clicked a
+        CIVILIAN, with one monster elsewhere in the scene dead, and asserted
+        the whole click was refused -- which is what the responder did, and
+        which chief then measured on the real dispatcher: one kill silenced
+        every click in scene 2 until the player reconnected, because
+        ``_sync_combat_scene_state`` pulls the death back out of
+        ``mob_death_register`` on every re-entry (letter 20260902_1918).
+        ``COO-DECISION 20260902_1945``: the dead guard judges the CLICKED
+        body only.  Same input as the old test; the opposite assertion."""
         legacy = self.legacy
         with contextlib.redirect_stderr(io.StringIO()) as err:
             response = responder_mod.respond(
@@ -655,12 +678,217 @@ class TheLedgerPathTests(unittest.TestCase):
                 scene_id=PRISON_EXILE,
                 mob_combat_ledger=self._ledger_with(0),
             )
-        self.assertIsNone(
+        self.assertIsNotNone(
             response,
-            "a click composed a live body for a monster the ledger says is "
-            "dead",
+            "a kill somewhere else in the scene silenced a click on a "
+            "civilian",
         )
-        self.assertIn("dead_monster_needs_a_mob_death_body", err.getvalue())
+        self.assertEqual(response.label, f"LANE_A_CHOOSE_NPC_SCENE2_FACE_P"
+                         f"{self.civilian_index}")
+        # The whole island is still in the frame -- the dead body included,
+        # at its ceiling, because omitting it would delete the actor.
+        self.assertIn(f"visible={ROSTER_COUNT}", response.console_lines[0])
+        self.assertIn("dead_at_ceiling=1", response.console_lines[0])
+        self.assertIn(
+            f"_DEAD_BODY_AT_CEILING placement={self.mob_index} ",
+            err.getvalue())
+
+    def test_a_packet_naming_a_corpse_AND_a_civilian_is_still_answered(self):
+        """ONE PACKET CAN NAME SEVERAL ACTORS, and that is what the guard's
+        per-identity ``continue`` is for.  ``v141`` documents "TargetVital
+        followed by one or more ChooseNPC records" and
+        ``extract_choose_npc_identities`` returns a LIST.  pf-adversary
+        measured that turning either responder's ``continue`` back into a
+        ``return`` left the whole lane suite green, because no test drove a
+        multi-identity packet: this is that test, and it is what pins the
+        narrowing this round exists for."""
+        legacy = self.legacy
+        corpse = _placement(self.mob_index).actor_identity
+        civilian = _placement(self.civilian_index).actor_identity
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            response = responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(corpse, civilian),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=self._ledger_with(0),
+            )
+        printed = err.getvalue()
+        self.assertIsNotNone(
+            response,
+            "a packet naming a corpse first was refused outright",
+        )
+        self.assertEqual(
+            response.label,
+            f"LANE_A_CHOOSE_NPC_SCENE2_FACE_P{self.civilian_index}")
+        # AND THE CONSOLE MUST NOT SAY THE CLICK WAS REFUSED (pf-adversary
+        # D3): the packet was answered, so the only refusal token allowed
+        # here is the identity-scoped one.
+        self.assertNotIn("_DECLINED", printed)
+        self.assertIn("_IDENTITY_REFUSED", printed)
+
+    def test_a_corpse_in_the_frame_is_not_counted_as_a_wound_or_a_read(self):
+        """The two numbers a ticket may quote, pinned against the mutants
+        that survived pf-adversary: a dead body sent at its ceiling is
+        neither ``wounded`` nor a ledger read, because neither describes
+        what went on the wire for it."""
+        legacy = self.legacy
+        response = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                _placement(self.civilian_index).actor_identity,),
+            population_indices=None,
+            last_target_pos=(1.0, 2.0, 0.0, 0.0),
+            scene_id=PRISON_EXILE,
+            mob_combat_ledger=self._ledger_with(0),
+        )
+        line = response.console_lines[0]
+        self.assertIn("wounded=0", line)
+        self.assertIn("dead_at_ceiling=1", line)
+        self.assertIn("from_ledger=11", line)
+
+    def test_the_dead_body_line_names_the_identity_in_hex(self):
+        """Every identity in this tree is written ``0x2033``; a decimal one
+        is a line a tester's grep cannot find (pf-adversary D6)."""
+        legacy = self.legacy
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(
+                    _placement(self.civilian_index).actor_identity,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=self._ledger_with(0),
+            )
+        self.assertIn(
+            f"_DEAD_BODY_AT_CEILING placement={self.mob_index} "
+            f"identity=0x{self.mob.actor_identity:04X}",
+            err.getvalue(),
+        )
+
+    def test_a_ledger_from_the_other_scene_is_refused_by_name(self):
+        """pf-adversary D4, MEASURED AT HEAD: scene 2 and scene 14 share
+        identity 0x2058 (placement 87 in both).  Before this round a
+        scene-14 ledger carrying that row at 0 HP made a click on scene 2's
+        LIVING placement 87 refuse itself -- a click dropped by a kill in
+        another scene.  The ledger is now admitted for this scene before it
+        is read."""
+        from pirateforce_foundation import field_mob_hostile_bg0015
+        legacy = self.legacy
+        scene14_roster = tuple(
+            field_mob_hostile_bg0015.scene14_hostile_roster())
+        shared = {mob.actor_identity for mob in scene14_roster} & {
+            mob.actor_identity for mob in _hostile_by_index().values()}
+        self.assertTrue(shared, "the collision this test is about is gone")
+        identity = sorted(shared)[0]
+        foreign = mob_combat.open_ledger(scene14_roster)
+        row = foreign.balance_of(identity)
+        foreign = foreign.with_balance(
+            mob_combat.MobBalance(identity, row.max_hp, 0))
+        clicked = next(
+            index for index, mob in _hostile_by_index().items()
+            if mob.actor_identity == identity
+        )
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            response = responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(_placement(clicked).actor_identity,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=foreign,
+            )
+        self.assertIsNotNone(
+            response,
+            "a kill in ANOTHER scene dropped a click in this one",
+        )
+        self.assertIn("hp=ceiling", response.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", response.console_lines[0])
+        self.assertIn("_LEDGER_NOT_ADMITTED", err.getvalue())
+
+    def test_a_ledger_that_raises_or_overflows_still_answers(self):
+        """pf-adversary D5: the ``current_hp`` READ is inside the try now,
+        and an HP above the table ceiling answers the ceiling instead of
+        crashing inside the wire encoder's u32 contract."""
+        legacy = self.legacy
+
+        class _Exploding:
+            scene = "Bg0002"
+
+            def balance_of(self, _identity):
+                class _Row:
+                    @property
+                    def current_hp(self):
+                        raise RuntimeError("ledger on fire")
+                return _Row()
+
+        class _Overflowing:
+            scene = "Bg0002"
+
+            def balance_of(self, _identity):
+                return type("_Row", (), {"current_hp": 2 ** 40})()
+
+        for ledger in (_Exploding(), _Overflowing()):
+            with self.subTest(ledger=type(ledger).__name__):
+                response = _answer(
+                    legacy, self.civilian_index, ledger=ledger)
+                self.assertIsNotNone(response)
+                self.assertIn("hp=ceiling", response.console_lines[0])
+
+    def test_a_click_on_the_dead_body_itself_is_refused_by_its_own_name(self):
+        """The other half of the same ruling: the corpse is not answered,
+        and the reason names THE CLICKED placement rather than the first
+        dead hostile in table order (chief's item 4.1: a click on placement
+        0 printed ``placement_50``)."""
+        legacy = self.legacy
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            response = responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(
+                    _placement(self.mob_index).actor_identity,),
+                population_indices=None,
+                last_target_pos=(1.0, 2.0, 0.0, 0.0),
+                scene_id=PRISON_EXILE,
+                mob_combat_ledger=self._ledger_with(0),
+            )
+        self.assertIsNone(response)
+        # An IDENTITY token, not a packet one: one ChooseNPC packet can
+        # name several actors, so "this identity was refused" and "the
+        # packet got no frame" are different lines now (pf-adversary D3).
+        self.assertIn(
+            "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_mob_"
+            f"death_body placement={self.mob_index} identity=0x",
+            err.getvalue())
+        self.assertIn("every_named_identity_refused count=1", err.getvalue())
+
+    def test_a_wounded_monster_is_counted_by_a_number_not_by_a_word(self):
+        """``hp=ledger`` proves only that a ledger was readable -- an empty
+        one prints it with all twelve bodies at their ceiling (chief's item
+        4.3).  ``wounded=`` is the number that may be quoted."""
+        legacy = self.legacy
+        wounded = self._ledger_with(max(1, self.mob.max_hp - 1))
+        response = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(
+                _placement(self.civilian_index).actor_identity,),
+            population_indices=None,
+            last_target_pos=(1.0, 2.0, 0.0, 0.0),
+            scene_id=PRISON_EXILE,
+            mob_combat_ledger=wounded,
+        )
+        self.assertIsNotNone(response)
+        self.assertIn("wounded=1", response.console_lines[0])
+        self.assertIn("dead_at_ceiling=0", response.console_lines[0])
+        self.assertIn(
+            field_mobs.hostile_npc_attr(
+                legacy, self.mob, current_hp=self.mob.max_hp - 1,
+                scene_id=field_mobs.SCENE_ID,
+                scene_sequence=field_mobs.SCENE_SEQUENCE,
+            ),
+            response.frame,
+        )
 
     def test_a_foreign_ledger_answers_the_ceiling_and_says_so(self):
         """Fail-SAFE, and measured: a ledger with no row for this scene's
@@ -727,10 +955,16 @@ class EveryRefusalIsNamedTests(unittest.TestCase):
 
     def test_an_identity_this_scenes_table_lacks_is_refused_by_name(self):
         # 0x2000 + 900 + 1: no placement index anywhere near this table.
+        # TWO LINES SINCE ROUND `4uztfj`: the identity is refused by its own
+        # token, and the PACKET's own refusal says how many identities went
+        # that way rather than claiming none was answerable.
+        printed = self._refused(chosen_identities=(0x2000 + 901,))
         self.assertIn(
-            "no_named_identity_this_scene_can_answer",
-            self._refused(chosen_identities=(0x2000 + 901,)),
+            "_IDENTITY_REFUSED reason=placement_not_in_this_scenes_table "
+            "placement=900 identity=0x2385",
+            printed,
         )
+        self.assertIn("every_named_identity_refused count=1", printed)
 
     def test_a_second_named_identity_is_tried_before_giving_up(self):
         legacy = self.legacy

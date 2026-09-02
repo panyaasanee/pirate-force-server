@@ -258,6 +258,7 @@ from . import world_population_bg0009
 from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
+from . import world_population_bg3001
 from . import world_population_bg4001
 from .world_population import (
     COLLECTION_TAG,
@@ -580,6 +581,25 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg4001.dispatch_report,
         generation_type=world_population_bg4001.Bg4001PopulationGeneration,
         full_roster_count=world_population_bg4001.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND 4uztfj (2026-09-02, LANE-A), the twelfth composer and the
+    # first outside the ten island doors: scene 126 (Bg3001, "Atlantis"),
+    # the ocean panel.  Same shape as bg4001's entry above.  NOT covered by
+    # the LOGIN_OWNED_SOURCES exclusion below: scene 126 has no login-path
+    # populator today (no runtime.py branch dedicated to it), so this entry
+    # is not composing over anything.  ITS DOOR IS SHUT: the ordinary login
+    # path refuses scene 126 (``login_entry_allowed: false``, untouched this
+    # round), so the only arrival that can reach this composer is the GM
+    # single-use grant CORE-REQUEST-GM-038 landed for this scene id.
+    "bg3001_roster": _SceneComposer(
+        source="bg3001_roster",
+        build=world_population_bg3001.build_bg3001_population,
+        full_roster_count_source=world_population_bg3001.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg3001.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg3001.dispatch_report,
+        generation_type=world_population_bg3001.Bg3001PopulationGeneration,
+        full_roster_count=world_population_bg3001.DEFAULT_ACTOR_COUNT,
     ),
 }
 

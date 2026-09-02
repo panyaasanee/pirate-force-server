@@ -184,10 +184,12 @@ giving up.
 """
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from .. import field_mob_hostile_bg0015 as hostile_bg0015
 from .. import field_mobs
+from .. import lane_a_click_hp
 from .. import lane_hooks
 from .. import world_census_level
 from .. import world_bg0015_identity as identity
@@ -207,6 +209,11 @@ production_allowed = True
 # 'wired' can never happen silently"), and this module's identity of scene
 # 14 does not need the population builder itself to state it.
 SCENE_N_ID = identity.SCENE_N_ID
+# The folder this scene's monsters are mined from, and the tag its own
+# ledger carries.  Named here because ``field_mobs`` does not know this
+# scene id at all -- see ``lane_a_click_hp.ledger_for_this_scene`` for what
+# that costs and why this constant is the fallback answer.
+SCENE_FOLDER = identity.SCENE_MODEL_ID
 
 
 def _placements_by_index() -> dict[int, Any]:
@@ -258,9 +265,22 @@ def respond(
     last_target_pos: tuple[float, float, float, float] | None,
     scene_id: int = SCENE_N_ID,
     scene_entry_registry: Any = None,
+    mob_combat_ledger: Any = None,
     **_ignored: Any,
 ) -> "lane_hooks.ChooseNpcResponse | None":
     """Answer one ChooseNPC click for scene 14, or decline (see module doc).
+
+    ``mob_combat_ledger`` IS READ SINCE ROUND ``4uztfj``, and until then it
+    was swallowed by ``**_ignored`` while scene 2's responder read the same
+    keyword -- so the two production responders would have answered
+    DIFFERENTLY on the same input the day the call site started passing it
+    (chief's letter ``20260902_1918`` item 4.2, measured; ``COO-DECISION
+    20260902_1945`` requires both to move in one commit).  The rule itself
+    is ``lane_a_click_hp``'s, not a second copy: a wounded monster keeps
+    its wound, a body the ledger says is DEAD refuses THAT CLICK BY NAME
+    and nothing else, and any other dead body in the same frame is sent at
+    its ceiling, counted and named.  ``None`` (today's production value)
+    means every hostile body carries its table ceiling, exactly as before.
 
     Keyword-only, same convention as ``census_composer``'s ``compose``, for
     the same reason: a future call site can grow arguments without breaking
@@ -278,6 +298,28 @@ def respond(
     by_idx = _placements_by_index()
     hostile_by_idx = _hostile_mobs_by_placement_index()
     player_x, player_y = last_target_pos[0], last_target_pos[1]
+    # ADMITTED FOR THIS SCENE BEFORE IT IS READ, once per packet -- the
+    # same guard scene 2's responder takes, for the collision measured in
+    # ``lane_a_click_hp.ledger_for_this_scene``'s own docstring (these two
+    # scenes share identity 0x2058).
+    # THE ROSTER THIS SCENE'S MONSTERS REALLY COME FROM, measured rather
+    # than assumed symmetric with scene 2: ``field_mobs.roster_for_scene_id
+    # (14)`` is EMPTY (field_mobs names no scene 14 at all -- the same fact
+    # ``mob_scene_recompose``'s own table records), and this scene's twelve
+    # hostile bodies come from ``field_mob_hostile_bg0015``.  Handing the
+    # admission an empty roster would have refused every ledger and quietly
+    # put this scene back on the ceiling for good.
+    admitted_ledger = lane_a_click_hp.ledger_for_this_scene(
+        SCENE_N_ID, mob_combat_ledger,
+        tuple(hostile_bg0015.scene14_hostile_roster()),
+        scene_folder=SCENE_FOLDER,
+    )
+    if mob_combat_ledger is not None and admitted_ledger is None:
+        print(lane_hooks.console_safe(
+            f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_LEDGER_NOT_ADMITTED "
+            "reason=not_this_scenes_ledger hp=ceiling"
+        ), file=sys.stderr)
+    refused_identities = 0
     for actor_identity in dict.fromkeys(chosen_identities):
         selected_idx = actor_identity - 0x2000 - 1
         if selected_idx not in population_indices:
@@ -287,8 +329,33 @@ def respond(
             # not have.  Try the next named identity in this same frame
             # rather than giving up on the whole click.
             continue
+        # THE DEAD GUARD, ON THE CLICKED BODY AND NOTHING ELSE -- the same
+        # rule scene 2's responder carries, landed in the same commit
+        # (COO-DECISION 20260902_1945).  A click on a corpse is refused by
+        # name; a click on anyone else is answered, because refusing the
+        # whole frame silences a scene until the player reconnects.
+        clicked_hostile = hostile_by_idx.get(selected_idx)
+        if clicked_hostile is not None:
+            clicked_hp, _from_ledger = lane_a_click_hp.current_hp_of(
+                clicked_hostile, admitted_ledger)
+            if clicked_hp is None:
+                # AN IDENTITY TOKEN, NOT A PACKET ONE (pf-adversary D3):
+                # one ChooseNPC packet can name several actors, so a
+                # ``..._DECLINED`` here printed a refusal for a click that
+                # went on to be answered.
+                print(lane_hooks.console_safe(
+                    f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_IDENTITY_REFUSED "
+                    "reason=clicked_body_is_dead_needs_a_mob_death_body "
+                    f"placement={selected_idx} "
+                    f"identity=0x{actor_identity:04X}"
+                ), file=sys.stderr)
+                refused_identities += 1
+                continue
         entries = []
         omitted = 0
+        hostile_from_ledger = 0
+        hostile_wounded = 0
+        dead_bodies_at_ceiling = 0
         for idx in population_indices:
             placement = by_idx.get(idx)
             if placement is None:
@@ -307,8 +374,31 @@ def respond(
                 # actors gets clicked -- see _hostile_mobs_by_placement_
                 # index's own docstring for the confirmed defect this
                 # branch closes.
+                current_hp, from_ledger, was_dead = (
+                    lane_a_click_hp.hp_for_a_body_that_is_not_the_click(
+                        hostile_mob, admitted_ledger)
+                )
+                hostile_from_ledger += int(from_ledger)
+                if was_dead:
+                    # Not the clicked body: the frame is still owed, this
+                    # responder has no corpse to put in it, and omitting
+                    # the row would DELETE the actor (``RE-092``).  Ceiling,
+                    # counted and named -- see ``lane_a_click_hp``.
+                    dead_bodies_at_ceiling += 1
+                    # An OBSERVATION token, not a ``_DECLINED`` one: the
+                    # click IS answered and only one body in the answer is
+                    # a corpse wearing its ceiling.  Same shape scene 2's
+                    # responder prints, same reason.
+                    print(lane_hooks.console_safe(
+                        f"LANE_A_CHOOSE_NPC_SCENE{scene_id}"
+                        "_DEAD_BODY_AT_CEILING "
+                        f"placement={idx} "
+                        f"identity=0x{hostile_mob.actor_identity:04X}"
+                    ), file=sys.stderr)
+                elif current_hp < hostile_mob.max_hp:
+                    hostile_wounded += 1
                 npc_attr_bytes = field_mobs.hostile_npc_attr(
-                    legacy, hostile_mob, current_hp=hostile_mob.max_hp,
+                    legacy, hostile_mob, current_hp=current_hp,
                     scene_id=scene_id, scene_sequence=0,
                 )
             else:
@@ -351,10 +441,17 @@ def respond(
         if not entries:
             continue
         pc, frame = legacy.make_runtime_remote_actors(entries)
+        # ``wounded=`` is the number that may be quoted as evidence that a
+        # wound survived a click; ``hp=ledger`` is not (see scene 2's
+        # responder for the same paragraph and the ruling behind it).
         console_lines = (
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
             f"placement={selected_idx} visible={len(entries)} "
-            f"omitted={omitted}",
+            f"omitted={omitted} "
+            f"hp={'ledger' if hostile_from_ledger else 'ceiling'} "
+            f"from_ledger={hostile_from_ledger} "
+            f"wounded={hostile_wounded} "
+            f"dead_at_ceiling={dead_bodies_at_ceiling}",
         )
         return lane_hooks.ChooseNpcResponse(
             label=f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_FACE_P{selected_idx}",
