@@ -219,12 +219,37 @@ BYTE-IDENTICAL in `GAME_LIVE.txt`.  The one place the capture tells them
 apart is this module's own `LANE_A_UIA_NOTICE_COMPOSED ... button=...`
 print, which is why `GT-211` grades on that line and says so.
 
-The names are chief's to rename (`runtime.py` is his file); the request is
+~~The names are chief's to rename (`runtime.py` is his file); the request is
 in this round's PR body and in
 `pf_bridge/notes_to_chief/20260902_1341_LANE-A-TO-CHIEF-*`, upgraded there
 from "cosmetic, whenever" to "the capture layer of `GT-211` reads better
-with it".  It blocks nothing: the bytes the player receives are correct
-either way, and the console line already disambiguates.
+with it".~~  HALF OF THAT IS NOW DONE HERE, round `omhpqj` (2026-09-03),
+on COO-DECISION `20260903_1746` item 2, which ordered the mismatch out of
+the evidence: the name this lane wants is DATA IN THIS FILE now
+(`ACTION_LABEL_BY_BUTTON`, read off a notice as `notice.action_label`), so
+the chief-owned half is no longer "pick a name" but one literal swapped
+for one attribute read -- `CORE-REQUEST 20260903_1832` carries the exact
+line.  The struck sentence is kept because it is the request that stood
+for a day, and because the rest of it is still true: it blocks nothing,
+the bytes the player receives are correct either way, and the console line
+already disambiguates.
+
+ONLY THE EXIT BUTTON IS RENAMED, and the first draft of this paragraph
+justified that with a sentence that is FALSE.  ~~It is the house rule that
+a PR moving a string a ticket greps must keep the grep answering: `GT-205`
+grades on the UI-A label, and a rename of both would have taken its
+command to zero hits.~~  MEASURED FALSE (pf-adversary D4, this round):
+`GT-205`'s block in `pf_bridge/GAME_TEST_QUEUE.md` contains ZERO
+occurrences of `LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE`.  What that
+ticket greps is `LANE_A_UIA_NOTICE_COMPOSED` (three occurrences) and the
+sentence `BACK REFUSED` (ten), neither of which this round touches.  The
+grep rule (`pf_bridge/AGENTS.md`, COO-DECISION `20260903_1545` item 3) is
+about a string a ticket greps being deleted or moved, and this round
+deletes and moves nothing: chief's UI-A literal is untouched and the UI-B
+name is new.  THE REAL REASON is smaller and it is enough: COO's order
+names one button (`EXIT_GAME` => `EXIT_REFUSED`), the UI-A label is not
+wrong for the UI-A click, and a second rename would put a second line of
+chief's file in this lane's request for no gain to any reader.
 
 ONE ENTRY POINT, ON PURPOSE
 ---------------------------
@@ -430,6 +455,72 @@ NOTICE_TEXT_BY_BUTTON = {
     BUTTON_EXIT_GAME: UIB_NOTICE_TEXT,
 }
 
+# THE NAME THE CAPTURE CARRIES, ONE ROW PER BUTTON.
+#
+# This is not on the wire and never will be: the client is handed `pc` and
+# `frame`, nothing else.  It is what the FROZEN SENDER writes beside those
+# bytes, and WHERE IT GOES WAS RE-MEASURED THIS ROUND rather than copied
+# from the sentence that has been repeated since round `1d6rta`
+# (pf-adversary D1, round `omhpqj`).  From
+# `current/pf_login_game_server_v141.py:7755-7776`, the label reaches
+# exactly three places, and an attended ticket keeps and shas the first
+# two:
+#
+#   * `live(f"SENT label={label} frame_bytes=...")`  -> `GAME_LIVE.txt`
+#   * `print(f"[G>] {label} (N bytes; ...)")`        -> the console
+#   * `f.write(f"SENT {label} bytes=...")`           -> the per-session
+#     raw log the listener already had open
+#
+# ~~and the exported events file~~  MEASURED FALSE, this round.
+# `GAME_EVENTS_LIVE.txt` is written ONLY by `event()`
+# (`v141:7378-7381`), whose thirteen call sites are `SESSION_START` and
+# eleven `MILESTONE` lines plus one at `:7494`; NONE of them is inside
+# 7755-7776 and none of them is ever handed a label or a `state.events`
+# entry.  `state.events` is read in the frozen file only inside its
+# SELFTEST block.  That is why this round ships ONE table and asks chief
+# for ONE line: an `events`-name table would have been a second name for
+# a second artifact THAT DOES NOT EXIST.
+#
+# WHY ONE NAME FOR TWO BUTTONS WAS A DEFECT.  Both sentences this module
+# composes are twelve characters, so both receipts are `pc=56 frame=66`;
+# with one label for both, the `SENT` line for "back" and the `SENT` line
+# for "exit" were byte-identical in `GAME_LIVE.txt` and the capture could
+# not tell the owner's two clicks apart (pf-adversary D1, round
+# `1d6rta`).  COO-DECISION `20260903_1746` item 2 ordered it removed.
+#
+# WHAT THIS FILE CAN AND CANNOT DO ABOUT IT.  The literal lives at
+# `runtime.py`'s 0x1B40 branch, which is chief's file, so this lane cannot
+# swap it itself.  What it can do is stop asking chief to CHOOSE a name:
+# the rows below are the answer, `notice.action_label` reads them, and
+# `CORE-REQUEST 20260903_1832` asks for one literal to become one
+# attribute read.  Until that lands, nothing here changes what a player or
+# a tester sees, and `tests/test_world_logout_button_notice_wiring.py`
+# reads chief's file to say WHICH of the two worlds this tree is in, so
+# "chief never got to it" can never look like "chief did it".
+#
+# `BUTTON_CHARACTER_SELECT` KEEPS CHIEF'S CURRENT STRING, on purpose; see
+# the docstring section "ONLY THE EXIT BUTTON IS RENAMED".
+UIA_ACTION_LABEL = "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE"
+UIB_ACTION_LABEL = "LANE_A_UIB_EXIT_REFUSED_LOCAL_TALK_NOTICE"
+
+ACTION_LABEL_BY_BUTTON = {
+    BUTTON_CHARACTER_SELECT: UIA_ACTION_LABEL,
+    BUTTON_EXIT_GAME: UIB_ACTION_LABEL,
+}
+
+# What a notice reports when its button has bytes but no row above.  It
+# cannot happen from a frame -- `classify_parsed` returns one of the two
+# known buttons and both are in both tables, pinned by a key-parity test
+# -- and it is NOT a fallback to the other button's name, which is the
+# failure the text table's stand-down branch guards against for the words
+# on screen.  It exists because the reader of this property is chief's
+# `else:` branch, which is OUTSIDE his `try`: a `KeyError` from a property
+# read there would take the listener thread down for the player whose
+# click it was, and Python does not route an `else:`-body exception to
+# that `except`.  A capture carrying this token names the defect instead
+# of pointing at the wrong button.
+UNLABELLED_BUTTON_ACTION_LABEL = "LANE_A_LOGOUT_NOTICE_UNLABELLED_BUTTON"
+
 # ASCII console tokens (the bridge console is cp874; nothing Thai here).
 # A human reading a capture log next to a screenshot lines the two up by
 # these, which is the wire/DB half of `GT-205`'s two-layer evidence.
@@ -499,6 +590,23 @@ class LogoutButtonNotice:
     text: str
     pc: bytes
     frame: bytes
+
+    @property
+    def action_label(self) -> str:
+        """The name the sender should write beside these bytes.
+
+        Read `ACTION_LABEL_BY_BUTTON`'s comment for why a name that never
+        reaches the client is worth a table: it is the field an attended
+        ticket greps in three artifacts, and one name for two buttons made
+        the owner's two clicks indistinguishable in all three.
+
+        Never raises.  Its one intended caller is chief's `else:` branch,
+        which is outside his `try`.
+        """
+
+        return ACTION_LABEL_BY_BUTTON.get(
+            self.classification.button, UNLABELLED_BUTTON_ACTION_LABEL,
+        )
 
     def console_line(self) -> str:
         return "%s %s text=%s pc=%d frame=%d" % (
