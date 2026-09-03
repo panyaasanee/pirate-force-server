@@ -55,7 +55,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+from pf_preconditions import (  # noqa: E402
+    BRIDGE_GM_INSTALL_BAT,
+    BRIDGE_SIBLING,
+)
 from pirateforce_foundation.gm import plugin_image_check as pic  # noqa: E402
 
 
@@ -1345,18 +1348,35 @@ def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> 
 #     shape `tests/pf_preconditions.py` was written for: evidence that lives
 #     outside this repository, present on one machine and absent on the other.
 #
-# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> one
+# So the guard asks a precondition and reports ITS reason.  Absent -> one
 # declared skip per test in that class, pinned in `docs/PYTEST_SKIP_PINS.json`
 # under `preconditions` (the count is `INSTALL_BAT_TESTS`, and three tests
 # below grade the two against each other), which the census expects to be ZERO
-# on any machine that has the sibling.
+# on any machine that has the artifact.
 #
-# The key is `bridge_sibling` and not a narrower one for `install.bat` itself,
-# because a narrower key would need a new entry in `tests/pf_preconditions.py`
-# -- another lane's file -- and because the two answers must not be merged: a
-# checkout that HAS `../pf_bridge` and does not have the batch file is not a
-# machine short of evidence, it is a deleted `install.bat`, and that is the
-# regression `InstallBatContractTests` exists to catch.  It fails loudly below.
+# NARROWED 2026-09-03 (round `0ymgul`), STRUCK RATHER THAN DELETED.  The key
+# was `bridge_sibling` and this block used to say why it had to stay that
+# wide: ~~"The key is `bridge_sibling` and not a narrower one for
+# `install.bat` itself, because a narrower key would need a new entry in
+# `tests/pf_preconditions.py` -- another lane's file"~~.  Half of that
+# sentence was never an argument about breadth at all -- it was an argument
+# about WHO MAY EDIT `tests/pf_preconditions.py`, and chief closed it: the
+# narrow key `bridge_gm_install_bat` landed on `main` in `#652` (his letter
+# `20260903_1406`), verified from `origin/main` before this commit.  The
+# guard below now names it, and the pin moves in this same commit so the
+# half-way state -- a decorator naming a key the registry does not have, or a
+# pin naming a key nothing guards with -- never exists on any branch.
+#
+# WHAT DOES *NOT* CHANGE, and this is the half of the old sentence that still
+# stands: the two questions must not be merged.  A checkout that HAS
+# `../pf_bridge` and does not have the batch file is not a machine short of
+# evidence, it is a deleted `install.bat`, and that is a regression this
+# module must catch.  Under the wide key it was caught by this class going
+# 4-red.  Under the narrow key this class would SKIP there instead -- so the
+# loud failure does not disappear, it moves to
+# `test_a_bridge_beside_this_clone_really_does_carry_install_bat`, which is
+# unguarded, runs on every machine, and is now the ONLY thing standing in
+# that gap.  Do not guard it, and do not weaken it to a skip.
 
 
 def _install_bat() -> Path | None:
@@ -1723,7 +1743,7 @@ def test_every_rule_name_this_module_writes_down_is_a_console_rule() -> None:
         assert isinstance(verdict, str) and verdict, verdict
 
 
-@BRIDGE_SIBLING.skip_unless_present()
+@BRIDGE_GM_INSTALL_BAT.skip_unless_present()
 class InstallBatContractTests(unittest.TestCase):
     """The four tests that read the batch file, guarded as ONE site.
 
@@ -1747,6 +1767,14 @@ class InstallBatContractTests(unittest.TestCase):
     including a renamed console token that silently breaks the batch's
     `findstr`.  The Python side is graded by the unguarded tests further down;
     what belongs here is only what needs the FILE.
+
+    Round `0ymgul`: the guard is `BRIDGE_GM_INSTALL_BAT` (`install.bat`
+    itself), not `BRIDGE_SIBLING` (`../pf_bridge` exists).  On the gate that
+    changes nothing -- neither is there.  On a machine that has the sibling
+    with the batch DELETED it changes everything: this class now skips where
+    it used to go 4-red, so the loud failure for that case lives in
+    `test_a_bridge_beside_this_clone_really_does_carry_install_bat` below,
+    which is unguarded on purpose.
     """
 
     def setUp(self) -> None:
@@ -1997,7 +2025,10 @@ class InstallBatContractTests(unittest.TestCase):
 # is ask the MACHINE anything: it never touches `../pf_bridge`.  These two do
 # exactly that and nothing else.  Both run everywhere, need no artifact, and
 # are deliberately outside `InstallBatContractTests` so the guarded count in
-# that class stays 3.
+# that class stays `INSTALL_BAT_TESTS` -- 4 since round `p7q74c` added the
+# fourth reader; the literal "3" written here was stale from round `kv2vjk`
+# and is corrected rather than carried, because the number is what the pin is
+# graded against.
 
 
 def _pin_entry() -> dict:
@@ -2007,11 +2038,11 @@ def _pin_entry() -> dict:
     module = "tests/" + Path(__file__).name
     matches = [
         entry for entry in pins["preconditions"]
-        if entry["key"] == "bridge_sibling"
+        if entry["key"] == "bridge_gm_install_bat"
         and entry["module"].replace("\\", "/") == module
     ]
     assert len(matches) == 1, (
-        "expected exactly one bridge_sibling pin for %s, found %d"
+        "expected exactly one bridge_gm_install_bat pin for %s, found %d"
         % (module, len(matches))
     )
     return matches[0]
@@ -2035,21 +2066,33 @@ def test_the_module_constant_and_the_pin_say_the_same_number():
 def test_a_bridge_beside_this_clone_really_does_carry_install_bat():
     """The premise the whole guard rests on, asked of THIS machine.
 
-    `bridge_sibling` answers "is `../pf_bridge` there", and the class above
-    treats that as "the batch file is readable".  Those are two different
-    questions, and the gap between them is where a false RUN lives: a checkout
-    that has the sibling and not the file would reach `_install_bat_text` and
-    die.  That is the intended outcome -- a deleted `install.bat` IS a
-    regression -- but it must be legible, so it is named here rather than
-    arriving as a stray AssertionError from a helper.
+    UNGUARDED ON PURPOSE, and since round `0ymgul` this is load-bearing.  The
+    class above used to be guarded by `bridge_sibling` ("is `../pf_bridge`
+    there"), so a checkout WITH the sibling and WITHOUT the batch went 4-red
+    inside it.  It is now guarded by `bridge_gm_install_bat` ("is the batch
+    readable"), which is the correct question for a SKIP -- and which makes
+    that same checkout skip silently.  This test is what remains: it runs on
+    both machines, and on the one that has the sibling it asserts the file is
+    there.  Guarding it, or turning this assertion into a skip, would leave a
+    deleted `install.bat` green everywhere.
+
+    Both keys are read here rather than one, because the whole point is that
+    they answer different questions and the difference is now the tripwire.
     """
     assert "[precondition:bridge_sibling]" in BRIDGE_SIBLING.reason
+    assert (
+        "[precondition:bridge_gm_install_bat]" in BRIDGE_GM_INSTALL_BAT.reason
+    )
+    assert BRIDGE_GM_INSTALL_BAT.present == (_install_bat() is not None)
     if not BRIDGE_SIBLING.present:
         assert _install_bat() is None
+        assert not BRIDGE_GM_INSTALL_BAT.present
         return
     assert _install_bat() is not None, (
         "../pf_bridge is beside this clone but "
-        "patches/gm_plugin/install.bat is missing from it"
+        "patches/gm_plugin/install.bat is missing from it -- since round "
+        "0ymgul InstallBatContractTests SKIPS in this state instead of "
+        "failing, so this assertion is the only thing that catches it"
     )
 
 

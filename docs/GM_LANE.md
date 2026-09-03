@@ -8021,9 +8021,25 @@ ask what else in that scene answers to that number, or whether the two halves of
 about what the number IS -- the answer lived in a comment in one module's docstring about one scene.
 Today `describe_scene(scene_id, legacy=...)` answers it for any scene in one greppable ASCII line,
 `GM_IDENTITY_CENSUS ... disagreeing=N ... unique_within_scene=yes|NO families_agree=yes|NO`, and
-scene 1 answers `families_agree=NO disagreeing=4` today. `CORE-REQUEST-GM-050` asks chief for the
+scene 1 answers `families_agree=NO disagreeing=4` today. ~~`CORE-REQUEST-GM-050` asks chief for the
 one call site in `runtime.py` that would print it at scene entry; until that lands she runs it
-herself.
+herself.~~
+
+> **STRUCK 2026-09-03 in round `0ymgul`, not deleted** (chief's letter `20260903_1406` point 2,
+> under `COO-DECISION 20260903_1349` point 4 and `20260903_1351`). `CORE-REQUEST-GM-050` is
+> **closed, and re-filing it is forbidden.** What happened, in order: chief landed the call site,
+> `#651` merged it at `c1660fd` (13:41+07:00), the COO ordered it withdrawn, and `#652` reverted
+> it on `main` at 14:35+07:00. The census module and its tests were never touched -- only the
+> call site in `runtime.py` and chief's own wiring tests. A source-derived guard in the server now
+> makes naming the census module anywhere in `runtime.py` RED, so a round that reads this
+> paragraph and re-files the request would be asking for something the repository refuses.
+> The single condition that reopens it is written as a comment at the withdrawn call site:
+> `RE-2xx typed/live gate reachability` returning an identity that is **not** the index -- only
+> then does `unique_within_scene=NO` mean anything. On that day the whole wiring is re-appliable
+> from the revert commit in one round; nothing here needs rewriting.
+> Anyone holding a console capture from a build between `c1660fd` and the revert who saw a
+> `GM_IDENTITY_CENSUS` line: **that line was genuine**, not a stale build.
+> `describe_scene(...)` itself is untouched and still answers when run by hand.
 
 ---
 
