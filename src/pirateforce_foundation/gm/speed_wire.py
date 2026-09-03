@@ -105,8 +105,10 @@ this lane's other wire modules already take).
 from __future__ import annotations
 
 import math
+import os
 
 from . import attr_wire
+from .. import persistence_typed_attrs
 
 # The one field this whole module exists to touch. Not exported as a
 # parameter anywhere below -- see module docstring point 4.
@@ -391,3 +393,166 @@ def declared_empty_sections(
     if not actor_mask:
         empty.append(SECTION_ACTOR_ATTR)
     return tuple(empty)
+
+
+# ---------------------------------------------------------------------------
+# THE RUNTIME TRIAL GATE -- COO-DECISION 2026-09-03T06:46+07:00, ITEM 2
+# ---------------------------------------------------------------------------
+# `pf_bridge/notes_to_chief/20260903_0646_COO-DECISION-lane-gm-the-row-keeps-
+# being-written-and-the-trial-opens-at-runtime-not-on-main.md`, answering this
+# lane's letter `20260903_0529`, cuts a loop the two locks above had closed on
+# themselves: `GT-218` -- the attended round whose whole purpose is to try ONE
+# deliberately-safe `/speed` value -- cannot boot until both locks are open,
+# and `COO 2147` point 3 forbids opening either lock until that round has
+# happened and has a result.  Neither side can move first.
+#
+# THE CUT, IN THE COO'S OWN WORDS: "ไม่มีล็อกไหนถูกเปิดบน `main` ทั้งสองคงค่าเดิม
+# -- ทางเปิดคือ **เกต runtime** รูปเดียวกับ `PFGM_FORCE=1`".  So:
+#
+#   * `SPEED_LOGIN_READ_LANDED` stays `False` and
+#     `SHAPES_CLEARED_BY_A_REAL_CLIENT` stays empty.  NOTHING in this section
+#     edits either.  A checkout of `main` with no environment variable set
+#     behaves EXACTLY as it did before this section existed -- that is the
+#     property `tests/test_gm_speed_trial_gate.py` pins first, because it is
+#     the one `COO 2147` point 3 is actually about ("ประตูห้ามเปิดตอนเจ้าของไม่อยู่",
+#     not "there may be no way to open it").
+#   * `PF_SPEED_TRIAL=<one value>` in the PROCESS environment admits `/speed
+#     <that one value>` and nothing else.  Every other value stays held by
+#     both locks.  The person who opens the door is therefore the owner, in
+#     her own session, in the minute she is watching, and the door closes by
+#     itself when the process dies.
+#
+# FAIL-CLOSED IN THE SAME SHAPE `PFGM_FORCE` USES, and the shape matters more
+# than the mechanism: `PFGM_FORCE` accepts the single string `1` and treats
+# every other spelling -- unset, empty, `true`, `yes`, `01` -- as "not
+# forced".  Here the accepted spelling is a NUMBER rather than a fixed word,
+# so "one value" has to mean one f32, not one string: see `trial_opening`.
+SPEED_TRIAL_ENV = "PF_SPEED_TRIAL"
+
+# The three states the environment can be in, spelled as constants because an
+# attended tester greps them off a cp874 console and a test names the same
+# strings.  ASCII, no spaces, for the reason every console token in this lane
+# is (`chat_command_action.SPEED_DEFERRED_CONSOLE_TOKEN`'s own comment).
+TRIAL_UNSET = "unset"
+TRIAL_MALFORMED = "malformed"
+TRIAL_ARMED = "armed"
+
+
+def _as_f32_or_none(value: object) -> float | None:
+    """`value` as the f32 the wire would carry, or `None` if it is not one.
+
+    Read through `persistence_typed_attrs.as_f32` rather than re-spelling the
+    `struct.pack("<f", ...)` round trip here: the number this gate compares
+    against is the number the DB row holds, and that module is what rounds it
+    on the way in.  A second copy of the round trip is how a gate and a row
+    start disagreeing about whether `400.1` is `400.1` -- the exact drift
+    that function's own docstring exists to stop.
+
+    `bool` is refused even though it is an `int` subclass, the same rule
+    `compose_sparse_speed_update` states above: `PF_SPEED_TRIAL=True` is not a
+    speed and must not silently become `1.0`.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        if not math.isfinite(float(value)):
+            return None
+        return persistence_typed_attrs.as_f32(float(value))
+    except Exception:  # noqa: BLE001 - a gate never raises into dispatch
+        # `OverflowError` for a double past F32_MAX is the measured case; the
+        # bare catch is the posture, not a guess about which one it will be.
+        return None
+
+
+def trial_opening(environ=None) -> tuple[str, float | None]:
+    """Which ONE value the runtime trial gate opens the door for, if any.
+
+    Returns `(TRIAL_UNSET, None)`, `(TRIAL_MALFORMED, None)` or
+    `(TRIAL_ARMED, <the f32 it admits>)`.  Never raises: a hostile or exotic
+    mapping is a malformed environment, not an exception on the dispatch path
+    -- the same posture `shape_cleared` and `send_deferred` take, and the
+    reason both of those are functions rather than imported constants.
+
+    THE VALUE IS NORMALISED THROUGH `_as_f32_or_none` BEFORE IT IS RETURNED,
+    which is what makes "one value" well defined.  `PF_SPEED_TRIAL=450`,
+    `=450.0` and `=4.5e2` all arm the SAME f32 and therefore admit the same
+    `/speed`; `=400.1` arms `400.1000061035156`, which is what the row will
+    hold after `persistence_typed_attrs.validate` rounds it, so the gate and
+    the row agree by construction rather than by luck.
+
+    MALFORMED IS NOT ARMED, and that is the fail-closed half: an owner who
+    typed `PF_SPEED_TRIAL=fast` gets today's behaviour (every frame held) and
+    a console field that says `malformed`, never an open door for some value
+    she did not choose.
+    """
+    try:
+        source = os.environ if environ is None else environ
+        raw = source.get(SPEED_TRIAL_ENV)
+    except Exception:  # noqa: BLE001 - see the docstring
+        return (TRIAL_MALFORMED, None)
+    if raw is None:
+        return (TRIAL_UNSET, None)
+    if not isinstance(raw, str):
+        return (TRIAL_MALFORMED, None)
+    if raw.strip() == "":
+        # An empty or whitespace-only variable is the shell's own way of
+        # saying "not set" (`set PF_SPEED_TRIAL=` on the bridge's cmd.exe
+        # leaves an empty string, not an absent key), so it reads as UNSET
+        # rather than MALFORMED -- the operator who cleared it did the right
+        # thing and must not see a word that says she made a mistake.
+        return (TRIAL_UNSET, None)
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        return (TRIAL_MALFORMED, None)
+    admitted = _as_f32_or_none(parsed)
+    if admitted is None:
+        return (TRIAL_MALFORMED, None)
+    return (TRIAL_ARMED, admitted)
+
+
+def trial_admits(value: object, environ=None) -> bool:
+    """Does the trial gate admit THIS `/speed` value?  Default: no.
+
+    `False` for every value while the variable is unset or malformed, and for
+    every value but the armed one while it is armed.  Never raises, for the
+    reason `trial_opening` does not.
+
+    COMPARED AS `repr()` OF TWO f32s, NOT WITH `==`, and the difference is one
+    measured case rather than a style choice: `-0.0 == 0.0` is `True` in
+    Python, so an `==` here would let `PF_SPEED_TRIAL=0` admit `/speed -0`.
+    LANE-DB's round `vitdca` met that exact value from the other side (its PR
+    title names the `-0.0` that refuted its own claim).  Two spellings of a
+    number this lane never measured on a client are two values, and the
+    stricter reading is the one that cannot cost an attended round.
+    """
+    reason, admitted = trial_opening(environ)
+    if reason != TRIAL_ARMED or admitted is None:
+        return False
+    offered = _as_f32_or_none(value)
+    if offered is None:
+        return False
+    return repr(offered) == repr(admitted)
+
+
+def trial_console_field(environ=None) -> str:
+    """What the console must say the trial gate is doing, in one ASCII word.
+
+    `unset`, `malformed`, or `repr()` of the one f32 it admits.  COO `0646`
+    item 2's fourth bullet: "บรรทัดคอนโซลต้องบอกว่าประตูเปิดให้ค่าไหน ผู้คุมจอต้อง
+    อ่านออกโดยไม่ต้องเปิดซอร์ส" -- the operator must be able to tell an armed
+    gate from an unarmed one, and an armed-for-450 gate from an armed-for-300
+    one, WITHOUT opening a source file.
+
+    NOTHING TYPED BY A CLIENT REACHES THIS STRING, which is why it is safe on
+    the line: the two words are this lane's own constants and the third is
+    `repr()` of a finite float, which cannot carry a space, a quote, an `=`,
+    a newline or a non-ASCII byte.  The environment variable's RAW text is
+    never echoed -- an owner who set `PF_SPEED_TRIAL=<something odd>` sees
+    `malformed`, not her own string coming back at her through a console this
+    lane promised to keep pure ASCII.
+    """
+    reason, admitted = trial_opening(environ)
+    if reason == TRIAL_ARMED and admitted is not None:
+        return repr(admitted)
+    return reason

@@ -1309,6 +1309,13 @@ class EventNameContractTests(_Case):
         # unreachable until the deferral lifts.  See
         # `tests/test_gm_speed_deferred.py`.
         "EVENT_SPEED_DEFERRED": "gm_chat_action_speed_deferred_login_read",
+        # COO `0646` item 2's runtime trial gate: the ONE value
+        # `PF_SPEED_TRIAL` admitted past both holds.  Unreachable unless that
+        # variable is armed in the process environment, which no gate run and
+        # no `main` checkout does.  See `tests/test_gm_speed_trial_gate.py`.
+        "EVENT_SPEED_TRIAL_ADMITTED": (
+            "gm_chat_action_speed_runtime_trial_admitted"
+        ),
         # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
         # `store.write_typed_attributes_and_compose_sparse` was live on
         # `main`.  All four are NO-FRAME outcomes: DB first, wire second, a
