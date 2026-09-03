@@ -1168,9 +1168,19 @@ COMMITTED_ROW_BLOCKER_PREFIXES = (
         " composed afterwards, so no client was told -- the row is the truth",
     ),
     (
+        # ~~"its compose gate can raise AFTER the write commits"~~ -- STRUCK
+        # in round `ntf90h` (pf-adversary D6): that was true of the door this
+        # route used to call, and `store.write_speed_by_identity` has no
+        # post-commit compose gate.  The WARNING still stands, for a
+        # different and worse reason: this prefix now only fires when
+        # something raised ACROSS a boundary that door contracts never to
+        # raise across, and the state behind such a break is by definition
+        # unknown.  A door refusing NORMALLY reports
+        # `refused_speed_row_not_touched` instead.
         OUTCOME_SPEED_PERSIST_REFUSED_PREFIX,
-        "the store refused or failed; its compose gate can raise AFTER the"
-        " write commits, so do NOT read this as 'nothing was stored'",
+        "the store door raised across a boundary it contracts never to raise"
+        " across, so the row's state is UNKNOWN -- do NOT read this as"
+        " 'nothing was stored' (that word is refused_speed_row_not_touched)",
     ),
 )
 # The one named refusal `/gmprobe` can write that is not an exception TYPE
@@ -1259,6 +1269,16 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE: (
         "the value was committed but the store's composed read-back for x=7"
         " is not a number this lane may encode; no frame was sent"
+    ),
+    # NOT a `/speed` word, and added in a `/speed` round on purpose: making
+    # `test_every_no_bytes_outcome_this_module_can_write_has_a_blocker`
+    # DERIVE its list instead of hand-typing it (pf-adversary round `ntf90h`,
+    # D3) turned this pre-existing gap red.  Until now a GM who typed an
+    # unknown `/gmprobe` variant read `no blocker recorded` on the console.
+    OUTCOME_GMPROBE_UNKNOWN_VARIANT: (
+        "the typed variant id matched no row in bt_gm_probe.VARIANTS_BY_ID,"
+        " so there was no probe to send; nothing was guessed at and nothing"
+        " went out"
     ),
     OUTCOME_SPEED_ROW_NOT_TOUCHED: (
         "the store door refused and rolled its own transaction back, so the"
@@ -3648,10 +3668,12 @@ def _speed_undo(store: object, character_id: int) -> object:
     in hand was dropped with it", which was measurably false.
 
     READ BEFORE THE WRITE, ON PURPOSE, and here is what that does and does
-    not buy.  The previous value is read on its own connection before
-    `write_typed_attributes_and_compose_sparse` runs, so a concurrent writer
-    in that window makes this undo restore WHAT THIS COMMAND SAW, not
-    whatever was there an instant before the write.  That is weaker than
+    not buy.  The previous value is read on its own connection before the
+    store door runs (~~`write_typed_attributes_and_compose_sparse`~~ --
+    `store.write_speed_by_identity` since round `ntf90h`; it is read before
+    either), so a concurrent writer in that window makes this undo restore
+    WHAT THIS COMMAND SAW, not whatever was there an instant before the
+    write.  That is weaker than
     `login_scene_stage.restore_login_scene`'s undo, which re-validates the
     whole file it is putting back.  It is not made stronger by pretending:
     the alternative -- reading inside LANE-DB's transaction -- would need an
@@ -3753,13 +3775,23 @@ def _speed_undo(store: object, character_id: int) -> object:
 def _selected_speed_character_id(session: object) -> int | None:
     """`characters.id` off the connection's own selected character.
 
-    LANE-DB's persistence entry point is keyed by `character_id`, not by
-    `identity_lo`/`identity_hi` -- and `model.Character` has carried `id` as
-    its first field all along, so the method LANE-GM asked LANE-DB for in
-    `pf_bridge/notes_to_chief/20260902_0017_LANE-GM-TO-LANE-DB-request-speed-
-    persistence-method.md` (an identity_lo/hi-keyed overload) turned out not
-    to be needed: this read is the whole translation, and it lives in this
-    lane where it belongs rather than adding an API to theirs.
+    ~~"LANE-DB's persistence entry point is keyed by `character_id`, not by
+    `identity_lo`/`identity_hi` ... so the method LANE-GM asked LANE-DB for in
+    `20260902_0017` (an identity_lo/hi-keyed overload) TURNED OUT NOT TO BE
+    NEEDED: this read is the whole translation, and it lives in this lane
+    where it belongs rather than adding an API to theirs."~~ -- STRUCK in
+    round `ntf90h`, and it is the flatly wrong half: LANE-DB DID build that
+    overload (`store.write_speed_by_identity`, handed back in their letter
+    `pf_bridge/notes_to_chief/20260903_0635_LANE-DB-TO-LANE-GM-the-speed-
+    write-door-is-built.md`; their own docstring for that method cites their
+    earlier `20260903_0525`, so a reader chasing one ID should know both
+    exist), and `_speed_action` calls it.  pf-adversary (round `ntf90h`, D6)
+    found this paragraph and the commit body citing the SAME letter to
+    opposite conclusions.
+
+    WHAT THIS READ IS STILL FOR, which is narrower than it was: `_speed_undo`
+    restores through `write_typed_attributes`, which IS keyed by
+    `character_id`.  The write itself is not keyed by it any more.
 
     `None` for "no character selected" or for an id this module cannot trust
     as a positive `int` (a test double, a half-built session).  `bool` is
@@ -4148,6 +4180,22 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # the diagnostic one, and the old word could not answer the durable one at
     # all.  Nothing here reaches for the naming door as a second attempt: two
     # writes for one command is how two ideas of "refused" get built.
+    #
+    # A SECOND THING THE SWAP DROPPED, NAMED HERE BECAUSE pf-adversary (round
+    # `ntf90h`, D7) HAD TO FIND IT RATHER THAN READ IT.  The old door ended in
+    # `persistence_attr_compose.compose_sparse_block`, whose own docstring
+    # calls itself "the ONLY thing between a caller and SENSITIVE_FIELDS" on
+    # that path; the new door composes through `typed_values_for_compose` and
+    # does not apply `SPARSE_APPROVED_FIELDS`.  Nothing downstream re-applies
+    # it either -- `speed_wire.compose_sparse_speed_update` builds
+    # `{SPEED_FIELD_X: fvalue}` directly.  That gate is a NO-OP FOR THIS ROUTE
+    # TODAY, and only because of an equality nobody had written down: the
+    # approved set is exactly `{speed_wire.SPEED_FIELD_X}`.  pf-adversary
+    # measured both doors over `400.1, -0.0, 0.0, 620.0, 1e-46, 3.4e38` and
+    # got identical composed dicts and BYTE-IDENTICAL frames, so no byte
+    # changed -- but the day that set stops being exactly this one field, this
+    # route composes past a policy gate.  `tests/test_gm_speed_action.py` pins
+    # the equality so that day is a red test rather than a silent widening.
     store = _speed_store(session)
     persist = getattr(store, "write_speed_by_identity", None)
     if not callable(persist):
@@ -4170,13 +4218,32 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # `row_not_touched` branch, which is the whole point of the swap.
     #
     # IT STILL NAMES THE ROW BY `character_id` WHILE THE WRITE NAMES IT BY
-    # THE IDENTITY PAIR, and that difference is stated rather than hidden:
-    # in production both come off the same `session.foundation.selected`
+    # THE IDENTITY PAIR, and that difference is stated rather than hidden.
+    #
+    # ~~"in production both come off the same `session.foundation.selected`
     # row, and the door refuses outright unless the pair matches EXACTLY ONE
     # active character, so a session that could make them disagree is one
-    # where the write never lands.  Narrowing the undo to the door's own
-    # lookup would need an API in LANE-DB's zone that does not exist, and
-    # this lane does not add one (same posture as this undo's docstring).
+    # where the write never lands"~~ -- STRUCK IN THE ROUND THAT WROTE IT.
+    # pf-adversary (D5) showed the second half is a non-sequitur: "the pair
+    # matches exactly one ACTIVE row" constrains the identity side only and
+    # never ties that row to `selected.id`.  And identity reuse is DESIGNED
+    # here, not hypothetical: `store.build_wire` derives `lo,hi` from the
+    # SELECTOR, and `migrations/004_character_soft_delete_reuse.sql` says in
+    # its own header that a soft-deleted slot can be recreated in place with
+    # the same selector and the same derived identity.  So a stale
+    # `session.foundation.selected` could in principle name row A while the
+    # pair now resolves to a recreated row B.
+    #
+    # WHAT ACTUALLY HOLDS, stated as what it is -- a fail-closed OUTCOME, not
+    # a proof of impossibility.  `store.soft_delete_character` refuses for a
+    # character any open session has selected, and pf-adversary could not
+    # build the divergent state through the API.  If it were reached anyway,
+    # `write_typed_attributes` re-checks `deleted_at IS NULL` and raises, so
+    # this undo returns False and reports `EVENT_OUTCOME_STAGE_NOT_REVERTED`
+    # honestly rather than writing the wrong row.  Narrowing the undo to the
+    # door's own lookup would need an API in LANE-DB's zone that does not
+    # exist, and this lane does not add one (same posture as this undo's
+    # docstring).
     undo = _speed_undo(store, character_id)
 
     try:

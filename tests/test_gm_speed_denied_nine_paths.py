@@ -129,7 +129,15 @@ REFUSAL_PATHS = (
     "refused_speed_",                    # prefix: unparseable value
     "refused_speed_no_store",
     "refused_speed_no_character_id",
-    "refused_speed_persist_",            # prefix: the store raised
+    # prefix: the store raised.  🔴 SINCE ROUND `ntf90h` THIS WORD IS
+    # REACHABLE ONLY THROUGH A TEST DOUBLE (pf-adversary, D9): the real
+    # `store.write_speed_by_identity` catches `Exception` and returns `None`,
+    # so `TypedAttrError`/`KeyError`/`OperationalError`/`AttrComposeError` all
+    # arrive as `refused_speed_row_not_touched` instead.  It is kept, and kept
+    # tested, because it is what fires if anything ever breaks that door's
+    # no-raise contract -- and a reader of this tuple must not take it for a
+    # production-reachable word the way the other ten are.
+    "refused_speed_persist_",
     "refused_speed_persist_readback_unusable",
     "refused_speed_persist_compose_",    # prefix: post-commit composer
     "withheld_sparse_shape_empty_section",   # GT-193's hold, this lane's own

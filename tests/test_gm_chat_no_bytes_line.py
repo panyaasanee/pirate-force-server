@@ -1088,25 +1088,61 @@ class ContractTests(_Case):
         self.assertNotIn(chat_command_action.NO_BLOCKER_RECORDED, said[0])
 
     def test_every_no_bytes_outcome_this_module_can_write_has_a_blocker(self):
-        # The constants below are every "nothing went out" outcome that
-        # is a fixed word rather than a `<prefix><ExcType>` family.  A round
-        # that adds one more and forgets the sentence gets a red test, not a
-        # console line reading `no blocker recorded`.  CORE-REQUEST-GM-049
-        # added the two `speed` ones; the pf-adversary run-copy-DB finding
-        # added the third `speed` one (`OUTCOME_SPEED_WITHHELD_CANONICAL_DB`).
-        for outcome in (
-            chat_command_action.OUTCOME_WARP_WITHHELD_NO_VERSION,
-            chat_command_action.OUTCOME_SAY_WITHHELD_NO_VERSION,
-            chat_command_action.OUTCOME_NO_WIRE_PATH,
-            chat_command_action.OUTCOME_WARP_NO_POSITION,
-            chat_command_action.OUTCOME_SAY_VERSION_CODEC_MISMATCH,
-            chat_command_action.WHY_AUDIT_ROW_NOT_WRITTEN,
-            chat_command_action.OUTCOME_SPEED_WITHHELD_NO_VERSION,
-            chat_command_action.OUTCOME_SPEED_WITHHELD_CANONICAL_DB,
-            chat_command_action.OUTCOME_SPEED_NO_SELECTED_CHARACTER,
-        ):
-            with self.subTest(outcome=outcome):
-                self.assertIn(outcome, chat_command_action.NO_BYTES_BLOCKERS)
+        """Every fixed no-bytes word has a sentence -- DERIVED, not hand-typed.
+
+        ~~a hand-typed tuple of nine constants~~ -- STRUCK in round `ntf90h`,
+        and the reason is that it failed in exactly the way its own comment
+        promised it would not.  It said "a round that adds one more and
+        forgets the sentence gets a red test, not a console line reading
+        `no blocker recorded`"; round `ntf90h` added
+        `OUTCOME_SPEED_ROW_NOT_TOUCHED`, and pf-adversary (D3) measured that
+        DELETING its sentence left this file green -- because the list had
+        never been extended.  The test one function above this one had
+        already been converted to derive-from-upstream for the identical
+        defect ("the list used to be hand-typed here and said five when there
+        were ten"), which makes this the same hole twice in one file.
+
+        THE RULE, spelled so a reader can check it against the module: a
+        constant counts if it is a `str` named `OUTCOME_*` or `WHY_*`, is not
+        a prefix (neither the NAME ends `_PREFIX` nor the VALUE ends `_`),
+        and its value is a refusal, a withholding, or an audit `WHY_`.  Those
+        are exactly the fixed words `_announce_console_outcome` looks up.
+        Prefix families are excluded because their suffix is an exception TYPE
+        name that cannot be enumerated ahead of time -- those are matched by
+        `COMMITTED_ROW_BLOCKER_PREFIXES` instead, which has its own tests.
+
+        Deriving it also turned one PRE-EXISTING gap red and it was fixed in
+        the same commit: `/gmprobe`'s `OUTCOME_GMPROBE_UNKNOWN_VARIANT` had no
+        sentence, so a GM who typed an unknown variant id read
+        `no blocker recorded`.
+        """
+        derived = []
+        for name in sorted(vars(chat_command_action)):
+            if not (name.startswith("OUTCOME_") or name.startswith("WHY_")):
+                continue
+            value = getattr(chat_command_action, name)
+            if not isinstance(value, str):
+                continue
+            if name.endswith("_PREFIX") or value.endswith("_"):
+                continue
+            if not (
+                value.startswith(chat_command_action.OUTCOME_REFUSED_PREFIX)
+                or value.startswith(chat_command_action.OUTCOME_WITHHELD_PREFIX)
+                or name.startswith("WHY_")
+            ):
+                continue
+            derived.append((name, value))
+        # A rule that matched nothing would be green and worthless; the count
+        # is a floor, not a pin, so adding a word does not have to touch it.
+        self.assertGreaterEqual(len(derived), 9, derived)
+        for name, outcome in derived:
+            with self.subTest(outcome=name):
+                self.assertIn(
+                    outcome,
+                    chat_command_action.NO_BYTES_BLOCKERS,
+                    "%s is a fixed no-bytes word with no operator sentence, "
+                    "so its console line reads `no blocker recorded`" % name,
+                )
 
     def test_the_token_is_its_own_grep(self):
         # Three tokens already answer three different questions on this

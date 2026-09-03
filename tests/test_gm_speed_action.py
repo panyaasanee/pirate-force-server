@@ -46,6 +46,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import persistence_attr_compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation import store  # noqa: E402
@@ -1190,6 +1191,109 @@ class SpeedUndoTests(_Case):
             [(1, {chat_command_action.SPEED_TYPED_COLUMN: 100.0})],
         )
 
+    def test_the_untouched_row_branch_runs_no_undo_even_when_the_audit_breaks(
+        self,
+    ):
+        """The property the door swap was FOR, pinned where it can actually fail.
+
+        pf-adversary (round `ntf90h`, D1) measured that the round which added
+        `refused_speed_row_not_touched` pinned it with an assertion that could
+        not see the mutant: `store.undo_writes == []` on a run whose outcome
+        append SUCCEEDS is vacuous, because the undo only ever fires when that
+        append FAILS.  Carrying `undo` into the branch -- one word -- was green
+        across the whole file, and produced a real `write_typed_attributes`
+        against a row whose own console sentence promises it "still holds
+        exactly what it held before this command", plus an
+        `outcome_stage_reverted` event claiming a revert of a write that never
+        happened.  That is the false-audit class this route exists to stop.
+
+        So: break the append, and require BOTH that no undo write happened and
+        that the revert event was never claimed.
+        """
+        session = FakeSession()
+        store = _StoreThatReturnsNone(DEFAULT_RUN_COPY_DB_PATH)
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        session.foundation.lifecycle.store = store
+        patcher, _real = self.break_the_outcome_append()
+        with patcher:
+            action = self.act(session, "/speed 777.0")
+        self.assertIsNone(action)
+        self.assertEqual(
+            store.undo_writes,
+            [],
+            "an undo wrote a row back that the door never wrote in the first "
+            "place",
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_REVERTED,
+            session.events,
+            "the audit claimed it reverted a write that never happened",
+        )
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 100.0
+        )
+
+    def test_a_store_with_only_the_old_door_refuses_and_never_writes(self):
+        # pf-adversary (round `ntf90h`, D4).  The comment at the `persist =
+        # getattr(...)` line claims there is no silent fallback to the
+        # composing door; this is the shape that can prove it.  Not
+        # exploitable at HEAD -- the real `SQLiteStore` carries the new door --
+        # but the property was stated and held by nothing.
+        session = FakeSession()
+        store = _StoreWithOnlyTheOldDoor(DEFAULT_RUN_COPY_DB_PATH)
+        session.foundation.lifecycle.store = store
+        action = self.act(session, "/speed 400")
+        # The refusal still reaches the screen through the local-talk notice
+        # (COO `0345`), so `action` is that notice, never a speed frame.
+        self.assertEqual(action[0], "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE")
+        self.assertIn(chat_command_action.EVENT_SPEED_NO_STORE, session.events)
+        self.assertEqual(
+            store.old_door_calls,
+            [],
+            "the route fell back to the composing door instead of refusing",
+        )
+        self.assertEqual(store.stored, {}, "a fallback wrote the row")
+
+    def test_the_field_this_route_composes_is_the_only_approved_sparse_field(
+        self,
+    ):
+        """The policy gate the door swap stopped applying, pinned as an equality.
+
+        pf-adversary (round `ntf90h`, D7): the OLD door ended in
+        `persistence_attr_compose.compose_sparse_block`, which enforces
+        `SPARSE_APPROVED_FIELDS`; `store.write_speed_by_identity` composes
+        through `typed_values_for_compose` and does not, and nothing
+        downstream re-applies it.  He measured both doors over six values
+        including `-0.0` and got byte-identical frames, so NOTHING CHANGED
+        TODAY -- and the only reason is that the approved set is exactly this
+        one field.  The day it is widened, this route is composing past a
+        gate, and this equality is what turns that day into a red test
+        instead of a silent widening.
+        """
+        self.assertEqual(
+            persistence_attr_compose.SPARSE_APPROVED_FIELDS,
+            frozenset({speed_wire.SPEED_FIELD_X}),
+            "SPARSE_APPROVED_FIELDS is no longer exactly /speed's field, so "
+            "the sparse-approval gate that store.write_speed_by_identity does "
+            "not apply has started to mean something on this route -- read "
+            "the D7 paragraph in _speed_action's DB FIRST block before "
+            "changing this test",
+        )
+
+    def test_the_untouched_row_branch_emits_its_own_session_event(self):
+        # pf-adversary (round `ntf90h`, D2): the event-name contract table is a
+        # SPELLING pin, not an EMISSION pin, and deleting the `_note` call was
+        # green.  Every sibling refusal on this route has an emission
+        # assertion; this one is the reason the round exists and had none.
+        session = FakeSession()
+        session.foundation.lifecycle.store = _StoreThatReturnsNone(
+            DEFAULT_RUN_COPY_DB_PATH
+        )
+        self.act(session, "/speed 400")
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_ROW_NOT_TOUCHED, session.events
+        )
+
     def test_a_store_with_no_prior_value_reports_not_reverted_rather_than_lying(
         self,
     ):
@@ -1294,6 +1398,46 @@ class UndoIntegrationTests(PersistenceIntegrationTests):
         self.assertIsNone(action)
         self.assertEqual(self.reopened_speed_walk(), 100.0)
 
+
+
+class _StoreWithOnlyTheOldDoor:
+    """A store carrying the door this route USED to call, and not the new one.
+
+    pf-adversary (round `ntf90h`, D4): the diff asserts in a comment that a
+    store predating `write_speed_by_identity` "earns the SAME refusal rather
+    than falling back to the composing write", and nothing measured it --
+    every no-persistence double in the suite has NEITHER method, so
+    `or getattr(store, "write_typed_attributes_and_compose_sparse", None)`
+    survived the whole file.  This double is the one shape that can tell the
+    two apart.
+
+    It does NOT subclass `FakeStore`: the attribute has to be genuinely
+    absent, and an override that raises would be found by `getattr` and land
+    on the `refused_speed_persist_AssertionError` branch instead -- a
+    different word, and not the one under test.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.old_door_calls = []
+        self.stored = {}
+        self.undo_writes = []
+
+    def read_typed_attributes(self, character_id):
+        return dict(self.stored)
+
+    def write_typed_attributes(self, character_id, values):
+        self.undo_writes.append((character_id, dict(values)))
+        self.stored.update(values)
+
+    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+        self.old_door_calls.append((character_id, dict(values)))
+        self.stored.update(values)
+        return {
+            speed_wire.SPEED_FIELD_X: float(
+                values[chat_command_action.SPEED_TYPED_COLUMN]
+            )
+        }
 
 
 class _StoreThatReturnsNone(FakeStore):
