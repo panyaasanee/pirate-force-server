@@ -650,9 +650,130 @@ class TheStagedWarpTests(_Case):
         self.assertEqual(len(said), 1, err)
         self.assertIn("scene_id=278 ", said[0])
         self.assertIn("coordinates=none ", said[0])
-        self.assertIn("log out and log back in", said[0])
+        # ~~`assertIn("log out and log back in", said[0])`~~ -- struck by
+        # `COO-DECISION 20260903_2050` item 2.  The instruction survives in
+        # substance (the relog still lands her in 278, and the tail still
+        # says so) but it no longer arrives without the REASON no bytes went
+        # out, which is what the owner read as "nothing happened".
+        self.assertIn(
+            chat_command_action.staged_next_step(
+                same_scene=False, no_confirmed_spawn=True
+            ),
+            said[0],
+        )
+        # The withdrawn sentence must not come back anywhere on this line.
+        self.assertNotIn("log out and log back in", err)
         # It is NOT the no-bytes token: an effect is on disk.
         self.assertEqual(self.lines(err, TOKEN), [], err)
+
+    def test_a_markerless_stage_says_why_no_frame_could_be_sent(self):
+        # `COO-DECISION 20260903_2050` item 1 held the markerless scenes shut
+        # (R306 measured a coordinates-bearing warp frame CLOSING the client),
+        # so the reason is the only thing this lane may add here -- and it is
+        # the half the struck sentence never carried.  Pinned on its own so a
+        # future rewording of either tail cannot quietly drop the reason and
+        # leave the line back where `PANYA-DECISION 1800` found it.
+        _, err = self.act("/warp 278")
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            chat_command_action.STAGED_NO_CONFIRMED_SPAWN_REASON, said[0]
+        )
+
+    def test_a_same_scene_stage_does_not_recommend_a_pointless_relog(self):
+        # THE MUTANT THIS TEST KILLS is the single-sentence printer: hardcode
+        # `STAGED_NEXT_STEP_CROSS_SCENE` (or restore the struck sentence) and
+        # a GM standing in markerless scene 278 who types `/warp 278` is told
+        # her NEXT LOGIN will start in it -- true, useless, and, while the
+        # logout buttons are still refused (UI-A/UI-B), the most expensive
+        # no-op this console can recommend.  `COO-DECISION 20260903_2050`
+        # item 2 is exactly this shape.
+        _, err = self.act("/warp 278", session=self.session(
+            position=FakePosition(scene_id=278)
+        ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            chat_command_action.staged_next_step(
+                same_scene=True, no_confirmed_spawn=True
+            ),
+            said[0],
+        )
+        self.assertNotIn(chat_command_action.STAGED_TAIL_CROSS_SCENE, said[0])
+        self.assertNotIn("log out and log back in", err)
+
+    def test_a_marker_backed_scene_is_not_told_it_has_no_spawn_point(self):
+        # THE DEFECT THIS TEST PINS was in this round's own first draft,
+        # caught in review before it was committed: the reason sentence was
+        # hardcoded to "this scene has no confirmed spawn point", which is
+        # true of every scene that reaches this printer on the SHIPPED flags
+        # and false on the one this file already exercises.  With
+        # `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down, `/warp 2 100 200`
+        # from scene 5 stages scene 2 -- which has a pinned ARRIVAL marker
+        # (`warp_no_coords_live_target(2)` is not None) -- and a console that
+        # blamed a missing spawn point would send its operator hunting for a
+        # marker that is already in the registry.  Restore the hardcoded
+        # reason and this test goes red.
+        self.assertIsNotNone(
+            warp_executor.warp_no_coords_live_target(2),
+            "scene 2 must be marker-backed for this test to mean anything",
+        )
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            _, err = self.act("/warp 2 100 200", session=self.session(
+                position=FakePosition(scene_id=5)
+            ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            chat_command_action.STAGED_LIVE_ROUTE_SHUT_REASON, said[0]
+        )
+        self.assertNotIn(
+            chat_command_action.STAGED_NO_CONFIRMED_SPAWN_REASON, said[0]
+        )
+
+    def test_a_markerless_scene_on_that_same_shut_route_still_blames_the_spawn(self):
+        # The other half of the pair, so the fix cannot be "always print the
+        # shut-route reason": with the SAME flag down, `/warp 278 100 200`
+        # is still a scene with no arrival marker, and the missing spawn is
+        # still the honest blocker to name.
+        self.assertIsNone(warp_executor.warp_no_coords_live_target(278))
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            _, err = self.act("/warp 278 100 200", session=self.session(
+                position=FakePosition(scene_id=5)
+            ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            chat_command_action.STAGED_NO_CONFIRMED_SPAWN_REASON, said[0]
+        )
+        self.assertIn("coordinates=ignored ", said[0])
+
+    def test_the_two_tails_agree_on_the_reason_and_differ_on_the_relog(self):
+        # The property an attended tester greps by: ONE string finds every
+        # scene the markerless rule still holds shut, and the tail after it
+        # says whether relogging would move her.  A rewrite that gave the two
+        # shapes unrelated sentences would pass both tests above and break
+        # that, so it is asserted rather than left to the constants' shape.
+        step = chat_command_action.staged_next_step
+        reason = chat_command_action.STAGED_NO_CONFIRMED_SPAWN_REASON
+        cross = step(same_scene=False, no_confirmed_spawn=True)
+        same = step(same_scene=True, no_confirmed_spawn=True)
+        self.assertTrue(cross.startswith(reason), cross)
+        self.assertTrue(same.startswith(reason), same)
+        self.assertNotEqual(cross, same)
+        # ...and the two REASONS agree on the six words a tester greps to
+        # find every staged shape at once, whichever blocker is named.
+        shut = step(same_scene=False, no_confirmed_spawn=False)
+        self.assertIn("no teleport could be sent", cross)
+        self.assertIn("no teleport could be sent", shut)
+        self.assertNotEqual(cross, shut)
+        self.assertTrue(shut.endswith(
+            chat_command_action.STAGED_TAIL_CROSS_SCENE
+        ), shut)
 
     def test_it_says_when_the_typed_coordinates_were_dropped(self):
         # The fact that lived nowhere a human would look.  `ForcePos` cannot
@@ -740,7 +861,15 @@ class TheSameSceneWarpTests(_Case):
         self.assertEqual(
             self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN), [], err
         )
-        self.assertNotIn("log out and log back in", err)
+        # ~~`assertNotIn("log out and log back in", err)`~~ -- the sentence
+        # this pinned against no longer exists anywhere in the module
+        # (`COO-DECISION 20260903_2050` item 2), so asserting its absence
+        # would pass on a module that had lost the staged line entirely.
+        # Pinned against the sentence that REPLACED it instead, which is what
+        # `PANYA-DECISION 1800` forbids for this shape.
+        self.assertNotIn(
+            chat_command_action.STAGED_NO_CONFIRMED_SPAWN_REASON, err
+        )
 
     def test_a_cross_scene_bare_warp_does_not_borrow_this_token(self):
         # The token exists to tell the two apart on one console. A cross-scene
