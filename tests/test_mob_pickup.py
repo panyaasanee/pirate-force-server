@@ -52,6 +52,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (
     bag_admission, inventory, mob_loot, mob_pickup, mob_pickup_persist,
+    mob_pickup_request,
 )
 from pirateforce_foundation.inventory import (
     BACKPACK_BASE_IDENTITY,
@@ -179,6 +180,68 @@ def _call_names(module_name):
         if name:
             names.add(name)
     return names
+
+
+def _calls_inside(module_name, function_name):
+    """Every name called inside ONE top-level function of a ``src/`` module.
+
+    ROUND tmgh1l.  ``_call_names`` above answers "does this FILE call it",
+    which is the question that went blind: the pickup call site landed in
+    ``runtime.py`` as a call to ``mob_pickup_request``'s entry point, so the
+    symbol the OWNER string named never appeared in ``runtime.py`` at all and
+    the tripwire below stayed green through the landing.  Following a chain
+    needs the calls of one function, not of a whole file.
+
+    Returns ``None`` -- distinct from the empty set -- when the module does
+    not define that function, so a caller can tell "the link is gone" from
+    "the link calls nothing".
+    """
+    source = (
+        ROOT / "src" / "pirateforce_foundation" / f"{module_name}.py"
+    ).read_text(encoding="utf-8")
+    for node in ast.parse(source).body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != function_name:
+            continue
+        names = set()
+        for call in ast.walk(node):
+            if not isinstance(call, ast.Call):
+                continue
+            name = (getattr(call.func, "attr", None)
+                    or getattr(call.func, "id", None))
+            if name:
+                names.add(name)
+        return names
+    return None
+
+
+def _reaches_within(module_name, start, target):
+    """Does ``start`` reach ``target`` through calls INSIDE one module?
+
+    A breadth-first walk over the module's own top-level functions, because
+    the link this closes is one hop deeper than it looks: ``pickup_and_persist``
+    does not itself execute the INSERT, it calls ``persist_pickup``, which
+    does.  A one-hop check reads that as a missing link and would have made
+    this file claim the chain was broken while it ran twice on the owner's
+    machine.  ``None`` when ``start`` is not defined at all.
+    """
+    seen = set()
+    frontier = [start]
+    while frontier:
+        name = frontier.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        calls = _calls_inside(module_name, name)
+        if calls is None:
+            if name == start:
+                return None
+            continue
+        if target in calls:
+            return True
+        frontier.extend(sorted(calls - seen))
+    return False
 
 # The identities the sibling lanes' tests use, so one kill reads the same in
 # three files: a roster monster, and a session-shaped player identity.
@@ -1599,10 +1662,22 @@ class MobPickupTests(unittest.TestCase):
         line number an earlier letter wrote down -- that the symbol is not
         called anywhere in it.
 
-        THIS IS THE TRIPWIRE THAT WAS MISSING.  The day the chief wires
-        GT-124, this test goes red, which is the whole point: a hand-typed
-        OWNER string cannot self-report going stale, and an AST walk over
-        the file it describes can.  The older, narrower name this lane's
+        ~~THIS IS THE TRIPWIRE THAT WAS MISSING.  The day the chief wires
+        GT-124, this test goes red, which is the whole point~~ -- STRUCK IN
+        ROUND tmgh1l, MEASURED: the day came, on 2026-09-02, and this test
+        did not go red.  The wiring landed as
+        ``runtime.py`` -> ``mob_pickup_request.dispatch_inbound_pickup_request``
+        -> ``mob_pickup_persist.pickup_and_persist``, so the symbol this
+        method looks for never entered ``runtime.py`` and the green stayed
+        green through the landing it was built to catch.  What it really
+        pins, and still usefully pins, is that NO DIRECT call bypasses the
+        request module; the chain is pinned by
+        ``test_the_owner_string_matches_the_call_chain_the_tree_has`` below,
+        which is what the OWNER string is now checked against.  A hand-typed
+        OWNER string cannot self-report going stale -- and neither can a
+        scan that watches one file while the tree grows another edge.
+
+        The older, narrower name this lane's
         own docstring above still cites for the same absent call site
         (``dispatch_pickup_request``) is checked too, since
         ``pickup_and_persist`` calls it in turn -- a ``runtime.py`` that
@@ -1628,19 +1703,85 @@ class MobPickupTests(unittest.TestCase):
         runtime_calls = _call_names("runtime")
         self.assertNotIn(
             call_site_symbol, runtime_calls,
-            f"runtime.py now calls {call_site_symbol!r} -- GT-124 is "
-            "wired.  mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER and "
-            "GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE describe a world "
-            "where it was not; both, and this lane's queue entry for "
-            "GT-124, need this round's attention -- not a silent green.",
+            f"runtime.py now calls {call_site_symbol!r} DIRECTLY, beside "
+            "the mob_pickup_request entry point that already reaches it. "
+            "Two call sites for one take is how a row gets written twice; "
+            "the chain test below describes the wiring this lane means to "
+            "have, and this one says nothing may bypass it.",
         )
         self.assertNotIn(
             "dispatch_pickup_request", runtime_calls,
             "runtime.py now calls dispatch_pickup_request directly -- "
-            "that is GT-124 wired through the older, narrower path this "
-            "lane's own docstring above still names.  Same update is "
-            "owed as the pickup_and_persist case just above.",
+            "that is the older, narrower path this lane's own docstring "
+            "above still names, bypassing the persist wrapper.  Same "
+            "answer as the pickup_and_persist case just above.",
         )
+
+    def test_the_owner_string_matches_the_call_chain_the_tree_has(self):
+        """ROUND tmgh1l.  The OWNER string and the tree, checked against
+        each other in BOTH directions.
+
+        What went wrong is worth keeping: for a day, ``mob_pickup``'s
+        OWNER string said the pickup call site was absent while
+        ``mob_pickup_request`` derived ``"landed"`` for the same call site
+        on the same ``main``.  Two files disagreeing about one fact, and
+        every test green, because each was checked only against itself.
+
+        So this derives the chain from the AST -- three links, none of them
+        a comment -- and then requires the two modules to agree with it.
+        Wire it and the prose has to say so; revert it and the prose has to
+        say that instead.  Neither direction can be answered by editing a
+        sentence alone.
+        """
+        headline = mob_pickup_persist.MOB_PICKUP_PERSIST_HEADLINE_CALL
+        match = re.match(r"mob_pickup_persist\.(\w+)\(", headline)
+        self.assertIsNotNone(match, headline)
+        persist_symbol = match.group(1)
+        entry = "dispatch_inbound_pickup_request"
+        request_calls = _calls_inside("mob_pickup_request", entry)
+        links = {
+            "runtime.py -> mob_pickup_request.%s" % entry: (
+                entry in _call_names("runtime")),
+            "%s -> mob_pickup_persist.%s" % (entry, persist_symbol): (
+                request_calls is not None
+                and persist_symbol in request_calls),
+            "%s -> store.commit_acquired_backpack_item" % persist_symbol: (
+                _reaches_within("mob_pickup_persist", persist_symbol,
+                                "commit_acquired_backpack_item") is True),
+        }
+        missing = sorted(link for link, present in links.items()
+                         if not present)
+        owner = mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER
+        if missing:
+            # The chain is broken.  The prose must not go on claiming it.
+            self.assertNotIn(
+                "runtime.py calls", owner,
+                "GOVERNED_BAG_ALLOWLIST_OWNER describes a call chain that "
+                "the tree no longer has.  Missing: %s" % ", ".join(missing))
+            self.assertNotEqual(
+                mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS,
+                "landed",
+                "mob_pickup_request still derives 'landed' for a chain "
+                "with a missing link: %s" % ", ".join(missing))
+            return
+        # The chain is whole.  Every link has to be named in the string a
+        # reader of the pin document is handed, and the sibling module's
+        # derived word has to agree with it.
+        for symbol in (entry, persist_symbol,
+                       "commit_acquired_backpack_item"):
+            self.assertIn(
+                symbol, owner,
+                "the call chain is wired but GOVERNED_BAG_ALLOWLIST_OWNER "
+                "does not name %s -- the string a reader is handed is "
+                "behind the tree again" % symbol)
+        self.assertIn("~~", owner, "the superseded clause was deleted "
+                                   "rather than struck")
+        self.assertEqual(
+            mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS,
+            "landed",
+            "the chain is wired end to end but the sibling module still "
+            "derives a word other than 'landed' for it -- one of the two "
+            "scans is lying, and NOT by moving the label to green")
 
     def test_make_backpack_attr_still_rejects_a_structurally_invalid_bag(self):
         """Widening gate 3's CONTENT gate did not touch its SHAPE gate.

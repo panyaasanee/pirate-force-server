@@ -240,7 +240,16 @@ def leash_radius_for(aggro_radius: float) -> float:
 # Reading a speed as a distance is the invented half: it says "the return phase
 # ends when the monster is within one step of home", and a step is whatever
 # distance the table's walk speed covers in one driver tick.
-HOME_RADIUS_IS_SPEED_WALK = True
+# ~~HOME_RADIUS_IS_SPEED_WALK = True~~ IS DELETED, NOT STRUCK IN PLACE, IN
+# ROUND tmgh1l -- a boolean is not a record, and this one had no reader at
+# all: no module in src/, no test, no document, nothing outside its own
+# line.  A flag nothing reads cannot go wrong, which is exactly why it is
+# worthless as evidence; what it asserted is asserted for real, against
+# behaviour, by tests/test_mob_ai_control.py::
+# test_the_home_radius_is_the_monsters_own_walk_speed, which reads
+# profile_of(mob).home_radius back for every mined row.  The sentence above
+# is the record and stays.  (COO 20260903_1142, item 4: no flag without a
+# caller; same call as REAL_DEFENCE_ADOPTED in round qzky4u.)
 HOME_RADIUS_ANCHOR = "field_mob_tables.speed_walk of the monster's own row"
 
 # [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] attack range.  ANCHOR: NONE.  A BARE

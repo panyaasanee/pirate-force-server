@@ -488,8 +488,17 @@ PIN_LANE = MOB_PICKUP_LANE
 # PICKUP path, so a picked-up row never reaches the database.~~  STRUCK IN
 # ROUND 4gqnwm, one round later: STORE-INSERT-001 landed
 # store.commit_acquired_backpack_item, which INSERTs the row and advances the
-# counter in one transaction.  What blocks a PLAYER is now the absent call
-# site (GT-124) -- which is not a gate, and must not be recorded as one.
+# counter in one transaction.  ~~What blocks a PLAYER is now the absent call
+# site (GT-124) -- which is not a gate, and must not be recorded as one.~~
+# STRUCK IN ROUND tmgh1l, and the way it went stale is the point: the call
+# site landed on 2026-09-02 through mob_pickup_request, not through a line
+# in runtime.py that names pickup_and_persist -- so the tripwire this file
+# leaned on (tests/test_mob_pickup.py, which walked runtime.py's AST for
+# that one symbol) stayed green across the very landing it was built to
+# catch.  A sibling module derived the truth the whole time
+# (mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS == "landed"),
+# and the two files sat on main disagreeing.  The scan now follows the
+# chain instead of one file's calls.
 #
 # ~~"store.py has no backpack INSERT"~~ IS STRUCK AS FALSE, and it was the
 # first draft of this very correction (pf-adversary, round 149wbp):
@@ -505,8 +514,18 @@ GOVERNED_BAG_ALLOWLIST_BLOCKS_PERSISTENCE = False
 GOVERNED_BAG_ALLOWLIST_OWNER = (
     "nobody: gate 2's admission predicate admits an acquired row since "
     "round 1684ra, and store.commit_acquired_backpack_item writes the row "
-    "with the identity counter since round 4gqnwm; the remaining blocker "
-    "is the absent call site (GT-124)"
+    "with the identity counter since round 4gqnwm; ~~the remaining blocker "
+    "is the absent call site (GT-124)~~ - STRUCK IN ROUND tmgh1l, DERIVED "
+    "FROM THE TREE, NOT FROM A LETTER: the call site is not absent any "
+    "more.  runtime.py calls "
+    "mob_pickup_request.dispatch_inbound_pickup_request, that function "
+    "calls mob_pickup_persist.pickup_and_persist, and that reaches "
+    "store.commit_acquired_backpack_item - three links this lane's own "
+    "test re-derives from the AST on every run.  Two rows were inserted "
+    "on the owner's machine in R303 (MOB_PICKUP_ROW_INSERTED twice, "
+    "GT-204; RELAYED from NOW.md, not measured here).  What is left on "
+    "this path is not a blocker at all: it is the click that never "
+    "reaches the decoder (NOW.md P-1: 2 of 46)"
 )
 
 MOB_PICKUP_NONCLAIMS = (
@@ -2314,8 +2333,12 @@ def pin_document(legacy: Any) -> dict:
                 "field's earlier answers are struck: 'the character cannot "
                 "enter the world ... gate 2 still raises' was the reverse of "
                 "the truth, and 'what is missing is the INSERT itself' was "
-                "true for exactly one round.  What is absent is the call "
-                "site (GT-124), which is not a gate"
+                "true for exactly one round.  ~~What is absent is the call "
+                "site (GT-124), which is not a gate~~ - STRUCK IN ROUND "
+                "tmgh1l: nothing on this path is absent.  The wiring is "
+                "'if wired anyway' no longer - it is wired, through "
+                "mob_pickup_request.dispatch_inbound_pickup_request, and "
+                "the field above says so with the chain"
             ),
             "open_question_for_the_item_lane": (
                 "answered: character_backpacks.next_item_identity "
