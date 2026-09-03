@@ -911,6 +911,97 @@ SAME_SCENE_TELEPORT_CONSOLE_TOKEN = "GM_CHAT_SAME_SCENE_TELEPORT_SENT"
 # move-authority grace window this same change made reachable.
 SAME_SCENE_BASIS_FIELD = "server_believed_scene"
 
+# THE STRONGER OF THE TWO BASES, AND IT LANDED (chief, R328, letter
+# `pf_bridge/notes_to_chief/20260903_2306_CHIEF-TO-LANE-GM-051-item3-the-
+# client-never-names-a-scene.md`, answering `CORE-REQUEST-GM-051` item 3).
+# Both docstrings above promised that "the day chief's
+# `client_confirmed_scene` lands, both lines change basis together"; this
+# constant and `same_scene_with_basis` below are that day.
+#
+# WHAT THE FIELD IS, IN CHIEF'S OWN CORRECTED WORDS, because this name is
+# the most over-claimable thing this module prints.  It is NOT a scene the
+# client named: a static sweep of every inbound frame this server decodes
+# (chief R328, pf-static-re) found that NO client->server frame carries a
+# scene or map id at all -- `StartGameReq` is one selector byte,
+# `TargetPosVital` is x/y/z/heading, `ChooseNPC` is one identity qword, and
+# the two near-misses (`ActionVital.field_u16_4a`,
+# `TeleportCheckVital.field_u16_14`) are called opaque/unassigned by the
+# parser itself.  It is NOT a label the client's COORDINATES corroborate
+# either -- chief struck that wording himself; nothing compares a position
+# against a scene's geometry, and a report at (1e9, -7.5e8, 3.3e8) still
+# records scene 1.  What it IS: the scene label as of the last frame the
+# CLIENT sent, in a moment we had no reason to disbelieve that label --
+# `scene_label_at_last_trusted_client_report` is the honest long name.
+#
+# WHY IT IS STILL STRICTLY BETTER THAN THE OTHER BASIS for this one word.
+# `server_believed_scene` reads `selected.position.scene_id`, which
+# `_gm_warp_resync_selected_scene` REWRITES to a cross-scene warp's
+# destination at queue time with nothing from the client involved -- so a GM
+# in scene 1 who types `/warp 5` twice gets "you are standing in it already"
+# on the second, which is what pf-adversary D2 measured and what this lane
+# has been printing a basis label about ever since.  The new field is
+# advanced ONLY by frames the client actually sent, and chief's permanent
+# `scene_label_is_server_guess` flag keeps a missed warp from being adopted
+# by the walking that follows it (his own first draft refused for exactly
+# one frame; his `test_walking_after_a_missed_warp_never_adopts_the_
+# destination` is what pins the fix).
+#
+# STILL A WIRE-LAYER FACT, NOT A SCREEN ONE (G5).  It outranks
+# `selected.position.scene_id`, which can be pure server guess; it does not
+# reach client-observable evidence, and no line printed from it may be read
+# as "seen on screen".
+CLIENT_CONFIRMED_SCENE_BASIS_FIELD = "client_confirmed_scene"
+
+
+def same_scene_with_basis(session: object, target_scene_id, position) -> tuple:
+    """Is the typed scene the one the GM is in -- and on whose word.
+
+    Returns `(same_scene, basis)`.  The caller is `_warp_action`, once, and
+    both halves travel on the `_Verdict` to whichever console printer runs;
+    neither is ever re-derived at print time (see `staged_same_scene`).
+
+    THE FIELD NAME IS A LITERAL, NOT AN IMPORT.  `runtime.py` exports it as
+    `CLIENT_CONFIRMED_SCENE_FIELD` and chief pins the two spellings equal
+    with a test on his side; importing `runtime` from a `gm/` module would
+    close an import cycle (runtime imports this lane, never the other way),
+    which is the case chief named when he offered the constant.
+    `test_the_basis_field_name_matches_runtimes_own_constant` pins it from
+    this side too, so a rename on either side fails loudly rather than
+    silently falling back to the weaker basis forever.
+
+    `None` IS THE SHIPPED FIRST ANSWER, NOT AN ERROR.  A connection that has
+    logged in and not yet moved has never sent a frame this field is written
+    from, so the honest value is "the client has told us nothing", and chief
+    chose `None` for it deliberately over "the scene of the row at login" --
+    logging in is not the client saying where it is.  On `None` this falls
+    back to the old comparison AND says so in `basis=`, which is the whole
+    reason the label is printed rather than assumed: a tester reading
+    `basis=server_believed_scene` knows the word "same scene" is the
+    server's belief, exactly as it was before this field existed.
+
+    IT FALLS BACK ON ANYTHING IT CANNOT READ, never raises and never guesses.
+    A session object without the attribute (every replay tool and most
+    tests), a value that is not an int, a `position` whose `scene_id` cannot
+    be read -- all land on the same conservative answer.  This function runs
+    on the dispatch path of an ACCEPTED command; a diagnostic may never
+    alter dispatch, and `same_scene` picks a console sentence only.
+    """
+    try:
+        target = int(target_scene_id)
+    except (OverflowError, TypeError, ValueError):
+        return False, SAME_SCENE_BASIS_FIELD
+    confirmed = getattr(session, "client_confirmed_scene", None)
+    if isinstance(confirmed, bool):
+        # `bool` is an `int` subclass and would compare equal to scene 1.
+        confirmed = None
+    if isinstance(confirmed, int):
+        return target == confirmed, CLIENT_CONFIRMED_SCENE_BASIS_FIELD
+    try:
+        believed = int(getattr(position, "scene_id"))
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        return False, SAME_SCENE_BASIS_FIELD
+    return target == believed, SAME_SCENE_BASIS_FIELD
+
 # The token that answers "did the sentence really leave the server?".
 #
 # pf-adversary (round `aa9ajr`) asked the one question this change had not
@@ -1748,6 +1839,24 @@ class _Verdict:
     # Defaults to the missing-spawn blocker because that is the only one that
     # can hold a frame on the shipped flags.
     staged_blocker: str = STAGED_BLOCKER_NO_SPAWN
+    # ON WHOSE WORD the two `same_scene` fields above were decided, for the
+    # console only: `SAME_SCENE_BASIS_FIELD` or
+    # `CLIENT_CONFIRMED_SCENE_BASIS_FIELD`, answered once by
+    # `same_scene_with_basis` in `_warp_action`.
+    #
+    # ONE FIELD SERVING BOTH `same_scene_teleport` AND `staged_same_scene`,
+    # unlike those two, and the difference is not an inconsistency: those are
+    # two ANSWERS on two mutually exclusive paths (a sent frame vs a staged
+    # entry, and `_announce_console_outcome` returns on `sent` before it can
+    # reach the staged branch), while this is the SOURCE of whichever answer
+    # was reached -- one comparison in one function, so one field.
+    #
+    # DEFAULTS TO THE WEAKER BASIS, deliberately, on the same rule as
+    # `staged_blocker` and `same_scene`: a construction site that does not
+    # set it -- every refusal verdict, every non-warp command -- says the
+    # thing that was true before chief's field landed rather than claiming
+    # the client backed a word it never saw.
+    same_scene_basis: str = SAME_SCENE_BASIS_FIELD
 
 
 def _note(session: object, event: str) -> None:
@@ -2715,6 +2824,14 @@ def _warp_action(
     live_target, live_target_read = _no_coords_live_target(
         session, target_scene_id, has_coordinates
     )
+    # ASKED ONCE, HERE, AND CARRIED (the same discipline as `live_target` one
+    # line up and as `same_scene` was before chief's field landed).  Both
+    # branches below print a `basis=` word, and they must never disagree
+    # about which comparison produced their `same_scene`: one call, one
+    # answer, two consumers.
+    same_scene, same_scene_basis = same_scene_with_basis(
+        session, target_scene_id, position
+    )
     if (
         not has_coordinates
         and warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED
@@ -2724,7 +2841,8 @@ def _warp_action(
             session,
             target_scene_id,
             legacy,
-            same_scene=target_scene_id == position.scene_id,
+            same_scene=same_scene,
+            same_scene_basis=same_scene_basis,
         )
 
     if target_scene_id != position.scene_id or not has_coordinates:
@@ -2740,8 +2858,13 @@ def _warp_action(
             # for the same reason `same_scene` on the live branch above is
             # (`COO-DECISION 20260903_2050` item 2).  It changes the console
             # sentence and nothing else: a markerless `/warp` stages the same
-            # entry either way.
-            same_scene=target_scene_id == position.scene_id,
+            # entry either way.  The comparison itself moved into
+            # `same_scene_with_basis` above the branch, so the staged line
+            # and the sent line answer this from ONE read on ONE basis
+            # (chief's `client_confirmed_scene` when the client has ever
+            # spoken, the server's own label when it has not).
+            same_scene=same_scene,
+            same_scene_basis=same_scene_basis,
             # WHICH BLOCKER ACTUALLY HELD THIS COMMAND'S FRAME -- not "what
             # does this destination lack", which is a different question and
             # the one the first draft answered (pf-adversary, round `spt6fv`,
@@ -2899,6 +3022,7 @@ def _warp_teleport_action_no_coords(
     legacy: object,
     *,
     same_scene: bool = False,
+    same_scene_basis: str = SAME_SCENE_BASIS_FIELD,
 ) -> _Verdict:
     """GM-A: the half of `/warp` WITHOUT typed coordinates.
 
@@ -2907,9 +3031,11 @@ def _warp_teleport_action_no_coords(
     same-scene bare `/warp <n>` too, and the two cases differ in exactly one
     observable way, `same_scene`.
 
-    `same_scene` DECIDES A CONSOLE TOKEN AND NOTHING ELSE.  It is not read
-    by the frame builder, does not reach the wire, and cannot change which
-    bytes go out -- both shapes send the same 73-byte TeleportVital aimed at
+    `same_scene` DECIDES A CONSOLE TOKEN AND NOTHING ELSE, and
+    `same_scene_basis` decides one WORD on that token's line -- on whose
+    authority the first was answered (`same_scene_with_basis`).  Neither is
+    read by the frame builder, neither reaches the wire, and neither can
+    change which bytes go out -- both shapes send the same 73-byte TeleportVital aimed at
     `scene_id`'s own pinned marker spawn, which is the whole reason the
     owner's decision could be served by widening one branch instead of
     opening a second wire path.  It is passed in rather than re-derived here
@@ -2957,6 +3083,7 @@ def _warp_teleport_action_no_coords(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),
         OUTCOME_COMPOSED,
         same_scene_teleport=same_scene,
+        same_scene_basis=same_scene_basis,
     )
 
 
@@ -3495,6 +3622,7 @@ def _print_staged_way_out(
     outcome: str,
     *,
     same_scene: bool = False,
+    basis: str = SAME_SCENE_BASIS_FIELD,
     blocker: str = STAGED_BLOCKER_NO_SPAWN,
 ) -> None:
     """Say that a cross-scene `/warp` was staged, and what the GM must do now.
@@ -3550,6 +3678,14 @@ def _print_staged_way_out(
     `client_confirmed_scene` lands (CORE-REQUEST-GM-051 item 3) both lines
     change basis together.
 
+    ~~AND THAT LABEL IS A CONSTANT~~ -- struck 2026-09-04: chief's field
+    landed (letter `20260903_2306`), so `basis` is now PASSED IN, decided
+    once by `same_scene_with_basis` alongside the `same_scene` it explains,
+    and it prints `client_confirmed_scene` on any connection whose client has
+    ever sent a frame this lane may trust.  The default is still the weaker
+    word, on the same rule as every other default here: a caller that forgets
+    the argument understates what it knows.
+
     THE DEFAULTS ARE THE SHIPPED SHAPE, not neutral values: on the shipped
     flags the missing marker is the only blocker that can hold a frame, so a
     call site that forgets an argument says what is true of the default build
@@ -3576,7 +3712,7 @@ def _print_staged_way_out(
             f"{STAGED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command=warp scene_id={scene_id} coordinates={coordinates} "
-            f"basis={SAME_SCENE_BASIS_FIELD} "
+            f"basis={basis} "
             f"next='{next_step}'",
             file=stream,
         )
@@ -3588,6 +3724,8 @@ def _print_same_scene_teleport(
     session: object,
     token: str,
     command: object,
+    *,
+    basis: str = SAME_SCENE_BASIS_FIELD,
 ) -> None:
     """Say that a bare `/warp <n>` moved the GM inside the scene she is in.
 
@@ -3645,7 +3783,7 @@ def _print_same_scene_teleport(
             f"{SAME_SCENE_TELEPORT_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command=warp scene_id={scene_id} coordinates=none "
-            f"basis={SAME_SCENE_BASIS_FIELD} "
+            f"basis={basis} "
             "next='a teleport frame for this scene own pinned spawn left the"
             " server; this line does not say the client moved, and this"
             " command wrote no next-login scene'",
@@ -4088,7 +4226,9 @@ def _announce_console_outcome(
         # Falling through to the `sent` return below would leave the tester
         # with a label that says "cross-scene" for a warp that crossed
         # nothing; falling into the no-bytes branches would be worse still.
-        _print_same_scene_teleport(session, token, command)
+        _print_same_scene_teleport(
+            session, token, command, basis=verdict.same_scene_basis
+        )
         return
     if sent:
         return
@@ -4099,6 +4239,7 @@ def _announce_console_outcome(
             command,
             verdict.audit_outcome,
             same_scene=verdict.staged_same_scene,
+            basis=verdict.same_scene_basis,
             blocker=verdict.staged_blocker,
         )
         return
@@ -4154,6 +4295,7 @@ def _stage_action(
     login_scene_config_path: str | None,
     scene_registry=None,
     same_scene: bool = False,
+    same_scene_basis: str = SAME_SCENE_BASIS_FIELD,
     blocker: str = STAGED_BLOCKER_NO_SPAWN,
 ) -> _Verdict:
     """The cross-scene half of `/warp`: write the next-login scene, send nothing.
@@ -4231,6 +4373,7 @@ def _stage_action(
         # before this point, and a refusal prints `GM_CHAT_WARP_REFUSED`,
         # which has its own vocabulary and never speaks of a relog.
         staged_same_scene=same_scene,
+        same_scene_basis=same_scene_basis,
         staged_blocker=blocker,
     )
 

@@ -1072,6 +1072,101 @@ class TheSameSceneWarpTests(_Case):
             chat_command_action.SAME_SCENE_BASIS_FIELD, "server_believed_scene"
         )
 
+    def test_a_client_backed_scene_upgrades_the_basis_on_the_sent_line(self):
+        # chief's `client_confirmed_scene` landed (letter `20260903_2306`,
+        # answering `CORE-REQUEST-GM-051` item 3), and both docstrings
+        # promised the two lines would change basis together the day it did.
+        # A connection whose client has actually reported from scene 2 gets
+        # the stronger word.
+        session = self.session(position=FakePosition(scene_id=2))
+        session.client_confirmed_scene = 2
+        _, err = self.act("/warp 2", session=session)
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertIn("basis=client_confirmed_scene ", said)
+
+    def test_the_client_backed_scene_outranks_the_servers_own_relabel(self):
+        # THE DEFECT THE FIELD EXISTS TO CLOSE (pf-adversary D2), now
+        # measurable at this layer: `_gm_warp_resync_selected_scene` has
+        # rewritten `position.scene_id` to 5 (the destination of a warp the
+        # client never confirmed), while the last frame the client actually
+        # sent was from scene 1.  The server's own label would call this
+        # "same scene"; the client's would not, and the client's wins.
+        session = self.session(position=FakePosition(scene_id=5))
+        session.client_confirmed_scene = 1
+        action, err = self.act("/warp 5", session=session)
+        # The frame still leaves -- routing is untouched by the basis, and
+        # `/warp 5` to a marker-backed scene sends either way.  What changes
+        # is that the console no longer TELLS her she is already in scene 5
+        # on the strength of a label the server wrote for itself.
+        self.assertIsNotNone(action)
+        self.assertEqual(self.lines(err, self.SAME_SCENE), [], err)
+        self.assertNotIn("you are standing in it already", err)
+
+    def test_a_client_that_has_never_spoken_keeps_the_weaker_word(self):
+        # chief chose `None` for "the client has told us nothing" over "the
+        # scene of the row at login" deliberately -- logging in is not the
+        # client saying where it is.  On `None` the comparison and the label
+        # are both exactly what they were before the field existed.
+        session = self.session(position=FakePosition(scene_id=2))
+        session.client_confirmed_scene = None
+        _, err = self.act("/warp 2", session=session)
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertIn("basis=server_believed_scene ", said)
+
+    def test_a_basis_the_client_never_backed_is_never_claimed(self):
+        # Every value that is NOT an honest client-backed scene id must fall
+        # back to the weaker word rather than printing the stronger one over
+        # a comparison the client had no part in.  `True` is in this list on
+        # purpose: `bool` is an `int` subclass and would compare equal to
+        # scene 1.
+        for value in (True, False, 2.0, "2", object()):
+            with self.subTest(value=value):
+                session = self.session(position=FakePosition(scene_id=2))
+                session.client_confirmed_scene = value
+                _, err = self.act("/warp 2", session=session)
+                said = self.lines(err, self.SAME_SCENE)[0]
+                self.assertIn("basis=server_believed_scene ", said)
+
+    def test_the_basis_decides_a_word_and_never_which_bytes_go_out(self):
+        # `same_scene_with_basis` may pick a console sentence and nothing
+        # else.  Two connections that differ ONLY in what the client has
+        # confirmed must produce byte-identical actions for the same typed
+        # line -- otherwise a diagnostic has altered dispatch, which is the
+        # one thing this module may never do.
+        believed = self.session(position=FakePosition(scene_id=2))
+        confirmed = self.session(position=FakePosition(scene_id=2))
+        confirmed.client_confirmed_scene = 2
+        first, _ = self.act("/warp 2", session=believed)
+        second, _ = self.act("/warp 2", session=confirmed)
+        self.assertEqual(first[0], second[0])
+        self.assertEqual(first[1], second[1])
+        self.assertEqual(first[2], second[2])
+
+    def test_this_lane_never_writes_the_clients_own_testimony(self):
+        # THE PROPERTY THAT MAKES THE FIELD WORTH MORE THAN
+        # `selected.position.scene_id`: it is advanced in `runtime.py` by
+        # frames the CLIENT sent and by nothing else.  A GM lane that wrote
+        # it would be manufacturing the testimony it then cites -- and a
+        # `/warp` is exactly the command that would be tempted to.
+        session = self.session(position=FakePosition(scene_id=2))
+        session.client_confirmed_scene = 1
+        self.act("/warp 5", session=session)
+        self.act("/warp 2", session=session)
+        self.act("/warp 278", session=session)
+        self.assertEqual(session.client_confirmed_scene, 1)
+
+    def test_the_basis_field_name_matches_runtimes_own_constant(self):
+        # The attribute name is a literal in `gm/` because importing
+        # `runtime` from a `gm/` module would close an import cycle.  A
+        # rename on either side must fail loudly here rather than silently
+        # falling back to the weaker basis forever.
+        import pirateforce_foundation.runtime as runtime
+
+        self.assertEqual(
+            runtime.CLIENT_CONFIRMED_SCENE_FIELD,
+            chat_command_action.CLIENT_CONFIRMED_SCENE_BASIS_FIELD,
+        )
+
     def test_a_repeat_warp_to_the_scene_the_server_thinks_you_are_in_is_named(self):
         # The retry pf-adversary D2 measured, reproduced at THIS layer: a
         # session whose recorded scene is already the destination -- which is

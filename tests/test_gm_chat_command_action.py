@@ -1214,6 +1214,20 @@ class SessionSurfaceTests(_Case):
         # instead is `test_a_frame_with_no_tail_never_writes_the_latch` in
         # tests/test_gm_chat_frame_tail.py; do not read this line as a guard.
         chat_command_action.SESSION_CHAT_TAIL_REPORTED,
+        # CORE-REQUEST-GM-051 item 3, round `3qh50k`.  READ ONLY, and this
+        # module must never be the thing that writes it: it is chief's
+        # field, advanced in `runtime.py` by frames the CLIENT sent and by
+        # nothing else (`_note_client_confirmed_scene`).  A GM lane that
+        # wrote it would be manufacturing the client's own testimony, which
+        # is the exact property that makes it worth more than
+        # `selected.position.scene_id`.
+        #
+        # It is read on ONE path -- `same_scene_with_basis`, to pick a
+        # console word -- and `test_the_basis_decides_a_word_and_never_which
+        # _bytes_go_out` in tests/test_gm_chat_no_bytes_line.py is the case
+        # that fails if it ever reaches dispatch; this subset check cannot
+        # catch that, for the same reason the entry above says.
+        chat_command_action.CLIENT_CONFIRMED_SCENE_BASIS_FIELD,
     }
     ALLOWED_ON_SELECTED = {"position", "id"}
 
