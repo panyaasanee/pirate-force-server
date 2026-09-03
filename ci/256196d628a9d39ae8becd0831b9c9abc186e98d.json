@@ -1,1 +1,1 @@
-{"sha":"256196d628a9d39ae8becd0831b9c9abc186e98d","conclusion":"success","event":"push","ref":"refs/heads/claude/friendly-darwin-wvsamp","run_id":"33769298731","utc":"2026-09-03T15:07:25Z"}
+{"sha":"256196d628a9d39ae8becd0831b9c9abc186e98d","conclusion":"success","event":"pull_request","ref":"refs/pull/678/merge","run_id":"33769334670","utc":"2026-09-03T15:16:35Z"}
