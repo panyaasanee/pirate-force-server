@@ -605,7 +605,7 @@ def register_live_attr_values_source(source) -> None:
     installed it" read identically on a console.  stderr, same reason as
     ``fire()``.
     """
-    global _LIVE_ATTR_VALUES_SOURCE
+    global _LIVE_ATTR_VALUES_SOURCE, _LIVE_ATTR_NO_SOURCE_ANNOUNCED
     if source is not None and not callable(source):
         raise TypeError(
             "live attr values source must be callable(character_id) -> dict, "
@@ -613,6 +613,14 @@ def register_live_attr_values_source(source) -> None:
         )
     replacing = _LIVE_ATTR_VALUES_SOURCE is not None and source is not None
     _LIVE_ATTR_VALUES_SOURCE = source
+    # RE-ARM THE ANNOUNCEMENT (pf-adversary, round dwvbpm second pass, N2).
+    # ``_LIVE_ATTR_NO_SOURCE_ANNOUNCED`` was set once and never reset, so a
+    # process that installed a source and later CLEARED it went back to
+    # answering nothing in silence -- exactly the state the announcement
+    # exists to make audible, reached by the one route that looks most like
+    # a bug.  The flag tracks "has this been said about the CURRENT state",
+    # so any change of source resets it.
+    _LIVE_ATTR_NO_SOURCE_ANNOUNCED = False
     if source is None:
         print(
             _console_safe("LANE_HOOK_LIVE_ATTR_SOURCE CLEARED"),
@@ -744,7 +752,20 @@ def current_named_attr_values(character_id) -> dict:
             # `str` digits are accepted because a JSON-ish source hands
             # those back naturally; everything else -- float, None, tuple --
             # is refused rather than rounded or stringified.
-            if isinstance(key, str) and key.isdigit():
+            # ``isascii()`` IS LOAD-BEARING, and its absence was a regression
+            # this module shipped for one commit (pf-adversary, round
+            # dwvbpm second pass, N1).  ``str.isdigit()`` is True for
+            # superscripts, subscripts and every non-Latin digit script, and
+            # the two halves fail differently and both badly: SUPERSCRIPT TWO
+            # (U+00B2) makes ``int()`` RAISE, out of a function whose
+            # docstring promises it never does, while ARABIC-INDIC DIGIT
+            # THREE (U+0663) makes it SUCCEED -- silently landing a value on
+            # x=3, ``hp_current``.  A row number written in another digit
+            # script is not a row number this contract has ever meant.
+            # The characters are NAMED, not spelled: this file is scanned by
+            # tests/test_tree_is_cp874_safe.py, which measured this very
+            # paragraph red one run before this sentence existed.
+            if isinstance(key, str) and key.isascii() and key.isdigit():
                 key = int(key)
             else:
                 print(
