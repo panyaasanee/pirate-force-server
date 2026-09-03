@@ -36,9 +36,20 @@ false.  In order:
    indistinguishable from dead wiring, so the refusal is named, but it is
    named where a machine reads it, not where a person reads "confirmed".
 
+CORE-REQUEST-GM-051 (LANE-GM, pf-adversary round 07kjfd D3) added a fifth
+condition on top of (3): a durable write is necessary but, since
+PANYA-DECISION 20260903_1800 gave `/warp <n>` with no coordinates a real
+same-scene target to compare against, no longer sufficient.  When the GM's
+own parked ``WarpTarget`` is known and the reported point MEASURABLY misses
+it, ``GM_WARP_POSITION_TARGET_MISMATCH`` prints alone -- CONFIRMED is
+withheld, not printed and then contradicted on the next line.  A target
+that is unknown (no record, wrong character, a compare that raised) still
+prints CONFIRMED exactly as before this round: only a MEASURED mismatch
+withholds it.  See ``GmWarpPositionTargetTests`` below for the pin.
+
 So this file drives the REAL dispatcher, headless, with NO scenario objects
 (the only boot shape GT-128 uses) and pins both halves: the token that must
-appear on a real write, and the four ways it must NOT appear.
+appear on a real write, and the five ways it must NOT appear.
 
 CORE-REQUEST-GM-029 is not wired, so no chat line can queue the warp action
 yet.  The flag is therefore armed through the seam dispatch itself uses --
@@ -657,6 +668,13 @@ class GmWarpPositionTargetTests(GmWarpPositionConfirmedTests):
     # ----- (b) the reported point is somewhere else ------------------------
 
     def test_a_target_pos_away_from_the_warp_destination_prints_mismatch(self):
+        """CORE-REQUEST-GM-051 rewrote this pin: a measured mismatch used to
+        print CONFIRMED and MISMATCH on adjacent, contradicting lines (the
+        durable write survived, so the old rule -- "a write happened" -- was
+        satisfied even though the row never reached the GM's target). The
+        target comparison now runs before CONFIRMED is allowed to print, so
+        this frame gets the mismatch line alone.
+        """
         state = self._login_and_start("gmwarp_target02")
         x, y, z = self._origin(state)
         scene_id = state.foundation.selected.position.scene_id
@@ -678,10 +696,55 @@ class GmWarpPositionTargetTests(GmWarpPositionConfirmedTests):
             f"gm_warp_position_target_mismatch_{int(round(expected_distance))}"
         )
 
-        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(self._token_lines(err), [])
         self.assertEqual(self._match_or_mismatch_lines(err), [MISMATCH_TOKEN])
         self.assertIn(expected_event, state.events)
         self.assertNotIn(MATCH_EVENT, state.events)
+        self.assertNotIn(CONFIRMED_EVENT, state.events)
+        # Withholding the token never withholds the write itself.
+        self.assertEqual(
+            self._row(state),
+            (self._f32(moved[0]), self._f32(moved[1]), self._f32(moved[2])),
+        )
+
+    def test_a_target_equal_to_the_current_row_prints_no_confirmed_on_the_next_step(
+        self,
+    ):
+        """CORE-REQUEST-GM-051 (LANE-GM, pf-adversary round 07kjfd, D3): the
+        exact symptom the ticket measured. PANYA-DECISION 20260903_1800's
+        same-scene `/warp <n>`-with-no-coordinates path records the GM's OWN
+        standing point as the warp's target -- so the very next TargetPos,
+        even an ordinary step the PLAYER made (here 5 units, comfortably
+        outside ``WARP_TARGET_MATCH_TOLERANCE``'s 1-unit radius -- a 1-unit
+        step is itself a match under that tolerance and proves nothing
+        about withholding), is a measured row change that never reached
+        (because nothing commanded it to move at all) the parked target.
+        The old rule printed CONFIRMED for any durable write and MISMATCH
+        right after it on the same frame; this pins that CONFIRMED is now
+        withheld instead.
+        """
+        state = self._login_and_start("gmwarp_target06")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x, y, z)
+        self._arm_the_warp_with_target(state, target)
+
+        moved = (x + 5.0, y, z)
+        err = self._report(state, *moved)
+
+        self.assertEqual(self._token_lines(err), [])
+        self.assertEqual(self._match_or_mismatch_lines(err), [MISMATCH_TOKEN])
+        self.assertNotIn(CONFIRMED_EVENT, state.events)
+        self.assertNotIn(MATCH_EVENT, state.events)
+        self.assertFalse(
+            any(
+                event.startswith("gm_warp_position_target_unknown")
+                for event in state.events
+            )
+        )
+        self.assertEqual(
+            self._row(state), (self._f32(moved[0]), self._f32(y), self._f32(z)),
+        )
 
     # ----- (c) no warp at all: neither line, ever ---------------------------
 

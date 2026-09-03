@@ -46,6 +46,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation.gm.chat_command_action import (  # noqa: E402
+    WARP_ACTION_LABEL,
+    WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+    WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+)
+from pirateforce_foundation.gm.warp_executor import WarpTarget  # noqa: E402
+from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
+    current_character_id,
+    record_warp_target,
+)
 from pirateforce_foundation.legacy_bridge import (  # noqa: E402
     LegacyProjector, load_legacy,
 )
@@ -519,6 +529,160 @@ class MoveAuthorityToolTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("RESULT: FAIL", result.stdout)
+
+
+class GmWarpZeroDistanceMoveAuthorityGraceTests(MoveAuthorityDispatchTests):
+    """CORE-REQUEST-GM-052 (LANE-GM, pf-adversary round 07kjfd finding D4).
+
+    ``_move_authority_note_server_moves`` used to reopen the grace window on
+    the TELEPORT substring alone.  PANYA-DECISION 20260903_1800's same-scene
+    `/warp <n>` with no coordinates queues a real TELEPORT-labelled action
+    (``WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL``) even when the
+    destination is the scene the GM already stands in -- so a warp that
+    moves nobody used to buy the same amnesty a real teleport does.
+    pf-adversary measured a report that jumped 180,000 units land straight
+    in the durable row through exactly that window.
+
+    This class pins the fix: the window is withheld when this method can
+    PROVE (same scene, ``WarpTarget`` known, distance <= 0) the warp
+    commanded no displacement, and still opens normally for a real
+    cross-scene warp.
+    """
+
+    GRACE_WITHHELD_EVENT = (
+        "move_authority_hypothesis_grace_not_reopened_zero_distance_warp"
+    )
+
+    def _queue_gm_warp_action(self, state, target, *, label):
+        """Park `target` then queue one TELEPORT-labelled action from dispatch.
+
+        Same seam ``tests/test_gm_warp_position_confirmed.py`` uses --
+        ``_dispatch_with_lanes`` replaced for exactly one frame -- so the
+        real ``dispatch()`` decides on the action's label, without needing
+        the chat parser this file does not otherwise touch.
+        """
+        character_id = current_character_id(state)
+        self.assertTrue(record_warp_target(state, target, character_id))
+        real = state._dispatch_with_lanes
+
+        def _one_warp_action(parsed):
+            state._dispatch_with_lanes = real
+            return [(label, b"", b"", 0.0)]
+
+        state._dispatch_with_lanes = _one_warp_action
+        return state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(state.token)
+        ))
+
+    def test_a_same_scene_warp_to_the_players_own_row_does_not_reopen_grace(
+        self,
+    ):
+        state = self._state("madgm01")
+        x, y, z = self._spend_the_grace(state)
+        # Scene entry already reopened (and _spend_the_grace already spent)
+        # grace once this session -- that event is not cleared, so the
+        # signal this test needs is that THIS warp appends no second one.
+        reopened_before = state.events.count(GRACE_REOPENED_EVENT)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x, y, z)
+        self._queue_gm_warp_action(
+            state, target,
+            label=WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+        self.assertEqual(state.move_authority_grace_remaining, 0)
+        self.assertIn(self.GRACE_WITHHELD_EVENT, state.events)
+        self.assertEqual(
+            state.events.count(GRACE_REOPENED_EVENT), reopened_before,
+        )
+
+        # The exact D4 scenario: a zero-distance warp must not buy a report
+        # that jumps 180,000 units a free write into the durable row.
+        before = self._row(state)
+        self._report(state, x + 180_000.0, y, z)
+        self.assertIn(f"{EVENT_PREFIX}step_over_budget_no_write", state.events)
+        self.assertEqual(self._row(state), before)
+
+    def test_a_real_cross_scene_warp_still_reopens_grace(self):
+        state = self._state("madgm02")
+        x, y, z = self._spend_the_grace(state)
+        scene_id = state.foundation.selected.position.scene_id
+        destination = WarpTarget(scene_id + 1, x + 50_000.0, y + 50_000.0, z)
+        self._queue_gm_warp_action(
+            state, destination,
+            label=WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+        )
+        self.assertEqual(
+            state.move_authority_grace_remaining,
+            self.policy.teleport_grace_reports,
+        )
+        self.assertIn(GRACE_REOPENED_EVENT, state.events)
+        self.assertNotIn(self.GRACE_WITHHELD_EVENT, state.events)
+
+        # The grace this real move earned admits the destination reading.
+        self._report(state, destination.x, destination.y, z)
+        self.assertIn(f"{EVENT_PREFIX}teleport_grace_admitted", state.events)
+
+    def test_a_same_scene_warp_with_a_real_target_still_reopens_grace(self):
+        """The zero-distance carve-out must not swallow a genuine same-scene
+        ForcePos warp (an explicit-coordinates `/warp` to a real point)."""
+        state = self._state("madgm03")
+        x, y, z = self._spend_the_grace(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 5000.0, y + 5000.0, z)
+        self._queue_gm_warp_action(state, target, label=WARP_ACTION_LABEL)
+        self.assertEqual(
+            state.move_authority_grace_remaining,
+            self.policy.teleport_grace_reports,
+        )
+        self.assertIn(GRACE_REOPENED_EVENT, state.events)
+        self.assertNotIn(self.GRACE_WITHHELD_EVENT, state.events)
+
+    def test_a_target_inside_the_match_tolerance_still_withholds_grace(self):
+        """pf-adversary (this round): a strict ``distance <= 0.0`` compiled,
+        passed every test, and was correct only by accident -- every spawn
+        point in today's ``world_scene_travel`` registry happens to already
+        be float32-quantized, so the warp target from a no-coords same-scene
+        `/warp` (built by float32-round-tripping that spawn point) always
+        measured bit-identical to the live row. A future scene's spawn that
+        is NOT already float32-representable would round-trip to a target a
+        fraction of a unit off the row -- and pf-adversary's own mutation
+        test proved changing 0.0 to WARP_TARGET_MATCH_TOLERANCE (1.0) broke
+        nothing, because nothing pinned the boundary. This does: 0.5 units,
+        provably inside tolerance and provably not bit-identical, must still
+        read as the zero-distance warp it is.
+        """
+        state = self._state("madgm04")
+        x, y, z = self._spend_the_grace(state)
+        reopened_before = state.events.count(GRACE_REOPENED_EVENT)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 0.5, y, z)
+        self._queue_gm_warp_action(
+            state, target,
+            label=WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+        self.assertEqual(state.move_authority_grace_remaining, 0)
+        self.assertIn(self.GRACE_WITHHELD_EVENT, state.events)
+        self.assertEqual(
+            state.events.count(GRACE_REOPENED_EVENT), reopened_before,
+        )
+
+    def test_a_target_just_outside_the_match_tolerance_still_reopens_grace(self):
+        """The other edge of the same boundary: a hair over tolerance is a
+        real move, not a rounding artifact, and must reopen normally."""
+        state = self._state("madgm05")
+        x, y, z = self._spend_the_grace(state)
+        scene_id = state.foundation.selected.position.scene_id
+        target = WarpTarget(scene_id, x + 1.5, y, z)
+        self._queue_gm_warp_action(
+            state, target,
+            label=WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+        self.assertEqual(
+            state.move_authority_grace_remaining,
+            self.policy.teleport_grace_reports,
+        )
+        self.assertIn(GRACE_REOPENED_EVENT, state.events)
+        self.assertNotIn(self.GRACE_WITHHELD_EVENT, state.events)
 
 
 if __name__ == "__main__":  # pragma: no cover
