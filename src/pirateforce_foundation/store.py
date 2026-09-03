@@ -160,9 +160,10 @@ def _require_ground_drop_scene(value):
     """A usable `scene` for the ground-drop door, returned exactly as given.
 
     pf-adversary (round `orpati`) measured that without this check, two
-    scene spellings that differ only by a character with no ASCII fold
-    equivalent -- `"Straße"` and `"STRASSE"`, both `.casefold()` to
-    `"strasse"` under full Unicode folding -- collide falsely at the
+    scene spellings that differ only by a non-ASCII character with no
+    plain-ASCII fold equivalent -- the German sharp s (U+00DF) and
+    `"STRASSE"`, both `.casefold()` to `"strasse"` under full Unicode
+    folding -- collide falsely at the
     table's `UNIQUE(scene_fold, drop_key)` constraint even though they are
     not the same scene, and the collision-refusal `print()` below crashes
     with `UnicodeEncodeError` the moment a non-ASCII `scene` reaches it,
