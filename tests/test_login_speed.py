@@ -28,6 +28,28 @@ and measured going red before this file was committed:
                                  speed the login composed, not the constant.
 * `TheRealLoginPathTests`     -- delete the read-and-attach block in
                                  `session.select_and_start`.
+* `TheSpeedDeferralHoldsTheLoginFrameTests`
+                              -- delete the deferral gate, cache its boolean
+                                 instead of asking every login, open it on a
+                                 read that fails, or move it into `resolve`.
+
+THE GATE THIS FILE NOW HAS TO STATE OUT LOUD
+--------------------------------------------
+`COO-DECISION 20260903_0645`: while LANE-GM's `/speed` wire is deferred, a
+login sends the CONSTANT no matter what the row holds.  `/speed` still writes
+its row -- the deferral holds the frame, not the write -- so `/speed 300`
+leaves `300.0` behind, and since `#605` the next login was reading it and
+encoding `00 00 96 43`: the bytes `GT-193` was sending when a real client
+locked itself for 426 frames, reached by the "log in again" recovery step in
+`GT-193` and `GT-218` themselves.
+
+Every group above grades behaviour on the far side of that gate, so each one
+opens it explicitly with `_wire_open()` instead of inheriting `main`'s
+setting.  That is not ceremony: with the gate shut, `test_a_row_with_no_value_
+sends_the_constant` and `test_a_zero_in_the_row_does_not_reach_the_client`
+would both pass without ever reaching the branch they name -- the same
+unfalsifiable shape this docstring already records being removed from this
+file once.
 
 !! THAT LAST GROUP WAS ADDED AFTER AN ADVERSARY PASS PROVED EVERY GROUP ABOVE
 IT INSUFFICIENT, and the measurement is the point: with the whole
@@ -64,6 +86,8 @@ pins, after emptying the column itself instead of trusting a migration
 another lane owns.  [pf-adversary, round `eww6tv`.]
 """
 import ast
+import contextlib
+import io
 import sqlite3
 import struct
 import sys
@@ -71,11 +95,13 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import login_speed
+from pirateforce_foundation.gm import speed_wire
 from pirateforce_foundation import persistence_typed_attrs as typed_attrs
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -101,6 +127,40 @@ NAME = "test01"
 # owner's own `/speed 300` session used (`GT-193`), and it survives
 # `persistence_typed_attrs.validate` exactly (a float32 with no rounding).
 ROW_SPEED = 300.0
+
+
+def _wire_open():
+    """The `/speed` wire open, so the row may reach a login.
+
+    `COO-DECISION 20260903_0645` gated `resolve_for_character` on LANE-GM's
+    `speed_wire.send_deferred()`, and on `main` that gate is SHUT
+    (`SPEED_LOGIN_READ_LANDED = False`).  Every test below that grades a
+    branch of the resolver -- the row's value, an empty column, a validator
+    refusal, the positive floor, a read that raises -- is grading behaviour
+    that only happens on the far side of that gate, so it opens it explicitly.
+
+    !! IT PATCHES LANE-GM'S FLAG, NOT `send_deferred` ITSELF, and not a stand-
+    in inside `login_speed`.  The flag is the one line a future round edits,
+    so a test that drives it is a test that measures what that round will do.
+    A patched `send_deferred` would keep passing if the gate were rewired to
+    read something else entirely.
+
+    THIS IS A PROCESS-LOCAL PATCH AND NOT A FLIP.  `mock.patch.object` restores
+    the flag at the end of the block; the flag on `main` stays `False`, which
+    `COO-DECISION 20260903_0649` says nobody -- this file included -- may
+    change on the strength of `#605` having landed.
+    """
+    return mock.patch.object(speed_wire, "SPEED_LOGIN_READ_LANDED", True)
+
+
+def _wire_held():
+    """The `/speed` wire deferred: `main`'s state, stated instead of assumed.
+
+    The tests that grade the gate set it EXPLICITLY in both directions rather
+    than leaning on the default, so they keep measuring the gate on the day
+    LANE-GM's attended trial flips that default.
+    """
+    return mock.patch.object(speed_wire, "SPEED_LOGIN_READ_LANDED", False)
 
 
 class _StoreStub:
@@ -177,7 +237,7 @@ class ResolverTests(unittest.TestCase):
 
     def test_a_read_that_raises_never_fails_the_login(self):
         for error in (KeyError(1), RuntimeError("db is gone")):
-            with self.subTest(error=type(error).__name__):
+            with self.subTest(error=type(error).__name__), _wire_open():
                 resolved = login_speed.resolve_for_character(
                     _StoreStub(raises=error), 1,
                     fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
@@ -189,15 +249,17 @@ class ResolverTests(unittest.TestCase):
                     resolved.reason, login_speed.ROW_COULD_NOT_BE_READ)
 
     def test_a_store_that_omits_the_column_reads_as_no_value(self):
-        resolved = login_speed.resolve_for_character(
-            _StoreStub({"level": 7}), 1,
-            fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+        with _wire_open():
+            resolved = login_speed.resolve_for_character(
+                _StoreStub({"level": 7}), 1,
+                fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
         self.assertEqual(resolved.reason, login_speed.ROW_HAS_NO_VALUE)
 
     def test_a_store_that_holds_the_column_reads_as_the_row(self):
-        resolved = login_speed.resolve_for_character(
-            _StoreStub({"speed_walk": ROW_SPEED}), 1,
-            fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+        with _wire_open():
+            resolved = login_speed.resolve_for_character(
+                _StoreStub({"speed_walk": ROW_SPEED}), 1,
+                fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
         self.assertEqual(resolved.value, ROW_SPEED)
         self.assertEqual(resolved.reason, login_speed.FROM_ROW)
 
@@ -262,6 +324,249 @@ class ResolverTests(unittest.TestCase):
             1.0, fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
         self.assertEqual(resolved.value, 1.0)
         self.assertEqual(resolved.reason, login_speed.FROM_ROW)
+
+
+class TheSpeedDeferralHoldsTheLoginFrameTests(unittest.TestCase):
+    """`COO-DECISION 20260903_0645`: one lock has to guard both doors.
+
+    `/speed` sends nothing today, but it still COMMITS the row, and since
+    `#605` a login READS that row.  `/speed 300` therefore leaves behind the
+    value whose bytes (`00 00 96 43`) locked a real client for 426 frames in
+    `GT-193` -- and "log in again" is the RECOVERY STEP in `GT-193` and
+    `GT-218` themselves, so the recovery walked into the trap.
+
+    THE MUTATIONS THIS GROUP CATCHES (each applied and measured red before
+    this class was committed):
+
+    * delete the `held_by_the_speed_deferral` call from
+      `resolve_for_character` -- the gate is gone;
+    * cache the boolean at import time instead of asking every call -- the
+      gate stops tracking LANE-GM's flag;
+    * make the fail-closed branch return `None` (open) instead of the
+      constant -- an unaskable gate starts sending rows;
+    * move the gate into `resolve` -- LANE-GM's `next_login=` console line
+      stops answering the question it is printed to answer.
+    """
+
+    def _held(self):
+        return login_speed.resolve_for_character(
+            _StoreStub({"speed_walk": ROW_SPEED}), 1,
+            fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+
+    def test_a_poison_row_does_not_reach_the_login_while_the_wire_is_held(self):
+        with _wire_held():
+            resolved = self._held()
+        self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.reason, login_speed.WIRE_DEFERRED)
+        self.assertFalse(
+            resolved.came_from_the_row,
+            "`session.py` attaches the value only when it came from the row, "
+            "so this is the flag that keeps 300.0 off the character")
+
+    def test_the_same_row_goes_out_once_the_wire_is_open(self):
+        """The gate is a GATE, not a second refusal of the row.
+
+        Without this half, deleting the whole `#605` read would look like a
+        passing gate.
+        """
+        with _wire_open():
+            resolved = self._held()
+        self.assertEqual(resolved.value, ROW_SPEED)
+        self.assertEqual(resolved.reason, login_speed.FROM_ROW)
+
+    def test_the_flag_is_read_live_and_not_captured_once(self):
+        """Flip it twice inside one process and the answer follows.
+
+        A gate that reads a module-level copy of the boolean passes the two
+        tests above and fails this one, and that is exactly the shape that
+        would leave one door open on the day LANE-GM flips their flag.
+        """
+        seen = []
+        for opener in (_wire_open, _wire_held, _wire_open):
+            with opener():
+                seen.append(self._held().reason)
+        self.assertEqual(
+            seen,
+            [login_speed.FROM_ROW,
+             login_speed.WIRE_DEFERRED,
+             login_speed.FROM_ROW])
+
+    def test_a_gate_that_cannot_be_asked_is_a_gate_that_is_shut(self):
+        """Fail-closed, and the reason names what stopped the question."""
+        with mock.patch.object(
+            speed_wire, "send_deferred", side_effect=RuntimeError("boom")
+        ):
+            resolved = self._held()
+        self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.reason, login_speed.DEFERRAL_UNREADABLE)
+        self.assertIn("RuntimeError", resolved.detail)
+        self.assertIn("boom", resolved.detail)
+        resolved.console_line().encode("ascii")
+
+    def test_anything_but_a_literal_false_holds_the_frame(self):
+        """`send_deferred()` is typed `-> bool`; the gate does not trust that.
+
+        A later round adding an early `return None` to that function would
+        make a truthiness test send the row.  The deferral is the default
+        answer, so only a literal `False` opens the door.
+        """
+        for answer in (None, 0, "", []):
+            with self.subTest(answer=answer):
+                with mock.patch.object(
+                    speed_wire, "send_deferred", return_value=answer
+                ):
+                    resolved = self._held()
+                self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
+                self.assertEqual(resolved.reason, login_speed.WIRE_DEFERRED)
+
+    def test_the_pure_resolver_is_not_gated(self):
+        """`resolve` answers "what would this row do", and must keep doing it.
+
+        LANE-GM's deferred `/speed` console line calls `login_speed.resolve`
+        to print `next_login=<reason>` on the same line that announces the
+        deferral (`tests/test_gm_speed_deferred.py`).  Gating it there would
+        make that line answer `wire_deferred` -- the thing it already says --
+        instead of what the row would do at a login, and would take a token
+        away from a lane whose file this round may not touch.
+        """
+        with _wire_held():
+            resolved = login_speed.resolve(
+                ROW_SPEED, fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.reason, login_speed.FROM_ROW)
+        self.assertEqual(resolved.value, ROW_SPEED)
+
+    def test_a_per_session_trial_does_not_open_the_login_door(self):
+        """The defect a first draft shipped, now a test (pf-adversary D1).
+
+        `COO-DECISION 20260903_0646` opens `/speed` for an attended round
+        through `PF_SPEED_TRIAL`, which sanctions ONE value.  If that is
+        implemented by making `send_deferred()` answer False for the session,
+        a login gated on that alone sends WHATEVER the row holds -- and
+        `/speed` writes its row even when the frame is withheld.  So: trial
+        opens for 400, the tester types `/speed 300` (frame held, ROW
+        WRITTEN), `GT-218`'s own recovery step re-logs in, and the GT-193
+        bytes go out in the round written to prevent them.
+
+        The durable flag is what releases the row; a trial leaves it shut.
+        """
+        with _wire_held(), mock.patch.object(
+            speed_wire, "send_deferred", return_value=False
+        ):
+            resolved = self._held()
+        self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.reason, login_speed.WIRE_TRIAL_ONLY)
+        self.assertFalse(resolved.came_from_the_row)
+        self.assertIn("SPEED_LOGIN_READ_LANDED", resolved.detail)
+
+    def test_the_console_line_names_the_value_that_was_withheld(self):
+        """A held login has to be gradeable, or the gate is invisible.
+
+        Without this, every login prints the identical line whether the row
+        held the harmless default or the number that locked a client, so no
+        attended round could ever show the gate catching anything
+        (pf-adversary D5).  It is also the missing-column warning that would
+        otherwise have gone silent (D6).
+        """
+        with _wire_held():
+            resolved = self._held()
+        self.assertIn(f"withheld_row={ROW_SPEED!r}", resolved.detail)
+        resolved.console_line().encode("ascii")
+
+    def test_a_store_that_raises_still_leaves_a_held_login_intact(self):
+        """The detail read may not become the login's exception."""
+        with _wire_held():
+            resolved = login_speed.resolve_for_character(
+                _StoreStub(raises=RuntimeError("db is gone")), 1,
+                fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
+        self.assertEqual(resolved.reason, login_speed.WIRE_DEFERRED)
+        self.assertIn("withheld_row=unreadable(RuntimeError)", resolved.detail)
+
+    def test_a_bad_fallback_still_names_the_caller_not_the_resolver(self):
+        """The gate answers first, so it owes the same TypeError `resolve` did.
+
+        Before this, an `int` fallback reached `ResolvedLoginSpeed` and the
+        operator was told "a resolved login speed is a float" -- pointing at
+        the resolver instead of at the call site that has the constant
+        (pf-adversary D8).
+        """
+        for bad in (400, True):
+            with self.subTest(bad=bad):
+                with self.assertRaises(TypeError) as caught:
+                    login_speed.resolve_for_character(
+                        _StoreStub({"speed_walk": ROW_SPEED}), 1, fallback=bad)
+                self.assertIn(
+                    "PLAYER_LOGIN_MOVEMENT_SPEED", str(caught.exception))
+
+    def test_every_new_reason_is_registered_and_prints_ascii_with_its_detail(self):
+        """The details, not just the tokens: `console_line` prints both."""
+        cases = (
+            (login_speed.WIRE_DEFERRED, _wire_held(), None),
+            (login_speed.WIRE_TRIAL_ONLY, _wire_held(),
+             mock.patch.object(speed_wire, "send_deferred",
+                               return_value=False)),
+            (login_speed.DEFERRAL_UNREADABLE, mock.patch.object(
+                speed_wire, "send_deferred",
+                side_effect=RuntimeError("boom")), None),
+        )
+        for reason, outer, inner in cases:
+            with self.subTest(reason=reason):
+                self.assertIn(reason, login_speed.REASONS)
+                with outer:
+                    if inner is None:
+                        resolved = self._held()
+                    else:
+                        with inner:
+                            resolved = self._held()
+                self.assertEqual(resolved.reason, reason)
+                self.assertTrue(
+                    resolved.detail,
+                    "a refusal that says nothing is a refusal nobody can act "
+                    "on (R309 defect D3)")
+                line = resolved.console_line()
+                line.encode("ascii")
+                self.assertIn(reason, line)
+
+    def test_the_gate_asks_lane_gm_rather_than_keeping_its_own_flag(self):
+        """No second source for "is the speed wire held".
+
+        `login_speed` may not grow its own copy of LANE-GM's flag: two places
+        holding one truth is how a door ends up half open.
+
+        THIS IS A BELT, NOT THE BRACES, and an earlier draft of this docstring
+        claimed otherwise ("a copy would be invisible to every other test in
+        this class") -- measured false: a second source of truth under another
+        name turns nine tests red, three of them in this class.  What this
+        test adds is the SHAPE, caught at the source level before anyone has
+        to read a failure list to find out why.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation"
+                  / "login_speed.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        assigned = [
+            target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        ]
+        self.assertNotIn("SPEED_LOGIN_READ_LANDED", assigned)
+        # A CALL IN THE TREE, NOT THE STRING ANYWHERE IN THE FILE.  The first
+        # draft asserted `"speed_wire.send_deferred()" in source`, and that
+        # spelling appears four times in this module's own prose: delete the
+        # one real call, read a private copy instead, and the assertion stayed
+        # green (pf-adversary, round `4lf2hl`, D4 -- measured).
+        called = [
+            node.func
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        ]
+        self.assertIn(
+            ("speed_wire", "send_deferred"),
+            [(func.value.id, func.attr) for func in called],
+            "the gate must CALL LANE-GM's own function, not merely mention it")
 
 
 class _LegacyCase(unittest.TestCase):
@@ -546,20 +851,92 @@ class TheRealLoginPathTests(_LegacyCase):
     def _session(self, login="rowspd"):
         return FoundationSession(self.lifecycle, self.projector, login)
 
-    def test_the_login_sends_the_speed_the_row_holds(self):
-        """The whole claim of this change, end to end, in one test."""
+    def _start_and_read_the_console(self, session, selector):
+        """Drive the real login and keep the line it prints about itself.
+
+        !! WITHOUT THIS, TWO TESTS BELOW NAMED A BRANCH THEY DID NOT GRADE,
+        and it was measured: `ROW_HAS_NO_VALUE`, `ROW_SPEED_NOT_POSITIVE` and
+        `WIRE_DEFERRED` all produce the same two observable facts -- the
+        constant in the frame, and `movement_speed is None`, because
+        `session.py` attaches only on `FROM_ROW`.  So a test asserting those
+        two things passes on any of the three, and neutering `_wire_open()`
+        left both of them green (pf-adversary, round `4lf2hl`, D3).
+        `session.py` already prints `LOGIN_SPEED <reason>` to stderr for
+        exactly this purpose; capturing it is what makes the branch visible.
+        """
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            selected, (pc, frame) = session.select_and_start(selector)
+        return selected, pc, buffer.getvalue()
+
+    def test_the_login_sends_the_speed_the_row_holds_while_the_wire_is_open(self):
+        """The whole claim of this change, end to end, in one test.
+
+        !! THE `while the wire is open` HALF OF THAT NAME IS NEW AND IT IS THE
+        POINT.  `COO-DECISION 20260903_0645` gated this seam on LANE-GM's
+        `/speed` deferral, and on `main` that gate is SHUT -- so this test now
+        states the precondition it used to inherit.  Its sibling below owns
+        the other side, and between them the gate cannot be deleted or welded
+        shut without one of them going red.
+        """
         character = self._born()
         self.store.write_typed_attributes(
             character.id, {login_speed.COLUMN: ROW_SPEED})
 
         session = self._session()
-        selected, (pc, _frame) = session.select_and_start(character.selector)
+        with _wire_open():
+            selected, pc, console = self._start_and_read_the_console(
+                session, character.selector)
 
+        self.assertIn(f"LOGIN_SPEED {login_speed.FROM_ROW}", console)
         self.assertEqual(selected.movement_speed, ROW_SPEED)
         self.assertIn(
             self.legacy.f32tag(ROW_SPEED), pc,
             "the login composed the constant even though the row held "
             "another number -- which is the entire defect this change is for")
+
+    def test_the_poison_row_stays_off_the_wire_while_speed_is_deferred(self):
+        """`GT-193`'s own bytes, on `main`'s own gate setting, end to end.
+
+        The row holds `300.0` -- what a `/speed 300` session commits today,
+        since the deferral stops the FRAME and not the WRITE -- and the login
+        must compose `400.0` anyway.  This is the window `COO-DECISION
+        20260903_0645` closed: the door was shut and the next login was
+        reading the row through the wall.
+
+        BOTH HALVES ARE GRADED, and neither alone would do.  The attached
+        value is the SEAM (`session.py` attaches only on `FROM_ROW`); the byte
+        pattern is the COMPOSER'S OUTPUT -- still the wire layer, not
+        client-observable, and calling it "the client's half" (as a first
+        draft did) is the exact G5 mixing this file's own docstring refuses.
+        It is safe to assert here for a reason this fixture can state:
+        `300.0` is not the constant, not the
+        column default, and not one of this fixture's coordinates
+        (`Position(1, 0, 1.0, 2.0, 3.0)`), so its f32 tag cannot appear in the
+        frame by accident.  A future fixture that moves a character to x=300
+        turns this into the fragile-by-fixture assertion pf-adversary caught
+        once already in this file, and this sentence is where that round is
+        supposed to notice.
+        """
+        character = self._born("psn300")
+        self.store.write_typed_attributes(
+            character.id, {login_speed.COLUMN: ROW_SPEED})
+
+        session = self._session("psn300")
+        with _wire_held():
+            selected, pc, console = self._start_and_read_the_console(
+                session, character.selector)
+
+        self.assertIn(f"LOGIN_SPEED {login_speed.WIRE_DEFERRED}", console)
+        self.assertIn(f"withheld_row={ROW_SPEED!r}", console)
+        self.assertIsNone(
+            selected.movement_speed,
+            "the deferred wire still let the row reach the login")
+        self.assertIn(self.legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED), pc)
+        self.assertNotIn(
+            self.legacy.f32tag(ROW_SPEED), pc,
+            "the bytes GT-193 was sending when the client locked itself for "
+            "426 frames reached the frame anyway")
 
     def test_a_row_with_no_value_sends_the_constant(self):
         """The ROW_HAS_NO_VALUE branch, driven end to end.
@@ -617,8 +994,19 @@ class TheRealLoginPathTests(_LegacyCase):
             "measuring FROM_ROW again while claiming ROW_HAS_NO_VALUE")
 
         session = self._session("plain1")
-        selected, (pc, _frame) = session.select_and_start(character.selector)
+        # The wire is opened so this test keeps grading ROW_HAS_NO_VALUE.  With
+        # `main`'s gate shut, every branch below would answer WIRE_DEFERRED and
+        # this test would pass without ever reaching the branch it names --
+        # the same unfalsifiable shape its own docstring is about.
+        with _wire_open():
+            selected, pc, console = self._start_and_read_the_console(
+                session, character.selector)
 
+        # THE LINE THAT MAKES THE BRANCH VISIBLE, not merely reached: the
+        # constant on the wire and a `None` attachment are what WIRE_DEFERRED
+        # produces too, so without this the test passes on the wrong branch
+        # (pf-adversary D3, measured on this exact test).
+        self.assertIn(f"LOGIN_SPEED {login_speed.ROW_HAS_NO_VALUE}", console)
         self.assertIn(self.legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED), pc)
         # THE LINE THAT MAKES THIS TEST FALSIFIABLE.  `session.py` attaches
         # the resolved value only `if resolved.came_from_the_row`, so `None`
@@ -644,8 +1032,18 @@ class TheRealLoginPathTests(_LegacyCase):
                 self.store.write_typed_attributes(
                     character.id, {login_speed.COLUMN: bad})
                 session = self._session(login)
-                selected, (pc, _frame) = session.select_and_start(
-                    character.selector)
+                # Opened for the same reason as the sibling above: the
+                # positive floor is only reachable past the `/speed` gate, and
+                # a test that never reaches its own branch grades nothing.
+                with _wire_open():
+                    selected, pc, console = self._start_and_read_the_console(
+                        session, character.selector)
+                # Same reason as the sibling above: three branches produce the
+                # same two facts, so the console line is what says WHICH one
+                # this test drove (pf-adversary D3).
+                self.assertIn(
+                    f"LOGIN_SPEED {login_speed.ROW_SPEED_NOT_POSITIVE}",
+                    console)
                 self.assertIn(
                     self.legacy.f32tag(PLAYER_LOGIN_MOVEMENT_SPEED), pc)
                 # Graded on the SEAM, not by hunting the byte pattern in the
@@ -698,8 +1096,12 @@ class TheRealLoginPathTests(_LegacyCase):
         "connecting".  A stub lifecycle stands in for every caller that never
         promised this seam a store.
         """
-        resolved = login_speed.resolve_for_character(
-            None, None, fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
+        # Past the `/speed` gate on purpose: this test is about the READ
+        # surviving a missing store, which is a question only asked on the
+        # far side of that gate.
+        with _wire_open():
+            resolved = login_speed.resolve_for_character(
+                None, None, fallback=PLAYER_LOGIN_MOVEMENT_SPEED)
         self.assertEqual(resolved.value, PLAYER_LOGIN_MOVEMENT_SPEED)
         self.assertEqual(resolved.reason, login_speed.ROW_COULD_NOT_BE_READ)
         self.assertIn(
