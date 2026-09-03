@@ -7849,3 +7849,90 @@ Four defects were runtime rather than test-coverage, and each is fixed in the sc
 no DLL has been forced. `P-3` does not move. What is claimed is that the escape exists, is scoped,
 and cannot be exercised silently -- and that claim is now measured by mutants rather than asserted
 in a comment.
+
+## Round `dotoho` (2026-09-03T07:1x+07:00) -- the runtime key that opens `/speed` for ONE value, without opening either lock on `main`
+
+**What the round was asked to do.** COO-DECISION 2026-09-03T06:46+07:00
+(`pf_bridge/notes_to_chief/20260903_0646_COO-DECISION-lane-gm-the-row-keeps-being-written-and-the-
+trial-opens-at-runtime-not-on-main.md`), item 2, cutting a loop this lane had reported rather than
+guessed at: `GT-218` -- the attended round whose entire purpose is to try ONE deliberately-safe
+`/speed` value -- cannot boot until both of this door's locks are open, and `COO 2147` point 3
+forbids opening either until that round has happened and has a result. Neither side could move
+first. The COO's cut, in his own words: "ไม่มีล็อกไหนถูกเปิดบน `main` ทั้งสองคงค่าเดิม · ทางเปิดคือ
+**เกต runtime** รูปเดียวกับ `PFGM_FORCE=1`".
+
+**What shipped.** `PF_SPEED_TRIAL=<one value>` in the process environment admits `/speed <that one
+value>` and nothing else.
+
+- `gm/speed_wire.py` gains `SPEED_TRIAL_ENV`, `trial_opening()`, `trial_admits()` and
+  `trial_console_field()`. Nothing in that section edits `SPEED_LOGIN_READ_LANDED` (still `False`)
+  or `SHAPES_CLEARED_BY_A_REAL_CLIENT` (still empty), and a test asserts both are still shut IN THE
+  SAME CALL that puts a frame on the route. The gate BYPASSES the locks for one value; it does not
+  open them, and a future round that implements it by flipping a constant instead turns that test
+  red.
+- `gm/chat_command_action.py` reads the gate ONCE, above both holds, into a local
+  (`trial_admitted`) that both gates then read. Two separate reads could see two different
+  environments -- another thread, a test patching mid-call -- and produce the one combination
+  neither gate was designed for.
+- **The key WRAPS the two holds; it is not a second term inside their conditions.** The first draft
+  of this round wrote `if speed_wire.send_deferred() and not trial_admitted:` and turned
+  `tests/test_gm_speed_denied_nine_paths.py::_assert_the_deferral_branch_holds_one_reason` red --
+  correctly. That pin is pf-adversary's (round `ha492g`, D6): he wrote `if
+  speed_wire.send_deferred() or <anything>:` and measured 276 tests green while a silent refusal
+  wore COO `1847`'s audit word. An AST cannot tell a term that widens a hold from one that narrows
+  it, so the pin refuses both. Both holds therefore keep their exact conditions, audit words and
+  console lines; the key decides only whether the route ARRIVES at them, from a guard that is
+  exactly one `not` over one name -- and `tests/test_gm_speed_trial_gate.py` pins that shape too,
+  from this side, so a future round cannot satisfy his file by deleting it.
+- **The gate is compared against the ROW, not the typing**, and that distinction is measured rather
+  than asserted: mutating the call site to `_trial_admits(value)` left every other test in the new
+  file green, because in all of them the store echoes the typed number back. A store double whose
+  read-back diverges now pins both directions -- a row holding the armed value goes out even when
+  the GM typed something else, and a row holding something else is HELD even when the typing
+  matches. Eleven mutants of the gate were tried in total; eleven died.
+- The value compared is `stored`, the store's read-back, not the GM's typed text. `PF_SPEED_TRIAL`
+  is rounded through the same f32 trip `persistence_typed_attrs.validate` rounds the row through,
+  so arming `400.1` admits the row's `400.1000061035156` by construction rather than by luck.
+- **The key opens NOTHING above itself.** It is read below the run-copy-DB gate, the identity read
+  and the version gate, and three tests pin each: an armed key on the canonical database still
+  withholds and writes no row, an armed key does not open a version gate forced shut, and an armed
+  key does not invent a selected character. COO `0646` opened one door for one value; the guards
+  above it exist for reasons that have nothing to do with `GT-193`, and no environment variable an
+  owner sets in a hurry is a way around the canonical-database gate.
+- **Fail-closed in the shape `PFGM_FORCE=1` uses.** Unset, empty, whitespace, `fast`, `nan`, `inf`,
+  `1e400`, a non-string, a mapping whose `.get` raises, a value past `F32_MAX` -- every one of them
+  is today's behaviour and a console word, never an open door for a value nobody chose. `-0.0` and
+  `0.0` are compared as `repr()` rather than with `==`, so `PF_SPEED_TRIAL=0` does not admit
+  `/speed -0`.
+- **And it does not reopen the LOGIN door, which chief named before it could happen.**
+  `login_speed.py`'s point 3 (`wire_trial_only`, written after pf-adversary caught chief's own
+  first draft in round `4lf2hl`, D1) states the trap: implement this trial by making
+  `send_deferred()` answer `False` and a login gated on `send_deferred()` alone sends whatever the
+  ROW holds -- and `/speed` writes its row even when the frame is withheld. His worked example is
+  the `GT-193` disaster verbatim: trial opens for `400`, tester types `/speed 300` (frame withheld,
+  row written), the ticket's own recovery step is a re-login, `00 00 96 43` goes out. This lane did
+  not take that shape: `send_deferred()` is untouched, so after a trial `/speed 450` the resolver
+  still answers the constant, with reason `wire_deferred` -- never `wire_trial_only`, which is the
+  belt for the shape this round did not build. Measured end to end here, with a companion test that
+  proves the row really did move so the assertion is not vacuous.
+
+**The console line, because the operator is the whole point.** `SPEED TRIAL OPEN account=...
+command=speed env=PF_SPEED_TRIAL trial_opens_for=450.0 sending=450.0 identity=...`, printed BELOW
+the compose so it can never claim bytes that a refused composer never produced. The `SPEED
+DEFERRED` line gains a fourth field, `trial_opens_for=`, so an operator who typed the wrong number
+learns the right one from the console instead of from the shell she armed it in. Both lines are
+pure ASCII (the bridge console is cp874); neither echoes the environment's raw text nor the GM's
+typed spelling -- `/speed 4.5e2` on a gate armed at `450` prints `sending=450.0`, and the string
+`4.5e2` appears nowhere.
+
+**NONCLAIM, and it is the important paragraph.** This is not evidence that any `/speed` value is
+safe on a real client. `GT-193` [FAIL] remains the only client-observable measurement this door
+has, and it ends in a dead character, a locked client and a lost attended round. The gate is a way
+for the OWNER to try one value WHILE WATCHING, and it closes when her process dies. No milestone
+moves, `P-1` does not move, and nothing here has been run against a real client.
+
+**What the tester can do today that she could not yesterday.** Yesterday, trying a single `/speed`
+value on a real client required a code change on `main` that would have opened the door for every
+value at once, for everyone, permanently -- which is what `COO 2147` point 3 forbids. Today she
+types `set PF_SPEED_TRIAL=450` in her own server window, and `/speed 450` sends while `/speed 451`
+and every other value stay held by both locks.

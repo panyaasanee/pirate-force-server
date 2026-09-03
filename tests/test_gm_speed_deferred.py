@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import struct
 import sys
 import tempfile
@@ -165,6 +166,15 @@ class _Case(unittest.TestCase):
 
     def setUp(self):
         gm_dispatch.reset_rate_limit_state_for_tests()
+        # COO `0646` item 2 added a THIRD way past this file's subject: an
+        # armed `PF_SPEED_TRIAL` in the process environment admits one value
+        # past the deferral.  Every assertion below means "on the shipped
+        # default", so the variable is removed for the duration -- otherwise a
+        # developer who armed it in the shell she then ran `pytest` from turns
+        # this file's central claim into a lie without touching a line of it.
+        # The gate itself is proven in `tests/test_gm_speed_trial_gate.py`.
+        self._trial_saved = os.environ.pop("PF_SPEED_TRIAL", None)
+        self.addCleanup(self._restore_trial_env)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -180,6 +190,13 @@ class _Case(unittest.TestCase):
         self.state_dir = self.tmp / "state"
         self.state_dir.mkdir()
         self.run_copy_db = str(self.state_dir / RUN_COPY_DB_FILENAME)
+
+    def _restore_trial_env(self):
+        """Put `PF_SPEED_TRIAL` back exactly as it was, absent included."""
+        if self._trial_saved is None:
+            os.environ.pop("PF_SPEED_TRIAL", None)
+        else:
+            os.environ["PF_SPEED_TRIAL"] = self._trial_saved
 
     def store(self):
         return FakeStore(self.run_copy_db)
