@@ -79,17 +79,34 @@ class LegacyProjector:
         # `self.foundation.selected`, which is the object session.py resolved.
         # `None` (a character straight out of the store) keeps the constant.
         speed = getattr(character, "movement_speed", None)
+        # THE VITALS RIDE THE CHARACTER TOO, and ALL THREE OR NONE
+        # (PANYA-DECISION 20260901_1059, COO-DECISION 20260903_0647).  One
+        # `None` among them -- a character straight out of the store, another
+        # lane's stub, a model that never grew the fields -- makes `vitals`
+        # empty, and an empty splat is byte-for-byte the frame `main` sends
+        # today.  There is deliberately no branch that fills a missing one in
+        # from a constant: that is the "unknown field guessed as a number"
+        # shape the owner's letter forbids, and it would put a guessed level
+        # beside a real hp on the same wire.
+        level = getattr(character, "level", None)
+        hp_current = getattr(character, "hp_current", None)
+        hp_max = getattr(character, "hp_max", None)
+        vitals = {}
+        if level is not None and hp_current is not None and hp_max is not None:
+            vitals = {
+                "level": level, "hp_current": hp_current, "hp_max": hp_max,
+            }
         actor = (
             make_actor_attr_with_name_and_class(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name,
-                movement_speed=speed,
+                movement_speed=speed, **vitals,
             )
             if basic_faction is None else
             make_actor_attr_with_name_class_and_faction(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name, basic_faction,
-                movement_speed=speed,
+                movement_speed=speed, **vitals,
             )
         )
         avatar = character.avatar_wire
