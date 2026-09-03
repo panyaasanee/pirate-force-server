@@ -10,7 +10,7 @@
   "promotion_ruling": "COO-DECISION 2026-08-26T04:02+07:00 s1.3, s3",
   "production_allowed": true,
   "mob_aggro_production_allowed": true,
-  "mob_aggro_dispatch_reachable": false,
+  "mob_aggro_dispatch_reachable": true,
   "attack_intent_deliverable": false,
   "source_digests": {
     "ai_combat": "19cbc17fb124b5569dbe670fd793d22f00fec72645e6027348f09a6612d04a46",

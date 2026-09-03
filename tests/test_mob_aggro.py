@@ -30,9 +30,28 @@ What this file proves, and where the proof stops:
     state is a no-op;
   * PURITY: frozen inputs are never mutated;
   * CONTAINMENT: the module imports only stdlib, has no import-time side
-    effects, is imported by no other module in ``src/``, is pure ASCII and
-    cp874-safe, and declares production_allowed False, dispatch-reachable
-    False and attack-intent deliverable False.
+    effects, ~~is imported by no other module in ``src/``~~, is pure ASCII and
+    cp874-safe, and declares ~~production_allowed False~~,
+    ~~dispatch-reachable False~~ and attack-intent deliverable False.
+    STRUCK IN PLACE, round `1tz15e` (2026-09-03).  THREE clauses, not two.
+    The first two have been false since COO-DECISION 2026-08-26T04:02+07:00
+    promoted this lane - ``production_allowed`` is True and two src/ modules
+    import it by name.  The third was struck LATER IN THE SAME ROUND, after a
+    pf-adversary pass caught this file re-certifying it as "still true" while
+    ``runtime.py:4466`` calls ``mob_ai_control.damage_step`` from
+    ``_dispatch_mob_combat``, which ``_dispatch_with_lanes`` calls at
+    ``runtime.py:10440`` and which ``dispatch`` reaches through it - a THREE
+    hop chain, corrected here after a second pf-adversary pass caught the
+    first draft of this paragraph calling it two - and ``damage_step`` folds
+    through ``mob_aggro.apply_damage_threat``.
+    ``docs/FUNCTIONAL_COVERAGE.json`` (row ``mob_aggro_and_server_ai``) has
+    said exactly that since 2026-08-26: "what changed is reachability, not
+    observability".  The lesson is the round's own subject turned on itself -
+    striking two stale claims out of a paragraph is not the same as walking
+    the paragraph, and the walk stopped one clause short.
+    What is still true and still proved: stdlib-only imports, no import-time
+    side effects, ASCII/cp874, and attack intent NOT deliverable - nothing
+    this lane decides reaches a client.
 
 NOT proven here: anything about a client, a wire, or a database.  The rules
 are OUR design (the original server is unrecoverable forever); the attack
@@ -56,6 +75,134 @@ MODULE_SOURCE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_aggro.py"
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
 
 ORIGIN = (0.0, 0.0, 0.0)
+
+
+def _names_bound_to_an_importer(tree) -> set:
+    """Local names in ``tree`` that are bound to importlib's import_module.
+
+    ``from importlib import import_module as _load`` then ``_load("...")`` is
+    an import.  pf-adversary shipped exactly that into mob_combat and the
+    whole 8,692-test suite stayed green, so the alias is resolved rather than
+    the callee name being matched literally.
+    """
+    bound = {"__import__", "import_module"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "importlib":
+            for alias in node.names:
+                if alias.name == "import_module":
+                    bound.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Assign):
+            value = node.value
+            named = ""
+            if isinstance(value, ast.Name):
+                named = value.id
+            elif isinstance(value, ast.Attribute):
+                named = value.attr
+            if named in ("import_module", "__import__"):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        bound.add(target.id)
+    return bound
+
+
+def _is_this_lane(dotted: str) -> bool:
+    """True only for THIS module, not for a sibling whose name starts alike.
+
+    ``"mob_aggro" in name`` would accuse a future ``mob_aggro_tables`` of
+    being the forbidden edge -- the false-accusation half of a card matters
+    as much as the missed-detection half.
+    """
+    return dotted == "mob_aggro" or dotted.endswith(".mob_aggro")
+
+
+def module_imports_mob_aggro(source: str) -> bool:
+    """True when ``source`` binds this lane by any import form it can see.
+
+    Round `1tz15e`.  The scan this replaces read ``ast.Import`` and
+    ``ast.ImportFrom`` only, and a pf-adversary pass proved that is not the
+    same question: ``__import__("pirateforce_foundation.mob_aggro",
+    fromlist=["x"])`` is a live import, is invisible to those two node types,
+    and is EXACTLY the arrangement COO-DECISION 2026-08-26T04:02+07:00 called
+    the hole -- a production module reaching this lane by a route no scan of
+    ``src/`` can see.  A whole suite stayed green with one in ``mob_combat``.
+
+    WHAT IT SEES: plain imports, ``__import__``/``import_module`` with a
+    literal, and those two under a local alias.
+    WHAT IT DOES NOT SEE, stated rather than hidden (pf-adversary measured
+    each one): a computed module name, ``sys.modules[...]`` lookup, an edge
+    through a THIRD module (``mob_ai_control.mob_aggro.<attr>``), and an
+    import under ``if TYPE_CHECKING`` counts as a real one.  This is a card
+    against an edge somebody writes to keep the code tidy, not against one
+    written to get past the card.  ``test_the_import_scan_sees_the_forms_it_claims``
+    is the guard on every row of that list.
+    """
+    tree = ast.parse(source)
+    importer_names = _names_bound_to_an_importer(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            names = [base] + [base + "." + alias.name for alias in node.names]
+        elif isinstance(node, ast.Call):
+            callee = node.func
+            called = ""
+            if isinstance(callee, ast.Name):
+                called = callee.id
+            elif isinstance(callee, ast.Attribute):
+                called = callee.attr
+            if called not in importer_names:
+                continue
+            names = [
+                argument.value for argument in node.args
+                if isinstance(argument, ast.Constant)
+                and isinstance(argument.value, str)]
+        else:
+            continue
+        if any(_is_this_lane(name) for name in names):
+            return True
+    return False
+
+
+def functions_that_touch_this_lane(source: str) -> set:
+    """Names of top-level functions in ``source`` whose own body uses the lane.
+
+    This is what separates "dispatch reaches a module that happens to import
+    mob_aggro" from "dispatch reaches a function that USES it".
+    """
+    touching = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        used = {
+            inner.id for inner in ast.walk(node)
+            if isinstance(inner, ast.Name)}
+        used |= {
+            inner.attr for inner in ast.walk(node)
+            if isinstance(inner, ast.Attribute)}
+        if "mob_aggro" in used:
+            touching.add(node.name)
+    return touching
+
+
+def module_aliases(tree) -> dict:
+    """Local name -> module stem, for every module imported in ``tree``.
+
+    Without this the walk below is a tripwire on SPELLING: pf-adversary
+    renamed ``mob_ai_control`` to ``_ctl`` in runtime.py -- a behaviour-neutral
+    alias -- and the card declared the lane unreachable and went red on a fact
+    that had not changed.
+    """
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                stem = alias.name.rsplit(".", 1)[-1]
+                aliases[alias.asname or stem] = stem
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                aliases[alias.asname or alias.name] = alias.name
+    return aliases
 
 
 def profile(**overrides):
@@ -652,46 +799,258 @@ class ContainmentTests(unittest.TestCase):
         # invariant this test defends ("one controller") still holds; what
         # changed is that a controller can now have more than one CALLER, the
         # same relationship mob_ai_control already has with runtime.py.
+        #
+        # ROUND `1tz15e`: the line
+        # ``assertIs(ma.MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE, True)``
+        # stood here and the flag it read is struck from the module.  It was a
+        # bool that RESTATED the derivation below it, and a restatement cannot
+        # fail when the fact does: someone who deleted the import would have
+        # had to delete the flag as well for anything to go red.
+        #
+        # A pf-adversary pass on that same round showed the derivation below
+        # was not the fortress the round called it either: it read ast.Import
+        # and ast.ImportFrom ONLY, so an edge spelled
+        # ``__import__("pirateforce_foundation.mob_aggro", fromlist=["x"])``
+        # -- a live, working import, and precisely the shape COO-DECISION
+        # 2026-08-26T04:02+07:00 named as the hole -- was invisible to it, and
+        # a mob_combat module carrying one left the whole suite green.  The
+        # walk now reads the CALL forms too.
         self.assertIs(ma.production_allowed, True)
-        self.assertIs(ma.MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE, True)
-        # Dispatch reachability is still False and that is still honest: the
-        # last unbuilt step is one call in runtime.py, which is the chief's.
-        self.assertIs(ma.MOB_AGGRO_DISPATCH_REACHABLE, False)
+        # RECURSIVE, and that is a fix: this walked SRC_ROOT.glob("*.py")
+        # until pf-adversary pointed out that lane B's OWN hook package,
+        # src/pirateforce_foundation/lane_hooks/, was invisible to it - so a
+        # third importer could be added in this lane's own file and the census
+        # below would not move.  tests/test_lane_b_mob_ai_tick.py has used
+        # rglob for this same census since it was written; two lane-B files
+        # had two different answers to "what is src/".
         importers = []
         mentions = []
-        for path in sorted(SRC_ROOT.glob("*.py")):
+        for path in sorted(SRC_ROOT.rglob("*.py")):
             if path.name == "mob_aggro.py":
                 continue
             source = path.read_text(encoding="utf-8")
             if "mob_aggro" not in source:
                 continue
-            mentions.append(path.name)
-            for node in ast.walk(ast.parse(source)):
-                if isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom):
-                    names = [node.module or ""] + [
-                        alias.name for alias in node.names]
-                else:
-                    continue
-                if any("mob_aggro" in name for name in names):
-                    importers.append(path.name)
+            relative = path.relative_to(SRC_ROOT).as_posix()
+            mentions.append(relative)
+            if module_imports_mob_aggro(source):
+                importers.append(relative)
+        # ORDER MATTERS.  This sat AFTER the equality below, where it was
+        # dead code: the expected list has two entries, so any run that
+        # reached it had already proved len(importers) == 2.  Moving it first
+        # buys a READABLE FAILURE, not new detection power - the equality
+        # still catches every empty case, and pf-adversary was right to say
+        # so.  It is kept for the message and described as that, not as a
+        # guard.
+        self.assertGreater(
+            len(importers), 0,
+            "no module in src/ imports mob_aggro by any form the scan can "
+            "see: the promotion COO-DECISION 2026-08-26T04:02+07:00 ordered "
+            "has been undone, or the edge has gone back to being an argument")
         self.assertEqual(
             sorted(importers),
             sorted([ma.MOB_AGGRO_IMPORTER + ".py", "mob_ai_scheduler.py"]))
         self.assertEqual(
             sorted(mentions),
-            ["mob_ai_control.py", "mob_ai_scheduler.py", "mob_combat.py"])
+            ["lane_hooks/lane_b_mob_ai_tick.py", "mob_ai_control.py",
+             "mob_ai_scheduler.py", "mob_combat.py"])
         # The edge that must NOT come back: the damage driver's wiring line
         # still passes None, so threat never arrives through an argument the
         # scan above cannot see.  It arrives through the importer named on the
         # line above, after the combat commit.
         from pirateforce_foundation import mob_combat, mob_ai_control
-        self.assertIs(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL, True)
+        # ``mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL`` was read here
+        # too, and is struck in the same round for the same reason.  What it
+        # carried is the next line: the damage driver's wiring line does not
+        # name this module.
+        #
+        # A cross-check comparing MOB_COMBAT_THREAT_FOLD_OWNER's module half
+        # against MOB_AGGRO_IMPORTER was written here in the same round and
+        # REMOVED in it: pf-adversary showed both operands are already pinned
+        # to literals within a few lines, so no source change exists for which
+        # that line is the unique detector.  An assertion that can only fail
+        # after another has already failed is decoration; this round's whole
+        # subject is that a second copy of a claim is not a guard on it.
         self.assertNotIn("mob_aggro", mob_combat.MOB_COMBAT_WIRING)
         self.assertEqual(mob_combat.MOB_COMBAT_THREAT_FOLD_OWNER,
                          "mob_ai_control.damage_step")
         self.assertIs(mob_ai_control.production_allowed, True)
+
+    def test_dispatch_reachability_is_derived_not_declared(self):
+        # ROUND `1tz15e`.  ``MOB_AGGRO_DISPATCH_REACHABLE`` was pinned False by
+        # a bare assertIs here, by a second assertIs in
+        # tests/test_mob_ai_control.py, and by a value published into
+        # scenarios/combat_aggro_001.json - three copies of one bool, and the
+        # bool had been WRONG since 2026-08-26, when the call site the prose
+        # called "the last unbuilt step" was built.
+        #
+        # WHAT THIS CARD IS AND IS NOT, written after two pf-adversary passes
+        # took two earlier drafts of it apart:
+        #  * it is STATIC.  The behavioural proof of the same fact is
+        #    tests/test_mob_ai_control_dispatch.py, which drives the real
+        #    dispatcher headless and has existed since R179.  An earlier draft
+        #    of this round wrote "nothing was measuring anything"; that was
+        #    false, and the file that refutes it is named in the last sentence
+        #    of the docs/FUNCTIONAL_COVERAGE.json note this round quotes.
+        #    What was missing was not a measurement of the fold - it was
+        #    anything at all tying the published CONSTANT to it.
+        #  * it resolves import ALIASES, because keying on the spelling
+        #    ``mob_ai_control.`` made a behaviour-neutral rename in runtime.py
+        #    turn this card red on a fact that had not changed.
+        #  * it requires the called function to USE the lane, not merely live
+        #    in a module that imports it.
+        #  * it does NOT claim the tick loop runs.  See
+        #    test_the_tick_gate_is_reported_not_assumed below.
+        touching = {}
+        for path in sorted(SRC_ROOT.rglob("*.py")):
+            if path.name == "mob_aggro.py":
+                continue
+            source = path.read_text(encoding="utf-8")
+            if not module_imports_mob_aggro(source):
+                continue
+            touching[path.stem] = functions_that_touch_this_lane(source)
+        self.assertIn("mob_ai_control", touching)
+
+        runtime_tree = ast.parse(
+            (SRC_ROOT / "runtime.py").read_text(encoding="utf-8"))
+        aliases = module_aliases(runtime_tree)
+        self_calls = {}
+        outward_calls = {}
+        for node in ast.walk(runtime_tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            mine = set()
+            theirs = set()
+            for inner in ast.walk(node):
+                if not isinstance(inner, ast.Call):
+                    continue
+                callee = inner.func
+                if not isinstance(callee, ast.Attribute):
+                    continue
+                if not isinstance(callee.value, ast.Name):
+                    continue
+                if callee.value.id == "self":
+                    mine.add(callee.attr)
+                else:
+                    stem = aliases.get(callee.value.id, callee.value.id)
+                    theirs.add((stem, callee.attr))
+            self_calls.setdefault(node.name, set()).update(mine)
+            outward_calls.setdefault(node.name, set()).update(theirs)
+        self.assertIn("dispatch", self_calls,
+                      "runtime.py has no dispatch(): this card is measuring "
+                      "the wrong file")
+
+        seen = set()
+        frontier = ["dispatch"]
+        reached = set()
+        while frontier:
+            name = frontier.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            reached |= outward_calls.get(name, set())
+            frontier.extend(self_calls.get(name, ()))
+
+        into_the_lane = sorted(
+            "%s.%s" % (stem, attr) for stem, attr in reached
+            if attr in touching.get(stem, ()))
+        derived = bool(into_the_lane)
+        # THE WHOLE CARD IS THIS ONE LINE.  It has no opinion about which
+        # answer is right; it requires the published constant to be whatever
+        # the walk found.  An earlier draft added ``assertIs(derived, True)``
+        # underneath, which pinned the answer and made the card unable to
+        # report False - re-committing, three lines below its own comment
+        # about pins, the defect the round exists to remove.  pf-adversary
+        # measured that: deleting the call site AND flipping the constant, the
+        # change this card's prose demands, still failed.
+        self.assertIs(
+            ma.MOB_AGGRO_DISPATCH_REACHABLE, derived,
+            "MOB_AGGRO_DISPATCH_REACHABLE says "
+            f"{ma.MOB_AGGRO_DISPATCH_REACHABLE}, but walking runtime.py from "
+            f"dispatch reaches {into_the_lane} - one of the two has to change")
+
+    def test_the_tick_gate_is_reported_not_assumed(self):
+        # A SECOND pf-adversary pass found this and it is bigger than anything
+        # else in the round that found it.  runtime.py:5887 guards the aggro
+        # TICK behind
+        #     lane_hooks.module_production_allowed("lane_hooks.lane_b_mob_ai_tick")
+        # and lane_hooks.__init__ qualifies a name that does not already start
+        # with its own __name__ by PREFIXING it -- so that argument becomes
+        # "pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick",
+        # a key that exists nowhere, and the fail-closed lookup returns False
+        # on every frame forever.  The decision loop this module IS has
+        # therefore never run for a player.
+        #
+        # runtime.py belongs to the chief, so this card does not fix it; it
+        # REFUSES TO LET IT BE SILENT.  It states today's measured answer, and
+        # the day the call site is corrected this test fails and the lane that
+        # owns the fact must come and say what changed.
+        from pirateforce_foundation import lane_hooks
+        as_called = lane_hooks.module_production_allowed(
+            "lane_hooks.lane_b_mob_ai_tick")
+        as_qualified = lane_hooks.module_production_allowed(
+            "lane_b_mob_ai_tick")
+        self.assertIs(
+            as_qualified, True,
+            "the hook module itself is not production_allowed: this card is "
+            "measuring the wrong thing")
+        self.assertIs(
+            as_called, False,
+            "runtime.py:5887's argument now resolves - the aggro TICK has "
+            "become reachable, which is good news nobody has written down "
+            "yet; update this test, mob_aggro's prose and the shipped pin "
+            "scenarios/combat_aggro_001.json together")
+        # The separation the shipped bool does not make: the damage FOLD is
+        # reached (the card above), the TICK is not (this card), and neither
+        # is observable by a player -- ATTACK_INTENT_DELIVERABLE is pinned
+        # False by test_the_lane_is_not_reachable_from_production_dispatch,
+        # and repeating it here would be a second copy, not a second guard.
+
+    def test_the_import_scan_sees_the_forms_it_claims(self):
+        # THE FIX FROM THE FIRST pf-adversary PASS HAD NO GUARD OF ITS OWN.
+        # Deleting the whole ast.Call branch of module_imports_mob_aggro --
+        # reverting it to the scan whose blindness the pass exploited -- left
+        # every lane-B test green, because no module in src/ uses those forms
+        # today.  A fix that is green because nothing reaches it is the same
+        # defect as a flag that restates a fact.  So the scan is exercised
+        # against sources written here, including the rows it CANNOT see,
+        # which are asserted as False so the documented limits are a
+        # measurement instead of a promise.
+        lane = "pirateforce_foundation.mob_aggro"
+        seen = {
+            "plain": "from . import mob_aggro",
+            "absolute": "import pirateforce_foundation.mob_aggro",
+            "from_member": "from .mob_aggro import apply_damage_threat",
+            "dunder": f'x = __import__("{lane}", fromlist=["a"])',
+            "importlib": f'import importlib\nx = importlib.import_module("{lane}")',
+            "from_importlib": (
+                f'from importlib import import_module\nx = import_module("{lane}")'),
+            "aliased_importlib": (
+                f'from importlib import import_module as _load\nx = _load("{lane}")'),
+            "rebound": (
+                f'import importlib\n_load = importlib.import_module\n'
+                f'x = _load("{lane}")'),
+        }
+        for label, source in seen.items():
+            with self.subTest(sees=label):
+                self.assertTrue(module_imports_mob_aggro(source), label)
+        blind = {
+            # Measured by pf-adversary, and true of this scan by construction.
+            "computed_name": (
+                'import importlib\n'
+                'x = importlib.import_module("%s.%s" % ("a", "b"))'),
+            "sys_modules": f'import sys\nx = sys.modules["{lane}"]',
+            "third_module": (
+                "from . import mob_ai_control\n"
+                "x = mob_ai_control.mob_aggro.apply_damage_threat"),
+        }
+        for label, source in blind.items():
+            with self.subTest(cannot_see=label):
+                self.assertFalse(module_imports_mob_aggro(source), label)
+        # And the false-accusation half: a sibling whose name merely starts
+        # the same way is NOT this lane.
+        self.assertFalse(
+            module_imports_mob_aggro("from . import mob_aggro_tables"))
 
     def test_the_module_declares_which_rules_are_ours(self):
         self.assertIn("[OUR DESIGN]", self.source)

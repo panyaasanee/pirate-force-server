@@ -565,8 +565,11 @@ class ReturnTicketTests(unittest.TestCase):
 
     def test_every_non_home_destination_owes_a_ticket_including_scene_2(self):
         # n_MARKER is an ARRIVAL marker.  Scene 2 has one and scene 278 does
-        # not, and this project has measured a way OUT of neither - RE-077 is
-        # open for both.  A ticket withheld on the strength of that column is
+        # not, and this project has measured a way OUT of neither.
+        # ~~RE-077 is open for both.~~ STRUCK (LANE-A round f6e5kd,
+        # 2026-09-03): RE-077 closed 2026-08-26.  The sentence before it is
+        # the one that carries the weight and it never needed the ticket.
+        # A ticket withheld on the strength of that column is
         # a character persisted where nothing can bring it back.
         scene2 = world_scene_travel.destination(2)
         self.assertTrue(scene2.has_authored_entry)

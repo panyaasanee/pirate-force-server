@@ -159,8 +159,11 @@ What IS measured, in this repository, against the real
 
     THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS WRONG, AND THIS LANE
     WROTE IT.  It said: "The static half is ``RE-077 T5``, open, no result."
-    ``RE-077``'s result letter (``pf_bridge/notes_to_chief/20260826_0120_
-    RE-077-RESULT-SCENE-TRANSITION-SEQUENCE-PINNED.md``) closed T5 as a
+    ``RE-077``'s result letter (``pf_bridge/archive/notes_to_chief_2026-08-19_
+    to_26/20260826_0120_RE-077-RESULT-SCENE-TRANSITION-SEQUENCE-PINNED.md`` -
+    path corrected LANE-A round ``f6e5kd`` 2026-09-03; the un-archived path
+    this line carried was dead, and had been copied forward rather than
+    re-derived) closed T5 as a
     BOUNDED NEGATIVE at 01:20 on the same day, with the switch-scene cleanup
     slot ``0x004C7160`` and its helper ``0x004C6920`` walked as a complete
     recursive CFG.  The mistake came from reading the ticket header in

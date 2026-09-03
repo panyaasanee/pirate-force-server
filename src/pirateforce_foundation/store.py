@@ -122,6 +122,59 @@ DAMAGE_LOCK_BUSY_TIMEOUT_MS = 3000
 #: `mob_combat.py`) rather than inventing a new shape.
 DAMAGE_WRITE_LOCK_REFUSED_TOKEN = "DAMAGE_WRITE_LOCK_REFUSED"
 
+#: Printed to stdout, once per refusal, when a connection refuses to accept
+#: `PRAGMA busy_timeout=...` at all -- a condition distinct from a refused
+#: `BEGIN IMMEDIATE` (that one already prints `DAMAGE_WRITE_LOCK_REFUSED_
+#: TOKEN` or raises `WriteLockTimeout`; this one, if it ever fires, fires
+#: BEFORE either door even tries to acquire the lock).  Both
+#: `_begin_immediate_under_contention` (healing) and
+#: `_begin_immediate_for_damage` (damage) share this token and the counter
+#: below -- `COO-DECISION 20260903_1248` point 4: "ให้ pragma ที่ถูกปฏิเสธ
+#: นับและพิมพ์บรรทัด ห้ามลดตัวเองลงเงียบ ๆ กลับไป 5,000 ms" (a refused
+#: pragma must be counted and printed, never silently swallowed, and must
+#: not fall back to `connect()`'s 5,000 ms on its own).  NEITHER door's
+#: other behaviour changes: a connection that refuses the pragma still goes
+#: on to attempt `BEGIN IMMEDIATE` at whatever timeout it already has,
+#: exactly as before this fix -- this only makes the refusal visible
+#: instead of a bare `pass`.
+PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN = "PRAGMA_BUSY_TIMEOUT_REFUSED"
+
+#: Process-wide count of refusals noted through `PRAGMA_BUSY_TIMEOUT_REFUSED_
+#: TOKEN` above, incremented by `_note_pragma_busy_timeout_refused` -- so a
+#: reader (or a test) can ask "how many, not just whether any" without
+#: parsing stdout.  Not reset between calls or characters on purpose: this
+#: is a process lifetime count.
+#:
+#: NOT LOCKED, and a `pf-adversary` pass flagged this honestly rather than
+#: asserting it away: `+= 1` on a plain module global is not atomic across
+#: threads, so two threads refused at the same GIL-preemption boundary
+#: could lose an increment.  Left this way because `PRAGMA busy_timeout`
+#: refusing at all is a broken-or-closed-connection condition this
+#: codebase has never observed outside a test double built to force it --
+#: adding a lock for a race nobody has measured would be exactly the kind
+#: of unmeasured change `COO-DECISION 20260901_1100` (this lane's charter)
+#: warns against.  If a real refusal under real concurrency is ever
+#: observed, that measurement is the thing that should decide whether this
+#: needs a lock, not a guess made here.
+PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT = 0
+
+
+def _note_pragma_busy_timeout_refused(door, requested_ms):
+    """Counts and prints one `PRAGMA busy_timeout` refusal for `door`
+    (`"heal"` or `"damage"`) at the timeout in milliseconds that was asked
+    for and refused.  Does not raise and does not touch either caller's
+    control flow -- the caller's bare `except sqlite3.Error: pass` becomes
+    `except sqlite3.Error: _note_pragma_busy_timeout_refused(...)`, and
+    nothing else about that `except` block changes: the caller still goes
+    on to attempt `BEGIN IMMEDIATE` next, exactly as it did before this
+    function existed.  See `PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN`.
+    """
+    global PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT
+    PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT += 1
+    print("%s door=%s requested_ms=%d count=%d" % (
+        PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN, door, requested_ms,
+        PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT))
+
 
 #: The wire field `/speed` writes: BasicAttr+0x54, `x=7`, whose column name is
 #: resolved through `persistence_typed_attrs.column_for` rather than spelled
@@ -1707,7 +1760,10 @@ class SQLiteStore:
             except sqlite3.Error:
                 # A connection that will not accept the pragma still gets its
                 # attempts; it just makes them at whatever timeout it has.
-                pass
+                # `COO-DECISION 20260903_1248` point 4: count and print
+                # instead of a silent `pass` -- landed in the same commit as
+                # `_begin_immediate_for_damage`'s own copy of this fix below.
+                _note_pragma_busy_timeout_refused("heal", ceiling)
             try:
                 db.execute("BEGIN IMMEDIATE")
                 return attempts
@@ -1778,14 +1834,12 @@ class SQLiteStore:
         try:
             db.execute("PRAGMA busy_timeout=%d" % DAMAGE_LOCK_BUSY_TIMEOUT_MS)
         except sqlite3.Error:
-            # Mirrors `_begin_immediate_under_contention`'s own bare except
-            # here -- both are `COO-DECISION 20260903_1248` point 4, the
-            # NEXT round's fix ("นับและพิมพ์บรรทัด ห้ามลดตัวเองลงเงียบ ๆ
-            # กลับไป 5,000 ms"), not this one.  Left unfixed on purpose, in
-            # the same shape, so one round fixes both call sites together
-            # instead of this one drifting ahead of the one it was copied
-            # from.
-            pass
+            # `COO-DECISION 20260903_1248` point 4: count and print instead
+            # of a silent `pass` -- mirrors `_begin_immediate_under_
+            # contention`'s own copy of this fix above, landed in the same
+            # commit.
+            _note_pragma_busy_timeout_refused(
+                "damage", DAMAGE_LOCK_BUSY_TIMEOUT_MS)
         started = time.monotonic()
         try:
             db.execute("BEGIN IMMEDIATE")
