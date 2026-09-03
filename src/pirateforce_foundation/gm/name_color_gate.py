@@ -52,9 +52,11 @@ raises on every identity class RE-195 did not.
 
 What is being DONE about the bounded negative, and what is not
 --------------------------------------------------------------
-Round ``5ddsii`` filed ``RE-211`` (see :data:`RE_211_TICKET_LETTER`).  The
-refusal below did NOT move because of it and this docstring is the wrong
-place to look for a result -- nothing in this module reads one.
+Round ``5ddsii`` filed the ticket chief queued as ``RE-222`` (drawn as
+~~``RE-211``~~; see :data:`RE_222_TICKET_ID` for why the number moved, and
+:data:`RE_222_TICKET_LETTER`).  The refusal below did NOT move because of it
+and this docstring is the wrong place to look for a result -- nothing in this
+module reads one.
 
 Read :func:`unaddressed_blockers` before :func:`open_questions`, in that
 order.  The first names the route NOTHING is filed against; the second names
@@ -65,7 +67,7 @@ exists to make awkward, so the gap is the half with the shorter name.
 The ticket asks THREE questions and this module maps TWO of them.  Q3 (what
 a nonpositive identity costs the client's own actor registry) prices the
 direction; it does not retire any blocker below, so it maps to none of them
-and :data:`RE_211_QUESTION_LABELS` is where all three are named.  pf-adversary
+and :data:`RE_222_QUESTION_LABELS` is where all three are named.  pf-adversary
 (round ``5ddsii``, O1) found the first draft describing Q3 in a comment while
 no executable value carried it.
 
@@ -134,8 +136,24 @@ RE_195_RESULT_LETTER = (
 #: that PRODUCES a measurement from the client image is not a ticket that
 #: consumes one).  It is filed, not answered: nothing below reads a result,
 #: and the refusal is exactly as strong as it was before it was filed.
-RE_211_TICKET_ID = "RE-211"
-RE_211_TICKET_LETTER = (
+#:
+#: THE NUMBER CHANGED AFTER THIS LANE DREW IT, and the old one is struck
+#: through rather than deleted: ~~``RE-211``~~ -> ``RE-222``.  The draft
+#: numbered itself off ``CLIENT_RE_QUEUE.md`` alone (highest ``RE`` = 210),
+#: but rule (2) at the head of that file uses a counter SHARED with
+#: ``GAME_TEST_QUEUE.md``, and ``GT-221`` had already landed -- so chief
+#: (round ``kjtpza``, R319) queued the ticket as ``RE-222``.  There is no
+#: ticket named ``RE-211`` in either queue file.  This matters here and not
+#: only in a letter: :func:`open_questions` puts this id in front of an
+#: operator, and an id no queue holds is an id nobody can look up, so a
+#: result arriving against ``RE-222`` would have left the blockers below
+#: refusing anyway (chief's letter ``20260903_1304``, point 2).
+RE_222_TICKET_ID = "RE-222"
+#: !! The LETTER's filename still carries the drawn number, because that is
+#: the file that exists on the bridge -- it was written, consumed and copied
+#: to ``consumed/`` under this name.  A later round "fixing" this path to say
+#: ``RE-222`` breaks the only link between the id and the draft.
+RE_222_TICKET_LETTER = (
     "notes_to_chief/"
     "20260903_1119_LANE-GM-RE-211-TICKET-"
     "typed-and-live-gate-for-nonpositive-identity.md"
@@ -250,7 +268,7 @@ def blocker_names() -> tuple[str, ...]:
     Every entry of :data:`P2_COLOR_WIRING_BLOCKERS` is ``"<name>: <prose>"``.
 
     A caveat this docstring used to omit, and pf-adversary (round ``5ddsii``)
-    was right to call out: :data:`RE_211_QUESTION_FOR_BLOCKER` below IS a
+    was right to call out: :data:`RE_222_QUESTION_FOR_BLOCKER` below IS a
     second hand-typed list of these names, eleven lines further down.  What
     ``COO 0846`` forbids is a SILENT second copy; that one is guarded by
     :func:`open_questions`, which refuses on any disagreement in either
@@ -288,7 +306,7 @@ def blocker_names() -> tuple[str, ...]:
 #: (pf-adversary, round `5ddsii`, O1: the first draft described Q3 in a
 #: comment and carried it in no value, so a reader who grepped the module
 #: concluded the ticket had two questions).
-RE_211_QUESTION_LABELS = (
+RE_222_QUESTION_LABELS = (
     "Q1: quote the compare that splits the positive identity family from the "
     "nonpositive one -- which dword, signed or unsigned, and where zero lands",
     "Q2: walk the gates from the nonpositive entry to the typed CNetNPC entry "
@@ -300,7 +318,7 @@ RE_211_QUESTION_LABELS = (
 #: Which question bears on which blocker.  THREE THINGS TO READ HERE, none of
 #: them cheerful:
 #:
-#: 1. ``faction_is_a_fallback_operand_only`` is DELIBERATELY EMPTY.  RE-211
+#: 1. ``faction_is_a_fallback_operand_only`` is DELIBERATELY EMPTY.  RE-222
 #:    does not reopen RE-195 job 1, and its own out-of-scope section says so
 #:    in as many words.  ``unaddressed_blockers()`` is that gap, countable.
 #: 2. The ``hit_writer`` value is THIS LANE'S INFERENCE, not something the
@@ -310,16 +328,16 @@ RE_211_QUESTION_LABELS = (
 #:    (round `5ddsii`, O2) found it shipped as if the letter had said it.
 #: 3. Q3 maps to NOTHING.  It prices the direction; it retires no blocker.
 #:    A ticket half of which retires nothing is the shape of this problem.
-RE_211_QUESTION_FOR_BLOCKER = {
+RE_222_QUESTION_FOR_BLOCKER = {
     "identity_scheme_is_positive": (
-        "RE-211 Q1+Q2 [letter says so]: the split compare, then whether the "
+        "RE-222 Q1+Q2 [letter says so]: the split compare, then whether the "
         "typed CNetNPC tail is an object-TYPE test that no identity value can "
         "satisfy -- a 'no' there refuses this whole direction, which is worth "
         "more to this lane than a 'yes'"
     ),
     "faction_is_a_fallback_operand_only": "",
     "hit_writer_needs_a_signed_negative_target": (
-        "RE-211 Q1 [PROPOSED -- this lane's inference, the letter does not "
+        "RE-222 Q1 [PROPOSED -- this lane's inference, the letter does not "
         "say it]: 'signed-negative' is today a COLUMN LABEL and not a quoted "
         "instruction, so the compare Q1 asks for is what would decide whether "
         "a value this project could emit is negative to the client at all"
@@ -328,7 +346,7 @@ RE_211_QUESTION_FOR_BLOCKER = {
 
 
 def open_questions() -> tuple[str, ...]:
-    """``"<blocker name> -> <question>"`` for each blocker RE-211 bears on.
+    """``"<blocker name> -> <question>"`` for each blocker RE-222 bears on.
 
     Raises if the mapping above and :data:`P2_COLOR_WIRING_BLOCKERS` have
     drifted apart in EITHER direction.  A blocker with no key is a blocker
@@ -336,16 +354,16 @@ def open_questions() -> tuple[str, ...]:
     at a route that has already moved.  Both are silent today and loud here.
     """
     names = blocker_names()
-    mapped = tuple(RE_211_QUESTION_FOR_BLOCKER)
+    mapped = tuple(RE_222_QUESTION_FOR_BLOCKER)
     if set(mapped) != set(names):
         raise NameColorGateError(
-            "RE_211_QUESTION_FOR_BLOCKER and P2_COLOR_WIRING_BLOCKERS "
+            "RE_222_QUESTION_FOR_BLOCKER and P2_COLOR_WIRING_BLOCKERS "
             f"disagree: blockers={sorted(names)} mapped={sorted(mapped)}"
         )
     return tuple(
-        f"{name} -> {RE_211_QUESTION_FOR_BLOCKER[name]}"
+        f"{name} -> {RE_222_QUESTION_FOR_BLOCKER[name]}"
         for name in names
-        if RE_211_QUESTION_FOR_BLOCKER[name]
+        if RE_222_QUESTION_FOR_BLOCKER[name]
     )
 
 
@@ -353,7 +371,7 @@ def unaddressed_blockers() -> tuple[str, ...]:
     """Blockers that the filed ticket does NOT bear on.  Not a TODO list."""
     names = blocker_names()
     open_questions()  # same drift guard, one source
-    return tuple(name for name in names if not RE_211_QUESTION_FOR_BLOCKER[name])
+    return tuple(name for name in names if not RE_222_QUESTION_FOR_BLOCKER[name])
 
 
 @dataclass(frozen=True)

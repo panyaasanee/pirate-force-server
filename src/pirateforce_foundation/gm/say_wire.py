@@ -103,9 +103,45 @@ GM_GLOBAL_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVit
 # rung"~~.  It is not: the echo lane that GT-009 measured runs behind a
 # scenario opt-in whose own file says `"production_allowed": false`, it echoes
 # the CLIENT's own frame rather than server-composed text, and a chat-keyed
-# scenario boot and the GM branch are mutually exclusive.  NO SERVER-COMPOSED
-# 0xAC52 LINE HAS EVER BEEN SEEN ON A SCREEN ON A DEFAULT BOOT.  `GT-193` step
-# 9 is the first attempt.
+# scenario boot and the GM branch are mutually exclusive.
+#
+# NARROWED 2026-09-02 BY `GT-205`, STRUCK RATHER THAN DELETED -- and NARROWED
+# is the right word, not EXPIRED, which is what the first draft of this block
+# wrote (pf-adversary, round `1nm6hh`, D6).  A negative claim qualified "on a
+# default boot" is not refuted by a render on a boot whose argv nobody
+# recorded, and limit 4 below says nobody did.  What is retired is the
+# unqualified half -- a server-composed line of THIS channel has now rendered:
+# ~~"NO SERVER-COMPOSED 0xAC52 LINE HAS EVER BEEN SEEN ON A SCREEN ON A
+# DEFAULT BOOT."~~ and ~~"`GT-193` step 9 is the first attempt."~~  Attended
+# round R303 ran `GT-205` with the owner at the keyboard and the chat line
+# `[thua pai] : BACK REFUSED` -- composed by THIS module's
+# `make_local_talk_notice_frame`, through `world_logout_button_notice` --
+# appeared on her screen.  (LANE-A letter `20260903_1131`, handed to this
+# lane by chief `20260903_1304` point 3; `gm/` is this lane's zone, so the
+# correction is made here rather than by them.)
+#
+# WHAT R303 THEREFORE DOES *NOT* LICENSE.  Four limits, and nothing wider may
+# be read out of the strike above:
+#   1. IT DID NOT MEASURE THE WIRE/DB RUNG.  The result letter says so in its
+#      own words -- "not separately instrumented for this ticket" -- so the
+#      screen is the only rung R303 grades.
+#   2. IT DID NOT RECORD whether the logout dialog was still open when the
+#      line appeared.
+#   3. THE LENGTH STAYS PINNED AT 12 CHARACTERS.  R303 saw a 12-character
+#      body render; it did not license 5 or 26, and the constant below is
+#      still chosen by GT-006/GT-009 rather than by that round.
+#   4. "DEFAULT BOOT" IS STILL NOT ESTABLISHED, and this limit is the one
+#      chief did not list -- it comes from LANE-A's own module on `main`
+#      (`world_logout_button_notice.py`, the `WHAT R303 ACTUALLY SHOWS`
+#      block -- named rather than line-numbered, because this lane may
+#      not edit that file when it drifts), which measured that the
+#      result letter records no argv, so the boot is known to have carried NO
+#      LOGOUT SCENARIO but is NOT known to have been flagless.  The struck
+#      sentence is retired because a server-composed line of this channel HAS
+#      now rendered, not because anybody proved the boot was default.
+# !! THIS IS A COMMENT CORRECTION AND UNLOCKS NOTHING.  `GT-193` steps 4-7
+# remain ungradeable (chief `0815`, COO `0845`), and no gate in this file
+# moved with it.
 #
 # What IS true, and is what the composer below rests on:
 #   * the PAYLOAD codec for this channel is byte-pinned against real captured
@@ -116,7 +152,12 @@ GM_GLOBAL_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS["Channel_GMGlobalMessageVit
 #   * neither reason the GMGlobal gate is shut applies to this route: it does
 #     not broadcast (the frame answers the one connection whose command is
 #     being refused, so "who may speak to the whole server" is not asked), and
-#     the render question above is exactly what `GT-193` step 9 decides.
+#     the render question above is exactly what `GT-193` step 9 decides FOR
+#     THIS MODULE'S OWN `/speed` TEXT.  Narrowed in round `1nm6hh` alongside
+#     the strike above (pf-adversary D9): R303 rendered `BACK REFUSED` on
+#     this channel, so "can this channel render at all" is no longer step 9's
+#     to decide -- "does the refusal text this module composes render" still
+#     is, and step 9 has not been run.
 # This constant is NOT a second gate and must never be read as one: it is a
 # channel id, and the locked gate below is untouched by this block.
 LOCAL_TALK_CHANNEL_ID = SHARED_SERIALIZER_CHANNEL_IDS[
