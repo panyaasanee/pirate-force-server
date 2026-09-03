@@ -417,6 +417,69 @@ class TheDoorRefusesBadInputBeforeWritingTests(_StoreFixture):
         self._assert_nothing_written()
 
 
+class TheSceneMustBeASCIISafeTests(_StoreFixture):
+    """pf-adversary (round `orpati`): `migrations/010_ground_drops.sql`'s
+    own comment claims "every scene value this table ever holds is
+    required ASCII" by `mob_loot._require_scene` -- true only once a
+    LANE-B call site that constructs through `mob_loot.GroundDrop` exists.
+    Before this class's fix, `commit_ground_drop`/`list_ground_drops_for_
+    scene` accepted ANY non-empty str, so a direct caller (a test, an
+    admin tool) could reach two live defects: a false collision between
+    two scenes that differ only by a character with no ASCII fold
+    equivalent, and a `UnicodeEncodeError` crash in the collision-refusal
+    `print()` on this lane's cp874 console."""
+
+    def test_a_non_ascii_scene_is_refused_not_silently_accepted(self):
+        with self.assertRaises(ValueError):
+            self.store.commit_ground_drop(**{**A_DROP, "scene": "Straße"})
+        self.assertEqual(_raw_rows(self.path), [])
+
+    def test_two_scenes_that_only_differ_by_a_non_ascii_fold_do_not_collide(self):
+        """`"Straße"` and `"STRASSE"` both `.casefold()` to `"strasse"`
+        under full Unicode folding -- proving the door refuses the
+        non-ASCII spelling outright, rather than letting it collide with
+        an unrelated scene that happens to share the folded form."""
+        self.store.commit_ground_drop(**{**A_DROP, "scene": "STRASSE"})
+        with self.assertRaises(ValueError) as caught:
+            self.store.commit_ground_drop(**{**A_DROP, "scene": "Straße"})
+        self.assertNotIn("already on the ground", str(caught.exception))
+        self.assertEqual(len(self.store.list_ground_drops_for_scene("STRASSE")), 1)
+
+    def test_the_refusal_of_a_non_ascii_scene_does_not_crash_printing(self):
+        """The collision-refusal path prints `scene` with `%r` -- if a
+        non-ASCII scene ever reached that `print()`, it would raise
+        `UnicodeEncodeError` on a cp874 console rather than deliver the
+        `ValueError` cleanly.  Validating `scene` before that branch means
+        this call never gets far enough to try."""
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            with self.assertRaises(ValueError):
+                self.store.commit_ground_drop(**{**A_DROP, "scene": "Straße"})
+        self.assertNotIn(
+            store_module.GROUND_DROP_KEY_COLLISION_REFUSED_TOKEN,
+            buffer.getvalue(),
+        )
+
+    def test_a_scene_with_whitespace_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.store.commit_ground_drop(**{**A_DROP, "scene": "bg 0001"})
+        self._assert_nothing_written()
+
+    def _assert_nothing_written(self):
+        self.assertEqual(_raw_rows(self.path), [])
+
+    def test_a_scene_over_the_length_ceiling_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.store.commit_ground_drop(
+                **{**A_DROP, "scene": "b" * (store_module.GROUND_DROP_SCENE_MAX + 1)},
+            )
+        self._assert_nothing_written()
+
+    def test_list_also_refuses_a_non_ascii_scene(self):
+        with self.assertRaises(ValueError):
+            self.store.list_ground_drops_for_scene("Straße")
+
+
 class TheDoorsScopeStaysWhatWasOrderedTests(_StoreFixture):
 
     def test_there_is_no_delete_or_expiry_method_on_this_door(self):

@@ -150,6 +150,56 @@ PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN = "PRAGMA_BUSY_TIMEOUT_REFUSED"
 #: uses for a different door's refusal, rather than inventing a new one.
 GROUND_DROP_KEY_COLLISION_REFUSED_TOKEN = "GROUND_DROP_KEY_COLLISION_REFUSED"
 
+#: The longest `scene` value `commit_ground_drop`/`list_ground_drops_for_
+#: scene` will accept -- mirrors `mob_loot.SCENE_NAME_MAX`.  Not imported
+#: from `mob_loot` (see `_require_ground_drop_scene` below for why).
+GROUND_DROP_SCENE_MAX = 32
+
+
+def _require_ground_drop_scene(value):
+    """A usable `scene` for the ground-drop door, returned exactly as given.
+
+    pf-adversary (round `orpati`) measured that without this check, two
+    scene spellings that differ only by a character with no ASCII fold
+    equivalent -- `"Straße"` and `"STRASSE"`, both `.casefold()` to
+    `"strasse"` under full Unicode folding -- collide falsely at the
+    table's `UNIQUE(scene_fold, drop_key)` constraint even though they are
+    not the same scene, and the collision-refusal `print()` below crashes
+    with `UnicodeEncodeError` the moment a non-ASCII `scene` reaches it,
+    because this lane's console is cp874.  `migrations/010_ground_drops.
+    sql`'s own comment already claims "every scene value this table ever
+    holds is required ASCII" by `mob_loot._require_scene` -- true only
+    once a LANE-B call site that constructs through `mob_loot.GroundDrop`
+    exists (`COO-DECISION 20260903_1844`, not built as of this round); it
+    was not true at THIS function's own boundary, which any direct caller
+    (a test, a future admin tool) reaches without going through
+    `mob_loot` at all.
+
+    This duplicates `mob_loot._require_scene`'s checks rather than
+    importing it, for the same lane-boundary reason `commit_ground_drop`'s
+    docstring already gives for not importing `mob_loot`: the checks below
+    are this table's OWN floor (ASCII-safe printing, fold-safe
+    comparison), not a repeat of `mob_loot`'s domain rules (the f32-grid
+    check, the drop-key lane-block range, the known-item check), which
+    stay LANE-B's alone.
+    """
+    if type(value) is not str or not value:
+        raise ValueError("scene must be a non-empty str")
+    if len(value) > GROUND_DROP_SCENE_MAX:
+        raise ValueError(
+            "scene is %d characters; the ceiling is %d"
+            % (len(value), GROUND_DROP_SCENE_MAX)
+        )
+    if not value.isascii():
+        raise ValueError(
+            "scene must be ASCII; the console this lane prints to is cp874"
+        )
+    if any(character.isspace() for character in value):
+        raise ValueError("scene must not carry whitespace, got %r" % value)
+    if not value.isprintable():
+        raise ValueError("scene must be printable, got %r" % value)
+    return value
+
 #: Process-wide count of refusals noted through `PRAGMA_BUSY_TIMEOUT_REFUSED_
 #: TOKEN` above, incremented by `_note_pragma_busy_timeout_refused` -- so a
 #: reader (or a test) can ask "how many, not just whether any" without
@@ -2260,8 +2310,7 @@ class SQLiteStore:
         (`20260903_1844`); this door's job is only to make a collision loud
         if one ever reaches it, not to prevent one from being minted.
         """
-        if type(scene) is not str or not scene:
-            raise ValueError("scene must be a non-empty str")
+        scene = _require_ground_drop_scene(scene)
         if isinstance(drop_key, bool) or not isinstance(drop_key, int):
             raise TypeError("drop_key must be an int")
         if not 0 <= drop_key <= 0xFFFFFFFF:
@@ -2352,8 +2401,7 @@ class SQLiteStore:
         removal path yet (see the migration's own docstring), so every row
         ever committed for this scene comes back, every time.
         """
-        if type(scene) is not str or not scene:
-            raise ValueError("scene must be a non-empty str")
+        scene = _require_ground_drop_scene(scene)
         scene_fold = scene.casefold()
         with self.connect() as db:
             rows = db.execute(
