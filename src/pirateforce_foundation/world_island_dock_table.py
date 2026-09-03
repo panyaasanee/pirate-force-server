@@ -6,46 +6,79 @@ M2's pass bar is "sail near an island -> a captain report window -> confirm ->
 you are standing on island 2 (Prison Exile) and island 3 (Spice Paradise)".
 Round `ufcemz` established two things about that path and neither of them was
 an answer: `TriggerVital` (0x1FB2) has no responder anywhere in this server,
-and the five trigger ids a real capture showed (40/51/3/57/36) are ordinary
-sea props (Seafood Cargo, Offer Altar, Black Braid Landmine, Magic Egg, Black
-Charm Demon Flower), not islands.  COO-DECISION 20260904_0343 item 2 then
+and the five trigger ids a real capture showed (id 3 Seafood Cargo, 36 Offer
+Altar, 40 Black Braid Landmine, 51 Magic Egg, 57 Black Charm Demon Flower)
+are ordinary sea props, not islands.  COO-DECISION 20260904_0343 item 2 then
 asked this lane to derive the island rows itself from committed client tables,
 and to report "there is no column for it" rather than guess.
 
-The answer is NOT in the file that letter pointed at.  Measured:
-`pf_bridge/gamedata/scene/Bg3001/Bg3001.placements.tsv` (sha256
-63a61fcfa6f48d548f2dede28a41a79dbdb2f81c6cb824cb5246c5e31fd1c0e1) holds 38
-placements and every single one of them is a `Mob_Set_NN` row -- there is no
-island row in it to separate from a floating-object row, and no column that
-carries a trigger id.  That half of the assignment is reported as absent, not
-guessed, exactly as the letter required.
+WHAT Bg3001's PLACEMENT FILE ACTUALLY HOLDS (corrected by pf-adversary, D1)
+--------------------------------------------------------------------------
+The first draft of this file said `Bg3001.placements.tsv` "holds 38
+placements and every single one of them is a Mob_Set_NN row -- there is no
+island row in it".  That was WRONG, and wrong in the way this project has a
+name for: `Mob_Set_NN` is the per-scene Mob-Set NUMBER, not an object type,
+and reading it as one is the mistake `world_m2_columbus_trigger_readiness.py`
+already calls out by name in its own docstring.
 
-The answer IS in the trigger tables, and it is unambiguous.  Trigger ids
-152..167 are one contiguous block of TRAVEL DESTINATIONS, and the block is
-identifiable by three independent properties, none of which this lane chose:
+`world_bg3001_identity.py` -- already on main, pinning the SAME sha256 for
+the SAME file -- resolves those 38 rows, and four of them are islands:
+Mad Sand Island (set 9), Pirate Lair (10), Blood Blade Island (50) and
+Lonely Island (51), all shipped with outfit `MAP_ISLAND_01`.  R307 recorded
+the owner clicking one of them (`LANE_A_CHOOSE_NPC_SCENE126_ANSWERED
+placement=26` is Blood Blade Island) and getting a face-turn.
 
-1. NAMES.  Each row's `s_Trigger_NAME` is character-for-character a scene
-   name in `TEXTDATA_TH__SCENE_NAME_TIP.tsv` (sha256 f9076cfc...bfa3a, the
-   same copy `gm/scene_catalog.py` already ships), and the run is in scene
-   order: 152 Port Royal, 153 Prison Exile Island, 154 Spice Paradise Island,
-   155 Slave Market Island, ... 161 Hell Volcanic Island.
-2. LEVEL GATES.  Each row's tip text carries a level requirement, and for
-   every one of the eleven rows 152..161 that number equals `n_SCENE_LV` of
-   the matching scene row in `CONSTDATA_TH__SCENE_NAME.tsv` (sha256
-   e38114a8...5d60b -- already the pinned `scene_name` source of a dozen
-   `world_bg*_identity.py` modules in this repo).  Two tables written by
-   different teams agreeing on eleven numbers is not a coincidence of naming.
-3. NO CLICK VERB.  Every neighbouring prop trigger -- 148/149/150/151 above
-   the block, 169..175 below it -- spells out a usage verb in its tip
-   ("[vithi chai: double-click left]").  Not one row in 152..167 does.  They
-   carry a level requirement and nothing else.
+The true answer to item 2 is narrower and more useful than the first draft's:
+**the file holds four island actors and NEITHER of M2's two targets is among
+them.**  Prison Exile Island and Spice Paradise Island are not in Bg3001's
+cast at all.  A test cross-checks that count against
+`world_bg3001_identity.shippable_placements()` at run time, so the two
+modules can never again disagree about the same bytes.
 
-Property 3 is the one that matters for M2, because the owner said what the
-real server does (PANYA-INFO 20260904_0409, her words): "sail the ship into
-the island and the captain report window pops by itself, you do not click the
-island".  A destination trigger with no click verb is exactly the shape of a
-trigger the client fires on contact.  That is a CONSISTENCY, not a proof: no
-byte of a 0x1FB2 frame carrying id 153 or 154 has ever been observed.  The
+That leaves a question this round does NOT answer and must not be read as
+answering: are M2's two destinations actors this server has simply never
+placed, or client-side scene geometry that no server row can ever address?
+If the former, the door is a placement row, not a 0x1FB2 responder.  Raised
+to COO in this round's letter.
+
+WHERE THE ISLAND TRIGGER IDS ARE
+--------------------------------
+Trigger ids 152..164 are a contiguous run of TRAVEL DESTINATIONS.  The
+strength of the evidence differs per property and per row, and this docstring
+states it that way rather than as three uniform "derivations":
+
+1. NAMES -- STRONG, AND EXCLUSIVE.  Each row's `s_Trigger_NAME` equals (after
+   stripping) a scene name in `TEXTDATA_TH__SCENE_NAME_TIP.tsv` (sha256
+   f9076cfc...bfa3a, the same copy `gm/scene_catalog.py` already ships).
+   Measured over the whole table: of 312 trigger rows, EXACTLY 13 carry a
+   scene name, and they are exactly 152..164, in scene order -- 152 Port
+   Royal(1), 153 Prison Exile Island(2), 154 Spice Paradise Island(3), ...
+   161 Hell Volcanic Island(14).  No prop row anywhere accidentally carries
+   one.  This is the property that identifies the block.
+2. LEVEL GATES -- STRONG WHERE IT APPLIES, AND IT APPLIES TO 8 ROWS.  Where
+   the tip text carries a NUMBER, it equals `n_SCENE_LV` of the matching
+   scene row in `CONSTDATA_TH__SCENE_NAME.tsv` (sha256 e38114a8...5d60b --
+   already the pinned `scene_name` source of a dozen `world_bg*_identity.py`
+   modules here): 154..161, eight rows, 25/45/60/70/81/86/92/100.  Rows 152
+   and 153 carry NO number -- their tip says "no level limit" -- so their
+   `min_level = 0` comes from `n_SCENE_LV` alone and is NOT a two-table
+   numeric agreement; `numeric_level_agreement` is False for them and says
+   so.  162..164 have no CONSTDATA row at all (later-version scenes).
+3. NO CLICK VERB -- WEAK.  Kept because it is the property that matches what
+   the owner described, and demoted because pf-adversary measured its base
+   rate: 96 of 312 rows (30.8%) carry no double-click verb, including 147
+   `Secret Station` and 168 `Shut The Door`, which sit immediately outside
+   this block on either side.  "No click verb" therefore does NOT imply
+   "fires on contact" and must never be used on its own to classify a row.
+
+For row 153 -- one of M2's two targets -- property 2 contributes nothing and
+property 3 is that 31% coincidence.  Its support is property 1, which is
+exclusive and strong on its own.  Say that, rather than "derived three ways".
+
+The owner's own account of the real server (PANYA-INFO 20260904_0409, her
+words) is "sail the ship into the island and the captain report window pops
+by itself, you do not click the island".  Nothing here proves the mechanism:
+no byte of a 0x1FB2 frame carrying id 153 or 154 has ever been observed.  The
 capture ticket drafted with this round exists to get those bytes.
 
 WHAT THIS MODULE DOES NOT CLAIM
@@ -75,8 +108,26 @@ HOW TO RE-DERIVE (both commands run in a `pf_bridge` clone)
     awk -F'\t' 'NR>1 && $1>=1 && $1<=16 {print $1"\t"$2"\t"$3"\t"$19}' \
         gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv
 
+WIRE-LAYER EVIDENCE FOR THE FRAME ITSELF (pf-adversary D8)
+----------------------------------------------------------
+The first draft footnoted the trigger-id tag as "per the R307 capture shape",
+a correlation over five frames, when a statically proven serializer row was
+sitting in `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` all along.  The
+`TriggerVital` serializer at 0x006007C0 (span sha256 2f30bd87...791a12) writes
+SIX fields and reads the same six back:
+
+    W/R 1  tag 0x0F  +0x14  2 bytes  ALWAYS   <- the trigger id
+    W/R 2  tag 0x0B  +0x16  1 byte   ALWAYS
+    W/R 3  SUBCALL 0x005F3490 / 0x005F34D0
+    W/R 4,5,6  tag 0x2A  4 bytes each         <- the xyz triple
+
+That is grade A for the tag, for its width, for its being FIRST, and for the
+message carrying no 0x12 of its own -- the three things the log-only hook's
+tag walker depends on.  The capture agrees with it; it is not the source.
+
 Evidence grade A (committed client artifacts) for "this id has this name and
-this level gate", and nothing above grade A for anything about the wire.
+this level gate", and nothing above grade A for what the client DOES with a
+trigger row -- no capture has ever shown 153 or 154 on the wire.
 """
 from __future__ import annotations
 
@@ -105,11 +156,24 @@ BG3001_PLACEMENTS_SHA256 = (
     "63a61fcfa6f48d548f2dede28a41a79dbdb2f81c6cb824cb5246c5e31fd1c0e1"
 )
 
-# Bg3001.placements.tsv: 38 placements, all of them Mob_Set_NN.  Kept as a
-# number so a future re-derivation that finds an island row there fails this
-# module's test instead of silently agreeing with a stale docstring.
+# Bg3001.placements.tsv, as `world_bg3001_identity.py` resolves it: 38
+# placements, four of which are islands.  A test derives both numbers and both
+# name sets from that module at run time rather than trusting these literals,
+# so this file and that one cannot drift apart about the same bytes (the
+# first draft of this module asserted zero islands here and was wrong --
+# pf-adversary D1).
 BG3001_PLACEMENT_COUNT = 38
-BG3001_ISLAND_PLACEMENT_COUNT = 0
+BG3001_ISLAND_ACTOR_COUNT = 4
+BG3001_ISLAND_ACTOR_OUTFIT = "MAP_ISLAND_01"
+BG3001_ISLAND_ACTOR_NAMES: tuple[str, ...] = (
+    "Blood Blade Island",
+    "Lonely Island",
+    "Mad Sand Island",
+    "Pirate Lair",
+)
+# Neither M2 target is in that cast.  Stated as data so the test can check it
+# against the destination rows instead of against this comment.
+M2_TARGETS_ABSENT_FROM_BG3001_CAST = True
 
 
 class DestinationRow(NamedTuple):
@@ -124,10 +188,15 @@ class DestinationRow(NamedTuple):
     ``scene_model``         ``s_MODLE_ID`` of that scene in
                             CONSTDATA_TH__SCENE_NAME, or None when that table
                             has no row for the id (true for 12/15/16).
-    ``min_level``           the level gate.  Present in BOTH tables and equal
-                            in both for every row that has ``levels_agree``.
-    ``levels_agree``        True when the tip text and ``n_SCENE_LV`` matched.
-                            False means only the tip text had a number.
+    ``min_level``           the level gate, from ``n_SCENE_LV``.  For rows
+                            with ``numeric_level_agreement`` the tip text
+                            carries the same number independently.
+    ``numeric_level_agreement``
+                            True ONLY where the tip text carries a NUMBER and
+                            it equals ``n_SCENE_LV``.  False for 152/153 (tip
+                            says "no level limit", no number to compare) and
+                            for 162..164 (no CONSTDATA row).  An absence read
+                            as a zero is not an agreement -- pf-adversary D7.
     ``wire_scene_id_status``  "PROVEN" only where the bridge's RE queue says
                             the n_ID equals the wire scene_id; "CANDIDATE"
                             everywhere else.  Never upgrade a row here from a
@@ -139,15 +208,15 @@ class DestinationRow(NamedTuple):
     scene_name_tip_id: int
     scene_model: str | None
     min_level: int
-    levels_agree: bool
+    numeric_level_agreement: bool
     wire_scene_id_status: str
 
 
 # Trigger ids 152..164: a destination each, name-matched to a scene row.
-# 152..161 additionally agree on the level gate across two tables.
+# 154..161 additionally agree on the level gate NUMERICALLY across two tables.
 DESTINATION_ROWS: tuple[DestinationRow, ...] = (
-    DestinationRow(152, "Port Royal", 1, "BG0001", 0, True, "PROVEN"),
-    DestinationRow(153, "Prison Exile Island", 2, "BG0002", 0, True, "PROVEN"),
+    DestinationRow(152, "Port Royal", 1, "BG0001", 0, False, "PROVEN"),
+    DestinationRow(153, "Prison Exile Island", 2, "BG0002", 0, False, "PROVEN"),
     DestinationRow(154, "Spice Paradise Island", 3, "BG0003", 25, True, "CANDIDATE"),
     DestinationRow(155, "Slave Market Island", 4, "BG0004", 45, True, "CANDIDATE"),
     DestinationRow(156, "Evil Port", 5, "BG0005", 60, True, "CANDIDATE"),
@@ -168,9 +237,11 @@ DESTINATION_ROWS: tuple[DestinationRow, ...] = (
 # and so a future round does not re-discover them as if they were props.
 OCEAN_TRAVEL_TRIGGER_IDS: tuple[int, ...] = (165, 166, 167)
 
-# The block, stated once.
-DESTINATION_BLOCK_FIRST = 152
-DESTINATION_BLOCK_LAST = 167
+# There is deliberately no DESTINATION_BLOCK_FIRST/LAST pair here.  The first
+# draft had one, nothing read it, and pf-adversary (D9) measured that widening
+# it to 999 left the suite green while `classify_trigger_id` -- which reads
+# DESTINATION_ROWS and OCEAN_TRAVEL_TRIGGER_IDS instead -- disagreed with it in
+# silence.  Two spellings of the same range is one more than this file needs.
 
 # M2's two targets, by the pass bar in NOW.md's milestone ladder.
 M2_TARGET_TRIGGER_IDS: tuple[int, ...] = (153, 154)

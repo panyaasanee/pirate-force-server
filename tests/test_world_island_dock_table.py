@@ -59,30 +59,67 @@ class TheDestinationBlockIsIdentifiedByTheTableNotByThisLaneTests(unittest.TestC
         self.assertEqual(scenes[:10], [1, 2, 3, 4, 5, 6, 7, 8, 9, 14])
         self.assertEqual(scenes[10:], [12, 15, 16])
 
-    def test_eleven_rows_have_two_tables_agreeing_on_the_level_gate(self):
-        agreeing = [row for row in islands.DESTINATION_ROWS if row.levels_agree]
-        self.assertEqual([row.trigger_id for row in agreeing], list(range(152, 162)))
-        # The gates themselves, in order: this is the sequence that made the
-        # block identifiable in the first place.
+    def test_eight_rows_have_two_tables_agreeing_on_a_level_NUMBER(self):
+        # Corrected twice by pf-adversary (D7).  The first draft said
+        # "eleven rows 152..161" in prose while asserting ten ids here, and
+        # counted 152/153 as agreements when their tip text carries no
+        # number at all (it says "no level limit").  An absence read as a
+        # zero is not two tables agreeing.
+        agreeing = [
+            row for row in islands.DESTINATION_ROWS if row.numeric_level_agreement
+        ]
+        self.assertEqual([row.trigger_id for row in agreeing], list(range(154, 162)))
         self.assertEqual(
-            [row.min_level for row in agreeing],
-            [0, 0, 25, 45, 60, 70, 81, 86, 92, 100],
+            [row.min_level for row in agreeing], [25, 45, 60, 70, 81, 86, 92, 100]
         )
 
-    def test_a_destination_row_has_no_double_click_verb_and_its_neighbours_do(self):
-        # Property 3 of the module docstring, asserted against the client
-        # table rather than restated: 148-151 and 169-175 are props with a
-        # usage verb; 152-167 have none.  This is the property that makes
-        # "the client fires it on contact" a live hypothesis at all, so it
-        # is the one that must go red if a future re-copy changes the table.
+    def test_the_two_rows_with_no_number_in_their_tip_are_not_counted_as_agreeing(self):
+        tips = _tips_by_id()
+        for trigger_id in (152, 153):
+            row = islands.destination_for_trigger_id(trigger_id)
+            with self.subTest(trigger_id=trigger_id):
+                self.assertFalse(row.numeric_level_agreement)
+                self.assertEqual(row.min_level, 0)
+                self.assertNotIn("Lv", tips[trigger_id])
+                self.assertIn("ไม่จำกัดเลเวล", tips[trigger_id])
+
+    def test_the_name_match_is_exclusive_to_this_block_and_nothing_else(self):
+        # Property 1, the one that actually identifies the block, checked as
+        # an EXCLUSIVITY rather than as thirteen lookups: of all 312 trigger
+        # rows, only these carry a scene name.  If a future client table
+        # gives a prop a scene name, this goes red and the derivation has to
+        # be re-argued instead of quietly widening.
+        scene_names = {row.name for row in islands.DESTINATION_ROWS}
+        matches = sorted(
+            trigger_id
+            for trigger_id, name in islands.TRIGGER_NAMES.items()
+            if name in scene_names
+        )
+        self.assertEqual(matches, list(range(152, 165)))
+
+    def test_the_no_click_verb_property_is_recorded_with_its_real_base_rate(self):
+        # Property 3, DEMOTED (pf-adversary D6).  The first draft asserted it
+        # over two hand-picked neighbour windows (148-151, 169-175) that
+        # stepped over 147 `Secret Station` and 168 `Shut The Door`, which
+        # have no verb either.  Measured across the whole table the property
+        # has a 30.8% base rate, so it discriminates almost nothing and must
+        # never classify a row on its own.  The block genuinely has none --
+        # that part was true -- and this test says both things at once.
         verb = "ดับเบิ้ลคลิก"
         tips = _tips_by_id()
-        for trigger_id in list(range(148, 152)) + list(range(169, 176)):
-            with self.subTest(prop=trigger_id):
-                self.assertIn(verb, tips[trigger_id])
         for trigger_id in range(152, 168):
             with self.subTest(destination=trigger_id):
                 self.assertNotIn(verb, tips[trigger_id])
+        without = [tid for tid, tip in tips.items() if verb not in tip]
+        self.assertEqual(len(without), 96)
+        self.assertGreater(len(without) / len(tips), 0.30)
+        # The two immediate neighbours the first draft's windows skipped.
+        for neighbour in (147, 168):
+            with self.subTest(neighbour=neighbour):
+                self.assertNotIn(verb, tips[neighbour])
+                self.assertEqual(
+                    islands.classify_trigger_id(neighbour), islands.CLASS_PROP
+                )
 
 
 class TheClassifierSaysWhatItKnowsAndNoMoreTests(unittest.TestCase):
@@ -148,13 +185,42 @@ class ThisTableIsNotAllowedToClaimTheWireTests(unittest.TestCase):
             with self.subTest(trigger_id=row.trigger_id):
                 self.assertIn(row.wire_scene_id_status, ("PROVEN", "CANDIDATE"))
 
-    def test_bg3001_placements_hold_no_island_row_and_the_module_says_so(self):
-        # COO-DECISION 0343 item 2 asked for island rows to be separated from
-        # floating objects inside Bg3001.placements.tsv, and required "report
-        # that there is no column, do not guess" if they could not be. There
-        # is no island row there at all: 38 placements, every one a Mob_Set.
-        self.assertEqual(islands.BG3001_PLACEMENT_COUNT, 38)
-        self.assertEqual(islands.BG3001_ISLAND_PLACEMENT_COUNT, 0)
+    def test_the_bg3001_island_cast_is_derived_from_the_module_that_ships_it(self):
+        # pf-adversary D1: the first draft of this module asserted that
+        # Bg3001.placements.tsv holds NO island row, while
+        # world_bg3001_identity.py -- same repo, same pinned sha256 for the
+        # same file, already on main -- resolves four of those placements to
+        # MAP_ISLAND_01 actors and ships them into scene 126 every boot.
+        # Nothing can be allowed to assert that again, so this derives the
+        # count and the names from that module rather than trusting a
+        # literal here.
+        from pirateforce_foundation import world_bg3001_identity as bg3001
+
+        placements = bg3001.shippable_placements()
+        island_names = sorted(
+            p.identity.name
+            for p in placements
+            if p.identity.outfit == islands.BG3001_ISLAND_ACTOR_OUTFIT
+        )
+        self.assertEqual(bg3001.PLACEMENT_COUNT, islands.BG3001_PLACEMENT_COUNT)
+        self.assertEqual(len(island_names), islands.BG3001_ISLAND_ACTOR_COUNT)
+        self.assertEqual(tuple(island_names), islands.BG3001_ISLAND_ACTOR_NAMES)
+        self.assertGreater(len(island_names), 0)
+
+    def test_neither_m2_target_is_in_bg3001s_cast_which_is_the_real_finding(self):
+        # The narrower true answer to COO-DECISION 0343 item 2: the file does
+        # hold islands, and neither of the two M2 needs is one of them.  That
+        # leaves open whether Prison Exile and Spice Paradise are actors this
+        # server has never placed or client-side geometry -- raised to COO,
+        # deliberately not answered here.
+        from pirateforce_foundation import world_bg3001_identity as bg3001
+
+        cast = {p.identity.name for p in bg3001.shippable_placements()}
+        for trigger_id in islands.M2_TARGET_TRIGGER_IDS:
+            row = islands.destination_for_trigger_id(trigger_id)
+            with self.subTest(trigger_id=trigger_id):
+                self.assertNotIn(row.name, cast)
+        self.assertIs(islands.M2_TARGETS_ABSENT_FROM_BG3001_CAST, True)
 
     def test_the_module_states_the_nonclaim_coo_0343_item_1_required(self):
         # Guard against the reading COO-DECISION 0343 item 1 withdrew: this

@@ -45,7 +45,21 @@ NESTED_PAYLOADS = {
     203: _hex("0F 33 00 0B 04 2A 62 B2 CE 45 2A B1 BE 96 C5 2A 00 00 3A 43"),
     217: _hex("0F 03 00 0B 04 2A DE EB 86 C4 2A 79 6F BA C5 2A 00 00 3A 43"),
     229: _hex("0F 39 00 0B 04 2A 31 10 8A C5 2A 8F A9 C3 C5 2A 00 00 3A 43"),
-    247: _hex("0F 24 00 0B 04 2A 7A C7 85 C5 2A 8F A9 C3 C5 2A 00 00 3A 43"),
+    247: _hex("0F 24 00 0B 04 2A 7A C7 85 C5 2A 56 D1 91 C3 2A 00 00 3A 43"),
+}
+
+# The xyz triple each frame carries, decoded from the floats above.  These
+# exist to make the fixture self-checking: pf-adversary (D2) caught frame
+# #247's second float copied from #229, and NOTHING in the suite could have
+# seen it, because `first_tag_value` returns after offset 3 and no test read a
+# byte past it.  A wrong float now moves a coordinate and goes red.  Values
+# re-derived from the letter's own hex, one frame at a time.
+EXPECTED_XYZ = {
+    114: (6077.9, 1012.4, 186.0),
+    203: (6614.3, -4823.8, 186.0),
+    217: (-1079.4, -5965.9, 186.0),
+    229: (-4418.0, -6261.2, 186.0),
+    247: (-4280.9, -291.6, 186.0),
 }
 
 EXPECTED_NAMES = {
@@ -79,6 +93,32 @@ class TheFiveCapturedFramesEachProduceOneCorrectLineTests(unittest.TestCase):
     def test_the_five_lines_are_five_distinct_lines(self):
         lines = {hooklog.console_line(p) for p in NESTED_PAYLOADS.values()}
         self.assertEqual(len(lines), 5)
+
+    def test_every_byte_of_every_fixture_is_read_by_something(self):
+        # The fixture-rot guard (pf-adversary D2).  Each payload is
+        # `0F <id> 0B 04 2A x 2A y 2A z` and this walks ALL of it: the tag
+        # bytes, the widths, and the three floats.  A byte copied from the
+        # wrong frame moves a coordinate and fails here.
+        import struct
+
+        for frame, payload in NESTED_PAYLOADS.items():
+            with self.subTest(frame=frame):
+                self.assertEqual(len(payload), 20)
+                self.assertEqual(payload[0], 0x0F)
+                self.assertEqual(payload[3:5], b"\x0b\x04")
+                self.assertEqual(payload[5], 0x2A)
+                self.assertEqual(payload[10], 0x2A)
+                self.assertEqual(payload[15], 0x2A)
+                xyz = tuple(
+                    round(struct.unpack("<f", payload[off:off + 4])[0], 1)
+                    for off in (6, 11, 16)
+                )
+                self.assertEqual(xyz, EXPECTED_XYZ[frame])
+
+    def test_the_five_capture_positions_are_five_different_places(self):
+        # The specific thing D2 broke: two frames sharing a coordinate.
+        self.assertEqual(len(set(EXPECTED_XYZ.values())), 5)
+        self.assertEqual(len({xy[:2] for xy in EXPECTED_XYZ.values()}), 5)
 
     def test_the_full_captured_frame_parses_through_the_frozen_parser(self):
         # Not a hand-made payload: this drives the real bytes through the
@@ -126,28 +166,74 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         self.assertIs(hooklog.production_allowed, True)
         self.assertIs(lane_hooks.module_production_allowed(hooklog.__name__), True)
 
-    def test_the_never_fired_state_is_declared_the_way_the_audit_reads_it(self):
-        # gm/lane_gate_name_audit.py's dead-hook-point half reports a
-        # registered-but-never-fired point as a defect unless the module
-        # declares it.  Measured: without this declaration
-        # tests/test_gm_lane_gate_name_audit.py goes red on this file, and
-        # with a non-literal @hook() argument it goes red for the WHOLE tree.
-        from pirateforce_foundation.gm import lane_gate_name_audit as audit
-
-        self.assertEqual(hooklog.registered_but_not_fired, (hooklog.POINT,))
-        self.assertEqual(audit.dead_hook_point_findings(), ())
-
-    def test_the_point_it_registers_on_is_not_fired_by_runtime_yet(self):
-        # Truth-in-advertising for the module docstring: today the hook is
-        # registered and never fires, and the CORE-REQUEST one-liner in the
-        # PR body is what changes that.  When chief lands the call site this
-        # test is the one that must be updated, deliberately, in that PR.
+    def test_the_declaration_and_the_call_site_stay_in_step_through_the_handover(self):
+        # WRITTEN TO SURVIVE CHIEF'S ONE-LINE CORE-REQUEST, not to block it
+        # (pf-adversary D3).  The first draft asserted two separate absolute
+        # facts -- "runtime.py does not name this point" and "the module
+        # declares it never-fired" -- and measured consequence was that chief
+        # landing the fire() call the PR body asks for turns THIS file red in
+        # two or three places whatever he does, including when he follows the
+        # deletion instruction exactly.  That would have cost the attended
+        # capture round the whole ticket exists for.
+        #
+        # So this asserts the RELATION instead: the module declares the point
+        # never-fired if and only if nothing fires it.  Both states are green,
+        # the illegal in-between states are red, and the handover is one
+        # edit -- delete `registered_but_not_fired` in the same commit that
+        # adds the call site, exactly as the module's own comment says.
         runtime_source = (ROOT / "src" / "pirateforce_foundation" / "runtime.py").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn(hooklog.POINT, runtime_source)
+        fired_by_runtime = hooklog.POINT in runtime_source
+        declared = hooklog.POINT in getattr(hooklog, "registered_but_not_fired", ())
+        self.assertEqual(
+            declared,
+            not fired_by_runtime,
+            "declare the point never-fired exactly while nothing fires it: "
+            f"runtime.py names it = {fired_by_runtime}, declared = {declared}",
+        )
 
-    def test_no_byte_leaves_and_nothing_is_returned_whatever_arrives(self):
+    def test_the_hook_is_registered_on_the_point_whichever_state_we_are_in(self):
+        # The half of the old pair that is true in BOTH worlds, kept as its
+        # own test so the relation above cannot be satisfied by a module that
+        # has quietly stopped registering anything.
+        self.assertIn(hooklog.POINT, lane_hooks.registered_points())
+
+    def test_every_tag_width_in_the_walkers_table_is_actually_pinned(self):
+        # pf-adversary D5 measured that five of the seven widths and one of
+        # the two length-prefixed tags could be mutated with the whole suite
+        # still green: the step-over branch had only ever run for 0x2A and
+        # 0x44, because in every real payload the trigger id comes first.
+        # This drives the step-over for EVERY tag the table claims to know:
+        # a wrong width desynchronises the walk and the trailing 0x0F is no
+        # longer found, or is found at the wrong offset.
+        for tag, width in hooklog._TAG_WIDTHS.items():
+            if tag == hooklog.TRIGGER_ID_TAG:
+                continue
+            payload = bytes([tag]) + b"\x0f" * width + b"\x0f\x99\x00"
+            with self.subTest(tag=hex(tag), width=width):
+                self.assertEqual(hooklog.first_tag_value(payload, 0x0F), 153)
+        for tag in hooklog._TAG_LENGTH_PREFIXED:
+            payload = (
+                bytes([tag]) + (3).to_bytes(4, "little") + b"\x0f\x0f\x0f"
+                + b"\x0f\x99\x00"
+            )
+            with self.subTest(length_prefixed=hex(tag)):
+                self.assertEqual(hooklog.first_tag_value(payload, 0x0F), 153)
+
+    def test_the_trigger_id_tag_width_matches_the_proven_serializer_row(self):
+        # PF_SERIALIZER_FIELDS.tsv: TriggerVital W/R order 1 is tag 0x0F,
+        # 2 bytes, ALWAYS, and it is the first field.  Both facts are what
+        # the walker depends on, so both are pinned here.
+        self.assertEqual(hooklog.TRIGGER_ID_TAG, 0x0F)
+        self.assertEqual(hooklog._TAG_WIDTHS[0x0F], 2)
+        self.assertEqual(NESTED_PAYLOADS[114][0], hooklog.TRIGGER_ID_TAG)
+
+    def test_the_hook_returns_none_for_every_payload_shape(self):
+        # NAME SAYS WHAT IT MEASURES (pf-adversary D10): the return-value
+        # half only.  The "no byte leaves" half is
+        # test_the_module_composes_no_frame_at_all below, which greps the
+        # source -- a function returning None proves nothing about sending.
         for payload in (
             b"",
             b"\x0f",
