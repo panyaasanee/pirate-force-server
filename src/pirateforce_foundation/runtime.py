@@ -10240,6 +10240,86 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # went out" and "the header says 115".  ASCII only --
                         # the bridge console is cp874.
                         print(world_population.census_console_line(generation))
+                        # CORE-REQUEST-GM-050 (LANE-GM 20260903_1025), chief's
+                        # half: one line, one point.  It answers "does this
+                        # scene hand the same identity to two actors" at the
+                        # moment the scene is composed, so an attended tester
+                        # who watches a hit land on the wrong body can read
+                        # the answer off the console they are already
+                        # watching instead of mining the table by hand.  It
+                        # sends no bytes and writes nothing.  Anchored to the
+                        # scene census print above, as the lane asked, and it
+                        # reads the scene id the census itself was built for
+                        # (this branch is home-scene only -- see the not-home
+                        # skip above), never a second opinion about which
+                        # scene this is.
+                        #
+                        # THESE ARE TABLE-LAYER NUMBERS, NOT THE WIRE.
+                        # ``census=`` counts the identity table's rows for
+                        # this scene BEFORE assembly; the WORLD_CENSUS line
+                        # printed immediately above carries what actually
+                        # went out (measured R319: census=115 against
+                        # wire=108 -- seven table identities have no
+                        # shippable body and are dropped).  Two adjacent
+                        # lines, both with the word "census", two different
+                        # numbers.  AGENTS.md (COO-DECISION 20260903_0846)
+                        # demotes a pre-assembly counter to a READING AID
+                        # that may never stand as evidence on its own, and
+                        # that is what this line is.  Anyone reading
+                        # roster_absent_from_census=0 as "every roster mob
+                        # shipped" is reading the table, not the frame.
+                        #
+                        # The import is local, not at module top: the census
+                        # module raises IdentityCensusError AT IMPORT on a
+                        # duplicate scene id, deliberately and loudly, and a
+                        # read-only diagnostic must not be able to stop the
+                        # login server from starting (pf-adversary R319, D8).
+                        # Down here the same raise costs one console line and
+                        # nothing else.
+                        #
+                        # Wrapped for the same reason the density line below
+                        # is: this runs PAST the builder's net, after
+                        # world_census_sent is latched, and an unreadable
+                        # diagnostic must never cost the daemon GAME-listener
+                        # thread (v141:7440 has no except).
+                        #
+                        # The lane asked for silence on failure.  It gets a
+                        # NAMED REFUSAL instead, and the reason is a standing
+                        # ruling, not a preference: self.events reaches no
+                        # console unless the process was started with
+                        # --export-events, which the attended tester does not
+                        # use, and COO-DECISION 20260902_1844 states that a
+                        # token the tester cannot see is not a token.  Silence
+                        # here is byte-identical to "this build predates the
+                        # feature".  What the lane actually feared -- half a
+                        # verdict read as a verdict -- is avoided by the
+                        # refusal carrying NO verdict fields at all.
+                        try:
+                            from .gm import (
+                                identity_registry_census as _identity_census,
+                            )
+                            print(
+                                _identity_census.describe_scene(
+                                    world_population.SCENE_ID,
+                                    legacy=legacy,
+                                )
+                            )
+                        except Exception as error:
+                            self.events.append(
+                                "gm_identity_census_console_line_failed_"
+                                f"{type(error).__name__}"
+                            )
+                            try:
+                                print(
+                                    "GM_IDENTITY_CENSUS_UNAVAILABLE scene=%d "
+                                    "reason=%s"
+                                    % (
+                                        world_population.SCENE_ID,
+                                        type(error).__name__,
+                                    )
+                                )
+                            except Exception:
+                                pass
                         try:
                             # This reads scenarios/world_scene_density_001.json
                             # from disk on every call with no caching, so a
