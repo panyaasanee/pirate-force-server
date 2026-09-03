@@ -8624,3 +8624,55 @@ No GM command was used to skip any step, because no command was run.
 Type `/warp 278` and read, on one console line, why no teleport left the server -- instead of an
 instruction to log out with no reason attached. Standing in 278 and typing `/warp 278`, she is now
 told the relog would change nothing, instead of being told to spend a session on it.
+
+## Round `re222v` (2026-09-03T23:48+07:00) -- RE-222 confirms the frame is not malformed; the mechanism was already documented
+
+**What landed.** `notes_to_chief/20260903_2149_RE-222-RESULT-PARTIAL-updateattr-and-name-color-gates.md`
+is a static-only RE result answering, among other things, this lane's own long-standing question about
+`UpdateAttrVital` (0x309A) and the `/speed` GT-193/GT-218 failure. Its Q0 decodes the exact
+30-byte `ActorAttr` body a real GT-218 send carried, byte-for-byte against the disassembled generic
+reader `[0x00463DE0,0x00463FA2)`: tag/length framing is structurally valid, `0x12AD` is the
+`checksum("ActorAttr") & 0xFFFF` crosswalk (not a tag-order bug), and the apply path
+`ActorAttr::full copy [0x00464F30,0x004652AC)` overwrites the WHOLE resident object -- inherited
+BasicAttr and every ActorAttr member -- from a freshly constructed incoming object, unconditionally.
+That fresh object's own constructors zero HP/MP/cash before the wire decode touches them, so any
+field a sparse send omits is not "left unchanged" -- it is copied from an already-zero constructor
+default.
+
+**Why this changes no gate.** This is the SAME mechanism `gm/attr_wire.py`'s module docstring has
+cited since R281 ("a read of the v141 client apply routine at 0x464F30"), and `gm/speed_wire.py`'s
+own GT-193 comment block already reasoned from it. RE-222 upgrades that citation from an unverified
+note to an independently-derived, SHA-pinned static result naming the same address -- it does not
+supply a new fact this lane was missing, and it is static-only (no client-observable measurement),
+so it cannot and does not clear a shape. `SPEED_LOGIN_READ_LANDED` and
+`SHAPES_CLEARED_BY_A_REAL_CLIENT` are untouched. What it does close is the "frame format may be a
+wrong guess" doubt `NOW.md`'s GM-B `/speed` item carried into this round (`"ผู้ต้องหาคือรูปเฟรม
+UpdateAttrVital 0x309A"`): the frame's FORM is exonerated; the mechanism is APPLY SEMANTICS, exactly
+as already documented.
+
+**What is still missing for a real fix**, said once so a future round does not re-derive it: a live
+source, at the point a chat command dispatches, for the character's CURRENT named-field values (HP
+cur/max, MP cur/max, cash, and the rest of `attr_wire.FIELDS`'s `known=True` rows) to build a
+COMPLETE object instead of a sparse one. `CORE-REQUEST-GM-044` already answered this NEGATIVE for
+the one candidate this lane had found (`characters.actor_wire` is an `AvatarAttr`/`CreateActorDataEx`
+BLOB, not this DBAttribute collection -- `notes_to_chief/consumed/20260831_1810_CHIEF-REPLY-GM-044-
+actor-wire-blob-is-AvatarAttr-not-ActorAttr-BasicAttr-does-not-match.md`). No new CORE-REQUEST is
+opened this round: nobody has ordered a live-snapshot `/speed` door built, and this lane does not
+speculatively ask for runtime hooks nothing has asked for yet (`attr_wire.py`'s own round history
+already made that mistake once and was corrected).
+
+**Files touched:** `src/pirateforce_foundation/gm/speed_wire.py`, `src/pirateforce_foundation/gm/attr_wire.py`
+(docstring/comment only -- no gate, no constant, no function signature changed). `docs/GM_LANE.md`
+(this entry). No new test file, no new skip.
+
+### 🔴 NONCLAIM
+
+No GM status was granted, no GM command was fired, no byte left a socket, no screen was involved.
+This round read a static RE result and two comment blocks changed. It is not evidence that `/speed`
+is now safe to send, sparse or full -- both locks stay exactly where an attended round left them.
+
+### What the tester can do today that she could not yesterday
+
+Nothing new on a screen. A future round reading `gm/speed_wire.py` or `gm/attr_wire.py` no longer
+has to take "the client apply is a bulk copy" on faith from an unverified note -- the same claim now
+carries a SHA-pinned static citation naming the exact function.
