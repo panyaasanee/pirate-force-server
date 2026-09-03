@@ -1075,6 +1075,15 @@ class NothingIsWiredTests(unittest.TestCase):
         # what it does with them.
         "src/pirateforce_foundation/persistence_login_vitals.py",
         "tests/test_persistence_login_vitals.py",
+        # LANE-DB round 4x9mh9: the revive-under-contention file.  It names
+        # `restore_hp_to_full` because its store proxies WRAP that door in
+        # order to interleave two logins around it, and it names the damage
+        # door (spelled out in the sibling scan's allowlist, not here, because
+        # THIS file is not on that scan's list) to build the dead row every
+        # test starts from.  Both are exercises of the login revive
+        # `COO-DECISION 20260903_0250` already authorised; no new production
+        # caller exists this round.
+        "tests/test_login_vitals_revive_under_contention.py",
     )
 
     #: EVERY call site of EVERY healing door in the repository, by door,
@@ -1092,6 +1101,13 @@ class NothingIsWiredTests(unittest.TestCase):
             # happened.
             "tests/test_persistence_login_vitals.py",
             "tests/test_persistence_vitals_heal.py",
+            # LANE-DB round 4x9mh9.  Its proxies do not replace the door:
+            # each one delegates to the real `SQLiteStore.restore_hp_to_full`
+            # (or, in one deliberate control, refuses to and says so), so the
+            # write under test is the production write.  A wrapper is listed
+            # rather than excluded, for the reason the `store.py` hole above
+            # records.
+            "tests/test_login_vitals_revive_under_contention.py",
         ),
         # Still nobody's.  The door exists so the first call site that needs
         # it does not write its own UPDATE past every rule in this lane.

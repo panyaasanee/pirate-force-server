@@ -856,6 +856,13 @@ class NothingIsWiredTests(unittest.TestCase):
         # is chief's to land, and it is the wiring this lane asked for.
         "src/pirateforce_foundation/persistence_login_vitals.py",
         "tests/test_persistence_login_vitals.py",
+        # LANE-DB round 4x9mh9: the revive-under-contention file.  It calls
+        # `apply_hp_damage` for ONE reason -- to build a row that says the
+        # character is dead, which is the precondition of every test in it --
+        # and it calls it in a fixture, never on a send path.  The claim this
+        # class makes is intact: no production caller was added this round,
+        # and the round file says so with the grep that measured it.
+        "tests/test_login_vitals_revive_under_contention.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
