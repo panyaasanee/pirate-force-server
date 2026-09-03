@@ -225,6 +225,14 @@ class ArenaTests(unittest.TestCase):
             "arena_v1_p30_test_only_population_committed",
             "target_pos_10.00_20.00_30.00",
             "v129_isolated_population_retained_p0_p30_p91",
+            # CORE-REQUEST-GM-051 item 3 (chief R328).  The durable write this
+            # frame performs is a real client position report in scene 1 with
+            # no warp queued, so it corroborates the scene label -- see
+            # runtime._note_client_confirmed_scene.  Pinned by position, not
+            # tolerated by a prefix filter: this list exists to notice a new
+            # event, and dropping that property to absorb one would cost more
+            # than the line it saves.
+            "client_confirmed_scene_1_position_report",
         ])
         replay = state.dispatch(self.legacy.parse_outer(self.target_pos_pc()))
         self.assertFalse(any(a[0].startswith("ARENA_V1_") for a in replay))
@@ -280,6 +288,12 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(normal.events[len(normal_before_events):], [
             "target_pos_10.00_20.00_30.00",
             "v129_isolated_population_retained_p0_p30_p91",
+            # CORE-REQUEST-GM-051 item 3 (chief R328), same reason as the
+            # sibling list above: a client position report with no warp
+            # queued corroborates scene 1.  It lands BEFORE the census event
+            # because the durable write happens inside the inherited dispatch
+            # and the census composes after it.
+            "client_confirmed_scene_1_position_report",
             census_event,
         ])
 

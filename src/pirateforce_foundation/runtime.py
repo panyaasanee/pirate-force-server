@@ -301,6 +301,17 @@ MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()
 # mode is a loud, named refusal instead of a silent infinite loop / DoS.
 MOB_COMBAT_STALE_RETRY_LIMIT = 8
 
+# CORE-REQUEST-GM-051 item 3 (LANE-GM 20260903_2001, chief R328).  The name
+# of the per-session attribute LANE-GM reads to base its same-scene token on
+# something the client's own bytes backed, instead of
+# selected.position.scene_id, which _gm_warp_resync_selected_scene relabels
+# to a warp destination at queue time.  Exported as a constant, not as a
+# string typed twice: a rename here has to break the reader, and LANE-GM's
+# module may not import runtime (circular).  See
+# _note_client_confirmed_scene for what the field does and does NOT claim --
+# the client never sends a scene id at all; this is corroboration.
+CLIENT_CONFIRMED_SCENE_FIELD = "client_confirmed_scene"
+
 
 def _recompose_event_suffix(record):
     """The event suffix for a recompose that did NOT compose.
@@ -1220,6 +1231,40 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # no scene_id, so this cannot be seeded from _boot_roster
                 # the way mob_combat_scene_folder just was.)
                 self.combat_scene_edge_scene_id = None
+                # CORE-REQUEST-GM-051 item 3 (LANE-GM 20260903_2001, chief
+                # R328).  The scene the CLIENT's own frames have corroborated,
+                # as opposed to selected.position.scene_id, which
+                # _gm_warp_resync_selected_scene relabels to a warp
+                # DESTINATION at queue time with nothing from the client
+                # agreeing.  None means "the client has told us nothing yet"
+                # -- the same seeding as combat_scene_edge_scene_id above,
+                # and the honest state for a session that has logged in and
+                # not moved.  Advanced ONLY by _note_client_confirmed_scene;
+                # read by LANE-GM through CLIENT_CONFIRMED_SCENE_FIELD.
+                self.client_confirmed_scene = None
+                # THE STATE THAT MAKES THE FIELD ABOVE WORTH HAVING
+                # (pf-adversary R328 D1, measured).  The first draft
+                # refused to advance client_confirmed_scene only while
+                # gm_warp_confirm_window_open was set -- and that flag
+                # is opened and closed inside ONE dispatch, while the
+                # optimism it guards against never expires:
+                # _gm_warp_resync_selected_scene leaves
+                # selected.position.scene_id on the destination
+                # forever.  So the refusal lasted one frame and the
+                # NEXT ordinary step copied the destination in and
+                # called it the client's.  Measured: warp to scene 5,
+                # one report MISMATCH by 7067 units, one more report,
+                # client_confirmed_scene = 5.  A GM who 'sees nothing
+                # happen' walks, and walking is two reports -- so
+                # LANE-GM's own D2 was still open under the field
+                # built to close it.  This flag is the missing state:
+                # True from the moment the resync relabels the row,
+                # cleared ONLY by a warp the client's coordinates
+                # confirmed.  A warp that is never confirmed leaves it
+                # True for the rest of the session, and that is the
+                # correct outcome: we do not know where the client is,
+                # so we go on saying the last scene we did know.
+                self.scene_label_is_server_guess = False
                 # CORE-REQUEST (LANE-B, 20260828_0337): the attack-cadence
                 # gate MOB_COMBAT_CADENCE_WIRING asks for, opened next to
                 # mob_combat_ledger for the same per-session reason.
@@ -3927,8 +3972,48 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "gm_login_scene_override_visit_no_durable_write_scene_"
                     f"{candidate.scene_id}"
                 )
+                # CORE-REQUEST-GM-051 item 3.  The durable write is withheld
+                # on this branch BY NAME (see the block above), but the
+                # client's frame is no less real for it: login placed the
+                # character in this scene and the client is reporting
+                # coordinates from inside it.  Skipping this branch would
+                # leave client_confirmed_scene None for the whole life of
+                # every override session -- login_scene_override_visit stays
+                # set, so this branch, not the elif below, is the one an
+                # override session takes on every step -- and a GM staged
+                # into a scene is precisely who types /warp.  Same optimism
+                # guard as the elif: a queued warp still owns the label.
+                # Same PERSISTENT gate as the elif below, and it is what
+                # makes this branch defensible at all: pf-adversary R328 D4
+                # measured the first draft's one-frame guard here advancing
+                # the field to a WARP DESTINATION on an override session,
+                # on a branch that has no durable write, no persist gate, no
+                # target comparison and no token -- the raw hole with none
+                # of the machinery that catches it elsewhere.  Under the
+                # persistent flag this branch can only ever record the scene
+                # login itself sent the character to, which the client then
+                # reported from.
+                if not getattr(self, "scene_label_is_server_guess", False):
+                    self._note_client_confirmed_scene(
+                        candidate.scene_id, "override_visit_report",
+                    )
             elif candidate != selected.position:
                 self.foundation.checkpoint(candidate)
+                # CORE-REQUEST-GM-051 item 3.  The gate is the PERSISTENT
+                # flag, not the one-frame confirm window the first draft
+                # used (pf-adversary R328 D1 and D7): gm_warp_position_pending
+                # is already cleared at the top of dispatch by the time this
+                # line runs -- measured 0 hits in 9,097 tests -- and
+                # gm_warp_confirm_window_open dies at the end of this same
+                # dispatch, while the mislabelled row lives on.  D2 on top of
+                # that: the client can spend the window itself with one
+                # unparseable TargetPos, because the window opens on the
+                # frame's shape, not on its contents.  Neither is a fact
+                # about whether the scene label is trustworthy.
+                if not getattr(self, "scene_label_is_server_guess", False):
+                    self._note_client_confirmed_scene(
+                        candidate.scene_id, "position_report",
+                    )
                 if (
                     self.gm_warp_confirm_window_open
                     and world_scene_travel.is_position_persist_allowed(
@@ -3979,12 +4064,117 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     if gm_warp_target_verdict != "mismatch":
                         print("GM_WARP_POSITION_CONFIRMED", file=sys.stderr)
                         self.events.append("gm_warp_position_confirmed")
+                        # CORE-REQUEST-GM-051 item 3.  The ONLY thing that
+                        # ends the refusal, and it must clear the flag in the
+                        # same breath as it records the scene: the client's
+                        # own coordinates matched the target it was sent to.
+                        # Same evidence the token above prints on, no new
+                        # frame and no new read.  Order matters -- the note
+                        # runs while the flag is still set, so nothing else
+                        # on this frame can have written the field first.
+                        self._note_client_confirmed_scene(
+                            candidate.scene_id, "warp_confirmed",
+                        )
+                        self.scene_label_is_server_guess = False
             if verdict is not None:
                 # Only now.  A checkpoint that raised (a stale or stolen lease
                 # is the frozen path's own refusal) must not leave an event
                 # saying the reading was admitted, a counter saying it was, or
                 # a baseline pointing where no row points.
                 self._move_authority_record_admitted(verdict, target, stamp)
+
+        def _note_client_confirmed_scene(self, scene_id, why: str) -> None:
+            """CORE-REQUEST-GM-051 item 3: record a scene the CLIENT backed.
+
+            WHAT LANE-GM ASKED FOR AND WHAT IS ACTUALLY AVAILABLE.  The
+            request (20260903_2001) was for "the scene the client last
+            confirmed", so the GM's ``same_scene`` token would stop resting
+            on ``selected.position.scene_id`` -- a field
+            ``_gm_warp_resync_selected_scene`` overwrites with the warp
+            DESTINATION at queue time, which is why typing ``/warp 5`` twice
+            from scene 1 earns the second one a same-scene token (their
+            pf-adversary D2).  A static sweep of every inbound frame this
+            server decodes (chief R328, pf-static-re) found that NO
+            client->server frame carries a scene or map id at all:
+            ``StartGameReq`` is one selector byte
+            (v141:2974-2979), ``TargetPosVital`` is x/y/z/heading with the
+            fifth tuple slot a hardcoded literal (v141:2981-2992),
+            ``ChooseNPC`` is one actor identity qword (v141:3031-3042).  The
+            two near-misses are both refused on their own terms:
+            ``ActionVital.field_u16_4a`` is called opaque by the parser
+            (v141:3253-3255) and only compared to a scene under a scenario
+            allowlist, and ``TeleportCheckVital.field_u16_14`` says twice in
+            code that its semantics are unassigned (v141:891-893, :4114).
+
+            SO THIS FIELD IS NOT A CLIENT-NAMED SCENE, and the name must be
+            read that way.  NONCLAIM, and it belongs in every letter that
+            quotes this field: the client never tells us a scene id.  What
+            this records is the scene label that was in force on a frame the
+            client sent, at a moment the label was not the server's own
+            unconfirmed guess.
+
+            AND A SECOND NONCLAIM, because the first draft of this docstring
+            overclaimed and pf-adversary R328 (D3) was right to say so: no
+            code anywhere compares the client's coordinates to scene
+            geometry.  The value written is ``candidate.scene_id``, which
+            comes from ``selected.position.scene_id``.  A report of
+            (1e9, -7.5e8, 3.3e8) -- outside every extent in the scene
+            registry -- records scene 1 just the same.  So this is NOT
+            "coordinates consistent with a scene"; it is "the label at a
+            moment we had no reason to distrust it".  Strictly more than
+            ``selected.position.scene_id`` alone, strictly less than a
+            client-observable fact (G5), and weaker than the first draft
+            claimed.  A truthful longer name would be
+            ``scene_label_at_last_trusted_client_report``; the short name
+            stays because LANE-GM's reader is already written against it.
+
+            WHEN IT IS *NOT* ADVANCED, which is the whole point: from the
+            moment ``_gm_warp_resync_selected_scene`` relabels the row to a
+            warp destination, ``scene_label_is_server_guess`` is True and
+            stays True.  Every position report is refused while it is set --
+            not for one frame, for as long as the guess is unconfirmed.  The
+            ONLY thing that clears it is the client reporting coordinates
+            that match the warp target (``_gm_warp_note_position_target``
+            returning anything but ``"mismatch"``), the same evidence
+            ``GM_WARP_POSITION_CONFIRMED`` prints on.  A warp that never
+            confirms leaves the flag set for the rest of the session: the
+            field then keeps naming the last scene we actually knew, which
+            is the honest answer to "where is the client" when we do not
+            know.
+
+            EVEN THAT CONFIRMATION IS WEAKER THAN IT LOOKS (pf-adversary
+            R328 D6), and a letter citing ``warp_confirmed`` must say so:
+            ``distance_to_target`` compares ``target.scene_id`` against
+            ``candidate.scene_id``, which the resync already set to the
+            target -- so the scene half of that comparison is a tautology
+            and what is really tested is x/y within one unit of coordinates
+            the GM typed.  A cross-scene warp aimed at a point the GM is
+            already standing on can therefore confirm in the DEPARTURE
+            scene.  Narrow, but real, and not fixed here.
+
+            Never raises: it is called from the durable-write path, where an
+            exception would cost the write's own bookkeeping.
+            """
+            try:
+                if scene_id is None:
+                    return
+                scene_id = int(scene_id)
+            except (OverflowError, TypeError, ValueError):
+                # OverflowError included on purpose: int(float("inf")) raises
+                # it, and the two siblings in this tree that do the same job
+                # (_gm_warp_target_unknown_reason, position_matches_target)
+                # both spell it.  pf-adversary R328 D10 also corrected the
+                # stake this block protects: v141's game listener has no
+                # `except` around state.dispatch, so a raise here would not
+                # cost "the write's bookkeeping", it would take the
+                # connection down and unwind the listener thread.
+                return
+            if getattr(self, "client_confirmed_scene", None) == scene_id:
+                return
+            self.client_confirmed_scene = scene_id
+            self.events.append(
+                f"client_confirmed_scene_{scene_id}_{why}"
+            )
 
         def _gm_warp_note_position_target(self, candidate) -> str:
             """CORE-REQUEST-GM-030/031/051: is the confirmed row the GM's target.
@@ -4522,7 +4712,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             left scene 2 at all.  Kill-stays-dead / wound-heals is a
             player-visible asymmetry; whether wounds should persist across a
             departure (a wound register parallel to the death one) is a
-            feature this change does NOT decide.
+            feature this change does NOT decide.  It is decided elsewhere and
+            already queued: COO-DECISION 20260903_2245 ratified this state as
+            today's correct one and ruled the wound register is LANE-B's,
+            already settled by that lane on 20260902_2241 and accepted
+            20260903_1350 -- not a new ticket.  When B lands it, it plugs in
+            HERE, at the same seam, AFTER the death rehydrate in
+            ``_sync_combat_scene_state`` -- not at another call site.  It
+            sits behind B's own queued debts (server#671 recovery, D7, the
+            expiry frame); until then, healing on a round trip is the
+            documented behaviour, not a bug report.
 
             COST, RE-DERIVED on this clone (pf-adversary round pk14rf
             flagged the first draft's numbers; these are re-measured here,
@@ -6470,6 +6669,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"gm_warp_selected_scene_resynced_{target.scene_id}"
             )
+            # CORE-REQUEST-GM-051 item 3 (pf-adversary R328 D1).  From here
+            # until a warp is CONFIRMED, selected.position.scene_id is the
+            # server's guess and nothing may launder it into
+            # client_confirmed_scene.  Set after the relabel, never before:
+            # the four early returns above all mean no relabel happened.
+            self.scene_label_is_server_guess = True
             # KA1A-ROOTCAUSE (20260901_1035): WORLD-CENSUS-001 gates on
             # ``world_census_sent``, initialised once per CONNECTION
             # (construction, above) and never reset -- so every scene after

@@ -107,7 +107,10 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
-from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.runtime import (  # noqa: E402
+    CLIENT_CONFIRMED_SCENE_FIELD,
+    make_state_class,
+)
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
@@ -1340,6 +1343,289 @@ class GmWarpCensusLatchClearTests(GmWarpPositionTargetTests):
                 f"gm_warp_cross_scene_census_latch_cleared_{destination_scene}",
                 clear_events,
             )
+
+
+class ClientConfirmedSceneTests(GmWarpPositionTargetTests):
+    """CORE-REQUEST-GM-051 item 3 -- the scene the CLIENT's bytes backed.
+
+    LANE-GM measured (``20260903_2001``, their pf-adversary D2) that a GM
+    standing in scene 1 who types ``/warp 5``, sees nothing happen, and
+    types ``/warp 5`` again gets a SAME-SCENE token on the second one: the
+    token rests on ``selected.position.scene_id``, which
+    ``_gm_warp_resync_selected_scene`` already relabelled to 5 at queue
+    time with nothing from the client agreeing.  They asked chief for a
+    second field to base the token on instead.
+
+    WHAT THIS CLASS DOES NOT PIN, and the letter that answers -051 says the
+    same thing: that the client ever NAMES a scene.  A static sweep of
+    every inbound frame this server decodes (chief R328) found none -
+    ``StartGameReq`` is one selector byte, ``TargetPosVital`` is
+    x/y/z/heading, ``ChooseNPC`` is one actor identity.  So the field pinned
+    here is CORROBORATION at the wire layer: the scene label that the
+    client's own coordinates were consistent with, on a frame that reached
+    the durable write.  It is strictly better than the optimistic label and
+    strictly weaker than a client-observable fact (G5).  Nothing here is
+    evidence about a screen.
+    """
+
+    def test_the_exported_field_name_is_the_attribute_lane_gm_reads(self):
+        """A rename of the attribute has to break this, not LANE-GM."""
+        state = self._login_and_start("gmwarp_ccs00")
+        self.assertEqual(CLIENT_CONFIRMED_SCENE_FIELD, "client_confirmed_scene")
+        self.assertTrue(hasattr(state, CLIENT_CONFIRMED_SCENE_FIELD))
+
+    def test_a_fresh_login_has_confirmed_nothing(self):
+        """None, not the DB row: logging in is not the client saying where."""
+        state = self._login_and_start("gmwarp_ccs01")
+        self.assertIsNone(state.client_confirmed_scene)
+        self.assertFalse(
+            any(
+                event.startswith("client_confirmed_scene_")
+                for event in state.events
+            )
+        )
+
+    def test_an_ordinary_step_confirms_the_scene_being_stood_in(self):
+        state = self._login_and_start("gmwarp_ccs02")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+
+        self._report(state, x + 12.0, y + 7.0, z)
+
+        self.assertEqual(state.client_confirmed_scene, scene_id)
+        self.assertIn(
+            f"client_confirmed_scene_{scene_id}_position_report", state.events,
+        )
+
+    def test_a_queued_cross_scene_warp_does_not_confirm_its_own_destination(
+        self,
+    ):
+        """The D2 shape, and the reason this field exists.
+
+        The row already says the destination (the resync relabelled it at
+        queue time); the client has reported nothing from there.  A GM who
+        types the same ``/warp`` twice must not have the second one told it
+        is a same-scene warp.
+        """
+        state = self._login_and_start("gmwarp_ccs03")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 4
+        target = WarpTarget(destination_scene, x + 900.0, y + 900.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+
+        # The optimistic label moved...
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, destination_scene,
+        )
+        # ...and the corroborated one did not, because it cannot have.
+        self.assertIsNone(state.client_confirmed_scene)
+
+    def test_a_report_that_misses_the_warp_target_confirms_nothing(self):
+        """No CONFIRMED token, so no confirmed scene either: one rule.
+
+        Regression guard against advancing the field on the plain
+        durable-write path while a warp is still open - that path runs on
+        this very frame, and taking it here would confirm the destination
+        scene off a report measured to be somewhere else.
+        """
+        state = self._login_and_start("gmwarp_ccs04")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 4
+        target = WarpTarget(destination_scene, x + 5000.0, y + 5000.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+        err = self._report(state, x + 3.0, y + 3.0, z)
+
+        self.assertEqual(self._match_or_mismatch_lines(err), [MISMATCH_TOKEN])
+        self.assertEqual(self._token_lines(err), [])
+        self.assertIsNone(state.client_confirmed_scene)
+
+    def test_reaching_the_warp_target_confirms_the_destination_scene(self):
+        """The only honest way the window closes: the client's own bytes."""
+        state = self._login_and_start("gmwarp_ccs05")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+        err = self._report(state, target.x, target.y, target.z)
+
+        self.assertEqual(self._token_lines(err), [CONSOLE_TOKEN])
+        self.assertEqual(state.client_confirmed_scene, destination_scene)
+        self.assertIn(
+            f"client_confirmed_scene_{destination_scene}_warp_confirmed",
+            state.events,
+        )
+
+    def test_the_two_labels_disagree_exactly_where_lane_gm_said_they_would(
+        self,
+    ):
+        """Walk in scene 1, warp to 5, report nothing: 5 vs 1.
+
+        This is the whole request in one assertion pair.  ``same_scene``
+        built on the first number is the bug; built on the second it is
+        not.
+        """
+        state = self._login_and_start("gmwarp_ccs06")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        self._report(state, x + 10.0, y + 10.0, z)
+        self.assertEqual(state.client_confirmed_scene, departure_scene)
+
+        destination_scene = departure_scene + 4
+        self._arm_the_warp_with_target(
+            state, WarpTarget(destination_scene, x + 800.0, y + 800.0, z),
+        )
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, destination_scene,
+        )
+        self.assertEqual(state.client_confirmed_scene, departure_scene)
+
+    def test_walking_after_a_missed_warp_never_adopts_the_destination(self):
+        """pf-adversary R328 D1, the finding that sent the first draft back.
+
+        The first draft gated on ``gm_warp_confirm_window_open``, which is
+        opened and closed inside ONE dispatch -- while the mislabelled row
+        lives on forever.  So the refusal lasted a single frame and the very
+        next ordinary step copied the destination in and called it the
+        client's.  Measured then: warp to a scene 7067 units away, one
+        report MISMATCH, one more report, ``client_confirmed_scene = 5``.
+
+        That is LANE-GM's D2 verbatim -- a GM who "sees nothing happen"
+        walks, and walking is more than one report -- so the field built to
+        close their bug still had it.  Three reports here, not one: one
+        report is what the old code survived.
+        """
+        state = self._login_and_start("gmwarp_ccs08")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 4
+        self._report(state, x + 10.0, y + 10.0, z)
+        self.assertEqual(state.client_confirmed_scene, departure_scene)
+
+        self._arm_the_warp_with_target(
+            state, WarpTarget(destination_scene, x + 5000.0, y + 5000.0, z),
+        )
+        err = self._report(state, x + 12.0, y + 11.0, z)
+        self.assertEqual(self._match_or_mismatch_lines(err), [MISMATCH_TOKEN])
+
+        self._report(state, x + 14.0, y + 12.0, z)
+        self._report(state, x + 16.0, y + 13.0, z)
+
+        self.assertEqual(state.foundation.selected.position.scene_id,
+                         destination_scene)
+        self.assertEqual(state.client_confirmed_scene, departure_scene)
+        self.assertNotIn(
+            f"client_confirmed_scene_{destination_scene}_position_report",
+            state.events,
+        )
+        self.assertTrue(state.scene_label_is_server_guess)
+
+    def test_an_unparseable_report_cannot_spend_the_refusal(self):
+        """pf-adversary R328 D2: the client could burn the guard itself.
+
+        ``_gm_warp_open_confirm_window`` clears ``gm_warp_position_pending``
+        on any frame SHAPED like a TargetPos, parseable or not, and closes
+        the window at the end of the same dispatch.  So one malformed frame
+        the client fully controls used to spend the whole refusal, and the
+        next honest step recorded a scene the client never entered -- with
+        no token and no mismatch line to show for it.  The persistent flag
+        is not a property of any frame, so nothing the client sends can
+        spend it.
+        """
+        state = self._login_and_start("gmwarp_ccs09")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 4
+        self._report(state, x + 10.0, y + 10.0, z)
+
+        self._arm_the_warp_with_target(
+            state, WarpTarget(destination_scene, x + 5000.0, y + 5000.0, z),
+        )
+        # A frame that IS a TargetPos to the window logic and is NOT one to
+        # the parser: derived_mask non-zero, so parse_v141_refresh_target_pos
+        # rejects it and no durable write happens.
+        junk = self.legacy.parse_outer(self._target_pos_pc(
+            x + 1.0, y + 1.0, z,
+        ))
+        junk.derived_mask = 1
+        with redirect_stderr(io.StringIO()):
+            state.dispatch(junk)
+        self._report(state, x + 14.0, y + 12.0, z)
+
+        self.assertEqual(state.client_confirmed_scene, departure_scene)
+        self.assertTrue(state.scene_label_is_server_guess)
+
+    def test_a_confirmed_warp_is_the_one_thing_that_ends_the_refusal(self):
+        """And it ends it for good: walking afterwards keeps working."""
+        state = self._login_and_start("gmwarp_ccs10")
+        x, y, z = self._origin(state)
+        departure_scene = state.foundation.selected.position.scene_id
+        destination_scene = departure_scene + 1
+        target = WarpTarget(destination_scene, x + 500.0, y + 250.0, z)
+
+        self._arm_the_warp_with_target(state, target)
+        self.assertTrue(state.scene_label_is_server_guess)
+        self._report(state, target.x, target.y, target.z)
+
+        self.assertFalse(state.scene_label_is_server_guess)
+        self.assertEqual(state.client_confirmed_scene, destination_scene)
+        # and an ordinary step in the confirmed scene is trusted again
+        self._report(state, target.x + 9.0, target.y + 9.0, target.z)
+        self.assertEqual(state.client_confirmed_scene, destination_scene)
+
+    def test_a_same_scene_warp_never_arms_the_refusal(self):
+        """The resync early-returns, so the label was never a guess."""
+        state = self._login_and_start("gmwarp_ccs11")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+
+        self._arm_the_warp_with_target(
+            state, WarpTarget(scene_id, x + 40.0, y + 20.0, z),
+        )
+
+        self.assertFalse(state.scene_label_is_server_guess)
+        self._report(state, x + 6.0, y + 6.0, z)
+        self.assertEqual(state.client_confirmed_scene, scene_id)
+
+    def test_the_reader_lane_gm_was_given_is_the_attribute_that_moves(self):
+        """pf-adversary R328 D8: the old test pinned a literal to a literal.
+
+        Read the field THROUGH the exported constant after a real report, so
+        renaming the attribute without renaming the constant goes red here
+        rather than silently in LANE-GM's module.
+        """
+        state = self._login_and_start("gmwarp_ccs12")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+        self._report(state, x + 8.0, y + 8.0, z)
+        self.assertEqual(
+            getattr(state, CLIENT_CONFIRMED_SCENE_FIELD), scene_id,
+        )
+
+    def test_the_field_does_not_re_event_on_every_step_in_one_scene(self):
+        """Three steps, one event: the field is a state, not a log."""
+        state = self._login_and_start("gmwarp_ccs07")
+        x, y, z = self._origin(state)
+        scene_id = state.foundation.selected.position.scene_id
+
+        self._report(state, x + 5.0, y + 5.0, z)
+        self._report(state, x + 11.0, y + 9.0, z)
+        self._report(state, x + 17.0, y + 13.0, z)
+
+        self.assertEqual(state.client_confirmed_scene, scene_id)
+        self.assertEqual(
+            [
+                event for event in state.events
+                if event.startswith("client_confirmed_scene_")
+            ],
+            [f"client_confirmed_scene_{scene_id}_position_report"],
+        )
 
 
 if __name__ == "__main__":
