@@ -23,10 +23,20 @@ NO logout scenario -- i.e. exactly the boot the owner runs.
 WHAT THIS FILE DOES NOT PROVE, and the distinction is the whole point of
 ``GT-205``:
 
-* Not that anything RENDERS.  This is the wire/DB layer only.  No
-  server-composed line on ``Channel_LocalTalkMessageVital`` has ever been
-  watched to appear on a normal boot (``gm/say_wire.py`` says so itself in
-  capitals).  A negative ``GT-205`` is worth as much as a positive one.
+* Not that anything RENDERS.  This is the wire/DB layer only, and that is
+  unchanged by what follows.  ~~No server-composed line on
+  ``Channel_LocalTalkMessageVital`` has ever been watched to appear on a
+  normal boot (``gm/say_wire.py`` says so itself in capitals).  A negative
+  ``GT-205`` is worth as much as a positive one.~~  STRUCK, round
+  ``kozzu1``: ``GT-205`` came back POSITIVE on 2026-09-02 (R303, owner at
+  the keyboard, flagless boot -- ``BACK REFUSED`` on screen), so one such
+  line HAS now been watched to appear.  Two things do not follow from
+  that and a reader of this file must not take either: this file still
+  proves only the wire/DB half (the console token was not even copied back
+  off that boot -- "wire/DB: not separately instrumented for this ticket"),
+  and ``gm/say_wire.py`` has not been corrected, so its capitals are stale
+  rather than a second source.  The full measurement is under point 2 of
+  ``world_logout_button_notice``'s own docstring.
 * Not that UI-A works.  Nothing here makes the client return to character
   select; ``GT-184`` is still open on that question.  This turns "click and
   silence" into "click and a receipt".
