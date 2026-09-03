@@ -675,6 +675,23 @@ NOTICE_CONSOLE_TOKEN = "GM_CHAT_NOTICE_SENT"
 # cp874 and this line is read there.
 SPEED_DEFERRED_CONSOLE_TOKEN = "SPEED DEFERRED"
 
+# The trial gate's own console token -- COO `0646` item 2, fourth bullet: the
+# person watching the screen must be able to read WHICH value the door was
+# opened for without opening a source file.  A separate token rather than a
+# field on `SPEED DEFERRED`, because the two lines report opposite outcomes
+# (nothing left the process / this one frame did) and an attended tester
+# greps for one word, not for a word plus a field value.
+#
+# ASCII, spaces only between words, for the reason the token above is: the
+# bridge console is cp874.
+SPEED_TRIAL_CONSOLE_TOKEN = "SPEED TRIAL OPEN"
+# What the console says when this process could not ASK the trial gate at
+# all.  Deliberately a third word beside `speed_wire.TRIAL_UNSET` and
+# `TRIAL_MALFORMED`: "nothing is armed" and "the gate did not answer" are
+# different facts, and a line that merged them would tell an operator the
+# door is shut on evidence it does not have.
+SPEED_TRIAL_UNAVAILABLE = "unavailable"
+
 # The three fillers for the row fields `_print_speed_deferred` appends after
 # `why=`.  Spelled as constants so a test and an attended grep name the same
 # strings, and kept ASCII and space-free for the reason the token above is.
@@ -888,6 +905,13 @@ EVENT_SPEED_WITHHELD_CANONICAL_DB = "gm_chat_action_speed_withheld_canonical_db"
 # console token is its own: a replay tool reading `session.events` must be
 # able to separate the project-wide deferral from the shape question.
 EVENT_SPEED_DEFERRED = "gm_chat_action_speed_deferred_login_read"
+# COO `0646` item 2's runtime trial gate let this ONE value through both
+# holds.  Its own event, never a reuse of `EVENT_SPEED_DEFERRED`, because the
+# two say opposite things about the same command: a replay tool must be able
+# to answer "did any `/speed` frame leave this process, and under whose
+# authority" from `session.events` alone, without reading an environment it
+# was not running in.  See `speed_wire.trial_admits`.
+EVENT_SPEED_TRIAL_ADMITTED = "gm_chat_action_speed_runtime_trial_admitted"
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 # GT-193 [FAIL] (attended R303, 2026-09-02): this door's frame went to a real
@@ -2849,6 +2873,94 @@ def _print_staged_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
+def _trial_console_field() -> str:
+    """`speed_wire.trial_console_field()`, wrapped so a printer never raises.
+
+    That function already promises not to raise; this wrapper exists because
+    the promise is made in ANOTHER module and a console line in this one must
+    not depend on it staying true.  `unavailable` is a third word, distinct
+    from that module's `unset`/`malformed`, so an operator reading the line
+    can tell "the gate says nothing is armed" from "this process could not
+    ask the gate at all" -- two facts a single word would merge.
+    """
+    try:
+        return speed_wire.trial_console_field()
+    except Exception:  # noqa: BLE001 - a diagnostic never alters dispatch
+        return SPEED_TRIAL_UNAVAILABLE
+
+
+def _trial_admits(value: object) -> bool:
+    """`speed_wire.trial_admits(value)`, wrapped, and FALSE ON ANY FAILURE.
+
+    The wrapping direction is the whole point: this is the one predicate in
+    this route that can let a frame out, so a gate that could not answer must
+    read as "not admitted".  `speed_wire.trial_admits` does not raise today;
+    if a later edit there makes it able to, the frame is held rather than
+    sent, which is the standing posture of every `/speed` gate above it.
+    """
+    try:
+        return bool(speed_wire.trial_admits(value))
+    except Exception:  # noqa: BLE001 - an unanswerable gate is a closed gate
+        return False
+
+
+def _print_speed_trial_open(
+    session: object, token: object, command_name: object, stored: object,
+) -> bool:
+    """Say that the RUNTIME TRIAL GATE let this one frame past both holds.
+
+    COO-DECISION `20260903_0646` item 2, fourth bullet, in as many words:
+    "บรรทัดคอนโซลต้องบอกว่าประตูเปิดให้ค่าไหน ผู้คุมจอต้องอ่านออกโดยไม่ต้องเปิด
+    ซอร์ส".  This is that line, and it is printed on the SEND path -- the
+    only path in this module where a `/speed` frame reaches a dispatcher --
+    so the console cannot be quiet about the one case that costs an attended
+    round if it goes wrong.
+
+    THREE FIELDS, ALL LANE-AUTHORED, NOTHING TYPED EVER PRINTED, the same
+    rule `_print_speed_deferred` and `_print_notice_sent` state for their own
+    lines: the command NAME rendered only when it is one of
+    `commands.COMMAND_NAMES`, `repr()` of the finite f32 the row holds, and
+    `speed_wire.trial_console_field()`'s own ASCII word.  The environment
+    variable's RAW text never reaches the console -- see that function.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH, and here that rule cuts the way it
+    always does rather than the way it might seem to: a console this line
+    could not reach costs the LINE, not the frame.  The frame was admitted by
+    `speed_wire.trial_admits` before this function was called, and a printer
+    that could veto a send would be a second, invisible gate -- exactly the
+    shape this lane refuses everywhere else.  The boolean it returns is the
+    printer's own answer, carried into the verdict the same way
+    `_print_speed_deferred`'s is, so a round that greps for this token and
+    finds nothing can tell a held frame from a lost line.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return False
+    try:
+        name = command_name if command_name in COMMAND_NAMES else "unnamed"
+        try:
+            row = repr(float(stored))
+        except Exception:  # noqa: BLE001 - a printer never raises
+            # Unreachable on the shipped route (this line runs below
+            # `EVENT_SPEED_PERSIST_READBACK_UNUSABLE`, which already refused
+            # anything but a real number), and spelled anyway: the word the
+            # deferral line uses for the same hole, so one grep answers both.
+            row = SPEED_DEFERRED_ROW_UNKNOWN
+        print(
+            f"{SPEED_TRIAL_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(str(token)), stream)}' "
+            f"command={name} env={speed_wire.SPEED_TRIAL_ENV} "
+            f"trial_opens_for={_trial_console_field()} sending={row} "
+            f"{_identity_fields(session, stream)}",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
+
+
 def _print_speed_deferred(
     session: object, token: str, command_name: object, stored: object,
 ) -> bool:
@@ -3014,6 +3126,7 @@ def _print_speed_deferred(
             f"command={name} why={OUTCOME_SPEED_DEFERRED} "
             f"row_after_write={row_written} next_login={next_login} "
             f"next_login_sends={next_login_sends} "
+            f"trial_opens_for={_trial_console_field()} "
             f"{_identity_fields(session, stream)}",
             file=stream,
         )
@@ -3991,74 +4104,114 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # forbids making one: "do not guess which field killed the client and
     # then fix your guess -- your job here is to STOP SENDING, not to repair
     # the frame".  Nothing below composes a different frame; the door holds.
-    if speed_wire.send_deferred():
-        _note(session, EVENT_SPEED_DEFERRED)
-        # `line_printed` carries the printer's OWN answer: a console this
-        # line could not reach falls through to `GM_CHAT_NO_BYTES_SENT`
-        # rather than leaving an accepted command silent.
-        # `stored`, not `value`: the read-back is the number the row HOLDS
-        # and the number the next login will resolve, and it is the same
-        # source the composer below would have used.  See the printer's own
-        # "IT NAMES THE ROW IT LEFT BEHIND" paragraph.
-        printed = _print_speed_deferred(
-            session,
-            getattr(session, "token", None),
-            getattr(command, "name", None),
-            stored,
-        )
-        # No notice action, and that is the one thing here this lane decided
-        # rather than was told -- COO `1847` says "refuse AND PRINT" and its
-        # test requirement is "pin that NO BYTES go out on this route", while
-        # COO `0345` had ordered refusals to reach the screen through
-        # `_speed_denied`'s local-talk notice.  Read together, the narrower
-        # reading (zero bytes) is the one that cannot cost an attended round
-        # if it is wrong: the GM loses an on-screen sentence, the console
-        # still says `SPEED DEFERRED`.  The other reading risks the thing the
-        # decision exists to stop.  [ASSUMPTION OF LANE-GM, AWAITING COO --
-        # `pf_bridge/notes_to_chief/20260902_2038_LANE-GM-ASK-COO-speed-
-        # deferral-drops-the-on-screen-notice.md`]
-        return _Verdict(None, OUTCOME_SPEED_DEFERRED, undo, line_printed=printed)
+    # ---- COO `0646` ITEM 2: THE ONE RUNTIME KEY, READ ONCE ----------
+    # Read HERE, above both holds, and held in a local for the rest of the
+    # route so the two gates below cannot disagree with each other: an
+    # environment that changed between two separate reads (another thread, a
+    # test that patches mid-call) would otherwise be able to produce the one
+    # combination neither gate was designed for -- deferral bypassed while the
+    # shape hold still stands, or the reverse.  One read, one answer, both
+    # gates.
+    #
+    # `stored`, not `value`: the gate admits ONE f32, and the number this
+    # route would actually put on the wire is the store's read-back, not the
+    # typed text.  Arming `PF_SPEED_TRIAL=400.1` therefore admits the row's
+    # `400.1000061035156`, because `speed_wire.trial_opening` rounds the
+    # environment through the SAME f32 trip `persistence_typed_attrs.validate`
+    # rounds the row through -- see that function's own docstring.
+    trial_admitted = _trial_admits(stored)
 
-    # ---- THE SHAPE GT-193 MEASURED -----------------------------------
-    # THE SECOND LOCK, and unreachable today because the first one above is
-    # unconditional -- kept, and kept BELOW the write with it, because the
-    # two answer different questions and the round that lifts one must not
-    # inherit the other by accident (`speed_wire.send_deferred`'s own comment
-    # spells the split: this one is about the BYTES, that one is about
-    # whether the number survives the next login).
+    # ---- THE KEY SKIPS THE HOLDS -- IT DOES NOT LOOSEN THEM ---------
+    # WHY THIS IS A WRAPPER AND NOT A SECOND TERM IN THE TWO CONDITIONS
+    # BELOW, which is what the first draft of this round wrote.  The
+    # deferral's own guard is pinned by
+    # `tests/test_gm_speed_denied_nine_paths.py::_assert_the_deferral_
+    # branch_holds_one_reason` to be ONE call and nothing else, and that
+    # pin is pf-adversary's (round `ha492g`, D6): he wrote the mutant
+    # `if speed_wire.send_deferred() or <anything>:` and measured 276
+    # tests green while a silent refusal wore COO `1847`'s audit word.
+    # Writing `and not trial_admitted` into that line turned the pin red,
+    # correctly -- a reader cannot tell a term that WIDENS a hold from one
+    # that narrows it by looking at the AST, and the pin refuses both
+    # rather than guessing.  So the two holds keep their exact conditions,
+    # their exact audit words and their exact console lines, and the key
+    # decides only whether this route ARRIVES at them.
     #
-    # EVERY send needs a clearance, and the shape's signature is the key --
-    # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is empty today, so every
-    # send is held.  It is NOT "hold only while a section is empty": that was
-    # an earlier round's first draft, and pf-adversary measured what it meant
-    # (D6) -- a lane that filled the section would have shipped a new,
-    # never-measured shape to an attended tester without any clearance at
-    # all.  The shape is measured, not hardcoded, so a future round clears
-    # exactly the shape it measured and no other.  A composer that raises
-    # here is a shape this lane cannot measure, which is not a shape it may
-    # put in front of a tester either: that path holds too, rather than
-    # falling through to the send.
-    #
-    # COMPOSED FROM `stored`, NOT FROM `value`, now that it stands below the
-    # read-back: the shape is measured off the very number the frame beneath
-    # it would carry, which is strictly closer to the shipped frame than the
-    # typed value was.  `declared_empty_sections`' own docstring says the
-    # shape does not depend on the value and pins it with a test; this
-    # ordering no longer has to lean on that pin.
-    try:
-        shape = speed_wire.declared_empty_sections(
-            legacy, identity_lo, identity_hi, stored
-        )
-    except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
-        # `None`, not "an empty section": a shape that could not be measured
-        # is never cleared, whatever the clearance set holds -- nothing here
-        # knows which shape it would have been.
-        shape = None
-    if not speed_wire.shape_cleared(shape):
-        _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
-        return _speed_denied(
-            session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED, undo
-        )
+    # THE GUARD IS DELIBERATELY ONE `not` OVER ONE NAME, for the same
+    # reason: a second reason folded in HERE could only ever make the
+    # holds MORE likely (this branch is the withholding side), so it
+    # cannot hide a silent send -- but it could hide a silent refusal that
+    # never reaches either branch's audit word, so
+    # `tests/test_gm_speed_trial_gate.py` pins its shape too.
+    if not trial_admitted:
+        if speed_wire.send_deferred():
+            _note(session, EVENT_SPEED_DEFERRED)
+            # `line_printed` carries the printer's OWN answer: a console this
+            # line could not reach falls through to `GM_CHAT_NO_BYTES_SENT`
+            # rather than leaving an accepted command silent.
+            # `stored`, not `value`: the read-back is the number the row HOLDS
+            # and the number the next login will resolve, and it is the same
+            # source the composer below would have used.  See the printer's own
+            # "IT NAMES THE ROW IT LEFT BEHIND" paragraph.
+            printed = _print_speed_deferred(
+                session,
+                getattr(session, "token", None),
+                getattr(command, "name", None),
+                stored,
+            )
+            # No notice action, and that is the one thing here this lane decided
+            # rather than was told -- COO `1847` says "refuse AND PRINT" and its
+            # test requirement is "pin that NO BYTES go out on this route", while
+            # COO `0345` had ordered refusals to reach the screen through
+            # `_speed_denied`'s local-talk notice.  Read together, the narrower
+            # reading (zero bytes) is the one that cannot cost an attended round
+            # if it is wrong: the GM loses an on-screen sentence, the console
+            # still says `SPEED DEFERRED`.  The other reading risks the thing the
+            # decision exists to stop.  [ASSUMPTION OF LANE-GM, AWAITING COO --
+            # `pf_bridge/notes_to_chief/20260902_2038_LANE-GM-ASK-COO-speed-
+            # deferral-drops-the-on-screen-notice.md`]
+            return _Verdict(None, OUTCOME_SPEED_DEFERRED, undo, line_printed=printed)
+
+        # ---- THE SHAPE GT-193 MEASURED -----------------------------------
+        # THE SECOND LOCK, and unreachable today because the first one above is
+        # unconditional -- kept, and kept BELOW the write with it, because the
+        # two answer different questions and the round that lifts one must not
+        # inherit the other by accident (`speed_wire.send_deferred`'s own comment
+        # spells the split: this one is about the BYTES, that one is about
+        # whether the number survives the next login).
+        #
+        # EVERY send needs a clearance, and the shape's signature is the key --
+        # `speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT` is empty today, so every
+        # send is held.  It is NOT "hold only while a section is empty": that was
+        # an earlier round's first draft, and pf-adversary measured what it meant
+        # (D6) -- a lane that filled the section would have shipped a new,
+        # never-measured shape to an attended tester without any clearance at
+        # all.  The shape is measured, not hardcoded, so a future round clears
+        # exactly the shape it measured and no other.  A composer that raises
+        # here is a shape this lane cannot measure, which is not a shape it may
+        # put in front of a tester either: that path holds too, rather than
+        # falling through to the send.
+        #
+        # COMPOSED FROM `stored`, NOT FROM `value`, now that it stands below the
+        # read-back: the shape is measured off the very number the frame beneath
+        # it would carry, which is strictly closer to the shipped frame than the
+        # typed value was.  `declared_empty_sections`' own docstring says the
+        # shape does not depend on the value and pins it with a test; this
+        # ordering no longer has to lean on that pin.
+        try:
+            shape = speed_wire.declared_empty_sections(
+                legacy, identity_lo, identity_hi, stored
+            )
+        except Exception:  # noqa: BLE001 - unmeasurable shape == held shape
+            # `None`, not "an empty section": a shape that could not be measured
+            # is never cleared, whatever the clearance set holds -- nothing here
+            # knows which shape it would have been.
+            shape = None
+        if not speed_wire.shape_cleared(shape):
+            _note(session, EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED)
+            return _speed_denied(
+                session, legacy, OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED, undo
+            )
 
     try:
         pc, frame = speed_wire.compose_sparse_speed_update(
@@ -4081,6 +4234,22 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             undo,
         )
 
+    # ---- THE ONE PLACE A `/speed` FRAME LEAVES THIS ROUTE ------------
+    # If the runtime key is what got it here, say so -- on the console and in
+    # the event trail -- BELOW the compose.  A line that said `sending=` above
+    # a composer that then refused would be the console lying about bytes,
+    # which is the exact failure `_print_speed_deferred`'s own round was
+    # opened to fix.  Both are skipped entirely when the trial admitted
+    # nothing, so a future round that opens the two locks properly gets this
+    # route back with no trial noise on it.
+    if trial_admitted:
+        _note(session, EVENT_SPEED_TRIAL_ADMITTED)
+        _print_speed_trial_open(
+            session,
+            getattr(session, "token", None),
+            getattr(command, "name", None),
+            stored,
+        )
     return _Verdict(
         (SPEED_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED, undo
     )

@@ -176,8 +176,23 @@ class _Case(unittest.TestCase):
     GM_ACCOUNT = "GM_ONE"
     PLAYER_ACCOUNT = "DECKHAND"
 
+    def _restore_trial_env(self):
+        """Put `PF_SPEED_TRIAL` back exactly as it was, absent included."""
+        if self._trial_saved is None:
+            os.environ.pop("PF_SPEED_TRIAL", None)
+        else:
+            os.environ["PF_SPEED_TRIAL"] = self._trial_saved
+
     def setUp(self):
         gm_dispatch.reset_rate_limit_state_for_tests()
+        # COO `0646` item 2's runtime gate is a THIRD way past the two locks
+        # this file's `setUp` patches open below, and it reads the process
+        # environment rather than a module constant.  Removed for the
+        # duration so nothing here depends on the shell `pytest` was started
+        # from; the gate has its own file
+        # (`tests/test_gm_speed_trial_gate.py`).
+        self._trial_saved = os.environ.pop("PF_SPEED_TRIAL", None)
+        self.addCleanup(self._restore_trial_env)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)

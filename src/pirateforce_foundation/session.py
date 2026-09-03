@@ -5,6 +5,7 @@ import threading
 
 from . import bag_admission
 from . import login_speed
+from . import persistence_login_vitals as login_vitals
 from . import player_wire
 from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
@@ -217,6 +218,65 @@ class FoundationSession:
                 selected = replace(selected, movement_speed=resolved.value)
             except TypeError:
                 pass
+        # THE LOGIN-VITALS SEAM, AND IT IS ONE CALL POINT (COO-DECISION
+        # 20260903_0447 and 0647).  A second `resolve_for_character` in this
+        # method would not just cost a read: that function WRITES on the
+        # dead-row branch, so two resolves of one login are two revives.
+        # `tests/test_persistence_login_vitals.py::TheOneLoginSeamTests`
+        # grades this shape from the other side -- both doors called, the
+        # return value kept, the resolver called at most once.
+        #
+        # THE FALLBACKS ARE CONSOLE-ONLY, AND THE FIRST DRAFT OF THIS COMMENT
+        # CLAIMED A MECHANISM THAT DOES NOT EXIST (`pf-adversary` defect D2).
+        # It said the constants here are why an unreadable row composes the
+        # frame `main` composes -- they are not.  A fallback value can never
+        # reach the wire: every reason that carries one is outside
+        # `WIRE_TAKES_THE_ROWS_NUMBERS`, so `wire_kwargs()` is `{}`, the apply
+        # returns the character untouched, and `start_game` sees three `None`s
+        # and uses the COMPOSER'S OWN SIGNATURE DEFAULTS.  What these three
+        # constants actually decide is the numbers printed on the console when
+        # the row could not be used -- which is worth getting right (a login
+        # that prints numbers it did not send is a lie an operator acts on)
+        # but is not why the frame is unchanged.  Measured: drifting all three
+        # to 99/1/7 left 140 tests green and put `level=99 hp=1/7` on the
+        # console of a login that sent 1/100/100.
+        #
+        # The two lookups are `getattr` for the reason the speed seam above
+        # spells out at length: a missing `store` or `id` must arrive as
+        # ROW_COULD_NOT_BE_READ, not as an `AttributeError` runtime.py's
+        # START_GAME_REQ handler does not catch.
+        vitals = login_vitals.resolve_for_character(
+            getattr(self.lifecycle, "store", None),
+            getattr(selected, "id", None),
+            fallback_level=player_wire.PLAYER_LOGIN_LEVEL,
+            fallback_hp_current=player_wire.PLAYER_LOGIN_HP_CURRENT,
+            fallback_hp_max=player_wire.PLAYER_LOGIN_HP_MAX,
+        )
+        # PRINTED AFTER THE APPLY, AND THE LINE ASKS THE CHARACTER WHETHER IT
+        # CARRIES THE ROW (COO-DECISION 20260903_0647 point 2).  Printing the
+        # resolution alone BEFORE the apply -- which is what the speed seam
+        # above does -- puts `from_row level=7 hp=37/250` on the console of a
+        # login whose frame then carries the composer's literals, and it is
+        # loudest exactly when the seam is most broken.
+        #
+        # ONE NAME, NOT TWO, AND THAT IS THE REPAIR OF `pf-adversary` DEFECT
+        # D1.  The first draft kept the pre-apply object beside the post-apply
+        # one and had the console compare them; hoisting the rebinding above
+        # the print then made both arguments the same object and printed the
+        # loud REFUSED token on every CORRECT login, with 140 tests green.
+        # `console_line_after_apply` now reads the three fields off the
+        # character it is given -- the same three `legacy_bridge.start_game`
+        # reads to build the frame -- so there is no earlier object to get
+        # wrong.  It never raises and always returns a str; the wrapper is for
+        # a closed or broken stderr, same as the print above it.
+        selected = login_vitals.apply_to_character(selected, vitals)
+        try:
+            print(
+                login_vitals.console_line_after_apply(vitals, selected),
+                file=sys.stderr,
+            )
+        except Exception:
+            pass
         self.selected = selected
         self.backpack = backpack
         return self.selected, self.projector.start_game(

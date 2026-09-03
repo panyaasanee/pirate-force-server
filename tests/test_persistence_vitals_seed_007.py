@@ -632,10 +632,15 @@ class WireEqualityTests(_MigratedWorkspace):
             encode_field(self.legacy, BY_X[x], composed[x])
             for x in (vitals.LEVEL_X, vitals.HP_CURRENT_X, vitals.HP_MAX_X)
         )
+        # NAMED `from_player_wire` AND NOW ACTUALLY FROM `player_wire`.  The
+        # HP pair here was two hand-typed `100`s under that name, which was
+        # already a fourth spelling of the number and became a false one the
+        # moment the login-vitals seam turned the composer's literals into
+        # parameters (`pf-adversary` defect D5, round `mgyoob`).
         from_player_wire = (
             self.legacy.u16tag(0x12, player_wire.PLAYER_LOGIN_LEVEL)
-            + self.legacy.u32tag(0x14, 100)
-            + self.legacy.u32tag(0x14, 100)
+            + self.legacy.u32tag(0x14, player_wire.PLAYER_LOGIN_HP_CURRENT)
+            + self.legacy.u32tag(0x14, player_wire.PLAYER_LOGIN_HP_MAX)
         )
         self.assertEqual(from_database, from_player_wire)
 
@@ -680,7 +685,32 @@ class WireEqualityTests(_MigratedWorkspace):
         start = source.index("def _make_actor_attr_with_name_and_class")
         body = source[start:source.index("\ndef ", start + 1)]
         self.assertIn("legacy.u16tag(0x12, level)", body)
-        self.assertEqual(body.count("legacy.u32tag(0x14, 100)"), 2, body)
+        # !! THE HP PAIR IS NO LONGER WRITTEN DOWN IN THAT BODY, AND READING
+        # IT AS A LITERAL WAS THE TRAP THIS FILE HAD LEFT FOR ITS OWN LANE.
+        # `COO-DECISION 20260903_0647` landed the login-vitals seam, which
+        # turned the two inline `u32tag(0x14, 100)` calls into two keyword
+        # PARAMETERS -- exactly the change this lane's own CORE-REQUEST asked
+        # for -- so a `body.count(...) == 2` would have failed the round that
+        # did what it asked.  What the migration's provenance claim actually
+        # needs is that the composer still EMITS the seeded numbers when
+        # nobody hands it others, and that is now read off the signature's
+        # defaults (derived, never copied: a default that drifts moves this
+        # assertion with it) and by the emission naming those parameters.
+        # 🔴 NO FRAME IS COMPOSED HERE, and an earlier draft of this comment
+        # said one was (`pf-adversary` defect D5).  The neighbour at
+        # `test_those_bytes_really_are_the_ones_the_login_frame_carries` does
+        # compose one -- with the DEFAULTS, so its two HP tags are identical
+        # and it cannot tell the pair apart either.  Which of the two
+        # `u32tag(0x14, ...)` is `hp_current` is not settled by anything in
+        # this file, and round `mgyoob` raised it as an open question rather
+        # than letting two wire-layer assertions agreeing pass for proof.
+        import inspect
+        defaults = inspect.signature(
+            player_wire._make_actor_attr_with_name_and_class).parameters
+        self.assertEqual(defaults["hp_current"].default, SEEDED["hp_current"])
+        self.assertEqual(defaults["hp_max"].default, SEEDED["hp_max"])
+        self.assertIn("legacy.u32tag(0x14, hp_current)", body)
+        self.assertIn("legacy.u32tag(0x14, hp_max)", body)
         self.assertEqual(player_wire.PLAYER_LOGIN_LEVEL, SEEDED["level"])
         self.assertEqual(SEEDED["hp_current"], 100)
         self.assertEqual(SEEDED["hp_max"], 100)

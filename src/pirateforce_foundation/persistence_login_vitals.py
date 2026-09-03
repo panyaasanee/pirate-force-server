@@ -951,3 +951,149 @@ def _apply_to_character(character, resolved):
     if not agreed:
         return character
     return carried
+
+
+#: What `console_line_after_apply` appends when the resolution offered the
+#: row's numbers and the character came back UNCHANGED.  Upper case for the
+#: reason `LOUD_REASONS` is: this is the one combination where the rest of the
+#: line is telling the operator something the wire will not do, so it has to
+#: be greppable by a single word.
+APPLY_REFUSED = "apply=REFUSED"
+
+#: The row's numbers were offered AND the character took them.
+APPLY_CARRIED = "apply=carried"
+
+#: Nothing was offered -- `wire_kwargs()` was `{}`, which is every reason
+#: whose numbers are the caller's own literals already.  NOT a refusal: the
+#: reason token beside it has already said why, and calling it one would put
+#: the word REFUSED on the console of a login that behaved exactly as `main`
+#: behaves and had nothing to refuse.
+APPLY_NOT_OFFERED = "apply=not_offered"
+
+#: The shape of `resolved` or of the two characters could not be read at all.
+#: Distinct from a refusal on purpose: a refusal is a measurement, this is the
+#: absence of one.
+APPLY_UNREADABLE = "apply=unreadable"
+
+
+def console_line_after_apply(resolved, character) -> str:
+    """One ASCII line: the resolution, and WHETHER THE CHARACTER CARRIES IT.
+
+    `COO-DECISION 20260903_0647` point 2, which is the first of the two
+    repairs `20260903_0520` point 3.3 offered for a defect measured on the
+    copy: `console_line()` printed BEFORE the apply announces
+    `LOGIN_VITALS from_row level=7 hp=37/250` on a login whose wire then
+    carries the composer's literals, and there is no login on which that line
+    is more confidently wrong -- it is loudest exactly when the seam is most
+    broken.  Printing it after is not enough by itself, because the same
+    sentence comes out either way; the line has to be able to SAY the apply
+    was refused, so this function is what the seam prints instead.
+
+    !! IT ASKS THE CHARACTER, NOT THE CALLER, AND THE FIRST DRAFT DID NOT.
+    That draft took the object before the apply and the object after it and
+    compared them by IDENTITY: two different objects meant "carried".  A
+    `pf-adversary` pass measured what that buys (defect D1): the token fired
+    on a DELTA rather than on the GOAL, so it said `apply=carried` for an
+    object carrying `99/1/2`, and for `None`.  Worse, it was satisfiable by
+    the single most natural refactor of the seam -- hoisting `selected =
+    carried` above the print, which makes both arguments the same object --
+    and that mutant then printed the loud `apply=REFUSED` on EVERY CORRECT
+    LOGIN while 140 tests stayed green.  A token an operator was told to grep
+    for, firing on the healthy case.  So the question this function asks is
+    now the one the wire will ask: does the object hand back the three
+    numbers `wire_kwargs()` offered?  There is no "before" to get wrong.
+
+    THE FOUR TOKENS ARE FOUR DIFFERENT EVENTS, and collapsing any two of them
+    is how a console stops being evidence:
+
+    * `apply=carried` -- the row's numbers were offered and the object
+      answers with them.  This is the only token under which the login frame
+      may differ from `main`'s, and `legacy_bridge.start_game` reads the same
+      three attributes to decide the same thing.
+    * `apply=REFUSED` -- the row's numbers were offered and the object does
+      NOT answer with them, so the wire carries the composer's literals while
+      the reason beside it names the row: the one line an operator has to be
+      able to grep for.
+      !! ON TODAY'S `model.Character` THIS TOKEN IS UNREACHABLE FROM ANY REAL
+      ROW, and saying so is the honest form of the guard (`pf-adversary`
+      defect D6): the model is a frozen dataclass of three plain `int | None`
+      fields with no `__post_init__`, so `apply_to_character` has no refusal
+      left to take once `wire_kwargs()` is non-empty.  It becomes reachable
+      the day the model grows a clamp or loses a field -- which is the day
+      the console has to say so rather than stay quiet.
+    * `apply=not_offered` -- `wire_kwargs()` was `{}`, so there was nothing to
+      carry and nothing was refused.  Ordinary on every login whose row could
+      not be read, which is the behaviour that preceded this whole seam.
+    * `apply=unreadable` -- `resolved` or the character could not be
+      inspected at all.  Named rather than folded into the refusal above,
+      because "measured, and it did not land" and "could not be measured" are
+      not the same finding.
+
+    IT NEVER RAISES AND IT ALWAYS RETURNS A STRING, and the SECOND draft is
+    what makes that true.  The first one evaluated its three f-strings
+    OUTSIDE any `try` (`pf-adversary` defect D4): a `resolved` whose
+    `console_line()` returns a `str` SUBCLASS passes the `isinstance` check
+    and then raises from the format, and `session.py` catches it and prints
+    NOTHING -- contradicting this paragraph two lines below itself.  Every
+    line is now built inside a handler.  It matters because this runs on the
+    login path, after the row has been read and the character built, so an
+    exception here would fail a login that had otherwise succeeded, from the
+    least defensible layer in this module to fail from.
+
+    THE LINES ARE BUILT BY CONCATENATION AND NOT BY f-STRINGS, and that is the
+    repair rather than the handler around it: `"!! " + base` dispatches to
+    `str.__add__` on the PLAIN left operand, which accepts a `str` subclass
+    and returns a plain `str` without ever calling the subclass's own
+    `__format__` or `__add__`.  An f-string calls `__format__`.  Measured both
+    ways -- a subclass whose `__format__` raises kills the f-string version
+    and is invisible to this one.  A first repair also passed `base` through
+    `str()`; it was removed after a mutation run showed nothing could tell
+    the difference, because a guard no test can distinguish is a guard that
+    is really a comment.
+    """
+    try:
+        base = resolved.console_line()
+        if not isinstance(base, str):
+            raise TypeError("console_line did not return a str")
+    except Exception:   # noqa: BLE001 -- a login outranks a foreign object
+        base = _CONSOLE_PREFIX + " line_unavailable"
+    try:
+        offered = resolved.wire_kwargs()
+        if not isinstance(offered, dict):
+            raise TypeError("wire_kwargs did not return a dict")
+    except Exception:   # noqa: BLE001 -- same
+        return _ascii_line("!! " + base + " " + APPLY_UNREADABLE)
+    if not offered:
+        return _ascii_line(base + " " + APPLY_NOT_OFFERED)
+    try:
+        # THE THREE NAMES ARE SPELLED OUT rather than looped over
+        # `CHARACTER_FIELDS`, for the reason `_apply_to_character` gives at
+        # length: `tests/test_persistence_vitals_heal.py::NothingIsWiredTests`
+        # forbids this module from asking for any attribute by a COMPUTED
+        # name, because the call map that proves no unauthorised healing door
+        # is reached cannot see through one.
+        answered = (character.level, character.hp_current, character.hp_max)
+        wanted = (offered["level"], offered["hp_current"], offered["hp_max"])
+        carried = answered == wanted
+        if not isinstance(carried, bool):
+            raise TypeError("comparison did not answer a bool")
+    except Exception:   # noqa: BLE001 -- an object that will not be read
+        return _ascii_line("!! " + base + " " + APPLY_UNREADABLE)
+    if not carried:
+        return _ascii_line("!! " + base + " " + APPLY_REFUSED)
+    return _ascii_line(base + " " + APPLY_CARRIED)
+
+
+def _ascii_line(line: str) -> str:
+    """The same cp874 filter `ResolvedLoginVitals.console_line` applies.
+
+    Applied again over the finished line rather than trusted from the part
+    that already filtered: the tokens this module appends are ASCII by
+    construction, but `base` can be a fallback built from a foreign object's
+    `console_line`, and the bridge console dies on one character outside its
+    page (`AGENTS.md`, the round-86 lesson).
+    """
+    try:
+        return "".join(c if 32 <= ord(c) < 127 else "?" for c in line)
+    except Exception:   # noqa: BLE001 -- a str subclass whose iteration raises
+        return f"{_CONSOLE_PREFIX} line_unavailable {APPLY_UNREADABLE}"
