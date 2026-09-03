@@ -26,7 +26,12 @@ reference_adhoc_probe/adhoc_attr_probe.py`, a fork the owner ran live for
 266 commands / 2h20m in one connection, no crash) into this lane, with three
 hard conditions: (a) always send the FULL block, never a sparse delta
 (the client's ActorAttr apply is a bulk copy of the incoming object, not a
-merge -- v141 note on 0x464F30); (b) real DB persistence across relog; (c)
+merge -- v141 note on 0x464F30, independently confirmed 2026-09-03 by static
+RE with the exact same address named: `pf_bridge/notes_to_chief/consumed/
+20260903_2149_RE-222-RESULT-PARTIAL-updateattr-and-name-color-gates.md` Q0
+traces the full-copy apply to `ActorAttr::full copy [0x00464F30,0x004652AC)`
+and its constructors, SHA-pinned; `gm/speed_wire.py`'s own RE-222 comment
+block carries the detail); (b) real DB persistence across relog; (c)
 normal audit/gate/test discipline. This lane's own round `w8hnu9`-successor
 found condition (a) impossible with the only wired encoder that existed
 then (`stats_progression_hypothesis.encode_actor_attr`, 23/47 fields), so

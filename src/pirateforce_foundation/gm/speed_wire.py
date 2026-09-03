@@ -252,6 +252,71 @@ def compose_sparse_speed_update(
 # `20260902_1841_LANE-GM-ASK-COO-hold-the-speed-shape-that-locked-a-client.md`.
 SPARSE_SHAPE_MEASURED_BY = "GT-193 attended round R303 2026-09-02"
 
+# ---------------------------------------------------------------------------
+# RE-222 (2026-09-03, `pf_bridge/notes_to_chief/20260903_2149_RE-222-RESULT-
+# PARTIAL-updateattr-and-name-color-gates.md`, static-only, SHA-pinned):
+# THE "LANE-RE'S WORK" ASKED FOR ABOVE HAS A PARTIAL ANSWER NOW.
+# ---------------------------------------------------------------------------
+# Two of the three open questions the "WHY A HOLD AND NOT A FIX" comment
+# above named are answered, from the client image directly rather than from
+# a client's reaction:
+#
+#   * The container is NOT malformed.  RE-222 Q0 decodes the exact 30-byte
+#     nested `ActorAttr` body this door's GT-218 send carried (a DIFFERENT
+#     attended send than GT-193's, `/speed 400` not `/speed 300`, same
+#     shape) byte-for-byte against the disassembled generic reader at
+#     `[0x00463DE0,0x00463FA2)`: tag/length framing is structurally valid,
+#     `0x12AD` is the `checksum("ActorAttr") & 0xFFFF` crosswalk (not a
+#     tag-order error), and the `0x0040` bit this module sets is a BasicAttr
+#     presence-mask bit, exactly where `attr_wire.FIELDS[6]` says it is.  So
+#     "whether a body with the section omitted is even parseable" is
+#     answered: it parses; that was never the failure.
+#   * "Whether the client treats a zero ActorAttr mask as change-nothing or
+#     zero-everything" is answered too, and the answer is neither reading:
+#     the apply path at `ActorAttr::full copy [0x00464F30,0x004652AC)`
+#     overwrites the WHOLE resident object -- inherited BasicAttr AND every
+#     ActorAttr member -- from a freshly constructed incoming object,
+#     unconditionally, regardless of which presence-mask bits that incoming
+#     object set. The fresh object's own constructors
+#     (`[0x00464A80,0x00464B3D)` for BasicAttr, `[0x00464BE0,0x00464E39)`
+#     for ActorAttr) zero HP/MP and cash BEFORE the wire decode ever touches
+#     them, so any field this door's send does not carry is not "left
+#     unchanged" and not "zeroed by the client's parser" either -- it is
+#     copied from a constructor default that was already zero.  This is the
+#     SAME full-copy-not-merge mechanism `attr_wire.py`'s own module
+#     docstring has cited since R281 as "a read of the v141 client apply
+#     routine at 0x464F30" -- RE-222 is that citation upgraded from an
+#     unverified note to an independently-derived, SHA-pinned static result
+#     naming the exact same address.
+#
+# WHAT IS STILL NOT ANSWERED, AND WHY THIS DOES NOT REOPEN ANYTHING.  RE-222
+# is static-only (its own nonclaims section says so): no game/server boot,
+# no client-observable measurement, no byte sent.  It cannot and does not
+# clear a shape -- `SHAPES_CLEARED_BY_A_REAL_CLIENT` above is the only thing
+# that can, and only an attended round can add to it.  It also does not
+# supply the "both sections carrying the character's real current values"
+# baseline this comment block already named as the missing piece: RE-222
+# decoded what one sparse send looked like, it did not answer where a
+# COMPLETE current BasicAttr/ActorAttr snapshot -- HP/MP current+max, cash,
+# and every other `known=True` row `attr_wire.FIELDS` lists -- would come
+# from at the point a chat command dispatches.  `attr_wire.py`'s own
+# CORE-REQUEST-GM-044 already answered NEGATIVE on the one candidate source
+# this lane had found (`characters.actor_wire` is a `CreateActorDataEx`
+# BLOB, i.e. `AvatarAttr`, not this DBAttribute collection --
+# `pf_bridge/notes_to_chief/consumed/20260831_1810_CHIEF-REPLY-GM-044-
+# actor-wire-blob-is-AvatarAttr-not-ActorAttr-BasicAttr-does-not-match.md`),
+# so a safe full-object `/speed` send still needs either a live runtime-side
+# reader for the character's current named-field values (a
+# CORE-REQUEST-shaped ask this lane has not filed yet, because nothing has
+# asked this lane to build that door) or a separately-proved merge-capable
+# server-side operation neither this lane nor RE-222 has found evidence of.
+# Both locks below (`SPEED_LOGIN_READ_LANDED`, `SHAPES_CLEARED_BY_A_REAL_
+# CLIENT`) are UNCHANGED by this section -- nothing here is a green light.
+RE_222_STATIC_CONFIRMATION = (
+    "pf_bridge/notes_to_chief/consumed/20260903_2149_RE-222-RESULT-PARTIAL-"
+    "updateattr-and-name-color-gates.md"
+)
+
 SECTION_BASIC_ATTR = "basic_attr"
 SECTION_ACTOR_ATTR = "actor_attr"
 
