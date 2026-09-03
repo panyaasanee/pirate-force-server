@@ -28,11 +28,15 @@ importing a sibling test module.
 WHAT IS PROVEN HERE, AND AT WHICH RUNG
 --------------------------------------
 WIRE ONLY.  Every assertion below is about BYTES this server composes and
-hands back to `runtime.py`'s serve loop.  NOTHING here claims a human saw the
-words: no server-composed 0xAC52 line has ever been observed on a screen on a
-default boot (`gm/say_wire.py`'s own corrected comment says so), and `GT-193`
-step 10 -- the step this decision asks LANE-GM to add once this is on main --
-is the first attempt.  The length is twelve because twelve is the only body
+hands back to `runtime.py`'s serve loop.  NOTHING here claims a human saw
+THESE words.  ~~"no server-composed 0xAC52 line has ever been observed on a
+screen on a default boot ... and `GT-193` step 10 ... is the first
+attempt."~~ STRUCK, same correction and same date as `gm/say_wire.py`'s own
+block: attended round R303 rendered `[thua pai] : BACK REFUSED` -- a
+DIFFERENT notice through the same composer -- on the owner's screen, so the
+sentence is expired for the channel.  It buys this file nothing: R303 graded
+no wire/DB rung, and `TYPO REFUSED` itself has still never been on a screen.
+The length is twelve because twelve is the only body
 length anybody has watched render on this channel (GT-006/GT-009), not
 because twelve is tidy.
 """
