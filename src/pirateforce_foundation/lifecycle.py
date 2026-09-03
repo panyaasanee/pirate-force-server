@@ -2,7 +2,91 @@ from .actor_wire import bind_actor_and_avatar_identity, read_name
 from .model import Position
 from .world_scene_travel import is_position_persist_allowed, load_scene_registry
 import hashlib
+import sys
 import unicodedata
+
+
+def _say(line: str) -> None:
+    """One ASCII console line, and never this login's or create's exception.
+
+    Same wrapper discipline every other print on a request path in this
+    package uses (`session.py`): a closed or broken stderr must not become
+    the caller's error.  ASCII only, because the bridge console is cp874.
+    """
+    try:
+        print(line, file=sys.stderr)
+    except Exception:
+        pass
+
+
+def persist_class_id_from_starting_gear(store, character) -> int | None:
+    """Write the class the player picked onto the row she just created.
+
+    CORE-REQUEST of `pf_bridge/notes_to_chief/20260904_0423_LANE-DB-CORE-
+    REQUEST-class-id-resolver-built-needs-two-hookups.md` point 2.2, granted
+    to this file by `COO-DECISION 20260904_0446` points 1-2.  This is THE ONE
+    caller Rule 14.13(d) is lifted for (`tests/test_world_avatar_attr.py::
+    ...::test_no_module_outside_this_file_mentions_this_module` names this
+    file and only this file); a second caller is still red there.
+
+    WHAT IT DOES.  Decode the AvatarAttr body the store just stored, read the
+    three starting-gear slots, and ask `persistence_class_id.resolve_class_id`
+    which of the five committed `CHARCREATE_CLASS` presets they are.  A class
+    id comes back only on an exact, unambiguous match; `None` -- no match, a
+    body missing one of the three slots, a body that will not decode -- writes
+    NOTHING and leaves the column NULL, which is the fail-closed answer
+    `COO-DECISION 20260901_1059` requires: "unknown" is a named gap, never a
+    guess.  Nothing here can write a class id that was not read verbatim off a
+    sourced table row.
+
+    WHY IT NEVER RAISES.  It runs AFTER `store.create_character` returned, so
+    the character row and its position and backpack rows are committed and
+    visible.  Raising from here would report "character creation failed" to a
+    client whose character exists -- the client would then be looking at a
+    list containing the character it was just told it could not have.  So the
+    only outcomes are: the column is written, or it stays NULL and the console
+    says which reason.  The exception's TYPE is printed, never its text: a
+    message can carry a character name, and a non-ASCII byte on the bridge's
+    cp874 console kills the tool that is reading it.
+
+    Returns the class id written, or None.
+    """
+    from . import persistence_class_id
+    from . import world_avatar_attr
+
+    character_id = getattr(character, "id", None)
+    try:
+        body = world_avatar_attr.decode_avatar_attr(
+            getattr(character, "avatar_wire", None)
+        )
+        resolved = persistence_class_id.resolve_class_id(
+            body.named("n_DRESS_CHEST"),
+            body.named("n_DRESS_LEGGINGS"),
+            body.named("n_SLOT_RHAND"),
+        )
+    except Exception as error:
+        _say(
+            f"CHARACTER_CLASS_ID cid={character_id} not_written "
+            f"reason=avatar_body_unreadable ({type(error).__name__})"
+        )
+        return None
+    if resolved is None:
+        _say(
+            f"CHARACTER_CLASS_ID cid={character_id} not_written "
+            "reason=starting_gear_matches_no_single_preset"
+        )
+        return None
+    try:
+        store.write_typed_attributes(character_id, {"class_id": resolved})
+    except Exception as error:
+        _say(
+            f"CHARACTER_CLASS_ID cid={character_id} not_written "
+            f"reason=write_refused ({type(error).__name__})"
+        )
+        return None
+    _say(f"CHARACTER_CLASS_ID cid={character_id} written class_id={resolved}")
+    return resolved
+
 
 class CharacterLifecycle:
     def __init__(self, store, default_position: Position, avatar_extractor=None):
@@ -55,10 +139,21 @@ class CharacterLifecycle:
             )
             return wire, avatar_wire, lo, hi
 
-        return self.store.create_character(
+        character = self.store.create_character(
             account_id, normalized, name_key, fingerprint, build,
             self.default_position,
         )
+        # The class she picked is resolved and stored HERE, after the row
+        # exists, and not inside `store.create_character`: that method is
+        # LANE-DB's and runs one `BEGIN IMMEDIATE` transaction from its first
+        # statement to its last, so a second writer inside it would be a
+        # nested write on a locked row.  By the time this line runs, on EVERY
+        # return path of that method (the fresh INSERT and the
+        # create-fingerprint retry alike), the transaction is closed and the
+        # row is readable.  The retry path re-resolving the same body to the
+        # same class id is idempotent, not a second birth.
+        persist_class_id_from_starting_gear(self.store, character)
+        return character
 
     def select(self, session_id: str, selector: int):
         return self.store.select_character(session_id, selector)

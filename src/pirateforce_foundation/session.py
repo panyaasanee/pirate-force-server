@@ -11,6 +11,55 @@ from .inventory import (
     HYPOTHESIZED_V111_SLOT2_BACKPACK,
 )
 
+
+def _class_id_on_the_row(store, character_id):
+    """The row's stored `class_id`, or None -- and it never raises.
+
+    `COO-DECISION 20260904_0446` point 3 and `COO-DECISION 20260903_1943`
+    point 3: a login must not fail because this column could not be read.
+    Every reason it cannot be read -- no store, no character id, a character
+    soft-deleted between select and here (`KeyError`), a database whose typed
+    columns are missing (`SchemaDriftError`), a stub store in another lane's
+    test that has no such method (`AttributeError`) -- lands on the same
+    answer as a NULL column: None, meaning "the composer's own constant".
+    That matters beyond tidiness: `runtime.py`'s START_GAME_REQ handler
+    catches KeyError, PermissionError, ValueError and RuntimeError only, and
+    v141 wraps the per-connection loop in try/finally with no except at all,
+    so anything else escaping here parks the client on "connecting" forever.
+
+    `read_typed_attributes` is LANE-DB's own read method and returns only the
+    columns that are NOT NULL, so a `.get` is the whole contract: a character
+    created before this seam existed has no key and stays on the constant.
+    """
+    if store is None or character_id is None:
+        return None
+    try:
+        return store.read_typed_attributes(character_id).get("class_id")
+    except Exception:
+        return None
+
+
+def _class_id_console_line(character) -> str:
+    """One ASCII line, read off the character the frame will be built from.
+
+    It asks the CHARACTER, not the resolution, for the same reason
+    `login_vitals.console_line_after_apply` does (`COO-DECISION 20260903_0647`
+    point 2): printing the read instead of the applied value puts
+    `from_row class_id=4` on the console of a login whose frame then carries
+    the composer's literal, and it is loudest exactly when the seam is
+    broken.  Never raises, always returns a str.
+    """
+    try:
+        value = getattr(character, "class_id", None)
+    except Exception:
+        value = None
+    if value is None:
+        return (
+            "LOGIN_CLASS_ID fallback class_id="
+            f"{player_wire.PLAYER_LOGIN_CLASS_ID} reason=row_has_no_class_id"
+        )
+    return f"LOGIN_CLASS_ID from_row class_id={value}"
+
 class FoundationSession:
     def __init__(
         self, lifecycle, projector, login_name: str, *,
@@ -275,6 +324,34 @@ class FoundationSession:
                 login_vitals.console_line_after_apply(vitals, selected),
                 file=sys.stderr,
             )
+        except Exception:
+            pass
+        # THE CLASS SHE PICKED, from the row, once per login (CORE-REQUEST of
+        # `pf_bridge/notes_to_chief/20260904_0423` point 2.2, granted by
+        # `COO-DECISION 20260904_0446` point 3).  Same three moves as the two
+        # seams above: read without ever raising, rebind onto the character so
+        # every `start_game` recompose composes it too, then say on the
+        # console what the character now carries.
+        #
+        # THE PRINT IS HERE AND NOT IN `legacy_bridge.start_game` on purpose:
+        # that function runs up to four times per production login, so a line
+        # printed there would repeat a per-login fact four times and make a
+        # fallback look like four failures.  This is the one place a login
+        # passes through exactly once.
+        class_id = _class_id_on_the_row(
+            getattr(self.lifecycle, "store", None), getattr(selected, "id", None),
+        )
+        if class_id is not None:
+            # `replace` needs a dataclass; a stub `selected` in another lane's
+            # test raises TypeError, and falling back to the unmodified object
+            # gives that caller main's behaviour instead of a crash -- the
+            # same guard the speed seam above uses.
+            try:
+                selected = replace(selected, class_id=class_id)
+            except TypeError:
+                pass
+        try:
+            print(_class_id_console_line(selected), file=sys.stderr)
         except Exception:
             pass
         self.selected = selected

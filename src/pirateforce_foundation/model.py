@@ -65,3 +65,24 @@ class Character:
     level: int | None = None
     hp_current: int | None = None
     hp_max: int | None = None
+
+    # The class the player picked at character creation, read off the row's
+    # `class_id` typed column, or None for "the composer's own constant"
+    # (`player_wire.PLAYER_LOGIN_CLASS_ID`).  CORE-REQUEST of
+    # `pf_bridge/notes_to_chief/20260904_0423`, granted by `COO-DECISION
+    # 20260904_0446` point 3.
+    #
+    # IT RIDES THE CHARACTER for the same measured reason the speed and the
+    # three vitals above do, and it is the only shape that survives:
+    # `legacy_bridge.start_game` is called up to three more times per
+    # production login by `runtime.py` (the faction probe on every flagless
+    # login, the scene-override resync, the pinned-identity probe), each with
+    # the SAME selected character object.  A class id threaded as an argument
+    # into the login call only is a class id the very next recompose puts
+    # back to 1 -- green in a unit test, gone from the frame the client keeps.
+    #
+    # `store._character` does not read it (that method is LANE-DB's), so a
+    # character loaded straight from the database arrives here as None and
+    # composes exactly what `main` composes today; `session.py` is the only
+    # place that fills it in, from the row's typed attributes.
+    class_id: int | None = None
