@@ -35,6 +35,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -239,6 +240,120 @@ class MobAiTickGateWiringTests(unittest.TestCase):
         line = self._live_lines(out)[0]
         self.assertEqual(line, line.encode("ascii", "strict").decode("ascii"))
 
+    # ----- what the console tokens above CANNOT see ---------------------
+    #
+    # ADDED AFTER A pf-adversary PASS ON THE FIRST DRAFT OF THIS FILE
+    # (round `gjyxt5`).  That draft had seven cards and the reviewer got
+    # FIVE mutants of the call site past all of them AND past the whole
+    # 8,808-test suite: discarding the register the tick returns, moving
+    # the call inside the once-per-session latch, passing the origin
+    # instead of the player's position, passing identity 1, and -- the
+    # worst -- ``or True`` after the gate, which reads the owner's kill
+    # switch and then ignores it.  Console tokens cannot see any of that:
+    # they prove the branch was ENTERED.  These cards watch the call.
+
+    def _spy_on_the_tick(self):
+        """Record every ``maybe_tick`` call the dispatcher makes, and let
+        the real one run.  Patches the attribute runtime.py reads
+        (``lane_b_mob_ai_tick.maybe_tick``), so a call site that stopped
+        going through this module would show up as zero calls."""
+        calls = []
+        real = lane_b_mob_ai_tick.maybe_tick
+
+        def spy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real(*args, **kwargs)
+
+        patch = mock.patch.object(lane_b_mob_ai_tick, "maybe_tick", spy)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return calls
+
+    def test_a_closed_gate_stands_the_tick_down(self):
+        # THE KILL SWITCH, MEASURED AS A REFUSAL AND NOT AS A FLAG READ.
+        # COO-DECISION 20260829_0041 option (b) is "the call site reads
+        # the flag BEFORE it calls" -- the whole point being that an owner
+        # who closes a lane stops its code from running on a live server.
+        # Nothing in the tree proved this call site obeys the answer it
+        # asks for: ``or True`` after the gate passed every other card
+        # here while the tick kept firing on every frame.  This is the
+        # same shape tests/test_lane_scene_census_wiring.py's
+        # test_a_closed_module_stands_down_to_the_not_home_skip already
+        # has for the census point, and the file this one borrows its
+        # boot from is where the omission showed.
+        calls = self._spy_on_the_tick()
+        previous = lane_hooks._PRODUCTION_ALLOWED[lane_b_mob_ai_tick.MODULE_NAME]
+        lane_hooks._PRODUCTION_ALLOWED[lane_b_mob_ai_tick.MODULE_NAME] = False
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.__setitem__,
+            lane_b_mob_ai_tick.MODULE_NAME, previous,
+        )
+        state = self._booted("mob_ai_tick_closed")
+        out, err = self._step(state)
+        self.assertEqual(
+            calls, [],
+            "the tick ran while its module was NOT production_allowed: the "
+            "call site asked the gate and then ignored the answer, so the "
+            "owner's switch no longer stops this lane",
+        )
+        self.assertEqual(self._live_lines(out), [])
+        self.assertNotIn(lane_b_mob_ai_tick.MODULE_NAME, err)
+
+    def test_the_tick_runs_on_every_frame_not_once_per_session(self):
+        # The console line is latched on purpose; the TICK must not be.
+        # Moving the call inside that latch leaves every token check in
+        # this file green (the line still prints once, the token still
+        # fires once) while the decision loop runs for one frame of the
+        # session and never again.
+        calls = self._spy_on_the_tick()
+        state = self._booted("mob_ai_tick_every_frame")
+        self._step(state)
+        self._step(state, xyz=(12.0, 23.0, 34.0))
+        self._step(state, xyz=(13.0, 24.0, 35.0))
+        self.assertEqual(
+            len(calls), 3,
+            "the tick did not run on every TargetPos frame: a player who "
+            "keeps walking must keep being ticked",
+        )
+
+    def test_the_register_the_tick_returns_is_the_one_the_session_keeps(self):
+        # ``maybe_tick`` is pure: it RETURNS the advanced register instead
+        # of mutating one.  A call site that drops the return value ticks
+        # for ever and accumulates nothing, and every console token still
+        # fires.  The sentinel makes the assignment, not the call, the
+        # thing being measured.
+        sentinel = object()
+        state = self._booted("mob_ai_tick_stored")
+        with mock.patch.object(
+                lane_b_mob_ai_tick, "maybe_tick",
+                lambda *a, **k: (sentinel, ())):
+            self._step(state)
+        self.assertIs(
+            state.mob_ai_register, sentinel,
+            "the register the tick returned was discarded: the session "
+            "kept the one it had, so nothing the AI decides survives the "
+            "frame it decided it in",
+        )
+
+    def test_the_tick_is_told_this_players_identity_and_position(self):
+        # The arguments, derived from the state and the frame rather than
+        # typed here.  Passing the origin, or an identity no player has,
+        # leaves the mobs looking at a phantom -- and leaves every
+        # console token in this file green, because the branch still ran.
+        calls = self._spy_on_the_tick()
+        state = self._booted("mob_ai_tick_arguments")
+        selected = state.foundation.selected
+        expected_identity = (
+            (selected.identity_hi & 0xFFFFFFFF) << 32
+            | (selected.identity_lo & 0xFFFFFFFF)
+        )
+        self._step(state, xyz=(101.0, 202.0, 303.0))
+        self.assertEqual(len(calls), 1)
+        args, _kwargs = calls[0]
+        _register, _ledger, performer, position = args[:4]
+        self.assertEqual(performer, expected_identity)
+        self.assertEqual(position, (101.0, 202.0, 303.0))
+
     # ----- the call site itself -----------------------------------------
 
     def test_the_call_site_reads_the_module_constant_not_a_string(self):
@@ -292,6 +407,20 @@ class MobAiTickGateWiringTests(unittest.TestCase):
             lane_hooks.module_production_allowed(
                 "lane_hooks.lane_b_mob_ai_tick"),
             False,
+        )
+        # AND THE HALF THE COMMENT AT THE CALL SITE USED TO OVERSTATE
+        # (pf-adversary, same round): MODULE_NAME is itself a hand-typed
+        # literal in the lane's file.  Reading it off the module makes
+        # ONE spelling authoritative instead of two, which is a real
+        # improvement, but it is not rename-proof by itself -- a rename
+        # that misses that literal moves the same hole one file over.
+        # This is what actually closes it, and it is why the card must
+        # not be deleted as redundant with the behaviour cards above.
+        self.assertEqual(
+            lane_b_mob_ai_tick.MODULE_NAME, lane_b_mob_ai_tick.__name__,
+            "the lane's MODULE_NAME no longer matches its own module "
+            "path: the gate will answer False for a name nobody owns "
+            "again, silently, exactly as it did before this round",
         )
 
 

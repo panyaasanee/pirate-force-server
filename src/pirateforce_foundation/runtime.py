@@ -5908,7 +5908,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # answer must be indistinguishable from the typo), so the
                 # repair belongs here, at the caller that spelled it, and
                 # NOT in the resolver.  Reading MODULE_NAME off the module
-                # itself is why a rename cannot re-open this hole.
+                # leaves ONE authoritative spelling instead of two -- it is
+                # not rename-proof on its own, since MODULE_NAME is itself
+                # a literal in that file (pf-adversary, same round); what
+                # closes the hole is the card in
+                # tests/test_mob_ai_tick_gate_wiring.py pinning
+                # MODULE_NAME == that module's own __name__.
                 selected = self.foundation.selected
                 performer = (
                     (selected.identity_hi & 0xFFFFFFFF) << 32
