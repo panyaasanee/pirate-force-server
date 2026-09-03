@@ -29,11 +29,19 @@ it.  What this lane owns is the composed line; the wiring is one statement
 the chief swaps in, and it is written down in a file git can see rather than
 in a pull-request body a checkout cannot read:
 ``pf_bridge/notes_to_chief/20260903_1505_LANE-A-CORE-REQUEST-CHIEF-wire-the-
-refusal-notice-at-runtime-8028.md``.  Until that swap happens NOTHING IN
+refusal-notice-at-runtime-8028.md``.  ~~Until that swap happens NOTHING IN
 THIS FILE REACHES A CONSOLE -- read that as the plain status of the file,
 not as a promise about tomorrow, and note that no test in this repository
-can go red on the day the wiring is forgotten.  That gap is the
-CORE-REQUEST's whole purpose.
+can go red on the day the wiring is forgotten.~~  BOTH SENTENCES ARE FALSE
+AT HEAD and are struck rather than deleted because they were the reason the
+CORE-REQUEST existed (pf-adversary D7, round ``gs8hmn``).  chief landed the
+swap: ``runtime.py:8462`` calls ``refusal_console_line`` on the real login
+refusal path, and ``tests/test_scene_refusal_notice_wiring.py::
+TheConsoleNamesTheLoginItRefusedTests`` drives a refusal through the real
+dispatcher and reads the character id back off stdout, so it goes red the
+day the wiring is removed.  THIS FILE IS ON THE PRODUCTION CONSOLE PATH.
+A reader who takes the struck sentences at face value would conclude the
+module is inert and its output shape is free to change; it is not.
 
 SCOPE, SET BY ``COO-DECISION 20260903_1249`` POINT 4 AND NOT WIDENED HERE.
 The order is "make the refusal observable (a console line, and a reason that
@@ -123,8 +131,76 @@ CONSOLE_TOKEN = "WORLD_SCENE_ENTRY_REFUSED"
 NAME_LIMIT = 32
 
 # Longest refusal message this line will print.  Same argument as NAME_LIMIT.
-# The messages ``world_scene_entry`` raises today are well under it.
+# The messages ``world_scene_entry`` raises today are well under it -- but
+# ``scene_not_pinned``'s message embeds ``repr(row.scene_id)`` and a caught
+# ``KeyError``, neither of which this module sizes, so a cut here is
+# reachable.  It is therefore REPORTED (``refused_message_len`` /
+# ``refused_message_exact``) instead of being left to look like the whole
+# message, which is the same discipline the name half has carried since
+# round ``od1xso``.
 MESSAGE_LIMIT = 240
+
+# Longest refusal reason the leading bracket will print.  ITS OWN NUMBER,
+# which is the whole point: this used to be ``NAME_LIMIT``, a constant sized
+# for a CHARACTER NAME, so a fifth refusal reason of 33 characters would
+# have been cut by a cap that has nothing to do with reasons (chief's report
+# ``20260903_1605`` item 5; COO-DECISION ``20260903_1746`` item 4 handed
+# this lane the numbers in this file).  64 is twice the longest reason the
+# vocabulary has ever carried (``scene_not_allowed_at_login``, 26) and
+# ``tests/test_scene_refusal_notice_wiring.py`` goes red the day a reason
+# outgrows it -- red BEFORE the greps go quiet, which is the property that
+# matters.
+#
+# WHY THIS IS A FIXED NUMBER AND NOT ONE DERIVED FROM ``REFUSAL_REASONS``.
+# The first draft of this round computed it as
+# ``max(NAME_LIMIT, *map(len, REFUSAL_REASONS))`` at import.  pf-adversary
+# refuted that in three separate ways and every one of them is a defect this
+# file already knows how to name:
+#   * A ceiling computed from the data it bounds is not a ceiling.  A
+#     vocabulary carrying a 430-character reason simply RAISED the cap to
+#     430 and printed a 958-character console line -- the exact outcome
+#     ``NAME_LIMIT``'s own comment forbids ("a line that scrolls the reason
+#     off the top of a cp874 terminal is a line that hid the thing it exists
+#     to show").  The derivation removed the only bound the field had.
+#   * ``REASON_TRUNCATED`` became dead code by construction: no member of
+#     the vocabulary present at import can exceed a cap computed from that
+#     vocabulary at import, so the loud branch could never fire in a real
+#     process.
+#   * It ran untrusted iteration at IMPORT time behind ``except
+#     Exception``.  A vocabulary whose ``__iter__`` raised ``SystemExit`` or
+#     ``KeyboardInterrupt`` stopped this module from loading at all -- and
+#     ``runtime.py`` imports it to compose the only account of a refused
+#     login there is.  Measured, not predicted: two fresh subprocesses,
+#     ``IMPORT FAILED``.
+# The threat this cap answers is an HONEST fifth reason that is too long
+# (chief's report), not a hostile vocabulary; a hostile vocabulary is a
+# defect in the source file that defines the words, and the sanitising below
+# is what this module owes it.  A fixed number answers the first threat
+# completely and leaves the second bounded.
+REASON_LIMIT = 64
+
+# What the leading bracket prints INSTEAD OF A PREFIX if a refusal reason
+# ever exceeds ``REASON_LIMIT``.  A cut reason is the one truncation in this
+# line that is actively dangerous: ``TOKEN [reason]`` leads the line,
+# ``GAME_TEST_QUEUE.md:6678`` and ``tests/test_lane_a_scene_census.py:1013``
+# grep it as one contiguous string, and a prefix of a real reason still
+# READS like a real reason to a human scanning a console.  A word that is
+# not in the vocabulary at all cannot be misread as one.
+REASON_TRUNCATED = "reason_truncated"
+
+# What the bracket prints instead of a reason that could FORGE A BRACKET.
+# pf-adversary D2, second input, and it needs no truncation at all: the
+# 28-character reason ``scene_not_allowed_at_login]x`` is under every cap,
+# is sanitised to itself (``]`` is 0x5D, inside the printable range this
+# file keeps), and composes
+# ``WORLD_SCENE_ENTRY_REFUSED [scene_not_allowed_at_login]x]`` -- which
+# CONTAINS the contiguous string ``tests/test_lane_a_scene_census.py:1013``
+# and ``GAME_TEST_QUEUE.md:6678`` pin, so a refusal that is not
+# ``scene_not_allowed_at_login`` satisfies both readers and reads as that
+# reason to a human.  A prefix was never the only way to lie in this field;
+# a SUPERSTRING is the other, and it predates this round.  A reason carrying
+# a bracket of its own is refused by name rather than printed.
+REASON_MALFORMED = "reason_malformed"
 
 # What is printed where a field could not be read at all.  ``none`` and not
 # ``unknown``: this lane already prints ``none`` for the same condition in
@@ -243,22 +319,52 @@ def _reason_of(error: object) -> str:
     # string another module chose.  pf-adversary added a reason containing
     # a newline to ``REFUSAL_REASONS`` and this function emitted TWO console
     # lines with the whole suite green.  "Derived" is not "trusted".
-    printable, _length, _exact = _ascii_token(reason, NAME_LIMIT)
+    printable, length, _exact = _ascii_token(reason, REASON_LIMIT)
+    if length > REASON_LIMIT:
+        # Every field in this file reports what it was handed; this is the
+        # one field where reporting a TRUNCATED value would be reporting a
+        # DIFFERENT refusal, because the bracket leads the line and two
+        # readers grep it contiguously.  Reachable the day the vocabulary
+        # grows a reason past the cap -- the wiring test goes red first, and
+        # this is what the console does if it did not.
+        return REASON_TRUNCATED
+    if "[" in printable or "]" in printable:
+        # See ``REASON_MALFORMED``.  Checked on the SANITISED text, not on
+        # the raw value: the sanitiser is what decides which characters
+        # reach the console, so anything it lets through is what has to be
+        # judged here.
+        return REASON_MALFORMED
     return printable
 
 
-def _message_of(error: object) -> str:
-    """``str(error)`` flattened to one printable ASCII line."""
+def _message_token(error: object) -> tuple[str, object, bool]:
+    """``str(error)`` flattened to one printable ASCII line, plus its size.
+
+    The length and the exactness flag are returned rather than dropped: the
+    message is the only field on this line whose length this module does not
+    control (see ``MESSAGE_LIMIT``), so a reader who cannot tell 240
+    characters of message from 240 characters of a longer one has been shown
+    a cut and told it was the whole thing.
+
+    THE TWO PLACEHOLDER CASES REPORT DIFFERENT THINGS, AND THE FIRST DRAFT
+    OF THIS ROUND REPORTED THEM THE SAME (pf-adversary D5).  Both returned
+    ``0, False``, which under this line's own documented meaning reads "the
+    thirteen characters you can see are a CUT of a zero-character message"
+    -- a sentence that is false twice.
+    * An EMPTY message was measured, and its length really is 0 and really
+      is exact.  ``message_empty`` is a name for nothing, not a cut of it.
+    * An UNREADABLE message was never measured at all, so its length is
+      ``UNKNOWN`` and not ``0``.  Printing a plausible number for a value
+      that was never read is the one thing every other helper in this file
+      refuses to do (``not_an_int``, ``reason_absent``, ``none``).
+    """
     try:
         text = str(error)
     except Exception:  # noqa: BLE001 - see the module docstring
-        return "message_unreadable"
+        return "message_unreadable", None, False
     if not text:
-        return "message_empty"
-    printable, _length, _exact = _ascii_token(
-        text, MESSAGE_LIMIT, keep_spaces=True
-    )
-    return printable
+        return "message_empty", 0, True
+    return _ascii_token(text, MESSAGE_LIMIT, keep_spaces=True)
 
 
 def refusal_report(
@@ -295,10 +401,13 @@ def refusal_report(
         reply = "unreported"
     else:
         reply = _int_token(reply_frames)
+    message_token, message_length, message_exact = _message_token(error)
     return {
         "token": CONSOLE_TOKEN,
         "reason": _reason_of(error),
-        "message": _message_of(error),
+        "message": message_token,
+        "message_length": message_length,
+        "message_exact": message_exact,
         "character_id": _int_token(_safe_getattr(character, "id")),
         "account_id": _int_token(_safe_getattr(character, "account_id")),
         "selector": _int_token(_safe_getattr(character, "selector")),
@@ -326,6 +435,11 @@ _FIELDS = (
     ("reply_frames", "reply_frames"),
 )
 
+# Report keys whose value is a flag, printed ``yes``/``no`` rather than
+# ``True``/``False``: the rest of this lane's console lines spell booleans
+# that way, and an earlier draft special-cased exactly one of them by name.
+_FLAG_KEYS = ("name_exact",)
+
 
 def refusal_console_line(
     error: object,
@@ -337,11 +451,28 @@ def refusal_console_line(
 
     Shape (one line, no newline, 7-bit ASCII)::
 
-        WORLD_SCENE_ENTRY_REFUSED [scene_not_pinned] refused_character_id=7
-        refused_account_id=3 refused_selector=0 refused_name=Blackbeard
-        refused_name_len=10 refused_name_exact=yes refused_row_scene_id=278
-        refused_row_scene_seq=0 reply_frames=0
-        refusal_message=[scene_not_pinned] stored row names scene 278, ...
+        WORLD_SCENE_ENTRY_REFUSED [scene_has_no_pinned_spawn]
+        refused_character_id=7 refused_account_id=3 refused_selector=0
+        refused_name=Blackbeard refused_name_len=10 refused_name_exact=yes
+        refused_row_scene_id=278 refused_row_scene_seq=0 reply_frames=0
+        refused_message_len=117 refused_message_exact=yes
+        refusal_message=[scene_has_no_pinned_spawn] scene 278 is pinned but
+        has no spawn position - measure one before sending a player there
+
+    THAT EXAMPLE IS COPIED FROM A LINE THIS MODULE ACTUALLY COMPOSED, and
+    the round that added the two size fields first wrote one it had invented
+    -- ``refused_message_len=71`` under a ``[scene_not_pinned]`` message
+    whose shortest possible instance is 128 characters, beside a scene id
+    that does not refuse at all at HEAD (pf-adversary D6).  The one worked
+    example a reader uses to learn what a new field means is the last place
+    to put a number nobody can reproduce.
+
+    ``refused_message_exact=no`` says the text after ``refusal_message=`` is
+    a CUT of a ``refused_message_len``-character message (or carries a
+    substituted character), so a reader never has to guess whether a message
+    that ends mid-sentence ended that way at the source.
+    ``refused_message_len=none`` says the message was never readable, which
+    is not the same as a message of length 0 -- see ``_message_token``.
 
     WHY THE FREE TEXT IS LAST, WHICH IS THE WHOLE PARSING CONTRACT.  The
     refusal message is the only field this module does not control: it is
@@ -387,9 +518,9 @@ def refusal_console_line(
     except BaseException:  # noqa: BLE001 - see the docstring
         reason = "reason_unreadable"
     try:
-        message = _message_of(error)
+        message, message_length, message_exact = _message_token(error)
     except BaseException:  # noqa: BLE001 - see the docstring
-        message = "message_unreadable"
+        message, message_length, message_exact = "message_unreadable", None, False
     try:
         report = refusal_report(error, character, row, reply_frames)
     except BaseException:  # noqa: BLE001 - the subject half failed; the
@@ -401,8 +532,26 @@ def refusal_console_line(
     else:
         for field, key in _FIELDS:
             value = report[key]
-            if key == "name_exact":
+            if key in _FLAG_KEYS:
                 value = "yes" if value else "no"
             parts.append(f"{field}={value}")
+    # OUTSIDE THE `report is None` BRANCH ON PURPOSE (pf-adversary D3).  The
+    # message and its size are composed from the error alone, above, so they
+    # survive a subject half that failed -- and if they were emitted from
+    # `report` they would VANISH on the degraded path, leaving the free text
+    # to supply the FIRST occurrence of `refused_message_len=` and
+    # `refused_message_exact=`.  That is precisely the forgery this line's
+    # ordering contract exists to prevent, reopened by the branch that is
+    # supposed to be its safety net: measured, a hostile row printed
+    # `refused_message_len=9` while this module held the true value 139.
+    # Every field a parser trusts precedes `refusal_message=` ON EVERY PATH,
+    # or the contract in the docstring below is not a contract.
+    parts.append(
+        "refused_message_len="
+        + (UNKNOWN if message_length is None else str(message_length))
+    )
+    parts.append(
+        "refused_message_exact=" + ("yes" if message_exact else "no")
+    )
     parts.append(f"refusal_message={message}")
     return " ".join(parts)

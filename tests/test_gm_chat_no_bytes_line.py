@@ -650,9 +650,232 @@ class TheStagedWarpTests(_Case):
         self.assertEqual(len(said), 1, err)
         self.assertIn("scene_id=278 ", said[0])
         self.assertIn("coordinates=none ", said[0])
-        self.assertIn("log out and log back in", said[0])
+        # ~~`assertIn("log out and log back in", said[0])`~~ -- struck by
+        # `COO-DECISION 20260903_2050` item 2.  The relog fact survives in
+        # substance (the tail still names it) but it no longer arrives
+        # without the REASON no bytes went out, which is what the owner read
+        # as "nothing happened".
+        #
+        # THE SENTENCE IS SPELLED OUT HERE, not fetched from the function
+        # that built the line (pf-adversary, round `spt6fv`, D5, MEASURED).
+        # The first version of this assertion compared `staged_next_step(...)`
+        # against a line built BY `staged_next_step`, so mutants that made the
+        # words say the OPPOSITE of the truth -- "this scene HAS a confirmed
+        # spawn point", "the next login for this account is unaffected" --
+        # passed the entire suite.  A literal is the only thing that can tell
+        # the intended sentence from whatever the code happens to emit.
+        self.assertIn(
+            "next='this scene has no confirmed spawn point, so no teleport"
+            " could be sent; the next login for this account is staged to"
+            " start in it'",
+            said[0],
+        )
+        # The withdrawn sentence must not come back anywhere on this line.
+        self.assertNotIn("log out and log back in", err)
         # It is NOT the no-bytes token: an effect is on disk.
         self.assertEqual(self.lines(err, TOKEN), [], err)
+
+    def test_a_markerless_stage_says_why_no_frame_could_be_sent(self):
+        # `COO-DECISION 20260903_2050` item 1 held the markerless scenes shut
+        # (R306 measured a coordinates-bearing warp frame CLOSING the client),
+        # so the reason is the only thing this lane may add here -- and it is
+        # the half the struck sentence never carried.  Pinned on its own, as a
+        # literal, so a future rewording of either tail cannot quietly drop
+        # the reason and leave the line back where `PANYA-DECISION 1800`
+        # found it.
+        _, err = self.act("/warp 278")
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            "this scene has no confirmed spawn point, so no teleport could"
+            " be sent",
+            said[0],
+        )
+
+    def test_a_same_scene_stage_does_not_recommend_a_pointless_relog(self):
+        # THE MUTANT THIS TEST KILLS is the single-sentence printer: hardcode
+        # the cross-scene tail (or restore the struck sentence) and a GM
+        # standing in markerless scene 278 who types `/warp 278` is told her
+        # NEXT LOGIN will start in it -- true, useless, and, while the logout
+        # buttons are still refused (UI-A/UI-B), the most expensive no-op this
+        # console can recommend.  `COO-DECISION 20260903_2050` item 2 is
+        # exactly this shape.
+        _, err = self.act("/warp 278", session=self.session(
+            position=FakePosition(scene_id=278)
+        ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            "next='this scene has no confirmed spawn point, so no teleport"
+            " could be sent; you are standing in it already, so a relog would"
+            " change nothing'",
+            said[0],
+        )
+        self.assertNotIn("is staged to start in it", said[0])
+        self.assertNotIn("log out and log back in", err)
+
+    def test_the_same_scene_claim_names_the_belief_it_rests_on(self):
+        # pf-adversary, round `spt6fv`, D2, MEASURED on the real dispatcher:
+        # `runtime.py`'s `_gm_warp_resync_selected_scene` rewrites
+        # `selected.position.scene_id` to a cross-scene warp's DESTINATION at
+        # queue time with nothing from the client confirming the arrival, so
+        # "you are standing in it already" can be the server's belief rather
+        # than a fact -- and this line, unlike its
+        # `GM_CHAT_SAME_SCENE_TELEPORT_SENT` sibling, made the STRONGER claim
+        # with no basis label at all.  Drop the field and this goes red.
+        _, err = self.act("/warp 278", session=self.session(
+            position=FakePosition(scene_id=278)
+        ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("basis=server_believed_scene ", said[0])
+
+    def test_a_coordinates_warp_is_never_blamed_on_a_missing_marker(self):
+        # THE DEFECT THIS TEST PINS shipped in this round's first commit
+        # (pf-adversary, round `spt6fv`, D1, MEASURED).  The reason was
+        # derived from `warp_no_coords_live_target(scene)` -- a fact about
+        # what the DESTINATION lacks -- and printed in the grammar of "why did
+        # THIS COMMAND send nothing".  Those come apart the moment x/y are
+        # typed: with `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down,
+        # `/warp 997 100 200` from scene 5 stages and was told scene 997 has
+        # no confirmed spawn point -- yet the SAME command with the flag up
+        # sends a real 73-byte TeleportVital, because a coordinates-bearing
+        # warp never needed the marker.  The operator would have gone hunting
+        # a spawn point for 997 and nothing would have changed.
+        #
+        # Scene 997 rather than 278 on purpose: 278 refuses this command for
+        # an unrelated ground-extent reason, which is what let the first
+        # version of this pair look correct while asserting a falsehood.
+        self.assertIsNone(warp_executor.warp_no_coords_live_target(997))
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            _, err = self.act("/warp 997 100 200", session=self.session(
+                position=FakePosition(scene_id=5)
+            ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            "the live teleport route for this scene is shut, so no teleport"
+            " could be sent",
+            said[0],
+        )
+        self.assertNotIn("no confirmed spawn point", said[0])
+        self.assertIn("coordinates=ignored ", said[0])
+
+    def test_a_marker_backed_scene_is_not_told_it_has_no_spawn_point(self):
+        # The same defect from the other side: with the flag down, a
+        # MARKER-BACKED scene stages too, and blaming a missing spawn point
+        # would send an operator hunting a marker already in the registry.
+        self.assertIsNotNone(
+            warp_executor.warp_no_coords_live_target(2),
+            "scene 2 must be marker-backed for this test to mean anything",
+        )
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            _, err = self.act("/warp 2 100 200", session=self.session(
+                position=FakePosition(scene_id=5)
+            ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            "the live teleport route for this scene is shut, so no teleport"
+            " could be sent",
+            said[0],
+        )
+        self.assertNotIn("no confirmed spawn point", said[0])
+
+    def test_a_bare_warp_into_a_markerless_scene_still_blames_the_spawn(self):
+        # The half that keeps the fix from being "always print the shut-route
+        # reason".  A BARE `/warp 278` with the flag down is the one shape
+        # where both blockers are true at once, and the marker is the durable
+        # one: the flag is a kill switch a decision can lift in an afternoon,
+        # while `GT-182` nonclaim 4 has held these scenes shut since it was
+        # written.
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
+            _, err = self.act("/warp 278", session=self.session(
+                position=FakePosition(scene_id=5)
+            ))
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn(
+            "this scene has no confirmed spawn point, so no teleport could"
+            " be sent",
+            said[0],
+        )
+
+    def test_an_unreadable_registry_does_not_take_the_command_off_the_console(self):
+        # pf-adversary, round `spt6fv`, D3, MEASURED.  The first commit asked
+        # `warp_no_coords_live_target` a SECOND time, inside `_stage_action`'s
+        # argument list, to build a console sentence.  That function catches
+        # only `KeyError`/`ValueError` while `world_scene_travel.destination`
+        # re-reads the registry from disk on every call, so an `OSError` there
+        # escaped `_warp_action` and an ACCEPTED command vanished with no
+        # console line at all -- in the module whose founding property is that
+        # it never does that.  A diagnostic may never alter dispatch.
+        with mock.patch.object(
+            chat_command_action,
+            "warp_no_coords_live_target",
+            side_effect=OSError("registry unreadable"),
+        ):
+            action, err = self.act("/warp 278")
+        self.assertIsNone(action)
+        said = self.lines(err, self.STAGED)
+        self.assertEqual(len(said), 1, err)
+        # ...and it says the one thing that is actually known, rather than
+        # guessing which of the other two blockers applied.
+        self.assertIn(
+            "this scene's spawn point could not be read, so no teleport"
+            " could be sent",
+            said[0],
+        )
+
+    def test_the_printer_defaults_are_the_shipped_shape(self):
+        # THE MUTANT THIS TEST KILLS is a flip of `_print_staged_way_out`'s
+        # own default arguments (pf-adversary, round `spt6fv`, N6/N7, which
+        # SURVIVED the first fix).  It survived honestly: the one dispatch
+        # call site passes both arguments explicitly, so no input through the
+        # dispatcher can reach the defaults, and the docstring's claim that
+        # they are "the shipped shape" was unfalsifiable.  It is a direct call
+        # for that reason -- the contract is real (a future call site that
+        # forgets an argument must understate rather than invent), and an
+        # unreachable contract is exactly the kind this file has been bitten
+        # by before.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            chat_command_action._print_staged_way_out(
+                self.session(),
+                self.GM_ACCOUNT,
+                gm_commands.GmCommand("warp", ("278",), "/warp 278"),
+                chat_command_action.OUTCOME_STAGED_LOGIN_SCENE,
+            )
+        printed = err.getvalue()
+        self.assertIn(
+            "next='this scene has no confirmed spawn point, so no teleport"
+            " could be sent; the next login for this account is staged to"
+            " start in it'",
+            printed,
+        )
+
+    def test_every_blocker_sentence_ends_in_the_six_words_a_tester_greps(self):
+        # The property an attended tester navigates by: ONE grep finds every
+        # staged shape whichever blocker is named, and the clause in front of
+        # those six words is the one to act on.  Derived from the shipped
+        # tuple rather than from a list retyped here, so a fourth blocker
+        # added later cannot skip the property by being forgotten.
+        self.assertEqual(
+            len(chat_command_action.STAGED_BLOCKER_REASONS),
+            len(set(chat_command_action.STAGED_BLOCKER_REASONS)),
+        )
+        for reason in chat_command_action.STAGED_BLOCKER_REASONS:
+            with self.subTest(reason=reason):
+                self.assertTrue(
+                    reason.endswith("no teleport could be sent"), reason
+                )
+
 
     def test_it_says_when_the_typed_coordinates_were_dropped(self):
         # The fact that lived nowhere a human would look.  `ForcePos` cannot
@@ -740,7 +963,16 @@ class TheSameSceneWarpTests(_Case):
         self.assertEqual(
             self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN), [], err
         )
-        self.assertNotIn("log out and log back in", err)
+        # ~~`assertNotIn("log out and log back in", err)`~~ -- the sentence
+        # this pinned against no longer exists anywhere in the module
+        # (`COO-DECISION 20260903_2050` item 2), so asserting its absence
+        # would pass on a module that had lost the staged line entirely.
+        # Pinned against the sentence that REPLACED it instead, which is what
+        # `PANYA-DECISION 1800` forbids for this shape -- as a LITERAL, since
+        # a negative assertion fetched from the module goes vacuous the moment
+        # the constant is emptied or reworded (pf-adversary, round `spt6fv`,
+        # D5).
+        self.assertNotIn("no teleport could be sent", err)
 
     def test_a_cross_scene_bare_warp_does_not_borrow_this_token(self):
         # The token exists to tell the two apart on one console. A cross-scene

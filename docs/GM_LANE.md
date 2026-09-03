@@ -4185,9 +4185,13 @@ scene you named is not one login can enter (+ the list).
 `GM_CHAT_COMMAND_REFUSED` = that is not a command this lane can read (+ the
 usage).  `GM_CHAT_NO_BYTES_SENT` = we read you, we accepted it, and we
 deliberately sent nothing (+ the blocker).  `GM_CHAT_STAGED_NEXT_LOGIN` = we
-read you, we wrote your next-login scene, and here is what you do now
+read you, we wrote your next-login scene, ~~and here is what you do now~~ and
+here is WHY no frame could be sent (which of two blockers), plus whether a
+relog would move you
 (+ whether your coordinates were dropped).  An operator greps one question at
-a time.
+a time.  (The struck half is `COO-DECISION 20260903_2050` item 2: the line led
+with an instruction and never gave the reason -- see the round section at the
+bottom of this file.)
 
 ### What these lines never carry, and why that is the property to guard
 
@@ -8502,3 +8506,121 @@ have shipped invisibly.
 Nothing new reaches her screen. What changed is that `server#667`'s registered-hook audit -- caught
 between two lanes' silent-dead-hook classes in the section above -- can merge, because the one thing
 standing between it and the gate was a stdlib call whose answer depended on which OS ran it.
+
+## Round spt6fv -- the staged line stops leading with an instruction
+
+**What was wrong with it.** `GM_CHAT_STAGED_NEXT_LOGIN` ended in
+`next='log out and log back in to land there; nothing was sent to the client now'`. Panya read
+that line during R307 as "nothing happened" (`PANYA-DECISION 20260903_1800`) and she was right
+about her screen. What the line never said is WHY nothing was sent: the destination is a scene
+with `n_MARKER == 0` (17/126/278/997, `GT-182` nonclaim 4), so no live composer has a spawn point
+to put in a frame there. `PANYA-DECISION 1800`'s remedy -- fire the live teleport instead --
+reached the marker-backed scenes in round `07kjfd`. This lane then reported, in its own letter
+`20260903_2005`, that it had narrowed her order to marker-backed scenes on its own judgement, and
+asked for a ruling.
+
+**What the ruling was.** `COO-DECISION 20260903_2050`: item 1 upholds the narrow reading -- a
+markerless scene must NOT get a frame aimed at an inferred spawn, because R306 measured a
+coordinates-bearing warp frame CLOSING the client (`ErrorData=28317`), so guessing there is
+dangerous and not merely unproven. Item 2 approves changing the WORDS.
+
+**What the words are now.** `staged_next_step` joins one REASON to one TAIL, and both are answers
+this printer is told rather than guesses:
+
+| | tail: a scene she is not in | tail: the scene she is standing in |
+| --- | --- | --- |
+| **no arrival marker** (bare `/warp` into 17/126/278/997) | `...no confirmed spawn point, so no teleport could be sent; the next login for this account is staged to start in it` | `...; you are standing in it already, so a relog would change nothing` |
+| **live route shut** (anything with coordinates; or a marker-backed scene with the flag down) | `the live teleport route for this scene is shut, so no teleport could be sent; ...` | `...; you are standing in it already, so a relog would change nothing` |
+| **spawn unreadable** (the registry read failed) | `this scene's spawn point could not be read, so no teleport could be sent; ...` | `...; you are standing in it already, so a relog would change nothing` |
+
+Every reason ends in the same six words (`no teleport could be sent`), so ONE grep finds every
+staged shape; the clause in front names which blocker to act on, the clause behind says whether
+relogging would move her. The line also carries `basis=server_believed_scene`, the same label its
+`GM_CHAT_SAME_SCENE_TELEPORT_SENT` sibling has carried since round `07kjfd`. The same-scene tail
+exists because the old sentence was worse than merely reasonless there: it recommended paying a
+whole session for a relog that lands her exactly where she already is, while the logout buttons are
+still refused (UI-A/UI-B). No sentence claims a markerless spawn point is unusable -- only that
+nobody has confirmed one, which is the claim this lane's letter made.
+
+**Three blockers, not one, and the second and third are defects this round shipped and then fixed.**
+The first commit of this round (`96fb7f2`) derived the reason from
+`warp_no_coords_live_target(scene)` -- a fact about what the DESTINATION lacks -- and printed it in
+the grammar of "why did THIS COMMAND send nothing". pf-adversary measured where those come apart:
+
+- **D1.** With `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down, `/warp 997 100 200` from scene 5
+  staged and was told scene 997 has no confirmed spawn point -- yet the control on the same input
+  with the flag UP sends a real 73-byte TeleportVital, because a coordinates-bearing warp never
+  needed the marker. The operator would have gone hunting a spawn point for 997, pinned one, and
+  nothing would have changed. `_staged_blocker` now answers "which blocker held THIS COMMAND'S
+  frame", and a coordinates-bearing warp can never be blocked by a missing marker. The test that
+  made this look correct chose scene 278, the one markerless scene where that command is refused
+  for an unrelated ground-extent reason; it now uses 997 and asserts the opposite.
+- **D3.** That reason was computed by asking `warp_no_coords_live_target` a SECOND time, in
+  `_stage_action`'s argument list. It catches only `KeyError`/`ValueError`, while
+  `world_scene_travel.destination` re-reads `scenarios/world_scene_registry_001.json` from disk on
+  every call with no cache. An `OSError` there escaped `_warp_action`, and an ACCEPTED command
+  vanished with **no console line at all** -- in the module whose founding property is that it
+  never does that. The lookup is now done once, in `_no_coords_live_target`, which cannot raise and
+  falls closed to staging; a read that fails gets its own honest reason rather than a guess.
+- **D2.** `you are standing in it already` was asserted as fact from a value this lane had already
+  measured to be a belief. Measured: a client really in scene 1, `/warp 997 100 200` (which
+  resyncs `selected.position.scene_id` to 997 with nothing from the client confirming arrival),
+  then `/warp 997` -- and the line told her not to do the one thing that would have put her there.
+  The line now carries `basis=`, which is what `SAME_SCENE_BASIS_FIELD`'s own comment concluded a
+  round earlier and this round had cited without following.
+- **D5.** The first fix's tests compared the printed line against `staged_next_step(...)` -- the
+  function that built it -- so mutants making the words say the OPPOSITE of the truth passed the
+  whole suite. Every sentence assertion is now a literal.
+- **D6.** The stated reason for carrying `staged_same_scene` (that a print-time re-read would be
+  poisoned by the resync) was false: the resync fires only for actions with a warp label and a
+  staged verdict has `action=None`, so it cannot run inside one command; and an EARLIER live warp
+  poisons `_warp_action`'s own read identically -- which is what `basis=` is for. The struck
+  rationale is left in place with its correction beside it.
+
+**How the two answers reach the printer.** `_warp_action` decides both -- it is the one function
+that knows the current scene and the one that already asked the registry -- and `_Verdict` carries
+them (`staged_same_scene`, `staged_blocker`; a blocker NAME, not a sentence, so rewording never
+reaches the routing). Neither is re-derived at print time, because a second answer to an answered
+question is a second thing to keep in agreement, and because re-asking the registry was D3.
+`staged_same_scene` is a second field rather than a reuse of `same_scene_teleport`, which is about
+a SENT frame on a branch that returns before this one is reached.
+
+**What did not change.** Routing, the frame, the token, the audit outcome words, the ndjson row,
+and which scenes stage. A markerless `/warp` stages exactly the entry it staged yesterday.
+
+**What the tester greps, restated after the fix.** `no teleport could be sent` (the six words every
+reason ends in) finds every staged shape. `STAGED_NO_CONFIRMED_SPAWN_REASON` no longer does -- it
+finds one blocker of three, and the round-one comment claiming otherwise is struck in the source.
+
+**The grep rule, checked rather than assumed.** `AGENTS.md` §7 requires a PR that moves a string a
+ticket greps to fix the grep in the same round; `COO-DECISION 2050` item 2 named `GT-141` as that
+ticket. Measured this round: `GT-141` is `CANCELLED - covered by GT-217` (chief, round `pk14rf`,
+under `PANYA-DECISION 20260903_1934`), and `GAME_TEST_QUEUE.md` carries neither the struck
+sentence nor `GM_CHAT_STAGED_NEXT_LOGIN` anywhere (0 hits for both, and 0 hits for `next='`), so
+no live ticket's grep moved. `CLIENT_RE_QUEUE.md` likewise. The two tests that pinned the struck
+sentence are in this repo and were rewritten with it.
+
+**pf-adversary, recorded as it happened.** It was launched before the first commit as the rules
+require and did not return inside the round window, so `96fb7f2` and `pirate-force-server#681` were
+pushed without an adversary result and the round file said so rather than claiming a pass. It
+returned afterwards with D1-D8 above; D1, D2, D3, D5, D6 and D7 are fixed here, each with a mutant
+measured red first. D4 (a comment claiming the lookup reused the routing's answer when it was a
+second call) is dissolved by the D3 fix -- there is now exactly one call. D8 (the login override
+can still be refused against the boot snapshot, so a staged scene is not a guarantee) is inherited,
+not introduced; the tail says `is staged to start in it` rather than `will start in it` because
+this round was rewriting the words anyway, and the stage-then-refused-at-login pair remains
+uncovered by any test.
+
+### 🔴 NONCLAIM
+
+This round sent no bytes, gave no account GM status, and changed nothing a game client can see.
+It changed one sentence on the SERVER HOST'S stderr. It is not evidence that a markerless scene
+can be warped into, that the pinned spawn of such a scene is walkable, or that `PANYA-DECISION
+1800` is satisfied for those scenes -- item 1 of `COO-DECISION 2050` says the opposite, on purpose.
+No GM command was used to skip any step, because no command was run.
+
+### What the tester can do today that she could not yesterday
+
+Type `/warp 278` and read, on one console line, why no teleport left the server -- instead of an
+instruction to log out with no reason attached. Standing in 278 and typing `/warp 278`, she is now
+told the relog would change nothing, instead of being told to spend a session on it.

@@ -19,6 +19,7 @@ from .inventory import (
     swap_known_item_with_occupied_slot,
 )
 from .model import Character, Position
+from .persistence_ground_drops import GroundDropRow
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -138,6 +139,67 @@ DAMAGE_WRITE_LOCK_REFUSED_TOKEN = "DAMAGE_WRITE_LOCK_REFUSED"
 #: exactly as before this fix -- this only makes the refusal visible
 #: instead of a bare `pass`.
 PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN = "PRAGMA_BUSY_TIMEOUT_REFUSED"
+
+#: Printed to stdout, once per refusal, by `commit_ground_drop` when the
+#: table's own `UNIQUE(scene_fold, drop_key)` constraint (`migrations/
+#: 010_ground_drops.sql`) refuses a write -- two callers minted the same
+#: `drop_key` for the same scene.  `COO-DECISION 20260903_1843` point 4
+#: requires this collision to "fail loudly at the table" rather than one
+#: write silently overwriting or winning over the other; the console line
+#: follows the same shape `DAMAGE_WRITE_LOCK_REFUSED_TOKEN` above already
+#: uses for a different door's refusal, rather than inventing a new one.
+GROUND_DROP_KEY_COLLISION_REFUSED_TOKEN = "GROUND_DROP_KEY_COLLISION_REFUSED"
+
+#: The longest `scene` value `commit_ground_drop`/`list_ground_drops_for_
+#: scene` will accept -- mirrors `mob_loot.SCENE_NAME_MAX`.  Not imported
+#: from `mob_loot` (see `_require_ground_drop_scene` below for why).
+GROUND_DROP_SCENE_MAX = 32
+
+
+def _require_ground_drop_scene(value):
+    """A usable `scene` for the ground-drop door, returned exactly as given.
+
+    pf-adversary (round `orpati`) measured that without this check, two
+    scene spellings that differ only by a non-ASCII character with no
+    plain-ASCII fold equivalent -- the German sharp s (U+00DF) and
+    `"STRASSE"`, both `.casefold()` to `"strasse"` under full Unicode
+    folding -- collide falsely at the
+    table's `UNIQUE(scene_fold, drop_key)` constraint even though they are
+    not the same scene, and the collision-refusal `print()` below crashes
+    with `UnicodeEncodeError` the moment a non-ASCII `scene` reaches it,
+    because this lane's console is cp874.  `migrations/010_ground_drops.
+    sql`'s own comment already claims "every scene value this table ever
+    holds is required ASCII" by `mob_loot._require_scene` -- true only
+    once a LANE-B call site that constructs through `mob_loot.GroundDrop`
+    exists (`COO-DECISION 20260903_1844`, not built as of this round); it
+    was not true at THIS function's own boundary, which any direct caller
+    (a test, a future admin tool) reaches without going through
+    `mob_loot` at all.
+
+    This duplicates `mob_loot._require_scene`'s checks rather than
+    importing it, for the same lane-boundary reason `commit_ground_drop`'s
+    docstring already gives for not importing `mob_loot`: the checks below
+    are this table's OWN floor (ASCII-safe printing, fold-safe
+    comparison), not a repeat of `mob_loot`'s domain rules (the f32-grid
+    check, the drop-key lane-block range, the known-item check), which
+    stay LANE-B's alone.
+    """
+    if type(value) is not str or not value:
+        raise ValueError("scene must be a non-empty str")
+    if len(value) > GROUND_DROP_SCENE_MAX:
+        raise ValueError(
+            "scene is %d characters; the ceiling is %d"
+            % (len(value), GROUND_DROP_SCENE_MAX)
+        )
+    if not value.isascii():
+        raise ValueError(
+            "scene must be ASCII; the console this lane prints to is cp874"
+        )
+    if any(character.isspace() for character in value):
+        raise ValueError("scene must not carry whitespace, got %r" % value)
+    if not value.isprintable():
+        raise ValueError("scene must be printable, got %r" % value)
+    return value
 
 #: Process-wide count of refusals noted through `PRAGMA_BUSY_TIMEOUT_REFUSED_
 #: TOKEN` above, incremented by `_note_pragma_busy_timeout_refused` -- so a
@@ -2195,6 +2257,161 @@ class SQLiteStore:
             # command handler is how one bad `/speed` kills the listener
             # thread.  `KeyboardInterrupt` and `SystemExit` are not caught.
             return None
+
+    def commit_ground_drop(
+        self,
+        scene: str,
+        drop_key: int,
+        item_id: int,
+        quantity: int,
+        x: float,
+        y: float,
+        z: float,
+        mob_identity: int,
+        killer_identity: int,
+    ) -> GroundDropRow:
+        """Persist one dropped item on the ground, and read it straight back.
+
+        Round `5d02mu`, `COO-DECISION 20260903_1843`.  This is the write
+        half of the ground-drop door: `migrations/010_ground_drops.sql`
+        gives the bare table, this method is the only thing in the
+        codebase that puts a row in it, and `list_ground_drops_for_scene`
+        below is the read half.  THE SCOPE IS EXACTLY "WRITE, THEN READ IT
+        BACK" -- `COO-DECISION 20260903_1843` point 5, echoing letter
+        `20260903_1740` question (c)-3 -- nothing here deletes a row,
+        expires one, or decides what "still on the ground" means once a
+        pickup exists; that is a later round's question.
+
+        NOT SESSION-OWNED, ON PURPOSE.  Unlike `commit_acquired_backpack_
+        item`, this method takes no `sid` and checks no session ownership:
+        a ground drop is world state for a SCENE, not a character's own
+        row, and `mob_loot.GroundDrop` (the in-memory object this table's
+        columns mirror) carries no session or account field either.
+
+        WHO VALIDATES WHAT.  This lane's charter (`COO-DECISION
+        20260901_1100`) keeps `mob_loot.py` -- and the `GroundDrop`
+        construction checks it already runs (the f32-grid check on `x`/`y`/
+        `z`, the drop-key lane-block range, the known-item check) --
+        entirely LANE-B's.  This method does not import `mob_loot` and does
+        not repeat those checks; the guards below are the table's OWN
+        floor, the same shape `save_position` uses for its own columns
+        (`math.isfinite`, explicit range checks) rather than a copy of
+        another lane's rules.
+
+        THE COLLISION IS THE POINT.  `ground_drops` carries `UNIQUE(scene_
+        fold, drop_key)` (see the migration for why the folded column and
+        not the raw one).  Two callers minting the same `drop_key` for the
+        same scene is refused here as a `ValueError`, loudly -- printing
+        `GROUND_DROP_KEY_COLLISION_REFUSED_TOKEN` first, the same shape
+        `_begin_immediate_for_damage` already uses for a different door's
+        refusal -- rather than the second write silently overwriting the
+        first or the two merging.  `COO-DECISION 20260903_1843` point 4 is
+        explicit that the server-wide `drop_key` issuer needed to make this
+        never happen in practice is LANE-B's, not built as of this round
+        (`20260903_1844`); this door's job is only to make a collision loud
+        if one ever reaches it, not to prevent one from being minted.
+        """
+        scene = _require_ground_drop_scene(scene)
+        if isinstance(drop_key, bool) or not isinstance(drop_key, int):
+            raise TypeError("drop_key must be an int")
+        if not 0 <= drop_key <= 0xFFFFFFFF:
+            raise ValueError(
+                "drop_key 0x%X is outside the u32 range" % drop_key
+            )
+        if isinstance(item_id, bool) or not isinstance(item_id, int):
+            raise TypeError("item_id must be an int")
+        if not 1 <= item_id <= 0xFFFFFFFF:
+            raise ValueError("item_id %d is not a positive u32" % item_id)
+        if isinstance(quantity, bool) or not isinstance(quantity, int):
+            raise TypeError("quantity must be an int")
+        if not 1 <= quantity <= 0xFFFF:
+            raise ValueError("quantity %d is not a pickup quantity" % quantity)
+        for label, value in (("x", x), ("y", y), ("z", z)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError("%s must be a number" % label)
+            if not math.isfinite(value):
+                raise ValueError("%s must be finite" % label)
+        for label, value in (
+            ("mob_identity", mob_identity), ("killer_identity", killer_identity),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError("%s must be an int" % label)
+            if not 0 <= value <= 0xFFFFFFFF:
+                raise ValueError(
+                    "%s %d is outside the u32 range" % (label, value)
+                )
+        scene_fold = scene.casefold()
+        created_at = _now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = db.execute(
+                    "INSERT INTO ground_drops("
+                    "scene,scene_fold,drop_key,item_id,quantity,x,y,z,"
+                    "mob_identity,killer_identity,created_at"
+                    ") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        scene, scene_fold, drop_key, item_id, quantity,
+                        float(x), float(y), float(z),
+                        mob_identity, killer_identity, created_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                # NARROWED TO THE UNIQUE VIOLATION ON PURPOSE (`pf-adversary`,
+                # round `5d02mu`): `sqlite3.IntegrityError` also covers a CHECK
+                # or NOT NULL failure, and an earlier draft of this handler
+                # caught all of them, printed the collision token, and raised
+                # the collision message for EVERY one -- demonstrated live by
+                # disabling one Python-side validator and watching a bad
+                # `quantity` get diagnosed as "already on the ground".  Only
+                # the constraint this method's own collision guard exists for
+                # is reported as a collision; anything else re-raises as
+                # itself, which is the CHECK backstop's own message rather
+                # than a misleading one this method invented.
+                if "UNIQUE constraint failed" not in str(exc):
+                    raise
+                print(
+                    "%s scene=%r drop_key=0x%X"
+                    % (GROUND_DROP_KEY_COLLISION_REFUSED_TOKEN, scene, drop_key)
+                )
+                raise ValueError(
+                    "drop_key 0x%X already on the ground in scene %r"
+                    % (drop_key, scene)
+                ) from exc
+            row_id = cursor.lastrowid
+            row = db.execute(
+                "SELECT id,scene,drop_key,item_id,quantity,x,y,z,"
+                "mob_identity,killer_identity,created_at "
+                "FROM ground_drops WHERE id=?",
+                (row_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("ground drop was not committed")
+        return GroundDropRow(*row)
+
+    def list_ground_drops_for_scene(self, scene: str) -> tuple[GroundDropRow, ...]:
+        """Every row this door has ever written for one scene, oldest first.
+
+        The read half of the door `commit_ground_drop` above writes.
+        Lookup goes through `scene.casefold()`, matching `mob_loot.
+        scene_key` exactly and matching the `scene_fold` column the write
+        side keys its `UNIQUE` constraint against -- `"bg0002"` and
+        `"Bg0002"` are one scene and this call answers the same either way.
+        Ordered by `id` (insertion order); this method does not interpret
+        "still on the ground" versus "already picked up" -- there is no
+        removal path yet (see the migration's own docstring), so every row
+        ever committed for this scene comes back, every time.
+        """
+        scene = _require_ground_drop_scene(scene)
+        scene_fold = scene.casefold()
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id,scene,drop_key,item_id,quantity,x,y,z,"
+                "mob_identity,killer_identity,created_at "
+                "FROM ground_drops WHERE scene_fold=? ORDER BY id",
+                (scene_fold,),
+            ).fetchall()
+        return tuple(GroundDropRow(*row) for row in rows)
 
     @staticmethod
     def _character(r):

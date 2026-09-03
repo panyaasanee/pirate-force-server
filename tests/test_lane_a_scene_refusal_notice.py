@@ -424,6 +424,252 @@ class ConstantsArePinnedTests(unittest.TestCase):
         self.assertEqual(notice.NAME_LIMIT, 32)
 
 
+class TheCutMessageSaysItWasCutTests(unittest.TestCase):
+    """COO-DECISION 20260903_1746 item 4, the ``MESSAGE_LIMIT`` half.
+
+    `MESSAGE_LIMIT` was enforced and silent: 240 characters of a 4,000
+    character message looked exactly like a 240 character message, and the
+    one field whose length this module does NOT control was the one field
+    that reported no length.  The name half has carried
+    ``refused_name_len``/``refused_name_exact`` since round ``od1xso`` for
+    this exact reason; these two are the same pair for the message.
+    """
+
+    def test_a_cut_message_reports_its_true_length_and_says_it_was_cut(self):
+        error = world_scene_entry.SceneEntryRefused(
+            world_scene_entry.REFUSED_SCENE_NOT_PINNED, "y" * 4000
+        )
+        line = notice.refusal_console_line(error, _character(), _row())
+        _token, _bracket, fields = _parse(line)
+        self.assertEqual(fields["refused_message_exact"], "no")
+        self.assertEqual(
+            fields["refused_message_len"], str(len(str(error)))
+        )
+        self.assertEqual(
+            len(fields["refusal_message"]), notice.MESSAGE_LIMIT
+        )
+
+    def test_a_whole_message_says_so_and_agrees_with_what_was_printed(self):
+        error = world_scene_entry.SceneEntryRefused(
+            world_scene_entry.REFUSED_SCENE_NOT_PINNED, "a short one"
+        )
+        line = notice.refusal_console_line(error, _character(), _row())
+        _token, _bracket, fields = _parse(line)
+        self.assertEqual(fields["refused_message_exact"], "yes")
+        self.assertEqual(
+            fields["refused_message_len"],
+            str(len(fields["refusal_message"])),
+        )
+
+    def test_the_size_fields_precede_the_free_text(self):
+        """Otherwise they are fields inside free text, which is not a field.
+
+        The module's whole parsing contract is that every structured field
+        comes BEFORE anything ``str(error)`` can forge (see
+        ``refusal_console_line``'s docstring).  A length printed after the
+        message would be forgeable by the message.
+        """
+        error = world_scene_entry.SceneEntryRefused(
+            world_scene_entry.REFUSED_SCENE_NOT_PINNED,
+            "refused_message_len=1 refused_message_exact=yes",
+        )
+        line = notice.refusal_console_line(error, _character(), _row())
+        head, _sep, _message = line.partition(" refusal_message=")
+        self.assertIn("refused_message_len=", head)
+        self.assertIn("refused_message_exact=", head)
+        # `_parse` refuses a duplicated key; the forged copies live in the
+        # free text, so the structured half must still parse cleanly.
+        _token, _bracket, fields = _parse(line)
+        self.assertEqual(fields["refused_message_exact"], "yes")
+        self.assertEqual(
+            fields["refused_message_len"], str(len(str(error)))
+        )
+
+    def test_an_unreadable_message_reports_an_unknown_size_not_a_zero(self):
+        """pf-adversary D5.  A length that was never read is not ``0``.
+
+        The first draft of this round pinned ``0``/``no`` here, which under
+        the docstring's own rule reads "these 18 characters are a cut of a
+        zero-character message".  Every other helper in this file refuses to
+        print a plausible number for a value it could not read.
+        """
+
+        class Hostile:
+            def __str__(self):
+                raise RuntimeError("no")
+
+        line = notice.refusal_console_line(Hostile(), _character(), _row())
+        _token, _bracket, fields = _parse(line)
+        self.assertEqual(fields["refusal_message"], "message_unreadable")
+        self.assertEqual(fields["refused_message_len"], notice.UNKNOWN)
+        self.assertEqual(fields["refused_message_exact"], "no")
+
+    def test_an_empty_message_is_exact_and_zero_because_it_was_measured(self):
+        """pf-adversary D5, the other half: nothing was cut here."""
+
+        class Empty:
+            def __str__(self):
+                return ""
+
+        line = notice.refusal_console_line(Empty(), _character(), _row())
+        _token, _bracket, fields = _parse(line)
+        self.assertEqual(fields["refusal_message"], "message_empty")
+        self.assertEqual(fields["refused_message_len"], "0")
+        self.assertEqual(fields["refused_message_exact"], "yes")
+
+    def test_the_size_fields_survive_a_subject_half_that_died(self):
+        """pf-adversary D3: on the degraded path they must not vanish.
+
+        If the two fields were emitted from the report they would disappear
+        exactly when `refused_subject=unreadable` is printed -- and the free
+        text, which is `str(error)` and not this module's, would then supply
+        the FIRST occurrence of both keys to any parser following this
+        line's documented contract.  Measured before the fix: a hostile row
+        printed `refused_message_len=9` while the module held 139.
+        """
+
+        class BaseExplodes:
+            @property
+            def name(self):
+                raise BaseException("not an Exception")
+
+        forged = (
+            "refused_message_len=9 refused_message_exact=yes "
+            "refused_character_id=1"
+        )
+        error = world_scene_entry.SceneEntryRefused(
+            world_scene_entry.REFUSED_SCENE_NOT_PINNED, forged
+        )
+        line = notice.refusal_console_line(error, BaseExplodes(), _row())
+        self.assertIn("refused_subject=unreadable", line)
+        head, sep, _message = line.partition(" refusal_message=")
+        self.assertTrue(sep, "the free text marker went missing")
+        self.assertIn(f"refused_message_len={len(str(error))}", head)
+        self.assertIn("refused_message_exact=yes", head)
+
+
+class TheBracketNeverPrintsAPrefixTests(unittest.TestCase):
+    """COO-DECISION 20260903_1746 item 4, the ``NAME_LIMIT`` half.
+
+    chief's report ``20260903_1605`` item 5: the leading bracket was capped
+    at ``NAME_LIMIT``, a number sized for a character name, so a refusal
+    reason of 33 characters would have been cut -- and the queue greps
+    ``TOKEN [reason]`` as one contiguous string.  Two things changed: the
+    reason got its OWN cap, derived from the vocabulary that owns the
+    reasons, and a cut reason now prints a word that is not a reason instead
+    of a prefix that reads like one.
+    """
+
+    @staticmethod
+    def _line_for_reason(reason, message="why"):
+        """Compose a line for a reason the vocabulary does not have yet.
+
+        The membership check in `_reason_of` reads the vocabulary live, so
+        a reason has to be registered for the composer to reach the cap at
+        all.  Restored in `finally` so no other test in the process sees it.
+        """
+        original = world_scene_entry.REFUSAL_REASONS
+        try:
+            world_scene_entry.REFUSAL_REASONS = original + (reason,)
+            error = world_scene_entry.SceneEntryRefused(reason, message)
+            return notice.refusal_console_line(error, _character(), _row())
+        finally:
+            world_scene_entry.REFUSAL_REASONS = original
+
+    def test_the_reason_cap_is_a_number_of_its_own_not_the_name_cap(self):
+        """pf-adversary D1: this is the assertion the first draft lacked.
+
+        The first draft asserted `REASON_LIMIT >= NAME_LIMIT` and
+        `REASON_LIMIT >= 26`, both of which a one-line revert to
+        `REASON_LIMIT = NAME_LIMIT` satisfies -- the mutant that restores
+        the exact defect chief reported was GREEN across both test files.
+        A reason one character past the NAME cap has to come out WHOLE.
+        """
+        reason = "scene_" + "y" * (notice.NAME_LIMIT - 5)
+        self.assertGreater(len(reason), notice.NAME_LIMIT)
+        self.assertLessEqual(len(reason), notice.REASON_LIMIT)
+        _token, bracket, _fields = _parse(self._line_for_reason(reason))
+        self.assertEqual(bracket, f"[{reason}]")
+
+    def test_the_cap_does_not_move_when_the_vocabulary_does(self):
+        """pf-adversary D2: a ceiling the bounded data can raise is not one.
+
+        The first draft computed the cap from `REFUSAL_REASONS` at import.
+        A vocabulary carrying a 430-character reason then RAISED the cap to
+        430 and composed a 958-character console line -- removing the only
+        bound the field had, and making the loud branch below dead code.
+        """
+        before = notice.REASON_LIMIT
+        huge = "scene_" + "z" * 500
+        line = self._line_for_reason(huge)
+        self.assertEqual(notice.REASON_LIMIT, before)
+        self.assertLessEqual(
+            len(line),
+            notice.REASON_LIMIT + notice.MESSAGE_LIMIT + 400,
+            "the bracket stopped being bounded by anything",
+        )
+
+    def test_a_reason_past_the_cap_is_named_cut_never_shown_as_a_prefix(self):
+        long_reason = "scene_" + "x" * 100
+        self.assertGreater(len(long_reason), notice.REASON_LIMIT)
+        line = self._line_for_reason(long_reason)
+        _token, bracket, _fields = _parse(line)
+        self.assertEqual(bracket, f"[{notice.REASON_TRUNCATED}]")
+        self.assertNotIn(
+            long_reason[: notice.REASON_LIMIT],
+            bracket,
+            "the bracket printed a prefix of a real reason, which reads "
+            "like a real reason to anyone scanning a console",
+        )
+
+    def test_a_reason_carrying_a_bracket_cannot_forge_the_queue_s_grep(self):
+        """pf-adversary D2, second input.  No truncation is involved.
+
+        `scene_not_allowed_at_login]x` is under every cap and sanitises to
+        itself, and the line it composed CONTAINED the contiguous string
+        `WORLD_SCENE_ENTRY_REFUSED [scene_not_allowed_at_login]` that
+        GAME_TEST_QUEUE.md:6678 and test_lane_a_scene_census.py:1013 grep --
+        so a refusal that is not that reason satisfied both readers.  A
+        superstring was always the other way to lie in this field, and it
+        predates this round.
+        """
+        forging = world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN + "]x"
+        self.assertLess(len(forging), notice.REASON_LIMIT)
+        line = self._line_for_reason(forging)
+        _token, bracket, _fields = _parse(line)
+        self.assertEqual(bracket, f"[{notice.REASON_MALFORMED}]")
+        self.assertNotIn(
+            "%s [%s]"
+            % (
+                notice.CONSOLE_TOKEN,
+                world_scene_entry.REFUSED_NOT_ALLOWED_AT_LOGIN,
+            ),
+            line,
+            "a reason that is not scene_not_allowed_at_login satisfied the "
+            "queue's contiguous grep for scene_not_allowed_at_login",
+        )
+
+    def test_the_cap_is_reached_without_touching_the_vocabulary_at_import(
+        self,
+    ):
+        """pf-adversary D4: nothing about the cap runs untrusted code.
+
+        The first draft iterated `REFUSAL_REASONS` at import behind
+        `except Exception`; a vocabulary whose `__iter__` raised
+        `SystemExit` stopped the module from LOADING, and `runtime.py`
+        imports it to compose the only account of a refused login there is.
+        A plain int cannot do that, and this pins that it stayed one.
+        """
+        self.assertIs(type(notice.REASON_LIMIT), int)
+        source = (
+            ROOT
+            / "src"
+            / "pirateforce_foundation"
+            / "world_scene_refusal_notice.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("\nREASON_LIMIT = %d\n" % notice.REASON_LIMIT, source)
+
+
 class TotalityTests(unittest.TestCase):
     """The composer runs inside an `except`: it may never raise from there.
 
