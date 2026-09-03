@@ -34,6 +34,7 @@ from . import world_population_handoff
 from . import world_scene_entry
 from . import world_scene_folder
 from . import world_scene_liveness
+from . import world_scene_refusal_notice
 from . import world_scene_travel
 from . import world_travel_gate
 
@@ -8074,7 +8075,36 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # logged.  This is the deliberate handler that
                         # class asks for: print the reason, refuse the
                         # login by name, without latching the session shut.
-                        print(f"WORLD_SCENE_ENTRY_REFUSED {exc}")
+                        # CORE-REQUEST 20260903_1505 (LANE-A), wired
+                        # here and NOT at the probe handler above: this
+                        # is the site where the CHARACTER's own row was
+                        # refused, so it is the only one that can name
+                        # the login.  reply_frames=0 is the `return []`
+                        # two statements below, passed as a parameter so
+                        # the line stops claiming "no reply" on the day
+                        # somebody answers the player.
+                        # ARGUMENT ORDER IS THE WHOLE DELIVERABLE: swap
+                        # the character and the row and every subject field
+                        # prints "none" while the line still looks right.
+                        # tests/test_scene_refusal_notice_wiring.py drives a
+                        # real refusal through the real dispatcher and reads
+                        # the id back off stdout for exactly that reason.
+                        #
+                        # A guarded getattr was tried here and removed: it
+                        # was dead defence.  login_row above is
+                        # self.foundation.selected.position, in this same
+                        # unconditional statement list, so a foundation
+                        # whose .selected raises has already killed the
+                        # login long before this handler exists.
+                        print(
+                            world_scene_refusal_notice
+                            .refusal_console_line(
+                                exc,
+                                self.foundation.selected,
+                                login_row,
+                                reply_frames=0,
+                            )
+                        )
                         self.events.append(
                             "world_scene_entry_refused_no_reply"
                         )
