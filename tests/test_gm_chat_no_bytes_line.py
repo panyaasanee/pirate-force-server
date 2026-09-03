@@ -1142,6 +1142,70 @@ class TheSameSceneWarpTests(_Case):
         self.assertEqual(first[1], second[1])
         self.assertEqual(first[2], second[2])
 
+    def test_a_stale_client_label_is_never_spent_as_evidence(self):
+        # pf-adversary, round `3qh50k`, D1, MEASURED WITH A CONTROL, and the
+        # defect was this lane's own: the client is really in scene 5 after
+        # an unconfirmed `/warp 5`, chief's field is frozen at 1, and the GM
+        # types `/warp 1`.  The first draft printed
+        # `GM_CHAT_SAME_SCENE_TELEPORT_SENT ... basis=client_confirmed_scene`
+        # -- an affirmative false claim wearing the STRONGER word -- where
+        # `main` had correctly printed nothing at all.  Chief's letter
+        # described the `/warp <destination>` case; this is the mirror.
+        session = self.session(position=FakePosition(scene_id=5))
+        session.client_confirmed_scene = 1
+        session.scene_label_is_server_guess = True
+        action, err = self.act("/warp 1", session=session)
+        self.assertIsNotNone(action)
+        self.assertEqual(self.lines(err, self.SAME_SCENE), [], err)
+        self.assertNotIn("basis=client_confirmed_scene", err)
+
+    def test_a_stale_label_does_not_make_the_staged_line_contradict_itself(self):
+        # D3, MEASURED: `position.scene_id = 5`, frozen field 278,
+        # `/warp 278` (markerless).  The branch is entered BECAUSE the scene
+        # differs, `_stage_action` writes the next-login scene, and the
+        # first draft's tail then said "a relog would change nothing" --
+        # one line holding two mutually exclusive premises.  Before the
+        # basis change both halves came from one comparison and could not
+        # disagree; refusing the stale label restores that.
+        session = self.session(position=FakePosition(scene_id=5))
+        session.client_confirmed_scene = 278
+        session.scene_label_is_server_guess = True
+        _, err = self.act("/warp 278", session=session)
+        said = self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("basis=server_believed_scene ", said[0])
+        self.assertNotIn("you are standing in it already", said[0])
+
+    def test_a_trusted_label_is_still_used_when_the_flag_is_down(self):
+        # The upgrade survives the fix: `scene_label_is_server_guess` False
+        # means no relabel is outstanding, so the client's own last report
+        # is current and outranks the server's bookkeeping.
+        session = self.session(position=FakePosition(scene_id=2))
+        session.client_confirmed_scene = 2
+        session.scene_label_is_server_guess = False
+        _, err = self.act("/warp 2", session=session)
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertIn("basis=client_confirmed_scene ", said)
+
+    def test_a_raising_attribute_never_takes_an_accepted_command_down(self):
+        # D4, MEASURED: the first draft read the attribute OUTSIDE the try,
+        # so a session whose `client_confirmed_scene` is a raising property
+        # escaped the function -- in the one module whose founding property
+        # is that an accepted command never vanishes without a console line.
+        class Exploding(type(self.session())):
+            @property
+            def client_confirmed_scene(self):
+                raise RuntimeError("boom")
+
+        session = self.session(position=FakePosition(scene_id=2))
+        session.__class__ = Exploding
+        _, err = self.act("/warp 2", session=session)
+        # The command survives AND keeps the answer the pre-chief code gave:
+        # an unreadable client field costs the upgrade, not the line.
+        said = self.lines(err, self.SAME_SCENE)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("basis=server_believed_scene ", said[0])
+
     def test_this_lane_never_writes_the_clients_own_testimony(self):
         # THE PROPERTY THAT MAKES THE FIELD WORTH MORE THAN
         # `selected.position.scene_id`: it is advanced in `runtime.py` by

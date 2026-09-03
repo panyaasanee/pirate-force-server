@@ -610,12 +610,19 @@ class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
         )
 
     def test_one_response_carries_one_frame_which_is_the_whole_blocker(self):
-        """The structural half of the reason, read off the response object
+        """~~The structural half of the reason, read off the response object
         rather than asserted in prose: there is one ``pc`` and one
         ``frame``, so no composition inside ``respond()`` can emit the two
-        actions above.  runtime.py's own call-site comment names the fix
-        and its owner -- "needs ``ChooseNpcResponse`` to become a
-        collection ... a ``lane_hooks``/lane_a design change"."""
+        actions above.~~  AMENDED ROUND ``yjjtyn``, AND THE STRUCK HALF IS
+        WHY THIS TEST STAYS: the response still carries exactly one
+        ``pc``/``frame`` pair -- which is what this asserts, unchanged --
+        but the design change runtime.py's comment asked for landed as
+        ``extra_actions`` beside it, so "one pair" is no longer the whole
+        blocker.  What is left of the blocker: nothing in ``runtime.py``
+        reads that field yet (chief's one line), and the shop's trade-zoom
+        is once-per-session state no argument reaches this responder
+        carries.  See ``TheTalkTriggerRidesAlongAsAnExtraActionTests`` for
+        the half that is paid."""
         legacy = self.legacy
         placements = responder_mod._placements_by_index(legacy)
         indices = tuple(sorted(placements))
@@ -629,6 +636,167 @@ class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
         self.assertIsInstance(answer.pc, (bytes, bytearray))
         self.assertIsInstance(answer.frame, (bytes, bytearray))
         self.assertFalse(hasattr(answer, "actions"))
+
+
+class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
+    """Step 1+2 of the module docstring's flip list, round ``yjjtyn``.
+
+    The class above measures what the flip would COST.  This one measures
+    what has been paid back: the empty ``NPCConversation`` collection --
+    the client's authentic default-talk trigger -- now travels with the
+    answer in ``ChooseNpcResponse.extra_actions``, composed by CALLING the
+    frozen builder rather than by copying its bytes.
+
+    NONE OF THIS REACHES A PLAYER YET AND THE TESTS SAY SO BY WHAT THEY DO
+    NOT ASSERT: nothing here drives ``runtime.py``, because the one line
+    that would queue this field is chief's and is not on ``main``.  What
+    is pinned is the composition and the four ways it honestly composes
+    nothing.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(cls.legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+
+    def _ordinary_index(self):
+        """A placement that is neither the quest actor, the shop trigger
+        nor the monster -- read off the frozen module's own numbers, so
+        this test cannot drift from the code it checks."""
+        special = {
+            self.legacy.V129_QUEST_ACTOR_INDEX,
+            self.legacy.V112_SHOP_TRIGGER_INDEX,
+            self.legacy.V112_MONSTER_INDEX,
+        }
+        for idx in self.population_indices:
+            if idx not in special:
+                return idx
+        self.fail("no ordinary placement in Port Royal's own table")
+
+    def test_an_ordinary_click_carries_the_frozen_talk_trigger(self):
+        legacy = self.legacy
+        selected_idx = self._ordinary_index()
+        placement = self.placements[selected_idx]
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + selected_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(10.0, 20.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        self.assertEqual(len(answer.extra_actions), 1)
+        label, pc, frame, delay = answer.extra_actions[0]
+        # THE LABEL IS THE FROZEN ONE ON PURPOSE: four greps in
+        # pf_bridge/GAME_TEST_QUEUE.md read it, and the house rule
+        # (AGENTS.md) is that a PR moving a string a ticket greps must keep
+        # the grep answering.
+        self.assertEqual(
+            label, f"V98_NPC_CONVERSATION_DEFAULT_P{selected_idx}")
+        expected_pc, expected_frame = legacy.make_npc_conversation_empty(
+            placement.actor_identity)
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        self.assertEqual(delay, 0.0)
+        self.assertIn("extra=1", answer.console_lines[0])
+        self.assertIn("extra_reason=conversation_default",
+                      answer.console_lines[0])
+        answer.console_lines[0].encode("cp874")
+
+    def test_the_trigger_is_derived_from_the_frozen_builder_not_copied(self):
+        """A fixture-driven mutant: replace the frozen builder and the
+        extra must change with it.  Without this, a hardcoded copy of
+        today's 34 bytes would pass every assertion above."""
+        legacy = self.legacy
+        selected_idx = self._ordinary_index()
+        sentinel = (b"PC-SENTINEL", b"FRAME-SENTINEL")
+        real = legacy.make_npc_conversation_empty
+        legacy.make_npc_conversation_empty = lambda actor_identity: sentinel
+        try:
+            answer = responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(0x2000 + selected_idx + 1,),
+                population_indices=self.population_indices,
+                last_target_pos=(10.0, 20.0, 0.0, 0.0),
+            )
+        finally:
+            legacy.make_npc_conversation_empty = real
+        self.assertEqual(answer.extra_actions[0][1], sentinel[0])
+        self.assertEqual(answer.extra_actions[0][2], sentinel[1])
+
+    def test_the_three_latched_or_skipped_placements_get_no_extra(self):
+        """Each refusal is its own named reason, because "composed
+        nothing" is four different facts on a capture."""
+        legacy = self.legacy
+        placement = self.placements[self._ordinary_index()]
+        for idx, reason in (
+            (legacy.V129_QUEST_ACTOR_INDEX,
+             "no_extra_quest_actor_needs_session_latch"),
+            (legacy.V112_SHOP_TRIGGER_INDEX,
+             "no_extra_shop_trigger_needs_session_latch"),
+            (legacy.V112_MONSTER_INDEX,
+             "no_extra_monster_frozen_path_sends_none"),
+        ):
+            with self.subTest(placement=idx):
+                extras, got = responder_mod._conversation_extra(
+                    legacy, placement, idx)
+                self.assertEqual(extras, ())
+                self.assertEqual(got, reason)
+
+    def test_a_legacy_without_the_frozen_indices_composes_nothing(self):
+        """Fail closed in the direction that composes LESS: with no way to
+        tell the shop trigger from a townsman, this must not compose a
+        talk trigger for a click the frozen path never sent one for."""
+        class _NoConstants:
+            @staticmethod
+            def make_npc_conversation_empty(actor_identity):
+                raise AssertionError("must not be reached")
+
+        extras, reason = responder_mod._conversation_extra(
+            _NoConstants(), self.placements[self._ordinary_index()],
+            self._ordinary_index(),
+        )
+        self.assertEqual(extras, ())
+        self.assertEqual(reason, "no_extra_frozen_indices_unreadable")
+
+    def test_a_refusing_builder_costs_the_extra_not_the_answer(self):
+        """A responder must never take the listener thread down, and an
+        answer that lost its talk trigger is still better than a dropped
+        click -- but the console must say which happened."""
+        legacy = self.legacy
+        selected_idx = self._ordinary_index()
+        real = legacy.make_npc_conversation_empty
+
+        def _boom(actor_identity):
+            raise RuntimeError("frozen builder refused")
+
+        legacy.make_npc_conversation_empty = _boom
+        try:
+            answer = responder_mod.respond(
+                legacy=legacy,
+                chosen_identities=(0x2000 + selected_idx + 1,),
+                population_indices=self.population_indices,
+                last_target_pos=(10.0, 20.0, 0.0, 0.0),
+            )
+        finally:
+            legacy.make_npc_conversation_empty = real
+        self.assertIsNotNone(answer)
+        self.assertTrue(answer.pc)
+        self.assertEqual(answer.extra_actions, ())
+        self.assertIn("extra=0", answer.console_lines[0])
+        self.assertIn("extra_reason=no_extra_builder_refused_RuntimeError",
+                      answer.console_lines[0])
+
+    def test_the_new_field_defaults_to_empty_for_every_other_responder(self):
+        """The default is the safety argument for the other four
+        responders (scenes 2, 14, the ten roster scenes): a response built
+        the way they build it means exactly what it meant before this
+        field existed."""
+        response = lane_hooks.ChooseNpcResponse(
+            label="X", pc=b"p", frame=b"f", delay=0.0, console_lines=(),
+        )
+        self.assertEqual(response.extra_actions, ())
+        self.assertEqual(len(response), 6)
 
 
 if __name__ == "__main__":

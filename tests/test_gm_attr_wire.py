@@ -311,7 +311,12 @@ class RawBlockCacheTests(unittest.TestCase):
         not silently drop A back to nothing."""
         cache = RawBlockCache()
         level_x, hp_x = BY_NAME["level"][0], BY_NAME["hp_current"][0]
-        cache.capture_initial({})
+        # SEEDED IN FULL, not empty (pf-adversary `3qh50k` D10): since (b')
+        # the door refuses a cache that does not hold every named row,
+        # because composing 25 of 26 bits ZEROES the 26th on the client.
+        # This test's own subject -- A survives a later send of B -- is
+        # unchanged by the completeness requirement.
+        cache.capture_initial(_complete_values())
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         build_named_field_update(legacy, cache, 1, 0, level_x, 5)
         self.assertEqual(cache.current_values().get(level_x), 5)
@@ -355,7 +360,7 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
 
     def test_succeeds_for_a_known_field_and_returns_pc_and_frame(self):
         cache = RawBlockCache()
-        cache.capture_initial({})
+        cache.capture_initial(_complete_values())
         level_x = BY_NAME["level"][0]
         pc, frame = build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
         self.assertIsInstance(pc, bytes)
@@ -365,10 +370,14 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
 
     def test_success_updates_the_cache_via_record_sent(self):
         cache = RawBlockCache()
-        cache.capture_initial({})
+        seeded = _complete_values()
+        cache.capture_initial(seeded)
         level_x = BY_NAME["level"][0]
         build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
-        self.assertEqual(cache.current_values(), {level_x: 5})
+        # The merged block is the seed with ONE row overridden -- the whole
+        # point of (b'): a send carries every named row, not just the typed
+        # one, so nothing the client reads gets zeroed by omission.
+        self.assertEqual(cache.current_values(), {**seeded, level_x: 5})
 
     def test_every_known_non_sensitive_field_is_individually_composable(self):
         """Every field this round claims to support actually round-trips
@@ -379,7 +388,7 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         for x in known_xs:
             field = BY_X[x]
             cache = RawBlockCache()
-            cache.capture_initial({})
+            cache.capture_initial(_complete_values())
             sample = {
                 "u8": 1, "u16": 2, "u32": 3, "i32": -1, "f32": 1.5,
                 "u64": 4, "wstr": "x", "blob": b"\x00",
@@ -414,11 +423,12 @@ class VersionGateTests(unittest.TestCase):
         # started reading this constant to decide whether to compose would
         # make the scoped exception a silent general one.
         cache = RawBlockCache()
-        cache.capture_initial({})
+        cache.capture_initial(_complete_values())
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         level_x = BY_NAME["level"][0]
         # Still composes freely regardless of the gate value -- this door was
-        # never gated on it, and still is not.
+        # never gated on it, and still is not.  (The cache is seeded in full
+        # because of (b'), which is a different gate; see D10.)
         pc, frame = build_named_field_update(legacy, cache, 1, 0, level_x, 5)
         self.assertGreater(len(pc), 0)
         self.assertGreater(len(frame), 0)
@@ -623,6 +633,112 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
             build_named_field_update(
                 legacy, RawBlockCache(), 1, 0, BY_NAME["level"][0], 5
             )
+
+
+class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
+    """The four defects pf-adversary MEASURED in this round's first draft.
+
+    Each test fails if its fix is reverted. They are grouped so a future
+    round reading a regression here can find the finding that bought it.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_d8_a_float_the_encoder_cannot_pack_is_never_blessed(self):
+        # MEASURED: x=8 `death_timer` is the only known=True f32 row, so it
+        # is a REQUIRED row. `validate_field_value` blessed 1e40 and
+        # `struct.pack` then raised OverflowError mid-compose -- verbatim
+        # the outcome the validator's docstring promises is impossible, and
+        # OverflowError is not caught by `except AttrWireError`.
+        field = BY_NAME["death_timer"]
+        with self.assertRaises(AttrWireError):
+            validate_field_value(field, 1e40)
+        with self.assertRaises(AttrWireError):
+            encode_field(self.legacy, field, 1e40)
+        values = _complete_values()
+        values[field[0]] = 1e40
+        cache = RawBlockCache()
+        ok = seed_cache_from_live_values(
+            cache, 7, hooks=_Hooks(values), stream=io.StringIO()
+        )
+        self.assertFalse(ok)
+        self.assertFalse(cache.is_captured())
+
+    def test_d8_an_unbounded_string_is_never_blessed(self):
+        field = BY_NAME["name"]
+        with self.assertRaises(AttrWireError):
+            validate_field_value(field, "A" * 100000)
+        with self.assertRaises(AttrWireError):
+            encode_field(self.legacy, field, "A" * 100000)
+
+    def test_d9_the_read_back_checks_the_content_not_the_flag(self):
+        # MEASURED: a cache whose `capture_initial` stored ONE row got
+        # `seed_...` returning True and a console line saying
+        # `named_rows=26` -- both compared against the function's own input
+        # instead of against what the cache actually holds.
+        class LyingCache(RawBlockCache):
+            def capture_initial(self, values):
+                super().capture_initial({2: 5})
+
+        cache = LyingCache()
+        stream = io.StringIO()
+        ok = seed_cache_from_live_values(
+            cache, "char", hooks=_Hooks(_complete_values()), stream=stream
+        )
+        said = stream.getvalue()
+        self.assertFalse(ok)
+        self.assertIn(SEED_REFUSED_CONSOLE_TOKEN, said)
+        self.assertIn("capture_did_not_hold", said)
+        self.assertNotIn(SEED_CAPTURED_CONSOLE_TOKEN, said)
+
+    def test_d10_the_door_itself_refuses_a_cache_that_does_not_satisfy_b_prime(self):
+        # THE FINDING THAT CHANGED THIS ROUND'S SHAPE. `capture_initial` is
+        # public and unvalidated, and `COO-DECISION 20260904_0046` item 2
+        # names LANE-B's Door B as a second consumer of chief's read point --
+        # ordered to call the function the seeding helper does not gate. A
+        # peer lane doing exactly what it was told, with a hook that omits
+        # `cash` for a NULL-cash row, would compose 25 of 26 bits and the
+        # client's full-object copy would zero the 26th. So the completeness
+        # question is asked at the door, where every consumer must pass.
+        values = _complete_values()
+        del values[BY_NAME["cash"][0]]
+        cache = RawBlockCache()
+        cache.capture_initial(values)
+        self.assertTrue(cache.is_captured())
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(
+                self.legacy, cache, 1, 0, BY_NAME["hp_current"][0], 80
+            )
+        self.assertIn("(b')", str(caught.exception))
+        self.assertIn(str(BY_NAME["cash"][0]), str(caught.exception))
+
+    def test_d10_an_over_seeded_cache_is_refused_too(self):
+        # The other direction: a cache carrying a row (b') does not name
+        # would set a mask bit for a field nobody has confirmed the meaning
+        # of. `!=` rather than `issubset` is what refuses both.
+        values = _complete_values()
+        values[next(f[0] for f in FIELDS if not f[7] and f[0] not in SENSITIVE_FIELDS)] = 1
+        cache = RawBlockCache()
+        cache.capture_initial(values)
+        with self.assertRaises(AttrWireError):
+            build_named_field_update(
+                self.legacy, cache, 1, 0, BY_NAME["level"][0], 5
+            )
+
+    def test_d13_absent_and_unsendable_rows_are_reported_apart(self):
+        values = _complete_values()
+        absent_x = BY_NAME["cash"][0]
+        unsendable_x = BY_NAME["hp_current"][0]
+        del values[absent_x]
+        values[unsendable_x] = None
+        stream = io.StringIO()
+        seed_cache_from_live_values(
+            RawBlockCache(), 7, hooks=_Hooks(values), stream=stream
+        )
+        said = stream.getvalue()
+        self.assertIn(f"absent={absent_x}", said)
+        self.assertIn(f"unsendable={unsendable_x}", said)
 
 
 class ValidatorIsOneAnswerTests(unittest.TestCase):

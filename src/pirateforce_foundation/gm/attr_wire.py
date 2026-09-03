@@ -75,10 +75,25 @@ condition cannot be met is not a gate, it is a shelf.
   from the live-value point `COO-DECISION 2026-09-04T00:47+07:00` ordered
   chief to add: `lane_hooks.current_named_attr_values(character_id) ->
   {x: value}`, covering every `known=True` row of `FIELDS`.  Rows with
-  `known=False` are NOT sent -- their mask bits stay unset, which is
-  byte-for-byte the shape the owner's own live probe ran for 266 commands
-  over 2h20m in one connection without a crash.  This lane did not choose
-  that shape; it is the one shape that has real evidence behind it.
+  `known=False` are NOT sent -- their mask bits stay unset.
+
+  ~~which is byte-for-byte the shape the owner's own live probe ran for 266
+  commands over 2h20m in one connection without a crash~~ -- STRUCK BEFORE
+  IT COULD BE INHERITED (pf-adversary, round `3qh50k`).  The 266-commands
+  session is real and is this table's provenance (`docs/GM_LANE.md:5540`),
+  but no artifact in this repository records WHICH MASK BITS that probe
+  set, and `reference_adhoc_probe` appears in exactly two files, neither of
+  which says.  So "byte-for-byte the same shape" is unsourced.  It matters
+  because the "known=False bits unset" property held for the `GT-218` send
+  that killed the client in one frame too: whatever separates them is in
+  the known=TRUE bits, which is precisely the fact not written down.  The
+  wording came from COO's letter; putting it into source would have made a
+  future round read it as settled.  [PROPOSED, load-bearing -- flagged back
+  to COO in `20260904_02xx_LANE-GM-ALARM-*`.]
+
+  What can be said without a source: this is the shape (b') defines, and
+  the risk COO accepted is named in the next paragraph rather than
+  disguised as a measurement.
 
 WHY THE RESIDUAL RISK IS NOW SOMEONE'S TO ACCEPT RATHER THAN NOBODY'S TO
 CLOSE.  Under the client's full-object-copy apply (`RE-222` Q0, SHA-pinned,
@@ -93,6 +108,22 @@ exactly that, the client died in one frame and the row was intact) and it
 contradicts no standing owner order.  What remains open is closed ON A
 SCREEN, not here: an attended `GT` in which cash / HP-max / MP must be
 unchanged after ONE frame.
+
+!! ONE THING (b') DOES NOT COVER, AND IT IS NOT A DETAIL (pf-adversary,
+round `3qh50k`, D11 -- [PROPOSED], raised to COO the same round rather than
+resolved here).  (b') guarantees the NAMED rows.  x=9 `category_5C`
+(BasicAttr +0x5C) is `known=False`, so under (b') its bit stays unset and
+the full-object copy ZEROES IT -- and this module's own `SELECTOR_NOTE_R301`
+says [PROVEN, in-repo] that +0x5C is the u16 fed to `0x430E10`, whose result
+`== 8` is what switches the client from reading HP at x=3/x=4 to reading it
+at x=52/x=53.  So one frame can change WHICH HP pair the client displays.
+Both pairs are seeded honestly, but for a character outside a category-8
+context the honest `alt_hp_current/alt_hp_max` is plausibly `0/0` -- i.e.
+HP `0/0` on the HUD after one frame, `GT-218`'s symptom arriving through
+the very door (b') was revised to open.  The attended GT's stated criteria
+(cash / HP-max / MP unchanged after one frame) would catch this only by
+luck.  Nothing in this module sends yet, so nothing is at risk today; the
+decision belongs to COO before any GT is written, not to this lane.
 
 PATH 1 AND PATH 2 ARE CLOSED BY THIS, and that is the point of writing it
 down: the owner's letter `20260831_2327` had been waiting on her since
@@ -453,6 +484,11 @@ def parse_value(kind: str, text: str):
 
 _UNSIGNED_LIMITS = {"u8": 0xFF, "u16": 0xFFFF, "u32": 0xFFFFFFFF, "u64": 0xFFFFFFFFFFFFFFFF}
 
+# This lane's own bound on a `wstr` field, NOT a measured client limit --
+# see `validate_field_value`'s `wstr` branch for why it exists and what
+# would replace it.
+WSTR_MAX_CHARS = 512
+
 
 def validate_field_value(field: tuple, value) -> None:
     """Would `encode_field` accept this value for this row? Raise if not.
@@ -492,10 +528,37 @@ def validate_field_value(field: tuple, value) -> None:
     if kind == "f32":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise AttrWireError(f"{name}: f32 requires a real number, got {value!r}")
+        # THE MAGNITUDE CHECK, AND IT IS A FIX (pf-adversary, round
+        # `3qh50k`, D8, MEASURED end to end).  A type check alone left this
+        # function BLESSING `1e40` for x=8 `death_timer` -- the only
+        # `known=True` f32 row, so a required row -- while `struct.pack`
+        # then raised `OverflowError` mid-compose.  That is verbatim the
+        # outcome this function's own docstring promises is impossible: a
+        # cache seeded with a baseline no send can ever use.  Worse,
+        # `OverflowError` is not a `ValueError`, so `except AttrWireError`
+        # misses it entirely.  Asking `struct` itself is the only bound
+        # guaranteed to agree with the encoder, because it IS the encoder.
+        try:
+            struct.pack("<f", float(value))
+        except (OverflowError, ValueError) as error:
+            raise AttrWireError(
+                f"{name}: f32 out of range: {value!r} ({type(error).__name__})"
+            ) from None
         return
     if kind == "wstr":
         if not isinstance(value, str):
             raise AttrWireError(f"{name}: wstr requires str, got {value!r}")
+        # Same defect, second half: the length prefix is a `<I`, and nothing
+        # bounded what went into it.  `WSTR_MAX_CHARS` is this lane's own
+        # bound, not a client-derived one -- named as a constant so a future
+        # RE result can replace it with a measured limit rather than hunt a
+        # literal.  A name is 32 characters in every table this lane has
+        # seen; 512 is generous by an order of magnitude and still refuses
+        # the 100,000-character string that measured through unchallenged.
+        if len(value) > WSTR_MAX_CHARS:
+            raise AttrWireError(
+                f"{name}: wstr too long: {len(value)} > {WSTR_MAX_CHARS}"
+            )
         return
     if kind == "blob":
         if not isinstance(value, (bytes, bytearray)):
@@ -735,10 +798,11 @@ def live_named_values(character_id, *, hooks=None) -> dict:
 
     wanted = named_field_x()
     seeded = {}
-    missing = []
+    absent = []
+    unsendable = []
     for x in wanted:
         if x not in values:
-            missing.append(x)
+            absent.append(x)
             continue
         field = BY_X[x]
         try:
@@ -746,14 +810,23 @@ def live_named_values(character_id, *, hooks=None) -> dict:
         except AttrWireError:
             # A row that is present but unsendable is exactly as fatal as a
             # row that is absent: both end in a mask bit this module cannot
-            # set with a true value.
-            missing.append(x)
+            # set with a true value.  They are reported apart (D13) because
+            # they send an operator to two different places.
+            unsendable.append(x)
             continue
         seeded[x] = values[x]
-    if missing:
-        raise AttrWireError(
-            "missing_named_rows: " + ",".join(str(x) for x in missing)
-        )
+    if absent or unsendable:
+        # TWO FACTS, TWO NAMES (pf-adversary, round `3qh50k`, D13).  The
+        # first draft filed "the hook did not return this row" and "the hook
+        # returned a value this wire cannot carry" under one word, so an
+        # operator debugging chief's hook would go looking for an absent key
+        # and find it present.
+        parts = []
+        if absent:
+            parts.append("absent=" + ",".join(str(x) for x in absent))
+        if unsendable:
+            parts.append("unsendable=" + ",".join(str(x) for x in unsendable))
+        raise AttrWireError("missing_named_rows: " + " ".join(parts))
     # EXTRA KEYS ARE DROPPED, NOT REFUSED, and dropping is the safe half:
     # a key this module does not send cannot set a mask bit.  An extra key
     # for a `known=False` row would set that row's bit with a value nobody
@@ -777,19 +850,38 @@ def seed_cache_from_live_values(
     calls before composing, and this module's founding property is that an
     accepted command never vanishes without a console line.
 
-    TODAY IT ALWAYS RETURNS FALSE, and that is the point of shipping it now
-    rather than the day chief's read point lands: the refusal path is the one
-    that will run in production first, so it is the one that gets built,
-    tested and greppable first.  `COO-DECISION 20260904_0046` item 3's
-    instruction to this lane was exactly this -- "prepare the consumer; not
-    landed yet = stand still with a console line, no bytes out".
+    ~~TODAY IT ALWAYS RETURNS FALSE~~ -- struck by pf-adversary (round
+    `3qh50k`, D12, MEASURED): it returns True in three lines through the
+    documented `hooks=` seam, and this module's own tests do exactly that.
+    What is true is narrower and worth saying precisely: **on a real boot
+    today it always refuses**, because `lane_hooks` has no
+    `current_named_attr_values` for the default resolution path to find.
+
+    ~~the refusal path is the one that will run in production first~~ --
+    struck by the same finding.  This helper has NO production call site at
+    all: nothing in `src/` outside this module names it, so
+    `GM_ATTR_SEED_REFUSED` will not print on a boot until a dispatch path
+    calls it.  The honest reason to ship it now is smaller: the day chief's
+    read point lands, the consumer and its refusals already exist, tested,
+    rather than being written in the same hurried round that first has
+    something to send.  `COO-DECISION 20260904_0046` item 3's instruction to
+    this lane was exactly that -- "prepare the consumer; not landed yet =
+    stand still with a console line, no bytes out".
 
     NO BYTES CAN LEAVE THROUGH HERE UNDER ANY OUTCOME.  This function seeds a
-    cache; it does not compose, and it does not send.  The two gates above it
-    are untouched: `build_named_field_update` still refuses every
-    `known=False` row and still raises for an unseeded cache, and
-    `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` still gates the one exception site
-    that may reach a socket.
+    cache; it does not compose, and it does not send.  What stands between a
+    seeded cache and a socket is `build_named_field_update`, which refuses
+    every `known=False` row, refuses an unseeded cache, and (since D10)
+    refuses a cache that does not satisfy (b') in full.
+    ~~and `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` still gates the one exception
+    site that may reach a socket~~ -- struck as MISLEADING HERE (D12): that
+    constant is real and untouched, but it does not gate THIS path.
+    `make_update_attr_frame`'s own docstring says it is "not gated on
+    `UPDATE_ATTR_VITAL_VERSION_CONFIRMED`".  So "no bytes leave" on the
+    named-field door rests on the door's own refusals and on the ABSENCE of
+    a caller -- not on the version gate, and absence of a caller is not a
+    gate at all.  Saying so is the point: a future round must not read this
+    file as if two gates guard a door that has one.
     """
     if stream is None:
         stream = sys.stderr
@@ -816,19 +908,36 @@ def seed_cache_from_live_values(
             f"capture_failed_{type(error).__name__}",
         )
         return False
-    if not cache.is_captured():
-        # READ BACK AFTER WRITE, the house rule: a cache whose
-        # `capture_initial` silently did nothing would hand the next caller a
-        # baseline it does not have.
+    # READ BACK AFTER WRITE, AND READ THE CONTENT, NOT THE FLAG
+    # (pf-adversary, round `3qh50k`, D9, MEASURED).  The first draft asked
+    # `cache.is_captured()` -- a bool the cache sets itself -- and then
+    # printed `named_rows=` from its own local variable.  Measured against a
+    # cache whose `capture_initial` stored ONE row: the function returned
+    # True and the console said `named_rows=26`.  Both halves compared the
+    # answer against the function's own input instead of against the thing
+    # claimed ("the cache now holds every named row"), which is the one
+    # mistake this house has a scar for.  So the check is the set itself,
+    # and the count printed is the CACHE's.
+    try:
+        held = set(cache.current_values())
+    except Exception as error:  # noqa: BLE001 - a cache object may be anything
         _print_seed_line(
-            stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, "capture_not_readable"
+            stream,
+            SEED_REFUSED_CONSOLE_TOKEN,
+            character_id,
+            f"cache_not_readable_{type(error).__name__}",
+        )
+        return False
+    if held != set(values):
+        _print_seed_line(
+            stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, "capture_did_not_hold"
         )
         return False
     _print_seed_line(
         stream,
         SEED_CAPTURED_CONSOLE_TOKEN,
         character_id,
-        f"named_rows={len(values)}",
+        f"named_rows={len(held)}",
     )
     return True
 
@@ -877,6 +986,34 @@ def build_named_field_update(
         raise AttrWireError(
             f"field x={x} ({field[6]}) is not in this round's known-field "
             f"scope -- see attr_wire module docstring 'provisional decision'"
+        )
+    # (b') IS ENFORCED AT THE DOOR, NOT ONLY IN THE HELPER THAT SEEDS
+    # (pf-adversary, round `3qh50k`, D10, and it is the finding that changed
+    # this round's shape).  `seed_cache_from_live_values` refuses an
+    # incomplete answer -- but `RawBlockCache.capture_initial` is PUBLIC and
+    # unvalidated, and `COO-DECISION 20260904_0046` item 2 names TWO
+    # consumers of chief's read point: this lane's seeder AND LANE-B's Door
+    # B, which was ordered to call `capture_initial()` -- the function the
+    # helper does not gate.  A peer lane doing exactly what it was told,
+    # with a hook that omits `cash` for a row whose cash is NULL, would
+    # compose 25 of 26 bits here and the client's full-object copy would
+    # zero the missing one.  That is GT-218's mechanism with the new gate
+    # fully installed and looking the other way.
+    #
+    # So the completeness question is asked HERE, where every consumer must
+    # pass, and it is asked of the CACHE rather than of whoever filled it.
+    # `merged_with` already refuses an unseeded cache; this refuses a
+    # half-seeded one, which is the more dangerous of the two because it
+    # composes.
+    held = set(cache.current_values())
+    wanted = set(named_field_x())
+    if held != wanted:
+        raise AttrWireError(
+            "cache does not satisfy unlock (b'): it holds "
+            f"{len(held)} of {len(wanted)} named rows "
+            f"(missing={sorted(wanted - held)}, unexpected={sorted(held - wanted)})"
+            " -- an unset mask bit is a ZERO on the client, not 'unchanged'"
+            " (see the module docstring, section \"(b) IS NOW (b')\")"
         )
     merged = cache.merged_with({x: value})
     pc, frame = make_update_attr_frame(legacy, identity_lo, identity_hi, merged)
