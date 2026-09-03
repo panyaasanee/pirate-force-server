@@ -1206,6 +1206,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_combat_scene_folder = (
                     _boot_roster[0].scene if _boot_roster else None
                 )
+                # COO-DECISION 2026-09-03T19:43+07:00 item 1: the scene id
+                # _sync_combat_scene_at_edge last evaluated.  It runs on
+                # EVERY frame, so this int guards the whole body -- and,
+                # crucially, bounds its event output: a scene it cannot open
+                # (or an unaddressed one) is evaluated ONCE per arrival, not
+                # once per movement frame, the growth rule runtime.py:1269
+                # states for this same events list.  Seeded to None ("not
+                # yet evaluated"): the first frame resolves the login
+                # scene's folder and finds it already equal to the boot
+                # folder above, so that first evaluation is a no-op re-open,
+                # not a spurious one.  (FieldMob rows carry a folder tag but
+                # no scene_id, so this cannot be seeded from _boot_roster
+                # the way mob_combat_scene_folder just was.)
+                self.combat_scene_edge_scene_id = None
                 # CORE-REQUEST (LANE-B, 20260828_0337): the attack-cadence
                 # gate MOB_COMBAT_CADENCE_WIRING asks for, opened next to
                 # mob_combat_ledger for the same per-session reason.
@@ -4268,10 +4282,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             ledger.balance_of(record.actor_identity).max_hp,
                             0,
                         ))
+                # ATOMIC on purpose (pf-adversary, round pk14rf, finding 1):
+                # open_register can raise MobAiControlError by design
+                # (REFUSE_PROFILE_UNBUILDABLE, mob_ai_control.py) on a mined
+                # row whose radius contradicts the lane profile.  Built into
+                # a LOCAL before any of the three fields is assigned, so a
+                # raise here leaves ledger, register AND folder all on the
+                # departed scene -- never ledger on the new scene with the
+                # register still on the old, which mob_combat.balance_of
+                # then rejects as target_not_in_ledger deeper in the same
+                # dispatch, OUTSIDE the fail-closed catch and through
+                # v141:7558's except-less loop (the listener thread dies).
+                # This runs from the scene-edge detector on ordinary
+                # movement frames now, not only on an attack, so the tear
+                # this closes was one walk away from live.  The callee owns
+                # the atomicity; the caller's try/except is the second line,
+                # not the first.
+                register = mob_ai_control.open_register(roster, epoch=0)
                 self.mob_combat_ledger = ledger
-                self.mob_ai_register = mob_ai_control.open_register(
-                    roster, epoch=0,
-                )
+                self.mob_ai_register = register
                 self.mob_combat_scene_folder = folder
                 # NOT WIRED HERE, ON PURPOSE (chief, round clw1zb/R297).
                 # LANE-B's letter 20260901_2255 asked for
@@ -4304,6 +4333,159 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # COO-drop-cross-scene-option-1-vs-2-and-the-missing-removal-
                 # publisher.md.  The library half is on main and untouched.
             return roster
+
+        def _sync_combat_scene_at_edge(self) -> None:
+            """Re-open the roster the moment the session's SCENE changes.
+
+            COO-DECISION 2026-09-03T19:43+07:00 item 1, on chief's finding
+            ``pf_bridge/notes_to_chief/20260903_1855_CHIEF-FINDING-COO-the-
+            mob-register-belongs-to-another-scene-after-a-warp.md``.
+
+            WHAT WAS MEASURED, and it is the owner's screen, not a test:
+            ``_sync_combat_scene_state`` had exactly three callers -- an
+            attack (``_dispatch_mob_combat``) and the two scene-specific
+            census branches (scene 2 and scene 1).  A player who WARPS
+            anywhere else and does not attack keeps the register and ledger
+            of the scene they left, for the rest of the session.  R306/R307
+            printed the consequence twice::
+
+                standing in scene 278 -> MOB_AI_TICK_LIVE scene=278 mobs=4
+                standing in scene  14 -> MOB_AI_TICK_LIVE scene=14  mobs=4
+
+            Both scenes hold NO mined mob table at all
+            (``field_mobs.live_scenes()`` is bg0001/Bg0002 only, so their
+            truthful roster is empty): the four rows in that line are
+            bg0001's Training Iron Men, ticked under another scene's name.
+            The line is not merely a wrong console number -- the register it
+            names is the one ``lane_b_mob_ai_tick.maybe_tick`` decides
+            aggro from on every frame the player walks, so the day any row
+            in it is offensive, a player standing in scene 14 within reach
+            of a bg0001 PLACEMENT is aggroed through the floor.
+
+            WHY THIS IS A DETECTOR AND NOT A LIST OF DOORS.  Four paths in
+            this file put the session in a new scene: the GM warp resync,
+            the GM login-scene override, the travel-gate crossing and the
+            Columbus M2 checkpoint.  A fix that patches the doors it can
+            enumerate today is wrong the next time a door is added -- which
+            is the exact history of the defect this closes.  So this runs at
+            the TOP of ``dispatch``, reads the scene the session is standing
+            in, and reconciles the combat structures with it.  No door calls
+            it directly: it is one frame behind a mid-dispatch scene change
+            (login, warp, checkpoint all relabel the scene late in their own
+            dispatch), and that lag is harmless -- nothing between such a
+            relabel and this method's next run reads the register or ledger
+            (measured, pf-adversary round pk14rf: the census composes one
+            client poll later, the attack and tick paths run inside
+            ``_dispatch_with_lanes``/the tick block which have already
+            returned).  Uniform one-frame lag at every door beats a
+            same-frame call at one door and a lag at the other three.
+
+            BOUNDED OUTPUT, and this is load-bearing, not decoration.  The
+            body is guarded by ``combat_scene_edge_scene_id``, the scene id
+            it last evaluated -- not by the folder, because a scene it
+            CANNOT open, or an unaddressed one, leaves the folder unchanged
+            and would otherwise be re-evaluated (and re-logged) on every
+            single movement frame.  runtime.py:1269 states the rule this
+            obeys: an events list this session appends to per frame may not
+            grow without a bound the client controls.  So each arrival is
+            evaluated once; a walking player in a settled scene costs one
+            int compare and nothing else.
+
+            THE UNADDRESSED SCENE IS EMPTIED, NOT LEFT STALE.  When the
+            player stands in a scene ``world_scene_folder`` does not address
+            (313 of the 330 GM-warpable ids, pf-adversary round pk14rf), the
+            resident register the tick reads must be EMPTY -- otherwise it
+            ticks the departed scene's mobs in a scene that has none, which
+            is the ``MOB_AI_TICK_LIVE scene=N mobs=4`` lie this whole change
+            exists to kill.  This is a different question from the ATTACK
+            path's "no roster" refusal: that path calls
+            ``_sync_combat_scene_state`` itself, which re-resolves the folder
+            and answers ``None`` independently, so emptying the resident
+            structures here does not weaken it -- an attack in an
+            unaddressed scene still refuses by name.
+
+            GROUND ROWS ARE NOT TOUCHED, and this is a condition of the
+            ruling above ("re-open the ledger MUST NOT delete ground rows",
+            COO-DECISION 2026-09-02T02:53+07:00).  A dropped item lives in
+            ``self.mob_loot_cell``; this path re-opens
+            ``self.mob_combat_ledger`` (HP balances) and
+            ``self.mob_ai_register`` only, and the withdrawn
+            ``reconcile_scene_transition`` call is still not here.  Pinned
+            by tests/test_mob_scene_edge_resync.py, not merely stated.
+
+            A ROUND TRIP HEALS A WOUND, on purpose and surfaced to the COO
+            (letter 20260903_2050).  Re-opening resets wounds at epoch 0 but
+            rehydrates DEATHS from mob_death_register (the sync's own
+            docstring).  So leaving scene 2 with a mob at 7 HP and returning
+            without attacking finds it at full HP -- where before this fix
+            it kept its wound, but only because the register wrongly never
+            left scene 2 at all.  Kill-stays-dead / wound-heals is a
+            player-visible asymmetry; whether wounds should persist across a
+            departure (a wound register parallel to the death one) is a
+            feature this change does NOT decide.
+
+            COST, RE-DERIVED on this clone (pf-adversary round pk14rf
+            flagged the first draft's numbers; these are re-measured here,
+            timeit best-of on Python 3.11.15): the settled-scene path is one
+            int compare and returns; a scene change costs one
+            ``scene_folder_for_scene_id`` lookup (~0.83 us) plus, only when
+            the folder actually differs, ``field_mobs.load_roster``
+            (~90 us on this clone).
+
+            FAIL-CLOSED, AND THE CALLEE IS ATOMIC.  ``_sync_combat_scene_
+            state`` builds its register into a local before assigning any of
+            its three fields (see there), so a refusal leaves all three on
+            the departed scene, never a torn pair.  This method's try/except
+            is the second line: it keeps a refusal from unwinding the
+            listener thread (v141:7440 has no ``except``, and this runs on
+            ordinary movement frames now).  ``combat_scene_edge_scene_id``
+            is advanced BEFORE the work, so a scene that refuses is logged
+            once and not retried every frame.
+            """
+            foundation = getattr(self, "foundation", None)
+            selected = getattr(foundation, "selected", None)
+            if selected is None:
+                return
+            scene_id = selected.position.scene_id
+            if scene_id == self.combat_scene_edge_scene_id:
+                return
+            # Advance BEFORE the work: a scene that cannot be opened is
+            # logged once, not on every frame the player stands in it.
+            self.combat_scene_edge_scene_id = scene_id
+            try:
+                folder = world_scene_folder.scene_folder_for_scene_id(
+                    scene_id
+                )
+                if folder == self.mob_combat_scene_folder:
+                    return
+                departed = self.mob_combat_scene_folder
+                if folder is None:
+                    # Unaddressed: the resident roster the tick reads must be
+                    # empty, or it ticks the departed scene's mobs here.  Not
+                    # the attack path's refusal -- that re-resolves and says
+                    # None on its own.  open_ledger((), scene=None) and an
+                    # empty register are the truthful "no mobs stand here".
+                    self.mob_combat_ledger = mob_combat.open_ledger(
+                        (), scene=None
+                    )
+                    self.mob_ai_register = mob_ai_control.open_register(
+                        (), epoch=0
+                    )
+                    self.mob_combat_scene_folder = None
+                    self.events.append(
+                        f"combat_scene_edge_unaddressed_{scene_id}_from_"
+                        f"{departed}_roster_cleared"
+                    )
+                    return
+                self._sync_combat_scene_state()
+                self.events.append(
+                    f"combat_scene_edge_resynced_{departed}_to_{folder}"
+                )
+            except Exception as error:      # noqa: BLE001 - see docstring
+                self.events.append(
+                    "combat_scene_edge_resync_refused_"
+                    f"{type(error).__name__}"
+                )
 
         def _dispatch_mob_combat(self, parsed):
             """MOB-COMBAT-001 / MOB-DEATH-001, wired the way each module's
@@ -5870,6 +6052,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             return actions
 
         def dispatch(self, parsed):
+            # COO-DECISION 2026-09-03T19:43+07:00 item 1.  FIRST, before any
+            # lane composes a verdict on this frame: if the session is
+            # standing in a different scene's folder than the ledger and the
+            # AI register were opened on, re-open them here.  See
+            # _sync_combat_scene_at_edge for what was measured and why this
+            # is a detector at the top of dispatch rather than a patch at
+            # each door that changes the scene.
+            self._sync_combat_scene_at_edge()
             # CORE-REQUEST-GM-030.  Open the confirm window BEFORE the lanes
             # run (the durable write happens inside them) and close it after,
             # so the window lives for exactly one frame: the first TargetPos
@@ -6224,6 +6414,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             self.events.append(
                 f"gm_warp_cross_scene_census_latch_cleared_{target.scene_id}"
             )
+            # NOT re-opening the combat roster here, on purpose (pf-adversary
+            # round pk14rf, finding 5).  An earlier draft called
+            # _sync_combat_scene_at_edge() at this point, believing it beat
+            # the arrival census within the warp's own frame -- but this
+            # method runs from _gm_warp_note_position_pending, the LAST
+            # statement of dispatch before `return actions`, and nothing
+            # after it reads the register or ledger (the census composes one
+            # client poll later; the attack and tick paths already ran).
+            # The detector at the top of the NEXT dispatch reconciles the
+            # roster, one frame later, with nothing observing the gap -- the
+            # same uniform one-frame lag every other door gets.  A call here
+            # was dead weight justified by a comment its own neighbour's
+            # docstring refuted.
             self._mob_loot_cross_scene_boundary(target.scene_id)
 
         def _mob_loot_cross_scene_boundary(self, scene_id) -> None:
