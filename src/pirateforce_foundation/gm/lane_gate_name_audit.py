@@ -103,15 +103,40 @@ Python does, and the three attribute names it does depend on
 :data:`FIRE_FUNCTION_NAME`) are checked against the live package by
 ``tests/test_gm_lane_gate_name_audit.py``, so a rename in ``lane_hooks``
 reds this audit instead of quietly leaving it auditing nothing.
+
+And the question the SECOND pass closed with: when another lane's typo reds
+a test file in ``gm/``, whose file do they edit, and what stops the next
+round from answering that by deleting the assertion?
+---------------------------------------------------------------------------
+Both halves of that were fair, and both are answered in code rather than in
+this paragraph.
+
+The first half was a real defect, not a rhetorical question.  The scope rule
+asked whether the named module EXISTS, and a ``NAMES_NO_MODULE`` finding is
+emitted only when it does not -- so no such finding could ever be
+attributed to another lane, and one character in chief's file
+(``"lane_b_mob_ai_ticks"``) reddened this lane's test file.  Attribution is
+by KNOWN LANE PREFIX now (:func:`known_lane_prefixes`, read off the real
+directory), so another lane's misspelling, deletion or rename-in-flight is
+reported to them and asserted on nobody.  What stays inside this lane's
+assertion is a name carrying no known lane prefix at all -- which is either
+this lane's own typo or nobody's, and in both cases the fix is at the call
+site the finding names.
+
+The second half is a documentation problem and is treated as one: the
+assertion's failure message says, in the failure output where a stranger
+will actually read it, that the fix belongs at the file and line the finding
+names, and that a finding carrying another lane's prefix appearing here at
+all is a defect in the scope rule to be reported -- never a reason to delete
+the assertion.
 """
 from __future__ import annotations
 
 import ast
-import subprocess
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterator
 
 from .. import lane_hooks
 
@@ -300,6 +325,15 @@ def _lane_hooks_bindings(
     A file that binds nothing contributes nothing, which is the whole point:
     ``cannon.fire(...)`` in a module that has never imported lane_hooks is
     not a hook point, and the first draft could not tell.
+
+    WHAT THIS DOES NOT SEE, named rather than discovered later.  It reads
+    import statements, so an edge spelled ``importlib.import_module(...)``
+    or ``__import__(...)`` is invisible, and a name REBOUND after import
+    (``lane_hooks = something_else``) still counts as the package.  Neither
+    shape exists in this repository today, and both are the same blind spot
+    LANE-B's own containment card had to widen once, for the same reason:
+    a static reader answers about the text, not the process.  If either
+    appears, this function is where it has to be taught.
     """
     module_names: set[str] = set()
     attribute_names: dict[str, str] = {}
@@ -308,11 +342,10 @@ def _lane_hooks_bindings(
             for alias in node.names:
                 if alias.name.split(".")[-1] != LANE_HOOKS_PACKAGE:
                     continue
-                # `import a.b.lane_hooks` binds `a`, and the call is written
-                # `a.b.lane_hooks.fire(...)`; the dotted match below looks at
-                # the LAST segment, so the package name itself is what has to
-                # be known here.  `import a.b.lane_hooks as lh` binds `lh`.
-                module_names.add(alias.asname or LANE_HOOKS_PACKAGE)
+                # `import a.b.lane_hooks` makes the call `a.b.lane_hooks.
+                # fire(...)`, so the whole dotted path is what a call site
+                # writes; `import a.b.lane_hooks as lh` makes it `lh`.
+                module_names.add(alias.asname or alias.name)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             tail = module.split(".")[-1] if module else ""
@@ -328,6 +361,30 @@ def _lane_hooks_bindings(
                     # `from . import hook`, which is how every lane module in
                     # this repository gets its decorator.
                     attribute_names[alias.asname or alias.name] = alias.name
+    # A MODULE-LEVEL ALIAS IS A BINDING TOO.  `_lh = lane_hooks` then
+    # `_lh.module_production_allowed(...)` walked past the first draft
+    # entirely, which pf-adversary used to make LANE-GM's own chat gate die
+    # while every test here passed.  Repeated to a fixpoint so `a = b = the
+    # package` chains resolve; the body is short and the loop is bounded by
+    # the number of assignments in it.
+    for _ in range(len(tree.body) + 1):
+        grew = False
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            source_name = _dotted(node.value)
+            for target in node.targets:
+                name = _dotted(target)
+                if (
+                    name is not None
+                    and "." not in name
+                    and source_name in module_names
+                    and name not in module_names
+                ):
+                    module_names.add(name)
+                    grew = True
+        if not grew:
+            break
     return module_names, attribute_names
 
 
@@ -337,13 +394,19 @@ def _resolves_to(
     module_names: set[str],
     attribute_names: dict[str, str],
 ) -> bool:
-    """Is this call the package's ``attribute``, as this file imports it?"""
+    """Is this call the package's ``attribute``, as this file imports it?
+
+    The dotted expression before the attribute must match a binding WHOLE.
+    Matching its LAST SEGMENT -- what the first draft of this function did --
+    made ``self.config.lane_hooks.fire("not_a_point")`` a hook registration
+    and ``cannon.lane_hooks.fire(...)`` a real call (pf-adversary, second
+    pass, D7).
+    """
     func = node.func
     if isinstance(func, ast.Attribute):
         if func.attr != attribute:
             return False
-        dotted = _dotted(func.value)
-        return dotted is not None and dotted.rsplit(".", 1)[-1] in module_names
+        return _dotted(func.value) in module_names
     if isinstance(func, ast.Name):
         return attribute_names.get(func.id) == attribute
     return False
@@ -369,62 +432,71 @@ def _string_argument(node: ast.Call, keyword: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _tracked_python_sources(root: Path) -> Iterator[Path]:
-    """Every ``.py`` git would ship from ``root``, or every ``.py`` on disk.
+def _python_sources(root: Path) -> Iterator[Path]:
+    """Every ``.py`` on disk under ``root``, minus the excluded top level.
 
-    ``git ls-files`` FIRST, and this is not a preference.  pf-adversary
-    (D9) changed this audit's verdict in both directions with an untracked
-    scratch file, which is the failure
-    ``tests/test_gm_source_is_cp874_safe.py`` already records for this
-    repository: "green about an editor buffer, red about the thing that
-    would be pushed".  A tree that is not a git checkout -- every synthetic
-    tree in the tests, and any exported tarball -- falls back to walking
-    the disk, which is the only answer available there.
+    THE FILESYSTEM, NOT ``git ls-files``, AND THIS REVERSES A DECISION THIS
+    FILE MADE ONE DRAFT AGO.  pf-adversary's first pass was right that an
+    untracked scratch file can move this audit's verdict, and this module
+    duly switched to the git listing.  Its second pass measured what that
+    cost: ``subprocess`` output decoded with the console codec raises
+    ``UnicodeDecodeError`` on the bridge's cp874 console for any non-ASCII
+    tracked path, escaping every ``except`` in the walker; and the "is this
+    a checkout" question needs a ``skipTest`` whose reason the gate census
+    then has to carry, undeclared.
 
-    THE PRICE, SAID PLAINLY: a file its author has not staged is invisible
-    to this audit locally, and visible on the gate, where every file is
-    tracked.  That is the right way round -- the gate grades what would be
-    pushed -- but a lane writing a new gate call sees this audit's verdict
-    only after ``git add``.  Measured on this module's own round: before
-    staging, the report listed four unauditable sites; after, six.
+    The deciding argument is not either of those, though -- it is that an
+    audit's dangerous failure is a FALSE NEGATIVE.  A gate that is dead and
+    unreported is the whole problem; a file that is not pushed yet and gets
+    read anyway is a warning to its author about the thing they are about to
+    push.  This lane has already reached that conclusion once, in
+    ``tests/test_gm_say_gate_lock.py``, which walks the filesystem alone
+    "because a brand-new module nobody has git added yet is the likeliest
+    place a first ungated sender appears".  The graded verdict is still the
+    tracked one: the gate runs on a clean checkout, where the two sets are
+    the same.
     """
-    listed: list[str] | None = None
-    try:
-        top = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        # Only trust the listing when `root` IS the checkout root; a temp
-        # directory that happens to sit inside somebody's repository would
-        # otherwise be answered with that repository's file list.
-        if top.returncode == 0 and Path(top.stdout.strip()) == root:
-            result = subprocess.run(
-                ["git", "-C", str(root), "ls-files", "--", "*.py"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode == 0:
-                listed = result.stdout.splitlines()
-    except (OSError, subprocess.SubprocessError):
-        listed = None
-    if listed is None:
-        candidates: Iterable[Path] = sorted(root.rglob("*.py"))
-    else:
-        candidates = (root / entry for entry in sorted(listed))
-    for path in candidates:
+    for path in sorted(root.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
         try:
             relative = path.relative_to(root)
-        except ValueError:  # pragma: no cover - both branches are rooted
+        except ValueError:  # pragma: no cover - rglob is rooted at `root`
             continue
         if relative.parts and relative.parts[0] in EXCLUDED_TOP_LEVEL:
             continue
         if path.is_file():
             yield path
+
+
+def _read_source(path: Path) -> str:
+    """Decode a source file, trying the codecs this project actually uses.
+
+    A file the bridge saved in cp874 used to be DROPPED by this walker in
+    silence: `read_text(encoding="utf-8")` raised and the caller's `except
+    ... continue` swallowed the whole file, counting and naming nothing.
+    pf-adversary measured the cost -- one Thai comment in `runtime.py` made
+    this lane's OWN 5887-shaped defect invisible.
+
+    `errors="surrogateescape"` does not fix it and was tried: the surrogates
+    it produces make `ast.parse` raise `UnicodeEncodeError` instead, so the
+    file is dropped one line further down.  A real second codec is needed.
+
+    `latin-1`, and only `latin-1`, because it CANNOT fail on any byte
+    sequence -- so this function always returns a string and the walker
+    always gets to parse.  An earlier version tried `cp874` first (the
+    bridge's own console codec) and then `latin-1`; that middle step is not
+    load-bearing and was removed rather than left as a branch no test can
+    kill.  What a wrong codec costs is mojibake inside COMMENTS and STRING
+    LITERALS, and this audit reads neither for anything but lane and point
+    names, which are ASCII by every naming rule in this package.  A file
+    whose gate literal is not ASCII has a bigger problem than this audit.
+    """
+    data = path.read_bytes()
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
 
 
 def _declaration_sites(tree: ast.Module, where: str) -> list[SourceSite]:
@@ -483,6 +555,7 @@ def _declares_production_allowed(source: str) -> bool:
         tree = _parse(source)
     except SyntaxError:
         return False
+    declared = False
     for node in tree.body:
         if isinstance(node, ast.Assign):
             targets: list[ast.expr] = list(node.targets)
@@ -497,10 +570,38 @@ def _declares_production_allowed(source: str) -> bool:
             for target in targets
         ):
             continue
-        if isinstance(value, ast.Constant):
-            return bool(value.value)
-        return False
-    return False
+        # THE LAST ONE WINS, because that is what an import does.  Reading
+        # the FIRST assignment turned
+        #     production_allowed = True
+        #     # INCIDENT: switched off until the crash is understood.
+        #     production_allowed = False
+        # -- how a lane is actually switched off in a hurry -- into an
+        # accusation that the registry was refusing an allowed module, and
+        # it reddened this lane's own assertion (pf-adversary, second pass).
+        declared = (
+            bool(value.value) if isinstance(value, ast.Constant) else False
+        )
+    return declared
+
+
+#: Parsed scans, keyed by the tree's own (path, mtime, size) fingerprint.
+#: pf-adversary measured this file costing +9.45s on a 340s suite from about
+#: eight full scans of 264 files.  The fingerprint walk is the cheap half; it
+#: is the parsing that costs, so a scan is reused only when every file it
+#: read is byte-for-byte where it was.  A test that rewrites a tree in place
+#: therefore still gets a fresh scan.
+_SCAN_CACHE: dict[tuple[tuple[str, int, int], ...], Scan] = {}
+
+
+def _fingerprint(root: Path) -> tuple[tuple[str, int, int], ...]:
+    entries = []
+    for path in _python_sources(root):
+        try:
+            stat = path.stat()
+        except OSError:  # pragma: no cover - the walk just saw it
+            continue
+        entries.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return tuple(entries)
 
 
 def scan_sources(root: Path) -> Scan:
@@ -521,13 +622,23 @@ def scan_sources(root: Path) -> Scan:
     fire_calls: list[SourceSite] = []
     declarations: list[SourceSite] = []
     root = root.resolve()
-    for path in _tracked_python_sources(root):
+    key = _fingerprint(root)
+    cached = _SCAN_CACHE.get(key)
+    if cached is not None:
+        return cached
+    for path in _python_sources(root):
         try:
-            tree = _parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, UnicodeDecodeError):
+            tree = _parse(_read_source(path))
+        except (OSError, SyntaxError, ValueError):
             continue
         where = str(path.relative_to(root)).replace("\\", "/")
-        inside_package = path.parent.name == LANE_HOOKS_PACKAGE
+        # AT ANY DEPTH.  `path.parent.name == "lane_hooks"` missed a lane
+        # shipped as a DIRECTORY -- `lane_hooks/lane_x_big/__init__.py`
+        # has parent `lane_x_big` -- so such a module's hooks and its
+        # declaration were both invisible, which pf-adversary measured as
+        # the flagship defect hiding in the one shape D1's fix had just
+        # established as real.
+        inside_package = LANE_HOOKS_PACKAGE in path.parts
         if inside_package:
             declarations.extend(_declaration_sites(tree, where))
         module_names, attribute_names = _lane_hooks_bindings(
@@ -558,12 +669,14 @@ def scan_sources(root: Path) -> Scan:
                         )
                     )
                     break
-    return Scan(
+    scan = Scan(
         tuple(gate_calls),
         tuple(hook_registrations),
         tuple(fire_calls),
         tuple(declarations),
     )
+    _SCAN_CACHE[key] = scan
+    return scan
 
 
 # ---------------------------------------------------------------------------
@@ -697,13 +810,46 @@ def unauditable_gate_call_sites() -> tuple[SourceSite, ...]:
     )
 
 
+def known_lane_prefixes() -> tuple[str, ...]:
+    """``("lane_a_", "lane_b_", "lane_gm_", ...)`` -- derived, never typed.
+
+    Read off the real ``lane_hooks/`` directory, so a new lane needs no edit
+    here and a lane that disappears stops being recognised on its own.
+    """
+    prefixes = set()
+    for entry in sorted(LANE_HOOKS_DIR.iterdir()):
+        if entry.name.startswith("__"):
+            continue
+        stem = entry.stem if entry.suffix == ".py" else entry.name
+        parts = stem.split("_")
+        if len(parts) >= 3 and parts[0] == LANE_MODULE_PREFIX.rstrip("_"):
+            prefixes.add(f"{parts[0]}_{parts[1]}_")
+    return tuple(sorted(prefixes))
+
+
 def _owned_by_another_lane(stem: str) -> bool:
-    """Is ``stem`` an existing lane module that is not this lane's?"""
-    return (
-        _module_source(stem) is not None
-        and stem.startswith(LANE_MODULE_PREFIX)
-        and not stem.startswith(LANE_GM_MODULE_PREFIX)
-    )
+    """Does ``stem`` carry a KNOWN lane's prefix that is not this lane's?
+
+    BY PREFIX, NOT BY WHETHER THE MODULE EXISTS, and the difference is the
+    whole defect this replaced.  The previous rule required
+    ``_module_source(stem) is not None`` -- but a ``NAMES_NO_MODULE`` finding
+    is emitted ONLY when that source is absent, so no such finding could
+    ever be attributed to another lane, and LANE-GM's assertion went red on
+    every other lane's typo, deletion or rename-in-flight.  pf-adversary
+    measured it with one character: ``"lane_b_mob_ai_ticks"`` in chief's
+    file reddened this lane's test file.
+
+    Matching on a known prefix keeps the two cases apart: a misspelling of
+    ANOTHER lane's module still carries that lane's prefix and is reported
+    to them; a misspelling of the PREFIX ITSELF (``lanegm_``, ``lane_gmchat_``,
+    ``Lane_GM_``, a stem of ``py``) carries no known lane prefix at all and
+    stays inside this lane's assertion, which is where D8 needed it.
+    """
+    lowered = stem.lower()
+    for prefix in known_lane_prefixes():
+        if lowered.startswith(prefix):
+            return prefix != LANE_GM_MODULE_PREFIX
+    return False
 
 
 def gate_findings_in_lane_gm_scope() -> tuple[Finding, ...]:
