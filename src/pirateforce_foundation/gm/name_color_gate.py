@@ -50,6 +50,30 @@ pf-adversary (round ``wggs0i``, D2) killed it.  The public predicate below is
 one-sided on purpose: it answers only the direction RE-195 walked, and
 raises on every identity class RE-195 did not.
 
+What is being DONE about the bounded negative, and what is not
+--------------------------------------------------------------
+Round ``5ddsii`` filed ``RE-211`` (see :data:`RE_211_TICKET_LETTER`).  The
+refusal below did NOT move because of it and this docstring is the wrong
+place to look for a result -- nothing in this module reads one.
+
+Read :func:`unaddressed_blockers` before :func:`open_questions`, in that
+order.  The first names the route NOTHING is filed against; the second names
+what one filed ticket bears on.  A lane that reads "a ticket is open" as
+"P-2 is nearly unblocked" and writes colour code is the failure this pairing
+exists to make awkward, so the gap is the half with the shorter name.
+
+The ticket asks THREE questions and this module maps TWO of them.  Q3 (what
+a nonpositive identity costs the client's own actor registry) prices the
+direction; it does not retire any blocker below, so it maps to none of them
+and :data:`RE_211_QUESTION_LABELS` is where all three are named.  pf-adversary
+(round ``5ddsii``, O1) found the first draft describing Q3 in a comment while
+no executable value carried it.
+
+Nothing here PRINTS.  The first draft of this section said "prints", and had
+a ``route_out()`` method that no call site in either repository ever called
+(pf-adversary O4, and the same "no caller = no module" rule ``COO 1046``
+item (c) used to reject a different module the same day).  It is deleted.
+
 Scope this module does NOT cover
 --------------------------------
 * Which side of the split a zero identity sits on is inherited from a column
@@ -102,6 +126,19 @@ RE_191_RESULT_LETTER = (
 RE_195_RESULT_LETTER = (
     "notes_to_chief/"
     "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md"
+)
+
+#: The ticket LANE-GM filed to attack the bounded negative rather than sit
+#: behind it (``COO-DECISION 2026-09-03T10:46+07:00`` item (b), which lifted
+#: that day's "no new RE tickets" rule for this ONE ticket, because a ticket
+#: that PRODUCES a measurement from the client image is not a ticket that
+#: consumes one).  It is filed, not answered: nothing below reads a result,
+#: and the refusal is exactly as strong as it was before it was filed.
+RE_211_TICKET_ID = "RE-211"
+RE_211_TICKET_LETTER = (
+    "notes_to_chief/"
+    "20260903_1119_LANE-GM-RE-211-TICKET-"
+    "typed-and-live-gate-for-nonpositive-identity.md"
 )
 
 # ---------------------------------------------------------------------------
@@ -207,6 +244,118 @@ P2_COLOR_WIRING_BLOCKERS = (
 )
 
 
+def blocker_names() -> tuple[str, ...]:
+    """The short name each blocker already carries, DERIVED not retyped.
+
+    Every entry of :data:`P2_COLOR_WIRING_BLOCKERS` is ``"<name>: <prose>"``.
+
+    A caveat this docstring used to omit, and pf-adversary (round ``5ddsii``)
+    was right to call out: :data:`RE_211_QUESTION_FOR_BLOCKER` below IS a
+    second hand-typed list of these names, eleven lines further down.  What
+    ``COO 0846`` forbids is a SILENT second copy; that one is guarded by
+    :func:`open_questions`, which refuses on any disagreement in either
+    direction, including a rename that keeps the count the same.  A guarded
+    copy is a different animal from an unguarded one -- but it is still a
+    copy, and the guard is the only thing that makes it legal.
+
+    A blocker name may contain neither ``":"`` nor ``" -> "``; both are
+    separators this module parses on.  Enforced below rather than assumed.
+    """
+    names = []
+    for blocker in P2_COLOR_WIRING_BLOCKERS:
+        name, sep, _rest = blocker.partition(":")
+        if not sep or not name or name != name.strip():
+            raise NameColorGateError(
+                f"blocker does not carry a leading '<name>:' key: {blocker!r}"
+            )
+        if " -> " in name:
+            # `open_questions` joins name and question with this separator and
+            # readers split on the FIRST one.  A name carrying it would parse
+            # back as a shorter name, and the refusal that followed would name
+            # a blocker nobody could find (pf-adversary, round `5ddsii`, s.4).
+            raise NameColorGateError(
+                f"blocker name may not contain ' -> ': {name!r}"
+            )
+        names.append(name)
+    if len(set(names)) != len(names):
+        raise NameColorGateError(f"two blockers share one name: {names}")
+    return tuple(names)
+
+
+#: All THREE questions the filed letter asks, by label.  Named here so a
+#: reader can tell what the ticket covers WITHOUT opening the other
+#: repository, and so a question that maps to no blocker is still visible
+#: (pf-adversary, round `5ddsii`, O1: the first draft described Q3 in a
+#: comment and carried it in no value, so a reader who grepped the module
+#: concluded the ticket had two questions).
+RE_211_QUESTION_LABELS = (
+    "Q1: quote the compare that splits the positive identity family from the "
+    "nonpositive one -- which dword, signed or unsigned, and where zero lands",
+    "Q2: walk the gates from the nonpositive entry to the typed CNetNPC entry "
+    "and say whether that tail is an object-TYPE test no identity can satisfy",
+    "Q3: does the client's own actor registry key on a signed or an unsigned "
+    "identity, and is a negative value refused, truncated or aliased",
+)
+
+#: Which question bears on which blocker.  THREE THINGS TO READ HERE, none of
+#: them cheerful:
+#:
+#: 1. ``faction_is_a_fallback_operand_only`` is DELIBERATELY EMPTY.  RE-211
+#:    does not reopen RE-195 job 1, and its own out-of-scope section says so
+#:    in as many words.  ``unaddressed_blockers()`` is that gap, countable.
+#: 2. The ``hit_writer`` value is THIS LANE'S INFERENCE, not something the
+#:    letter says.  The letter never mentions the hit writer; the link is
+#:    that "signed-negative" is the very thing Q1 asks the image to define.
+#:    It is labelled ``[PROPOSED]`` in its own text because pf-adversary
+#:    (round `5ddsii`, O2) found it shipped as if the letter had said it.
+#: 3. Q3 maps to NOTHING.  It prices the direction; it retires no blocker.
+#:    A ticket half of which retires nothing is the shape of this problem.
+RE_211_QUESTION_FOR_BLOCKER = {
+    "identity_scheme_is_positive": (
+        "RE-211 Q1+Q2 [letter says so]: the split compare, then whether the "
+        "typed CNetNPC tail is an object-TYPE test that no identity value can "
+        "satisfy -- a 'no' there refuses this whole direction, which is worth "
+        "more to this lane than a 'yes'"
+    ),
+    "faction_is_a_fallback_operand_only": "",
+    "hit_writer_needs_a_signed_negative_target": (
+        "RE-211 Q1 [PROPOSED -- this lane's inference, the letter does not "
+        "say it]: 'signed-negative' is today a COLUMN LABEL and not a quoted "
+        "instruction, so the compare Q1 asks for is what would decide whether "
+        "a value this project could emit is negative to the client at all"
+    ),
+}
+
+
+def open_questions() -> tuple[str, ...]:
+    """``"<blocker name> -> <question>"`` for each blocker RE-211 bears on.
+
+    Raises if the mapping above and :data:`P2_COLOR_WIRING_BLOCKERS` have
+    drifted apart in EITHER direction.  A blocker with no key is a blocker
+    whose status nobody decided; a key naming no blocker is a question aimed
+    at a route that has already moved.  Both are silent today and loud here.
+    """
+    names = blocker_names()
+    mapped = tuple(RE_211_QUESTION_FOR_BLOCKER)
+    if set(mapped) != set(names):
+        raise NameColorGateError(
+            "RE_211_QUESTION_FOR_BLOCKER and P2_COLOR_WIRING_BLOCKERS "
+            f"disagree: blockers={sorted(names)} mapped={sorted(mapped)}"
+        )
+    return tuple(
+        f"{name} -> {RE_211_QUESTION_FOR_BLOCKER[name]}"
+        for name in names
+        if RE_211_QUESTION_FOR_BLOCKER[name]
+    )
+
+
+def unaddressed_blockers() -> tuple[str, ...]:
+    """Blockers that the filed ticket does NOT bear on.  Not a TODO list."""
+    names = blocker_names()
+    open_questions()  # same drift guard, one source
+    return tuple(name for name in names if not RE_211_QUESTION_FOR_BLOCKER[name])
+
+
 @dataclass(frozen=True)
 class P2ColorWiringVerdict:
     """Whether P-2 colour code may be written today, and why not.
@@ -233,7 +382,6 @@ class P2ColorWiringVerdict:
 
     def reason(self) -> str:
         return " | ".join(self.blockers)
-
 
 def p2_color_wiring_verdict() -> P2ColorWiringVerdict:
     """Refuse P-2 colour wiring, and say exactly what would have to change."""
