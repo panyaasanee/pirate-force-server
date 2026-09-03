@@ -60,6 +60,7 @@ those are LANE-B's rules and the owner's, and this lane's doors report
 """
 import ast
 import contextlib
+import io
 import re
 import sqlite3
 import sys
@@ -901,10 +902,32 @@ class ContendedHealsWaitInsteadOfStarvingTests(_ContendedHealWorkspace):
         A connection that refuses the pragma still gets its attempts -- it
         just makes them at whatever timeout it already has.  Without this the
         helper would turn a harmless refusal into a failed heal.
+
+        `COO-DECISION 20260903_1248` point 4 added a second requirement on
+        top, checked here too: the refusal is COUNTED
+        (`PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT` goes up by exactly one) and
+        PRINTED (the token, which door, the milliseconds asked for and
+        refused) -- never a silent `pass`, which is what this method did
+        before that decision.  The damage door's own copy of this same
+        point-4 fix is measured in `tests/test_persistence_vitals.py`,
+        `DamageDoorHasItsOwnShortBudgetTests.test_a_pragma_a_connection_
+        refuses_does_not_stop_a_hit_and_is_counted`.
         """
         connection = _RefusingConnection(None, pragma_error=sqlite3.Error("no"))
-        SQLiteStore._begin_immediate_under_contention(connection)
+        before = store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            SQLiteStore._begin_immediate_under_contention(connection)
         self.assertEqual(connection.begins, 1)
+        self.assertEqual(
+            store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT, before + 1,
+            "a refused pragma must be counted, not silently swallowed")
+
+        printed = buffer.getvalue()
+        self.assertIn(
+            store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN, printed)
+        self.assertIn("door=heal", printed)
+        self.assertIn("requested_ms=", printed)
 
     #: The wait LANE-B measured a thread suffering before it died, in
     #: `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`: 8 threads
