@@ -1975,9 +1975,14 @@ def pin_document(legacy: Any) -> dict:
             "lane C. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief "
             "R163/R165, 2026-08-25, round dvxb6f] [MEASURED]: RE-067 is "
             "CLOSED (PASS/MIXED, actor half BOUNDED NEGATIVE) - still no "
-            "claim about name colour, but the static-layer search is "
-            "finished, not open; GT-084/RIDER-084-A carries the "
-            "client-observable question now",
+            "claim about name colour, but ~~the static-layer search is "
+            "finished, not open~~; GT-084/RIDER-084-A carries the "
+            "client-observable question now. "
+            "[ROUND tmgh1l, 2026-09-03]: the ceiling is REFUTED - the "
+            "colour-deciding read is in the actor updater 0x00444400, not "
+            "in NameBoardNPC::update, and the faction path to it is closed "
+            "end to end in ka1-B's letter of 2026-09-01 22:00.  RELAYED, "
+            "not re-derived here, and nothing in this module changed on it",
             "no aggro, no attack, no death, no drop: this lane builds the "
             "monster, not the fight",
             "max_hp is DERIVED from STANDARD_MOB by level.  ~~the two "

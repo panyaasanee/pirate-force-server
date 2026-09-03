@@ -1487,5 +1487,118 @@ class TheBoundedNegativeCeilingIsStruckInEveryPlaceThisLaneOwns(
             (1, 6))
 
 
+def unstruck_occurrences(text, phrase):
+    """Offsets of ``phrase`` in ``text`` that are NOT inside a ``~~...~~``
+    strike.  Duplicated verbatim in ``test_mob_combat.py`` on purpose: a
+    shared helper would have to live in a third file that neither module's
+    test suite can be run without, and this lane's rule is that a test file
+    stays runnable on its own.  It is a pure function over its arguments, so
+    the two copies cannot disagree about a document they both read.
+    """
+    spans = []
+    cursor = 0
+    while True:
+        opened = text.find("~~", cursor)
+        if opened < 0:
+            break
+        closed = text.find("~~", opened + 2)
+        if closed < 0:
+            break
+        spans.append((opened, closed + 2))
+        cursor = closed + 2
+    out = []
+    at = text.find(phrase)
+    while at >= 0:
+        end = at + len(phrase)
+        if not any(start <= at and end <= stop for start, stop in spans):
+            out.append(at)
+        at = text.find(phrase, at + 1)
+    return out
+
+
+class ThePublishedCeilingSentenceIsStruckTooTests(unittest.TestCase):
+    """ROUND tmgh1l.  Round ``qzky4u`` struck the ceiling in the docstrings;
+    LANE-A's letter of 2026-09-03 11:31 measured what it left standing: this
+    module's nonclaim is not a docstring, it is PUBLISHED -- it is composed
+    into ``scenarios/field_mobs_hostile_001.json`` and read by people who
+    never open the module.  A refuted sentence with the loudest voice was the
+    one still saying the static search was finished.
+
+    These assertions read the COMPOSED document, not the file text, so they
+    cannot be satisfied by a comment: whatever the pin publishes is what is
+    checked.  Nothing about the colour mechanism is claimed here and nothing
+    in this module changed on it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.published = field_mobs.pin_document(legacy)["nonclaims"]
+
+    def _the_name_colour_nonclaim(self):
+        found = [n for n in self.published if "RE-067" in n]
+        self.assertEqual(
+            len(found), 1,
+            "the published name-colour nonclaim is not one entry any more: "
+            "%d" % len(found))
+        return found[0]
+
+    def test_the_published_nonclaim_no_longer_closes_the_static_search(self):
+        self.assertNotIn(
+            "but the static-layer search is finished, not open",
+            self._the_name_colour_nonclaim())
+
+    def test_the_refuted_words_are_struck_not_deleted(self):
+        # Struck, not deleted (house rule): a reader has to be able to see
+        # what was believed next to what refuted it.
+        self.assertIn(
+            "~~the static-layer search is finished, not open~~",
+            self._the_name_colour_nonclaim())
+
+    def test_the_strike_says_it_is_second_hand_and_names_the_updater(self):
+        entry = self._the_name_colour_nonclaim()
+        self.assertIn("ROUND tmgh1l", entry)
+        self.assertIn("0x00444400", entry)
+        self.assertIn("RELAYED", entry)
+        self.assertIn("not re-derived here", entry)
+
+    def test_no_published_nonclaim_of_this_module_still_holds_a_ceiling(self):
+        # Derived, not listed: a future nonclaim that revives the ceiling in
+        # this document fails here without anyone remembering to add it.
+        for entry in self.published:
+            for phrase in ("measured ceiling",
+                           "the static-layer search is finished"):
+                for at in unstruck_occurrences(entry, phrase):
+                    self.fail(
+                        "an unstruck ceiling is published again: %s"
+                        % entry[max(0, at - 40):at + len(phrase)])
+
+    def test_every_published_nonclaim_about_name_colour_carries_the_answer(
+            self):
+        """The scan above is a list of PHRASES; this one enumerates SITES.
+
+        pf-adversary broke the phrase scan in the round that shipped it: a
+        brand-new published nonclaim saying "no driver exists at the static
+        layer and there is nothing further to look for there" re-closes the
+        ceiling in the loudest place there is -- the composed scenario a
+        reader opens without touching the module -- and passes, because it
+        uses different words.  Remembering phrases is what failed twice.
+
+        What can be derived is the SUBJECT: every nonclaim this module
+        publishes that speaks about name colour at all must carry the
+        address that refutes the ceiling.  A new sentence on the subject
+        cannot be written without it, whatever words it chooses.
+        """
+        for entry in self.published:
+            if not any(word in entry for word in
+                       ("RE-067", "name colour", "NAME COLOUR")):
+                continue
+            self.assertIn(
+                "0x00444400", entry,
+                "a published nonclaim speaks about name colour without the "
+                "refuting address, so a reader can still be told the "
+                "static search is over: %s" % entry[:120])
+
+
 if __name__ == "__main__":
     unittest.main()

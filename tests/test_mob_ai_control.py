@@ -34,6 +34,7 @@ data and every profile in this file is a join across two versions.
 """
 
 import ast
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -400,6 +401,29 @@ class ProfileJoinTests(unittest.TestCase):
             with self.subTest(placement=mob.placement_index):
                 self.assertEqual(profile_of(mob).home_radius,
                                  float(mob.speed_walk))
+
+    def test_the_home_radius_follows_a_walk_speed_the_roster_does_not_have(
+            self):
+        """ROUND tmgh1l.  The loop above cannot see what it claims to see.
+
+        pf-adversary measured it: the shipped roster is four rows and all
+        four carry ``speed_walk == 150``, so ``home_radius = 150.0`` -- a
+        constant, the monster's own column ignored -- passes the loop above
+        on every row.  It was run as a mutant and the whole suite stayed
+        green.  That loop was also the pin cited when this round deleted
+        ``HOME_RADIUS_IS_SPEED_WALK``, so the flag would have been traded
+        for a guard with no teeth for the fact the flag named.
+
+        This one varies the column the claim is about, off any value the
+        roster ships, so a constant cannot satisfy it.
+        """
+        shipped = {mob.speed_walk for mob in self.roster}
+        base = self.roster[0]
+        for speed in (7, 311, 1234):
+            self.assertNotIn(speed, shipped)
+            mob = dataclasses.replace(base, speed_walk=speed)
+            with self.subTest(speed_walk=speed):
+                self.assertEqual(profile_of(mob).home_radius, float(speed))
 
     def test_the_three_invented_numbers_are_tagged_and_pinned(self):
         source = MODULE_SOURCE_PATH.read_text(encoding="utf-8")

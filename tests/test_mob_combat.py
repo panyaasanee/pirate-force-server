@@ -3327,5 +3327,109 @@ class TheRealDefenceColumnIsPricedNotTaken(unittest.TestCase):
         self.assertNotIn("~~no MOBS column carries a constitution~~", source)
 
 
+def unstruck_occurrences(text, phrase):
+    """Offsets of ``phrase`` in ``text`` that are NOT inside a ``~~...~~``
+    strike.  Duplicated verbatim in ``test_field_mobs.py`` on purpose: a
+    shared helper would have to live in a third file that neither module's
+    test suite can be run without, and this lane's rule is that a test file
+    stays runnable on its own.  It is a pure function over its arguments, so
+    the two copies cannot disagree about a document they both read.
+    """
+    spans = []
+    cursor = 0
+    while True:
+        opened = text.find("~~", cursor)
+        if opened < 0:
+            break
+        closed = text.find("~~", opened + 2)
+        if closed < 0:
+            break
+        spans.append((opened, closed + 2))
+        cursor = closed + 2
+    out = []
+    at = text.find(phrase)
+    while at >= 0:
+        end = at + len(phrase)
+        if not any(start <= at and end <= stop for start, stop in spans):
+            out.append(at)
+        at = text.find(phrase, at + 1)
+    return out
+
+
+class ThePublishedCeilingSentenceIsStruckTooTests(unittest.TestCase):
+    """ROUND tmgh1l.  The twin of the class of the same name in
+    ``test_field_mobs.py``, for the second of the two places LANE-A measured
+    still standing on 2026-09-03 11:31: this module's name-colour nonclaim is
+    published into ``scenarios/combat_first_hit_001.json``, so its wording is
+    read by people who never open ``mob_combat.py``.
+
+    The assertions read the composed document, never the file text.  Nothing
+    about the colour mechanism is claimed and nothing in this module changed
+    on it -- ``NOW.md`` P-2 still forbids a faction-only fix and a hardcoded
+    FontStyleID.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.published = mob_combat.pin_document(
+            legacy, mob_combat.pin_subject())["nonclaims"]
+
+    def _the_name_colour_nonclaim(self):
+        found = [n for n in self.published if "RE-067" in n]
+        self.assertEqual(
+            len(found), 1,
+            "the published name-colour nonclaim is not one entry any more: "
+            "%d" % len(found))
+        return found[0]
+
+    def test_the_published_nonclaim_no_longer_closes_the_static_search(self):
+        self.assertNotIn(
+            "but the question is not open pending more static work",
+            self._the_name_colour_nonclaim())
+
+    def test_the_refuted_words_are_struck_not_deleted(self):
+        self.assertIn(
+            "~~the question is not open pending more static work, it is a "
+            "measured ceiling~~",
+            self._the_name_colour_nonclaim())
+
+    def test_the_strike_says_it_is_second_hand_and_names_the_updater(self):
+        entry = self._the_name_colour_nonclaim()
+        self.assertIn("ROUND tmgh1l", entry)
+        self.assertIn("0x00444400", entry)
+        self.assertIn("RELAYED", entry)
+        self.assertIn("not re-derived here", entry)
+
+    def test_no_published_nonclaim_of_this_module_still_holds_a_ceiling(self):
+        # Derived, not listed: a nonclaim that revives the ceiling in this
+        # document fails here without anyone remembering to add it.
+        for entry in self.published:
+            for phrase in ("measured ceiling",
+                           "the static-layer search is finished"):
+                for at in unstruck_occurrences(entry, phrase):
+                    self.fail(
+                        "an unstruck ceiling is published again: %s"
+                        % entry[max(0, at - 40):at + len(phrase)])
+
+    def test_every_published_nonclaim_about_name_colour_carries_the_answer(
+            self):
+        """The twin of the same-named test in ``test_field_mobs.py``.
+
+        The scan above lists phrases and pf-adversary walked past it with a
+        new nonclaim in different words.  This one enumerates by SUBJECT:
+        anything this module publishes that speaks about name colour must
+        carry the address that refutes the ceiling.
+        """
+        for entry in self.published:
+            if not any(word in entry for word in
+                       ("RE-067", "name colour", "NAME COLOUR")):
+                continue
+            self.assertIn(
+                "0x00444400", entry,
+                "a published nonclaim speaks about name colour without the "
+                "refuting address: %s" % entry[:120])
+
+
 if __name__ == "__main__":
     unittest.main()

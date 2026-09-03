@@ -486,9 +486,14 @@ MOB_COMBAT_NONCLAIMS = (
     "[STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R165, 2026-08-25, "
     "round dvxb6f] [MEASURED]: RE-067 is CLOSED (PASS/MIXED, actor half "
     "BOUNDED NEGATIVE) - name colour is still not claimed by this lane, "
-    "but the question is not open pending more static work, it is a "
-    "measured ceiling; the client-observable answer waits on GT-084/"
-    "RIDER-084-A instead",
+    "but ~~the question is not open pending more static work, it is a "
+    "measured ceiling~~; the client-observable answer waits on GT-084/"
+    "RIDER-084-A instead. "
+    "[ROUND tmgh1l, 2026-09-03]: the ceiling is REFUTED - the "
+    "colour-deciding read is in the actor updater 0x00444400, not in "
+    "NameBoardNPC::update, and the faction path to it is closed end to end "
+    "in ka1-B's letter of 2026-09-01 22:00.  RELAYED, not re-derived here, "
+    "and nothing in this module changed on it",
     "the client's draw distance is still unmeasured, so a monster hit from "
     "far away may move a bar nobody can see",
     "named AND hostile in one body has never been sent and never been "
