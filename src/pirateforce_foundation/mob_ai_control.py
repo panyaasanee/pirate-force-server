@@ -338,8 +338,12 @@ MOB_AI_CONTROL_NONCLAIMS = (
     "tick_step and commit_step have never run for a player, and the line "
     "reference above (runtime.py:5196-5210) is stale too -- the block is "
     "at runtime.py:5875-5900. WHAT IS NOT STRUCK: the damage FOLD is "
-    "reached and does run (MOB_AGGRO_DISPATCH_REACHABLE is True, derived "
-    "by tests/test_mob_aggro.py, not declared); only the TICK is dead. "
+    "reached and does run (MOB_AGGRO_DAMAGE_FOLD_REACHABLE is True, derived "
+    "by tests/test_mob_aggro.py, not declared -- renamed from "
+    "MOB_AGGRO_DISPATCH_REACHABLE in round a7k5gy, when COO-DECISION "
+    "20260903_1647 split the one word that was answering for both halves of "
+    "this sentence; the TICK half is now its own derived bool, "
+    "MOB_AGGRO_TICK_REACHABLE, False today); only the TICK is dead. "
     "The one-string repair belongs to the chief (runtime.py is his file) "
     "and is asked for in pf_bridge CORE-REQUEST 20260903_1639; the guard "
     "that will go red the day it lands is "
@@ -1056,7 +1060,15 @@ def pin_document(mobs: tuple[FieldMob, ...]) -> dict:
         "promotion_ruling": MOB_AI_CONTROL_PROMOTION_RULING,
         "production_allowed": production_allowed,
         "mob_aggro_production_allowed": mob_aggro.production_allowed,
-        "mob_aggro_dispatch_reachable": mob_aggro.MOB_AGGRO_DISPATCH_REACHABLE,
+        # ROUND `a7k5gy`: was one key, "mob_aggro_dispatch_reachable", and one
+        # key cannot answer two questions.  COO-DECISION 2026-09-03T16:47+07:00
+        # item 1 split it: the damage fold is reached on every accepted hit,
+        # the decision tick is not reached at all.  Both are derived in
+        # tests/test_mob_aggro.py, neither is decided here; this file's job is
+        # only that the shipped pin carries what the module says.
+        "mob_aggro_damage_fold_reachable":
+            mob_aggro.MOB_AGGRO_DAMAGE_FOLD_REACHABLE,
+        "mob_aggro_tick_reachable": mob_aggro.MOB_AGGRO_TICK_REACHABLE,
         "attack_intent_deliverable": mob_aggro.ATTACK_INTENT_DELIVERABLE,
         "source_digests": dict(field_mob_ai_tables.SOURCE_DIGESTS),
         "mined_values": ["aggro_radius", "offensive"],
