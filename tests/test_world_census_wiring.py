@@ -55,9 +55,6 @@ from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import world_density  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
-from pirateforce_foundation.gm import (  # noqa: E402
-    identity_registry_census,
-)
 from pirateforce_foundation.ground_loot_hypothesis import (  # noqa: E402
     load_ground_loot_hypothesis_scenario,
 )
@@ -688,134 +685,6 @@ class WorldCensusWiringTests(unittest.TestCase):
             any(line.startswith("WORLD_CENSUS ") for line in lines),
             f"no WORLD_CENSUS line in captured output: {lines!r}",
         )
-
-    def test_the_identity_census_line_is_printed_once_for_the_census_scene(
-        self,
-    ):
-        """CORE-REQUEST-GM-050: the identity census rides the same scene
-        census print the WORLD_CENSUS line already sits behind, so proving it
-        fired is a console-output check.  Two things are asserted that a
-        "does the token appear" check would miss: the line is printed ONCE
-        per scene entry (the lane asked for once, and this branch is reached
-        on more than one frame in a session), and the scene number in it is
-        the scene the census was actually built for -- a line that answers
-        the identity question about some other scene is worse than no line,
-        because the tester reading it has no way to tell.
-        """
-        state = self._state("census_identity")
-        captured = io.StringIO()
-        with contextlib.redirect_stdout(captured):
-            # SIX frames, not one.  pf-adversary (R319, D6) measured that a
-            # one-frame count pins once-per-FRAME and says nothing about
-            # once-per-ENTRY: a duplicate print placed behind
-            # ``if self.world_census_sent:`` survived a single-frame test
-            # green and then printed on every movement packet.  The latch is
-            # set by the first frame, so frames 2..6 are exactly the ones a
-            # once-per-frame line would talk on.
-            for step in range(6):
-                self._step(state, xyz=(10.0 + step, 20.0, 30.0))
-        lines = [
-            line for line in captured.getvalue().splitlines()
-            if line.startswith(identity_registry_census.CONSOLE_TOKEN + " ")
-        ]
-        self.assertEqual(
-            len(lines), 1,
-            f"expected exactly one identity census line over six frames, "
-            f"got {lines!r}",
-        )
-        # The scene in the line is checked against the scene the RUNTIME
-        # stamped on the census it committed -- not against the constant the
-        # call site was handed, which the line would echo back whatever it
-        # meant (pf-adversary R319, D9).
-        self.assertEqual(
-            f" scene={state.census_anchor_record.scene_id} " in lines[0],
-            True,
-            f"line does not name the scene the census was stamped with: "
-            f"{lines[0]!r} vs {state.census_anchor_record!r}",
-        )
-
-    def test_an_identity_census_failure_refuses_by_name_and_costs_nothing(
-        self,
-    ):
-        """The failure path fails CLOSED, and says so where it can be read.
-
-        Three things are pinned, each because a mutant survived without it
-        (pf-adversary R319):
-
-        * D1 -- the guard is ``except Exception``, not one named class.
-          Narrowing it to ``except ValueError`` survived a test that only
-          ever raised ValueError, and on a real boot an AttributeError from
-          table drift then unwinds out of dispatch AFTER world_census_sent is
-          latched: v141:7440 has no except, so the daemon GAME-listener dies
-          for the whole process and the session is left "census sent" with no
-          census ever queued.  Two unrelated exception classes are driven
-          here for exactly that reason.
-        * D7 -- the class name in the event and in the refusal line is
-          derived from the exception, not typed in.  A hardcoded
-          ``_ValueError`` suffix survived while only one class was raised,
-          and would send the next reader hunting a bad scene id when the real
-          cause was a renamed attribute.
-        * D2 -- NO verdict line may reach the console, but the refusal must.
-          ``self.events`` reaches no console without --export-events, which
-          the attended tester does not use, and COO-DECISION 20260902_1844
-          rules that a token the tester cannot see is not a token: silence
-          would be byte-identical to "this build predates the feature".  The
-          refusal carries no verdict fields, so it cannot be read as half a
-          verdict, which is what the lane asked to avoid.
-        """
-        original = identity_registry_census.describe_scene
-        for failure in (ValueError, AttributeError):
-            with self.subTest(failure=failure.__name__):
-                def explode(*args, **kwargs):
-                    raise failure("the identity table moved under us")
-
-                state = self._state(f"census_identity_{failure.__name__}")
-                identity_registry_census.describe_scene = explode
-                captured = io.StringIO()
-                try:
-                    with contextlib.redirect_stdout(captured):
-                        actions = self._step(state)
-                finally:
-                    identity_registry_census.describe_scene = original
-                printed = captured.getvalue().splitlines()
-                self.assertEqual(len(self._census(actions)), 2)
-                self.assertEqual(
-                    state.world_census_actor_count, SHIPPED_CENSUS_COUNT,
-                )
-                self.assertIs(state.world_census_sent, True)
-                self.assertEqual(
-                    [
-                        line for line in printed
-                        if line.startswith(
-                            identity_registry_census.CONSOLE_TOKEN + " ")
-                    ],
-                    [],
-                    f"a verdict line survived the failure: {printed!r}",
-                )
-                self.assertEqual(
-                    [
-                        line for line in printed
-                        if line.startswith("GM_IDENTITY_CENSUS_UNAVAILABLE ")
-                    ],
-                    [
-                        "GM_IDENTITY_CENSUS_UNAVAILABLE scene=%d reason=%s"
-                        % (world_population.SCENE_ID, failure.__name__)
-                    ],
-                    f"no readable refusal in {printed!r}",
-                )
-                self.assertIn(
-                    "gm_identity_census_console_line_failed_"
-                    + failure.__name__,
-                    state.events,
-                )
-                # The census line beside it still printed: the wrap is around
-                # the identity line alone, not around the pair.
-                self.assertTrue(
-                    any(
-                        line.startswith("WORLD_CENSUS ") for line in printed
-                    ),
-                    "the census console line was lost with the identity line",
-                )
 
     # ----- the anchor -------------------------------------------------------
 
@@ -1525,6 +1394,69 @@ class WorldCensusWiringTests(unittest.TestCase):
         self.assertEqual(teleport[0][1], expected_pc)
         self.assertEqual(teleport[0][2], expected_frame)
         self.assertEqual(teleport[0][3], 0.70)
+
+
+class TheWithdrawnIdentityCensusLineTests(unittest.TestCase):
+    """COO-DECISION 20260903_1349 (point 4) and 20260903_1351 withdrew the
+    GM_IDENTITY_CENSUS console line from runtime.py in R320.  Prose in a
+    comment cannot enforce that, and this file is where the enforcement
+    belongs: R319 wired the line HERE and graded it HERE, so a round that
+    re-adds the call is a round that would otherwise have nothing to answer
+    to.  Measured before this guard existed (pf-adversary, R320): re-adding
+    the two-line call at the same point left 206 tests green across every
+    census and GM module, so nothing on the tree could tell the line had come
+    back.
+
+    Derived from the source file, not from a list somebody keeps in step: the
+    check reads runtime.py itself and asks whether the census module is named
+    anywhere in it, so moving the call to a different scene, a different
+    method, or a different console line cannot get past it.
+    """
+
+    RUNTIME = (
+        Path(__file__).resolve().parents[1]
+        / "src" / "pirateforce_foundation" / "runtime.py"
+    )
+
+    def test_runtime_does_not_call_the_identity_census_module(self):
+        source = self.RUNTIME.read_text(encoding="utf-8")
+        offenders = [
+            "%d: %s" % (number, line.strip())
+            for number, line in enumerate(source.splitlines(), 1)
+            if "identity_registry_census" in line and not line.lstrip()
+            .startswith("#")
+        ]
+        self.assertEqual(
+            offenders, [],
+            "runtime.py names gm.identity_registry_census again:\n  %s\n"
+            "That call was withdrawn in R320 by COO-DECISION 20260903_1349 "
+            "point 4 and 20260903_1351, and the withdrawal stands until the "
+            "LANE-GM RE ticket for typed/live gate reachability returns an "
+            "identity that is NOT derived from the placement index.  Even "
+            "then the line is home-scene only while the incident it answers "
+            "is cross-scene, and census= is a pre-assembly table count -- "
+            "read the block at the census print in runtime.py before "
+            "deleting this test."
+            % "\n  ".join(offenders))
+
+    def test_the_module_and_its_own_tests_are_untouched_by_the_withdrawal(
+        self,
+    ):
+        """The withdrawal took the CALL, not the module (COO 1349 point 4).
+
+        Deleting the module to 'finish' the withdrawal would take LANE-GM's
+        work with it, so the other direction is graded too.
+        """
+        root = Path(__file__).resolve().parents[1]
+        module = (root / "src" / "pirateforce_foundation" / "gm"
+                  / "identity_registry_census.py")
+        own_tests = root / "tests" / "test_gm_identity_registry_census.py"
+        self.assertTrue(module.is_file(), module)
+        self.assertTrue(own_tests.is_file(), own_tests)
+        self.assertIn(
+            "CONSOLE_TOKEN", module.read_text(encoding="utf-8"),
+            "the census module no longer publishes its console token; the "
+            "withdrawal of R320 was of the CALL SITE only")
 
 
 if __name__ == "__main__":

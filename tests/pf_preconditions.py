@@ -458,6 +458,30 @@ BRIDGE_ATTR_CORPUS = Precondition(
     "without it",
 )
 
+# The GM plug-in installer, asked for by LANE-GM (letter 20260903_0303) and
+# ordered onto chief by COO-DECISION 20260903_0445.  It exists for the same
+# reason BRIDGE_ATTR_CORPUS does and NOT for the reason BRIDGE_SIBLING does:
+# ../pf_bridge existing is not the question, the batch file existing is.  A
+# test that grades the installer's own control flow (does it call the manifest
+# checker, does it refuse when mt.exe is missing) has to READ the batch, so on
+# the single-repo Windows gate checkout it must skip by name rather than die
+# on a missing path.
+#
+# NOTHING GUARDS WITH THIS KEY YET, ON PURPOSE.  LANE-GM holds the three tests
+# that will use it and asked (letter 20260903_0545 point 2) to switch their pin
+# and decorator only after the key is on main, so the half-way state -- a
+# decorator naming a key the registry does not have -- never exists.  An unused
+# key adds no skip line, so docs/PYTEST_SKIP_PINS.json does not move with it;
+# the pins move in the round the guards land.
+BRIDGE_GM_INSTALL_BAT = Precondition(
+    "bridge_gm_install_bat",
+    [SIBLING / "pf_bridge" / "patches" / "gm_plugin" / "install.bat"],
+    "the GM plug-in installer ../pf_bridge/patches/gm_plugin/install.bat",
+    "it lives in the pf_bridge sibling repository, which the single-repo "
+    "gate checkout does not have, and the three tests that grade the "
+    "batch's own control flow can only read it where it is present",
+)
+
 GAME_INSTALL_TREE = Precondition(
     "game_install_tree",
     [SIBLING / "GameClient"],
@@ -563,6 +587,7 @@ REGISTRY = {
         BRIDGE_GAMEDATA,
         BRIDGE_SERIALIZER_TABLE,
         BRIDGE_ATTR_CORPUS,
+        BRIDGE_GM_INSTALL_BAT,
         GAME_INSTALL_TREE,
         EXTERNAL_RE_TABLES,
         ORIGINAL_SCHEMA_HISTORY,
