@@ -480,6 +480,54 @@ class TheSceneMustBeASCIISafeTests(_StoreFixture):
             self.store.list_ground_drops_for_scene("Straße")
 
 
+class TheSceneCheckDoesNotSilentlyDriftFromMobLootTests(unittest.TestCase):
+    """pf-adversary (round `orpati`, second pass): `store_module.
+    _require_ground_drop_scene` duplicates `mob_loot._require_scene`
+    instead of importing it (deliberately -- see that function's own
+    docstring). Duplication with no cross-check is a drift risk: if
+    `mob_loot._require_scene` tightens its rule later, this copy is never
+    told, and `commit_ground_drop`/`list_ground_drops_for_scene` would
+    silently stay looser than the migration comment's stated invariant.
+    This class is the cross-check -- it is free to import `mob_loot`
+    because it lives in the test file, not in `store.py`, so importing
+    here does not violate the lane boundary the production code
+    maintains."""
+
+    def test_the_length_ceiling_matches_mob_loots(self):
+        from pirateforce_foundation import mob_loot
+        self.assertEqual(
+            store_module.GROUND_DROP_SCENE_MAX, mob_loot.SCENE_NAME_MAX,
+        )
+
+    def test_a_battery_of_inputs_agrees_between_the_two_functions(self):
+        from pirateforce_foundation import mob_loot
+        candidates = (
+            "bg0001", "Bg0002", "", "b" * 32, "b" * 33, "Straße",
+            "K", "bg 0001", "bg\t0001", "\x00bad", "​zws",
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                mob_loot_refused = None
+                try:
+                    mob_loot._require_scene(candidate, "scene")
+                except mob_loot.MobLootContractError:
+                    mob_loot_refused = True
+                else:
+                    mob_loot_refused = False
+                door_refused = None
+                try:
+                    store_module._require_ground_drop_scene(candidate)
+                except ValueError:
+                    door_refused = True
+                else:
+                    door_refused = False
+                self.assertEqual(
+                    mob_loot_refused, door_refused,
+                    "mob_loot._require_scene and store._require_ground_drop_"
+                    "scene disagree on %r" % (candidate,),
+                )
+
+
 class TheDoorsScopeStaysWhatWasOrderedTests(_StoreFixture):
 
     def test_there_is_no_delete_or_expiry_method_on_this_door(self):

@@ -57,11 +57,17 @@
 -- this door's whole first-round scope -- see below).  `store.py`'s
 -- `commit_ground_drop`/`list_ground_drops_for_scene` compute the fold in
 -- Python with `str.casefold()`, the same call `scene_key` makes; every
--- scene value this table ever holds is required ASCII by that same
--- function (`_require_scene`), which is why plain `casefold()` and SQL's
--- `lower()` cannot disagree on any value this door will ever see, and why
--- this file does not need a SQLite collation or a generated column to get
--- that answer.
+-- scene value this table ever holds is required ASCII by `mob_loot.
+-- _require_scene` once a LANE-B call site constructs through `mob_loot.
+-- GroundDrop`, AND independently by `store._require_ground_drop_scene`
+-- at this door's own boundary (pf-adversary, round `orpati`, measured
+-- that the ASCII guarantee did not actually hold at this function's own
+-- entry point before that check existed -- a non-ASCII scene could fold
+-- to collide with an unrelated one, and crash the collision-refusal
+-- print() on this project's cp874 console) -- which is why plain
+-- `casefold()` and SQL's `lower()` cannot disagree on any value this door
+-- will ever see, and why this file does not need a SQLite collation or a
+-- generated column to get that answer.
 --
 -- WHY `x`/`y`/`z` ARE BOUNDED, NOT JUST TYPED.  `pf-adversary` (round
 -- `5d02mu`) measured that `CHECK(typeof(x)='real')` alone is not the
