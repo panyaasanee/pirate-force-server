@@ -226,8 +226,24 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
             "in its own words not to read the value and write it back -- a "
             "value here means the login started PERSISTING the speed",
         )
+        # THE SECOND EXEMPTION, ADDED BY THE ROUND THAT LANDED THE VITALS
+        # SEAM (`COO-DECISION 20260903_0647`), for exactly the reason the
+        # first one exists.  `session.select_and_start` now also resolves
+        # level/hp_current/hp_max off the character's own row and rides them
+        # on the in-memory object; `store._character` does not read the typed
+        # columns, so the object the store hands back answers `None` on all
+        # three while the live one carries the row's numbers.  Naming them
+        # keeps this comparison a WHOLE-OBJECT one -- any OTHER field a login
+        # quietly changes is still a failure, which is the only thing this
+        # test exists to prevent.
+        self.assertIsNone(stored.level)
+        self.assertIsNone(stored.hp_current)
+        self.assertIsNone(stored.hp_max)
         self.assertEqual(
-            replace(state.foundation.selected, movement_speed=None), stored,
+            replace(
+                state.foundation.selected, movement_speed=None,
+                level=None, hp_current=None, hp_max=None),
+            stored,
         )
         # WHAT THAT FIELD CARRIES IS DELIBERATELY NOT GRADED HERE, and the
         # first draft of this repair got that wrong in a way worth writing

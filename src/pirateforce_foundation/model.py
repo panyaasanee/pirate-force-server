@@ -35,3 +35,33 @@ class Character:
     # method there), so a character loaded from the database arrives here
     # with None and behaves exactly as main behaves today.
     movement_speed: float | None = None
+
+    # The three login vitals this character's login sends, or None each for
+    # "the composer's own constants" (`player_wire.PLAYER_LOGIN_LEVEL` and
+    # `PLAYER_LOGIN_HP_CURRENT`/`_HP_MAX`).  COO-DECISION 20260903_0647.
+    #
+    # THEY RIDE THE CHARACTER for exactly the reason the walk speed above
+    # does, and the reason is not style: `legacy_bridge.start_game` is called
+    # up to three more times per production login by `runtime.py` (the
+    # faction probe on every flagless login, the scene-override resync, the
+    # pinned-identity probe), each with the SAME selected character, so a
+    # number threaded into the first call only is a number the very next
+    # recompose silently puts back to the constant -- green in a unit test,
+    # absent on the wire.
+    #
+    # ALL THREE OR NONE (PANYA-DECISION 20260901_1059): `start_game` sends
+    # them only when all three are set, so no login can ever carry the row's
+    # `hp_current` beside a guessed `level`.  `store._character` does not read
+    # them, so a character loaded from the database arrives here with three
+    # `None`s and composes exactly what `main` composes today; `session.py`
+    # is the only place that fills them in, through the login-vitals seam
+    # there.  THE MODULE THAT SEAM CALLS IS NAMED IN WORDS RATHER THAN
+    # SPELLED, and that is not squeamishness: its own test file walks every
+    # `.py` under the repository root and fails any module outside
+    # `session.py` whose TEXT contains the name, COMMENTS INCLUDED, because
+    # that is how "one call point, no second one" (`COO-DECISION
+    # 20260903_0447`) is enforced without trusting an import list.  Measured:
+    # the first draft of this paragraph turned that guard red.
+    level: int | None = None
+    hp_current: int | None = None
+    hp_max: int | None = None

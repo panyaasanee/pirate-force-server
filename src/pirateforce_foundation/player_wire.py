@@ -22,6 +22,25 @@ from .world_faction_admission import PROVEN_BASIC_FACTION
 PLAYER_LOGIN_CLASS_ID = 1
 PLAYER_LOGIN_LEVEL = 1
 
+# The HP pair this composer emits when nobody hands it one.  These were two
+# `100` literals written inline in the emission expression until `COO-DECISION
+# 20260903_0647` ordered the vitals seam landed; they are named here so
+# `session.py` can pass them to its login-vitals resolver (named in words, not
+# spelled: that module's own test file refuses any module outside `session.py`
+# whose text contains its name, comments included -- see `model.py`'s note)
+# as that resolution's fallbacks WITHOUT typing the number a third time.
+# WHAT THOSE FALLBACKS DECIDE IS THE CONSOLE, NOT THE WIRE, and the first
+# draft of this paragraph said otherwise (`pf-adversary` defect D2): a
+# fallback value can never reach a frame, because every reason that carries
+# one makes the resolution's `wire_kwargs()` empty and the composer then uses
+# the DEFAULTS IN ITS OWN SIGNATURE just below.  Keeping the two spellings
+# equal still matters -- a login that prints numbers it did not send is a lie
+# an operator acts on -- but it is not what keeps an unreadable row composing
+# the frame `main` composes.
+# Same [PROPOSED, not measured] status as the class/level pair above.
+PLAYER_LOGIN_HP_CURRENT = 100
+PLAYER_LOGIN_HP_MAX = 100
+
 # CORE-REQUEST-023 "probe base 1" widening (PANYA-DECISION 20260828_0125),
 # round x6a85q (R208): movement speed only.  MP current/max and STR/CON/DEX/
 # INT/PER wire POSITIONS are equally [MEASURED] (same citations as speed,
@@ -234,8 +253,9 @@ def _make_actor_attr_with_name_and_class(
     character_name: str, class_id: int, level: int, *,
     basic_faction: int | None,
     movement_speed: float | None = None,
+    hp_current: int = 100, hp_max: int = 100,
 ) -> bytes:
-    """Project name+class+level+speed and an optional frozen faction.
+    """Project name+class+level+hp+speed and an optional frozen faction.
 
     CORE-REQUEST-023 (PANYA-DECISION 20260828_0125 / COO-DECISION 0146):
     every booted character must carry at least class id (or the skill window
@@ -280,8 +300,8 @@ def _make_actor_attr_with_name_and_class(
         + legacy.u16tag(0x12, basic_mask)
         + name_wire
         + legacy.u16tag(0x12, level)
-        + legacy.u32tag(0x14, 100)
-        + legacy.u32tag(0x14, 100)
+        + legacy.u32tag(0x14, hp_current)
+        + legacy.u32tag(0x14, hp_max)
         + legacy.f32tag(speed)
         + legacy.u16tag(0x12, scene_id)
         + bytes([0x32]) + struct.pack("<Q", scene_seq)
@@ -298,8 +318,10 @@ def make_actor_attr_with_name_and_class(
     character_name: str,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
     movement_speed: float | None = None,
+    hp_current: int = PLAYER_LOGIN_HP_CURRENT,
+    hp_max: int = PLAYER_LOGIN_HP_MAX,
 ) -> bytes:
-    """Build the real login ActorAttr: proven baseline plus class+level+speed.
+    """Build the real login ActorAttr: proven baseline plus class+level+hp+speed.
 
     `movement_speed=None` keeps this module's constant, which is what every
     caller without a character row hands in -- see `_login_movement_speed`.
@@ -307,6 +329,7 @@ def make_actor_attr_with_name_and_class(
     return _make_actor_attr_with_name_and_class(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
         class_id, level, basic_faction=None, movement_speed=movement_speed,
+        hp_current=hp_current, hp_max=hp_max,
     )
 
 
@@ -315,8 +338,10 @@ def make_actor_attr_with_name_class_and_faction(
     character_name: str, basic_faction: int,
     class_id: int = PLAYER_LOGIN_CLASS_ID, level: int = PLAYER_LOGIN_LEVEL,
     movement_speed: float | None = None,
+    hp_current: int = PLAYER_LOGIN_HP_CURRENT,
+    hp_max: int = PLAYER_LOGIN_HP_MAX,
 ) -> bytes:
-    """The class+level+speed baseline above, plus the frozen faction-1 probe field.
+    """The class+level+hp+speed baseline above, plus the frozen faction-1 probe field.
 
     Same identity/scene/faction guard as ``make_actor_attr_with_basic_
     faction``.  CORE-REQUEST-022 needs this because runtime.py recomposes
@@ -375,6 +400,7 @@ def make_actor_attr_with_name_class_and_faction(
         legacy, identity_lo, identity_hi, scene_id, scene_seq, character_name,
         class_id, level, basic_faction=basic_faction,
         movement_speed=movement_speed,
+        hp_current=hp_current, hp_max=hp_max,
     )
 
 
