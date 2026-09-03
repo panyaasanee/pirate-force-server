@@ -32,6 +32,7 @@ from pirateforce_foundation.gm.attr_wire import (
     DB_ATTRIBUTE_IDENTITY_BIT,
     FIELDS,
     LIVE_VALUE_READ_POINT,
+    LOGIN_BYTES_READ_POINT,
     SEED_CAPTURED_CONSOLE_TOKEN,
     SEED_REFUSED_CONSOLE_TOKEN,
     SENSITIVE_FIELDS,
@@ -39,14 +40,18 @@ from pirateforce_foundation.gm.attr_wire import (
     UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
     AttrWireError,
     RawBlockCache,
+    all_field_x,
     build_named_field_update,
     encode_block,
     encode_field,
+    live_full_block_values,
+    live_login_bytes,
     live_named_values,
     make_update_attr_frame,
     named_field_x,
     parse_value,
     seed_cache_from_live_values,
+    unnamed_field_x,
     validate_field_value,
 )
 
@@ -192,6 +197,11 @@ class EncodeFieldByteExactTests(unittest.TestCase):
 
 
 class EncodeBlockTests(unittest.TestCase):
+    """`encode_block` stays a general-purpose composer that accepts a
+    partial `values` -- (b'')'s completeness guarantee is enforced at
+    `build_named_field_update` instead (see `BuildNamedFieldUpdateCompleteness
+    Tests` below and `encode_block`'s own docstring for why)."""
+
     def setUp(self):
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
@@ -246,6 +256,22 @@ class EncodeBlockTests(unittest.TestCase):
         self.assertIn(encode_field(self.legacy, BY_X[39], 1), body)
         self.assertIn(encode_field(self.legacy, BY_X[40], 2), body)
 
+    def test_a_complete_block_also_still_composes(self):
+        # (b'') callers DO pass a full block through this same function --
+        # this pins that the general-purpose composer handles that shape
+        # too, not only the sparse ones above.
+        body, basic_mask, actor_mask = encode_block(self.legacy, 0x11, 0x22, _full_values())
+        expected_basic_mask = 0
+        expected_actor_mask = 0
+        for field in FIELDS:
+            if field[1] == "basic":
+                expected_basic_mask |= field[2]
+            else:
+                expected_actor_mask |= field[2]
+        self.assertEqual(basic_mask, expected_basic_mask)
+        self.assertEqual(actor_mask, expected_actor_mask)
+        self.assertTrue(body.startswith(self.legacy.u8tag(0x0B, DB_ATTRIBUTE_IDENTITY_BIT)))
+
 
 class MakeUpdateAttrFrameTests(unittest.TestCase):
     def setUp(self):
@@ -270,6 +296,41 @@ class MakeUpdateAttrFrameTests(unittest.TestCase):
     def test_pc_carries_the_update_attr_vital_id(self):
         pc, _frame = make_update_attr_frame(self.legacy, 1, 0, {})
         self.assertIn(struct.pack("<H", UPDATE_ATTR_VITAL_ID), pc)
+
+
+class BuildNamedFieldUpdateCompletenessTests(unittest.TestCase):
+    """(b'') (`COO-DECISION 20260904_0215`): the door THIS lane's named-field
+    API opens must never compose a partial 0x309A block -- enforced at
+    `build_named_field_update`'s cache check (widened this round from
+    `named_field_x()` to `all_field_x()`), not inside `encode_block` (see
+    that function's own docstring for why not).
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_mutant_a_cache_missing_exactly_one_row_is_refused(self):
+        # THE MUTATION TEST `COO-DECISION 20260904_0215` ORDERED BY NAME,
+        # aimed at this door: a cache missing exactly one FIELDS row must
+        # refuse a compose, for every row in the table.
+        level_x = BY_NAME["level"][0]
+        for field in FIELDS:
+            values = _full_values()
+            del values[field[0]]
+            cache = RawBlockCache()
+            cache.capture_initial(values)
+            with self.assertRaises(
+                AttrWireError, msg=f"x={field[0]} ({field[6]}) missing alone should refuse"
+            ):
+                build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+
+    def test_a_fully_seeded_cache_composes(self):
+        cache = RawBlockCache()
+        cache.capture_initial(_full_values())
+        level_x = BY_NAME["level"][0]
+        pc, frame = build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+        self.assertGreater(len(pc), 0)
+        self.assertGreater(len(frame), 0)
 
 
 class RawBlockCacheTests(unittest.TestCase):
@@ -311,12 +372,13 @@ class RawBlockCacheTests(unittest.TestCase):
         not silently drop A back to nothing."""
         cache = RawBlockCache()
         level_x, hp_x = BY_NAME["level"][0], BY_NAME["hp_current"][0]
-        # SEEDED IN FULL, not empty (pf-adversary `3qh50k` D10): since (b')
-        # the door refuses a cache that does not hold every named row,
-        # because composing 25 of 26 bits ZEROES the 26th on the client.
+        # SEEDED IN FULL, not empty (pf-adversary `3qh50k` D10, widened by
+        # `COO-DECISION 20260904_0215` from named-only to every FIELDS
+        # row): the door refuses a cache that does not hold every row,
+        # because composing any-but-all ZEROES the rest on the client.
         # This test's own subject -- A survives a later send of B -- is
         # unchanged by the completeness requirement.
-        cache.capture_initial(_complete_values())
+        cache.capture_initial(_full_values())
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         build_named_field_update(legacy, cache, 1, 0, level_x, 5)
         self.assertEqual(cache.current_values().get(level_x), 5)
@@ -360,7 +422,7 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
 
     def test_succeeds_for_a_known_field_and_returns_pc_and_frame(self):
         cache = RawBlockCache()
-        cache.capture_initial(_complete_values())
+        cache.capture_initial(_full_values())
         level_x = BY_NAME["level"][0]
         pc, frame = build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
         self.assertIsInstance(pc, bytes)
@@ -370,13 +432,13 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
 
     def test_success_updates_the_cache_via_record_sent(self):
         cache = RawBlockCache()
-        seeded = _complete_values()
+        seeded = _full_values()
         cache.capture_initial(seeded)
         level_x = BY_NAME["level"][0]
         build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
         # The merged block is the seed with ONE row overridden -- the whole
-        # point of (b'): a send carries every named row, not just the typed
-        # one, so nothing the client reads gets zeroed by omission.
+        # point of (b''): a send carries every FIELDS row, not just the
+        # typed one, so nothing the client reads gets zeroed by omission.
         self.assertEqual(cache.current_values(), {**seeded, level_x: 5})
 
     def test_every_known_non_sensitive_field_is_individually_composable(self):
@@ -388,7 +450,7 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         for x in known_xs:
             field = BY_X[x]
             cache = RawBlockCache()
-            cache.capture_initial(_complete_values())
+            cache.capture_initial(_full_values())
             sample = {
                 "u8": 1, "u16": 2, "u32": 3, "i32": -1, "f32": 1.5,
                 "u64": 4, "wstr": "x", "blob": b"\x00",
@@ -423,29 +485,39 @@ class VersionGateTests(unittest.TestCase):
         # started reading this constant to decide whether to compose would
         # make the scoped exception a silent general one.
         cache = RawBlockCache()
-        cache.capture_initial(_complete_values())
+        cache.capture_initial(_full_values())
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         level_x = BY_NAME["level"][0]
         # Still composes freely regardless of the gate value -- this door was
         # never gated on it, and still is not.  (The cache is seeded in full
-        # because of (b'), which is a different gate; see D10.)
+        # because of (b''), which is a different gate; see D10.)
         pc, frame = build_named_field_update(legacy, cache, 1, 0, level_x, 5)
         self.assertGreater(len(pc), 0)
         self.assertGreater(len(frame), 0)
 
 
 class _Hooks:
-    """A stand-in for the `lane_hooks` package, with or without the read
-    point `COO-DECISION 20260904_0047` ordered chief to add."""
+    """A stand-in for the `lane_hooks` package, with or without either read
+    point (b'') needs: `COO-DECISION 20260904_0047`'s named-value point and
+    `COO-DECISION 20260904_0216`'s login-byte point."""
 
-    def __init__(self, values=None, raises=None):
+    def __init__(self, values=None, raises=None, login_values=None, login_raises=None):
         self._values = values
         self._raises = raises
+        self._login_values = login_values
+        # Defaults to `raises` so a caller testing "the whole world is
+        # broken" does not have to say so twice.
+        self._login_raises = raises if login_raises is None else login_raises
 
     def current_named_attr_values(self, character_id):
         if self._raises is not None:
             raise self._raises
         return self._values
+
+    def current_login_attr_bytes(self, character_id):
+        if self._login_raises is not None:
+            raise self._login_raises
+        return self._login_values
 
 
 class _NoReadPointHooks:
@@ -453,7 +525,9 @@ class _NoReadPointHooks:
 
 
 def _complete_values():
-    """A full, encodable value for every row (b') requires."""
+    """A full, encodable value for every NAMED row (b'') requires a real
+    value for -- `named_field_x()`, unchanged in shape by (b''), now
+    includes x=9."""
     values = {}
     for x in named_field_x():
         kind = BY_X[x][5]
@@ -466,6 +540,29 @@ def _complete_values():
         else:
             values[x] = 1
     return values
+
+
+def _login_values():
+    """A full, encodable value for every UNNAMED row (b'') requires a login
+    byte for -- `unnamed_field_x()`, includes `SENSITIVE_FIELDS` (x=30)."""
+    values = {}
+    for x in unnamed_field_x():
+        kind = BY_X[x][5]
+        if kind == "wstr":
+            values[x] = "y"
+        elif kind == "f32":
+            values[x] = 2.5
+        elif kind == "blob":
+            values[x] = b"\x01"
+        else:
+            values[x] = 2
+    return values
+
+
+def _full_values():
+    """Every `FIELDS` row, named and unnamed together -- what (b'') asks a
+    seeded `RawBlockCache`/`encode_block` call to hold in full."""
+    return {**_complete_values(), **_login_values()}
 
 
 class UnlockBPrimeSeedingTests(unittest.TestCase):
@@ -567,14 +664,27 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
                 self.assertFalse(cache.is_captured())
                 self.assertIn("not_a_mapping", said)
 
-    def test_a_complete_answer_seeds_exactly_the_named_rows_and_no_others(self):
+    def test_a_named_only_answer_still_refuses_because_the_login_point_is_missing(self):
+        # (b'') needs BOTH sources; a `_Hooks` with only the named point
+        # answered is still the shipped world for the second one.
         cache = RawBlockCache()
         ok, said = self.capture(
             cache=cache, character_id=7, hooks=_Hooks(_complete_values())
         )
+        self.assertFalse(ok, said)
+        self.assertFalse(cache.is_captured())
+        self.assertIn("not_a_mapping", said)
+
+    def test_a_complete_answer_from_both_sources_seeds_every_field_row(self):
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache,
+            character_id=7,
+            hooks=_Hooks(_complete_values(), login_values=_login_values()),
+        )
         self.assertTrue(ok, said)
         self.assertTrue(cache.is_captured())
-        self.assertEqual(sorted(cache.current_values()), sorted(named_field_x()))
+        self.assertEqual(sorted(cache.current_values()), sorted(all_field_x()))
         self.assertIn(SEED_CAPTURED_CONSOLE_TOKEN, said)
 
     def test_extra_keys_from_the_read_point_can_never_set_an_unknown_bit(self):
@@ -627,6 +737,101 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
             )
 
 
+class LiveLoginBytesTests(unittest.TestCase):
+    """`live_login_bytes` -- the SECOND half of (b'') (`COO-DECISION
+    20260904_0215` item 1, `20260904_0216`): every `known=False` row's
+    login byte, or a named refusal.  Mirrors `UnlockBPrimeSeedingTests`'
+    shape for `live_named_values`, against the not-yet-built second point.
+    """
+
+    def test_the_shipped_world_refuses_because_the_login_point_is_absent(self):
+        with self.assertRaises(AttrWireError) as caught:
+            live_login_bytes(7, hooks=_NoReadPointHooks())
+        self.assertIn("no_login_byte_read_point", str(caught.exception))
+
+    def test_the_real_lane_hooks_package_still_has_no_login_read_point(self):
+        # Same shape as `live_named_values`'s own canary test: the day
+        # chief lands this one (under this name or another -- see
+        # `LOGIN_BYTES_READ_POINT`'s own comment), this test goes red and
+        # this lane finds out from its own suite.
+        from pirateforce_foundation import lane_hooks
+
+        self.assertFalse(hasattr(lane_hooks, LOGIN_BYTES_READ_POINT))
+
+    def test_one_missing_unnamed_row_refuses_the_whole_answer(self):
+        values = _login_values()
+        wstr_b0_x = BY_NAME["wstr_B0"][0]
+        del values[wstr_b0_x]
+        with self.assertRaises(AttrWireError) as caught:
+            live_login_bytes(7, hooks=_Hooks(login_values=values))
+        self.assertIn("missing_login_rows", str(caught.exception))
+        self.assertIn(str(wstr_b0_x), str(caught.exception))
+
+    def test_a_present_but_unsendable_row_is_as_fatal_as_a_missing_one(self):
+        values = _login_values()
+        values[BY_NAME["wstr_B0"][0]] = 12345  # wstr row given a non-str
+        with self.assertRaises(AttrWireError) as caught:
+            live_login_bytes(7, hooks=_Hooks(login_values=values))
+        self.assertIn("unsendable", str(caught.exception))
+
+    def test_a_read_point_that_answers_with_the_wrong_type_refuses(self):
+        with self.assertRaises(AttrWireError) as caught:
+            live_login_bytes(7, hooks=_Hooks(login_values="not a dict"))
+        self.assertIn("not_a_mapping", str(caught.exception))
+
+    def test_sensitive_field_30_is_covered_by_the_login_point_not_refused(self):
+        # x=30 is `SENSITIVE_FIELDS` -- this lane may never let a caller
+        # CHOOSE its value, but (b'') still needs SOME byte for it in every
+        # send, and the login byte is that byte.  `unnamed_field_x()`
+        # includes it on purpose (see that function's own docstring).
+        self.assertIn(30, unnamed_field_x())
+        seeded = live_login_bytes(7, hooks=_Hooks(login_values=_login_values()))
+        self.assertIn(30, seeded)
+
+    def test_a_complete_answer_seeds_exactly_the_unnamed_rows_and_no_others(self):
+        seeded = live_login_bytes(7, hooks=_Hooks(login_values=_login_values()))
+        self.assertEqual(sorted(seeded), sorted(unnamed_field_x()))
+
+    def test_extra_keys_are_dropped_not_refused(self):
+        values = _login_values()
+        values[BY_NAME["level"][0]] = 99  # a NAMED row has no business here
+        seeded = live_login_bytes(7, hooks=_Hooks(login_values=values))
+        self.assertNotIn(BY_NAME["level"][0], seeded)
+
+
+class LiveFullBlockValuesTests(unittest.TestCase):
+    """`live_full_block_values` -- (b'') combined: both sources must
+    answer, or the whole block refuses (`COO-DECISION 20260904_0215` item
+    1: "no byte source for any row = the door refuses the whole thing")."""
+
+    def test_named_point_missing_refuses_before_the_login_point_is_even_asked(self):
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(7, hooks=_NoReadPointHooks())
+        # `no_read_point` is `live_named_values`'s own reason string; if
+        # this ever said `no_login_byte_read_point` instead, the two
+        # sources are being queried in the wrong order.
+        self.assertIn("no_read_point", str(caught.exception))
+
+    def test_named_point_answers_but_login_point_is_absent_refuses(self):
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(7, hooks=_Hooks(_complete_values()))
+        self.assertIn("not_a_mapping", str(caught.exception))
+
+    def test_both_sources_answering_yields_exactly_all_field_x(self):
+        combined = live_full_block_values(
+            7, hooks=_Hooks(_complete_values(), login_values=_login_values())
+        )
+        self.assertEqual(sorted(combined), sorted(all_field_x()))
+
+    def test_named_and_unnamed_rows_never_collide(self):
+        # If this ever failed, `named_field_x()`/`unnamed_field_x()` would
+        # no longer partition `FIELDS`, and `live_full_block_values`'s own
+        # internal assertion would already have caught it -- this test
+        # names the property in one place a reader does not have to derive.
+        self.assertEqual(set(named_field_x()) & set(unnamed_field_x()), set())
+        self.assertEqual(set(named_field_x()) | set(unnamed_field_x()), set(all_field_x()))
+
+
 class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
     """The four defects pf-adversary MEASURED in this round's first draft.
 
@@ -667,7 +872,7 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
     def test_d9_the_read_back_checks_the_content_not_the_flag(self):
         # MEASURED: a cache whose `capture_initial` stored ONE row got
         # `seed_...` returning True and a console line saying
-        # `named_rows=26` -- both compared against the function's own input
+        # `rows=26` -- both compared against the function's own input
         # instead of against what the cache actually holds.
         class LyingCache(RawBlockCache):
             def capture_initial(self, values):
@@ -676,7 +881,10 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
         cache = LyingCache()
         stream = io.StringIO()
         ok = seed_cache_from_live_values(
-            cache, "char", hooks=_Hooks(_complete_values()), stream=stream
+            cache,
+            "char",
+            hooks=_Hooks(_complete_values(), login_values=_login_values()),
+            stream=stream,
         )
         said = stream.getvalue()
         self.assertFalse(ok)
@@ -684,16 +892,18 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
         self.assertIn("capture_did_not_hold", said)
         self.assertNotIn(SEED_CAPTURED_CONSOLE_TOKEN, said)
 
-    def test_d10_the_door_itself_refuses_a_cache_that_does_not_satisfy_b_prime(self):
-        # THE FINDING THAT CHANGED THIS ROUND'S SHAPE. `capture_initial` is
-        # public and unvalidated, and `COO-DECISION 20260904_0046` item 2
-        # names LANE-B's Door B as a second consumer of chief's read point --
-        # ordered to call the function the seeding helper does not gate. A
-        # peer lane doing exactly what it was told, with a hook that omits
-        # `cash` for a NULL-cash row, would compose 25 of 26 bits and the
-        # client's full-object copy would zero the 26th. So the completeness
-        # question is asked at the door, where every consumer must pass.
-        values = _complete_values()
+    def test_d10_the_door_itself_refuses_a_cache_that_does_not_satisfy_b_double_prime(self):
+        # THE FINDING THAT CHANGED THIS ROUND'S SHAPE, WIDENED BY (b'')
+        # (`COO-DECISION 20260904_0215`). `capture_initial` is public and
+        # unvalidated, and `COO-DECISION 20260904_0046` item 2 names LANE-B's
+        # Door B as a second consumer of chief's read point -- ordered to
+        # call the function the seeding helper does not gate. A peer lane
+        # doing exactly what it was told, with a hook that omits `cash` for
+        # a NULL-cash row, would compose an incomplete block and the
+        # client's full-object copy would zero the missing one. So the
+        # completeness question is asked at the door, where every consumer
+        # must pass -- now against every FIELDS row, not only named ones.
+        values = _full_values()
         del values[BY_NAME["cash"][0]]
         cache = RawBlockCache()
         cache.capture_initial(values)
@@ -702,11 +912,11 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
             build_named_field_update(
                 self.legacy, cache, 1, 0, BY_NAME["hp_current"][0], 80
             )
-        self.assertIn("(b')", str(caught.exception))
+        self.assertIn("(b''", str(caught.exception))
         self.assertIn(str(BY_NAME["cash"][0]), str(caught.exception))
 
     def test_d10_an_over_seeded_cache_is_refused_too(self):
-        # The other direction: a cache carrying a row (b') does not name
+        # The other direction: a cache carrying a row (b'') does not name
         # would set a mask bit for a field nobody has confirmed the meaning
         # of. `!=` rather than `issubset` is what refuses both.
         values = _complete_values()
