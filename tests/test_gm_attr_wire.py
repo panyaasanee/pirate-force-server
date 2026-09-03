@@ -312,8 +312,22 @@ class TheFrameExitIsTheWallTests(unittest.TestCase):
     already pins that, and this lane's own alarm `20260904_0309` measured
     why it was not enough: a caller that never touches
     `build_named_field_update` (which is what `speed_wire` was doing) went
-    straight past it.  What is pinned here is that NO caller can build a
-    partial frame, whatever route it takes.
+    straight past it.  What is pinned here is that no caller reaching
+    `make_update_attr_frame` can build a partial frame.
+
+    🔴 THAT SCOPE IS NARROWER THAN AN EARLIER DRAFT OF THIS DOCSTRING SAID
+    (pf-adversary, round `tof9cw`, measured; correction recorded in
+    `pf_bridge#1067`, fixed here).  "Whatever route it takes" overclaimed:
+    `stats_progression_hypothesis.py`, `skill_attr_hypothesis.py` and
+    `damage_hp_link_hypothesis.py` each compose their own `0x309A`
+    `UpdateAttrVital` frames directly (their own `UPDATE_ATTR_VITAL_ID`
+    constants and composers), reading `runtime.py` call sites this lane has
+    only read the source of, never booted -- none of them go anywhere near
+    `attr_wire.make_update_attr_frame`, so this wall cannot see them and
+    this test suite proves nothing about whether they can build a partial
+    block.  `[PROPOSED, not measured]` stays proposed: this correction
+    narrows the claim, it does not clear or condemn those three modules --
+    that is unmeasured work for whoever owns them next.
     """
 
     def setUp(self):

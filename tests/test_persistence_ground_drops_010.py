@@ -109,12 +109,18 @@ class _StoreFixture(unittest.TestCase):
 
 class TheMigrationItselfTests(_StoreFixture):
 
-    def test_010_is_on_disk_and_is_the_newest_version(self):
+    def test_010_is_on_disk_with_no_duplicate_version_number(self):
+        # No longer "is the newest version": `011_character_skills.sql`
+        # (LANE-DB, `PANYA-DECISION 20260904_0328` piece 5) landed after
+        # this file was written.  This test's job is that 010 exists and no
+        # version number repeats -- "which one is newest" belongs to
+        # whichever migration's own test was written last, not to this one
+        # forever.
         self.assertTrue(TEN.exists(), TEN)
         versions = sorted(
             int(p.name[:3]) for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
         )
-        self.assertEqual(versions[-1], 10)
+        self.assertIn(10, versions)
         self.assertEqual(len(versions), len(set(versions)))
 
     def test_the_ledger_records_version_10(self):

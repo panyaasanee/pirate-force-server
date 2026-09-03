@@ -2413,6 +2413,120 @@ class SQLiteStore:
             ).fetchall()
         return tuple(GroundDropRow(*row) for row in rows)
 
+    def grant_starting_skills(
+        self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"
+    ) -> tuple[int, ...]:
+        """Persist a character's starting-kit skill ids, idempotently.
+
+        `PANYA-DECISION 20260904_0328` piece 5 (`COO-ORDER 20260904_0329`
+        item 5), the write half of `migrations/011_character_skills.sql`.
+        LANE-DB owns this method; no existing method is touched by it.
+
+        Every id is validated as a u32 skill id (0..4294967295) BEFORE any
+        SQL runs, the same discipline `commit_ground_drop` uses for its own
+        fields; an empty `skill_ids` is refused rather than treated as a
+        silent no-op, matching `persistence_typed_attrs.validate_all`.
+
+        IDEMPOTENT, NOT A COLLISION REFUSAL.  `migrations/
+        011_character_skills.sql`'s own docstring explains why: a second
+        grant of a skill a character already has (the create-fingerprint
+        retry path in `CharacterLifecycle.create` can call this twice for
+        one character) is a no-op here, via `INSERT OR IGNORE` against the
+        table's `UNIQUE(character_id, skill_id)`, not a `ValueError` the way
+        a ground-drop key collision is -- those are two different callers
+        racing for one slot; this is the same caller confirming the same
+        fact twice.  `INSERT OR IGNORE`, DELIBERATELY NOT `INSERT OR
+        REPLACE` (pf-adversary): the two look interchangeable on an exact
+        repeat, but `OR REPLACE` deletes-then-reinserts a colliding row,
+        which gives it a NEW `id` and a NEW `granted_at` and -- because
+        SQLite's rowid ordering follows insertion, not the caller's argument
+        order -- moves it to the end of the "ordered by insertion" result.
+        `tests/test_persistence_character_skills_011.py::
+        test_an_overlapping_reordered_regrant_touches_no_existing_row` is
+        what catches that swap.
+
+        Returns every distinct skill id now on the row -- this call's own
+        ids plus anything already there -- read back INSIDE this method's
+        own transaction, ordered by insertion, so the write and the read
+        agree about what "now on the row" means under concurrency (the same
+        reason `write_typed_attributes` reads its own write back on the
+        same connection rather than as a separate call).
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted (matching `write_typed_attributes`), `TypeError` for a
+        non-int/bool `character_id`, a non-sequence `skill_ids`, or a
+        non-int/bool id inside it, and `ValueError` for an empty sequence or
+        an id outside the u32 range.  Nothing is written when anything is
+        refused.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(skill_ids, (str, bytes)) or not isinstance(
+            skill_ids, (list, tuple)
+        ):
+            raise TypeError("skill_ids must be a list or tuple of int")
+        if not skill_ids:
+            raise ValueError("no skill ids to grant")
+        checked: list[int] = []
+        for skill_id in skill_ids:
+            if isinstance(skill_id, bool) or not isinstance(skill_id, int):
+                raise TypeError("skill_id must be an int")
+            if not 0 <= skill_id <= 0xFFFFFFFF:
+                raise ValueError(
+                    "skill_id %d is outside the u32 range" % skill_id
+                )
+            checked.append(skill_id)
+        granted_at = _now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            for skill_id in checked:
+                db.execute(
+                    "INSERT OR IGNORE INTO character_skills"
+                    "(character_id,skill_id,source,granted_at) VALUES (?,?,?,?)",
+                    (character_id, skill_id, "starting_kit", granted_at),
+                )
+            after = db.execute(
+                "SELECT skill_id FROM character_skills "
+                "WHERE character_id=? ORDER BY id",
+                (character_id,),
+            ).fetchall()
+        return tuple(r["skill_id"] for r in after)
+
+    def list_character_skills(self, character_id: int) -> tuple[int, ...]:
+        """Every skill id ever granted to this character, oldest grant first.
+
+        The read half of the door `grant_starting_skills` above writes.
+        Raises `TypeError` for a non-int/bool `character_id` (the same
+        refusal the write side above makes, for the same reason: `sqlite3`
+        binds python `True`/`False` as `1`/`0` with no complaint, which
+        would silently read a caller's typo of a bool as character 1's
+        skills).  Raises `KeyError` for a character that does not exist or
+        has been soft-deleted, matching `read_typed_attributes` -- unlike
+        `list_ground_drops_for_scene`, which is scoped to a scene rather
+        than to one character's own row and so has no such row to miss.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if exists is None:
+                raise KeyError(character_id)
+            rows = db.execute(
+                "SELECT skill_id FROM character_skills "
+                "WHERE character_id=? ORDER BY id",
+                (character_id,),
+            ).fetchall()
+        return tuple(r["skill_id"] for r in rows)
+
     @staticmethod
     def _character(r):
         return Character(int(r['id']),int(r['account_id']),int(r['selector']),r['name'],bytes(r['actor_wire']),bytes(r['avatar_wire']),int(r['identity_lo']),int(r['identity_hi']),Position(int(r['scene_id']),int(r['scene_seq']),float(r['x']),float(r['y']),float(r['z']),float(r['heading'])))

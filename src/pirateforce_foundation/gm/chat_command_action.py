@@ -1093,6 +1093,24 @@ SPEED_TRIAL_CONSOLE_TOKEN = "SPEED TRIAL OPEN"
 # door is shut on evidence it does not have.
 SPEED_TRIAL_UNAVAILABLE = "unavailable"
 
+# `SPEED_TRIAL_CONSOLE_TOKEN` above is DEAD CODE since `COO-DECISION
+# 20260904_0345` item 2 (pf-adversary, round `tof9cw`, measured; recorded in
+# `pf_bridge#1067`): `speed_wire.compose_sparse_speed_update` now raises
+# `SpeedWireError` UNCONDITIONALLY, so `_speed_action`'s `try: pc, frame =
+# speed_wire.compose_sparse_speed_update(...)` always lands in the `except`
+# branch before the `if trial_admitted:` block below it is ever reached --
+# `SPEED TRIAL OPEN` cannot print on any route that exists on `main` today.
+# That silently erased the one guarantee COO `0646` item 2's fourth bullet
+# asked for: an owner who arms `PF_SPEED_TRIAL` must be able to tell, from
+# the console alone, that the key was RECOGNISED even though the value never
+# shipped -- otherwise a grep for `trial_opens_for=` reads identically
+# whether the key was never set or was set and still refused.  This token is
+# that line's replacement: printed from the COMPOSE-REFUSED branch instead
+# of the send branch, so it can never claim bytes went out.
+#
+# ASCII, spaces only, for the reason every console token in this lane is.
+SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN = "SPEED TRIAL ARMED REFUSED"
+
 # The three fillers for the row fields `_print_speed_deferred` appends after
 # `why=`.  Spelled as constants so a test and an attended grep name the same
 # strings, and kept ASCII and space-free for the reason the token above is.
@@ -1331,6 +1349,14 @@ EVENT_SPEED_DEFERRED = "gm_chat_action_speed_deferred_login_read"
 # authority" from `session.events` alone, without reading an environment it
 # was not running in.  See `speed_wire.trial_admits`.
 EVENT_SPEED_TRIAL_ADMITTED = "gm_chat_action_speed_runtime_trial_admitted"
+# Fires ALONGSIDE `EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX` below, never
+# instead of it, when the trial gate admitted this value and the compose
+# wall refused it anyway -- see `SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN`'s
+# own comment for why this pairing exists now that `EVENT_SPEED_TRIAL_
+# ADMITTED` above can no longer reach the send branch that used to note it.
+EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED = (
+    "gm_chat_action_speed_trial_admitted_but_refused"
+)
 EVENT_SPEED_NO_SELECTED_CHARACTER = "gm_chat_action_speed_no_selected_character"
 EVENT_SPEED_REFUSED_PREFIX = "gm_chat_action_speed_refused_"
 # GT-193 [FAIL] (attended R303, 2026-09-02): this door's frame went to a real
@@ -3924,6 +3950,77 @@ def _print_speed_trial_open(
     return True
 
 
+def _print_speed_trial_armed_refused(
+    session: object,
+    token: object,
+    command_name: object,
+    refused_by: str,
+) -> bool:
+    """Say that the RUNTIME TRIAL GATE recognised this value and the wall
+    refused it anyway -- the replacement for the dead `_print_speed_trial_
+    open` (see `SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN`'s own comment).
+
+    WHY THIS EXISTS.  `speed_wire.compose_sparse_speed_update` raises for
+    every value since `COO-DECISION 20260904_0345` item 2, so the SEND
+    branch `_print_speed_trial_open` was written for is unreachable: every
+    `PF_SPEED_TRIAL`-armed call now falls into the COMPOSE-REFUSED branch
+    below, and until this function existed that branch printed the SAME two
+    words (`GM_CHAT_NOTICE_SENT` / `GM_CHAT_NO_BYTES_SENT`) whether the
+    environment variable was set or not -- an owner watching the console
+    could not tell "the key never armed" from "the key armed and the wall
+    still said no", which is exactly the distinction COO `0646` item 2's
+    fourth bullet asked the trial gate's console line to make.
+
+    NOTHING SENT IS CLAIMED.  Unlike `_print_speed_trial_open`, this line
+    never says `sending=`: no `0x309A` byte reaches a wire on this branch,
+    ever, so a field that named one would be the exact overclaim `pf_bridge
+    #1067` measured and this round exists to remove. `refused_by` names the
+    exception type only (`type(error).__name__`), the same discipline every
+    other refusal event in this module keeps.
+
+    THREE FIELDS, ALL LANE-AUTHORED, NOTHING TYPED EVER PRINTED, the same
+    rule the token it replaces stated for itself: the command NAME rendered
+    only when it is one of `commands.COMMAND_NAMES`, `_trial_console_field()`
+    for the value the gate admitted (never the raw environment text -- see
+    that helper), and the refusing exception's own type name.  Read through
+    the same `_trial_console_field()` wrapper the send-branch printer uses
+    rather than a value passed in by the caller: this branch runs strictly
+    after `_trial_admits` already returned `True` this same dispatch, so the
+    two reads answer identically, and reusing the wrapper means a future
+    change to how that value is derived cannot leave the two printers
+    disagreeing.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH: this prints AFTER the refusal is
+    already decided (the caller has already noted `EVENT_SPEED_PERSIST_
+    COMPOSE_REFUSED_PREFIX` and is about to return `_speed_denied`), so a
+    console this line cannot reach costs the LINE, never the outcome.  The
+    boolean it returns is not consulted by the caller for that reason --
+    unlike `_print_speed_deferred`, there is no `line_printed` backstop to
+    feed, because `_speed_denied`'s own notice-or-no-bytes lines already
+    cover the "was the refusal itself silent" question this printer does
+    not answer.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return False
+    try:
+        name = command_name if command_name in COMMAND_NAMES else "unnamed"
+        print(
+            f"{SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(str(token)), stream)}' "
+            f"command={name} env={speed_wire.SPEED_TRIAL_ENV} "
+            f"trial_opens_for={_trial_console_field()} "
+            f"refused_by={console_safe(_one_line(refused_by), stream)} "
+            f"{_identity_fields(session, stream)}",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
+
+
 def _print_speed_deferred(
     session: object, token: str, command_name: object, stored: object,
 ) -> bool:
@@ -5414,6 +5511,22 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             f"{EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX}"
             f"{type(error).__name__}",
         )
+        if trial_admitted:
+            # `SPEED_TRIAL_CONSOLE_TOKEN`'s send branch below is dead on
+            # every route that exists today (see its own comment) -- this is
+            # its replacement, fired from the branch a trial-armed call
+            # actually reaches now.  BESIDE the note above, never instead of
+            # it: an armed-but-refused `/speed` still gets the ordinary
+            # `speed_persist_compose_refused_<ExcType>` audit word, plus this
+            # second event naming that the trial key was the reason dispatch
+            # got this far at all.
+            _note(session, EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED)
+            _print_speed_trial_armed_refused(
+                session,
+                getattr(session, "token", None),
+                getattr(command, "name", None),
+                type(error).__name__,
+            )
         return _speed_denied(
             session,
             legacy,
