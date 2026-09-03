@@ -1021,8 +1021,23 @@ class ContainmentTests(unittest.TestCase):
     # Measured 2026-09-03, round `42vxv6`.  Key is "<file>::<spelling>", value
     # is what lane_hooks.module_production_allowed() returns for that spelling
     # RIGHT NOW -- not whether the spelling looks well formed.
+    # ROUND `gjyxt5` (chief), COO-DECISION 20260903_1648 on LANE-B's
+    # CORE-REQUEST 20260903_1639: the row
+    # "runtime.py::lane_hooks.lane_b_mob_ai_tick": False IS GONE, and this
+    # is the "a row that vanished" case the failure message below names,
+    # SAID OUT LOUD AS THE MESSAGE ASKS.  runtime.py's tick gate no longer
+    # types a name at all: it reads lane_b_mob_ai_tick.MODULE_NAME (COO
+    # item 3, chosen over the bare stem precisely so a rename cannot
+    # re-open the hole), so the site has no hand-typed spelling for this
+    # table to answer for.  The tick IS alive now -- the gate answers True
+    # there -- and the site is watched by
+    # tests/test_mob_ai_tick_gate_wiring.py, which boots the real
+    # dispatcher and reads the FIRED token off the console instead of
+    # reading the source.  LANE-B owns the prose of the two cards above
+    # and the shipped pin scenarios/combat_aggro_001.json; both still say
+    # the tick is dead, and both are LANE-B's to correct (chief's letter
+    # pf_bridge/notes_to_chief/20260903_1800_CHIEF-TO-LANE-B-*).
     GATE_ANSWERS_AT_HAND_SPELLED_SITES = {
-        "runtime.py::lane_hooks.lane_b_mob_ai_tick": False,
         "runtime.py::lane_gm_chat_command": True,
     }
 

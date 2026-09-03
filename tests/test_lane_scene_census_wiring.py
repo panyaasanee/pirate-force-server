@@ -371,7 +371,17 @@ class LaneSceneCensusWiringTests(unittest.TestCase):
         # No console proof and no FIRED token for a census that never
         # shipped -- the token is emission evidence, not attempt evidence.
         self.assertNotIn("LANE_CENSUS_TEST_LINE_ONE", out)
-        self.assertNotIn("LANE_HOOK_FIRED", err.getvalue())
+        # NARROWED TO THIS COMPOSER, round `gjyxt5` (chief), and LANE-B
+        # predicted it in CORE-REQUEST 20260903_1639 before it happened.
+        # The bare "no FIRED token at all" form asserted something this
+        # test never meant: that NO lane fires on this frame.  The frame
+        # it sends is a TargetPos, and the mob-AI tick is a lane_hooks
+        # consumer on exactly that vital -- so the moment its gate was
+        # repaired, a sibling lane firing correctly on the production
+        # path failed a card about the census composer.  What this test
+        # is entitled to say is that the composer WHOSE RESULT WAS
+        # REFUSED shipped nothing, so it names that module.
+        self.assertNotIn(f"LANE_HOOK_FIRED {FAKE_MODULE}", err.getvalue())
 
     def test_a_wrong_shaped_return_is_refused_not_escaped(self):
         # The other measured escape: a truthy non-SceneCensusResult.

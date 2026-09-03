@@ -1277,6 +1277,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # the two latches above.
                 self.columbus_choose_npc_wrong_scene_reported = set()
                 self.columbus_q3021_teleport_wrong_scene_reported = set()
+                # COO-DECISION 2026-09-03T16:48+07:00 item 4: the latch for
+                # the ONE MOB_AI_TICK_LIVE line dispatch() prints the first
+                # time the mob-AI tick gate actually opens.  Per session,
+                # like the latches above, and deliberately NOT per scene: a
+                # scene change re-opens the register, but the question this
+                # line answers ("did the gate open on this build at all")
+                # is answered once and stays answered.
+                self.mob_ai_tick_live_announced = False
                 # Bounded by the SOURCE, not by the client: what goes in is
                 # an exception class name this code produced, so a client
                 # sending ten thousand malformed ChooseNPC frames adds one
@@ -5886,13 +5894,44 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     getattr(self, "mob_combat_ledger", None) is not None and
                     self.foundation.selected is not None and
                     lane_hooks.module_production_allowed(
-                        "lane_hooks.lane_b_mob_ai_tick")):
+                        lane_b_mob_ai_tick.MODULE_NAME)):
+                # COO-DECISION 2026-09-03T16:48+07:00 item 3, LANE-B's
+                # CORE-REQUEST 20260903_1639.  This argument used to be the
+                # hand-typed string "lane_hooks.lane_b_mob_ai_tick", which
+                # module_production_allowed() prefixes (it does not start
+                # with "pirateforce_foundation.lane_hooks.") into
+                # "pirateforce_foundation.lane_hooks.lane_hooks.
+                # lane_b_mob_ai_tick" -- a key no module owns, so the gate
+                # answered False on EVERY frame and maybe_tick() below was
+                # never once reached.  The resolver is right to fail closed
+                # on a name nobody owns (its own docstring: the closed
+                # answer must be indistinguishable from the typo), so the
+                # repair belongs here, at the caller that spelled it, and
+                # NOT in the resolver.  Reading MODULE_NAME off the module
+                # itself is why a rename cannot re-open this hole.
                 selected = self.foundation.selected
                 performer = (
                     (selected.identity_hi & 0xFFFFFFFF) << 32
                     | (selected.identity_lo & 0xFFFFFFFF)
                 )
                 x, y, z, _heading = self.last_target_pos
+                # COO-DECISION 2026-09-03T16:48+07:00 item 4: ONE line per
+                # session, on the first call that actually happens, so an
+                # attended round reads the gate's answer OFF THE BUILD IT IS
+                # RUNNING instead of trusting a SHA.  Printed before the
+                # call, not after, so a maybe_tick() that raises still
+                # leaves the evidence that the gate opened.  The counts are
+                # read here, never stored: scene from the row the login is
+                # standing on, mobs from the register this call is about to
+                # tick -- so a line that says mobs=0 is a real measurement
+                # of an empty register, not a placeholder.
+                if not self.mob_ai_tick_live_announced:
+                    self.mob_ai_tick_live_announced = True
+                    print(
+                        "MOB_AI_TICK_LIVE "
+                        f"scene={selected.position.scene_id} "
+                        f"mobs={len(self.mob_ai_register.rows)}"
+                    )
                 self.mob_ai_register, _tick_results = (
                     lane_b_mob_ai_tick.maybe_tick(
                         self.mob_ai_register, self.mob_combat_ledger,
