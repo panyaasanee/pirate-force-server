@@ -7,9 +7,15 @@ paragraphs below are the UI-A half as it was written in round `od1xso`; the
 UI-B half is described under "THE SECOND BUTTON" further down, and point 3 of
 the nonclaims carries the struck sentence it replaced.
 
-Today, on a default boot with no scenario flag, clicking the HOME menu's
+~~Today, on a default boot with no scenario flag, clicking the HOME menu's
 "back to character select" button (`LogoutVital 0x1B40` subcode 3) produces
-NOTHING: no reply frame, no console line, no pixel.  The owner measured
+NOTHING: no reply frame, no console line, no pixel.~~  READ THAT AS
+"BEFORE THIS MODULE", NOT AS "TODAY": on 2026-09-02 the owner clicked that
+button on a flagless boot carrying this file and `BACK REFUSED` appeared on
+her screen (R303, `GT-205`; the whole measurement, and the three things it
+did NOT settle, are under point 2 of WHAT THIS FILE DOES NOT CLAIM).  The
+silence is what this module was built to end, and the sentence is kept
+because it is the reason the file exists.  The owner measured
 that herself on 2026-09-01 (`pf_bridge/notes_to_chief/consumed/20260901_
 1930_KA1A-CAPTURE-*.md`, capture `gt192_20260901_184254`, boot with no
 logout scenario at all): the client sent a real 34-byte subcode-3 frame and
@@ -33,19 +39,100 @@ WHAT THIS FILE DOES NOT CLAIM
    50-77 seconds across three attended rounds, and `RE-197` (result
    `20260902_0333`) closed the last candidate pre-click discriminator.  A
    notice is a receipt, not a transition.
-2. It does NOT claim the words render.  `gm/say_wire.py`'s own docstring
-   states it in capitals and this file repeats it rather than softening it:
-   NO SERVER-COMPOSED LINE ON THIS CHANNEL HAS EVER BEEN SEEN ON A SCREEN
-   ON A DEFAULT BOOT.  The twelve-character length comes from `GT-006`/
-   `GT-009`, where what rendered was the client's OWN echoed text behind a
-   scenario flag -- and with the logout dialog closed, which is not the
-   state this module fires in.  `GT-205` is the entry that decides it for
-   UI-A and `GT-211` (opened round `1d6rta`) for UI-B -- named separately
-   because `GT-205` was amended in that same round to say the exit line is
-   NOT its evidence, so citing it alone would point a reader at a ticket
-   that disclaims the question (pf-adversary D8).  A negative in either is
-   a finding about the dialog and about this channel, not proof the
-   composer is wrong.
+2. It does NOT claim the words render ON AN ARBITRARY BOOT, and one
+   sentence of this point is now struck while the rest of it stands.
+   ~~`gm/say_wire.py`'s own docstring states it in capitals and this file
+   repeats it rather than softening it: NO SERVER-COMPOSED LINE ON THIS
+   CHANNEL HAS EVER BEEN SEEN ON A SCREEN ON A DEFAULT BOOT.~~  NARROWED,
+   round `kozzu1` (2026-09-03), by a positive `GT-205` -- see WHAT R303
+   ACTUALLY SHOWS below for exactly how far, which is less far than the
+   first draft of this correction claimed.  The rest of this point is NOT
+   struck and is still load-bearing: the twelve-character length comes
+   from `GT-006`/`GT-009`, where what rendered was the client's OWN echoed
+   text behind a scenario flag -- and with the logout dialog closed, which
+   is not the state this module fires in.  `GT-205` is the entry that
+   decides it for UI-A and `GT-211` (opened round `1d6rta`) for UI-B --
+   named separately because `GT-205` was amended in that same round to say
+   the exit line is NOT its evidence, so citing it alone would point a
+   reader at a ticket that disclaims the question (pf-adversary D8).  A
+   negative in either is a finding about the dialog and about this
+   channel, not proof the composer is wrong.  THAT LAST SENTENCE IS WHY
+   THE STRIKE ABOVE IS ONE SENTENCE WIDE: a POSITIVE `GT-205` is not
+   evidence for `GT-211` either, and the first draft of this correction
+   struck the sentence that says so, which would have reopened D8 through
+   the back door (pf-adversary, this round, D6).
+
+   WHAT R303 ACTUALLY SHOWS, AND THE WORD "DEFAULT" IS WHERE THE FIRST
+   DRAFT OF THIS PARAGRAPH WENT WRONG.
+   Quoted rather than paraphrased, from `pf_bridge/notes_to_chief/
+   20260902_1755_KA1A-R303-RESULTS-*.md`: "after 'back to character
+   select' the chat line `[thua pai] : BACK REFUSED` appeared on screen,
+   which is the ticket's own success text.  Screenshot held by the owner."
+   Round R303, owner at the keyboard, capture
+   `capture_r303_20260902_161029`, boot commit `7e14bde1` (verified this
+   round: that commit's `runtime.py` carries this module's import and its
+   `observe_parsed` call site, and this module's `production_allowed` is
+   `True` there).
+   * ESTABLISHED: the line rendered on a boot that carried NO LOGOUT
+     SCENARIO.  That is not read off the ticket -- it follows from the
+     guard: `runtime.py` composes this notice only when
+     `logout_hypothesis_scenario is None`, so a rendered `BACK REFUSED`
+     could not have come from a logout-scenario boot.
+   * NOT ESTABLISHED: that the boot was FLAGLESS.  `GT-205`'s server-args
+     line instructs "NO scenario flag of any kind", but an instruction is
+     not a measurement, and the result letter records head, boot commit,
+     boot tree, run db, capture, jobs and teardown -- and NO argv.  The
+     boot tree it names is not in either repository.  Point 3 of this same
+     docstring already measured that around twenty-eight OTHER scenario
+     keywords leave this branch live, so a non-logout scenario boot would
+     render this line too.  An earlier draft of this very paragraph wrote
+     "on a flagless boot" anyway -- the same inference point 3 exists to
+     forbid (pf-adversary, this round, D1).
+   * ATTRIBUTION, ARGUED RATHER THAN ASSERTED: the rendered string has an
+     EMPTY SPEAKER SLOT.  This project's other render evidence reads
+     `[<channel label>] <speaker> : <text>` (`[thai general] Arena01:
+     PFCHATPROBE1`), and `say_wire.DEFAULT_SPEAKER` is `""` and pinned --
+     a client echo carries the character's name there, a server-composed
+     frame does not.  That is the discriminator, and it is why "these were
+     this module's bytes" is a reasonable reading.  It is NOT proof: no
+     one in this repository has seen the screenshot.
+
+   WHAT R303 DID NOT SETTLE, BECAUSE A ROUND THAT ONLY REPORTS THE GOOD
+   HALF IS HOW THIS PROJECT GOT `GT-192`'S TWICE-PAID DEBT.  The first
+   draft of this list had three items; the reviewer found four more.
+   * The console token was not copied back.  The result letter says, in
+     its own words, "wire/DB: not separately instrumented for this
+     ticket", so `LANE_A_UIA_NOTICE_COMPOSED` was NOT read off that boot.
+     The wire/DB rung still rests where it always rested -- the headless
+     pins in `tests/test_world_logout_button_notice.py` -- and this
+     paragraph is not a second layer.
+   * The dialog state was not recorded.  Step 8 asks whether the logout
+     dialog was still open when the line appeared; the result does not
+     say.  The sentence above about the dialog being CLOSED in `GT-009` is
+     therefore NOT resolved either way.
+   * The length pin does not move.  R303 rendered TWELVE characters, which
+     is the length this module already sends.  Nothing here licenses 5, 26
+     or any other body length.
+   * The boot's argv was never recorded (see NOT ESTABLISHED above).
+   * WHERE on screen, at what offset from the click, and for how long: step
+     8 asks five things and the result answers one.  "in the local
+     chat/talk area" is part of the pass criterion and is unverified.
+   * The name-label colour table the pass criteria makes mandatory for
+     every still is absent from the result.  That is an uncounted skip in
+     an attended round, not a detail.
+   * n = 1.  One click, one session, one attempt, in a boot where the
+     PRECEDING ticket (`GT-193`) had just killed the character and left
+     the client sending nothing.  Whether a relog happened between the two
+     is not documented.
+   * The screenshot is held by the owner and is in neither repository: no
+     path, no sha256, no console `.out`/`.err`.  The rung this correction
+     promotes is auditable by one person; the rung it does NOT promote
+     (wire/DB) is auditable by anyone.
+   NOT THIS LANE'S TO EDIT: `gm/say_wire.py:107` still carries the same
+   sentence and still names `GT-193` step 9 as "the first attempt", which
+   R303 overtook (and `GT-193` itself came back FAIL that round).  That
+   file is LANE-GM's; this round tells chief in one line and does not
+   touch it.
 3. ~~It does NOT send bytes for the UI-B ("exit game", subcode 1) button.
    That path has a live ticket of its own (`GT-194`) whose bytes must not
    change under it, so subcode 1 gets `None` -- pinned by a test.  It DOES
