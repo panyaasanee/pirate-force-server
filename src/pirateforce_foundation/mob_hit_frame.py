@@ -49,7 +49,7 @@ THE GATES, IN THE ORDER THEY ARE CHECKED
    next ``/lv`` would re-assert the HP this frame just changed
    (pf-adversary D6, which measured exactly that on the first draft).
 4. THE LIVE VALUE SOURCE, checked against ``gm/attr_wire.named_field_x()``
-   -- the 26-row set a hit frame is "about" -- and NEVER against LANE-DB's
+   -- the 27-row set a hit frame is "about" -- and NEVER against LANE-DB's
    55-row ``persistence_attr_compose.compose_full_block``/``block_gaps``.
    ``COO-DECISION 20260904_0546`` settled a question this module's own
    NONCLAIMS section used to leave open: that module is LANE-DB's own
@@ -58,14 +58,14 @@ THE GATES, IN THE ORDER THEY ARE CHECKED
    ``f2qyxx``, D2).  What is checked here is narrower and cheaper than an
    adjudicator: every key the live source hands back must be a real row of
    ``attr_wire.FIELDS`` (:data:`STANDDOWN_LIVE_SOURCE_NOT_A_FIELD`) and must
-   be one of the 26 named rows (:data:`STANDDOWN_LIVE_SOURCE_NOT_NAMED`).
+   be one of the 27 named rows (:data:`STANDDOWN_LIVE_SOURCE_NOT_NAMED`).
    COMPLETENESS of that set is not asked of the live source either: the
    bytes this door actually composes come from the CONNECTION's own
    ``RawBlockCache`` (gate 3), never from the live source, and
    ``attr_wire.build_named_field_update`` already refuses a cache that does
    not satisfy ``attr_wire.all_field_x()`` in full -- LANE-GM's own gate,
    unwidened by this round.  A caller whose live source names fewer than
-   all 26 rows still reaches a named refusal; it is simply the encoder's,
+   all 27 rows still reaches a named refusal; it is simply the encoder's,
    one gate later than before (see :data:`STANDDOWN_ENCODER_REFUSED`).
 
 WHY "FULL BLOCK" IS A REQUIREMENT AND NOT A PREFERENCE.  ``RE-222`` (static,
@@ -204,7 +204,7 @@ STANDDOWN_LIVE_SOURCE_NOT_A_FIELD = "live_source_not_a_field"
 #: RENAMED from ``STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED`` (pf-adversary
 #: round f2qyxx D2, ``COO-DECISION 20260904_0546``): this door no longer
 #: measures a live row against LANE-DB's ``SERVER_OWNED_FIELDS`` -- it
-#: measures it against ``gm/attr_wire.named_field_x()``, the 26-row set a
+#: measures it against ``gm/attr_wire.named_field_x()``, the 27-row set a
 #: hit frame is "about".  The old name would now describe a check this
 #: module does not make.
 STANDDOWN_LIVE_SOURCE_NOT_NAMED = "live_source_not_named"
@@ -406,7 +406,7 @@ def compose_player_hit_frame(
                    % (sorted(map(repr, not_fields)),))
         return None
 
-    # A hit frame is "about" the 26-row NAMED set only, never LANE-DB's
+    # A hit frame is "about" the 27-row NAMED set only, never LANE-DB's
     # 55-row persistence block -- `COO-DECISION 20260904_0546`, which
     # withdrew `persistence_attr_compose` (`compose_full_block`/
     # `block_gaps`) from this door's adjudication path entirely

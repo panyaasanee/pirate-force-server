@@ -532,8 +532,12 @@ MOB_AI_PLAYER_DAMAGE_WIRING = (
 #: composer in it turns that card red; the first draft of this round did
 #: exactly that and the full suite caught it.  Splitting is not an evasion of
 #: that card: the block Door B composes never comes from the vitals door at
-#: all -- it comes from the chief's read point, through LANE-DB's own
-#: adjudicator (`persistence_attr_compose.block_gaps`).  Reported to the COO
-#: in this round's letter as a deviation from the file `0045` named.
+#: all -- it comes from the chief's read point, adjudicated against
+#: `gm/attr_wire.named_field_x()` (`COO-DECISION 20260904_0546` withdrew
+#: LANE-DB's `persistence_attr_compose.block_gaps` from this door entirely,
+#: pf-adversary D2 -- this line named it as the adjudicator before that
+#: round and is corrected here so it does not contradict the module it
+#: points at).  Reported to the COO in that round's letter as a deviation
+#: from the file `0045` named.
 #: See :mod:`pirateforce_foundation.mob_hit_frame`.
 MOB_HIT_FRAME_MODULE = "pirateforce_foundation.mob_hit_frame"
