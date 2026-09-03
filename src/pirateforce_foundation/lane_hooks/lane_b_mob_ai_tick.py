@@ -99,6 +99,7 @@ from __future__ import annotations
 from typing import Any, Tuple
 
 from . import announce_direct_fire, console_safe
+from .. import mob_ai_player_damage
 from .. import mob_ai_scheduler
 
 # Deliberately NOT importing mob_ai_control/mob_combat here for their types:
@@ -118,6 +119,12 @@ from .. import mob_ai_scheduler
 production_allowed = True
 
 MODULE_NAME = "pirateforce_foundation.lane_hooks.lane_b_mob_ai_tick"
+
+# One line per process, not one per frame: the storeless stand-down below
+# fires on EVERY TargetPos a session with no lifecycle sends, and a truth
+# repeated sixty times a second stops being read.  A list rather than a bool
+# so a test can inspect and reset it without reaching for a global statement.
+_STORELESS_ANNOUNCED: list = []
 POINT = "vital_inbound_target_pos_mob_ai_tick"
 
 # The exact block a future runtime.py round can paste into dispatch(),
@@ -170,7 +177,16 @@ LANE_B_MOB_AI_TICK_WIRING = (
     "x, y, z, _heading = self.last_target_pos; "
     "self.mob_ai_register, _tick_results = "
     "lane_b_mob_ai_tick.maybe_tick(self.mob_ai_register, "
-    "self.mob_combat_ledger, performer, (x, y, z)). "
+    "self.mob_combat_ledger, performer, (x, y, z), "
+    "store=getattr(getattr(self.foundation, 'lifecycle', None), 'store', "
+    "None), character_id=self.foundation.selected.id). "
+    "MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD: the store=/character_id= pair "
+    "above is the ONLY part of this line that is not already landed, and it "
+    "is NOT to be pasted until the COO answers "
+    "pf_bridge/notes_to_chief/20260903_1952_LANE-B-ASK-COO-* -- measured "
+    "there: with it, a player inside 275 units of Bg0002 placement 92 loses "
+    "one HP per TargetPos frame they send and no frame tells them. "
+    "Everything else in this line is what runtime.py already does. "
     "Needs 'from .lane_hooks import lane_b_mob_ai_tick' added to "
     "runtime.py's own imports. Composes no frame either way (see this "
     "module's own NONCLAIMS), so this is safe to add without opening "
@@ -184,6 +200,8 @@ def maybe_tick(
     player_identity: int,
     player_position: Tuple[float, float, float],
     player_alive: bool = True,
+    store: Any = None,
+    character_id: Any = None,
 ) -> Tuple[Any, tuple]:
     """One :func:`mob_ai_scheduler.tick_session` pass, with the
     project's console-proof convention wrapped around it.
@@ -204,12 +222,52 @@ def maybe_tick(
     the new register and the full per-row result tuple, unchanged, so a
     caller that DOES want every row (e.g. a future headless proof) still
     has it.  Nothing here is dropped, only what prints is filtered.
+
+    ``store``/``character_id`` (round ``nfrrqa``, COO-DECISION
+    ``20260903_1745`` point 2) are the M4 half: pass BOTH and an attack
+    decision this tick becomes a clamped, floored, read-back HP write
+    through :func:`mob_ai_player_damage.apply_tick_damage`.  Pass neither --
+    the default, and what ``runtime.py`` passes today -- and NOTHING
+    touches the database, so this argument pair is the whole opt-in and
+    there is no flag hiding behind it.
+
+    ~~Passing exactly one is a caller contract error and raises, rather than
+    half-working.~~ STRUCK, same round, MEASURED WRONG BY pf-adversary (D3)
+    BEFORE IT SHIPPED, and the measurement is worth more than the rule: the
+    published order fetches the store with
+    ``getattr(getattr(self.foundation, 'lifecycle', None), 'store', None)``,
+    and ``session.ReadOnlyFoundationSession`` -- which ``app.py`` installs
+    for every scene-load scenario -- has a ``store`` but NO ``lifecycle``.
+    So the order, pasted verbatim, hands this function ``store=None`` with a
+    real ``character_id``, and the raise came out of ``dispatch()`` on a
+    shipped session class.  A NONE STORE IS NOW A NAMED STAND-DOWN, WHICH IS
+    WHAT THIS FILE'S OWN ORDER ALREADY PROMISED IN WORDS ("refused by name as
+    store_cannot_be_asked, never crashed on") and did not do.  The half that
+    stays a raise is the one that cannot be an environment fact: a real store
+    with no character id would write against nobody.
     """
+    if store is None and character_id is not None:
+        if not _STORELESS_ANNOUNCED:
+            _STORELESS_ANNOUNCED.append(character_id)
+            print(console_safe(mob_ai_player_damage.stand_down_console_line(
+                mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                character_id,
+                "maybe_tick was given a character but no store: this session "
+                "has no lifecycle to fetch one from (said once per process)")))
+        character_id = None
+    elif store is not None and character_id is None:
+        raise mob_ai_player_damage.MobAiPlayerDamageError(
+            mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE,
+            "maybe_tick was given a store but no character_id: a write with "
+            "no character to write against is a caller defect, not an "
+            "environment fact")
     announce_direct_fire(MODULE_NAME, POINT)
     register, results = mob_ai_scheduler.tick_session(
         ai_register, combat_ledger, player_identity, player_position,
         player_alive=player_alive,
     )
+    if store is not None:
+        mob_ai_player_damage.apply_tick_damage(store, character_id, results)
     for result in results:
         if result.before_phase == result.after_phase:
             continue

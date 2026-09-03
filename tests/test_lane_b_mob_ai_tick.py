@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_tables_bg0002, field_mobs, mob_aggro, mob_ai_control,
-    mob_combat,
+    mob_ai_player_damage, mob_combat,
 )
 from pirateforce_foundation.lane_hooks import lane_b_mob_ai_tick  # noqa: E402
 
@@ -261,6 +261,574 @@ class WiringLineTests(unittest.TestCase):
                 if any("lane_b_mob_ai_tick" in name for name in names):
                     importers.append(str(path.relative_to(SRC_ROOT)))
         self.assertEqual(sorted(set(importers)), ["runtime.py"])
+
+
+class _RecordingStore:
+    """A stub that records, over a dict of vitals this test owns.
+
+    A STUB AND NOT THE REAL STORE, ON PURPOSE, FOR THE BRANCH CARDS ONLY:
+    these cards measure THIS lane's arithmetic (the clamp, the floor, the
+    read-back comparison, what is and is not called), and a real database
+    would measure LANE-DB's door instead.  The card that has to be driven
+    against a real database -- because the claim there is "a number that
+    survives on disk" -- is
+    ``RealDatabaseDamageTests.test_the_write_lands_in_a_real_database``
+    below, which uses no stub at all.
+    """
+
+    def __init__(self, hp_current, hp_max=100, level=1):
+        self.vitals = _StubVitals(level, hp_current, hp_max)
+        self.damage_calls = []
+        self.reads = 0
+
+    def read_character_vitals_or_none(self, character_id):
+        self.reads += 1
+        return self.vitals
+
+    def apply_hp_damage(self, character_id, amount):
+        self.damage_calls.append((character_id, amount))
+        before = self.vitals.hp_current
+        after = before - amount
+        self.vitals = _StubVitals(
+            self.vitals.level, after, self.vitals.hp_max)
+        return _StubDamageOutcome(
+            hp_before=before, hp_after=after, hp_max=self.vitals.hp_max,
+            requested=amount, applied=amount, died=after <= 0,
+            was_already_zero=before <= 0,
+        )
+
+
+class _StubVitals:
+    def __init__(self, level, hp_current, hp_max):
+        self.level = level
+        self.hp_current = hp_current
+        self.hp_max = hp_max
+
+
+class _StubDamageOutcome:
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+def _attack_results(*identities):
+    """Real ``SchedulerStepResult`` rows, one attack decision each.
+
+    Built through the shipped dataclass rather than out of simple objects so
+    that a row this lane could never actually receive (identity 0, a
+    non-string intent) refuses HERE, in the fixture, exactly as it would in
+    production.
+    """
+    from pirateforce_foundation.mob_ai_scheduler import SchedulerStepResult
+    return tuple(
+        SchedulerStepResult(
+            actor_identity=identity,
+            before_phase=mob_aggro.PHASE_IDLE,
+            after_phase=mob_aggro.PHASE_AGGRO,
+            intent_kind=mob_aggro.INTENT_ATTACK_UNDELIVERABLE,
+            intent_target_identity=PLAYER,
+        )
+        for identity in identities
+    )
+
+
+def _quiet_results(*identities):
+    from pirateforce_foundation.mob_ai_scheduler import SchedulerStepResult
+    return tuple(
+        SchedulerStepResult(
+            actor_identity=identity,
+            before_phase=mob_aggro.PHASE_IDLE,
+            after_phase=mob_aggro.PHASE_IDLE,
+            intent_kind=mob_aggro.INTENT_NONE,
+            intent_target_identity=None,
+        )
+        for identity in identities
+    )
+
+
+class PlayerDamageDoorTests(unittest.TestCase):
+    """LANE-B round `nfrrqa`: the aggro tick's attack decision becomes HP.
+
+    COO-DECISION 20260903_1745 point 2 gave this lane four rules and every
+    card below is one of them going red when it is broken: the floor of 1
+    is never written through, the write is read back, a line is printed,
+    and ``store.py`` is not touched (nothing here patches or wraps a store
+    method -- the module only calls two).
+    """
+
+    CHARACTER = 4242
+
+    def _run(self, store, results, **kwargs):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            outcome = mob_ai_player_damage.apply_tick_damage(
+                store, self.CHARACTER, results, **kwargs)
+        return outcome, buf.getvalue()
+
+    def test_a_tick_with_no_attack_decision_writes_nothing_and_is_silent(self):
+        store = _RecordingStore(hp_current=100)
+        outcome, printed = self._run(store, _quiet_results(0x2001, 0x2002))
+        self.assertIsNone(outcome)
+        self.assertEqual(store.damage_calls, [])
+        # NOT EVEN A READ: the common case is every frame of every moving
+        # player, so a door that opens a database read to decide it has
+        # nothing to do is a cost paid continuously for nothing.
+        self.assertEqual(store.reads, 0)
+        self.assertEqual(printed, "")
+
+    def test_one_attacker_costs_exactly_the_per_attack_number(self):
+        store = _RecordingStore(hp_current=100)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertEqual(
+            store.damage_calls,
+            [(self.CHARACTER,
+              mob_ai_player_damage.PLAYER_DAMAGE_PER_ATTACK_DECISION)])
+        self.assertEqual(outcome.applied, outcome.requested)
+        self.assertIs(outcome.floor_held, False)
+        self.assertEqual(
+            outcome.hp_after,
+            100 - mob_ai_player_damage.PLAYER_DAMAGE_PER_ATTACK_DECISION)
+        self.assertIn("MOB_AI_PLAYER_DAMAGE char=%d" % self.CHARACTER,
+                      printed)
+
+    def test_three_attackers_cost_three_times_it_in_one_write(self):
+        # ONE WRITE, not three: this server is strictly serial (FINDINGS_R18)
+        # and the damage door takes the write lock, so a per-attacker
+        # transaction would be three lock acquisitions per frame for a number
+        # that is a sum.
+        store = _RecordingStore(hp_current=100)
+        outcome, _printed = self._run(
+            store, _attack_results(0x2001, 0x2002, 0x2003))
+        self.assertEqual(len(store.damage_calls), 1)
+        self.assertEqual(
+            outcome.requested,
+            3 * mob_ai_player_damage.PLAYER_DAMAGE_PER_ATTACK_DECISION)
+        self.assertEqual(outcome.attackers, (0x2001, 0x2002, 0x2003))
+
+    def test_the_floor_clamps_the_amount_instead_of_the_result(self):
+        # hp 2, floor 1, three attackers asking for 3: the CLAMP is what
+        # reaches the store, so the store is never asked for a write this
+        # lane would then have to apologise for.
+        store = _RecordingStore(hp_current=2)
+        outcome, printed = self._run(
+            store, _attack_results(0x2001, 0x2002, 0x2003))
+        self.assertEqual(
+            store.damage_calls,
+            [(self.CHARACTER, 2 - mob_ai_player_damage.HP_FLOOR)])
+        self.assertEqual(outcome.hp_after, mob_ai_player_damage.HP_FLOOR)
+        self.assertIs(outcome.floor_held, True)
+        self.assertIn("floor_held=1", printed)
+
+    def test_a_player_already_at_the_floor_is_not_written_to_at_all(self):
+        store = _RecordingStore(hp_current=mob_ai_player_damage.HP_FLOOR)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertEqual(store.damage_calls, [])
+        self.assertIn("MOB_AI_PLAYER_DAMAGE_STAND_DOWN", printed)
+        self.assertIn(mob_ai_player_damage.STAND_DOWN_FLOOR_ALREADY_REACHED,
+                      printed)
+
+    def test_a_store_that_raises_stands_the_write_down_and_says_so(self):
+        class _Angry:
+            def read_character_vitals_or_none(self, character_id):
+                raise RuntimeError("database is locked: C:\\\\pf\\\\state.db")
+
+        outcome, printed = self._run(_Angry(), _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertIn("store_cannot_be_asked", printed)
+        # ASCII, always: the line interpolates the STORE's exception, which
+        # can carry a Windows path with anything in it, and the bridge
+        # console is cp874 with errors='strict'.
+        printed.encode("ascii")
+
+    def test_a_none_store_is_refused_by_name_not_crashed_on(self):
+        # The wiring order tells the chief to pass a store fetched with
+        # getattr(..., None), so None is a value this door will really be
+        # handed on a session whose lifecycle is not up yet.
+        outcome, printed = self._run(None, _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertIn("store_cannot_be_asked", printed)
+
+    def test_unreadable_vitals_stand_the_write_down(self):
+        class _Unseeded:
+            def read_character_vitals_or_none(self, character_id):
+                return None
+
+        outcome, printed = self._run(_Unseeded(), _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertIn("vitals_not_readable", printed)
+
+    def test_a_read_back_that_disagrees_raises_instead_of_logging(self):
+        # THE CARD THAT COSTS THE MOST TO GET WRONG.  A store that reports a
+        # write it did not make is the one failure this lane may not swallow
+        # (house rule: a write that reports success and does not land is a
+        # failure), so this is a raise and not a console line.
+        class _Liar(_RecordingStore):
+            def apply_hp_damage(self, character_id, amount):
+                outcome = super().apply_hp_damage(character_id, amount)
+                # put the row back, as a lost write would
+                self.vitals = _StubVitals(
+                    self.vitals.level, outcome.hp_before, self.vitals.hp_max)
+                return outcome
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._run(_Liar(hp_current=100), _attack_results(0x2001))
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_WRITE_DID_NOT_LAND)
+
+    def test_a_read_back_that_refuses_after_the_write_also_raises(self):
+        # pf-adversary D8: replacing this branch with `return None` left the
+        # whole suite green, in the one place the module's own docstring
+        # calls "the important half ... which may never be swallowed".  A
+        # read that WORKED one line ago and refuses after the write is not
+        # the ordinary unseeded case; it is a row that moved under us.
+        class _GoesBlindAfterTheWrite(_RecordingStore):
+            def read_character_vitals_or_none(self, character_id):
+                if self.damage_calls:
+                    return None
+                return super().read_character_vitals_or_none(character_id)
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._run(_GoesBlindAfterTheWrite(hp_current=100),
+                      _attack_results(0x2001))
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_WRITE_DID_NOT_LAND)
+
+    def test_a_write_the_store_refuses_stands_down_and_does_not_raise(self):
+        # pf-adversary D7: the READ was wrapped and the WRITE was not, and
+        # the write is the one with a documented failure mode -- the damage
+        # door gives up after DAMAGE_LOCK_BUSY_TIMEOUT_MS, which on this
+        # strictly serial server happens whenever a healing door holds the
+        # same lock.  A raise there would come out of dispatch(), taking a
+        # walking player's session with it AND skipping runtime.py's own
+        # close of the GM warp-confirm window a few lines below the call.
+        # Nothing committed, so this is an environment refusal, by name.
+        class _LockedOut(_RecordingStore):
+            def apply_hp_damage(self, character_id, amount):
+                raise RuntimeError("database is locked")
+
+        store = _LockedOut(hp_current=100)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                      printed)
+        self.assertEqual(store.vitals.hp_current, 100)
+
+    def test_a_character_id_that_is_not_a_positive_int_is_refused(self):
+        # pf-adversary D8: deleting _require_character_id left the suite
+        # green -- a whole named refusal nothing executed.
+        store = _RecordingStore(hp_current=100)
+        for bad in (0, -1, None, "4242", True):
+            with self.subTest(character_id=bad):
+                with self.assertRaises(
+                        mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+                    with redirect_stdout(io.StringIO()):
+                        mob_ai_player_damage.apply_tick_damage(
+                            store, bad, _attack_results(0x2001))
+                self.assertEqual(
+                    caught.exception.reason,
+                    mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
+        self.assertEqual(store.damage_calls, [])
+
+    def test_a_per_attack_that_is_not_a_positive_int_is_refused(self):
+        # pf-adversary D8, same shape: the validation was dead to the suite.
+        store = _RecordingStore(hp_current=100)
+        for bad in (0, -3, None, 1.0):
+            with self.subTest(per_attack=bad):
+                with self.assertRaises(
+                        mob_ai_player_damage.MobAiPlayerDamageError):
+                    with redirect_stdout(io.StringIO()):
+                        mob_ai_player_damage.apply_tick_damage(
+                            store, self.CHARACTER, _attack_results(0x2001),
+                            per_attack=bad)
+        self.assertEqual(store.damage_calls, [])
+
+    def test_a_result_row_that_is_not_a_typed_record_is_refused(self):
+        # pf-adversary D8: both type guards in attack_decisions were dead.
+        class _Loose:
+            def __init__(self, kind, actor):
+                self.intent_kind = kind
+                self.actor_identity = actor
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            mob_ai_player_damage.attack_decisions([_Loose(None, 0x2001)])
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_TYPE_NOT_TYPED_RECORD)
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            mob_ai_player_damage.attack_decisions(
+                [_Loose(mob_aggro.INTENT_ATTACK_UNDELIVERABLE, 0)])
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
+
+    def test_the_console_line_reports_every_number_the_outcome_carries(self):
+        # pf-adversary D8: hp_max and hp_before could be replaced with
+        # anything and no card noticed, while both are printed.
+        store = _RecordingStore(hp_current=57, hp_max=123)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertEqual(outcome.hp_before, 57)
+        self.assertEqual(outcome.hp_max, 123)
+        self.assertIn("hp=57->56/123", printed)
+
+    def test_an_outcome_that_reports_a_death_raises(self):
+        # The floor above makes this unreachable through this lane's own
+        # arithmetic; the card exists because the floor is enforced HERE and
+        # a store whose own floor is zero is one refactor away from being the
+        # thing that kills a player.
+        class _Overkill(_RecordingStore):
+            def apply_hp_damage(self, character_id, amount):
+                outcome = super().apply_hp_damage(character_id, amount)
+                outcome.died = True
+                return outcome
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._run(_Overkill(hp_current=100), _attack_results(0x2001))
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_FLOOR_WAS_BREACHED)
+
+    def test_attack_decisions_reads_the_constant_not_a_spelling(self):
+        # The three-day defect this lane paid for was a hand-typed string
+        # standing in for a name.  If mob_aggro renames its intent, this
+        # door must follow it, not keep matching a literal.
+        results = _attack_results(0x2001)
+        self.assertEqual(
+            mob_ai_player_damage.attack_decisions(results), (0x2001,))
+        renamed = [r for r in _quiet_results(0x2002)]
+        self.assertEqual(
+            mob_ai_player_damage.attack_decisions(renamed), ())
+        source = (SRC_ROOT / "mob_ai_player_damage.py").read_text(
+            encoding="utf-8")
+        self.assertNotIn(
+            '"' + mob_aggro.INTENT_ATTACK_UNDELIVERABLE + '"', source)
+
+
+class MaybeTickDamageOptInTests(unittest.TestCase):
+    """The two optional arguments are the whole opt-in, and they are a pair."""
+
+    def setUp(self):
+        bg0002_roster = field_mobs._parse_hostile_placements(
+            field_mob_tables_bg0002)
+        self.by_placement = {m.placement_index: m for m in bg0002_roster}
+        self.register = mob_ai_control.open_register(bg0002_roster)
+        self.ledger = mob_combat.open_ledger(bg0002_roster)
+        self.mob = self.by_placement[BG0002_OFFENSIVE_PLACEMENT]
+
+    def _tick(self, **kwargs):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            register, results = lane_b_mob_ai_tick.maybe_tick(
+                self.register, self.ledger, PLAYER,
+                (self.mob.x, self.mob.y, self.mob.z), **kwargs)
+        return register, results, buf.getvalue()
+
+    def test_todays_call_site_passes_neither_and_touches_no_database(self):
+        # This is what runtime.py does RIGHT NOW, and this card is what makes
+        # "nothing changed for a player this round" a measurement instead of
+        # a sentence in a PR body.
+        _register, results, printed = self._tick()
+        self.assertNotIn("MOB_AI_PLAYER_DAMAGE", printed)
+        self.assertTrue(any(
+            r.intent_kind == mob_aggro.INTENT_ATTACK_UNDELIVERABLE
+            for r in results),
+            "this fixture must produce the intent the door reads, or the "
+            "card above proves nothing")
+
+    def test_passing_both_writes_and_prints(self):
+        store = _RecordingStore(hp_current=100)
+        _register, _results, printed = self._tick(
+            store=store, character_id=4242)
+        self.assertEqual(len(store.damage_calls), 1)
+        self.assertIn("MOB_AI_PLAYER_DAMAGE char=4242", printed)
+        # The tick's own console lines survive the damage door: a refusal
+        # there may not eat the evidence of the tick that produced it.
+        self.assertIn("LANE_B_MOB_AI_TICK", printed)
+
+    def test_a_store_with_no_character_is_a_caller_defect_and_raises(self):
+        store = _RecordingStore(hp_current=100)
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._tick(store=store)
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
+        self.assertEqual(store.damage_calls, [])
+
+    def test_a_character_with_no_store_stands_down_and_the_tick_survives(self):
+        # pf-adversary D3, MEASURED ON A SHIPPED SESSION CLASS.  The first
+        # draft raised here, symmetrically with the card above.  That was
+        # wrong, and the proof is that the published order -- pasted
+        # verbatim, as an order is meant to be -- produces exactly this
+        # shape on `session.ReadOnlyFoundationSession`, which `app.py`
+        # installs for every scene-load scenario: it has a `store` but no
+        # `lifecycle`, so the order's getattr chain yields None while
+        # `selected.id` is a real number.  The raise came out of dispatch()
+        # and took the session's frame with it.  A missing store is an
+        # ENVIRONMENT fact -- the module's own order already promised it
+        # would be "refused by name, never crashed on" -- so it stands down,
+        # says so once per process, and the tick still runs.
+        del lane_b_mob_ai_tick._STORELESS_ANNOUNCED[:]
+        _register, results, printed = self._tick(character_id=4242)
+        self.assertIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                      printed)
+        self.assertTrue(any(
+            r.intent_kind == mob_aggro.INTENT_ATTACK_UNDELIVERABLE
+            for r in results),
+            "the tick must still have run: standing the WRITE down may not "
+            "stand the decision loop down with it")
+        # ONCE PER PROCESS, not once per frame: this fires on every TargetPos
+        # such a session sends, and a truth repeated that often is noise.
+        _r2, _res2, printed_again = self._tick(character_id=4242)
+        self.assertNotIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                         printed_again)
+
+    def test_the_order_names_the_arguments_the_function_really_takes(self):
+        # THE BINDING THE THREE-DAY DEFECT DID NOT HAVE.  The order is a
+        # string the chief pastes; if it names a keyword this function does
+        # not accept, the paste is refused at import time on a live server.
+        # So the order is parsed and bound against the real signature here,
+        # rather than both being read by a human.
+        import inspect
+        order = lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING
+        signature = inspect.signature(lane_b_mob_ai_tick.maybe_tick)
+        for keyword in ("store=", "character_id="):
+            self.assertIn(keyword, order)
+            self.assertIn(keyword[:-1], signature.parameters)
+        self.assertIn("store=", mob_ai_player_damage
+                      .MOB_AI_PLAYER_DAMAGE_WIRING)
+        # ON HOLD, and the marker says so in ASCII a grep can find -- IN THE
+        # ORDER ITSELF, not only in the module that owns the door.  An order
+        # is a thing somebody pastes: a hold notice a reader has to go to
+        # another file to find is a hold notice that does not exist.
+        for text in (order,
+                     mob_ai_player_damage.MOB_AI_PLAYER_DAMAGE_WIRING,
+                     (SRC_ROOT / "mob_ai_player_damage.py").read_text(
+                         encoding="utf-8")):
+            self.assertIn("MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD", text)
+
+    def test_the_hold_is_a_state_of_runtime_py_and_not_a_comment(self):
+        # pf-adversary D2 OF THIS ROUND, AND THE QUESTION IT CLOSED WITH:
+        # "what, executable, goes red on the day someone pastes those two
+        # keyword arguments into runtime.py without a COO answer?"  It
+        # measured that the answer was NOTHING -- it pasted the order and
+        # every card in the round stayed green, because the only thing
+        # holding the hold was a string in a comment.  This card is the
+        # answer, and it is the whole point of writing it: the marker and
+        # the call site are read TOGETHER, out of the AST, so exactly one of
+        # the two states is green.
+        #
+        # WHILE THE MARKER STANDS: the maybe_tick call in runtime.py must
+        # pass NEITHER keyword.  THE DAY THE COO ANSWERS: the marker comes
+        # out of the order in the same round the keywords go in, and this
+        # card requires BOTH -- so a paste without an answer is red, and an
+        # answer without a paste is red too.  Neither half can drift alone.
+        runtime_tree = ast.parse(
+            (SRC_ROOT / "runtime.py").read_text(encoding="utf-8"))
+        passed = set()
+        calls = 0
+        for node in ast.walk(runtime_tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and func.attr == "maybe_tick"):
+                continue
+            calls += 1
+            passed.update(
+                keyword.arg for keyword in node.keywords if keyword.arg)
+        self.assertEqual(
+            calls, 1,
+            "expected exactly one maybe_tick call site in runtime.py; found "
+            "%d, so this card cannot say which one carries the hold" % calls)
+        held = "MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD" in (
+            lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING)
+        wired = {"store", "character_id"} & passed
+        if held:
+            self.assertEqual(
+                wired, set(),
+                "the order still carries MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD "
+                "but runtime.py already passes %r to maybe_tick.  Either the "
+                "COO answered and the marker must come out of the order in "
+                "the same round, or this is the paste the hold exists to "
+                "stop -- see pf_bridge/notes_to_chief/20260903_1952_LANE-B-"
+                "ASK-COO-*" % (sorted(wired),))
+        else:
+            self.assertEqual(
+                wired, {"store", "character_id"},
+                "the hold marker is gone from the order, so the COO has "
+                "answered -- but runtime.py passes %r.  A lifted hold with no "
+                "call site is a door nobody opened wearing an open sign"
+                % (sorted(wired),))
+
+
+class RealDatabaseDamageTests(unittest.TestCase):
+    """One card, on a real database, because the claim is about disk.
+
+    Everything above measures this lane's arithmetic against a stub.  The
+    sentence this round wants to be able to say -- "an attack decision
+    becomes a number that survives" -- is about SQLite, so this card uses
+    the real store, the real migrations and the real damage door, and reads
+    the row back through a SECOND, independent read.
+    """
+
+    def setUp(self):
+        import tempfile
+        from pirateforce_foundation.model import Position
+        from pirateforce_foundation.store import SQLiteStore
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations")
+        self.store.migrate()
+        account = self.store.ensure_account("lane-b-damage")
+        character = self.store.create_character(
+            account, "DamageDoor", "dd", "fingerprint-dd",
+            lambda selector: (b"wire-%d" % selector, b"avatar",
+                              0x30000001 + selector, 0),
+            Position(1, 0, 1.0, 2.0, 3.0, heading=0.0))
+        self.character_id = character.id
+
+    def test_the_write_lands_in_a_real_database(self):
+        before = self.store.read_character_vitals_or_none(self.character_id)
+        self.assertIsNotNone(
+            before, "migrations must seed a new character's vitals, or this "
+                    "card is measuring the stand-down path instead")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            outcome = mob_ai_player_damage.apply_tick_damage(
+                self.store, self.character_id, _attack_results(0x2001, 0x2002))
+        expected = (
+            before.hp_current
+            - 2 * mob_ai_player_damage.PLAYER_DAMAGE_PER_ATTACK_DECISION)
+        self.assertEqual(outcome.hp_after, expected)
+        # THE INDEPENDENT READ: not the outcome the door returned, and not
+        # the one this lane already read back inside it.
+        again = self.store.read_character_vitals_or_none(self.character_id)
+        self.assertEqual(again.hp_current, expected)
+        self.assertIn("MOB_AI_PLAYER_DAMAGE char=%d" % self.character_id,
+                      buf.getvalue())
+
+    def test_the_floor_holds_against_the_real_door_whose_floor_is_zero(self):
+        # store.apply_hp_damage floors at ZERO and reports died=True.  This
+        # card drives a character down to 1 through the real door and then
+        # asks this lane for more: the store would happily write 0, and this
+        # lane must not let it.
+        vitals = self.store.read_character_vitals_or_none(self.character_id)
+        self.store.apply_hp_damage(
+            self.character_id,
+            vitals.hp_current - mob_ai_player_damage.HP_FLOOR)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            outcome = mob_ai_player_damage.apply_tick_damage(
+                self.store, self.character_id, _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        after = self.store.read_character_vitals_or_none(self.character_id)
+        self.assertEqual(after.hp_current, mob_ai_player_damage.HP_FLOOR)
+        self.assertIs(after.alive, True)
+        self.assertIn(mob_ai_player_damage.STAND_DOWN_FLOOR_ALREADY_REACHED,
+                      buf.getvalue())
 
 
 if __name__ == "__main__":
