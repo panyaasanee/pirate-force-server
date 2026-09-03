@@ -271,8 +271,12 @@ class RegisteredRulingMatchesOptionBTests(unittest.TestCase):
     def test_registering_bg0015_gate_1_is_untouched_by_this_ruling(self):
         # The COO letter's own words: registering a ruling and opening
         # gate 1 (field_mobs._SCENE_TABLE_MODULES) are two separate
-        # matters. Confirm the second one really did not move.
-        self.assertFalse(gates.roster_gate_open())
+        # matters -- true of THIS ruling module either way. COO-DECISION
+        # 20260903_1942 item 2 opened gate 1 in a later round, by a
+        # different module (field_mobs.py itself); this file still does
+        # not move it, which is what "untouched BY THIS RULING" means and
+        # is now the assertion below.
+        self.assertTrue(gates.roster_gate_open())
 
 
 class DoesNotRegisterAnythingTests(unittest.TestCase):

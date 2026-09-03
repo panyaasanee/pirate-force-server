@@ -38,6 +38,7 @@ from pirateforce_foundation import mob_ledger_admission  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose as recompose  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_population_bg0002  # noqa: E402
+from pirateforce_foundation import world_population_bg0015  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation.runtime import (  # noqa: E402
     _apply_mob_death_census_override,
@@ -48,6 +49,7 @@ LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 ANCHOR = (10.0, 20.0, 30.0)
 SCENE1 = world_population.SCENE_ID
 SCENE2 = world_population_bg0002.SCENE2_N_ID
+SCENE14 = world_population_bg0015.SCENE_N_ID
 # The ruling that authorises killing the roster's control row, quoted from
 # tests/test_mob_ai_control.py rather than invented here.
 WIDENING_RULING = (
@@ -559,7 +561,8 @@ class SceneRecomposeTests(unittest.TestCase):
             self.assertEqual(composer.scene_id, scene_id)
             self.assertIn(
                 composer.kind,
-                (recompose.COMPOSER_DELEGATED, recompose.COMPOSER_BG0002))
+                (recompose.COMPOSER_DELEGATED, recompose.COMPOSER_BG0002,
+                 recompose.COMPOSER_BG0015))
 
     def test_every_scene_this_lane_ships_monsters_for_can_be_recomposed(self):
         """The drift pin.  A future scene that gains a roster -- and therefore
@@ -946,6 +949,61 @@ class DeclinedLedgerHealsTests(unittest.TestCase):
                     line.encode("cp874")
 
 
+class DeclinedLedgerHealsSceneFourteenTests(unittest.TestCase):
+    """ROUND n4pv7k, pf-adversary Defect 1 (adversarial review of this same
+    round's own diff).  ``COMPOSER_BG0015`` was added to ``_compose`` in this
+    round, but the ``heals`` verdict line just below it -- computed by the
+    CALLER, ``recompose_frames``, not by ``_compose`` -- still checked
+    ``composer.kind == COMPOSER_BG0002`` only.  REPRODUCED, not hypothetical:
+    a scene-14 recompose with a declined ledger built its census at ceiling
+    HP through the exact same code path scene 2's own
+    ``DeclinedLedgerHealsTests`` already pins, and this line still answered
+    ``heals=False`` -- so the record read ``state=STATE_COMPOSED`` and the
+    console carried no ``MOB_LEDGER_ADMISSION_FATAL ...
+    effect=wounded_rows_resent_at_ceiling`` line, exactly the silently-healed
+    state COO-DECISION 2026-08-30T00:45+07:00 (quoted above ``heals``'s own
+    definition) exists to keep out of ``STATE_COMPOSED``.
+
+    This class does not repeat ``DeclinedLedgerHealsTests``' full ten-test
+    sweep for a second scene -- the mechanism is identical by construction
+    (``heals`` is the same one expression for every non-delegated composer)
+    -- it pins the two assertions that were actually wrong before the fix:
+    the state/heals flag, and the FATAL console line.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+        cls.roster = field_mobs.roster_for_scene_id(SCENE14)
+        cls.anchor = recompose.census_anchor(
+            SCENE14, ANCHOR, world_population_bg0015.DEFAULT_ACTOR_COUNT)
+
+    def setUp(self):
+        self.register = mob_death.DeathRegister()
+        self.ceiling_ledger = mob_combat.open_ledger_for_scene_id(SCENE14)
+
+    def _recompose(self, ledger):
+        return recompose.recompose_frames(
+            self.legacy, self.anchor, self.register,
+            ledger=ledger, roster=self.roster)
+
+    def test_a_declined_ledger_no_longer_reports_itself_as_composed(self):
+        # A foreign-scene ledger (scene 2's) is declined for scene 14 the
+        # same way scene 1's is declined for scene 2 in the sibling test --
+        # ``admit_ledger`` refuses it before ``_compose`` ever runs.
+        record = self._recompose(mob_combat.open_ledger_for_scene_id(SCENE2))
+        self.assertEqual(record.state, recompose.STATE_COMPOSED_HEALING)
+        self.assertIs(record.heals, True)
+
+    def test_the_fatal_console_line_fires_for_scene_fourteen(self):
+        record = self._recompose(mob_combat.open_ledger_for_scene_id(SCENE2))
+        lines = recompose.describe_recompose(record)
+        self.assertTrue(any(
+            "MOB_LEDGER_ADMISSION_FATAL" in line
+            and "effect=wounded_rows_resent_at_ceiling" in line
+            for line in lines), lines)
+
+
 class SceneAccountedForTests(unittest.TestCase):
     """ROUND le2dox, answering the chief's letter ``20260829_2340``.
 
@@ -1003,10 +1061,18 @@ class SceneAccountedForTests(unittest.TestCase):
             "ACKNOWLEDGED_WITHOUT_COMPOSER for it",
         )
 
-    def test_scene_14_is_acknowledged_rather_than_silently_absent(self):
-        self.assertIn(14, recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
+    def test_scene_14_now_has_a_composer_instead_of_an_acknowledgement(self):
+        # RENAMED, COO-DECISION 20260903_1942 item 2: the acknowledgement
+        # this test used to pin promised "this lane composes it in the
+        # same round its first roster row lands" -- that round is this
+        # one, so scene 14 moved OUT of ACKNOWLEDGED_WITHOUT_COMPOSER and
+        # INTO the composer table, not both.
+        self.assertNotIn(14, recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
         self.assertIs(recompose.scene_is_accounted_for(14), True)
-        self.assertIsNone(recompose.composer_for_scene_id(14))
+        composer = recompose.composer_for_scene_id(14)
+        self.assertIsNotNone(composer)
+        self.assertEqual(composer.scene_id, 14)
+        self.assertEqual(composer.kind, recompose.COMPOSER_BG0015)
 
     def test_an_acknowledgement_is_not_a_composer(self):
         """The mutant this kills folds the acknowledgement table into

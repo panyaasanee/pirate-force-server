@@ -2256,19 +2256,35 @@ class DropLedger:
     # NO SCENE TERM.  Keyed by ``actor_identity`` alone (round `h40iwu`,
     # answering the risk `pf_bridge/notes_to_chief/20260901_0106_LANE-B-
     # STATUS-bg0015-combat-ledger-gap-measured-*.md` recorded but left
-    # unfixed).  This is safe TODAY only because ``kill_token``
-    # (``death_step.register.generation``) counts up forever across every
-    # scene and never resets, and because
-    # ``field_mobs.cross_scene_identity_collisions()`` returns no LIVE
-    # collision at HEAD (Bg0002/Bg0015 collide at placement 87, but Bg0015
-    # is not registered in ``field_mobs._SCENE_TABLE_MODULES`` yet).  If
-    # either of those two facts stops being true -- a scene-scoped or
-    # per-scene-reset token, or a second live scene sharing an identity --
-    # a re-kill of the colliding identity would be wrongly refused as
-    # ``mob_already_looted``.  ``tests/test_mob_loot.py``'s
-    # ``test_a_kill_token_that_moves_backward_for_the_same_identity_is_
-    # refused_the_same_way_a_replay_is`` pins the exact boundary
-    # (``previous >= kill_token``) this depends on.
+    # unfixed).  ~~safe TODAY only because ... field_mobs.cross_scene_
+    # identity_collisions() returns no LIVE collision at HEAD ... Bg0015 is
+    # not registered ... yet~~ -- CORRECTED, round `n4pv7k`: that round
+    # registered Bg0015 (COO-DECISION 20260903_1942 item 2), so the
+    # collision this comment named as hypothetical is LIVE now
+    # (``mob_combat_bg0015_gates.bg0002_bg0015_identity_collisions() ==
+    # (0x2058,)`` -- Bg0002 placement 87/template 34 and Bg0015 placement
+    # 87/template 924 "Carlos" both mine that wire identity).  This stays
+    # safe because the OTHER fact this comment always depended on still
+    # holds: ``kill_token`` (``death_step.register.generation``) is a
+    # SESSION-WIDE monotonic counter, never scene-scoped and never reset
+    # per scene, so a later kill of the colliding identity in a different
+    # scene always carries a STRICTLY HIGHER token than an earlier one, and
+    # ``previous >= kill_token`` never mistakes the two for a replay.
+    # ``tests/test_mob_loot.py``'s ``test_the_now_live_bg0002_bg0015_
+    # identity_collision_does_not_wrongly_refuse_a_rekill`` (round n4pv7k,
+    # pf-adversary Defect 2) drives this exact scenario -- Bg0002's row at
+    # this identity looted, then Bg0015's DIFFERENT monster at the SAME
+    # identity killed later -- end to end, rather than leaving the claim to
+    # this paragraph's own reasoning.  ``test_a_kill_token_that_moves_
+    # backward_for_the_same_identity_is_refused_the_same_way_a_replay_is``
+    # still pins the exact boundary (``previous >= kill_token``) both tests
+    # depend on.  NOT CLOSED: this reasoning assumes ``kill_token`` and
+    # ``looted`` share one lifetime.  Whether ``DropLedger.looted`` is ever
+    # PERSISTED across a process restart while ``DeathRegister.generation``
+    # (in-memory, restarts at 0) is not -- which would let a low token from
+    # a fresh boot collide with a high one recorded before the restart -- is
+    # untraced and outside what this round measured; flagged to chief/COO
+    # rather than assumed either way.
     looted: tuple = ()
 
     def __post_init__(self) -> None:

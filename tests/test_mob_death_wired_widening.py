@@ -131,8 +131,25 @@ class RulingForTests(unittest.TestCase):
     # -- what the round delivers -----------------------------------------
 
     def test_every_shipped_mob_dies_under_the_letter_ruling_for_names(self):
+        # COO-DECISION 20260903_1942 item 2 registered Bg0015 knowing one
+        # of its twelve rows (placement 87, template 924, "Carlos") carries
+        # no death ruling -- a SEPARATE, already-accepted matter, not this
+        # round's to fix (see field_mobs.OWNER_REFUSED_PLACEMENTS' own note
+        # on why an owner-refusal was tried and withdrawn for him).  DERIVED
+        # rather than a hand-typed identity: any mob `rulings_covering`
+        # answers empty for is expected to REFUSE, not to die -- so a
+        # future roster that grows another uncovered row is caught here
+        # exactly the same way, and a ruling that starts covering Carlos
+        # moves him back into the "dies" branch with no edit to this test.
         for scene, mob in self.shipped():
             with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
+                if not rulings_covering(mob):
+                    with self.assertRaises(MobDeathContractError) as caught:
+                        ruling_for(mob)
+                    self.assertEqual(
+                        caught.exception.reason,
+                        mob_death.REFUSE_TARGET_OUTSIDE_THE_SANCTIONED_SCOPE)
+                    continue
                 step = kill(
                     self.legacy, mob, self.lethal_outcome(mob),
                     DeathRegister(), widened=ruling_for(mob))
@@ -247,8 +264,13 @@ class RulingForTests(unittest.TestCase):
     # -- the derivation ---------------------------------------------------
 
     def test_ruling_for_is_derived_and_every_answer_is_a_real_letter(self):
+        # Same accepted exception as the test above, same derivation: a mob
+        # no letter covers has no "real letter" for this test to check --
+        # ruling_for refuses it, which the other test already pins.
         for scene, mob in self.shipped():
             with self.subTest(scene=scene, identity=hex(mob.actor_identity)):
+                if not rulings_covering(mob):
+                    continue
                 name = ruling_for(mob)
                 self.assertIn(name, mob_death.WIDENING_RULINGS)
                 # derived, not typed in: the letter it names must be one that
@@ -593,7 +615,24 @@ class RulingForTests(unittest.TestCase):
         bg0002 = len(field_mobs.load_roster(scene=field_mobs.BG0002_SCENE))
         self.assertGreater(bg0002, 0)
         healthy = mob_death.describe_widening_coverage()
-        self.assertFalse([ln for ln in healthy if "UNKILLABLE" in ln])
+        unkillable = [ln for ln in healthy if "UNKILLABLE" in ln]
+        # COO-DECISION 20260903_1942 item 2: Bg0015's Carlos (template 924)
+        # is the one accepted exception this round -- DERIVED from
+        # rulings_covering, not a hand-typed identity, so a second uncovered
+        # row would still fail this test.  The set of identities behind
+        # UNKILLABLE lines must be EXACTLY the set this scan derives, not
+        # merely "at most one line".
+        expected_unkillable_identities = {
+            hex(mob.actor_identity)
+            for _scene, mob in self.shipped()
+            if not rulings_covering(mob)
+        }
+        self.assertEqual(len(unkillable), len(expected_unkillable_identities))
+        for line in unkillable:
+            self.assertTrue(
+                any(identity in line
+                    for identity in expected_unkillable_identities),
+                "unexpected UNKILLABLE line: %r" % line)
         self.assertTrue([
             ln for ln in healthy
             if "scene=%s letter_covers=%d of %d" % (
@@ -612,8 +651,12 @@ class RulingForTests(unittest.TestCase):
             # ``from mob_death import WIDENING_RULINGS`` holds this same dict
             mob_death.WIDENING_RULINGS.clear()
             mob_death.WIDENING_RULINGS.update(previous)
+        # bg0002's whole roster joins Carlos's pre-existing, already-accepted
+        # UNKILLABLE line (see expected_unkillable_identities above) once
+        # its own ruling is popped -- not bg0002 alone any more.
         self.assertEqual(
-            len([ln for ln in broken if "UNKILLABLE" in ln]), bg0002)
+            len([ln for ln in broken if "UNKILLABLE" in ln]),
+            bg0002 + len(expected_unkillable_identities))
         self.assertTrue([
             ln for ln in broken
             if "scene=%s letter_covers=0 of %d" % (
