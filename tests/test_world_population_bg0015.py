@@ -315,11 +315,23 @@ class Bg0015Census(unittest.TestCase):
         # 73fhoc.  It reads this module only for its console readers
         # (census_console_line / actor_lines / unresolved_lines) and takes the
         # roster itself from the seam, so the seam is still the one composer.
-        # Still an EXACT SET: a third importer has to be argued for in a round
-        # of its own.
+        #
+        # THIRD IMPORTER ARGUED FOR AND ADDED, THIS ROUND, LANE B, co-
+        # maintenance edit outside lane A's own four write-zone paths (same
+        # shape as lane A's own scene-3/4/5/etc. co-maintenance edits to
+        # mob_scene_recompose.py's ACKNOWLEDGED_WITHOUT_COMPOSER table --
+        # leaving a shared cross-lane tripwire red is not an option this
+        # round can choose).  COO-DECISION 20260903_1942 item 2 registers
+        # Bg0015 as a live scene and gives it a recompose composer
+        # (mob_scene_recompose.COMPOSER_BG0015); that composer's ONLY use of
+        # this module is calling its population builder
+        # (build_bg0015_population) with the same call shape the bg0002
+        # composer already uses for its own scene -- reading no other name
+        # from this module and building no second selector for it.
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
         # ~~self.assertNotIn("runtime.py", importers)~~
         # ~~self.assertNotIn("world_population_handoff", runtime_source)~~

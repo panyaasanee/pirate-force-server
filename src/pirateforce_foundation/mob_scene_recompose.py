@@ -61,6 +61,7 @@ from . import mob_death
 from . import mob_ledger_admission
 from . import world_population
 from . import world_population_bg0002
+from . import world_population_bg0015
 
 
 # No flag gates this module: it is lane B's always-on half, per CHARTER-02.
@@ -162,6 +163,7 @@ class SceneComposer:
 # a place where scene behaviour is smuggled in.
 COMPOSER_DELEGATED = "delegated_to_diag_multi_object_wiring"
 COMPOSER_BG0002 = "bg0002_population_plus_roster_override"
+COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 
 _COMPOSERS = {
     world_population.SCENE_ID: SceneComposer(
@@ -169,6 +171,9 @@ _COMPOSERS = {
     ),
     world_population_bg0002.SCENE2_N_ID: SceneComposer(
         world_population_bg0002.SCENE2_N_ID, "Bg0002", COMPOSER_BG0002,
+    ),
+    world_population_bg0015.SCENE_N_ID: SceneComposer(
+        world_population_bg0015.SCENE_N_ID, "Bg0015", COMPOSER_BG0015,
     ),
 }
 
@@ -194,21 +199,20 @@ _COMPOSERS = {
 # letter says "roster_for_scene_id(14) returns 0 rows", which is true and one
 # layer above where the refusal actually happens.)
 #
-# WHAT OPENS IT: the first roster row in scene 14.  That is the day
-# ``tests/test_mob_scene_recompose.py``'s
-# ``test_every_scene_this_lane_ships_monsters_for_can_be_recomposed`` goes
-# red -- item 2 of the same letter, and it has been in the tree since round
-# y9s0xo.  (~~``test_no_scene_with_roster_rows_lacks_a_composer``~~ -- struck
-# the same round, pf-adversary D6: no test in this repository answers to that
-# name.  A guard cited by a name that does not exist is a guard a reader
-# cannot check, which is the failure this whole comment block is about.)
+# WHAT OPENED IT: the first roster row in scene 14, COO-DECISION
+# 20260903_1942 item 2 (registering Bg0015's own mined table module in
+# ``field_mobs._SCENE_TABLE_MODULES``, this same round).  The promise this
+# comment block names above -- "this lane composes it in the same round its
+# first roster row lands" -- is discharged here, not merely quoted:
+# ``COMPOSER_BG0015`` above and its branch in :func:`_compose` are that
+# composer, so the scene 14 entry this dict used to carry is REMOVED, not
+# left stale next to a composer that now exists.
+#
+# ~~14: "Bg0015 -- lane A's arrival census composes it..."~~ STRUCK this
+# round: scene 14 now has both a roster (``field_mobs.roster_for_scene_id
+# (14)``) and a recompose composer, so it no longer belongs in a dict of
+# scenes that are missing one.
 ACKNOWLEDGED_WITHOUT_COMPOSER = {
-    14: (
-        "Bg0015 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py); field_mobs names no scene 14 at all, so it "
-        "has no combat roster and no strike can reach a recompose.  This "
-        "lane composes it in the same round its first roster row lands."
-    ),
     # ADDED ROUND 2jdde8 (LANE-A), same day the tripwire above predicted:
     # "the next scene another lane opens is red here on the commit that
     # opens it."  Verified rather than assumed from the scene 14 entry's
@@ -1085,13 +1089,30 @@ def recompose_frames(
     # now a claim this module can keep: the HP in these bytes came from the
     # BUILD'S CEILING rather than from any ledger.  That is a fact about the
     # composition, not an inference from the admission -- ``_compose`` passes
-    # ``admitted`` to ``full_roster_override`` on exactly one composer kind,
-    # and the delegated scene-1 path is handed the RAW ledger and keeps every
-    # wounded row it holds.  pf-adversary M1 proved the composer-kind
-    # condition load-bearing on a reachable input the round had claimed was
+    # ``admitted`` to ``full_roster_override`` on every NON-DELEGATED composer
+    # kind (COO-DECISION 20260903_1942 item 2 / pf-adversary, round n4pv7k:
+    # COMPOSER_BG0015 joined COMPOSER_BG0002 on this same branch of
+    # ``_compose`` and this line was not updated with it -- a reproduced
+    # defect, not a hypothetical one: a scene-14 recompose with a declined
+    # ledger built at ceiling HP through the identical code path as scene 2's
+    # own, and this line still answered ``heals=False``, so the record and
+    # console line said ``state=composed`` with no
+    # ``MOB_LEDGER_ADMISSION_FATAL ... effect=wounded_rows_resent_at_ceiling``
+    # line -- exactly the silent healed-and-unlogged state the COO ruling this
+    # whole block quotes exists to keep out of ``STATE_COMPOSED``), and the
+    # delegated scene-1 path is handed the RAW ledger and keeps every wounded
+    # row it holds.  pf-adversary M1 (round le2dox) proved the composer-kind
+    # condition load-bearing on a reachable input that round had claimed was
     # impossible (a scene-1 ledger declined by a CEILING disagreement
-    # composes fine), so it stays -- with a test that finally reaches it.
-    heals = composer.kind == COMPOSER_BG0002 and admission["ledger"] is None
+    # composes fine), so the condition stays a composer-kind check -- now an
+    # ``in`` over every non-delegated kind, not a single ``==``, so a future
+    # fourth scene's own composer must be added here explicitly or it
+    # inherits scene 1's ``heals=False`` behaviour by omission, the same way
+    # scene 14 just did.
+    heals = (
+        composer.kind in (COMPOSER_BG0002, COMPOSER_BG0015)
+        and admission["ledger"] is None
+    )
     return SceneRecompose(
         scene_id, scene, STATE_COMPOSED_HEALING if heals else STATE_COMPOSED,
         pc, frame, composed_count,
@@ -1149,32 +1170,51 @@ def _compose(
         # override it, so the value is READ from that module rather than
         # spelled again here -- a second spelling is a second thing to drift.
         return pc, frame, None, world_population.COUNT_SOURCE_CALLER
-    if composer.kind != COMPOSER_BG0002:
+    if composer.kind not in (COMPOSER_BG0002, COMPOSER_BG0015):
         raise SceneRecomposeError(
             "unknown composer kind %r for scene %d" % (
                 composer.kind, composer.scene_id))
 
-    # SCENE 2, THE ONE NEW COMPOSITION IN THIS MODULE.  The same three calls
-    # ``mob_death.hostile_census_frames`` makes for scene 1 -- build, roster
-    # override, splice -- with the scene-2 builder in the first position,
-    # because ``world_population.build_world_population`` refuses anywhere
-    # but scene 1 by design and it is not this lane's business to loosen it.
+    # SCENE 2 AND SCENE 14, THE TWO NON-DELEGATED COMPOSITIONS IN THIS
+    # MODULE.  The same three calls ``mob_death.hostile_census_frames``
+    # makes for scene 1 -- build, roster override, splice -- with the
+    # scene's own population builder in the first position, because
+    # ``world_population.build_world_population`` refuses anywhere but
+    # scene 1 by design and it is not this lane's business to loosen it.
     #
-    # ``count_source`` is CALLER, not FULL_ROSTER: the count comes off the
-    # arrival census the player is already looking at (``anchor.actor_count``),
-    # and a recompose that quietly re-derives the full roster count would
-    # change membership on a frame that is supposed to refresh it.
-    generation = world_population_bg0002.build_bg0002_population(
-        legacy, anchor.anchor, anchor.actor_count,
-        scene_id=composer.scene_id,
-        count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
-    )
+    # ``count_source`` is CALLER, not FULL_ROSTER, for both: the count comes
+    # off the arrival census the player is already looking at
+    # (``anchor.actor_count``), and a recompose that quietly re-derives the
+    # full roster count would change membership on a frame that is supposed
+    # to refresh it.
+    if composer.kind == COMPOSER_BG0002:
+        generation = world_population_bg0002.build_bg0002_population(
+            legacy, anchor.anchor, anchor.actor_count,
+            scene_id=composer.scene_id,
+            count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
+        )
+    else:
+        generation = world_population_bg0015.build_bg0015_population(
+            legacy, anchor.anchor, anchor.actor_count,
+            scene_id=composer.scene_id,
+            count_source=world_population_bg0015.COUNT_SOURCE_CALLER,
+        )
     # ``admitted`` here, not ``ledger``: a ledger that cannot answer for
     # these rows makes ``repopulation_entries`` raise, and round jop8ph's
     # whole point is that the answer to that is a named decline, not an
     # exception in the listener thread.  A declined ledger composes the
     # census at ceiling HP -- which is what this path did before the ledger
     # existed at all -- and ``describe_recompose`` says so on the line.
+    # Same call for scene 2 and scene 14: ``roster``/``register`` are
+    # already this dispatch's OWN scene's rows (``field_mobs.
+    # roster_for_scene_id(composer.scene_id)`` and the register
+    # ``_sync_combat_scene_state`` opened for that same scene id), so this
+    # function does not branch on scene to pick a roster -- the caller
+    # already scoped it, and cross-scene identity collisions (scene 2 and
+    # scene 14 both mine placement 87 as ``0x2058``, see
+    # ``mob_combat_bg0015_gates.bg0002_bg0015_identity_collisions``) cannot
+    # reach this override because it never reads a SECOND scene's roster to
+    # compare against.
     override = mob_death.full_roster_override(
         legacy, roster, register, ledger=admitted, faction=faction,
         with_name=with_name, dead_timer=dead_timer,

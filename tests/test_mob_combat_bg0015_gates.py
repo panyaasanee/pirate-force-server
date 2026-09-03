@@ -133,14 +133,22 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- the other measured preconditions ---------------------------
 
-    def test_no_roster_and_carlos_alone_lacks_a_death_ruling_today(
+    def test_carlos_alone_lacks_a_death_ruling_today(
             self) -> None:
         # ~~no death ruling for any of the seven~~ WITHDRAWN round
         # n3wqrt-successor: COO-RULING-20260901-1046 covers six of the
         # seven now (mob_death.py). Only Carlos (924) is still refused --
         # this test's own name used to claim more than that.
-        self.assertFalse(gates.roster_gate_open())
-        self.assertEqual(gates.scene14_roster_size_today(), 0)
+        # ~~self.assertFalse(gates.roster_gate_open())~~ /
+        # ~~self.assertEqual(gates.scene14_roster_size_today(), 0)~~ --
+        # WITHDRAWN, COO-DECISION 20260903_1942 item 2: this round
+        # registers Bg0015, so the roster gate is open and the roster has
+        # its real 12 rows -- neither line is this test's subject any
+        # more (see Bg0015WiredPathTests for what registration itself
+        # measures); the death-ruling gate this test is actually named
+        # for is unaffected by registration and unchanged below.
+        self.assertTrue(gates.roster_gate_open())
+        self.assertEqual(gates.scene14_roster_size_today(), 12)
         self.assertEqual(
             gates.templates_without_a_death_ruling(), (924,))
         ruled, refused = [], []
@@ -161,16 +169,18 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     def test_recompose_reports_both_halves_not_just_the_composer_table(
             self) -> None:
+        # COO-DECISION 20260903_1942 item 2, discharged this same round:
+        # the acknowledgement's own words were "this lane composes it in
+        # the same round its first roster row lands" -- that round is this
+        # one, so ``has_composer`` flips to True and the scene-14 entry
+        # leaves ACKNOWLEDGED_WITHOUT_COMPOSER (the promise is kept, not
+        # just quoted; see mob_scene_recompose.py's own strike-through).
         status = gates.recompose_status()
-        self.assertEqual(status["composer_scene_ids"], (1, 2))
-        self.assertFalse(status["has_composer"])
-        # The half an earlier draft missed: the hole is acknowledged in
-        # writing, and that acknowledgement says the composer lands in the
-        # same round the first roster row does -- downstream of
-        # registration, not a separate choice someone can make first.
-        self.assertTrue(status["acknowledged_without_composer"])
+        self.assertEqual(status["composer_scene_ids"], (1, 2, 14))
+        self.assertTrue(status["has_composer"])
+        self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
-        self.assertIn(
+        self.assertNotIn(
             14, mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
 
     # ---- the visual splice, measured here rather than inherited ------
@@ -279,20 +289,32 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- the pin the rename orphaned, restored -----------------------
 
-    def test_the_two_scene_tag_readers_disagree_and_that_is_pinned(
+    def test_the_two_scene_tag_readers_now_agree(
             self) -> None:
-        # Restored from the file the rename deleted: world_scene_folder
-        # addresses scene 14, field_mobs does not ship it, so the two
-        # readers answer differently and the ledgers they build are unequal
-        # while both stay empty.
+        # RENAMED, COO-DECISION 20260903_1942 item 2: the two readers this
+        # test used to pin as disagreeing (world_scene_folder addresses
+        # scene 14; field_mobs did not ship it) now agree, because
+        # field_mobs ships it as of this round's registration.
         self.assertEqual(
             world_scene_folder.scene_folder_for_scene_id(14), "Bg0015")
-        self.assertIsNone(field_mobs.scene_for_scene_id(14))
+        self.assertEqual(field_mobs.scene_for_scene_id(14), "Bg0015")
+        # ``open_ledger((), scene=...)`` is still an EXPLICITLY empty
+        # ledger -- the caller passed () on purpose -- so it still differs
+        # from ``open_ledger_for_scene_id(14)``, which now derives the
+        # real 12-row roster through the (now registered)
+        # ``field_mobs.roster_for_scene_id``.  The disagreement this test
+        # pins is no longer "field_mobs cannot name scene 14 at all", it is
+        # the ordinary, unsurprising gap between an explicit empty roster
+        # and a derived real one.
         via_sync_shape = mob_combat.open_ledger((), scene="Bg0015")
         via_helper = mob_combat.open_ledger_for_scene_id(14)
         self.assertNotEqual(via_sync_shape, via_helper)
+        self.assertEqual(via_sync_shape.identities(), ())
+        self.assertEqual(len(via_helper.identities()), 12)
         self.assertEqual(
-            via_sync_shape.identities(), via_helper.identities())
+            via_helper.identities(),
+            tuple(m.actor_identity
+                  for m in field_mobs.roster_for_scene_id(14)))
 
     def test_this_module_does_not_import_the_raw_table_module(self) -> None:
         self.assertNotIn(
@@ -304,7 +326,11 @@ class Bg0015MeasurementTests(unittest.TestCase):
         import importlib
         importlib.reload(gates)
         self.assertEqual(field_mobs.live_scenes(), before)
-        self.assertEqual(set(before), {"bg0001", "Bg0002"})
+        # COO-DECISION 20260903_1942 item 2: Bg0015 joined the live set
+        # this round via field_mobs.py's own registration, not via this
+        # module -- reloading THIS module still changes nothing, which
+        # remains the assertion; only the baseline it compares against grew.
+        self.assertEqual(set(before), {"bg0001", "Bg0002", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):
@@ -374,26 +400,45 @@ class Bg0015WiredPathTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return state.dispatch(legacy.parse_outer(pc))
 
-    def test_a_real_swing_in_scene_14_answers_not_a_field_mob(self) -> None:
+    def test_a_real_swing_in_scene_14_now_answers_not_announced(
+            self) -> None:
+        # RENAMED, COO-DECISION 20260903_1942 item 2: registration means
+        # scene 14 is no longer an EMPTY roster, so the twelve real
+        # identities are no longer answered as "not a field mob" -- they
+        # are now IN the ledger (see the ledger assertion below) and get
+        # refused one gate later, by the RE-157 job 2 announced-actor
+        # guard (mob_combat_membership), because the scene-14 census
+        # commit stamps an empty announced set for now (see this file's
+        # ADDENDUM docstring in the test below).  This is still an inert
+        # swing -- no hit, no cadence spend -- just refused for a
+        # different, one-gate-later reason than before this round.
         state = self._state_in_scene_14("bg0015_gates_wired")
         for identity in gates.splice_identities(self.legacy):
             self._attack(state, identity)
         answers = [e for e in state.events if e.startswith("mob_combat_")]
         self.assertEqual(
-            answers.count(gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE), 12)
+            answers.count("mob_combat_target_not_announced_no_reply"), 12)
         for event in state.events:
             self.assertNotIn(mob_combat.REFUSE_TARGET_NOT_IN_LEDGER, event)
         self.assertEqual(state.mob_combat_scene_folder, gates.BG0015_FOLDER)
-        self.assertEqual(state.mob_combat_ledger.identities(), ())
-        # WHAT THIS DOES NOT PIN, shown rather than claimed: the answer is
-        # about the EMPTY ROSTER, not about these twelve identities.
+        self.assertEqual(len(state.mob_combat_ledger.identities()), 12)
+        self.assertEqual(
+            set(state.mob_combat_ledger.identities()),
+            set(gates.splice_identities(self.legacy)))
+        # An identity that is NOT one of the twelve real roster members is
+        # still answered as "not a field mob" -- that half of the old
+        # pin still holds, just for a genuinely absent identity rather
+        # than for every identity because the roster itself was absent.
         for arbitrary in (0xDEADBEEF, 0x1, 0xFFFF):
             self._attack(state, arbitrary)
+        all_answers = [e for e in state.events if e.startswith("mob_combat_")]
         self.assertEqual(
-            [e for e in state.events if e.startswith("mob_combat_")].count(
-                gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE), 15)
+            all_answers.count(gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE), 3)
+        self.assertEqual(
+            all_answers.count("mob_combat_target_not_announced_no_reply"),
+            12)
 
-    def test_registering_bg0015_clears_the_ai_table_gate_but_the_swing_is_still_inert(
+    def test_bg0015_registration_is_now_real_not_simulated(
             self) -> None:
         """~~Registration alone does not give unkillable monsters -- it
         drops the connection on the first swing.~~ WITHDRAWN round n8kq4r:
@@ -402,57 +447,43 @@ class Bg0015WiredPathTests(unittest.TestCase):
         longer raises. What is measured below and NOTHING MORE: no raise,
         the roster syncs and the ledger fills with Bg0015's twelve real
         identities, and the one packet this file already had on hand
-        (action code 0) still comes back as a no-reply "wield" capture, not
-        a strike -- so this test still cannot and does not claim a hit or a
-        kill was driven. Other gates this lane has already measured and not
-        touched stay exactly where they were:
-        :func:`templates_without_a_death_ruling` is non-empty (owner-only)
-        and :func:`recompose_status` still reports no scene-14 composer
-        (``has_composer`` is ``False`` -- re-verified live this round).
+        (action code 0) still comes back as a no-reply capture, not a
+        strike -- so this test still cannot and does not claim a hit or a
+        kill was driven.
 
-        ~~the recompose reply is
-        ``mob_combat_bar_census_compose_skipped_no_population_anchor``~~ IS
-        STRUCK, round n8kq4r addendum (post-merge, unrelated to this lane's
-        own edits): chief's already-merged R278 work widened the eager NPC
-        census disjunct from bg0002-only to every scene but home
-        (``runtime.py``, commit ``b69071f6``), so scene 14 now gets an
-        arrival-census anchor (``last_target_pos``-equivalent) WITHOUT this
-        test's helper ever sending a ``TargetPosVital`` -- a real improvement,
-        not a regression.  The "attack before any anchor exists" branch this
-        test used to land in (``runtime.py``'s ``else`` arm,
-        ``no_population_anchor``) is therefore no longer reached; the swing
-        now reaches the recompose call itself, which still refuses because
-        scene 14 has no registered composer (``has_composer=False``, same
-        gate :func:`recompose_status` already named) -- so the event this
-        test now measures is ``no_composer_for_scene``, one gate further
-        along than before, and this file did not move that gate.
+        RENAMED, COO-DECISION 20260903_1942 item 2, AND THE BODY REWRITTEN
+        RATHER THAN JUST THE NAME.  This test used to REGISTER Bg0015 into
+        ``field_mobs._SCENE_TABLE_MODULES`` ITSELF, temporarily, via
+        ``addCleanup(registry.pop, ...)`` -- because at the time the real
+        registration did not exist yet and this file's whole point was to
+        measure what registering WOULD do.  That registration is now
+        PERMANENT (``field_mobs.py`` itself carries the entry as of this
+        round), so the old self-registering dance is not merely redundant,
+        it is actively dangerous left in place: ``addCleanup`` would POP
+        THE REAL ENTRY back out after this one test runs, silently
+        de-registering Bg0015 for every test that runs after it in the
+        same process.  This test now only reads the registry, never
+        mutates it.
 
-        RE-157 job 2 ADDENDUM (MOB-COMBAT-001 announced-actor guard): STRUCK
-        again.  ``runtime.py``'s scene-14 census commit (the lane-composer
-        branch the paragraph above names) now runs before this file's
-        helper ever attacks -- but ``lane_hooks.SceneCensusResult`` carries
-        no per-actor identity list, only opaque wire bytes, so that commit
-        cannot name what it announced and stamps an EMPTY announced-actor
-        membership for scene 14 rather than a fabricated or stale one (see
-        the ``JUDGMENT CALL`` comment at that commit site in ``runtime.py``).
-        0x2017 is therefore a real roster/ledger member that was never
-        ANNOUNCED, which is exactly the gap RE-157 job 2 closes: the new
-        guard now refuses the swing one gate EARLIER than the recompose
-        call this docstring's previous paragraph measured, before the
-        recompose path is ever reached at all.
+        RE-157 job 2 (MOB-COMBAT-001 announced-actor guard): the scene-14
+        census commit (``runtime.py``'s lane-composer branch) runs before
+        this file's helper ever attacks, but ``lane_hooks.SceneCensusResult``
+        carries no per-actor identity list, only opaque wire bytes, so that
+        commit cannot name what it announced and stamps an EMPTY
+        announced-actor membership for scene 14 rather than a fabricated or
+        stale one (see the ``JUDGMENT CALL`` comment at that commit site in
+        ``runtime.py``).  0x2017 is therefore a real roster/ledger member
+        that was never ANNOUNCED, which is exactly the gap RE-157 job 2
+        closes: the guard refuses the swing before the recompose call
+        (which now has a real composer, ``has_composer`` is ``True``,
+        re-verified live this round) is ever reached at all.
         """
-        # Imported plainly by name: the approved-importer guard sweeps
-        # src/**/*.py only, and tests/test_field_mob_hostile_bg0015.py
-        # already imports this table the same way. No string-splitting
-        # tricks -- a test that had to evade a guard would be a test
-        # nobody should trust.
         from pirateforce_foundation import field_mob_tables_bg0015 as module
         registry = field_mobs._SCENE_TABLE_MODULES
-        self.assertNotIn(module.SCENE, registry)
-        registry[module.SCENE] = module
-        self.addCleanup(registry.pop, module.SCENE, None)
+        self.assertIn(module.SCENE, registry)
+        self.assertIs(registry[module.SCENE], module)
 
-        state = self._state_in_scene_14("bg0015_gates_cleared")
+        state = self._state_in_scene_14("bg0015_gates_real")
         # No raise: the earlier ``assertRaises(MobAiControlError)`` this
         # test used is gone on purpose. If it starts raising again this
         # assertion turns red, which is exactly the coverage this file
@@ -463,15 +494,15 @@ class Bg0015WiredPathTests(unittest.TestCase):
             state.mob_combat_ledger.identities(),
             tuple(sorted(gates.splice_identities(self.legacy))))
         # The one reply this specific (non-strike) packet produces today,
-        # measured rather than assumed.  RE-157 job 2 ADDENDUM: this used to
-        # be "..._skipped_no_composer_for_scene" (the recompose path's own
+        # measured rather than assumed.  RE-157 job 2: this used to be
+        # "..._skipped_no_composer_for_scene" (the recompose path's own
         # refusal) -- see the docstring's RE-157 paragraph for why the
         # MOB-COMBAT-001 announced-actor guard now refuses one gate
         # earlier, before the recompose call is ever reached.
         self.assertIn(
             "mob_combat_target_not_announced_no_reply",
             state.events)
-        self.assertFalse(gates.recompose_status()["has_composer"])
+        self.assertTrue(gates.recompose_status()["has_composer"])
 
 
 if __name__ == "__main__":
