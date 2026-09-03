@@ -3021,14 +3021,69 @@ def _print_speed_deferred(
         `400.1000061035156`: this is what the WRITE RETURNED, not what was
         asked for.
       * `next_login=` / `next_login_sends=` -- answered by
-        `login_speed.resolve`, THE VERY FUNCTION the login path runs, called
-        as a pure predicate on that read-back with `player_wire`'s own
-        constant as the fallback.  It is not a prediction and not a second
-        opinion: `login_speed`'s docstring bans re-typing its range here
-        ("a range typed twice is a range that drifts") and this obeys by
-        calling it instead.  So `next_login=from_row` means the tester's next
-        login sends the number beside it, and `next_login=row_refused_by_
-        validator` / `row_speed_not_positive` mean it sends the constant.
+        ~~`login_speed.resolve`, THE VERY FUNCTION the login path runs~~ --
+        STRUCK BY `CHIEF-TO-LANE-GM 20260903_0725`, WHICH MEASURED THE LINE
+        LYING.  `resolve` is NOT the function the login path runs; it is the
+        second half of it.  `session.select_and_start` calls
+        `login_speed.resolve_for_character`, and since the login gate of
+        `COO-DECISION 20260903_0645` landed (`#632`), that function asks
+        `login_speed.held_by_the_speed_deferral` FIRST and returns the
+        CONSTANT whatever the row holds.  So on the `SPEED DEFERRED` route --
+        the only route that exists on `main` today -- this line printed
+        `next_login=from_row next_login_sends=300.0` while the very next
+        login sent `400.0` and said `wire_deferred`.  The two fields were a
+        promise this module had no standing to make, on the one route it is
+        printed from, for as long as that gate has been on `main`.
+
+        SO THE GATE IS ASKED HERE FIRST TOO, IN THE SAME ORDER, and by
+        composition rather than by a call to `resolve_for_character` itself:
+        that function needs a STORE and would put a database read on a
+        console path (a printer may never alter dispatch, and a read is the
+        one thing on this line that could block).  `held_by_the_speed_
+        deferral(fallback)` then `resolve(value, fallback=...)` IS its body
+        with the store read taken out.  ~~"the only part skipped is
+        `_withheld_row_detail`"~~ -- STRUCK, pf-adversary D3: the skipped read
+        also decides two REASONS this line can therefore never print,
+        `ROW_COULD_NOT_BE_READ` and `ROW_HAS_NO_VALUE`, and on an open wire it
+        could disagree with the write's read-back outright (the undo of branch
+        B above, a login-time store failure, a second `/speed` in between).
+        The narrower true claim: what this line reports is THE ROW THIS
+        HANDLER WROTE, graded by the login's own rules -- the same scope
+        `row_after_write=` states for itself two paragraphs up, and the reason
+        both names say `row`.  `login_speed`'s ban on re-typing its range is
+        still obeyed: both halves are still ITS functions.
+
+      * `row_verdict=` -- WHAT THE ROW ITSELF EARNS, asked of
+        `login_speed.resolve` unconditionally and independently of the gate.
+        pf-adversary (round `3vqkpn`, D1b) measured why one field cannot do
+        both jobs: with only the gate asked, `next_login=` prints `wire_
+        deferred` for EVERY value while the gate stands, so `/speed 0` and
+        `/speed -1` -- rows `login_speed` itself classifies as unusable
+        (`ROW_SPEED_NOT_POSITIVE`) -- became indistinguishable from a healthy
+        `/speed 400`.  `main` before this round could say `row_speed_not_
+        positive`, and losing that word would have been a REGRESSION dressed
+        as a fix, in the ticket whose recovery step is a re-login.
+
+        This is also the question `login_speed.py`'s own point 4 says the
+        field exists to answer, so the two modules now agree again instead of
+        documenting opposite designs for one name.
+
+    SO THE LINE CARRIES TWO ANSWERS AND NAMES WHICH IS WHICH.  `row_verdict=`
+    is about the ROW (`from_row` / `row_refused_by_validator` /
+    `row_speed_not_positive` / `row_has_no_value`); `next_login=` is about
+    what the LOGIN WILL DO (`wire_deferred` / `wire_trial_only` /
+    `deferral_unreadable` while the gate stands, the row's own word if it ever
+    does not).  Today they read `row_verdict=<the row's word>
+    next_login=wire_deferred`, and the pair is the whole point: a tester sees
+    that her row is poisoned AND that the login will not carry it out.
+
+    !! `next_login=` CANNOT PRINT A ROW WORD FROM THIS CALL SITE, and saying
+    so is the honest version of a sentence an earlier draft got wrong.  This
+    printer runs only inside `if speed_wire.send_deferred():`, and
+    `held_by_the_speed_deferral` returns `None` only when that same flag makes
+    `send_deferred()` False -- one flag, one process, read microseconds apart.
+    The fall-through is kept exact rather than deleted because the call site,
+    not this function, is what makes it unreachable.
 
     !! WHY `row_after_write=` AND NOT `row_written=`, WHICH IS WHAT THE FIRST
     DRAFT CALLED IT.  pf-adversary (round `gj77z5`, D1) measured the branch
@@ -3080,6 +3135,7 @@ def _print_speed_deferred(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return False
     row_written = SPEED_DEFERRED_ROW_UNKNOWN
+    row_verdict = SPEED_DEFERRED_NEXT_LOGIN_NOT_EVALUATED
     next_login = SPEED_DEFERRED_NEXT_LOGIN_NOT_EVALUATED
     next_login_sends = SPEED_DEFERRED_ROW_UNKNOWN
     if stored is not None:
@@ -3093,8 +3149,27 @@ def _print_speed_deferred(
 
             value = float(stored)
             row_written = repr(value)
-            resolved = login_speed.resolve(
-                value, fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
+            fallback = player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
+            # BOTH QUESTIONS ARE ASKED, AND THE ROW'S IS ASKED
+            # UNCONDITIONALLY -- see the `next_login=` / `row_verdict=`
+            # paragraphs above.  `resolve` is what the row WOULD earn; the
+            # gate is what the login WILL do.  A first draft of this fix
+            # asked only the gate, and pf-adversary (round `3vqkpn`, D1b)
+            # measured what that cost: `/speed 0` and `/speed -1` write a row
+            # `login_speed` itself calls unusable, and the line stopped being
+            # able to say so -- every value printed the gate's one word.
+            row_verdict_resolved = login_speed.resolve(value, fallback=fallback)
+            resolved = login_speed.held_by_the_speed_deferral(fallback)
+            if resolved is None:
+                # Unreachable from this call site today and kept exact rather
+                # than collapsed (pf-adversary D1): the branch above this
+                # printer runs only while `send_deferred()` is True, and the
+                # gate returns `None` only while it is False.  If that call
+                # site ever moves, this must still be `resolve_for_character`
+                # order and not a guess.
+                resolved = row_verdict_resolved
+            row_verdict = console_safe(
+                _one_line(str(row_verdict_resolved.reason)), stream
             )
             # `console_safe` on THIS one only, and the asymmetry is the
             # point (pf-adversary D6): the two numeric fields are `repr()` of
@@ -3110,13 +3185,19 @@ def _print_speed_deferred(
             next_login = console_safe(_one_line(str(resolved.reason)), stream)
             next_login_sends = repr(float(resolved.value))
         except Exception as error:  # noqa: BLE001 - a printer never raises
-            next_login = console_safe(
+            unresolved = console_safe(
                 _one_line(
                     f"{SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
                     f"{type(error).__name__}"
                 ),
                 stream,
             )
+            # BOTH reason fields lose their name together, never one of them:
+            # the two questions are asked in one `try`, so a failure anywhere
+            # in it leaves neither answer measured.  A half-named line would
+            # invite an operator to read the surviving word as current.
+            row_verdict = unresolved
+            next_login = unresolved
             next_login_sends = SPEED_DEFERRED_ROW_UNKNOWN
     try:
         name = command_name if command_name in COMMAND_NAMES else "unnamed"
@@ -3124,7 +3205,8 @@ def _print_speed_deferred(
             f"{SPEED_DEFERRED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command={name} why={OUTCOME_SPEED_DEFERRED} "
-            f"row_after_write={row_written} next_login={next_login} "
+            f"row_after_write={row_written} row_verdict={row_verdict} "
+            f"next_login={next_login} "
             f"next_login_sends={next_login_sends} "
             f"trial_opens_for={_trial_console_field()} "
             f"{_identity_fields(session, stream)}",

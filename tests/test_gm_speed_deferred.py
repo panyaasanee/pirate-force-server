@@ -231,6 +231,26 @@ class _Case(unittest.TestCase):
             chat_command_action, "log_gm_command_outcome", failing
         )
 
+    @staticmethod
+    def _wire_open():
+        """Patch the LOGIN gate open, leaving the `/speed` wire held.
+
+        `held_by_the_speed_deferral` returning `None` is exactly "the wire is
+        open and the row may go out" (its own docstring), which is the state
+        `main` is NOT in today and the only state in which the row decides
+        the `next_login*` fields.  Patched on `login_speed` rather than on
+        `speed_wire.SPEED_LOGIN_READ_LANDED`, deliberately: the flags on
+        `speed_wire` are LOCKS (`GT-218` RECHECK forbids anyone flipping them
+        to make a round pass), and a test that flips one teaches the next
+        round that flipping is allowed.  Patching the QUESTION leaves both
+        locks reading exactly what they read on `main`.
+        """
+        from pirateforce_foundation import login_speed
+
+        return mock.patch.object(
+            login_speed, "held_by_the_speed_deferral", return_value=None
+        )
+
     def _deferred_line(self, console):
         """The one `SPEED DEFERRED` line, or a failure that shows the console.
 
@@ -466,13 +486,51 @@ class TheRowFieldIsTheReadBackNotTheTypingTests(_Case):
         # The second half: `next_login_sends=` must carry the same rounded
         # number, because that is what the login seam will resolve off the
         # row -- not the number the GM asked for.
+        #
+        # BEHIND AN OPEN LOGIN GATE, since `CHIEF-TO-LANE-GM 20260903_0725`.
+        # While the gate holds -- `main`'s state today -- the login sends the
+        # CONSTANT and this field is not about the row at all, so the claim
+        # "the read-back, not the typing" has nowhere to be measured.  It is
+        # still the claim that decides the field the day the gate opens, and
+        # the case below pins what today's route prints instead.
+        with self._wire_open():
+            _action, console = self.act_capturing_console(
+                self.session(), f"/speed {self.DIVERGENT_TYPED}"
+            )
+        deferred = self._deferred_line(console)
+        self.assertIn(
+            f"next_login_sends={self.DIVERGENT_READ_BACK}", deferred
+        )
+        # ...and not the number the GM TYPED, which is the property this
+        # class is named for and the one an open gate could have quietly
+        # dropped.  COMPARED AS THE WHOLE FIELD, for the reason
+        # `test_the_row_field_is_the_VALUE_not_the_typing` states above it:
+        # `400.1` IS a prefix of `400.1000061035156`, so an `assertNotIn`
+        # here fails on the canonicalisation that worked.
+        field = deferred.split("next_login_sends=", 1)[1].split(" ", 1)[0]
+        self.assertEqual(field, self.DIVERGENT_READ_BACK)
+        self.assertNotEqual(field, self.DIVERGENT_TYPED)
+
+    def test_a_held_login_sends_the_constant_and_names_neither_row_number(self):
+        # Today's route, beside the case above: the gate holds, so this field
+        # carries `player_wire`'s constant -- not the read-back and not the
+        # typing.  Both numbers of the divergent pair are absent from it.
+        from pirateforce_foundation import player_wire
+
         _action, console = self.act_capturing_console(
             self.session(), f"/speed {self.DIVERGENT_TYPED}"
         )
         deferred = self._deferred_line(console)
         self.assertIn(
-            f"next_login_sends={self.DIVERGENT_READ_BACK}", deferred
+            "next_login_sends="
+            f"{float(player_wire.PLAYER_LOGIN_MOVEMENT_SPEED)!r}",
+            deferred,
         )
+        self.assertNotIn(f"next_login_sends={self.DIVERGENT_READ_BACK}", deferred)
+        self.assertNotIn(f"next_login_sends={self.DIVERGENT_TYPED}", deferred)
+        # The read-back is still ON the line -- on the field that is about the
+        # row.  Nothing was hidden by the gate; it moved to the honest field.
+        self.assertIn(f"row_after_write={self.DIVERGENT_READ_BACK}", deferred)
 
 
 class TheRowFieldIsAboutTheWriteNotTheFinalRowTests(_Case):
@@ -578,16 +636,21 @@ class TheTypedTextStaysOffTheWHOLEConsoleTests(_Case):
     canonicalised numeric fields carved out by name.
     """
 
-    def test_the_typed_text_appears_nowhere_outside_the_two_number_fields(self):
+    def test_the_typed_text_appears_nowhere_outside_the_one_number_field(self):
+        # ~~"outside the TWO number fields"~~ -- NARROWED TO ONE by the
+        # `CHIEF-TO-LANE-GM 20260903_0725` fix, and narrowing is the right
+        # direction here: `next_login_sends=` now carries the login gate's
+        # constant while the gate holds, so exactly ONE field on this line is
+        # allowed to carry the row's number.  A smaller carve-out is a
+        # STRONGER anti-echo assertion -- everything outside it, on the whole
+        # console, must be free of the number.
         typed = "1234.5"
         _action, console = self.act_capturing_console(
             self.session(), f"/speed {typed}"
         )
         deferred = self._deferred_line(console)
-        # Carve out ONLY the two fields that are allowed to carry the number,
-        # then require the rest of the ENTIRE console to be free of it.
         carved = deferred
-        for field in (f"row_after_write={typed}", f"next_login_sends={typed}"):
+        for field in (f"row_after_write={typed}",):
             self.assertIn(field, deferred)
             carved = carved.replace(field, "", 1)
         rest = console.replace(deferred, carved)
@@ -605,7 +668,9 @@ class TheTypedTextStaysOffTheWHOLEConsoleTests(_Case):
         deferred = self._deferred_line(console)
         forged = f"LANE_GM_CHAT_ACTION speed route=action args=('{typed}',)\n"
         carved = deferred
-        for field in (f"row_after_write={typed}", f"next_login_sends={typed}"):
+        # One field, matching the carve-out above -- see its comment for why
+        # the list shrank with the `0725` fix.
+        for field in (f"row_after_write={typed}",):
             carved = carved.replace(field, "", 1)
         rest = (forged + console).replace(deferred, carved)
         self.assertIn(typed, rest)
@@ -751,8 +816,14 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
         # ...and the typed text is still nowhere else on the line: no echo of
         # the raw argument outside the one canonicalised field.
         deferred = self._deferred_line(console)
-        self.assertEqual(deferred.count("1234.5"), 2, deferred)
-        self.assertIn("next_login_sends=1234.5", deferred)
+        # ~~`count(...) == 2`, once per number field~~ -- CORRECTED WITH THE
+        # `0725` FIX, which is a tightening of this very property rather than
+        # a loosening: while the login gate holds, `next_login_sends=` is the
+        # CONSTANT, so the row's number appears exactly ONCE on the line.
+        # The anti-echo claim is unchanged and now measured at its strongest
+        # -- one field, one appearance, still not the raw typing.
+        self.assertEqual(deferred.count("1234.5"), 1, deferred)
+        self.assertNotIn("next_login_sends=1234.5", deferred)
 
     def test_the_row_field_is_the_VALUE_not_the_typing(self):
         # The proof that `row_after_write=` is a canonicalisation, not an
@@ -793,46 +864,183 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
                 self.assertTrue(field, deferred)
                 self.assertLessEqual(set(field), allowed, field)
 
-    def test_the_next_login_fields_come_from_the_login_seam_itself(self):
+    def test_the_next_login_fields_say_what_the_login_seam_would_say(self):
         """The two `next_login*` fields are not a prediction this lane wrote.
 
-        `login_speed.resolve` IS the function `session.select_and_start` runs
-        (`login_speed.resolve_for_character` calls it), and this line calls it
-        as a pure predicate on the store's read-back.  `login_speed`'s own
-        docstring forbids re-typing its range anywhere else -- "a range typed
-        twice is a range that drifts" -- so the pin here is that the console
-        agrees with that function, not with a copy of its rules.
+        !! REWRITTEN AFTER `CHIEF-TO-LANE-GM 20260903_0725`.  ~~This compared
+        against `login_speed.resolve`~~ -- which is the SECOND HALF of what
+        the login runs, not what it runs.  `session.select_and_start` calls
+        `resolve_for_character`, and that asks `held_by_the_speed_deferral`
+        first.  So this test stayed GREEN across the whole window in which
+        the console line was measurably lying: it pinned the console to the
+        same wrong function the console was calling.  A test that agrees with
+        the code it guards, against a third party neither of them consults,
+        is not a pin -- it is a copy.
+
+        Both halves are asked here now, in the seam's own order, so the pin
+        moves with `login_speed` whichever branch is live.
         """
         from pirateforce_foundation import login_speed, player_wire
 
+        fallback = player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
         for typed in ("1234.5", "400"):
             with self.subTest(typed=typed):
                 _action, console = self.act_capturing_console(
                     self.session(), f"/speed {typed}"
                 )
                 deferred = self._deferred_line(console)
-                expected = login_speed.resolve(
-                    float(typed),
-                    fallback=player_wire.PLAYER_LOGIN_MOVEMENT_SPEED,
-                )
+                expected = login_speed.held_by_the_speed_deferral(fallback)
+                if expected is None:
+                    expected = login_speed.resolve(
+                        float(typed), fallback=fallback
+                    )
                 self.assertIn(f"next_login={expected.reason}", deferred)
                 self.assertIn(
                     f"next_login_sends={float(expected.value)!r}", deferred
                 )
 
-    def test_a_row_the_login_would_refuse_says_so_instead_of_the_number(self):
-        # The field that makes the line worth reading: a row the login seam
-        # will NOT honour is named as such, so a tester who re-logs in and
-        # sees the constant is not left thinking the command did nothing.
-        # `-1.0` stores and encodes but is not a speed a player can use
-        # (`login_speed.ROW_SPEED_NOT_POSITIVE`).
+    def test_the_held_login_is_named_and_the_row_number_is_not_promised(self):
+        """The regression `CHIEF-TO-LANE-GM 20260903_0725` measured, pinned.
+
+        ON `main` TODAY the login gate of `COO-DECISION 20260903_0645` holds
+        every row, so a `/speed 300` that is itself deferred must NOT print
+        `next_login=from_row next_login_sends=300.0`: the next login sends
+        the constant and says `wire_deferred`.  `300.0` is the value that
+        locked a client for 426 frames in `GT-193`, and `GT-218`'s recovery
+        step is a re-login -- so this is the exact number an attended tester
+        would have been told to expect back, in the ticket written to keep it
+        off the wire.
+
+        The row is still NAMED, on `row_after_write=`, so nothing is hidden:
+        the line says the row holds `300.0` AND that the login will send
+        `400.0`.  That pairing is the whole fix.
+        """
         from pirateforce_foundation import login_speed, player_wire
+
+        _action, console = self.act_capturing_console(
+            self.session(), "/speed 300"
+        )
+        deferred = self._deferred_line(console)
+        self.assertIn("row_after_write=300.0", deferred)
+        self.assertIn(f"next_login={login_speed.WIRE_DEFERRED}", deferred)
+        self.assertIn(
+            "next_login_sends="
+            f"{float(player_wire.PLAYER_LOGIN_MOVEMENT_SPEED)!r}",
+            deferred,
+        )
+        # The half that would have cost the attended round: the row's own
+        # number must not appear as the thing the login sends.
+        self.assertNotIn("next_login_sends=300.0", deferred)
+        self.assertNotIn(f"next_login={login_speed.FROM_ROW}", deferred)
+
+    def test_a_row_the_login_would_refuse_says_so_ON_THE_SHIPPED_ROUTE(self):
+        """A POISONED ROW IS NAMED WITH NO GATE PATCHED ANYWHERE.
+
+        !! THIS IS THE REGRESSION pf-adversary CAUGHT MID-ROUND (`3vqkpn`,
+        D1b) AND IT IS WHY `row_verdict=` EXISTS.  The first draft of the
+        `0725` fix asked only the login gate, so `next_login=` printed
+        `wire_deferred` for every value the gate held -- which is every value
+        -- and `/speed -1` and `/speed 0` became indistinguishable from a
+        healthy `/speed 400` on the console.  `main` BEFORE that draft could
+        say `row_speed_not_positive`.  Losing it would have been a regression
+        shipped as a fix, in the ticket (`GT-218`) whose recovery step is a
+        re-login and whose whole subject is a row that must not go out.
+
+        `-1.0` stores and encodes but is not a speed a player can use
+        (`login_speed.ROW_SPEED_NOT_POSITIVE`).  No patch, no flag flipped:
+        this is what the attended tester's console prints today.
+        """
+        from pirateforce_foundation import login_speed, player_wire
+
+        for typed, row in (("-1", "-1.0"), ("0", "0.0")):
+            with self.subTest(typed=typed):
+                _action, console = self.act_capturing_console(
+                    self.session(), f"/speed {typed}"
+                )
+                deferred = self._deferred_line(console)
+                self.assertIn(f"row_after_write={row}", deferred)
+                # The row is graded...
+                self.assertIn(
+                    f"row_verdict={login_speed.ROW_SPEED_NOT_POSITIVE}",
+                    deferred,
+                )
+                # ...and the login still says, separately, that it will not
+                # carry it out.  Two answers, neither standing in for the
+                # other.
+                self.assertIn(
+                    f"next_login={login_speed.WIRE_DEFERRED}", deferred
+                )
+                self.assertIn(
+                    "next_login_sends="
+                    f"{float(player_wire.PLAYER_LOGIN_MOVEMENT_SPEED)!r}",
+                    deferred,
+                )
+
+    def test_a_healthy_row_and_a_poisoned_one_do_not_print_the_same_line(self):
+        # The property the two fields exist for, stated as a difference
+        # rather than as two absolutes: whatever else changes, an attended
+        # tester must be able to tell these two consoles apart WITHOUT
+        # reading `row_after_write=` and knowing the validator's range by
+        # heart.  A future edit that collapses `row_verdict=` back into the
+        # gate's word turns this red.
+        healthy = self._deferred_line(
+            self.act_capturing_console(self.session(), "/speed 400")[1]
+        )
+        poisoned = self._deferred_line(
+            self.act_capturing_console(self.session(), "/speed -1")[1]
+        )
+        healthy_verdict = healthy.split("row_verdict=", 1)[1].split(" ", 1)[0]
+        poisoned_verdict = poisoned.split("row_verdict=", 1)[1].split(" ", 1)[0]
+        self.assertNotEqual(healthy_verdict, poisoned_verdict)
+        # And the field that is about the LOGIN is the same on both, because
+        # the login does the same thing either way while the gate stands.
+        # That is the asymmetry: one field moves with the row, one does not.
+        self.assertEqual(
+            healthy.split("next_login=", 1)[1].split(" ", 1)[0],
+            poisoned.split("next_login=", 1)[1].split(" ", 1)[0],
+        )
+
+    def test_the_gate_is_asked_FIRST_not_only_asked(self):
+        """Order, pinned where a wrong order is observable.
+
+        pf-adversary (`3vqkpn`, D2) built the mutant this catches: ask
+        `resolve` first and consult the gate ONLY when the row came back
+        `from_row`.  Every test in the file passed under it, because the one
+        case that separates the two orders -- a row the validator refuses --
+        was only ever measured behind an opened wire, where both orders agree.
+
+        Under that mutant `/speed -1` prints `next_login=row_speed_not_
+        positive`: the row's word on the field that is supposed to say what
+        the LOGIN does, which is exactly the class of falsehood `0725`
+        reported.  `resolve_for_character` asks the gate first for every row,
+        refused ones included, so `next_login=` must be the gate's word here.
+        """
+        from pirateforce_foundation import login_speed
 
         _action, console = self.act_capturing_console(
             self.session(), "/speed -1"
         )
         deferred = self._deferred_line(console)
+        field = deferred.split("next_login=", 1)[1].split(" ", 1)[0]
+        self.assertEqual(field, login_speed.WIRE_DEFERRED)
+        self.assertNotEqual(field, login_speed.ROW_SPEED_NOT_POSITIVE)
+
+    def test_an_open_wire_lets_the_row_decide_the_login_field_too(self):
+        # The far side of the branch: with the gate answering `None`, the
+        # row's verdict is ALSO what the login field carries, and the two
+        # fields agree.  Unreachable from this call site today (D1) and
+        # pinned so that a call site which ever does reach it is graded.
+        from pirateforce_foundation import login_speed, player_wire
+
+        with self._wire_open():
+            _action, console = self.act_capturing_console(
+                self.session(), "/speed -1"
+            )
+        deferred = self._deferred_line(console)
         self.assertIn("row_after_write=-1.0", deferred)
+        self.assertIn(
+            f"row_verdict={login_speed.ROW_SPEED_NOT_POSITIVE}", deferred
+        )
         self.assertIn(f"next_login={login_speed.ROW_SPEED_NOT_POSITIVE}", deferred)
         self.assertIn(
             "next_login_sends="
@@ -840,15 +1048,65 @@ class TheConsoleSaysSpeedDeferredTests(_Case):
             deferred,
         )
 
+    def test_an_open_wire_lets_the_row_name_itself_on_the_line(self):
+        # The other side of the branch above, and the one that proves the
+        # composition is not simply hard-wired to the constant: with the
+        # login gate open, a row the validator accepts IS what the next login
+        # sends, and the line says `from_row` beside that number.
+        from pirateforce_foundation import login_speed
+
+        with self._wire_open():
+            _action, console = self.act_capturing_console(
+                self.session(), "/speed 450"
+            )
+        deferred = self._deferred_line(console)
+        self.assertIn("row_after_write=450.0", deferred)
+        self.assertIn(f"next_login={login_speed.FROM_ROW}", deferred)
+        self.assertIn("next_login_sends=450.0", deferred)
+
     def test_a_resolver_that_raises_costs_the_fields_and_not_the_route(self):
         # A DIAGNOSTIC MAY NEVER ALTER DISPATCH, applied to the new fields:
         # the frame is held by `send_deferred()` either way, and a resolver
         # that blows up is NAMED on the line rather than raised at the
         # listener thread.
+        #
+        # THE GATE IS THE FUNCTION MADE TO RAISE, not `resolve`: since the
+        # gate is asked first and answers on today's route, `resolve` is
+        # never reached, so patching it would have left this test passing
+        # while proving nothing -- the same defect `0725` found in the test
+        # above it.  Both callees are covered: the gate here, `resolve`
+        # behind an open wire in the case below.
         session = self.session()
         from pirateforce_foundation import login_speed
 
         with mock.patch.object(
+            login_speed,
+            "held_by_the_speed_deferral",
+            side_effect=RuntimeError("boom"),
+        ):
+            _action, console = self.act_capturing_console(session)
+        deferred = self._deferred_line(console)
+        self.assertIn(
+            f"next_login="
+            f"{chat_command_action.SPEED_DEFERRED_NEXT_LOGIN_UNRESOLVED_PREFIX}"
+            "RuntimeError",
+            deferred,
+        )
+        self.assertIn(
+            f"next_login_sends={chat_command_action.SPEED_DEFERRED_ROW_UNKNOWN}",
+            deferred,
+        )
+        self.assertIn(chat_command_action.EVENT_SPEED_DEFERRED, session.events)
+
+    def test_the_second_callee_raising_costs_the_fields_and_not_the_route(self):
+        # The companion the comment above names: with the gate answering
+        # `None`, `resolve` IS reached, and it gets the same treatment.  Two
+        # callees now sit on this line where there was one, so "a printer
+        # never raises" is pinned at both, not at whichever happens to run.
+        session = self.session()
+        from pirateforce_foundation import login_speed
+
+        with self._wire_open(), mock.patch.object(
             login_speed, "resolve", side_effect=RuntimeError("boom")
         ):
             _action, console = self.act_capturing_console(session)
