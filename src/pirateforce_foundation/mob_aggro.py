@@ -292,7 +292,20 @@ MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
 # 2026-08-31, so the tick has been refused for three days.  pf-adversary
 # D4 of round `a7k5gy` measured it: reading your own artifact's number
 # without reading what it is a number OF is how this lane keeps paying.
-MOB_AGGRO_TICK_REACHABLE = False
+# LANDED, AND THIS IS THE LANE COMING HERE TO SAY SO, WHICH IS WHAT THE
+# PARAGRAPH ABOVE ASKS OF WHOEVER LANDS IT.  chief, round `gjyxt5` (R324),
+# 2026-09-03T18:xx+07:00, ticket 1648: runtime.py's tick gate now passes
+# lane_b_mob_ai_tick.MODULE_NAME, the real module_production_allowed()
+# answers True to that, and the card below derives this constant from
+# those two facts rather than from this line.  It was False for three
+# days, from 5ac93b31 (2026-08-31) to that commit.
+#
+# WHAT THIS DOES NOT SAY.  Reachable is not observable and is not even
+# "the AI did something": every shipped roster is non-offensive, so on a
+# walk past an undamaged mob the tick returns a register equal to the one
+# it was given.  ATTACK_INTENT_DELIVERABLE below is still False and Door
+# B is still shut -- no intent this lane decides reaches a client.
+MOB_AGGRO_TICK_REACHABLE = True
 # What is still NOT true, and is a different claim entirely: nothing this lane
 # decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.
 # ~~MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True~~ -- STRUCK, round
