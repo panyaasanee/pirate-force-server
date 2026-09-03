@@ -118,6 +118,23 @@ from typing import Any, Callable
 #: than it should.  ASCII, and it never carries a character's data.
 READ_REFUSED_CONSOLE_TOKEN = "LIVE_ATTR_READ_REFUSED"
 
+#: Which failure kinds have already been announced in this process.
+#:
+#: BOUNDED ON PURPOSE (pf-adversary, round ``dwvbpm`` second pass, N4).  The
+#: first draft printed two lines per failed read, so a stale store handle or
+#: an unmigrated database produced console output at whatever rate clients
+#: drove reads -- while the sibling announcement in ``lane_hooks`` was
+#: deliberately once-per-process for exactly that reason, sixty lines away in
+#: the same commit.  The same argument applies here, so the same rule does.
+#: The FIRST occurrence of each kind is what a reader needs; the thousandth
+#: only buries it.
+_ANNOUNCED: set = set()
+
+
+def reset_console_announcements() -> None:
+    """Forget what has been announced.  For tests, which share a process."""
+    _ANNOUNCED.clear()
+
 
 #: The rows ``named_field_x()`` asks for that this server cannot reach AT ALL
 #: -- no typed column addresses them, so no amount of seeding makes them
@@ -143,10 +160,16 @@ def named_rows_wanted() -> tuple[int, ...]:
     return attr_wire.named_field_x()
 
 
-def _say(stream, text: str) -> None:
-    """One ASCII line about a swallowed failure, on a stream that may be
-    closed.  Never raises: a module that exists to keep a listener thread
-    alive may not die reporting that it nearly did."""
+def _say(stream, kind: str, text: str) -> None:
+    """One ASCII line about a swallowed failure, once per kind per process.
+
+    Never raises: a module that exists to keep a listener thread alive may
+    not die reporting that it nearly did.  A stream that is closed, or a
+    ``kind`` already announced, is silence -- see ``_ANNOUNCED``.
+    """
+    if kind in _ANNOUNCED:
+        return
+    _ANNOUNCED.add(kind)
     try:
         print("".join(c for c in text if 32 <= ord(c) <= 126),
               file=sys.stderr if stream is None else stream)
@@ -193,8 +216,9 @@ def values_for(store, character_id, *, stream=None) -> dict:
 
         columns = store.read_typed_attributes(character_id)
     except Exception as error:  # noqa: BLE001 - see docstring
-        _say(stream, f"{READ_REFUSED_CONSOLE_TOKEN} typed_columns "
-                     f"{type(error).__name__}")
+        _say(stream, "typed_columns",
+             f"{READ_REFUSED_CONSOLE_TOKEN} typed_columns "
+             f"{type(error).__name__}")
         columns = {}
     else:
         x_for_column = {
@@ -214,8 +238,9 @@ def values_for(store, character_id, *, stream=None) -> dict:
         try:
             name = store.get_character(character_id).name
         except Exception as error:  # noqa: BLE001 - see docstring
-            _say(stream, f"{READ_REFUSED_CONSOLE_TOKEN} character_row "
-                         f"{type(error).__name__}")
+            _say(stream, "character_row",
+                 f"{READ_REFUSED_CONSOLE_TOKEN} character_row "
+                 f"{type(error).__name__}")
             name = None
         if isinstance(name, str) and name:
             values[1] = name
