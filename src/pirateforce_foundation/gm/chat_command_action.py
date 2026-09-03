@@ -649,6 +649,105 @@ WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
 # That was invisible everywhere except the ndjson `outcome` word.
 STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 
+# THE `next=` SENTENCE THIS TOKEN CARRIES, and it is two sentences since
+# `COO-DECISION 20260903_2050` item 2 ("the wording change is approved") --
+# the decision that
+# answered this lane's own letter `20260903_2005`.
+#
+# ~~next='log out and log back in to land there; nothing was sent to the
+# client now'~~ -- STRUCK, one shape at a time, for two DIFFERENT reasons:
+#
+#   * IT LED WITH AN INSTRUCTION AND NEVER GAVE THE REASON.  The owner read
+#     this line during R307 and reported it as "nothing happened"
+#     (`PANYA-DECISION 20260903_1800`).  She was right about her screen: no
+#     bytes went out.  What the line never said is WHY -- the destination is
+#     a scene with `n_MARKER == 0` (17/126/278/997, `GT-182` nonclaim 4), so
+#     no live composer has a spawn point to put in a frame there.  A reason
+#     is what turns "nothing happened" into "nothing COULD be sent, and here
+#     is the thing that is missing".  `PANYA-DECISION 1800`'s own remedy
+#     (fire the live teleport instead) reached the marker-backed scenes in
+#     round `07kjfd`; `COO-DECISION 2050` item 1 held the markerless scenes
+#     shut -- deliberately, because R306 measured a coordinates-bearing warp
+#     frame CLOSING the client (`ErrorData=28317`), so aiming one at an
+#     inferred spawn is not merely unproven but dangerous.  Wording is
+#     therefore the whole of what this lane may fix here, and it is item 2 of
+#     that same decision.
+#
+#   * FOR A SAME-SCENE STAGE THE INSTRUCTION WAS ALSO USELESS.  `/warp 278`
+#     typed while standing in 278 stages 278 and tells her to spend a whole
+#     session on a relog that lands her exactly where she already is -- while
+#     the logout buttons are still refused (UI-A/UI-B), that is the most
+#     expensive no-op the console can recommend.
+#
+# BOTH SENTENCES OPEN WITH THE SAME CLAUSE, on purpose: an attended tester
+# greps one string (`STAGED_NO_CONFIRMED_SPAWN_REASON`) to find every scene
+# the markerless rule still holds shut, and reads the tail to learn whether a
+# relog would move her.  Neither sentence claims the spawn point is unusable
+# -- only that nobody has confirmed one, which is the honest claim and the
+# one this lane's letter `2005` made.
+STAGED_NO_CONFIRMED_SPAWN_REASON = (
+    "this scene has no confirmed spawn point, so no teleport could be sent"
+)
+# THE SECOND REASON, and it exists because the first one is a LIE on a
+# reachable configuration -- caught while reviewing this round's own change,
+# before it was committed.
+#
+# The reason above is true for the scenes that reach this printer on the
+# SHIPPED default, and only those: `warp_no_coords_live_target` returns None
+# for 17/126/278/997 and the stage branch is the only place left for them to
+# go.  But `_warp_action` also falls through to staging when
+# `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` is False, and
+# THAT path takes marker-backed scenes with it -- `/warp 2 100 200` from
+# scene 5 with the flag down stages scene 2, which has a pinned ARRIVAL
+# marker and a confirmed spawn.  The flag is not hypothetical: it ships True
+# but `TheStagedWarpTests::test_it_says_when_the_typed_coordinates_were_
+# dropped` turns it off to reach this very printer, and the whole point of
+# `COO-DECISION 20260830_2048` was that it can be turned off again for real.
+# A console that answered "this scene has no confirmed spawn point" there
+# would name the wrong blocker and send an operator hunting a marker that is
+# already in the registry.
+#
+# So the reason is DERIVED from the same function the routing asked
+# (`warp_no_coords_live_target`), at the point that already asked it, rather
+# than assumed from which branch we landed on.
+STAGED_LIVE_ROUTE_SHUT_REASON = (
+    "the live teleport route for this scene is shut, so no teleport"
+    " could be sent"
+)
+# The tail for a stage that DOES change where the next login lands.  The
+# relog fact survives the rewrite because it is true for this shape and it is
+# the only useful thing this command did -- what changed is that it no longer
+# arrives as a bare instruction with no reason in front of it.
+STAGED_TAIL_CROSS_SCENE = "the next login for this account will start in it"
+# The tail for a stage into the scene the GM is standing in.  It states the
+# no-op rather than recommending it.
+STAGED_TAIL_SAME_SCENE = (
+    "you are standing in it already, so a relog would change nothing"
+)
+
+
+def staged_next_step(*, same_scene: bool, no_confirmed_spawn: bool) -> str:
+    """The `next=` sentence: one reason, one tail, joined here and nowhere else.
+
+    FOUR SENTENCES FROM FOUR CONSTANTS rather than four constants, because
+    the two questions are independent -- WHY no frame went out, and whether a
+    relog would move her -- and writing them out would be four strings to
+    keep in agreement by hand, which `AGENTS.md` section 7 names as the thing to
+    derive instead ("one fact, one place").
+
+    Both reasons end in the same six words on purpose: an attended tester
+    greps `no teleport could be sent` to find every staged shape at once,
+    then reads the clause in front of it to learn which blocker she is
+    looking at and the clause behind it to learn whether relogging helps.
+    """
+    reason = (
+        STAGED_NO_CONFIRMED_SPAWN_REASON
+        if no_confirmed_spawn
+        else STAGED_LIVE_ROUTE_SHUT_REASON
+    )
+    tail = STAGED_TAIL_SAME_SCENE if same_scene else STAGED_TAIL_CROSS_SCENE
+    return f"{reason}; {tail}"
+
 # And a SIXTH, asked for by name in `COO-DECISION 20260903_1845` item 2
 # ("a new console token that says same-scene teleport sent"), serving
 # `PANYA-DECISION 1800`.
@@ -1493,6 +1592,33 @@ class _Verdict:
     # both by hand -- the exact drift `WARP_CROSS_SCENE_NO_COORDS_TELEPORT_
     # ACTION_LABEL` already caused once (pf-adversary, round `zkqaq1`).
     same_scene_teleport: bool = False
+    # True when the STAGE this verdict carries named the scene the connection
+    # is already in.  Read by `_announce_console_outcome` and by nothing else:
+    # it picks which of the two `next=` tails `_print_staged_way_out` prints
+    # (`COO-DECISION 20260903_2050` item 2), and it can never change what is
+    # written to disk -- a markerless same-scene `/warp` stages exactly what
+    # it staged before this field existed.
+    #
+    # A SECOND FIELD RATHER THAN A REUSE OF `same_scene_teleport`, which is
+    # about a SENT frame: `_announce_console_outcome` returns on `sent` before
+    # it ever reaches the staged branch, so one field serving both would be
+    # read on a path where its own docstring's meaning is false.
+    #
+    # DECIDED IN `_warp_action` AND CARRIED, never re-derived at print time.
+    # `runtime.py`'s `_gm_warp_resync_selected_scene` rewrites
+    # `selected.position.scene_id` to a warp's DESTINATION at queue time, so a
+    # printer that re-read the position would call every stage "same scene"
+    # once the resync had run.  This is the same reason `SAME_SCENE_BASIS_
+    # FIELD` exists one token up.
+    staged_same_scene: bool = False
+    # Why the STAGE happened, for the console only: True when
+    # `warp_no_coords_live_target` had no pinned arrival marker to aim a
+    # frame at (17/126/278/997, `n_MARKER == 0`), False when the scene HAS
+    # one and the live route was shut for some other reason.  Defaults True
+    # because that is the only shape that reaches the staged printer on the
+    # shipped flags; see `STAGED_LIVE_ROUTE_SHUT_REASON` for the
+    # configuration where the difference is a false blocker on the console.
+    staged_no_confirmed_spawn: bool = True
 
 
 def _note(session: object, event: str) -> None:
@@ -2463,6 +2589,21 @@ def _warp_action(
             gm_accounts_config_path=gm_accounts_config_path,
             login_scene_config_path=login_scene_config_path,
             scene_registry=scene_registry,
+            # DECIDED HERE, in the one function that reads the current scene,
+            # for the same reason `same_scene` on the live branch above is
+            # (`COO-DECISION 20260903_2050` item 2).  It changes the console
+            # sentence and nothing else: a markerless `/warp` stages the same
+            # entry either way.
+            same_scene=target_scene_id == position.scene_id,
+            # ASKED OF THE SAME FUNCTION THE ROUTING ASKED, twenty lines up,
+            # and not inferred from the fact that we reached this branch:
+            # with `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down, a
+            # MARKER-BACKED scene lands here too, and telling its operator
+            # that it has no confirmed spawn point would name a blocker that
+            # is not the one holding the frame.
+            no_confirmed_spawn=(
+                warp_no_coords_live_target(target_scene_id) is None
+            ),
         )
 
     if not warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED:
@@ -3203,6 +3344,9 @@ def _print_staged_way_out(
     token: str,
     command: object,
     outcome: str,
+    *,
+    same_scene: bool = False,
+    no_confirmed_spawn: bool = True,
 ) -> None:
     """Say that a cross-scene `/warp` was staged, and what the GM must do now.
 
@@ -3228,6 +3372,27 @@ def _print_staged_way_out(
     args cannot be read renders `unknown` rather than raising: a diagnostic
     may never alter dispatch, and by the time this runs the entry is already
     on disk.
+
+    THE THIRD FIELD IS NOW BUILT BY `staged_next_step` from two independent
+    answers this printer is told rather than guesses (`COO-DECISION
+    20260903_2050` item 2): WHY no frame went out (`no_confirmed_spawn`) and
+    whether a relog would move her (`same_scene`).  The struck sentence gave
+    neither -- it led with an instruction, which is the whole of what the
+    owner's "nothing happened" report turned on.
+
+    BOTH ARE PASSED IN, never re-read here.  `same_scene` for the reason
+    `_Verdict.staged_same_scene` records (`runtime.py` rewrites the position
+    field this printer would have had to read); `no_confirmed_spawn` because
+    the answer belongs to `warp_no_coords_live_target`, which `_warp_action`
+    already asked -- see `STAGED_LIVE_ROUTE_SHUT_REASON` for the reachable
+    configuration where assuming it here prints a false blocker.
+
+    THE DEFAULTS ARE THE SHIPPED SHAPE, not neutral values: today every line
+    this printer emits on the shipped flags is a markerless destination, so a
+    call site that forgets an argument says what is true of the default build
+    rather than inventing a blocker -- and `same_scene` defaults to the
+    cross-scene tail so such a caller understates what it knows instead of
+    telling a GM already standing in the scene that a relog will move her.
     """
     stream = sys.stderr
     if stream is None:
@@ -3243,12 +3408,14 @@ def _print_staged_way_out(
             if outcome == OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED
             else "none"
         )
+        next_step = staged_next_step(
+            same_scene=same_scene, no_confirmed_spawn=no_confirmed_spawn
+        )
         print(
             f"{STAGED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command=warp scene_id={scene_id} coordinates={coordinates} "
-            "next='log out and log back in to land there;"
-            " nothing was sent to the client now'",
+            f"next='{next_step}'",
             file=stream,
         )
     except Exception as error:  # noqa: BLE001 - see the last paragraph above
@@ -3764,7 +3931,14 @@ def _announce_console_outcome(
     if sent:
         return
     if verdict.audit_outcome in STAGED_OUTCOMES and audited:
-        _print_staged_way_out(session, token, command, verdict.audit_outcome)
+        _print_staged_way_out(
+            session,
+            token,
+            command,
+            verdict.audit_outcome,
+            same_scene=verdict.staged_same_scene,
+            no_confirmed_spawn=verdict.staged_no_confirmed_spawn,
+        )
         return
     if verdict.line_printed and audited:
         # A handler already said it, in a vocabulary built for that refusal.
@@ -3817,6 +3991,8 @@ def _stage_action(
     gm_accounts_config_path: str | None,
     login_scene_config_path: str | None,
     scene_registry=None,
+    same_scene: bool = False,
+    no_confirmed_spawn: bool = True,
 ) -> _Verdict:
     """The cross-scene half of `/warp`: write the next-login scene, send nothing.
 
@@ -3888,6 +4064,12 @@ def _stage_action(
             else OUTCOME_STAGED_LOGIN_SCENE
         ),
         _undo,
+        # CONSOLE WORDING ONLY (`COO-DECISION 20260903_2050` item 2).  It is
+        # carried on the SUCCESS return alone: every refusal above returns
+        # before this point, and a refusal prints `GM_CHAT_WARP_REFUSED`,
+        # which has its own vocabulary and never speaks of a relog.
+        staged_same_scene=same_scene,
+        staged_no_confirmed_spawn=no_confirmed_spawn,
     )
 
 
