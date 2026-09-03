@@ -45,6 +45,9 @@ from pirateforce_foundation import (  # noqa: E402
     mob_ai_player_damage, mob_combat,
 )
 from pirateforce_foundation.lane_hooks import lane_b_mob_ai_tick  # noqa: E402
+from pirateforce_foundation.mob_ai_player_damage import (  # noqa: E402
+    MobAiPlayerDamageError,
+)
 
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
 PLAYER = 0x750059
@@ -829,6 +832,431 @@ class RealDatabaseDamageTests(unittest.TestCase):
         self.assertIs(after.alive, True)
         self.assertIn(mob_ai_player_damage.STAND_DOWN_FLOOR_ALREADY_REACHED,
                       buf.getvalue())
+
+
+class HitFrameDoorBTests(unittest.TestCase):
+    """DOOR B (`mob_hit_frame`): the frame a hit would send, and the four
+    gates holding it shut.
+
+    THIS CLASS IS THE SECOND DRAFT.  The first one was measured by
+    pf-adversary and it was worse than it read: its "full live block" card
+    compared the door's output against the door's own input, so it proved
+    forwarding and called it completeness (D2), while the block it composed
+    omitted 29 of 55 rows -- every row the client's full-object copy would
+    then zero, including cash.  The cards below fix the oracle: completeness
+    is asked of `persistence_attr_compose`, LANE-DB's adjudicator, and the
+    frame is compared against an independently composed full block.
+    """
+
+    def setUp(self):
+        from pirateforce_foundation import mob_hit_frame, persistence_attr_compose
+        from pirateforce_foundation.gm import attr_wire
+        from pirateforce_foundation.legacy_bridge import load_legacy
+        self.door = mob_hit_frame
+        self.attr_wire = attr_wire
+        self.adjudicator = persistence_attr_compose
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        self.character_id = 0x750059
+        self.identity = (0x11, 0x22)
+
+    # -- helpers -----------------------------------------------------------
+
+    @contextlib.contextmanager
+    def _gates(self, lane_b=0, encoder=0):
+        """Open one or both gates for the duration of a card.
+
+        Patched, never edited on disk: this lane may not set its own gate
+        without the GT ticket `COO-DECISION 20260904_0045` names, and it may
+        not set LANE-GM's at all.  A non-`int` for either argument leaves
+        that gate shut, which is the contract the door reads.
+        """
+        sentinel = object()
+        name = self.door.ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR
+        previous = getattr(self.attr_wire, name, sentinel)
+        self.door.MOB_HIT_FRAME_CONFIRMED = lane_b
+        if encoder is None:
+            if previous is not sentinel:
+                delattr(self.attr_wire, name)
+        else:
+            setattr(self.attr_wire, name, encoder)
+        try:
+            yield
+        finally:
+            self.door.MOB_HIT_FRAME_CONFIRMED = None
+            if previous is sentinel:
+                if hasattr(self.attr_wire, name):
+                    delattr(self.attr_wire, name)
+            else:
+                setattr(self.attr_wire, name, previous)
+
+    def _compose(self, hp_after=90, hook=None, cache=-1):
+        """Run the door, capturing stdout, and return `(result, console)`."""
+        class _Hooks:
+            pass
+        module = _Hooks()
+        if hook is not None:
+            setattr(module, self.door.LIVE_ATTR_VALUES_HOOK_ATTR, hook)
+        if cache == -1:
+            cache = self.attr_wire.RawBlockCache()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            result = self.door.compose_player_hit_frame(
+                self.legacy, cache, self.character_id, self.identity[0],
+                self.identity[1], hp_after, lane_hooks_module=module)
+        return result, buffer.getvalue()
+
+    def _adjudicated_live_values(self):
+        """A hook payload the adjudicator would actually stand behind.
+
+        Derived from `persistence_attr_compose` rather than written out, so
+        the day a row changes source class this helper follows it instead of
+        pinning a stale set.  Returns `None` when no such payload exists --
+        which is the case at this commit, and the point of
+        `test_the_block_is_not_adjudicated_on_this_tree`.
+        """
+        supplied = {}
+        for x, owned in self.adjudicator.SERVER_OWNED_FIELDS.items():
+            field = self.attr_wire.BY_X[x]
+            supplied[x] = "Ann" if field[5] == "wstr" else 2
+        return supplied if not self.adjudicator.block_gaps(supplied) else None
+
+    # -- the gates ---------------------------------------------------------
+
+    def test_shipped_state_is_every_gate_shut(self):
+        # THIS CARD IS WHAT CLOSED server `#694` AND `#697`.  Its first
+        # draft read `assertIsNone(hook)` -- it pinned the ABSENCE of
+        # another lane's code (`lane_hooks.current_named_attr_values`) as
+        # this door's shipped state, so the hour chief landed the read
+        # point on `main` (server `#695`, R330) the card went red on a
+        # branch that had not changed a line of it.  The branch was cut
+        # before `#695`, the push-triggered gate ran the pure branch and
+        # was GREEN, the pull_request gate ran branch-merged-with-`main`
+        # and was RED, and the reaper closed the round on the red one.
+        #
+        # What is actually shipped-shut is THIS LANE's two gates, and they
+        # are shut whoever else has landed what: gate (ii) is read before
+        # a single byte is built, and gate (i) right after it, both ahead
+        # of the read point in `compose_player_hit_frame`.  So the card
+        # now measures the door, not the calendar.
+        self.assertIsNone(self.door.MOB_HIT_FRAME_CONFIRMED)
+        self.assertFalse(self.door.hit_frame_encoder_unlocked())
+        # ...and the door composed through the REAL `lane_hooks` -- not a
+        # stand-in -- still sends nothing and says which gate stopped it.
+        with redirect_stdout(io.StringIO()) as buffer:
+            result = self.door.compose_player_hit_frame(
+                self.legacy, self.attr_wire.RawBlockCache(),
+                self.character_id, self.identity[0], self.identity[1], 90)
+        self.assertIsNone(result)
+        self.assertIn("MOB_HIT_FRAME_STANDDOWN reason=%s"
+                      % self.door.STANDDOWN_GATE_NOT_CONFIRMED,
+                      buffer.getvalue())
+
+    def test_the_read_point_resolution_is_consistent_either_way(self):
+        # The half of the old card worth keeping, written as a CONTRACT
+        # instead of a snapshot: `resolve_live_attr_values` answers either
+        # `(None, a reason naming the attribute)` or `(a callable, "")`.
+        # Both branches are legal on `main` at different hours; a pair that
+        # is neither is a bug in the door, and this card catches it in
+        # whichever direction the tree happens to be pointing today.
+        hook, why_not = self.door.resolve_live_attr_values()
+        if hook is None:
+            self.assertIn(self.door.LIVE_ATTR_VALUES_HOOK_ATTR, why_not)
+        else:
+            self.assertTrue(callable(hook))
+            self.assertEqual(why_not, "")
+
+    def test_the_chiefs_read_point_is_on_this_tree(self):
+        # A DELIBERATE BASELINE ON ANOTHER LANE'S CODE, allowed to die on
+        # its own (NOW.md, `0053`/`0149`): `COO-DECISION 20260904_0047`
+        # point 1 ordered the read point and server `#695` landed it, and
+        # Door B's whole route to a player runs through it.  If this card
+        # goes red the read point left `main` -- that is news for this
+        # lane, and it should arrive as a named failure here rather than
+        # as a stand-down line nobody greps.
+        hook, why_not = self.door.resolve_live_attr_values()
+        self.assertIsNotNone(
+            hook,
+            "lane_hooks.%s is gone from this tree (%s); it landed in "
+            "server #695 and Door B reads its live values through it"
+            % (self.door.LIVE_ATTR_VALUES_HOOK_ATTR, why_not))
+
+    def test_gate_none_composes_zero_bytes_whatever_else_is_open(self):
+        # THE MUTANT `0045` ASKS FOR, run as a mutant rather than asserted as
+        # a promise: every other thing the door needs is handed to it and the
+        # ONLY shut thing is this lane's own constant.
+        with self._gates(lane_b=None, encoder=0):
+            result, console = self._compose(hook=lambda cid: {3: 1})
+        self.assertIsNone(result)
+        self.assertIn("MOB_HIT_FRAME_STANDDOWN reason=%s"
+                      % self.door.STANDDOWN_GATE_NOT_CONFIRMED, console)
+
+    def test_a_falsy_sentinel_does_not_open_either_gate(self):
+        # pf-adversary D5: `_CONFIRMED` is a boolean-shaped name, and a
+        # LANE-GM engineer landing `= False` to mean "named, not unlocked"
+        # must not open this lane's door from the other side of the repo.
+        for value in (False, True, "", "pending", 0.0, None):
+            with self._gates(lane_b=0, encoder=value):
+                self.assertFalse(
+                    self.door.hit_frame_encoder_unlocked(),
+                    "gate (i) opened on %r" % (value,))
+            with self._gates(lane_b=value, encoder=0):
+                result, console = self._compose(hook=lambda cid: {3: 1})
+            self.assertIsNone(result, "gate (ii) opened on %r" % (value,))
+            self.assertIn(self.door.STANDDOWN_GATE_NOT_CONFIRMED, console)
+
+    def test_the_speed_exception_is_not_this_lanes_gate(self):
+        # `0045` point 2: combat does NOT inherit the /speed sparse x=7
+        # exception.  That exception is what set
+        # UPDATE_ATTR_VITAL_VERSION_CONFIRMED, and this card measures that
+        # the constant being set buys this door NOTHING.  It goes red the day
+        # somebody "simplifies" gate (i) into reading that constant -- the
+        # exact shortcut GT-218 punished.
+        self.assertIsNotNone(
+            self.attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
+            "the /speed exception is expected to still be in force; if it "
+            "was withdrawn this card needs rewording, not deleting")
+        with self._gates(lane_b=0, encoder=None):
+            result, console = self._compose(hook=lambda cid: {3: 1})
+        self.assertIsNone(result)
+        self.assertIn(self.door.STANDDOWN_ENCODER_LOCKED, console)
+
+    def test_the_door_will_not_manufacture_a_connections_cache(self):
+        # pf-adversary D6: a per-compose cache means the session cache never
+        # learns what this lane sent, and the next /lv re-asserts the HP this
+        # frame just changed.  attr_wire's own docstring says one instance
+        # per CONNECTION; this door takes one and refuses to invent one.
+        for absent in (None, object()):
+            with self._gates(lane_b=0, encoder=0):
+                result, console = self._compose(
+                    hook=lambda cid: {3: 1}, cache=absent)
+            self.assertIsNone(result)
+            self.assertIn(self.door.STANDDOWN_NO_SESSION_CACHE, console)
+
+    # -- the live source ---------------------------------------------------
+
+    def test_no_read_point_stands_down_by_the_name_the_coo_wrote(self):
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(hook=None)
+        self.assertIsNone(result)
+        self.assertIn("MOB_HIT_FRAME_STANDDOWN reason=no_live_source", console)
+
+    def test_the_door_matches_whichever_tree_it_is_running_on(self):
+        # THE JOIN WITH THE CHIEF'S CORE-REQUEST, written so it can die on its
+        # own rather than turning chief's landing round red: it does not pin
+        # whether `lane_hooks.current_named_attr_values` exists, it pins that
+        # this door AGREES with reality either way.
+        from pirateforce_foundation import lane_hooks
+        hook, why_not = self.door.resolve_live_attr_values()
+        present = getattr(
+            lane_hooks, self.door.LIVE_ATTR_VALUES_HOOK_ATTR, None)
+        if callable(present):
+            self.assertIs(hook, present)
+            self.assertEqual(why_not, "")
+        else:
+            self.assertIsNone(hook)
+            self.assertTrue(why_not)
+
+    def test_a_read_point_that_raises_is_a_stand_down_not_a_crash(self):
+        def _angry(character_id):
+            raise RuntimeError("no row for %r" % (character_id,))
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(hook=_angry)
+        self.assertIsNone(result)
+        self.assertIn(self.door.STANDDOWN_LIVE_SOURCE_REFUSED, console)
+
+    def test_nothing_a_hook_can_return_reaches_an_uncaught_exception(self):
+        # pf-adversary D4 measured FIVE uncaught paths out of the first
+        # draft, one of them inside the refusal that existed to protect this.
+        # Every row below is one of those, replayed.
+        payloads = (
+            {24: -1},                     # a signed cash read
+            {1: b"Panya"},                # a BLOB column where a wstr goes
+            {4: 100.0},                   # a float the ordered signature allows
+            {9: 1, "scene": 1},           # mixed-type keys: the sorted() crash
+            {39: 1},                      # half of a shared mask-bit pair
+            {30: 1},                      # SENSITIVE_FIELDS
+            {999: 1},                     # not a row at all
+            {},                           # empty
+            None,                         # not a dict
+        )
+        for payload in payloads:
+            with self._gates(lane_b=0, encoder=0):
+                result, console = self._compose(
+                    hook=lambda cid, v=payload: v)
+            self.assertIsNone(result, "payload %r composed" % (payload,))
+            self.assertIn("MOB_HIT_FRAME_STANDDOWN reason=", console,
+                          "payload %r produced no named line" % (payload,))
+
+    def test_a_renamed_vital_row_is_a_stand_down_inside_the_gated_path(self):
+        # LANE-GM moving their own table may turn this lane's cards red; it
+        # may not take a walking player's dispatch down.
+        original = dict(self.attr_wire.BY_NAME)
+        self.attr_wire.BY_NAME.pop("hp_current")
+        try:
+            with self.assertRaises(MobAiPlayerDamageError):
+                self.door.hit_frame_vital_rows()
+            supplied = self._adjudicated_live_values()
+            if supplied is not None:
+                with self._gates(lane_b=0, encoder=0):
+                    result, console = self._compose(
+                        hook=lambda cid: dict(supplied))
+                self.assertIsNone(result)
+                self.assertIn(self.door.STANDDOWN_ENCODER_REFUSED, console)
+        finally:
+            self.attr_wire.BY_NAME.clear()
+            self.attr_wire.BY_NAME.update(original)
+
+    # -- the adjudicator, which is the completeness oracle ------------------
+
+    def test_the_block_is_not_adjudicated_on_this_tree(self):
+        # THE CARD THAT CARRIES THE ROUND'S HONESTY.  `RE-222` says the
+        # client's apply is a full-object copy, so a block is either complete
+        # or it blanks what it omits.  "Complete" is not this lane's opinion
+        # and not a count written here: it is
+        # `persistence_attr_compose.block_gaps`, LANE-DB's own adjudicator,
+        # built on the owner's ban of the guessed zero.  At this commit it
+        # names all 55 rows, so the door stands down -- and the day somebody
+        # closes those gaps, this card is what tells them Door B is now the
+        # next thing to look at.
+        gaps = self.adjudicator.block_gaps({})
+        self.assertEqual(
+            len(gaps), len(self.attr_wire.FIELDS),
+            "block_gaps no longer refuses every row -- Door B's completeness "
+            "oracle has moved and this lane must re-measure what its frame "
+            "would now carry before anything flips a gate")
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(hook=lambda cid: {})
+        self.assertIsNone(result)
+        # An empty dict is refused as "no live source" before the
+        # adjudicator; a non-empty one that the adjudicator will not stand
+        # behind is refused by name.
+        supplied = {x: 2 for x in
+                    sorted(self.adjudicator.SERVER_OWNED_FIELDS)[:1]}
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(hook=lambda cid: dict(supplied))
+        self.assertIsNone(result)
+        self.assertIn(self.door.STANDDOWN_BLOCK_NOT_ADJUDICATED, console)
+        self.assertIn("block_gaps", console)
+
+    def test_a_row_the_adjudicator_does_not_own_is_refused(self):
+        # A value for a row LANE-DB does not treat as server-owned cannot
+        # honestly enter a block; the door names that rather than letting
+        # `compose_full_block` raise (pf-adversary D4).
+        not_owned = sorted(
+            x for x in self.attr_wire.BY_X
+            if x not in self.adjudicator.SERVER_OWNED_FIELDS)
+        self.assertTrue(not_owned)
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hook=lambda cid: {not_owned[0]: 1})
+        self.assertIsNone(result)
+        self.assertIn(self.door.STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED,
+                      console)
+
+    def test_when_the_adjudicator_agrees_the_frame_is_a_full_block(self):
+        # The completeness card, with an oracle that is NOT the door's own
+        # input (the mistake pf-adversary D2 measured).  It runs only in a
+        # world where the adjudicator stands behind a block; on this tree it
+        # does not, and the card says so out loud instead of passing quietly.
+        supplied = self._adjudicated_live_values()
+        if supplied is None:
+            self.assertTrue(self.adjudicator.block_gaps({}))
+            self.skipTest(
+                "persistence_attr_compose stands behind no block at this "
+                "commit, so there is no full block for Door B to compose; "
+                "test_the_block_is_not_adjudicated_on_this_tree is the card "
+                "that measures that")
+        rows = self.door.hit_frame_vital_rows()
+        expected_values = self.adjudicator.compose_full_block(supplied)
+        expected_values[rows["hp_current"]] = 90
+        expected = self.attr_wire.make_update_attr_frame(
+            self.legacy, self.identity[0], self.identity[1], expected_values)
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied))
+        self.assertIsNotNone(result)
+        self.assertEqual(result, expected)
+        self.assertEqual(console, "")
+        _body, basic_mask, actor_mask = self.attr_wire.encode_block(
+            self.legacy, self.identity[0], self.identity[1], expected_values)
+        for field in self.attr_wire.FIELDS:
+            mask = basic_mask if field[1] == "basic" else actor_mask
+            self.assertTrue(mask & field[2],
+                            "row %r is missing from the block" % (field[6],))
+
+    # -- arguments still raise ---------------------------------------------
+
+    def test_an_hp_outside_the_writable_range_is_refused_before_any_gate(self):
+        for bad in (self.door.HP_FLOOR - 1, self.door.HP_CEILING + 1):
+            with self.assertRaises(MobAiPlayerDamageError) as caught:
+                self.door.compose_player_hit_frame(
+                    self.legacy, self.attr_wire.RawBlockCache(),
+                    self.character_id, 0x11, 0x22, bad)
+            self.assertEqual(caught.exception.reason,
+                             mob_ai_player_damage.REFUSE_FLOOR_WAS_BREACHED)
+
+    # -- the four rows are LANE-GM's ---------------------------------------
+
+    def test_the_four_vital_rows_are_resolved_from_the_encoders_own_table(self):
+        rows = self.door.hit_frame_vital_rows()
+        self.assertEqual(
+            rows,
+            {"hp_current": 3, "hp_max": 4, "mp_current": 5, "mp_max": 6},
+            "gm/attr_wire.FIELDS rows 3-6 have moved or been renamed.  This "
+            "lane's hit frame is built out of exactly these four rows "
+            "(COO-DECISION 20260904_0045); somebody has to come and say what "
+            "changed before it composes another byte.")
+        for name, x in rows.items():
+            field = self.attr_wire.BY_X[x]
+            self.assertEqual(field[6], name)
+            self.assertTrue(field[7], "row %r stopped being known=True" % name)
+            self.assertNotIn(x, self.attr_wire.SENSITIVE_FIELDS)
+        self.assertEqual(self.door.HIT_FRAME_CHANGED_FIELD_NAME, "hp_current")
+
+    # -- housekeeping ------------------------------------------------------
+
+    def test_nothing_calls_this_door_yet(self):
+        # A CALL, out of the AST -- not a substring.  pf-adversary D10: the
+        # first draft's NONCLAIM cited `grep -rn compose_player_hit_frame
+        # src/`, which also matches this module's own prose and the .pyc
+        # files beside it.  A claim about call sites has to ask about calls.
+        callers = []
+        for path in sorted(SRC_ROOT.rglob("*.py")):
+            if path.name == "mob_hit_frame.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = (func.attr if isinstance(func, ast.Attribute)
+                        else getattr(func, "id", None))
+                if name == "compose_player_hit_frame":
+                    callers.append("%s:%d" % (path.name, node.lineno))
+        self.assertEqual(callers, [], "Door B grew a call site: %r" % (callers,))
+
+    def test_this_module_is_pure_ascii(self):
+        # The sibling guard `test_mob_stat_fabrication_guard` reads every
+        # LANE-B module as ASCII and DIES on the first non-ASCII byte instead
+        # of reporting it -- so one Thai character in this file silently
+        # stops fifteen other modules from ever being swept.  The first draft
+        # of this round shipped exactly that byte.  This card is the cheap
+        # half of the fix that is inside this lane's own zone.
+        for module in ("mob_hit_frame.py", "mob_ai_player_damage.py"):
+            text = (SRC_ROOT / module).read_bytes()
+            try:
+                text.decode("ascii")
+            except UnicodeDecodeError as exc:
+                self.fail("%s is not pure ASCII: %s" % (module, exc))
+
+    def test_every_stand_down_line_survives_the_bridge_console(self):
+        for reason in self.door.MOB_HIT_FRAME_STAND_DOWN_REASONS:
+            line = self.door.hit_frame_stand_down_line(
+                reason, self.character_id, "path=C:\\pf\\\u0e01")
+            line.encode("cp874", errors="strict")
+            self.assertTrue(line.startswith("MOB_HIT_FRAME_STANDDOWN reason="))
+        with self.assertRaises(AssertionError):
+            self.door.hit_frame_stand_down_line("not_a_named_reason", 1, "")
 
 
 if __name__ == "__main__":

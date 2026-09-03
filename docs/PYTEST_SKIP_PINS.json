@@ -985,6 +985,12 @@
       "module": "tests/test_runtimeres_death_hypothesis.py",
       "count": 1,
       "note": "Not a missing artifact: the test guarded a transitional state that the source has since left behind.  It is pinned so it cannot quietly become two."
+    },
+    {
+      "reason": "persistence_attr_compose stands behind no block at this commit, so there is no full block for Door B to compose; test_the_block_is_not_adjudicated_on_this_tree is the card that measures that",
+      "module": "tests/test_lane_b_mob_ai_tick.py",
+      "count": 1,
+      "note": "Not a missing artifact: LANE-DB's block_gaps adjudicator refuses all 55 rows on this tree (measured by test_the_block_is_not_adjudicated_on_this_tree), so the completeness card that needs an adjudicated block has nothing to run against yet. Round 096evp closed pirate-force-server#694 on this exact UNDECLARED SKIP; pinned here so recovery does not repeat it. Goes to zero the day block_gaps stands behind a real block - delete this pin in the same commit that removes the skipTest."
     }
   ]
 }
