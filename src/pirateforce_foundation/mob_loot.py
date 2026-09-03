@@ -503,7 +503,26 @@ MOB_LOOT_WIRING = (
     "deleted in a scene the player left is still unannounceable, which is "
     "why step 4's prohibition stands), and a scene whose LAST row was taken "
     "publishes NOTHING -- the empty generation is a client no-op (RE-082) "
-    "and RE-208 is open on whether any message removes one object alone."
+    "and RE-208 is open on whether any message removes one object alone.\n"
+    "  8. THE EXPIRY HALF OF THE SAME REMOVAL, round f4oh9y (COO-DECISION "
+    "2026-09-03T19:42+07:00 item 3, from KA1A R307's seven refused clicks).  "
+    "A row that leaves the ground by its 120 s DEADLINE leaves inside "
+    "whichever read swept it, so no dispatch composes anything for it and "
+    "the client keeps drawing a label that refuses every click.  The cell "
+    "now records what its own sweep retired and "
+    "``cell.frames_after_rows_expired(legacy, will_send)`` composes the "
+    "scene's remaining rows for it -- the same bytes as step 7, no new mask. "
+    " It is ALREADY WIRED into the refusal path of "
+    "``mob_pickup_request.dispatch_inbound_pickup_request``, so again the "
+    "only line the chief writes is the one that SENDS it: that branch "
+    "returns [] the moment ``outcome.delta is None``, which every refusal "
+    "is, and the composed generation dies there.  THE DEBT IS THE PAYER'S "
+    "TO CLEAR: a publisher passes ``will_send=True`` (or calls "
+    "``cell.note_scene_published(scene, rows)``) only when the bytes really "
+    "leave -- the boundary stash of step 6 may NOT, because "
+    "_mob_loot_boundary_flush can drop what it holds.  Same two limits as "
+    "step 7 plus one: a scene the sweep emptied has nothing nonempty to "
+    "compose, so R307's own shape still sends nothing (NONCLAIM 25)."
 )
 
 production_allowed = True
@@ -1095,6 +1114,27 @@ MOB_LOOT_NONCLAIMS = (
     "and DROPPED inside the process: the console token says "
     "COMPOSED_NOT_SENT_NO_CALL_SITE for that reason and this lane may not "
     "report the removal as a behaviour on any boot.",
+    "25. THE EXPIRY PUBLISHER DOES NOT ANSWER THE CASE IT WAS BUILT FROM, "
+    "round f4oh9y.  KA1A R307 measured two drops past their deadline and "
+    "seven refused clicks -- and those two were that scene's WHOLE ground, "
+    "so DropLedgerCell.frames_after_rows_expired has no nonempty generation "
+    "to compose there and still sends nothing.  What it covers is a scene "
+    "with a row still standing.  Three further limits belong with it.  (a) "
+    "The removal is the same STATIC-ON-BRIDGE reading as NONCLAIM 24: "
+    "RE-130 says the consumer drops the keys a nonempty generation omits; "
+    "nobody has watched a ghost label leave a screen, and this lane may not "
+    "say a player saw one go.  (b) Until the CORE-REQUEST of 2026-09-03 "
+    "22:49 lands, runtime.py returns [] for a pickup whose delta is None -- "
+    "every refusal -- so these bytes are composed and DROPPED; the caller "
+    "passes will_send=False and the debt is deliberately NOT cleared, and "
+    "mob_pickup_request.EXPIRY_PUBLICATION_CALL_SITE_STATUS is the pinned "
+    "word for it.  (c) A row that expires in a scene the player never "
+    "returns to is owed a removal no publisher of this lane will ever "
+    "compose: every one of them is scoped to the cell's CURRENT scene, and "
+    "the cell's scene advances only on a kill or a GM warp.  The debt is "
+    "bounded (a deque of EXPIRED_KEY_MEMORY per scene) rather than "
+    "answered, and answering it is an open question in the round's letter, "
+    "not a claim made here.",
 )
 
 # ---------------------------------------------------------------------------
@@ -1215,6 +1255,15 @@ REFUSE_KILL_IN_ANOTHER_SCENE = "kill_in_another_scene"
 #: is the opposite of the one it thinks it sent.  The take comes first; this
 #: publication only ever reports a removal that already happened.
 REFUSE_ROW_IS_STILL_ON_THE_GROUND = "row_is_still_on_the_ground"
+#: ROUND f4oh9y, the EXPIRY half of the removal publisher (COO-DECISION
+#: 2026-09-03T19:42+07:00 item 3, from KA1A R307's seven refused clicks).  A
+#: caller asked to clear a scene's removal debt with a generation that carries
+#: no elements.  RE-130 read ``count = 0`` as a branch that goes straight to
+#: the consumer's epilogue -- it removes nothing on the screen -- so treating
+#: it as a removal here would drop the debt for a frame that cannot pay it,
+#: and the ghost label would then have NO publisher left that owes it
+#: anything.  The debt survives instead, for the next nonempty generation.
+REFUSE_NOTHING_WAS_PUBLISHED = "nothing_was_published"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1258,6 +1307,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_NO_SCENE_TO_PUBLISH,
     REFUSE_KILL_IN_ANOTHER_SCENE,
     REFUSE_ROW_IS_STILL_ON_THE_GROUND,
+    REFUSE_NOTHING_WAS_PUBLISHED,
 )
 
 
@@ -2843,6 +2893,35 @@ class DropLedgerCell:
         # both reported zero while rows were really retired).  Subtracting a
         # mark taken at acquisition cannot lose one.
         self._swept_total = 0
+        # scene key -> the rows this cell retired BY SWEEPING and has not yet
+        # told a client about.  R307's 7-of-7 ghost, in one field: expiry is
+        # LAZY (see :meth:`_sweep_locked`), so a row can leave the server's
+        # ground inside somebody else's read -- a liveness check, a refused
+        # click -- with no frame going anywhere, and the client keeps drawing
+        # a label whose key nothing will ever answer for again
+        # (MOB_PICKUP_REQUEST_REFUSED reason=drop_already_taken, seven clicks
+        # out of seven, KA1A R307 2026-09-03).  Rows are added here by the
+        # sweep itself, in the one place every sweeper goes through, and
+        # leave only when a NONEMPTY generation for their scene has really
+        # been composed for sending -- see :meth:`note_scene_published`.
+        # A dict per scene, not one list: a row that expired in the town
+        # cannot be removed by publishing the field's ground, and draining
+        # the two together would report a removal that never travelled.
+        #
+        # BOUNDED, for the same reason ``_expired`` above is: a scene the
+        # player never walks back into is never republished, so its debt is
+        # never paid -- and an unbounded list of rows nobody will ever be
+        # told about is exactly the growth the expiry exists to prevent.  A
+        # deque per scene, capped at the same depth.  What is lost past the
+        # cap is the ROW RECORD, not the removal: the generation that pays a
+        # debt removes by OMISSION (RE-130), so it takes every forgotten row
+        # with it whether this dict still remembers the row or not.  The
+        # number of scenes is bounded by the scene catalog, not by play.
+        self._retired_unpublished: dict = {}
+        # scene key -> the SET OF HELD KEYS a caller has already announced on
+        # the console.  See :meth:`note_held_debt_announced`: a debt the
+        # design holds for ever must not print for ever.
+        self._held_announced: dict = {}
 
     def _read_now_locked(self) -> float:
         """Advance the cell's clock.  Call with the lock held.
@@ -2879,6 +2958,16 @@ class DropLedgerCell:
                 continue
             removed.append(taken)
             self._expired.append(key)
+            # THE ROW IS OWED A REMOVAL PUBLICATION FROM HERE, not from the
+            # method that happened to trigger the sweep.  Every sweeper in
+            # this class ends up in this method (the list is in the comment
+            # below), and a row retired inside a liveness read owes the
+            # client exactly as much as one retired inside a click.
+            owed = self._retired_unpublished.get(taken.scene_key)
+            if owed is None:
+                owed = _collections.deque(maxlen=EXPIRED_KEY_MEMORY)
+                self._retired_unpublished[taken.scene_key] = owed
+            owed.append(taken)
         self._ledger = ledger
         # THE COUNTER IS ADVANCED HERE, in the one place every sweeper in
         # this class goes through -- ``ledger``, ``sweep_expired``, ``take``,
@@ -3370,6 +3459,17 @@ class DropLedgerCell:
         if previous is not None and scene_key(previous) == scene_key(scene):
             return previous, scene, elsewhere, expired, ()
         frames = self._boundary_frames(legacy, view)
+        # ~~THE BOUNDARY PAYS THE SCENE'S REMOVAL DEBT HERE~~ IS STRUCK
+        # BEFORE IT SHIPPED (pf-adversary of round f4oh9y), and this method's
+        # own docstring is what struck it: COMPOSING IS NOT PUBLISHING.  What
+        # this returns is STASHED by runtime.State._mob_loot_cross_scene_
+        # boundary and then held by _mob_loot_boundary_flush behind three
+        # gates -- the arrival census, a scenario ground lane in the same
+        # dispatch, and the session still standing in the scene it was
+        # composed for -- one of which DROPS the frames by name.  A debt
+        # cleared here would be cleared by bytes that a later gate can throw
+        # away.  The caller that really sends these owes the
+        # note_scene_published call; nothing in this file will do it for it.
         return previous, scene, elsewhere, expired, frames
 
     @staticmethod
@@ -3551,7 +3651,236 @@ class DropLedgerCell:
                 "drop 0x%X is still standing in scene %s; a generation "
                 "composed now would carry it and remove nothing.  Take the "
                 "row through the cell first" % (key, scene))
-        return len(view.drops), self._boundary_frames(legacy, view)
+        frames = self._boundary_frames(legacy, view)
+        if frames:
+            # A PICKUP PAYS THE EXPIRY DEBT OF ITS OWN SCENE, and unlike the
+            # boundary publisher this one may say so: its frames ride the
+            # SAME return as the bag delta and the call site sends them with
+            # no condition on purpose (runtime.py's own comment).  Composing
+            # is publishing here because nothing can hold them.  Rows the
+            # generation still CARRIES keep their debt -- that subtraction is
+            # note_scene_published's, not this method's.
+            self.note_scene_published(scene, view.drops)
+        return len(view.drops), frames
+
+    def rows_owed_a_removal(self, scene: Any = None) -> tuple:
+        """The rows this cell swept away and never told a client about.
+
+        ``scene`` defaults to the cell's own.  Diagnostic and test-facing: a
+        caller that wants to PUBLISH uses :meth:`frames_after_rows_expired`,
+        which composes and clears in one place.  Returns ``()`` for a cell
+        with no scene rather than raising, because "what is owed" is a
+        question a console line asks on every path, including the broken one.
+        """
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            if scene is None:
+                scene = self._scene
+            if scene is None:
+                return ()
+            return tuple(self._retired_unpublished.get(scene_key(scene), ()))
+
+    def note_scene_published(self, scene: Any, rows_published: Any) -> int:
+        """THE ONE DOOR that clears a scene's removal debt.  Rows cleared.
+
+        A publisher calls this when a NONEMPTY generation for ``scene`` has
+        really GONE OUT.  By RE-130 -- a STATIC-ON-BRIDGE reading of the
+        client's list consumer, re-derived in :func:`drop_collection_pc`, and
+        NOT anything anyone has watched happen on a screen (NONCLAIM 12, and
+        NONCLAIM 25 for this method) -- such a generation names the keys it
+        carries and the image says the consumer drops every key it omits.  So
+        "the debt is paid" means the server has stopped naming a swept row in
+        a shape the image says is consumed that way.  It does not mean a
+        player saw a label go.
+
+        ``rows_published`` IS READ, twice over, and pf-adversary of this
+        round is why each read exists:
+
+        * EMPTY refuses by name (:data:`REFUSE_NOTHING_WAS_PUBLISHED`):
+          RE-130 read ``count = 0`` as a branch that goes straight to the
+          consumer's epilogue, so an empty generation clears nothing on the
+          screen and must not clear anything here.  That refusal is this
+          lane's whole answer to "or send the NULL pool when nothing is left"
+          (COO 1942 item 3).
+        * A ROW THE GENERATION STILL CARRIES KEEPS ITS DEBT.  Every caller
+          composes its bytes OUTSIDE the lock, so a sweep can retire a row in
+          that window -- a row the composed generation is about to tell the
+          client is STANDING.  Measured on the first draft, which popped the
+          scene wholesale: that row came out marked paid, so the client kept
+          a key the server had retired and no publisher owed it anything ever
+          again.  A permanent ghost, manufactured by the ghost publisher.  So
+          the keys the generation carries are subtracted from what is cleared.
+
+        The rows must be real ground rows -- an ``int`` ``drop_key`` on each,
+        or :data:`REFUSE_TYPE_NOT_TYPED_RECORD` before anything is cleared.
+        A caller that cannot say WHICH keys travelled may not say that a
+        removal travelled at all (the first draft accepted a bare string and
+        cleared two real debts with it).
+
+        A TRIMMED generation still pays: :meth:`_boundary_frames` and
+        ``mob_drop_presence.sustain_a_kill`` both cap what travels, and by
+        RE-130 the consumer drops an omitted key whether it was omitted for
+        being gone or for not fitting.  Passing the pre-trim rows is safe
+        here (they are only ever SUBTRACTED), and what a trim costs is live
+        rows of the same scene -- an older, documented cost of the cap that
+        is not this method's to re-decide.
+        """
+        rows = tuple(rows_published)
+        if not rows:
+            raise MobLootContractError(
+                REFUSE_NOTHING_WAS_PUBLISHED,
+                "an empty generation removes nothing on this consumer "
+                "(RE-130: count = 0 goes to the epilogue), so it cannot "
+                "clear a removal debt")
+        carried = set()
+        for row in rows:
+            key = getattr(row, "drop_key", None)
+            if not isinstance(key, int) or isinstance(key, bool):
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "a published generation is made of ground rows; this one "
+                    "carries %s, so the call cannot say which keys travelled"
+                    % type(row).__name__)
+            carried.add(key)
+        with self._lock:
+            scene = scene_key(scene)
+            owed = tuple(self._retired_unpublished.get(scene, ()))
+            if not owed:
+                return 0
+            kept = [row for row in owed if row.drop_key in carried]
+            if kept:
+                still_owed = _collections.deque(maxlen=EXPIRED_KEY_MEMORY)
+                still_owed.extend(kept)
+                self._retired_unpublished[scene] = still_owed
+            else:
+                self._retired_unpublished.pop(scene, None)
+            return len(owed) - len(kept)
+
+    def frames_after_rows_expired(self, legacy: Any, will_send: Any) -> tuple:
+        """THE EXPIRY HALF of the removal publisher.  ``(expired_rows,
+        rows_remaining, frames)``.
+
+        WHAT IT IS FOR, and the sentence is measured, not argued: KA1A R307
+        (2026-09-03, the owner at her own client) clicked two drops that had
+        passed their :data:`DROP_LIFETIME_SECONDS` deadline SEVEN times and
+        was refused ``drop_already_taken`` seven times.  This server
+        publishes a ground generation on a kill, on a successful pickup and
+        on a scene crossing -- and an expiry is none of those, so the rows
+        were gone here and still drawn there with nothing in the pipe that
+        was ever going to say so.
+
+        !! WHAT IT DOES NOT FIX, FIRST because it is the case that was
+        MEASURED (pf-adversary of this round, driven through the real
+        dispatch): R307's two drops were the whole of that scene's ground, so
+        the sweep left it EMPTY -- and an empty scene has no nonempty
+        generation to compose.  In exactly R307's shape this method still
+        publishes NOTHING; it returns the expired rows, ``0`` and no frames,
+        and holds the debt.  What it fixes is every scene that still has a
+        row standing, which is the common case in play (a kill drops several
+        objects and a player takes some), not the case in the letter.  The
+        LAST-ROW hole is ``RE-208``'s, unchanged, and ~~the empty pool~~ is
+        refused with RE-130's reading on :meth:`note_scene_published`.
+        [ASSUMPTION OF LANE B - AWAITING COO CONFIRMATION]: COO-DECISION
+        20260903_1942 item 3 offered that branch ("or the empty pool when
+        nothing is left") and this lane declined it; letter 20260903_2250
+        states the refusal and what would reverse it.
+
+        NOT A CADENCE, the same distinction :meth:`enter_scene_frames` draws
+        against the 2026-08-26 refusal of ``DROP_REFRESH_MS``.  A timer
+        re-emits the ground on a clock.  This composes only when a SWEEP HAS
+        REALLY RETIRED A ROW that no generation has covered since -- one
+        event, one publication -- so a caller may put it on a dispatch it is
+        already answering without turning that dispatch into a heartbeat.
+
+        THE SHAPE IS THE SHAPE: the scene's REMAINING rows, trimmed by
+        :meth:`_boundary_frames` exactly as a boundary generation is.  No new
+        mask, no new message, nothing this lane has not already put on a real
+        client's wire (COO 1942 item 3: "same shape, no new mask").  The
+        expired rows are removed by being absent from it -- in the
+        static-reading sense :meth:`note_scene_published` spells out, never
+        in the sense that anybody watched a label go.
+
+        ``will_send`` IS THE CALLER'S ASSERTION THAT THE BYTES REALLY LEAVE,
+        and it has no default on purpose (pf-adversary of this round).  The
+        first draft cleared the debt as soon as it had COMPOSED -- while this
+        module's own :data:`mob_pickup_request.EXPIRY_PUBLICATION_CALL_SITE_
+        STATUS` says in a pinned constant that the composed bytes are dropped
+        by ``runtime.py`` today.  Measured: the ghost's debt came back
+        "paid" after a click that sent nothing, so the day the chief's line
+        lands there would have been nothing left owing to publish.  Pass
+        ``False`` and the frames still come back; only the bookkeeping waits.
+
+        THE BYTES ARE COMPOSED OUTSIDE THE LOCK and the debt is cleared
+        through :meth:`note_scene_published`, which subtracts the keys the
+        generation carries -- so a row swept during the compose window keeps
+        its debt instead of being marked paid by a frame that announces it as
+        standing.
+
+        WHAT THE TWO ACQUISITIONS COST, named rather than hidden: another
+        thread can pay the same debt in between (a kill, a pickup), and this
+        call then returns a generation saying what that one already said.
+        One redundant frame of the scene's own ground, never a wrong one --
+        and the alternative is composing bytes under a lock a kill is waiting
+        on, which this file refuses everywhere else for the same reason.
+
+        THE CALLER OWES THE ORDERING, in the words :meth:`frames_after_a_row_
+        left` owes it: a kill landing after this returns composes a NEWER
+        generation, and RE-130 keeps whichever reaches the client last, so
+        these frames belong in the SAME dispatch that composed them and may
+        never be stashed for a later one.
+        """
+        with self._lock:
+            scene, view, _elsewhere, _swept = self._publication_locked()
+            if scene is None:
+                return (), -1, ()
+            key = scene_key(scene)
+            owed = tuple(self._retired_unpublished.get(key, ()))
+            rows_left = len(view.drops)
+        if not owed:
+            return (), rows_left, ()
+        if not view.drops:
+            return owed, 0, ()
+        frames = self._boundary_frames(legacy, view)
+        if not frames:
+            # _boundary_frames returns () only for an empty view, which the
+            # branch above already answered.  Kept as a belt: a future trim
+            # that can return nothing must not pay a debt it did not pay.
+            return owed, rows_left, ()
+        if will_send:
+            self.note_scene_published(scene, view.drops)
+        return owed, rows_left, frames
+
+    def note_held_debt_announced(self, scene: Any = None) -> bool:
+        """True the FIRST time a caller announces this scene's held debt.
+
+        THE CONSOLE BOUND, and pf-adversary measured why it is needed: when
+        the sweep empties a scene the debt is held for ever by design, so a
+        player clicking the stuck label prints one line per click -- seven of
+        them in R307's own shape, with no cap, on a path a stranger's frame
+        drives.  ``runtime.py``'s Columbus diagnostic carries a once-per-kind
+        cap in this repository for exactly this reason.
+
+        The memory is the SET OF KEYS held, so the line comes back when the
+        debt CHANGES (another row expired) and not when it is merely asked
+        about again.  It is per scene and it lives in the cell because the
+        publisher that prints the line is stateless.
+        """
+        with self._lock:
+            if scene is None:
+                scene = self._scene
+            if scene is None:
+                return False
+            key = scene_key(scene)
+            held = frozenset(
+                row.drop_key for row in self._retired_unpublished.get(key, ()))
+            if not held:
+                self._held_announced.pop(key, None)
+                return False
+            if self._held_announced.get(key) == held:
+                return False
+            self._held_announced[key] = held
+            return True
 
     def publication(self) -> tuple:
         """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.
