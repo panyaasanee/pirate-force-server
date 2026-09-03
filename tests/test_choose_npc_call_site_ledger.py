@@ -15,8 +15,15 @@ it hands the ledger over by hand precisely because the call site did not.
 This file removes that hand: every frame here goes through
 ``state.dispatch``, so if the keyword is deleted from ``runtime.py`` the
 responder sees ``None``, composes at the table ceiling, and the
-``dead_at_ceiling=1`` assertion below goes red.  Nothing else in the
-repository would notice.
+``hp=ledger``/``from_ledger=`` assertions below go red.  Nothing else in
+the repository would notice.
+
+R316 CORRECTED THIS PARAGRAPH.  It used to name a ``dead_at_ceiling=1``
+assertion, and R316 deleted that assertion when the call site also began
+handing over ``mob_death_register=`` -- the one dead body in this scene now
+comes back as a corpse, so the ceiling count is legitimately 0.  A module
+docstring that names a pin the file no longer holds is the first thing the
+next round reads to learn what this file guards (pf-adversary R316 D7).
 
 THE HARNESS SHAPE is reproduced from ``test_lane_a_click_after_a_kill.py``
 rather than imported, for the reason that file gives for reproducing
@@ -25,6 +32,7 @@ die quietly the day that file is reorganised.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import inspect
 import io
@@ -40,6 +48,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs                      # noqa: E402
 from pirateforce_foundation import mob_combat                      # noqa: E402
 from pirateforce_foundation import mob_combat_membership           # noqa: E402
+from pirateforce_foundation import runtime                         # noqa: E402
 from pirateforce_foundation import scene2_prison_exile_tables as tables  # noqa: E402
 from pirateforce_foundation import world_scene_travel              # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (        # noqa: E402
@@ -305,30 +314,69 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
     def test_the_answer_proves_the_session_ledger_reached_the_responder(
         self,
     ) -> None:
-        """``dead_at_ceiling=`` counts corpses the responder had to compose
-        at the table ceiling, and it can only be non-zero if a ledger that
-        KNOWS ABOUT THE KILL arrived.  Delete ``mob_combat_ledger=`` from
-        the call site and this reads ``dead_at_ceiling=0``: the whole point
-        of the round, in one token."""
+        """``hp=ledger`` with a COUNT of bodies that took their HP from it
+        is the token that can only be printed if a ledger which KNOWS ABOUT
+        THE KILL arrived.  Delete ``mob_combat_ledger=`` from the call site
+        and it reads ``hp=ceiling from_ledger=0`` (measured this round):
+        the whole point of R313, in one token.
+
+        WHY THIS ASSERTION MOVED (R316).  Until this round the pin was
+        ``dead_at_ceiling=1``, and that token was honest THEN: with no
+        register at the call site, the one dead body in this scene had to
+        be composed at the table ceiling, and only a ledger that had seen
+        the kill could count it.  R316 hands the responder
+        ``mob_death_register=`` as well, so the same body now comes back as
+        a corpse and the ceiling count is legitimately 0.  Reading
+        ``dead_as_corpse=1`` INSTEAD would have been a silent downgrade of
+        this test: that count comes from the REGISTER, and measured, it
+        stays 1 with ``mob_combat_ledger=`` deleted from the call site (the
+        mutant above, measured) -- this file would then have kept a green
+        pin on a keyword that was gone.  ``from_ledger=`` is the count that
+        dies with the ledger, so it is the one that carries the pin."""
         state, _target = self._killed_session_standing_in_scene_2()
         _actions, console = self._click(state, self._civilian_index())
         tokens = self._answered_tokens(console)
-        self.assertIn("dead_at_ceiling=1", tokens)
         self.assertIn("hp=ledger", tokens)
+        # DERIVED, not typed: every hostile placement except the one this
+        # harness buried is a live body whose HP came out of the ledger.
+        # The literal `11` was a hardcode of `12 - 1` that would have
+        # survived the next owner ruling on placements (pf-adversary R316
+        # D8).
+        live_hostiles = len(self._hostile_indices()) - 1
+        self.assertIn(f"from_ledger={live_hostiles}", tokens)
+        self.assertIn("dead_as_corpse=1", tokens)
 
-    def test_the_corpse_is_refused_by_name_and_not_by_silence(self) -> None:
-        """The behaviour ``COO-DECISION 20260903_0251`` accepted as the
-        remaining cost: a click on the dead body itself still answers with
-        no bytes -- but it is NAMED, and it is the only click that does.
+    def test_the_corpse_answers_with_a_body_instead_of_with_silence(
+        self,
+    ) -> None:
+        """The debt ``COO-DECISION 20260903_0252`` opened and R316 pays: a
+        click on the dead body itself used to answer with NOTHING, refused
+        by name.  It now answers.
 
-        !! THIS TEST IS MEANT TO DIE, AND LANE A IS THE LANE THAT KILLS IT
-        (AGENTS.md rule: a test pinning another lane's behaviour as a
-        baseline has to be able to die on purpose).  The same COO note
-        hands lane A the follow-up in which the corpse answers with a
-        ``mob_death`` body instead of with silence; the commit that pays
-        that debt REPLACES this assertion, and needs no letter to chief to
-        do it.  What must survive is the half below it: the refusal is
-        printed with the clicked placement's own number."""
+        THIS TEST REPLACES ``test_the_corpse_is_refused_by_name_and_not_by
+        _silence``, which said in its own docstring that it was meant to
+        die the day lane A's corpse answer reached the call site.  It died
+        here, on purpose, and the assertions below pin what took its place
+        rather than deleting a pin and moving on.
+
+        WHAT THIS FILE PINS, AND WHAT IT DELIBERATELY DOES NOT.  What is
+        pinned here is what a CALL-SITE guard can honestly pin: that the
+        click is no longer silent, that the answer carries the whole
+        island rather than the clicked row alone, and that the line names
+        the placement the player really clicked.
+
+        NOT PINNED HERE, AND NAMED SO NOBODY READS THIS FILE AS COVER FOR
+        IT (pf-adversary R316 D3, two mutants measured): that the corpse
+        entry carries no MovementAttr, and that its HP is 0 rather than
+        full.  Both derive from the responder's own composition, both stay
+        green in THIS file when broken, and both are pinned in lane A's
+        ``tests/test_lane_a_click_after_a_kill.py``
+        (``test_the_corpse_answer_sends_no_movement_for_the_clicked_body``).
+        The label ``CORPSE_P`` is a name the SERVER chose; it is evidence
+        that the corpse branch ran, and evidence of nothing else.
+
+        NOT CLAIMED AT ALL: that the player sees a body lying on the floor.
+        These are wire bytes; the client-observable layer is GT-214's."""
         state, target = self._killed_session_standing_in_scene_2()
         dead_index = next(
             index for index, mob in self._hostile_indices().items()
@@ -341,9 +389,118 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
                  f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_FACE_P")],
             [], actions,
         )
+        answers = [
+            action for action in actions
+            if action[0] == (
+                f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_CORPSE_P{dead_index}")
+        ]
+        self.assertEqual(len(answers), 1, actions)
+        self.assertTrue(answers[0][1], "the corpse answer carried no pc bytes")
+        self.assertTrue(
+            answers[0][2], "the corpse answer carried no frame bytes")
         self.assertIn(
-            "_IDENTITY_REFUSED reason=clicked_body_is_dead_needs_a_mob_"
-            f"death_body placement={dead_index} identity=0x", console)
+            "_CLICKED_BODY_IS_A_CORPSE reason=answered_with_a_corpse_body_"
+            f"not_a_facing placement={dead_index} identity=0x", console)
+        self.assertIn("dead_as_corpse=1", self._answered_tokens(console))
+
+    def test_the_corpse_answer_still_carries_the_whole_island(self) -> None:
+        """"There ARE bytes" is not the same claim as "the world is still
+        in them", and RE-092 is the reason the difference matters.
+
+        pf-adversary R316 D2, measured: composing the corpse answer from
+        ``entries[:1]`` takes the frame from 12,546 bytes / 97 actors to
+        164 bytes / 1 actor -- the replace-by-omission world wipe RE-092
+        named -- and the console still prints ``visible=97``, because that
+        count is computed BEFORE composition.  The whole suite stayed green
+        at 8389 passed.  Lane A's own guard for this reads that console
+        string, so it is a console-layer statement standing in for a
+        frame-layer fact.
+
+        This pin is frame-layer: the corpse answer is compared against a
+        civilian answer from the SAME session, which is known to carry the
+        island.  A frame that dropped the world would be a fraction of it.
+
+        NOT CLAIMED: that the two frames are byte-identical.  They are not,
+        and they should not be -- one row is composed as a corpse."""
+        state, target = self._killed_session_standing_in_scene_2()
+        dead_index = next(
+            index for index, mob in self._hostile_indices().items()
+            if mob.actor_identity == target
+        )
+        corpse_actions, _console = self._click(state, dead_index)
+        corpse_frame = next(
+            action[2] for action in corpse_actions
+            if action[0] == (
+                f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_CORPSE_P{dead_index}")
+        )
+        civilian_index = self._civilian_index()
+        civilian_actions, _console2 = self._click(state, civilian_index)
+        civilian_frame = next(
+            action[2] for action in civilian_actions
+            if action[0] == (
+                f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_FACE_P"
+                f"{civilian_index}")
+        )
+        self.assertGreater(len(civilian_frame), 10_000, "the control frame "
+                           "is not island-sized; the harness changed")
+        # A corpse row is composed differently from a facing row, so a
+        # small delta is expected and healthy.  A world wipe is not small.
+        self.assertGreater(
+            len(corpse_frame), len(civilian_frame) * 0.9,
+            f"the corpse answer is {len(corpse_frame)} bytes against the "
+            f"civilian answer's {len(civilian_frame)}: the island is gone",
+        )
+
+    def test_the_corpse_line_names_the_clicked_body_not_the_first_one(
+        self,
+    ) -> None:
+        """With one corpse in the scene, "the placement clicked" and "the
+        first dead placement" are the same number, so the assertion above
+        cannot tell them apart.  This is the defect chief's own letter
+        ``20260902_1918`` item 4.1 named -- the refusal used to print the
+        first dead hostile in sorted order, sending a tester to look at a
+        placement that had nothing wrong with it -- and it is the half of
+        the deleted test that had to survive (pf-adversary R316 D9,
+        measured: printing the first corpse's index instead of the clicked
+        one leaves this file green without this test).
+
+        So: kill two, click the SECOND."""
+        state, first = self._killed_session_standing_in_scene_2()
+        hostiles = self._hostile_indices()
+        second = next(
+            mob.actor_identity for _index, mob in sorted(hostiles.items())
+            if mob.actor_identity != first
+        )
+        self._kill(state, second)
+        second_index = next(
+            index for index, mob in hostiles.items()
+            if mob.actor_identity == second
+        )
+        first_index = next(
+            index for index, mob in hostiles.items()
+            if mob.actor_identity == first
+        )
+        self.assertNotEqual(
+            first_index, second_index, "the harness killed one body twice")
+        self.assertGreater(
+            second_index, first_index,
+            "this test needs the clicked corpse to sort AFTER the other "
+            "one, or it cannot tell the two readings apart",
+        )
+        actions, console = self._click(state, second_index)
+        self.assertIn(
+            "_CLICKED_BODY_IS_A_CORPSE reason=answered_with_a_corpse_body_"
+            f"not_a_facing placement={second_index} identity=0x", console)
+        self.assertNotIn(
+            f"not_a_facing placement={first_index} ", console)
+        self.assertEqual(
+            len([action for action in actions
+                 if action[0] == (
+                     f"LANE_A_CHOOSE_NPC_SCENE{PRISON_EXILE}_CORPSE_P"
+                     f"{second_index}")]),
+            1, actions,
+        )
+        self.assertIn("dead_as_corpse=2", self._answered_tokens(console))
 
     def test_a_click_before_any_kill_is_answered_at_the_ceiling(self) -> None:
         """The control: the same dispatch on a session with no combat in it
@@ -388,6 +545,33 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
         self.assertIn("wounded=1", tokens)
         self.assertIn("dead_at_ceiling=0", tokens)
 
+    @staticmethod
+    def _keywords_the_call_site_passes() -> set:
+        """Every keyword ``runtime.py`` actually hands the responder.
+
+        Read from the source with ``ast``, not retyped here: a name that
+        only exists in this file's own head is a name that goes stale in
+        the commit that adds the next keyword, which is what happened three
+        rounds running (pf-adversary R316 D1).
+        """
+        source = Path(runtime.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        found: set = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute) or func.attr != "respond":
+                continue
+            owner = func.value
+            if (
+                not isinstance(owner, ast.Name)
+                or owner.id != "scene_choose_npc_responder"
+            ):
+                continue
+            found |= {kw.arg for kw in node.keywords if kw.arg is not None}
+        return found
+
     def test_every_registered_responder_accepts_the_call_sites_keywords(
         self,
     ) -> None:
@@ -399,18 +583,25 @@ class TheCallSiteHandsOverTheSessionLedgerTests(unittest.TestCase):
         ``scene_choose_npc_responder_failed_TypeError`` event only reaches a
         console started with ``--export-events``.  ``lane_hooks``' own
         docstring ASKS responders to accept ``**kwargs``; nothing enforced
-        it, and this round is the one that grew the call site from six
-        keywords to seven.
+        it, and the round that opened this guard grew the call site from
+        six keywords to seven.
+
+        R316: THE KEYWORD SET IS NOW READ OUT OF ``runtime.py`` ITSELF, and
+        the retyped list it replaces is why.  pf-adversary, measured: on
+        the R316 tree the retyped set still held EIGHT names while the call
+        site passed NINE, so a responder given an explicit eight-keyword
+        signature and no ``**_ignored`` PASSED this guard while losing all
+        eleven of its production scenes (3-11, 126, 130) to exactly the
+        silent ``TypeError`` above.  The guard went stale in the very
+        commit that made it stale -- three rounds running, because a human
+        has to remember to retype the name in two files.  An AST read of
+        the real call site cannot forget.
         """
-        call_site_keywords = {
-            "legacy", "chosen_identities", "population_indices",
-            "last_target_pos", "scene_id", "scene_entry_registry",
-            "mob_combat_ledger",
-            # R314: the eighth keyword, lane A's ground-preserve cell.  A
-            # responder that cannot take it loses its whole scene in the
-            # same silent shape D4 measured for the seventh.
-            "mob_loot_cell",
-        }
+        call_site_keywords = self._keywords_the_call_site_passes()
+        # A floor, so an AST read that silently finds nothing (the call
+        # moves, is renamed, is wrapped) cannot turn this guard green.
+        self.assertGreaterEqual(len(call_site_keywords), 9, call_site_keywords)
+        self.assertIn("mob_death_register", call_site_keywords)
         registered = dict(lane_hooks._SCENE_CHOOSE_NPC_RESPONDERS)
         self.assertTrue(registered, "no ChooseNPC responder is registered")
         for scene_id, entry in sorted(registered.items()):

@@ -8807,10 +8807,18 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # PASSED SINCE R313 (COO-DECISION 20260903_0251
                             # lifts 20260902_1945): the responder judges the
                             # CLICKED body only, so one kill no longer
-                            # silences the whole scene.  A click on a corpse
-                            # still gets no bytes -- lane A's own ticket adds
-                            # `mob_death_register` here to answer that with a
-                            # body.  tests/test_choose_npc_call_site_ledger.py
+                            # silences the whole scene.
+                            # ~~A click on a corpse still gets no bytes --
+                            # lane A's own ticket adds `mob_death_register`
+                            # here to answer that with a body.~~  STRUCK,
+                            # NOT DELETED, R316: both halves became false
+                            # the moment the keyword below landed, and this
+                            # sentence is the first hit for a reader who
+                            # greps "click on a corpse" (pf-adversary R316
+                            # D4).  It stays struck rather than deleted
+                            # because it is still true of any deploy older
+                            # than that commit.
+                            # tests/test_choose_npc_call_site_ledger.py
                             # pins this keyword through the real dispatcher,
                             # including that every registered responder can
                             # accept it: a responder whose signature lacks it
@@ -8871,6 +8879,78 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             # round may read that token as evidence that
                             # nothing is wired.
                             mob_loot_cell=self.mob_loot_cell,
+                            # PASSED SINCE R316 (lane A's letters
+                            # 20260903_0440 and 20260903_0634, ordered by
+                            # COO-DECISION 20260903_0745 item 4).  This is
+                            # the half of COO-DECISION 20260903_0252 that
+                            # was still missing: "a corpse must answer with
+                            # a body instead of silence".  The receiving
+                            # halves have been on main since #623/#628 --
+                            # lane_a_choose_npc_scene2.respond and
+                            # ...scene14.respond both name the keyword, and
+                            # scene 1 and the roster scenes swallow it in
+                            # their own **_ignored (measured on main this
+                            # round, all four responders) -- so no scene
+                            # loses its answer to a TypeError here.
+                            #
+                            # WHAT CHANGES THE DAY THIS LANDS, MEASURED,
+                            # AND IT IS NOT ONLY THE CLICK ON THE CORPSE:
+                            # EVERY answer this scene sends after a kill
+                            # changes, because every hostile row the
+                            # register holds is now composed through the
+                            # corpse path.  Measured on the real
+                            # dispatcher, one kill, clicking a CIVILIAN
+                            # (nothing to do with the dead body): 12,577 ->
+                            # 12,582 bytes, and the answered line reads
+                            # ``dead_at_ceiling=0 dead_as_corpse=1`` where
+                            # it read ``dead_at_ceiling=1
+                            # dead_as_corpse=0``.  The click on the body
+                            # itself additionally stops being refused by
+                            # name and comes back labelled ``CORPSE_P<n>``
+                            # instead of ``FACE_P<n>``.  A session that has
+                            # killed nothing is byte-identical either way
+                            # (control, measured).  An earlier draft of
+                            # this block described only the corpse click
+                            # (pf-adversary R316 D6).
+                            #
+                            # The two assertions in
+                            # tests/test_choose_npc_call_site_ledger.py that
+                            # pinned the old shape are replaced in THIS
+                            # commit, on purpose and not as a regression:
+                            # one of them says in its own docstring that
+                            # lane A is the lane that kills it.
+                            #
+                            # NOT CLAIMED: that the player SEES a corpse
+                            # lying down.  That is the client-observable
+                            # layer and it has no result yet -- GT-214
+                            # holds the criteria.
+                            #
+                            # Attribute access, not getattr, and NOT for
+                            # the same reason as mob_loot_cell above.  This
+                            # name has THREE binding sites in this file,
+                            # not one -- re-derived here by AST over
+                            # runtime.py at HEAD, because the letter that
+                            # asked for this line said FOUR and a grep
+                            # agrees with the letter for the wrong reason:
+                            # the fourth hit is inside
+                            # diag_multi_object_wiring.py's
+                            # RUNTIME_WIRING_PATCH raw string, which is a
+                            # proposal and not live code (pf-adversary R316
+                            # D5).  The three: runtime.py:1212
+                            # (unconditional, inside the __init__ try that
+                            # re-raises at 1401) and two rebinds at 4696
+                            # and 4756 from mob_death.commit_death(), which
+                            # returns a typed DeathRegister or raises -- it
+                            # never returns None.  No subclass, no
+                            # delete, so the attribute is provably bound
+                            # on every session
+                            # that reaches dispatch.  The except six lines
+                            # below would swallow an AttributeError and
+                            # cost the scene its WHOLE answer, so the
+                            # attribute form is safe here because the
+                            # attribute is always there, not because
+                            # failing loudly would be cheap.
+                            mob_death_register=self.mob_death_register,
                         )
                     except Exception as error:  # noqa: BLE001 - a lane's
                         # responder must never take the listener thread down
