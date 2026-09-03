@@ -96,17 +96,38 @@ class LegacyProjector:
             vitals = {
                 "level": level, "hp_current": hp_current, "hp_max": hp_max,
             }
+        # THE CLASS RIDES THE CHARACTER TOO (CORE-REQUEST of `pf_bridge/
+        # notes_to_chief/20260904_0423` point 2.2, `COO-DECISION 20260904_0446`
+        # point 3).  `None` -- a character straight out of the store, a row
+        # created before the class seam existed, another lane's stub -- means
+        # the empty splat, and an empty splat is byte-for-byte the frame
+        # `main` sends today, because the composer's signature default
+        # `player_wire.PLAYER_LOGIN_CLASS_ID` then stands.  The frame's LENGTH
+        # is the same either way: the field is `u32tag(0x19, class_id)`, fixed
+        # width for every value, which is what the recompose length guards in
+        # `runtime.py` depend on.
+        #
+        # THIS IS NOT AN ALL-OR-NONE PAIR with the vitals above and must not
+        # become one: `PANYA-DECISION 20260901_1059` forbids sending a guessed
+        # number beside a measured one, and this number is never guessed -- it
+        # is either read off the row's own column or not sent at all.  A
+        # character whose vitals are unreadable but whose class is known still
+        # logs in as her class.
+        class_kwargs = {}
+        class_id = getattr(character, "class_id", None)
+        if class_id is not None:
+            class_kwargs = {"class_id": class_id}
         actor = (
             make_actor_attr_with_name_and_class(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name,
-                movement_speed=speed, **vitals,
+                movement_speed=speed, **class_kwargs, **vitals,
             )
             if basic_faction is None else
             make_actor_attr_with_name_class_and_faction(
                 self.v, character.identity_lo, character.identity_hi,
                 p.scene_id, p.scene_seq, character.name, basic_faction,
-                movement_speed=speed, **vitals,
+                movement_speed=speed, **class_kwargs, **vitals,
             )
         )
         avatar = character.avatar_wire

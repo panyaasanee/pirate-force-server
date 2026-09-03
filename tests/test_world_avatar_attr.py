@@ -585,7 +585,23 @@ class AvatarAttrCheckTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn(f"u16tag(0x12,0x{AVATAR_ATTR_ID:04X})+avatar", source)
 
-    # -- rule 14.13 (d): this is a check, so nothing may call it -----------
+    # -- rule 14.13 (d): one named caller, and nothing else -----------------
+    #
+    # THIS GUARD WAS "NOTHING MAY CALL IT" UNTIL 2026-09-04.  `COO-DECISION
+    # 20260904_0446` points 1-2 lifted it for EXACTLY ONE caller -- the
+    # character-creation path in `src/pirateforce_foundation/lifecycle.py`,
+    # which decodes the body it just stored and hands the three starting-gear
+    # slots to `persistence_class_id.resolve_class_id` so the class the player
+    # picked stops being dropped (CORE-REQUEST of `pf_bridge/notes_to_chief/
+    # 20260904_0423`, ordered by `PANYA-DECISION 20260904_0328` piece 1).
+    #
+    # The rest of Rule 14.13(d) stands unchanged and is what these two tests
+    # measure: a SECOND file mentioning this module is still red, and the one
+    # allowed file having quietly stopped calling it is red too, so the
+    # exemption cannot rot into a hole nobody notices.
+    THE_ONE_ALLOWED_CALLER = (
+        Path("src") / "pirateforce_foundation" / "lifecycle.py"
+    )
 
     def test_no_module_outside_this_file_mentions_this_module(self):
         """Two mechanisms, because pf-adversary broke the first one twice.
@@ -596,7 +612,11 @@ class AvatarAttrCheckTest(unittest.TestCase):
         A plain text scan catches both, and is the primary check here; the
         AST walk stays as a second opinion for the aliased-import shapes.
         The scan covers the frozen server and the tool directories too, not
-        just the package."""
+        just the package.
+
+        The single allowed caller is compared as a RESOLVED path, not as a
+        name or a suffix: a second `lifecycle.py` anywhere else under these
+        roots is an offender like any other file."""
         roots = [
             ROOT / "src" / "pirateforce_foundation",
             ROOT / "current",
@@ -607,6 +627,7 @@ class AvatarAttrCheckTest(unittest.TestCase):
         mine = {
             (ROOT / "src" / "pirateforce_foundation" / "world_avatar_attr.py"),
             Path(__file__).resolve(),
+            (ROOT / self.THE_ONE_ALLOWED_CALLER).resolve(),
         }
         offenders = []
         for root in roots:
@@ -621,6 +642,19 @@ class AvatarAttrCheckTest(unittest.TestCase):
                 if "world_avatar_attr" in text:
                     offenders.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(offenders, [])
+
+    def test_the_one_allowed_caller_really_is_a_caller(self):
+        """The exemption must not outlive the wiring it was granted for.
+
+        If `lifecycle.py` stops calling this module -- the wiring reverted,
+        the call moved to a third file, the decode replaced by a copy of the
+        walk -- then the guard above is silently one file weaker than Rule
+        14.13(d) says it is, with every test green.  This is the test that
+        goes red instead, and it asks for the CALL, not merely for the name
+        in a comment."""
+        text = (ROOT / self.THE_ONE_ALLOWED_CALLER).read_text(encoding="utf-8")
+        self.assertIn("world_avatar_attr", text)
+        self.assertIn("world_avatar_attr.decode_avatar_attr(", text)
 
     def test_the_ast_second_opinion_sees_both_import_shapes(self):
         """Prove the AST helper bites before relying on it.
@@ -638,14 +672,36 @@ class AvatarAttrCheckTest(unittest.TestCase):
         self.assertFalse(_ast_mentions(ast.parse("from . import store")))
 
     def test_no_module_in_the_package_imports_this_one_by_ast(self):
+        """The second opinion, exempting the same single caller by PATH.
+
+        `path.name == ...` is how the module itself is skipped above and it
+        would be the wrong test for the exemption: a second `lifecycle.py`
+        added under a subpackage would inherit the exemption by name alone.
+        The allowed caller is compared as a resolved path for that reason.
+        """
         package = ROOT / "src" / "pirateforce_foundation"
+        allowed = (ROOT / self.THE_ONE_ALLOWED_CALLER).resolve()
         offenders = []
         for path in sorted(package.rglob("*.py")):
             if path.name == "world_avatar_attr.py":
                 continue
+            if path.resolve() == allowed:
+                continue
             if _ast_mentions(ast.parse(path.read_text(encoding="utf-8"))):
                 offenders.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(offenders, [])
+
+    def test_the_one_allowed_caller_is_seen_by_the_ast_walk_too(self):
+        """Both guards must agree on who the one caller is.
+
+        If the exemption stayed in the text scan while `lifecycle.py` stopped
+        importing the module, this asserts the disagreement instead of
+        letting the two guards drift into disagreeing in silence.
+        """
+        tree = ast.parse(
+            (ROOT / self.THE_ONE_ALLOWED_CALLER).read_text(encoding="utf-8")
+        )
+        self.assertTrue(_ast_mentions(tree))
 
     def test_the_slot_tables_stay_the_same_length(self):
         self.assertEqual(len(FIELDS), 21)

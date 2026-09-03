@@ -537,10 +537,18 @@ class TheRealLoginPathTests(_LegacyCase):
         selected, _started = session.select_and_start(character.selector)
 
         stored = self.store.get_character(character.id)
+        # `class_id` joined the named exemptions on 2026-09-04 (CORE-REQUEST
+        # of `pf_bridge/notes_to_chief/20260904_0423`, `COO-DECISION
+        # 20260904_0446` point 3): the login now also reads the row's class
+        # onto the character, exactly as it reads the speed and these three
+        # vitals, and `store._character` does not read it either.  Naming it
+        # here is what this test is FOR -- it went red on the first run of
+        # that seam, which is the whole point of a whole-object comparison
+        # with named exemptions rather than a weaker per-field assertion.
         self.assertEqual(
             replace(
                 selected, level=None, hp_current=None, hp_max=None,
-                movement_speed=None),
+                movement_speed=None, class_id=None),
             stored)
 
     def test_no_row_this_login_can_read_is_unencodable(self):

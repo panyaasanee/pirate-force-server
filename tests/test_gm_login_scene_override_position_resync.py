@@ -239,10 +239,20 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         self.assertIsNone(stored.level)
         self.assertIsNone(stored.hp_current)
         self.assertIsNone(stored.hp_max)
+        # THE THIRD EXEMPTION, 2026-09-04, for the third time for the same
+        # reason (CORE-REQUEST of `pf_bridge/notes_to_chief/20260904_0423`,
+        # `COO-DECISION 20260904_0446` point 3).  `session.select_and_start`
+        # now also reads the row's `class_id` -- the class the player picked
+        # at creation, which until this round was dropped and every login
+        # sent back as `PLAYER_LOGIN_CLASS_ID = 1` -- and rides it on the
+        # in-memory object; `store._character` does not read it either.  This
+        # test went red on the first run of that seam, which is what it is
+        # for: the exemption is named, so any OTHER field is still a failure.
+        self.assertIsNone(stored.class_id)
         self.assertEqual(
             replace(
                 state.foundation.selected, movement_speed=None,
-                level=None, hp_current=None, hp_max=None),
+                level=None, hp_current=None, hp_max=None, class_id=None),
             stored,
         )
         # WHAT THAT FIELD CARRIES IS DELIBERATELY NOT GRADED HERE, and the
