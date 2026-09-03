@@ -6,7 +6,7 @@ the-census-eagerly-like-the-warp-path-now-does.md``.  ~~``production_allowed``
 is ``False`` on ``main`` today (see the module's own docstring, "WHY THE
 GATE STAYS CLOSED THIS ROUND")~~ -- AMENDED ROUND ``zqmosn``: still False,
 but for the MEASURED reason that docstring now leads with rather than the
-circular one it carried.  These tests drive ``respond()`` directly, the same
+second-hand one it carried.  These tests drive ``respond()`` directly, the same
 "responder's own logic, independent of the still-widening runtime.py
 trigger" split ``test_lane_a_choose_npc_scene14.py`` uses for its own
 module.
@@ -126,7 +126,7 @@ class ResponderRegistryTests(unittest.TestCase):
 class TheGateStaysClosedTests(unittest.TestCase):
     """The flag itself.  Read the module docstring's "WHAT THE FLIP WOULD
     COST TODAY" for the round ``zqmosn`` measurement that replaced this
-    gate's original, circular reason; the measurement is driven in
+    gate's original, second-hand reason; the measurement is driven in
     ``TheGateStaysClosedForAMeasuredReasonTests`` at the bottom of this
     file.  This flag is a convention marker every ``lane_hooks`` module in
     this project uses the same way (``module_production_allowed``); it is
@@ -465,9 +465,9 @@ class TheAnswerRepeatsTheCorrectedFrozenFrameTests(unittest.TestCase):
     def test_the_frozen_loop_refuses_the_one_click_this_responder_answers(
             self):
         """The single actor-level difference the flip introduces, measured
-        rather than asserted: v141's own loop skips
-        ``V112_MONSTER_INDEX`` with ``v112_choose_p30_usage1_no_npc_
-        response`` and sends nothing, so a click there is silence today.
+        rather than asserted: v141's own loop (v141:4396-4416) skips
+        ``V112_MONSTER_INDEX`` at v141:4413 with
+        ``v112_choose_p30_usage1_no_npc_response`` and sends nothing, so a click there is silence today.
         ``RE-128`` resolved that placement to a townsman, so answering it
         is a gain -- but it IS a difference, and a reader of this file
         must find it named."""
@@ -580,14 +580,24 @@ class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
         default-talk trigger (v141's own comment above
         ``make_v98_conversation_face_state``).  Lose it and the NPC stops
         talking -- which is what taking this scene over with a
-        single-frame response would do today."""
-        labels = self._labels_for_click("tok-scene1-talk", 1)
-        self.assertIn("V98_NPC_CONVERSATION_DEFAULT_P1", labels)
-        self.assertGreater(
-            len(labels), 1,
-            "an answer to a scene-1 click is not one action; if this ever "
-            "becomes one, re-read the module docstring before flipping the "
-            "gate",
+        single-frame response would do today.
+
+        DRIVES PLACEMENT 3, NOT PLACEMENT 1, AND THE DIFFERENCE IS THE
+        WHOLE TEST (pf-adversary ``zqmosn`` B3, measured).  Placement 1 is
+        Columbus, the one actor in this scene that carries a SECOND action
+        for an unrelated reason (``_dispatch_columbus_quest3021``, additive
+        and untouched by the responder branch), so with the gate flipped
+        his click still returns two labels and a count assertion on him
+        passes while the talk trigger it names is gone.  Placement 3 is an
+        ordinary townsman: two labels there are the face frame and the talk
+        trigger, and nothing else."""
+        labels = self._labels_for_click("tok-scene1-talk", 3)
+        self.assertIn("V98_NPC_CONVERSATION_DEFAULT_P3", labels)
+        self.assertEqual(
+            len(labels), 2,
+            "an answer to an ordinary scene-1 click is exactly the face "
+            "frame and the talk trigger; if this ever becomes one action, "
+            "re-read the module docstring before flipping the gate",
         )
 
     def test_todays_answer_at_the_shop_trigger_carries_the_trade_zoom(self):
