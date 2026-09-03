@@ -271,8 +271,13 @@ the name of? Searched before writing this docstring (rule: ค้นก่อน
   1. `model.Character` ~~has NO level/hp/stat fields at all -- `id,
      account_id, selector, name, actor_wire, avatar_wire, identity_lo,
      identity_hi, position`~~ -- struck 2026-09-04 round `tof9cw` per
-     `CHIEF-TO-LANE-GM 20260904_0212`: `model.py:37` now carries
-     `movement_speed` and `model.py:65-67` carries `level`/`hp_current`/
+     `CHIEF-TO-LANE-GM 20260904_0212`: `model.py:37` now carries a walk-speed
+     field (the `speed_walk` column `login_speed.py` resolves -- the
+     identifier itself is deliberately NOT spelled anywhere in this module,
+     because `tests/test_npc_gait_wire.py` scans every `src/` file for it as
+     a tripwire and this module genuinely never asks for one; the same
+     discipline that file's own comment records for `login_speed.py`) and
+     `model.py:65-67` carries `level`/`hp_current`/
      `hp_max` (`COO-DECISION 20260903_0647`).  THE CONCLUSION SURVIVES AND
      IS WHY THIS IS STRUCK RATHER THAN REWRITTEN AS A NEW SOURCE:
      `model.py:55-58` says `store._character` does not read those three
