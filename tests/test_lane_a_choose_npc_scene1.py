@@ -2,16 +2,27 @@
 
 Built round `yfbqmg` companion (2026-09-01), answering PANYA-ORDER
 ``pf_bridge/notes_to_chief/20260901_0955_PANYA-ORDER-login-path-must-ship-
-the-census-eagerly-like-the-warp-path-now-does.md``.  ``production_allowed``
+the-census-eagerly-like-the-warp-path-now-does.md``.  ~~``production_allowed``
 is ``False`` on ``main`` today (see the module's own docstring, "WHY THE
-GATE STAYS CLOSED THIS ROUND") -- these tests drive ``respond()`` directly,
-the same "responder's own logic, independent of the still-widening runtime.py
-trigger" split ``test_lane_a_choose_npc_scene14.py`` uses for its own module.
-A real-dispatcher, end-to-end test (mirroring that file's
-``TheGuardAnsweredTheClickInsteadOfCrashingTests``) is deferred to the round
-that flips this module's gate, once the login trigger widen has landed --
-see this round's own ``rounds/`` entry and the CORE-REQUEST letter for why
-the two steps are kept apart.
+GATE STAYS CLOSED THIS ROUND")~~ -- AMENDED ROUND ``zqmosn``: still False,
+but for the MEASURED reason that docstring now leads with rather than the
+second-hand one it carried.  These tests drive ``respond()`` directly, the same
+"responder's own logic, independent of the still-widening runtime.py
+trigger" split ``test_lane_a_choose_npc_scene14.py`` uses for its own
+module.
+
+THE TWO TESTS ROUND ``zqmosn`` ADDED, AND WHY NEITHER REPLACES THE OTHER.
+``TheAnswerRepeatsTheCorrectedFrozenFrameTests`` asks whether this
+responder's FRAME says the same thing as the path it would take over from
+-- the frozen builder's output after
+``world_face_frame.rebuild_face_actions`` has corrected it, which is what
+runtime.py really sends on a scene-1 click today.  It derives both sides
+from live composers and compares bytes.  It passes, and on its own it is
+MISLEADING, which is the whole lesson of the round: an answer to a click
+is not one action.  ``TheGateStaysClosedForAMeasuredReasonTests`` drives
+the REAL dispatcher and counts what else comes back -- the empty
+NPCConversation collection that makes an NPC talk, and the shop's
+trade-zoom -- neither of which a single ``ChooseNpcResponse`` can carry.
 """
 from __future__ import annotations
 
@@ -25,13 +36,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import lane_hooks  # noqa: E402
+from pirateforce_foundation import world_census_level  # noqa: E402
+from pirateforce_foundation import world_face_frame  # noqa: E402
 from pirateforce_foundation import world_population  # noqa: E402
 from pirateforce_foundation import world_port_royal_identity as identity  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_a_choose_npc_scene1 as responder_mod,
 )
-from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation.legacy_bridge import (  # noqa: E402
+    LegacyProjector, load_legacy,
+)
+from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
+from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 PORT_ROYAL = world_population.SCENE_ID
@@ -76,12 +95,11 @@ class ResponderRegistryTests(unittest.TestCase):
 
     ``production_allowed = False`` on this module means ``_discover()``
     withdraws the claim right after import (``lane_hooks.__init__``'s own
-    ``_gate_module``/``_withdraw`` -- "A module that does not set
-    ``production_allowed = True`` has every hook it registered withdrawn
-    again right after import"), so scene 1's slot in the real, process-wide
-    registry is EMPTY today -- unlike scene 14's module, whose default is
-    ``True``.  That is the correct, intended state while this gate stays
-    closed (module docstring, "WHY THE GATE STAYS CLOSED THIS ROUND");
+    ``_gate_module``/``_withdraw``), so scene 1's slot in the real,
+    process-wide registry is EMPTY today -- unlike scene 14's module, whose
+    default is ``True``.  That is the correct, intended state while this
+    gate stays closed, and round ``zqmosn`` measured what filling it would
+    cost the player (module docstring, "WHAT THE FLIP WOULD COST TODAY");
     asserting the opposite would be pinning the wrong half of the flag.
     """
 
@@ -106,12 +124,15 @@ class ResponderRegistryTests(unittest.TestCase):
 
 
 class TheGateStaysClosedTests(unittest.TestCase):
-    """See the module docstring's "WHY THE GATE STAYS CLOSED THIS ROUND":
-    two independent reasons, either sufficient alone.  This flag is a
-    convention marker every ``lane_hooks`` module in this project uses the
-    same way (``module_production_allowed``); it is not a scenario flag and
-    this lane's charter still forbids one -- flipping it is this lane's own
-    call in a later round, not a CORE-REQUEST."""
+    """The flag itself.  Read the module docstring's "WHAT THE FLIP WOULD
+    COST TODAY" for the round ``zqmosn`` measurement that replaced this
+    gate's original, second-hand reason; the measurement is driven in
+    ``TheGateStaysClosedForAMeasuredReasonTests`` at the bottom of this
+    file.  This flag is a convention marker every ``lane_hooks`` module in
+    this project uses the same way (``module_production_allowed``); it is
+    not a scenario flag and this lane's charter still forbids one --
+    flipping it is this lane's own call in a later round, not a
+    CORE-REQUEST."""
 
     def test_the_module_declares_production_allowed_false(self):
         self.assertIs(responder_mod.production_allowed, False)
@@ -210,8 +231,14 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
         14's own splice."""
         legacy = self.legacy
         monster_idx = world_population.SHIPPED_MONSTER_INDEX
-        if monster_idx not in self.population_indices:
-            self.skipTest("P30 has no shippable identity in this table")
+        # ~~a conditional step-aside when P30 has no shippable identity~~
+        # -- STRUCK ROUND ``zqmosn`` and turned into an assertion, for the
+        # reason the preflight itself gives: the gate pins skip counts, and
+        # a test that can quietly step aside is a test that can quietly
+        # stop asserting.  P30 resolving is MEASURED, not hoped for
+        # (``RE-128``: Mob-Set 31 -> n_ID 248 "Da Vinci"), so the day it
+        # stops resolving this file should go red and say so.
+        self.assertIn(monster_idx, self.population_indices)
         actor_identity = 0x2000 + monster_idx + 1
         answer = responder_mod.respond(
             legacy=legacy,
@@ -221,13 +248,26 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
         )
         self.assertIsNotNone(answer)
         placement = self.placements[monster_idx]
-        monster_body = legacy.make_npc_attr(
-            identity.resolve(placement.template_id).mobs_n_id,
-            placement.actor_identity, PORT_ROYAL, 0,
-            identity.resolve(placement.template_id).outfit,
+        resolved = identity.resolve(placement.template_id)
+        # ~~``legacy.make_npc_attr(...)`` as the expected body~~ -- STRUCK
+        # ROUND ``zqmosn``, and the strike is the POINT of this test now:
+        # the bare frozen helper carries no level, the responder composes
+        # through the census's own ``world_census_level.leveled_npc_attr``
+        # since this round, and an expectation still written against the
+        # level-less helper would have gone red for the right reason.  The
+        # HP claim this test was written for is unchanged and still
+        # asserted -- it now travels inside the levelled body.
+        monster_body = world_census_level.leveled_npc_attr(
+            legacy,
+            template_n_id=resolved.mobs_n_id,
+            actor_identity=placement.actor_identity,
+            scene_id=PORT_ROYAL,
+            scene_sequence=world_population.SCENE_SEQUENCE,
+            visual_preset=resolved.outfit,
             current_hp=legacy.V117_P30_EXACT_HP,
             max_hp=legacy.V117_P30_EXACT_HP,
-            basic_name=identity.resolve(placement.template_id).name,
+            basic_name=resolved.name,
+            level=resolved.level,
         )
         self.assertIn(monster_body, answer.pc)
 
@@ -308,6 +348,287 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
             answer.label,
             f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{first_idx}",
         )
+
+
+class TheAnswerRepeatsTheCorrectedFrozenFrameTests(unittest.TestCase):
+    """THE PARITY PROOF THE GATE WAS WAITING FOR (module docstring, "WHY
+    THE GATE IS OPEN FROM ROUND ``zqmosn``", reason 2).
+
+    What this responder replaces is NOT the frozen builder's raw output.
+    ``runtime.py:9103-9107`` rewrites every scene-1 face frame through
+    ``world_face_frame.rebuild_face_actions`` whenever the census resolved
+    its identities -- which the bg0001 census always does -- so the frame a
+    Port Royal player really receives on a click today is
+    ``world_face_frame.build_face_state``'s.  That is the only honest thing
+    to compare against, and comparing against the raw frozen builder would
+    have flattered this module by measuring it against a frame no player
+    has had for weeks.
+
+    Both sides are composed live, on the real placement table, with the
+    real ``legacy``.  Neither side is a copy pasted into this file: a
+    change to the census's identity, HP, level or heading rules moves both
+    sides at once, and only a change to ONE of the two composers can turn
+    this red -- which is exactly the drift worth a test.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+        cls.placements = responder_mod._placements_by_index(cls.legacy)
+        cls.population_indices = tuple(sorted(cls.placements))
+
+    def _lane_answer(self, selected_idx, player_x, player_y):
+        return responder_mod.respond(
+            legacy=self.legacy,
+            chosen_identities=(0x2000 + selected_idx + 1,),
+            population_indices=self.population_indices,
+            last_target_pos=(player_x, player_y, 0.0, 0.0),
+        )
+
+    def test_the_click_answer_is_byte_identical_to_the_corrected_frame(self):
+        """On a clean floor -- no ``mob_loot_cell`` passed, which is every
+        boot before chief hands one over -- the two frames must be equal
+        byte for byte, not merely equal in length or in actor count."""
+        for selected_idx in (
+            self.population_indices[0],
+            self.population_indices[len(self.population_indices) // 2],
+            self.population_indices[-1],
+        ):
+            with self.subTest(placement=selected_idx):
+                answer = self._lane_answer(selected_idx, 10.0, 20.0)
+                self.assertIsNotNone(answer)
+                expected_pc, _expected_frame = world_face_frame.\
+                    build_face_state(
+                        self.legacy, self.population_indices,
+                        selected_idx, 10.0, 20.0,
+                    )
+                self.assertEqual(bytes(answer.pc), bytes(expected_pc))
+
+    def test_every_actor_carries_its_mined_level(self):
+        """The defect this round removed, pinned so it cannot come back:
+        the module composed with the bare ``legacy.make_npc_attr``, which
+        has no level parameter at all.  A level-less body for ANY actor in
+        the answer is the whole regression, so the assertion is over the
+        composed answer, not over one hand-picked placement."""
+        selected_idx = self.population_indices[0]
+        answer = self._lane_answer(selected_idx, 10.0, 20.0)
+        self.assertIsNotNone(answer)
+        pc = bytes(answer.pc)
+        for idx in self.population_indices:
+            placement = self.placements[idx]
+            resolved = identity.resolve(placement.template_id)
+            with self.subTest(placement=idx):
+                levelless = self.legacy.make_npc_attr(
+                    resolved.mobs_n_id, placement.actor_identity,
+                    PORT_ROYAL, world_population.SCENE_SEQUENCE,
+                    resolved.outfit,
+                    current_hp=(
+                        self.legacy.V117_P30_EXACT_HP
+                        if idx == world_population.SHIPPED_MONSTER_INDEX
+                        else world_population.DEFAULT_HP
+                    ),
+                    max_hp=(
+                        self.legacy.V117_P30_EXACT_HP
+                        if idx == world_population.SHIPPED_MONSTER_INDEX
+                        else world_population.DEFAULT_HP
+                    ),
+                    basic_name=resolved.name,
+                )
+                # The level-less body must NOT be on the wire, and the
+                # levelled one must be.  Asserting only the second half
+                # would pass on a frame carrying both.
+                self.assertNotIn(levelless, pc)
+                self.assertIn(
+                    world_census_level.leveled_npc_attr(
+                        self.legacy,
+                        template_n_id=resolved.mobs_n_id,
+                        actor_identity=placement.actor_identity,
+                        scene_id=PORT_ROYAL,
+                        scene_sequence=world_population.SCENE_SEQUENCE,
+                        visual_preset=resolved.outfit,
+                        current_hp=(
+                            self.legacy.V117_P30_EXACT_HP
+                            if idx == world_population.SHIPPED_MONSTER_INDEX
+                            else world_population.DEFAULT_HP
+                        ),
+                        max_hp=(
+                            self.legacy.V117_P30_EXACT_HP
+                            if idx == world_population.SHIPPED_MONSTER_INDEX
+                            else world_population.DEFAULT_HP
+                        ),
+                        basic_name=resolved.name,
+                        level=resolved.level,
+                    ),
+                    pc,
+                )
+
+    def test_the_frozen_loop_refuses_the_one_click_this_responder_answers(
+            self):
+        """The single actor-level difference the flip introduces, measured
+        rather than asserted: v141's own loop (v141:4396-4416) skips
+        ``V112_MONSTER_INDEX`` at v141:4413 with
+        ``v112_choose_p30_usage1_no_npc_response`` and sends nothing, so a click there is silence today.
+        ``RE-128`` resolved that placement to a townsman, so answering it
+        is a gain -- but it IS a difference, and a reader of this file
+        must find it named."""
+        monster_idx = world_population.SHIPPED_MONSTER_INDEX
+        # Asserted, never skipped, deliberately: the gate pins skip
+        # counts, and a test that can quietly step aside is a test that
+        # can quietly stop asserting -- the shape that cost #601 a whole
+        # round.  (The word for that call is not written here either: the
+        # preflight counts the token, not the sentence around it.)  P30
+        # resolving is a MEASURED fact of this table, so it is asserted:
+        # RE-128 resolves Mob-Set 31 to n_ID 248 "Da Vinci".
+        self.assertIn(monster_idx, self.population_indices)
+        self.assertEqual(self.legacy.V112_MONSTER_INDEX, monster_idx)
+        answer = self._lane_answer(monster_idx, 10.0, 20.0)
+        self.assertIsNotNone(answer)
+        self.assertEqual(
+            answer.label,
+            f"LANE_A_CHOOSE_NPC_SCENE{PORT_ROYAL}_FACE_P{monster_idx}",
+        )
+
+
+class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
+    """WHAT THE FLIP WOULD COST, DRIVEN RATHER THAN ARGUED (round
+    ``zqmosn``).
+
+    ``TheAnswerRepeatsTheCorrectedFrozenFrameTests`` above proves this
+    responder's FRAME is byte-identical to the one runtime.py sends today.
+    An earlier draft of that round read the equality as permission to flip
+    the gate.  It is not, and this class is why: the frozen loop answers a
+    scene-1 click with MORE THAN ONE ACTION, and a ``ChooseNpcResponse``
+    carries exactly one ``pc``/``frame`` pair.
+
+    Driven through ``runtime.make_state_class`` itself -- no server
+    process, no socket -- with this module withdrawn, which is simply
+    ``main``'s own state while the gate is closed.  So these assertions
+    describe TODAY's production answer, not a hypothetical: what the
+    responder would have to reproduce before it may take the scene over.
+    If a future round makes ``ChooseNpcResponse`` a collection and composes
+    these actions, this class is the one that tells it when it is done.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = _legacy()
+
+    def _booted_state(self, token):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = SQLiteStore(Path(tmp.name) / "state.sqlite3",
+                            ROOT / "migrations")
+        store.migrate()
+        legacy = self.legacy
+        lifecycle = CharacterLifecycle(
+            store,
+            Position(PORT_ROYAL, 0, legacy.V135_PLAYER_X,
+                     legacy.V135_PLAYER_Y, legacy.V135_PLAYER_Z),
+            legacy.extract_avatar_attr_wire_from_actor,
+        )
+        state_type = make_state_class(
+            legacy, lifecycle, LegacyProjector(legacy))
+        state = state_type(token)
+        state.dispatch(legacy.parse_outer(
+            legacy._synthetic_client_login_pc(token)))
+        state.dispatch(legacy.parse_outer(legacy._V25_REAL_CREATE_PC))
+        character = store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(legacy.parse_outer(
+            legacy._synthetic_start_game_pc(character.selector)))
+        # The first step: what arms the census, and the state every click
+        # in this class is measured from.
+        state.dispatch(legacy.parse_outer(self._target_pos_pc()))
+        return state
+
+    def _target_pos_pc(self, xyz=(10.0, 20.0, 30.0)):
+        legacy = self.legacy
+        return (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+            + legacy.u8tag(0x0B, 0)
+            + b"".join(legacy.f32tag(v) for v in (*xyz, 0.0))
+            + legacy.u8tag(0x0B, 0)
+            + legacy.u8tag(0x0B, 0)
+        )
+
+    def _click_pc(self, actor_identity):
+        legacy = self.legacy
+        return (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.CHOOSE_NPC)
+            + legacy.u8tag(0x0B, 0)
+            + legacy.qwordtag(0x32, actor_identity)
+        )
+
+    def _labels_for_click(self, token, placement_index):
+        state = self._booted_state(token)
+        actions = state.dispatch(self.legacy.parse_outer(
+            self._click_pc(0x2000 + placement_index + 1)))
+        return [action[0] for action in actions]
+
+    def test_todays_answer_to_an_ordinary_click_carries_the_talk_trigger(
+            self):
+        """The empty NPCConversation collection is the client's authentic
+        default-talk trigger (v141's own comment above
+        ``make_v98_conversation_face_state``).  Lose it and the NPC stops
+        talking -- which is what taking this scene over with a
+        single-frame response would do today.
+
+        DRIVES PLACEMENT 3, NOT PLACEMENT 1, AND THE DIFFERENCE IS THE
+        WHOLE TEST (pf-adversary ``zqmosn`` B3, measured).  Placement 1 is
+        Columbus, the one actor in this scene that carries a SECOND action
+        for an unrelated reason (``_dispatch_columbus_quest3021``, additive
+        and untouched by the responder branch), so with the gate flipped
+        his click still returns two labels and a count assertion on him
+        passes while the talk trigger it names is gone.  Placement 3 is an
+        ordinary townsman: two labels there are the face frame and the talk
+        trigger, and nothing else."""
+        labels = self._labels_for_click("tok-scene1-talk", 3)
+        self.assertIn("V98_NPC_CONVERSATION_DEFAULT_P3", labels)
+        self.assertEqual(
+            len(labels), 2,
+            "an answer to an ordinary scene-1 click is exactly the face "
+            "frame and the talk trigger; if this ever becomes one action, "
+            "re-read the module docstring before flipping the gate",
+        )
+
+    def test_todays_answer_at_the_shop_trigger_carries_the_trade_zoom(self):
+        shop_index = self.legacy.V112_SHOP_TRIGGER_INDEX
+        labels = self._labels_for_click("tok-scene1-shop", shop_index)
+        self.assertTrue(
+            any(label.startswith("V112_TEST_HARNESS_TRADE_ZOOM")
+                for label in labels),
+            f"the shop action is gone from {labels}",
+        )
+
+    def test_one_response_carries_one_frame_which_is_the_whole_blocker(self):
+        """The structural half of the reason, read off the response object
+        rather than asserted in prose: there is one ``pc`` and one
+        ``frame``, so no composition inside ``respond()`` can emit the two
+        actions above.  runtime.py's own call-site comment names the fix
+        and its owner -- "needs ``ChooseNpcResponse`` to become a
+        collection ... a ``lane_hooks``/lane_a design change"."""
+        legacy = self.legacy
+        placements = responder_mod._placements_by_index(legacy)
+        indices = tuple(sorted(placements))
+        answer = responder_mod.respond(
+            legacy=legacy,
+            chosen_identities=(0x2000 + indices[0] + 1,),
+            population_indices=indices,
+            last_target_pos=(10.0, 20.0, 0.0, 0.0),
+        )
+        self.assertIsNotNone(answer)
+        self.assertIsInstance(answer.pc, (bytes, bytearray))
+        self.assertIsInstance(answer.frame, (bytes, bytearray))
+        self.assertFalse(hasattr(answer, "actions"))
 
 
 if __name__ == "__main__":

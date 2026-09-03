@@ -1,9 +1,86 @@
 """LANE-A (WORLD): the ChooseNPC responder for scene 1 (Port Royal / bg0001).
 
-WHAT A PLAYER SEES BECAUSE OF THIS FILE, STATED HONESTLY AND FIRST.  Nothing
-yet.  ``production_allowed`` below is ``False`` on purpose -- see "WHY THE
-GATE STAYS CLOSED THIS ROUND" before reading anything else in this module as
-live.  This file is the SAFETY NET half of a two-part fix; the other half
+WHAT A PLAYER SEES BECAUSE OF THIS FILE, STATED HONESTLY AND FIRST.
+Nothing yet.  ``production_allowed`` below is ``False`` on purpose -- and
+from round ``zqmosn`` it is False for a MEASURED reason, not the
+second-hand one it carried before.  Read "WHAT THE FLIP WOULD COST TODAY" before
+reading anything else in this module as live, and before flipping the
+flag.
+
+WHAT THE FLIP WOULD COST TODAY (round ``zqmosn``, driven through
+``runtime.make_state_class`` itself -- the same connection, the same
+click, the responder registered in one run and withdrawn in the other;
+``tests/test_lane_a_choose_npc_scene1.py``'s
+``TheGateStaysClosedForAMeasuredReasonTests`` pins it):
+
+    click        on main today                       with this responder
+    ---------    --------------------------------    -------------------
+    P1           face 14,142 B                       face 14,142 B
+                 + V98_NPC_CONVERSATION_DEFAULT 34 B   (LOST)
+                 + Columbus quest 44 B               + Columbus quest 44 B
+    P91          face 14,142 B                       face 14,142 B
+                 + TRADE_ZOOM_STORE5 48 B              (LOST)
+    P30          (nothing -- refused by name)        face 14,142 B (a gain)
+
+THE FACE FRAME IS ALREADY AT PARITY, AND THAT IS NOT ENOUGH.  Its 14,142
+bytes are byte-identical to ``world_face_frame.build_face_state``'s, which
+is what runtime.py really sends today (``rebuild_face_actions``,
+``runtime.py:9103-9107``, gated on the census's own
+``world_census_identity_resolved``).  An earlier draft of this round read
+that equality as "the flip is free" and was wrong: THE ANSWER TO A CLICK
+IS NOT ONE ACTION.  The frozen loop also emits the empty NPCConversation
+collection that is the client's authentic default-talk trigger (v141's own
+comment above ``make_v98_conversation_face_state``) and, for the shop
+trigger, the trade-zoom action.  A ``ChooseNpcResponse`` carries ONE
+``pc``/``frame`` pair, so this responder cannot emit them -- and because
+the call site sets ``actions = []`` on a decline with NO fallback to the
+frozen loop (``runtime.py:9015-9030``), flipping this flag would leave
+every NPC in the town unable to talk and the shop unable to open.
+
+WHAT MUST LAND BEFORE THIS FLAG MOVES (steps 1-3 in this order; 4-7 in
+any order, all of them before the flip):
+1.  ``ChooseNpcResponse`` becomes a COLLECTION of actions rather than one
+    pair.  runtime.py's own call-site comment already names this as the
+    fix and already says whose it is: "a ``lane_hooks``/lane_a design
+    change outside a runtime.py guard's scope".
+2.  This responder composes the conversation-default action for every
+    click, and the trade-zoom action for the shop trigger, from the frozen
+    helpers rather than from copies of their bytes.
+3.  Only then the flag, with an attended ticket that clicks a townsperson,
+    a shop keeper and placement 30 in Port Royal and reports what opened.
+4.  Every other v141 behaviour that rides a ``TARGET_VITAL`` frame in
+    scene 1 is enumerated and either reproduced or shown unreachable.  The
+    responder branch runs INSTEAD of ``super().dispatch(parsed)``
+    (``runtime.py:9026-9027``), so it swallows the whole frame, not only
+    the ChooseNPC loop; pf-adversary ``zqmosn`` measured two that exist --
+    v141's V138 marker branch (its ``V138_MARKER1_READY_PC`` opens with a
+    ``TARGET_VITAL`` id) and the ``runtime_ack_sent`` latch, which only
+    v141 ever sets and which ``runtime.py:9457`` makes the census depend
+    on.
+5.  The responder honours the census authority ``runtime.py:9103`` honours
+    (``world_census_identity_resolved``) and DECLINES rather than composes
+    on a boot whose login shipped Mob-Set numbers.  Measured on a
+    second-password-bypass boot, where the frozen v134 fallback arms
+    ``(0, 30, 91)``: with the gate open a click on P0 answered with
+    silence where the frozen path opened a quest conversation, and a click
+    on P91 shipped two actors after login had announced three.  That also
+    refutes this file's own "unreachable from a real composed generation"
+    line about the unresolvable-placement branch below: it is reachable on
+    every such boot.
+6.  Multi-select answers every named identity, not the first
+    (``TheResponderAnswersDirectlyTests`` pins today's one-answer shape;
+    the frozen path returns four actions for two identities).
+7.  ``docs/FUNCTIONAL_COVERAGE.json``'s ``npc_conversation_handshake``
+    (``required``, ``runtime_pass``) gains a DISPATCH-level test.  Its
+    three current ``test_refs`` exercise the builders, so the flip would
+    have removed that capability for every Port Royal NPC but Columbus
+    with all three still green.
+Steps 1-6 are lane A's own work.  Nothing here is chief's.  THIS LIST IS
+NOT PROMISED COMPLETE: it is what two measured passes found, and every
+item on it after step 3 was found by the SECOND pass, on boot shapes the
+first pass never drove.
+
+This file is the SAFETY NET half of a two-part fix; the other half
 (widening ``runtime.py``'s login-census trigger for scene 1 so the town is
 populated before the player's first step) is a chief-owned ``runtime.py``
 edit this lane cannot make -- see the ``CORE-REQUEST`` this round's letter
@@ -82,6 +159,28 @@ THE ADMISSION CHECK.  Reuses ``lane_a_scene_census.scene_is_open_to_players``
 rather than re-deriving it, the same choice scene 14's responder makes and
 for the same reason: one fail-closed reader for the registry key, not two.
 
+HOW THE TWO REASONS BELOW READ AFTER ROUND ``zqmosn`` MEASURED THEM.
+Reason 1 is unchanged and was never, on its own, a reason to wait -- but
+the round that wrote it had NOT read the passage it defers to, and a
+draft of round ``zqmosn`` then made that worse by calling the pair
+circular and putting a sentence in quotation marks that does not exist in
+``runtime.py`` (pf-adversary ``zqmosn`` B1: ``grep`` for it returns
+nothing).  WHAT THAT PASSAGE ACTUALLY SAYS, at ``runtime.py:9429-9451``,
+quoted from the file: home is not widened because of a "MEASURED uncaught
+crash rather than parity taste", the bg0001 arm being "the only census
+arm that arms ``self.population_indices`` with no lane_hooks ChooseNPC
+responder standing in front of it"; and it names TWO ways out -- "either
+a deferred install of population_indices at the first TargetPosVital, or
+a runtime.py ChooseNPC guard for scene 1".  THE FIRST NEEDS NOTHING FROM
+THIS FILE.  So there is no deadlock and never was: chief's half can move
+without this flag, and this flag is one of two answers, not the gate on
+the other.  Reason 2 asked for a parity check
+before the swap; the check was run, and it FAILED in a way reason 2 did
+not anticipate -- not on the frame's bytes, which match exactly, but on
+the ACTIONS the frozen loop emits beside it.  So the caution was right and
+its stated grounds were incomplete; both are kept below, and the measured
+grounds are at the top of this docstring.
+
 WHY THE GATE STAYS CLOSED THIS ROUND.  Two independent reasons, either one
 sufficient on its own:
 
@@ -108,16 +207,23 @@ from __future__ import annotations
 from typing import Any
 
 from .. import lane_hooks
+from .. import world_census_level
 from .. import world_population
 from .. import world_port_royal_identity as identity
 from .lane_a_ground_preserve import compose_answer
 from .lane_a_scene_census import scene_is_open_to_players
 
-# See "WHY THE GATE STAYS CLOSED THIS ROUND" in the module docstring.  Flip
-# only after the runtime.py login trigger widen (CORE-REQUEST) has landed
-# AND this lane has reviewed test_lane_a_choose_npc_scene1.py with
-# pf-adversary at least once more, ideally with an attended click-parity
-# check on real Port Royal NPCs.
+# ~~Flip only after the runtime.py login trigger widen (CORE-REQUEST) has
+# landed AND this lane has reviewed the tests with pf-adversary once
+# more~~ -- STRUCK ROUND ``zqmosn``: that condition deferred to a passage
+# (``runtime.py:9429-9451``) which names a deferred install of
+# ``population_indices`` as a way out that needs nothing from this file,
+# so waiting on it was never the only option -- and it was not the real
+# blocker either.  Round ``zqmosn`` drove the real
+# dispatcher with and without this responder and MEASURED what the flip
+# would cost -- see "WHAT THE FLIP WOULD COST TODAY" in the module
+# docstring.  The gate stays False for that measured reason, which is now
+# pinned by ``TheGateStaysClosedForAMeasuredReasonTests``.
 production_allowed = False
 
 SCENE_N_ID = world_population.SCENE_ID
@@ -221,10 +327,40 @@ def respond(
                 legacy.V117_P30_EXACT_HP if is_monster
                 else world_population.DEFAULT_HP
             )
-            npc_attr_bytes = legacy.make_npc_attr(
-                resolved.mobs_n_id, placement.actor_identity, scene_id, 0,
-                resolved.outfit, current_hp=hp, max_hp=hp,
+            # THE LEVEL, ROUND ``zqmosn``, AND THE DEFECT IT REMOVES.
+            # ~~``legacy.make_npc_attr(...)`` directly~~ -- STRUCK, not
+            # deleted: this module composed with the bare frozen helper,
+            # which has NO level parameter, from the round it was written
+            # until this one.  That is the SAME defect ``world_face_frame``
+            # already found and fixed on the frozen click path in round
+            # ``2p4n3h`` (read its own comment at
+            # ``world_face_frame.py:206-219``): one click re-sent every
+            # Port Royal actor with no level at all and silently reverted
+            # round ``7ste68`` on the wire.  It never reached a player from
+            # HERE only because ``production_allowed`` was False -- so the
+            # gate was not protecting the town from a hypothetical, it was
+            # holding back a KNOWN regression, and flipping the gate
+            # without this line would have put the defect back the day the
+            # town's clicks moved to this responder.
+            #
+            # DERIVED FROM THE CENSUS'S OWN COMPOSER, NOT A SECOND COPY OF
+            # ITS RULES: ``world_census_level.leveled_npc_attr`` is the one
+            # call ``world_population._entry`` makes, with the same
+            # ``SCENE_SEQUENCE`` and the same ``identity`` row, so a click
+            # REPEATS the census instead of approximating it.  If the
+            # frozen body's layout ever moves, that module refuses rather
+            # than guesses, and this responder inherits the refusal.
+            npc_attr_bytes = world_census_level.leveled_npc_attr(
+                legacy,
+                template_n_id=resolved.mobs_n_id,
+                actor_identity=placement.actor_identity,
+                scene_id=scene_id,
+                scene_sequence=world_population.SCENE_SEQUENCE,
+                visual_preset=resolved.outfit,
+                current_hp=hp,
+                max_hp=hp,
                 basic_name=resolved.name,
+                level=resolved.level,
             )
             attrs = [(legacy.NPC_ATTR, npc_attr_bytes)]
             if idx == selected_idx:
