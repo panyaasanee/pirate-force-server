@@ -126,11 +126,14 @@ class WhatTheSourceCanAnswerTests(unittest.TestCase):
         self.assertNotIn(7, values)
         self.assertEqual(values[2], 1)
 
-    def test_only_the_five_unreachable_rows_are_missing_when_every_column_is_set(self):
+    def test_only_the_unreachable_rows_are_missing_when_every_column_is_set(self):
         # Pins ROWS_WITH_NO_COLUMN_AT_ALL against the real column map: if a
-        # future migration addresses one of the five, this goes red and the
+        # future migration addresses one of them, this goes red and the
         # constant (and the module docstring behind it) get updated instead
-        # of quietly disagreeing with the schema.
+        # of quietly disagreeing with the schema.  ~~five~~ -- it is six
+        # since x=9 joined the named set (`COO-DECISION 20260904_0215`
+        # item 2); this test did exactly what its comment promised, which is
+        # how that was found.
         store = _StubStore(columns=_every_typed_column_populated(), name="Anne")
         values = live.values_for(store, 7)
         missing = sorted(set(live.named_rows_wanted()) - set(values))
@@ -564,11 +567,19 @@ class AgainstARealMigratedStoreTests(unittest.TestCase):
         self.assertEqual(values[1], "BornA")
         self.assertEqual((values[2], values[3], values[4]), (1, 100, 100))
 
-    def test_the_other_twenty_two_rows_are_absent_on_a_real_row(self):
+    def test_the_other_rows_are_absent_on_a_real_row(self):
+        # ~~twenty_two~~ -- the count moved to 23 when `COO-DECISION
+        # 20260904_0215` item 2 put x=9 into `named_field_x()` (LANE-GM,
+        # round `tof9cw`, out of its own write zone and declared by letter).
+        # DERIVED NOW RATHER THAN RE-PINNED: a hardcoded number here is a
+        # second place that has to be edited every time the named set moves,
+        # and it going stale is what closed server `#696`.  The four rows a
+        # newborn DOES answer are pinned by the test above, so this is still
+        # an assertion and not a tautology.
         character = self._born("B", 0x2000)
         values = live.values_for(self.store, character.id)
         missing = sorted(set(live.named_rows_wanted()) - set(values))
-        self.assertEqual(len(missing), 22)
+        self.assertEqual(len(missing), len(live.named_rows_wanted()) - 4)
         for name in ("cash", "mp_current", "class_id", "str", "experience"):
             self.assertIn(attr_wire.BY_NAME[name][0], missing)
 

@@ -89,11 +89,100 @@ condition cannot be met is not a gate, it is a shelf.
   the known=TRUE bits, which is precisely the fact not written down.  The
   wording came from COO's letter; putting it into source would have made a
   future round read it as settled.  [PROPOSED, load-bearing -- flagged back
-  to COO in `20260904_02xx_LANE-GM-ALARM-*`.]
+  to COO in `pf_bridge/notes_to_chief/20260904_0155_LANE-GM-ALARM-b-prime-
+  says-nothing-about-the-selector-that-picks-the-hp-pair.md`, answered by
+  `COO-DECISION 20260904_0215` below.]
 
   What can be said without a source: this is the shape (b') defines, and
   the risk COO accepted is named in the next paragraph rather than
   disguised as a measurement.
+
+## (b') IS NOW (b'') -- `COO-DECISION 2026-09-04T02:15+07:00`
+
+Struck above (not deleted), by this lane's own `20260904_0155_LANE-GM-
+ALARM-*` and COO's answer to it.  The alarm found what (b') left open: x=9
+`category_5C` is `known=False`, so under (b') its mask bit stayed unset --
+and the full-object-copy apply (`RE-222` Q0, cited above) makes an unset
+bit a ZERO on the client, on every row, not only the ones this module
+happens to have named.  So "`known=False` rows are not sent" was never a
+smaller version of the `GT-218` frame; it was the SAME frame, row for row,
+for every row this lane has not yet named.  pf-adversary caught this in
+round `3qh50k` (D11); COO ruled on it, not this lane alone, per `0215`.
+
+  (b'') NO PARTIAL `0x309A` BLOCK EVER LEAVES THROUGH THIS MODULE'S NAMED-
+  FIELD DOOR (`build_named_field_update`).  [CORRECTED -- an earlier draft
+  of this paragraph said "for any reason" with no qualifier; pf-adversary
+  measured that false: `gm/speed_wire.py`'s OWN sparse composer,
+  `compose_sparse_speed_update`, still calls this module's byte-level
+  `encode_block`/`make_update_attr_frame` with a one-field `{7: value}`
+  block, deliberately, and remains reachable at runtime through the
+  COO-approved `PF_SPEED_TRIAL` owner-only trial gate (`gm/speed_wire.py`,
+  `trial_admits`) -- exactly the GT-218/GT-193 shape, on a live path this
+  round did not touch and does not claim to have closed. See that
+  function's own docstring for the full scoping and the open question
+  raised to COO in this round's letter (`pf_bridge/notes_to_chief/
+  20260904_0309_LANE-GM-ALARM-speed-trial-gate-and-encode-block-not-
+  covered-by-bdprime.md`).] Every field `FIELDS` lists carries a byte on every
+  send THROUGH THE NAMED-FIELD DOOR:
+    * `known=True` rows (now including x=9, moved by `COO-DECISION 0215`
+      item 2 -- it is not "an unnamed row", it is the proven selector for
+      which HP pair the client reads, `SELECTOR_NOTE_R301` below) carry
+      their REAL value at send time, from `live_named_values` exactly as
+      (b') defined.
+    * `known=False` rows (everything else, `SENSITIVE_FIELDS` included --
+      see `live_login_bytes`'s own docstring for why x=30 is not an
+      exception to THIS half) carry the SAME bytes the login path already
+      sends this character today -- the one shape this house has ever
+      measured a real client surviving for a row it does not have a name
+      for. Not a guess, not a zero: whatever chief's second read point
+      (`LOGIN_BYTES_READ_POINT`, ordered `COO-DECISION 0216`, NOT YET
+      BUILT) answers for this character's login send.
+    * No byte source for ANY row -- named point missing that row, login
+      point missing that row, either point unreadable or wrong-shaped --
+      refuses the WHOLE block.  There is no such thing as "send what we
+      have"; that is exactly the partial send (b') already forbade, widened
+      to every row instead of only the unnamed ones.
+  `build_named_field_update`'s cache-completeness check enforces this --
+  widened this round from `named_field_x()` (b') checked to `all_field_x()`
+  -- and that check is deliberately where this lives, NOT inside the
+  shared `encode_block` composer. `COO-DECISION 0215`'s own wording named
+  `encode_block` for the raise; this module's own measurement found that
+  would break a LANE-DB test outside this lane's write zone and this
+  lane's own GT-193 shape-pinning suite, both of which pass `encode_block`
+  a deliberately partial `values` for reasons unrelated to a live send.
+  [ASSUMPTION OF LANE-GM, AWAITING COO] -- see `encode_block`'s own
+  docstring for the full reasoning and this round's letter raising it back
+  to COO. The guarantee itself is unweakened: `build_named_field_update`
+  is the one door a live send can reach through, LANE-B's Door B included
+  (it composes via THIS function, per its own docstring -- `capture_
+  initial()` alone cannot reach a socket), so nothing in this repository
+  can put a partial (b'') block on the wire through this module's named-
+  field API, present caller or future one.
+
+  THE SENTENCE THIS TABLE'S PROVENANCE ONCE BORROWED -- "byte-for-byte the
+  shape the owner's own live probe ran for 266 commands" -- IS FORMALLY
+  WITHDRAWN, per `COO-DECISION 0215` item 3, not merely struck as
+  [PROPOSED] any more: no artifact in this repository records which mask
+  bits that probe set, `docs/GM_LANE.md:5540` says only that the table was
+  re-derived from that session, and COO has confirmed she has no other
+  source for the sentence either. Nothing in this module rests on it.
+
+  GT CRITERIA FOR (b''), NAMED HERE SO A FUTURE ROUND DOES NOT HAVE TO HUNT
+  THE LETTER FOR THEM (not opened as a ticket this round -- see the closing
+  paragraph below): on a NORMALLY LOGGED-IN CHARACTER (no special selection
+  needed, because (b'') drops no row for any character) -- cash, HP-max, MP
+  AND THE HP BAR ITSELF must read unchanged after ONE frame.  `STOP-on-
+  HP-0` stays standing regardless.
+
+STILL SHUT, EXACTLY AS BEFORE, AND (b'') DOES NOT ON ITS OWN OPEN IT
+EITHER: chief's named-value read point EXISTS as of `server#695` and
+answers 4 of the 26 rows (name, level, hp_current, hp_max) -- it still
+needs x=9 added to what it was ordered to cover, and the other 22 rows
+are what the refusal now names; chief's login-byte read point
+for the other 29 rows does not exist AT ALL (`COO-DECISION 0216`); the
+version gate is unflipped for this module's named-field door; `/speed`'s
+own two locks stay shut. This round does not open a GT ticket -- `COO-
+DECISION 0215` says so explicitly ("ยังไม่เปิดใบ GT").
 
 WHY THE RESIDUAL RISK IS NOW SOMEONE'S TO ACCEPT RATHER THAN NOBODY'S TO
 CLOSE.  Under the client's full-object-copy apply (`RE-222` Q0, SHA-pinned,
@@ -109,21 +198,27 @@ contradicts no standing owner order.  What remains open is closed ON A
 SCREEN, not here: an attended `GT` in which cash / HP-max / MP must be
 unchanged after ONE frame.
 
-!! ONE THING (b') DOES NOT COVER, AND IT IS NOT A DETAIL (pf-adversary,
-round `3qh50k`, D11 -- [PROPOSED], raised to COO the same round rather than
-resolved here).  (b') guarantees the NAMED rows.  x=9 `category_5C`
-(BasicAttr +0x5C) is `known=False`, so under (b') its bit stays unset and
-the full-object copy ZEROES IT -- and this module's own `SELECTOR_NOTE_R301`
+~~!! ONE THING (b') DOES NOT COVER, AND IT IS NOT A DETAIL~~ -- RESOLVED BY
+(b''), ABOVE (pf-adversary, round `3qh50k`, D11 -- [PROPOSED] there, RULED
+by `COO-DECISION 0215` here, not resolved by this lane alone).  What this
+paragraph found stands as the RECORD of why (b'') exists, so the finding is
+struck, not deleted: (b') guarantees the NAMED rows.  x=9 `category_5C`
+(BasicAttr +0x5C) was `known=False`, so under (b') its bit stayed unset and
+the full-object copy ZEROED IT -- and this module's own `SELECTOR_NOTE_R301`
 says [PROVEN, in-repo] that +0x5C is the u16 fed to `0x430E10`, whose result
 `== 8` is what switches the client from reading HP at x=3/x=4 to reading it
-at x=52/x=53.  So one frame can change WHICH HP pair the client displays.
+at x=52/x=53.  So one frame could change WHICH HP pair the client displays.
 Both pairs are seeded honestly, but for a character outside a category-8
 context the honest `alt_hp_current/alt_hp_max` is plausibly `0/0` -- i.e.
 HP `0/0` on the HUD after one frame, `GT-218`'s symptom arriving through
 the very door (b') was revised to open.  The attended GT's stated criteria
-(cash / HP-max / MP unchanged after one frame) would catch this only by
-luck.  Nothing in this module sends yet, so nothing is at risk today; the
-decision belongs to COO before any GT is written, not to this lane.
+(cash / HP-max / MP unchanged after one frame) would have caught this only
+by luck.  COO's fix is not "flip x=9 alone" -- it is (b'') in full: x=9
+moves to the required-real-value set (`named_field_x()` now includes it),
+and every OTHER `known=False` row gets the login-byte treatment instead of
+staying unset.  Nothing in this module sends yet, so nothing was ever at
+risk; this paragraph is kept because a future round should be able to find
+the finding that bought (b'') without reading the round file.
 
 PATH 1 AND PATH 2 ARE CLOSED BY THIS, and that is the point of writing it
 down: the owner's letter `20260831_2327` had been waiting on her since
@@ -135,8 +230,11 @@ was the session.  Path 2 (name-only) is what (b') is, with the live-value
 source that made it viable ordered into existence rather than assumed.
 
 STILL SHUT, AND (b') DOES NOT ON ITS OWN OPEN IT.  Nothing below sends
-live: chief's read point does not exist yet (see `seed_cache_from_live_
-values`, which refuses by name when it is missing), the version gate is
+live: ~~chief's read point does not exist yet~~ -- struck 2026-09-04
+round `tof9cw` per `CHIEF-TO-LANE-GM 20260904_0305` item 1: it landed in
+`server#695` and answers 4 of 26 rows, so the door refuses on the OTHER
+22 (see `seed_cache_from_live_
+values`, which refuses by name and now names which rows), the version gate is
 unflipped for this module's named-field door, and `/speed`'s own two locks
 (`SPEED_LOGIN_READ_LANDED`, `SHAPES_CLEARED_BY_A_REAL_CLIENT`) are shut
 independently of everything in this file (`COO-DECISION 2147`, standing).
@@ -170,10 +268,25 @@ omitting them.
 Where would this module get that value from, for a field it does not know
 the name of? Searched before writing this docstring (rule: ค้นก่อนถอด):
 
-  1. `model.Character` (this repo's own server-side character record) has
-     NO level/hp/stat fields at all -- `id, account_id, selector, name,
-     actor_wire, avatar_wire, identity_lo, identity_hi, position`. There is
-     nothing here to read.
+  1. `model.Character` ~~has NO level/hp/stat fields at all -- `id,
+     account_id, selector, name, actor_wire, avatar_wire, identity_lo,
+     identity_hi, position`~~ -- struck 2026-09-04 round `tof9cw` per
+     `CHIEF-TO-LANE-GM 20260904_0212`: `model.py:37` now carries a walk-speed
+     field (the `speed_walk` column `login_speed.py` resolves -- the
+     identifier itself is deliberately NOT spelled anywhere in this module,
+     because `tests/test_npc_gait_wire.py` scans every `src/` file for it as
+     a tripwire and this module genuinely never asks for one; the same
+     discipline that file's own comment records for `login_speed.py`) and
+     `model.py:65-67` carries `level`/`hp_current`/
+     `hp_max` (`COO-DECISION 20260903_0647`).  THE CONCLUSION SURVIVES AND
+     IS WHY THIS IS STRUCK RATHER THAN REWRITTEN AS A NEW SOURCE:
+     `model.py:55-58` says `store._character` does not read those three
+     columns, so a character loaded from the database arrives with all
+     three `None` and only `session.py` fills them at login.  Reading them
+     here would get `None`, not a value.  There is still nothing here to
+     read -- chief's read point (point 3 below) is the seam that closes
+     this, and closing the `None` half is LANE-DB's `PLAYER/CHARACTER`
+     work (`COO-ORDER 20260904_0329`), not this lane's.
   2. `characters.actor_wire` (`migrations/001_initial.sql`) is a real,
      per-character, byte-preserved BLOB -- but it is `CreateActorDataEx`
      (a DIFFERENT vital/codec from `gm/actor_wire.py`, this repo's own
@@ -184,14 +297,22 @@ the name of? Searched before writing this docstring (rule: ค้นก่อน
      raw-block source needing no runtime.py change at all; if no, there is
      no source at all today. NOT ANSWERED HERE -- routed to chief/RE, see
      the round's CORE-REQUEST-GM-044 letter. [สมมติของสาย GM - รอ RE]
-  3. No `lane_hooks` point exists today that hands a lane the fields
-     `runtime.py`'s login path is about to send for this shape, because
-     (per point 1/2) runtime.py does not compose an ActorAttr/BasicAttr
-     DBAttribute block at login at all -- there is nothing at that point to
-     capture. A CORE-REQUEST asking chief to add one would be asking for a
-     hook onto data that provably does not exist yet, so this round does
-     NOT open one (would have been last round's first draft of this
-     docstring's mistake, caught before writing the letter).
+  3. ~~No `lane_hooks` point exists today that hands a lane the fields
+     `runtime.py`'s login path is about to send for this shape~~ -- struck
+     2026-09-04 round `tof9cw`.  One EXISTS:
+     `lane_hooks.current_named_attr_values`, ordered by `COO-DECISION
+     20260904_0047` item 1 and landed by chief in `server#695`.  It answers
+     4 of the 26 named rows -- name, level, hp_current, hp_max -- which is
+     what the server actually knows, and it answers nothing for the
+     `known=False` rows (that is the SECOND point, `COO-DECISION 0216`,
+     still unbuilt).  The old sentence's reasoning was right about the
+     cause and wrong about the remedy: runtime.py still does not compose a
+     DBAttribute block at login, so chief's point reads typed COLUMNS
+     rather than capturing a block, and the 22 rows with no column are a
+     work list for LANE-DB (`COO-ORDER 20260904_0329`) rather than a dead
+     end.  See `live_named_values` for how this lane consumes it, and
+     `src/pirateforce_foundation/live_named_attr_values.py` for chief's
+     own account of which rows have no column at all.
 
 ## This round's provisional decision (build now, do not stall)
 
@@ -307,7 +428,7 @@ FIELDS = (
     (6,  "basic", 0x0020, 0x050, 0x14, "u32",  "mp_max",          True,  ""),
     (7,  "basic", 0x0040, 0x054, 0x2A, "f32",  "basic_f32_54",    False, "unknown f32"),
     (8,  "basic", 0x0080, 0x058, 0x2A, "f32",  "death_timer",     True,  "dying countdown f32"),
-    (9,  "basic", 0x0100, 0x05C, 0x12, "u16",  "category_5C",     False, "0x430E10(this)==8 swaps HP to x52/53; see SELECTOR_NOTE_R301"),
+    (9,  "basic", 0x0100, 0x05C, 0x12, "u16",  "category_5C",     True,  "0x430E10(this)==8 swaps HP to x52/53; known=True by COO-DECISION 20260904_0215 item 2 -- see SELECTOR_NOTE_R301"),
     (10, "basic", 0x0200, 0x060, 0x32, "u64",  "basic_q60",       False, "unknown"),
     (11, "basic", 0x0400, 0x068, 0x14, "u32",  "basic_faction",   True,  "1 = player side"),
     (12, "basic", 0x0800, 0x06C, 0x14, "u32",  "basic_u32_6C",    False, "unknown"),
@@ -392,6 +513,18 @@ BY_NAME = {f[6]: f for f in FIELDS}
 #   what this table already called it.  So: NO RENAMES.  x=9 keeps
 #   `category_5C`, x=38 keeps `u8_180`, x=52/53 keep `alt_hp_current`/
 #   `alt_hp_max`.
+#
+#   `COO-DECISION 20260904_0215` item 2 later flipped x=9's `known` column
+#   `False` -> `True`.  THIS IS NOT A RENAME and does not reopen the
+#   question above: the name stays `category_5C`, still no claim about what
+#   category 8 IS.  What changed is narrower and is not about the name at
+#   all -- x=9 moved from "this lane may not set it" to "this lane's send
+#   MUST carry its real value", because it is proven [PROVEN, in-repo] to
+#   select which HP pair the client reads, and (b'') (see module docstring)
+#   makes every row's absence a zero on the client.  A selector is not an
+#   unnamed row that happened to get lucky; it is load-bearing for what
+#   `known=False` rows are now DELIBERATELY NOT: something (b'') is willing
+#   to send the wrong-but-safe login byte for.
 #
 # What IS corrected here is one word in two notes.
 #
@@ -607,6 +740,53 @@ def encode_block(legacy, identity_lo: int, identity_hi: int, values: dict) -> tu
     the same separation `gm/warp_executor.py` keeps between its parse-time
     catalog hint and its dispatch-time refusal.
 
+    (b'') COMPLETENESS IS DELIBERATELY *NOT* ENFORCED HERE, AND THAT IS NOW
+    A DECISION, NOT AN ASSUMPTION: `COO-DECISION 20260904_0215`'s wording
+    named `encode_block` for the raise; `COO-DECISION 20260904_0345` item 1
+    answered this lane's alarm (`20260904_0309`) and MOVED it, by name, to
+    "any function that returns a wire-ready `0x309A` frame
+    (`make_update_attr_frame` and everything wrapping it)".  The reason COO
+    gives is the one this function's own measurement found: `encode_block`
+    is a pure byte composer with NO frame header, and bytes with no frame
+    header cannot leave the server -- so LANE-DB's `persistence_attr_
+    compose` tests do not get touched.  The old `[ASSUMPTION OF LANE-GM]`
+    tag is retired here; the wall now exists (see `make_update_attr_frame`),
+    so the guarantee below is no longer policy-only.
+    Measured before committing, not guessed: this function is the shared
+    low-level DBAttribute-body composer every caller in this repository
+    uses, not only this lane's own named-field door, and a sparse `values`
+    dict is a LEGITIMATE input to two things a completeness check here
+    would break --
+      * `persistence_attr_compose.py` (LANE-DB's own module,
+        `tests/test_persistence_attr_compose.py`,
+        `test_the_composed_block_sets_one_mask_bit_and_it_is_x7s`) calls
+        this function directly with a one-field block and asserts on the
+        resulting sparse mask -- outside this lane's write zone (`gm/`
+        only), so this lane may not edit it to match a widened contract;
+      * this lane's OWN `tests/test_gm_speed_shape_hold.py` measures GT-193's
+        REAL attended-round frame (`GT193_FRAME_LENGTH`,
+        `GT193_EMPTY_ACTOR_SECTION`) through this exact sparse call shape
+        -- that is measured history.  `COO-DECISION 20260904_0345` item 1
+        changed what that file PINS (the shape must now raise at the frame
+        exit: "pinning that the shape which killed a client can no longer be
+        built is worth more than pinning that it still can"), but the BODY
+        this function composes for it is still measurable, which is how that
+        file keeps the byte-level history it measured.
+    THE THIRD CALLER, the live one pf-adversary found, IS NOW CLOSED:
+    `speed_wire.compose_sparse_speed_update` reached this shape at runtime
+    through the `PF_SPEED_TRIAL` owner-only gate.  `COO-DECISION
+    20260904_0345` item 2 WITHDREW the 2026-09-03 06:46 approval of that
+    hatch (it predates `RE-222`) and that function now refuses every call;
+    `make_update_attr_frame` would refuse it a second time regardless.  So
+    (b'')'s guarantee is no longer narrower than its sentence: no partial
+    0x309A FRAME leaves this module, by any route, because the only function
+    that puts a header on a body checks the body first.  Sparse BODIES still
+    compose here, and cannot leave.  The LANE-B "Door B" scenario
+    `COO-DECISION 0046` item 2 named stays closed too (Door B composes
+    through `build_named_field_update`, per that module's own docstring: "a
+    caller sends" -- `capture_initial()` seeds the cache, it does not itself
+    reach `encode_block`).
+
     Paired mask bits (x39/x40 share one ActorAttr bit, as does x41/x42) are
     enforced HERE, not upstream: both halves of a pair must be present
     together or neither -- a caller that sets one without the other gets a
@@ -648,12 +828,55 @@ def encode_block(legacy, identity_lo: int, identity_hi: int, values: dict) -> tu
 def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: dict) -> tuple[bytes, bytes]:
     """Full runtime-vital envelope for one `UpdateAttrVital` (0x309A) send.
 
-    Not gated on `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` -- same separation
-    `state_wire.make_gm_update_state_frame` keeps from its own caller-side
-    gate: this is a pure byte builder, exercised freely by this module's own
-    tests; the gate lives at the one call site allowed to reach a real
-    socket, which this round has none of (see module docstring).
+    THIS IS WHERE (b'') IS ENFORCED, AND IT IS ENFORCED STRUCTURALLY
+    (`COO-DECISION 20260904_0345` item 1).  A frame that leaves here is a
+    frame that can go on a socket, so the completeness question is asked
+    HERE, of every caller, rather than only at `build_named_field_update`:
+    `values` must cover EVERY row in `all_field_x()` or this raises
+    `AttrWireError` and no frame exists at all.
+
+    WHY NOT `encode_block`, which `COO-DECISION 20260904_0215` named first
+    and this lane's `20260904_0309` alarm answered: `encode_block` composes
+    a DBAttribute body with NO frame header, and bytes with no frame header
+    cannot leave the server.  It stays sparse-capable on purpose -- LANE-DB's
+    `tests/test_persistence_attr_compose.py` and this lane's own shape
+    measurement (`speed_wire.declared_empty_sections`) both compose sparse
+    bodies deliberately and neither puts one on a wire.  Moving the raise up
+    one layer, to the function that adds the header, closes the hole that
+    alarm found (a future caller reaching past `build_named_field_update`
+    straight to the byte builders -- which is exactly what
+    `speed_wire.compose_sparse_speed_update` was doing) without touching a
+    peer lane's tests.  `build_named_field_update`'s own cache check stays
+    as the upper layer: it refuses EARLIER and with a better message, but it
+    is a rule addressed to callers, and this one is a wall.
+
+    THE UNIT IS `all_field_x()`, NOT `named_field_x()`: `RE-222` Q0
+    (SHA-pinned) says the client's apply is a full-object copy whose
+    constructor zeroes every field before decode, so an unset mask bit is a
+    ZERO on the screen, not "unchanged" -- for a `known=False` row exactly
+    as much as for `cash`.  That is the mechanism `GT-218` measured (HP
+    `0/1`, cash `0`, one frame).  x=30 (`SENSITIVE_FIELDS`) is required here
+    too and that is not a back door: see `unnamed_field_x`'s docstring --
+    carrying forward the login path's own byte for x=30 is a fact about this
+    character's row, not a value any caller chose.  The paired bits
+    (x39/x40, x41/x42) satisfy `encode_block`'s pair rule automatically once
+    every row is present.
+
+    Still not gated on `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` -- same
+    separation `state_wire.make_gm_update_state_frame` keeps from its own
+    caller-side gate.  That gate answers "may this vital be sent at all";
+    this one answers "is this frame shaped like the one that killed the
+    client".  Neither substitutes for the other.
     """
+    missing = [x for x in all_field_x() if x not in values]
+    if missing:
+        raise AttrWireError(
+            "refusing to build a 0x309A frame from a partial block: "
+            f"{len(values)} of {len(all_field_x())} rows present "
+            f"(missing={missing}) -- an unset mask bit is a ZERO on the "
+            "client, not 'unchanged' (RE-222 Q0, the mechanism GT-218 "
+            "measured); see COO-DECISION 20260904_0345 item 1"
+        )
     body, _basic_mask, _actor_mask = encode_block(legacy, identity_lo, identity_hi, values)
     payload = (
         legacy.u16tag(0x12, 1)
@@ -718,11 +941,25 @@ class RawBlockCache:
 
 
 # The name of chief's live-value read point, ordered by `COO-DECISION
-# 2026-09-04T00:47+07:00` and NOT YET BUILT.  Spelled once, here, so the day
-# it lands nothing in this lane has to be hunted for -- and so a test can
-# pin the name this lane is waiting on without importing a module that does
-# not exist.
+# 2026-09-04T00:47+07:00` and ~~NOT YET BUILT~~ LANDED IN `server#695`
+# (`CHIEF-TO-LANE-GM 20260904_0305` item 1, struck here rather than
+# rewritten so the wait is still legible).  It answers 4 of the 26 rows
+# `named_field_x()` asks for; x=9 (`COO-DECISION 0215` item 2) is not among
+# them yet.  Spelled once, here, so nothing in this lane has to be hunted
+# for -- and so a test can pin the name this lane reads by.
 LIVE_VALUE_READ_POINT = "current_named_attr_values"
+
+# The name of chief's SECOND read point -- the login-byte source (b'')
+# needs for every `known=False` row, ordered by `COO-DECISION
+# 2026-09-04T02:16+07:00` and NOT YET BUILT AT ALL (unlike
+# `LIVE_VALUE_READ_POINT`, which exists as a name chief still has to fill
+# in; this one is not even named on chief's side yet -- `0216` asks chief
+# to "name the login byte source for unnamed rows").  Spelled once, here,
+# for the same reason: a test can pin the name this lane is waiting on
+# without importing a module that does not exist, and the day chief lands
+# it (under this name or another -- see `live_login_bytes`'s own
+# docstring), nothing in this lane has to be hunted for.
+LOGIN_BYTES_READ_POINT = "current_login_attr_bytes"
 
 # The two console lines the seeding path may print, both pure ASCII (the
 # bridge console is cp874).  A refusal is the SHIPPED outcome today -- chief's
@@ -734,7 +971,8 @@ SEED_CAPTURED_CONSOLE_TOKEN = "GM_ATTR_SEED_CAPTURED"
 
 
 def named_field_x() -> tuple:
-    """Every `x` that (b') says must carry a real value on a send.
+    """Every `x` that (b'') says must carry a REAL, live value on a send
+    (as opposed to a login byte -- see `unnamed_field_x()`).
 
     `known=True` MINUS `SENSITIVE_FIELDS`, and the subtraction is not
     currently a no-op by luck: `SENSITIVE_FIELDS` holds x=30, which is
@@ -743,10 +981,40 @@ def named_field_x() -> tuple:
     must never be settable through this API "even once this field is renamed
     True".  Doing the subtraction here means that rename cannot quietly turn
     a sensitive blob into a required seed value.
+
+    Includes x=9 as of `COO-DECISION 20260904_0215` item 2 (`FIELDS` row 9's
+    own `known` column carries the change; nothing here had to move).
     """
     return tuple(
         field[0] for field in FIELDS if field[7] and field[0] not in SENSITIVE_FIELDS
     )
+
+
+def all_field_x() -> tuple:
+    """Every `x` in `FIELDS`, in table order -- the completeness bound
+    (b'') enforces on every 0x309A send (see `encode_block`'s own
+    docstring).  `named_field_x()` and `unnamed_field_x()` partition this
+    set exactly; `live_full_block_values` asserts that partition holds."""
+    return tuple(field[0] for field in FIELDS)
+
+
+def unnamed_field_x() -> tuple:
+    """Every `x` in `FIELDS` that is NOT in `named_field_x()` -- the rows
+    (b'') requires the SAME BYTES the login path already sends this
+    character, sourced from `live_login_bytes`, never a real-time read and
+    never zero-by-omission.
+
+    INCLUDES `SENSITIVE_FIELDS` (x=30).  This is deliberate and is not a
+    back door around that set: `SENSITIVE_FIELDS` forbids this module from
+    ever letting a caller CHOOSE x=30's value through `build_named_field_
+    update`'s `x` argument -- it says nothing about carrying forward
+    whatever byte the login path already sent for it today, which is a
+    fact about this character's existing row, not a value this lane
+    composed.  `build_named_field_update` still refuses `x=30` outright,
+    unchanged by this function existing.
+    """
+    named = set(named_field_x())
+    return tuple(field[0] for field in FIELDS if field[0] not in named)
 
 
 def live_named_values(character_id, *, hooks=None) -> dict:
@@ -768,10 +1036,31 @@ def live_named_values(character_id, *, hooks=None) -> dict:
     cost a refusal, never a send.
 
     THE HOOK IS RESOLVED LAZILY AND BY NAME.  `lane_hooks` modules import
-    this lane's modules, so an import at module scope would close a cycle;
-    and the attribute does not exist yet in any case, which is why the
-    "missing" branch is the shipped one.  `hooks` is injectable for tests --
-    the same seam every other module in this lane uses for a runtime object.
+    this lane's modules, so an import at module scope would close a cycle.
+    ~~and the attribute does not exist yet in any case, which is why the
+    "missing" branch is the shipped one.~~ -- struck 2026-09-04 round
+    `tof9cw`: chief LANDED `lane_hooks.current_named_attr_values` in
+    `server#695` and said so in `CHIEF-TO-LANE-GM 20260904_0305` item 1.
+    The point EXISTS; it answers 4 of the 26 rows this function wants (name,
+    level, hp_current, hp_max), so the shipped refusal today is
+    `missing_named_rows`, not `no_read_point`.  (b') is still not satisfied
+    and nobody claims it is.  `hooks` is injectable for tests -- the same
+    seam every other module in this lane uses for a runtime object.
+
+    THREE REFUSALS, THREE NAMES (`CHIEF-TO-LANE-GM 20260904_0305` item 3).
+    Chief's hook returns `{}` both when NOBODY REGISTERED A SOURCE in this
+    process and when a registered source knows nothing, and a dict cannot
+    carry that difference -- he prints `LANE_HOOK live_attr_values
+    NO_SOURCE_REGISTERED` once per process and asked this lane for the other
+    half.  It is here: an EMPTY answer is `no_source_registered`, a
+    non-empty but incomplete answer is `missing_named_rows`.  The split is
+    honest about its own edge -- a registered source that happens to know
+    ZERO rows is reported as `no_source_registered` too, because nothing in
+    the return contract can tell those apart, and this function will not
+    invent a distinction by reading `lane_hooks`' private state.  It matters
+    because 12 of the 13 processes that open a store in this repository
+    register no source at all: an operator reading `missing_named_rows: 26
+    absent` would go hunting for values that were never asked for.
     """
     if hooks is None:
         try:
@@ -795,6 +1084,16 @@ def live_named_values(character_id, *, hooks=None) -> dict:
         ) from None
     if not isinstance(values, dict):
         raise AttrWireError(f"not_a_mapping: read point returned {type(values).__name__}")
+    if not values:
+        # See this function's "THREE REFUSALS, THREE NAMES" paragraph: the
+        # empty answer is the one an operator must NOT read as "the server
+        # does not know these 26 values".
+        raise AttrWireError(
+            f"no_source_registered: lane_hooks.{LIVE_VALUE_READ_POINT} "
+            "answered nothing at all in this process -- either no source is "
+            "registered (grep the console for LANE_HOOK live_attr_values "
+            "NO_SOURCE_REGISTERED) or the registered source knows no row"
+        )
 
     wanted = named_field_x()
     seeded = {}
@@ -836,6 +1135,118 @@ def live_named_values(character_id, *, hooks=None) -> dict:
     return seeded
 
 
+def live_login_bytes(character_id, *, hooks=None) -> dict:
+    """Read every `unnamed_field_x()` row's LOGIN-SENT bytes, or raise
+    saying why not.
+
+    THIS IS THE SECOND HALF OF (b'') (`COO-DECISION 20260904_0215` item 1,
+    module docstring section "(b') IS NOW (b'')"): a `known=False` row may
+    not go unset, because an unset mask bit is a ZERO on the client, the
+    exact mechanism `RE-222` names for `GT-218`.  So these rows must carry
+    SOME byte too -- and the only byte this house has ever measured a real
+    client surviving for a row it has no name for is whatever the login
+    path already sends this character every single day.  Mirrors
+    `live_named_values` exactly: same all-or-nothing contract (a dict
+    covering every wanted row or a named `AttrWireError`, never a partial
+    answer), same validation, same reasoning for resolving the hook lazily
+    and by name.
+
+    READS A DIFFERENT HOOK FROM `live_named_values` -- `LOGIN_BYTES_READ_
+    POINT`, ordered by `COO-DECISION 20260904_0216` and NOT YET BUILT AT
+    ALL (chief has not even named it on her side yet; `LOGIN_BYTES_READ_
+    POINT`'s value is this lane's own proposal for what to call it, open to
+    chief renaming it -- see that constant's own comment).  So on a real
+    boot today this function refuses exactly like `live_named_values` did
+    before chief's first read point landed, for the same reason: nothing
+    calls it into existence by wanting it to exist.
+    """
+    if hooks is None:
+        try:
+            from .. import lane_hooks as hooks  # noqa: PLC0415 - see live_named_values
+        except Exception as error:  # noqa: BLE001 - any import failure is a refusal
+            raise AttrWireError(
+                f"no_login_byte_read_point: lane_hooks is unimportable "
+                f"({type(error).__name__})"
+            ) from None
+    read_point = getattr(hooks, LOGIN_BYTES_READ_POINT, None)
+    if not callable(read_point):
+        raise AttrWireError(
+            f"no_login_byte_read_point: lane_hooks.{LOGIN_BYTES_READ_POINT} "
+            f"does not exist yet (ordered by COO-DECISION 20260904_0216)"
+        )
+    try:
+        values = read_point(character_id)
+    except Exception as error:  # noqa: BLE001 - a hook may never take dispatch down
+        raise AttrWireError(
+            f"login_read_point_raised_{type(error).__name__}"
+        ) from None
+    if not isinstance(values, dict):
+        raise AttrWireError(
+            f"not_a_mapping: login byte read point returned {type(values).__name__}"
+        )
+    if not values:
+        # Symmetric with `live_named_values`, and for the same reason
+        # (`CHIEF-TO-LANE-GM 20260904_0305` item 3): an empty answer is a
+        # missing SOURCE, not 29 rows this server happens not to know.
+        # Written now rather than when chief's second point lands, because
+        # the asymmetry would be invisible until the day it misled someone.
+        raise AttrWireError(
+            f"no_login_byte_source_registered: lane_hooks."
+            f"{LOGIN_BYTES_READ_POINT} answered nothing at all in this "
+            "process"
+        )
+
+    wanted = unnamed_field_x()
+    seeded = {}
+    absent = []
+    unsendable = []
+    for x in wanted:
+        if x not in values:
+            absent.append(x)
+            continue
+        field = BY_X[x]
+        try:
+            validate_field_value(field, values[x])
+        except AttrWireError:
+            unsendable.append(x)
+            continue
+        seeded[x] = values[x]
+    if absent or unsendable:
+        parts = []
+        if absent:
+            parts.append("absent=" + ",".join(str(x) for x in absent))
+        if unsendable:
+            parts.append("unsendable=" + ",".join(str(x) for x in unsendable))
+        raise AttrWireError("missing_login_rows: " + " ".join(parts))
+    return seeded
+
+
+def live_full_block_values(character_id, *, hooks=None) -> dict:
+    """(b'') IN FULL: a dict covering every `FIELDS` row, or a named
+    `AttrWireError`, never a partial answer -- this is the ONLY function
+    `seed_cache_from_live_values` calls, so nothing in this module can seed
+    a cache from one source alone.
+
+    Combines `live_named_values` (real value, `known=True` rows including
+    x=9) and `live_login_bytes` (login byte, everything else, including
+    `SENSITIVE_FIELDS`).  Either source refusing refuses the WHOLE block --
+    `COO-DECISION 20260904_0215` item 1: "no byte source for any row = the
+    door refuses the whole thing, never a partial send." `live_named_values`
+    is tried first, so a boot missing chief's first read point (today's
+    shipped world) reports `no_read_point`, not the second point's absence
+    -- an operator fixes chief's read points in the order this lane needs
+    them, not in whichever order two exceptions happened to interleave.
+    """
+    named = live_named_values(character_id, hooks=hooks)
+    unnamed = live_login_bytes(character_id, hooks=hooks)
+    combined = {**named, **unnamed}
+    assert set(combined) == set(all_field_x()), (
+        "live_full_block_values internal invariant broken: named_field_x() "
+        "and unnamed_field_x() must partition FIELDS exactly"
+    )
+    return combined
+
+
 def seed_cache_from_live_values(
     cache: RawBlockCache,
     character_id,
@@ -845,10 +1256,12 @@ def seed_cache_from_live_values(
 ) -> bool:
     """Seed one connection's cache from the live values, or refuse out loud.
 
-    Returns True only when the cache now holds a real, complete named-field
-    baseline.  NEVER RAISES: this is the function a future dispatch path
-    calls before composing, and this module's founding property is that an
-    accepted command never vanishes without a console line.
+    Returns True only when the cache now holds a real, COMPLETE (b'') block
+    -- every `FIELDS` row, real value for `known=True`, login byte for
+    `known=False` (see `live_full_block_values`).  NEVER RAISES: this is
+    the function a future dispatch path calls before composing, and this
+    module's founding property is that an accepted command never vanishes
+    without a console line.
 
     ~~TODAY IT ALWAYS RETURNS FALSE~~ -- struck by pf-adversary (round
     `3qh50k`, D12, MEASURED): it returns True in three lines through the
@@ -871,8 +1284,12 @@ def seed_cache_from_live_values(
     NO BYTES CAN LEAVE THROUGH HERE UNDER ANY OUTCOME.  This function seeds a
     cache; it does not compose, and it does not send.  What stands between a
     seeded cache and a socket is `build_named_field_update`, which refuses
-    every `known=False` row, refuses an unseeded cache, and (since D10)
-    refuses a cache that does not satisfy (b') in full.
+    every `known=False` row as a CHOSEN value, refuses an unseeded cache,
+    and (since D10, widened by `COO-DECISION 20260904_0215`) refuses a
+    cache that does not satisfy (b'') in full.  `encode_block` itself stays
+    a general-purpose composer that still accepts a partial `values` --
+    see that function's own docstring for why (b'') is enforced at this
+    door instead, not one layer further down.
     ~~and `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` still gates the one exception
     site that may reach a socket~~ -- struck as MISLEADING HERE (D12): that
     constant is real and untouched, but it does not gate THIS path.
@@ -886,7 +1303,7 @@ def seed_cache_from_live_values(
     if stream is None:
         stream = sys.stderr
     try:
-        values = live_named_values(character_id, hooks=hooks)
+        values = live_full_block_values(character_id, hooks=hooks)
     except AttrWireError as error:
         _print_seed_line(stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, str(error))
         return False
@@ -937,7 +1354,7 @@ def seed_cache_from_live_values(
         stream,
         SEED_CAPTURED_CONSOLE_TOKEN,
         character_id,
-        f"named_rows={len(held)}",
+        f"rows={len(held)}",
     )
     return True
 
@@ -987,33 +1404,35 @@ def build_named_field_update(
             f"field x={x} ({field[6]}) is not in this round's known-field "
             f"scope -- see attr_wire module docstring 'provisional decision'"
         )
-    # (b') IS ENFORCED AT THE DOOR, NOT ONLY IN THE HELPER THAT SEEDS
-    # (pf-adversary, round `3qh50k`, D10, and it is the finding that changed
-    # this round's shape).  `seed_cache_from_live_values` refuses an
-    # incomplete answer -- but `RawBlockCache.capture_initial` is PUBLIC and
-    # unvalidated, and `COO-DECISION 20260904_0046` item 2 names TWO
-    # consumers of chief's read point: this lane's seeder AND LANE-B's Door
-    # B, which was ordered to call `capture_initial()` -- the function the
-    # helper does not gate.  A peer lane doing exactly what it was told,
-    # with a hook that omits `cash` for a row whose cash is NULL, would
-    # compose 25 of 26 bits here and the client's full-object copy would
-    # zero the missing one.  That is GT-218's mechanism with the new gate
-    # fully installed and looking the other way.
+    # (b'') IS ENFORCED AT THE DOOR, NOT ONLY IN THE HELPER THAT SEEDS
+    # (pf-adversary, round `3qh50k`, D10; WIDENED from named-only to every
+    # FIELDS row by `COO-DECISION 20260904_0215`).  `seed_cache_from_live_
+    # values` refuses an incomplete answer -- but `RawBlockCache.capture_
+    # initial` is PUBLIC and unvalidated, and `COO-DECISION 20260904_0046`
+    # item 2 names TWO consumers of chief's read point: this lane's seeder
+    # AND LANE-B's Door B, which was ordered to call `capture_initial()` --
+    # the function the helper does not gate.  A peer lane doing exactly
+    # what it was told, with a hook that omits one row, would compose an
+    # incomplete block here and the client's full-object copy would zero
+    # the missing one.  That is GT-218's mechanism with the new gate fully
+    # installed and looking the other way.
     #
     # So the completeness question is asked HERE, where every consumer must
     # pass, and it is asked of the CACHE rather than of whoever filled it.
     # `merged_with` already refuses an unseeded cache; this refuses a
     # half-seeded one, which is the more dangerous of the two because it
-    # composes.
+    # composes.  `encode_block` does NOT also refuse it (deliberately --
+    # see that function's own docstring): this is the one door (b'')
+    # governs, not the shared low-level composer every lane uses.
     held = set(cache.current_values())
-    wanted = set(named_field_x())
+    wanted = set(all_field_x())
     if held != wanted:
         raise AttrWireError(
-            "cache does not satisfy unlock (b'): it holds "
-            f"{len(held)} of {len(wanted)} named rows "
+            "cache does not satisfy unlock (b''): it holds "
+            f"{len(held)} of {len(wanted)} FIELDS rows "
             f"(missing={sorted(wanted - held)}, unexpected={sorted(held - wanted)})"
             " -- an unset mask bit is a ZERO on the client, not 'unchanged'"
-            " (see the module docstring, section \"(b) IS NOW (b')\")"
+            " (see the module docstring, section \"(b') IS NOW (b'')\")"
         )
     merged = cache.merged_with({x: value})
     pc, frame = make_update_attr_frame(legacy, identity_lo, identity_hi, merged)
