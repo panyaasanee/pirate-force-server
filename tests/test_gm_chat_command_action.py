@@ -947,13 +947,16 @@ class SessionSurfaceTests(_Case):
         # earning its place on the WRITE, which is the half that matters.
         "_gm_action_queued_confirm",
         # CHAT-TAIL-001, round `uyzr8c`.  READ then WRITTEN, and ONLY on a
-        # frame whose payload was not a bare chat body -- so the case below,
-        # which sends the ordinary single-vital payload every capture holds,
-        # never touches it and would still fail if the module started
-        # latching unconditionally.  It is the bound on
+        # frame whose payload was not a bare chat body.  It is the bound on
         # `LANE_GM_CHAT_TAIL` console lines (one per reason per connection),
         # held on the session because two connections must not silence each
         # other.  Underscore-prefixed for the same reason as the entry above.
+        # !! THIS ENTRY WIDENS THE ALLOWLIST AND THE TEST BELOW CANNOT
+        # NARROW IT BACK -- the assertion is a SUBSET check, so a module
+        # that started latching on EVERY frame would still pass here
+        # (pf-adversary D6, round `uyzr8c`, measured).  The case that fails
+        # instead is `test_a_frame_with_no_tail_never_writes_the_latch` in
+        # tests/test_gm_chat_frame_tail.py; do not read this line as a guard.
         chat_command_action.SESSION_CHAT_TAIL_REPORTED,
     }
     ALLOWED_ON_SELECTED = {"position", "id"}

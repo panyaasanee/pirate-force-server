@@ -329,15 +329,37 @@ class RefusedTailTests(_Case):
     def test_a_payload_that_is_not_bytes_is_named_not_crashed(self):
         self.assertRefused(self.split("/warp 2"), chat_frame_tail.PAYLOAD_NOT_BYTES)
 
-    def test_a_payload_over_the_split_ceiling_is_refused_before_any_work(self):
-        oversized = make_chat_payload(
-            "x" * chat_frame_tail.MAX_SPLIT_PAYLOAD_LENGTH
+    def test_a_known_vital_followed_by_an_unknown_one_still_stops_the_walk(self):
+        """The only shape that tells fail-closed apart from salvage.
+
+        pf-adversary (D4) turned the unknown-id return into
+        `if length is None and ids: return TAIL_WALKED` -- a partial-walk
+        salvage that hands the route a body whose frame end was never
+        established -- and every test passed, because the sibling case above
+        puts the unknown vital FIRST, where `ids` is still empty.
+        """
+        split = self.split(
+            make_chat_payload("/warp 2 100 200")
+            + self.target_pos_vital()
+            + nested_vital(0x4321, b"\x00" * 8)
         )
-        self.assertGreater(
-            len(oversized), chat_frame_tail.MAX_SPLIT_PAYLOAD_LENGTH
-        )
+        self.assertRefused(split, chat_frame_tail.TAIL_UNKNOWN_VITAL_ID)
+
+    def test_a_declared_length_that_overshoots_the_tail_is_refused(self):
+        """A declared body that runs off the end of the tail.
+
+        !! AND THE EXPLICIT GUARD IS NOT PINNED BY IT, said plainly rather
+        than implied: pf-adversary (D11) deleted `if cursor.remain() <
+        length` and this case still passes, because the overshoot makes the
+        next header read raise and land on the same refusal name.  The guard
+        is defence in depth whose removal is behaviour-preserving today, and
+        this round could not build an input that separates the two.
+        """
+        vital_id = self.legacy.ACTION_VITAL
+        short = nested_vital(vital_id, b"\x00" * (self.table[vital_id] - 1))
         self.assertRefused(
-            self.split(oversized), chat_frame_tail.PAYLOAD_TOO_LARGE_TO_SPLIT
+            self.split(make_chat_payload("/warp 2") + short),
+            chat_frame_tail.TAIL_TRUNCATED,
         )
 
     def test_more_tail_vitals_than_a_frame_may_carry_is_refused(self):
@@ -443,6 +465,157 @@ class TheRouteTests(_Case):
             session.events,
         )
 
+    def test_a_non_gm_reaches_no_decode_no_event_and_no_console_line(self):
+        """IDENTITY FIRST, and the whole of pf-adversary's D1.
+
+        The first draft split before `handle_local_talk_chat`, so a
+        stranger's chat line reached a UTF-16 decode, an events append and a
+        stderr write -- falsifying this module's own measured sentence and
+        `runtime.py`'s "a non-GM chat line produces stdout='' AND stderr=''".
+        """
+        session = FakeSession(token=self.PLAYER_ACCOUNT)
+        payload = make_chat_payload("/warp 2 100 200") + self.target_pos_vital()
+        decoded = []
+        stream = io.StringIO()
+        real_decode = chat_command.decode_local_talk_payload
+
+        def spy(raw):
+            decoded.append(len(raw))
+            return real_decode(raw)
+
+        with mock.patch.object(
+            chat_frame_tail, "decode_local_talk_payload", spy
+        ), mock.patch.object(
+            chat_command, "decode_local_talk_payload", spy
+        ), contextlib.redirect_stderr(
+            stream
+        ), self.open_the_version_gate():
+            self.act(session, payload)
+        self.assertEqual(decoded, [])
+        self.assertEqual(self.tail_events(session), [])
+        self.assertNotIn(chat_frame_tail.CHAT_TAIL_TOKEN, stream.getvalue())
+
+    def test_the_payload_ceiling_is_still_read_before_any_split_work(self):
+        """The 4096 ceiling applies to the WHOLE payload, as it did on main.
+
+        Also pf-adversary D1: with the split first, an 8 KB payload reached
+        a full decode before the ceiling that exists to prevent exactly that.
+        """
+        session = FakeSession()
+        payload = (
+            make_chat_payload("/warp 2 " + "9" * chat_command.MAX_CHAT_PAYLOAD_LENGTH)
+            + self.target_pos_vital()
+        )
+        self.assertGreater(len(payload), chat_command.MAX_CHAT_PAYLOAD_LENGTH)
+        with self.open_the_version_gate():
+            action = self.act(session, payload)
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_REFUSED_PREFIX}"
+            f"{chat_command.REFUSAL_PAYLOAD_TOO_LARGE}",
+            session.events,
+        )
+        self.assertEqual(self.tail_events(session), [])
+
+    def test_a_session_with_no_token_never_reaches_the_split(self):
+        """pf-adversary D11/M8: the ordering claim, pinned.
+
+        Moving the split above the token and payload guards left every test
+        green while a pre-login session ran the whole decode, table build,
+        console print and event write.
+        """
+        session = FakeSession(token=None)
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream), self.open_the_version_gate():
+            action = self.act(
+                session, make_chat_payload("/warp 2") + self.target_pos_vital()
+            )
+        self.assertIsNone(action)
+        self.assertEqual(self.tail_events(session), [])
+        self.assertNotIn(chat_frame_tail.CHAT_TAIL_TOKEN, stream.getvalue())
+
+    def test_a_refused_split_hands_back_the_callers_own_object(self):
+        """pf-adversary D5: "the caller keeps what it had", measured.
+
+        Returning `split.body` (None on every refusal) instead of `payload`
+        on the non-quiet branch passed every test, and turned the frame's
+        own named refusal into `gm_chat_action_unexpected_TypeError` -- the
+        module blaming itself for the client's bytes.
+        """
+        session = FakeSession()
+        payload = make_chat_payload("/warp 2") + nested_vital(0x4321, b"\x00" * 8)
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            handed_back = chat_command_action._isolated_chat_payload(
+                session, payload, self.legacy
+            )
+        self.assertIs(handed_back, payload)
+
+    def test_a_frame_with_no_tail_hands_back_the_callers_own_object(self):
+        session = FakeSession()
+        payload = make_chat_payload("/warp 2 100 200")
+        self.assertIs(
+            chat_command_action._isolated_chat_payload(
+                session, payload, self.legacy
+            ),
+            payload,
+        )
+
+    def test_an_unwalkable_tail_keeps_the_codec_refusal_and_names_no_bug(self):
+        session = FakeSession()
+        payload = make_chat_payload("/warp 2 100 200") + nested_vital(
+            0x4321, b"\x00" * 8
+        )
+        with self.open_the_version_gate():
+            self.act(session, payload)
+        self.assertTrue(
+            any(
+                event.startswith(chat_command_action.EVENT_REFUSED_PREFIX)
+                and chat_command.REFUSAL_UNDECODABLE_PREFIX in event
+                for event in session.events
+            ),
+            session.events,
+        )
+        self.assertFalse(
+            any(
+                event.startswith(chat_command_action.EVENT_UNEXPECTED_PREFIX)
+                for event in session.events
+            ),
+            session.events,
+        )
+
+    def test_a_frame_that_decodes_never_reaches_the_split_at_all(self):
+        """The strongest form of pf-adversary's D6, after D1 moved the call.
+
+        A single-vital frame decodes on the first try, so the retry branch
+        is not entered and `_isolated_chat_payload` never runs -- no latch,
+        no event, no console line, and nothing for a latching mutant to do.
+        Pinned on the call itself rather than on its effects, because the
+        session-surface guard next door is a SUBSET assertion and cannot
+        narrow the allowlist entry this round added to it.
+        """
+        session = FakeSession()
+        with mock.patch.object(
+            chat_frame_tail, "split_local_talk_payload"
+        ) as never, self.open_the_version_gate():
+            action = self.act(session, make_chat_payload("/warp 2 100 200"))
+        self.assertIsNotNone(action)
+        never.assert_not_called()
+        self.assertFalse(
+            hasattr(session, chat_command_action.SESSION_CHAT_TAIL_REPORTED)
+        )
+
+    def test_the_split_itself_writes_no_latch_when_there_is_no_tail(self):
+        """And if it is ever called with one anyway, it still must not."""
+        session = FakeSession()
+        chat_command_action._isolated_chat_payload(
+            session, make_chat_payload("/warp 2 100 200"), self.legacy
+        )
+        self.assertFalse(
+            hasattr(session, chat_command_action.SESSION_CHAT_TAIL_REPORTED)
+        )
+        self.assertEqual(self.tail_events(session), [])
+
     def test_the_console_line_is_latched_to_one_per_reason_per_session(self):
         session = FakeSession()
         payload = make_chat_payload("/warp 2 100 200") + self.target_pos_vital()
@@ -517,24 +690,105 @@ class TheRouteTests(_Case):
         )
 
 
+class SplitCeilingTests(_Case):
+    """`MAX_SPLIT_PAYLOAD_LENGTH`, pinned in BOTH directions.
+
+    pf-adversary (D3) raised the constant to ~851 MB and every test passed,
+    because the oversized-input case derives its payload FROM the constant
+    and is therefore oversized for any value of it.  A literal pin plus a
+    re-derivation is the only shape that catches the widening direction.
+    """
+
+    def test_the_ceiling_is_the_number_it_has_always_been(self):
+        self.assertEqual(chat_frame_tail.MAX_SPLIT_PAYLOAD_LENGTH, 8512)
+
+    def test_the_ceiling_is_still_what_its_three_inputs_make_it(self):
+        self.assertEqual(
+            chat_frame_tail.MAX_SPLIT_PAYLOAD_LENGTH,
+            chat_command.MAX_CHAT_PAYLOAD_LENGTH
+            + vital_walk.MAX_VITALS_PER_FRAME * (5 + 64),
+        )
+
+    def test_no_declared_body_in_the_table_is_longer_than_the_ceiling_assumes(self):
+        """The guard for the typed 64 (pf-adversary D9).
+
+        The constant cannot read the table -- the table needs `legacy` and
+        the constant is built at import -- so the day LANE-E declares a
+        longer body, this fails instead of a legitimate frame quietly
+        refusing as `payload_too_large_to_split`.
+        """
+        self.assertLessEqual(max(self.table.values()), 64)
+
+    def test_a_payload_over_the_ceiling_is_refused(self):
+        oversized = make_chat_payload(
+            "x" * chat_frame_tail.MAX_SPLIT_PAYLOAD_LENGTH
+        )
+        split = self.split(oversized)
+        self.assertEqual(split.reason, chat_frame_tail.PAYLOAD_TOO_LARGE_TO_SPLIT)
+        self.assertIsNone(split.body)
+
+
 class ConsoleLineTests(_Case):
-    def test_the_line_is_ascii_and_names_the_reason_and_the_ids(self):
+    # Every field the line may carry, in order.  A test that greps the line
+    # for a leaked sentence CANNOT WORK -- the chat body is UTF-16LE, so
+    # `assertNotIn("password", line)` never matches `p\x00a\x00s\x00s\x00`,
+    # which is how pf-adversary's D2 mutant printed the whole typed sentence
+    # past the old guard.  Fixing the shape of the whole line is the only
+    # guard that fires.
+    LINE_PATTERN = (
+        r"^LANE_GM_CHAT_TAIL reason=[a-z_]+ tail_vitals=\d+ "
+        r"ids=(none|0x[0-9A-F]{4}(,0x[0-9A-F]{4})*) chat_bytes=(none|\d+) "
+        r"payload_bytes=\d+ vital_count=unavailable$"
+    )
+
+    def test_the_walked_line_carries_these_fields_and_nothing_else(self):
         body = make_chat_payload("/warp 2 100 200")
-        split = self.split(body + self.target_pos_vital())
-        line = chat_frame_tail.tail_console_line(split, len(body) + 29)
+        payload = body + self.target_pos_vital()
+        line = chat_frame_tail.tail_console_line(
+            self.split(payload), len(payload)
+        )
         line.encode("ascii")
+        self.assertRegex(line, self.LINE_PATTERN)
         self.assertIn(f"reason={chat_frame_tail.TAIL_WALKED}", line)
         self.assertIn("tail_vitals=1", line)
         self.assertIn("0x%04X" % self.legacy.TARGET_POS_VITAL, line)
         self.assertIn(f"chat_bytes={len(body)}", line)
+
+    def test_the_line_cannot_carry_the_body_even_in_a_codec_it_survives(self):
+        """The D2 mutant's own payload, checked the way that catches it."""
+        secret = "hunter2"
+        payload = make_chat_payload(secret) + self.target_pos_vital()
+        line = chat_frame_tail.tail_console_line(
+            self.split(payload), len(payload)
+        )
+        self.assertRegex(line, self.LINE_PATTERN)
+        self.assertNotIn(secret, line)
+        # And the UTF-16 spelling the ASCII check above would miss.
+        self.assertNotIn(
+            secret.encode("utf-16-le").replace(b"\x00", b"").decode("latin-1"),
+            line.replace("\x00", ""),
+        )
 
     def test_a_refusal_line_says_none_where_there_is_no_body(self):
         split = self.split(
             make_chat_payload("/warp 2") + nested_vital(0x4321, b"\x00" * 8)
         )
         line = chat_frame_tail.tail_console_line(split, 40)
+        self.assertRegex(line, self.LINE_PATTERN)
         self.assertIn("chat_bytes=none", line)
         self.assertIn("ids=none", line)
+
+    def test_the_line_never_claims_to_know_the_frames_vital_count(self):
+        """pf-adversary D8: this token cannot retire the round's nonclaim.
+
+        `parsed.vital_count` is not passed to this lane, so `tail_walked`
+        cannot tell a bundled second vital from trailing bytes shaped like
+        one.  The word `unavailable` is on the line so an attended round
+        cannot cite it as the first capture of a multi-vital chat frame.
+        """
+        payload = make_chat_payload("/warp 2") + self.target_pos_vital()
+        line = chat_frame_tail.tail_console_line(self.split(payload), len(payload))
+        self.assertIn("vital_count=unavailable", line)
 
 
 class QuietReasonTests(_Case):

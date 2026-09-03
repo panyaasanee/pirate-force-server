@@ -8051,13 +8051,17 @@ behaviour byte for byte. `chat_command_action._isolated_chat_payload` is the one
 immediately before `handle_local_talk_chat` so identity is still decided in exactly the same
 place, by exactly the same code.
 
-**The two-source shape of the chat body** (G1, and the second source was found this round):
+**The two-source shape of the chat body, and where a reader can and cannot check it.**
 `external/PF_SERIALIZER_FIELDS.tsv` gives `Channel_LocalTalkMessageVital` exactly TWO fields, W
 and R alike, both `UNTAGGED_WSTRING16LE_LEN32LE` `4+N_bytes` -- there is no third field, which is
 the property that makes the body self-delimiting. The capture layer (GT-006/GT-009, three
-samples, three lengths) gives `5 + n1 + 5 + n2 == payload length`. The two disagree by one byte
-per field (the `0x48` tag the captures carry and the table calls untagged); this round does not
-resolve that and does not need to, because it reads the shape the shipped decoder already reads.
+samples, three lengths) gives `5 + n1 + 5 + n2 == payload length`. **That first artifact is NOT
+IN THIS REPOSITORY** -- it lives in the `pf_bridge` checkout beside it and `.gitignore` here is
+deny-all, so nobody cloning the server can open it (pf-adversary D12). Read the label as "one
+source at HEAD, one source next door", not as a two-source claim this tree can settle. The two
+also **disagree by one byte per field** (the `0x48` tag the captures carry and the table calls
+untagged); this round does not resolve that and does not need to, because it reads the shape the
+shipped decoder already reads.
 
 **NONCLAIM.** NO CAPTURED CHAT FRAME CARRYING A SECOND VITAL EXISTS. Every multi-vital frame in
 the tests is built by hand. What is measured is that this client bundles up to five vitals into
@@ -8072,3 +8076,55 @@ the frame, `parsed.nested_id` is not `0xAC52` and the GM chat branch in `runtime
 entered at all -- this module is called too late to help. Letter to chief,
 `pf_bridge/notes_to_chief/20260903_1230_LANE-GM-TO-CHIEF-chat-route-cannot-see-a-chat-vital-that-is-not-first.md`,
 with both routes costed and the byte-level disagreement above written down for whoever takes it.
+
+**pf-adversary, round `uyzr8c`, and what it changed before this landed.** Fourteen defects, six
+surviving mutants, and the central one rewrote the design.
+
+**D1 (the one that mattered).** The first draft split the payload BEFORE
+`handle_local_talk_chat`, and the measurement was unanswerable: a non-GM's chat line now reached a
+UTF-16 decode, a `session.events` append and a stderr write -- falsifying this module's own
+`[MEASURED]` sentence ("a non-GM still causes no write, no decode and no rate-limit charge") and
+`runtime.py:6984`'s ("a non-GM chat line produces stdout='' AND stderr=''"), and moving an 8 KB
+decode ahead of the 4096-byte ceiling that exists to prevent it. The fix is to ask the question
+SECOND: run `handle_local_talk_chat` unchanged, and only on `chat_payload_undecodable_*` -- a
+refusal returned below the identity check, below the size ceiling and above the rate limiter and
+the audit writer -- isolate the body and retry. Identity-first is restored exactly, the ceiling
+applies to the whole payload again, no limiter slot is spent twice and no audit row is written
+twice, and a stranger cannot drive one byte of this code.
+
+**The five other surviving mutants, all now dead.** D2: `body=%r` on the console line printed the
+GM's whole sentence and passed, because the body is UTF-16LE and `assertNotIn("password")` cannot
+match `p\x00a\x00s\x00s\x00` -- the line's fields are now pinned by an exact regex instead.
+D3: the ceiling could be raised to 851 MB, because the oversized-input test derived its payload
+from the constant and was a tautology -- pinned as a literal plus a re-derivation. D4: the
+fail-closed line could be turned into a partial-walk salvage, because every unknown-id case put
+the unknown vital first, where the salvage guard cannot fire -- there is now a known-then-unknown
+case. D5: returning `split.body` (None on a refusal) turned the client's named refusal into
+`gm_chat_action_unexpected_TypeError`, the module blaming itself for the wire -- the non-quiet
+branch is pinned on object identity now. D6: `SessionSurfaceTests` is a SUBSET assertion, so the
+allowlist entry this round added could never narrow back -- the latch is pinned where it actually
+lives, and after D1 a decodable frame does not reach the split at all.
+
+**Three findings accepted and written down rather than fixed.** D7: `session.events` is echoed to
+stdout per append by `runtime.py`'s `_EventEchoList` under `--export-events`, so calling it a
+quiet trail was wrong; the event is left un-latched (latching it would make the count lie) and the
+docstring no longer claims it is bounded -- what bounds it now is that only an allowlisted GM can
+reach it. D8: the console line cannot carry `parsed.vital_count`, because the call site is not
+given `parsed`, so `reason=tail_walked` cannot separate "the client bundled a vital" from
+"trailing bytes shaped like one" -- the line therefore prints `vital_count=unavailable` in so many
+words, so no attended round can cite it as the capture that retires the NONCLAIM above. D10: the
+frames this makes commandable are exactly the frames `vital_walk` refuses (0xAC52 has no declared
+length and can have none), so the R303 position freeze is NOT fixed for them and this module
+discards the very number that would fix it -- named as a cost in the module docstring and handed
+to LANE-E in the letter. D11's `remain() < length` mutant is behaviour-preserving today and the
+round says so instead of inventing a case that does not exist.
+
+**What the tester can do today that she could not yesterday.** Yesterday, a `/warp` or `/speed`
+typed while the character was moving could vanish, and the console said
+`chat_payload_undecodable_ChatDecodeError` whether the frame was corrupt or the client had simply
+bundled a second vital into it -- one word for two very different worlds. Today that command
+RUNS if the tail is entirely vitals the server can account for, and if it is not, the console
+carries `LANE_GM_CHAT_TAIL reason=... tail_vitals=N ids=0x.... vital_count=unavailable`, once per
+reason per connection. And the null result is usable too: an attended run of `GT-192` or `GT-218`
+that never prints that token is evidence that this client's chat frames really do carry one vital,
+which is what every capture has said and what the NONCLAIM above still rests on.

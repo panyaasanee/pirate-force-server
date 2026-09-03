@@ -55,10 +55,28 @@ identity is still decided there, against ``gm_accounts``, on
 multi-vital frame could already reach the same command by sending the chat
 body alone, so this grants no reach that was not already there.
 
-WHAT IT DOES NOT DO: it does not consume, forward or act on the tail vitals.
-They were invisible to every lane on this path before this file existed and
-they are invisible after it.  A movement that rode along with a chat line is
-still not processed -- this module only proves where the chat body ENDS.
+WHAT IT DOES NOT DO, AND THIS IS A COST RATHER THAN A VIRTUE.  It does not
+consume, forward or act on the tail vitals.  They were invisible to every
+lane on this path before this file existed and they are invisible after it.
+Say the consequence in R303's own terms, because pf-adversary (D10, round
+`uyzr8c`) is right that the neutral wording hid it: 0xAC52 has no row in
+``vital_walk.body_length_table`` and can never have one (its body is two
+length-prefixed strings, not a declared length), so a frame that LEADS with
+0xAC52 is exactly a frame ``walk_nested_vitals`` refuses with
+``unknown_vital_id`` -- the TargetPos-promotion lane stands down and the
+R303 position freeze is NOT fixed for it.  This module computes the one
+number that would fix that (``boundary`` IS the chat vital's body length)
+and then discards it.  Handing it to LANE-E is the letter
+``20260903_1230_LANE-GM-TO-CHIEF-chat-route-cannot-see-a-chat-vital-that-is-
+not-first.md``, not a change this lane may make in ``vital_walk.py``.
+
+WHERE IT SITS IN THE CALL, which is load-bearing after pf-adversary's D1:
+``chat_command_action`` asks this module only AFTER
+``handle_local_talk_chat`` has authorized the account and refused the frame
+as ``chat_payload_undecodable_*``.  A non-GM therefore reaches nothing here
+-- no decode, no event, no console line -- and a payload over
+``MAX_CHAT_PAYLOAD_LENGTH`` is refused by that ceiling before any of this
+runs.  The first draft asked first and cost both properties.
 """
 from dataclasses import dataclass
 import struct
@@ -84,6 +102,11 @@ NO_TAIL = "no_tail"
 TAIL_WALKED = "tail_walked"
 
 # Refusal names.  Every one of them means "the caller keeps what it had".
+# `PAYLOAD_NOT_BYTES` is DEAD ON THE WIRE PATH and named here so no coverage
+# claim is made about it: `make_gm_chat_command_action` refuses a non-bytes
+# payload with its own event before this module is reached (pf-adversary
+# D14).  It stays because this function is public and a future caller does
+# not inherit that check.
 PAYLOAD_NOT_BYTES = "payload_not_bytes"
 PAYLOAD_TOO_LARGE_TO_SPLIT = "payload_too_large_to_split"
 CHAT_PREFIX_UNREADABLE = "chat_prefix_unreadable"
@@ -101,8 +124,14 @@ TAIL_REFUSED_TO_ANSWER = "tail_refused_to_answer"
 # refusal (pf-adversary D3, round `9wy444`: 100 lines from 100 frames).
 QUIET_REASONS = (NO_TAIL, PAYLOAD_NOT_BYTES, CHAT_PREFIX_UNREADABLE)
 
-# The largest body any declared row can have today, read from the table
-# rather than typed: the walk cannot need more than this per vital.
+# The largest body any declared row has today.  IT IS TYPED, and the earlier
+# comment claiming it was "read from the table" was simply false
+# (pf-adversary D9): the table needs a `legacy` module and this constant is
+# built at import time, where there is none.  What keeps it honest is a test
+# -- `MaxDeclaredBodyTests` asserts `max(body_length_table(legacy).values())`
+# is not above this number -- so the day LANE-E declares a longer body, the
+# suite says so instead of a legitimate frame quietly refusing as
+# `payload_too_large_to_split`.
 _MAX_DECLARED_BODY = 64
 
 # Nested vital header: `u16(tag 0x12)` id + `u8(tag 0x0B)` version, the same
@@ -110,10 +139,15 @@ _MAX_DECLARED_BODY = 64
 # invariant is built on (`vital_walk._isolated`).
 _NESTED_HEADER_LENGTH = 5
 
-# A bound on what will even be considered for a split, so this file cannot
-# turn a size refusal into work.  `handle_local_talk_chat` refuses a payload
-# over MAX_CHAT_PAYLOAD_LENGTH; with a tail, the payload legitimately holds a
-# body up to that ceiling PLUS whole vitals, and nothing more.
+# A bound on what will even be considered for a split.  It is a WORK bound,
+# not the security bound it was in the first draft: since D1 moved the split
+# below `handle_local_talk_chat`, a payload over MAX_CHAT_PAYLOAD_LENGTH is
+# already refused by that ceiling and never arrives here at all.  What is
+# left for this number to do is cap the arithmetic on a frame that IS under
+# the ceiling, at the largest size a real one could be: a body up to the
+# ceiling PLUS whole declared vitals, and nothing more.  Pinned as a literal
+# by `SplitCeilingTests`, because a test that derives its oversized input
+# from the constant passes for every value of it (pf-adversary D3).
 MAX_SPLIT_PAYLOAD_LENGTH = MAX_CHAT_PAYLOAD_LENGTH + MAX_VITALS_PER_FRAME * (
     _NESTED_HEADER_LENGTH + _MAX_DECLARED_BODY
 )
@@ -229,13 +263,30 @@ def _walk_tail(body: bytes, tail: bytes, legacy: Any) -> ChatTailSplit:
 def tail_console_line(split: ChatTailSplit, payload_length: int) -> str:
     """One ASCII line about ONE frame's split.  Never prints what was typed.
 
-    The GM's sentence is not in reach of this file and must never be: the
-    numbers here are byte counts and vital ids, which is what an operator
-    needs to tell "the client bundled vitals" apart from "the frame was
-    corrupt".
+    THE FIELDS ARE FIXED AND PINNED (`ConsoleLineTests`): a token, then
+    exactly `reason`, `tail_vitals`, `ids`, `chat_bytes`, `payload_bytes`,
+    `vital_count`.  The pin is not tidiness.  pf-adversary (D2, round
+    `uyzr8c`) added `body=%r` to this line and every test still passed,
+    because the chat body is UTF-16LE and an ASCII `assertNotIn("password")`
+    can never match `p\\x00a\\x00s\\x00s\\x00`.  A test that greps for a
+    leaked sentence cannot work here; a test that fixes the whole line can.
+
+    `vital_count=unavailable` IS THE HONEST HALF, and it is printed rather
+    than omitted.  The number that would corroborate what this line is FOR
+    -- how many vitals the frame declared -- lives in `parsed.vital_count`,
+    which `runtime.py:7026` does not pass to this lane.  Without it, this
+    line cannot separate "the client bundled a second vital into a chat
+    frame" from "the payload carried trailing bytes shaped like one", and a
+    round that read `reason=tail_walked` as the first capture of a
+    multi-vital chat frame would be retiring this module's own NONCLAIM on
+    evidence that does not reach it (pf-adversary D8).  The word is on the
+    line so nobody has to remember that from a docstring.
     """
     ids = ",".join("0x%04X" % vital_id for vital_id in split.tail_ids)
-    return "%s reason=%s tail_vitals=%d ids=%s chat_bytes=%s payload_bytes=%d" % (
+    return (
+        "%s reason=%s tail_vitals=%d ids=%s chat_bytes=%s payload_bytes=%d"
+        " vital_count=unavailable"
+    ) % (
         CHAT_TAIL_TOKEN,
         split.reason,
         len(split.tail_ids),
