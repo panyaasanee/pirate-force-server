@@ -292,7 +292,23 @@ MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
 # 2026-08-31, so the tick has been refused for three days.  pf-adversary
 # D4 of round `a7k5gy` measured it: reading your own artifact's number
 # without reading what it is a number OF is how this lane keeps paying.
-MOB_AGGRO_TICK_REACHABLE = False
+# ~~MOB_AGGRO_TICK_REACHABLE = False~~ -- FLIPPED, round `j8qsxp`
+# (2026-09-03T19:2x+07:00), by the card above going red on its own the way it
+# promised.  The chief landed ticket 1648 in `server#668` (LANE-E R324,
+# `fc54745`) while this round was in flight: `runtime.py:5896` now passes
+# `lane_b_mob_ai_tick.MODULE_NAME` instead of the hand-typed literal, and the
+# real `module_production_allowed` answers True to it.  Measured on the merged
+# tree, not read off the letter that promised it.
+#
+# WHAT THIS DOES AND DOES NOT MEAN, because the difference is the whole reason
+# this constant is separate from the fold one.  The tick loop -- approach,
+# leash, target selection, cadence -- can now RUN for a player, for the first
+# time since the wiring landed on 2026-08-31.  It still composes no frame:
+# `ATTACK_INTENT_DELIVERABLE` below is unchanged and False, so a monster that
+# decides to close on a player sends no byte that says so.  NOBODY MAY READ
+# THIS FLIP AS A WIN ON A SCREEN; it is dead code coming back to life, which
+# is what this lane's own CORE-REQUEST 20260903_1639 said it would be.
+MOB_AGGRO_TICK_REACHABLE = True
 # What is still NOT true, and is a different claim entirely: nothing this lane
 # decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.
 # ~~MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True~~ -- STRUCK, round

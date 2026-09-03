@@ -11,7 +11,7 @@
   "production_allowed": true,
   "mob_aggro_production_allowed": true,
   "mob_aggro_damage_fold_reachable": true,
-  "mob_aggro_tick_reachable": false,
+  "mob_aggro_tick_reachable": true,
   "attack_intent_deliverable": false,
   "source_digests": {
     "ai_combat": "19cbc17fb124b5569dbe670fd793d22f00fec72645e6027348f09a6612d04a46",

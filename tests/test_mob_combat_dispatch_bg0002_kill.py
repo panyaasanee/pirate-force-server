@@ -450,6 +450,157 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         self.assertEqual(rows[0].scene, DESTINATION_FOLDER)
         self.assertIn("mob_drop_presence_sustained_live_1", state.events)
 
+    def _hit(self, state, target_identity):
+        """One blow that does NOT kill, through the same path as :meth:`_kill`.
+
+        The only difference is the balance left alone: ``_kill`` writes the
+        target down to 1 HP first.  Everything else -- the scene sync, the
+        membership seed, the dispatch -- is that method's, for its reasons.
+        """
+        state._sync_combat_scene_state()
+        row = state.mob_combat_ledger.balance_of(target_identity)
+        self.assertGreater(
+            row.current_hp, 1,
+            "this target is already one blow from the floor: the hit this "
+            "method promises would be a kill",
+        )
+        state.mob_combat_announced_membership = (
+            mob_combat_membership.build_membership(
+                state.foundation.selected.position.scene_id,
+                (target_identity,),
+                state.mob_combat_announced_membership_generation,
+            )
+        )
+        actions = self._dispatch(state, self._action_vital_pc(target_identity))
+        self.clock_ms += 1000
+        self.assertFalse(
+            state.mob_death_register.is_dead(target_identity),
+            "the blow killed: this is the kill burst, not the hit burst",
+        )
+        return actions
+
+    @staticmethod
+    def _ground_bit_is_set(pc):
+        """Does this RuntimeRes say the ground pool is PRESENT?
+
+        The same two-carrier reading ``tests/test_mob_combat_dispatch.py``
+        uses, copied rather than imported for the reason that file's own
+        ``_call_names`` twin gives: a cross-check that imports its oracle
+        from the file it is checking fails together with it.
+        """
+        if pc.endswith(mob_loot.RUNTIME_RES_PRESERVE_DERIVED_TAIL_PIN):
+            return True
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        if len(pc) > offset + 1 and pc[offset] == mob_loot.ELEMENT_MASK_TAG:
+            return bool(
+                pc[offset + 1] & mob_loot.RUNTIME_DERIVED_BIT_GROUND_LIST)
+        return False
+
+    def test_a_hit_that_does_not_kill_leaves_the_floor_cleared_behind_it(self):
+        """The owner's R306 vanish, in the owner's scene, with his floor.
+
+        WHAT WAS WATCHED (R306 / GT-216, 2026-09-03, attended): a dropped
+        item disappears from the floor while he hits the NEXT monster, and
+        is back by the time that monster dies.  The result letter
+        (``pf_bridge/notes_to_chief/20260903_1657``, cross-lane item 1) read
+        that as "the roster re-send clears the floor and THE DEATH FRAME's
+        ground section adds it back".
+
+        MEASURED HERE, on the real dispatcher, with a row genuinely standing
+        on a Bg0002 floor rather than on the empty floor
+        ``tests/test_mob_combat_dispatch.py`` drives:
+
+          * a hit that does NOT kill composes [announce, bar].  The announce
+            carries the ground pool; the ~18 KB bar recompose does not, and
+            it is the last action in the burst.  Nothing re-announces the
+            row -- and the row is still alive in the server's own ledger
+            while that is true, which is the whole defect in one sentence;
+          * the frame that brings it back is in the NEXT burst and it is the
+            KILL'S OWN DROP GENERATION -- not either death frame, which
+            carry no ground section at all.
+
+        So the letter's reading is right about the clearing and names the
+        wrong frame for the restore: right burst, wrong frame.  That
+        distinction is worth a test because the fix it points at differs --
+        "make the death frames carry the ground" buys nothing for a player
+        who is hitting and not killing, which is the state the vanish
+        happens in.
+
+        WHAT THIS DOES NOT MEASURE, and the difference matters as much here
+        as it does two tests above: LIST ORDER is what is pinned.  Wire
+        order and client-apply order are two further layers, and only the
+        first has ever been watched.  "The pool ends up cleared on the
+        client" is this lane's reading of these bytes, not an observation.
+
+        AND ONE THING THE MODEL DOES NOT EXPLAIN, recorded rather than left
+        out: the same letter says the vanish "sometimes vanished on the next
+        first hit, sometimes not".  Every post-arrival hit measured here
+        composes the clearing recompose, every time -- so something the
+        round has not found accounts for the "sometimes not", and nobody
+        should read this test as covering it.
+        """
+        state = self._state("bg2-hit-after-a-drop")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._kill(state, self.first_target)
+        floor = state.mob_loot_cell.ledger.drops
+        self.assertEqual(len(floor), 1, "this test needs a row on the floor")
+
+        actions = self._hit(state, self.second_target)
+        labels = self._labels(actions)
+        start = labels.index("MOB_COMBAT_ANNOUNCE")
+        # Sliced from the announce for the same reason the kill test above
+        # slices: two terms of runtime.py's return sum trail the combat lane
+        # and are merely empty for this frame today.
+        burst = actions[start:]
+        self.assertEqual(
+            [label for label, *_r in burst],
+            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
+            "the hit burst is not [announce, bar]: %r" % (labels,),
+        )
+        self.assertEqual(
+            [self._ground_bit_is_set(pc) for _label, pc, _f, _d in burst],
+            [True, False],
+        )
+        # The bar really is the wide recompose, not this lane's one-entry
+        # frame: without that, "the burst ends cleared" would be measuring
+        # a frame production never sends after an arrival.
+        self.assertGreater(len(burst[-1][1]), 10000)
+        self.assertEqual(
+            self._ground(actions), [],
+            "a hit that does not kill published a ground generation",
+        )
+        # The row the client can no longer see is still standing here.
+        self.assertEqual(state.mob_loot_cell.ledger.drops, floor)
+
+        # And the next burst -- the kill -- is what puts it back, with the
+        # death frames measured NOT to be the carrier.
+        kill_actions = self._kill(state, self.second_target)
+        kill_labels = self._labels(kill_actions)
+        kill_start = kill_labels.index("MOB_COMBAT_ANNOUNCE")
+        carriers = {
+            label: self._ground_bit_is_set(pc)
+            for label, pc, _f, _d in kill_actions[kill_start:]
+        }
+        self.assertEqual(
+            carriers,
+            {"MOB_COMBAT_ANNOUNCE": True,
+             "MOB_DEATH_DYING": False,
+             "MOB_DEATH_DEAD": False,
+             mob_drop_presence.ACTION_LABEL: True},
+        )
+        self.assertEqual(
+            kill_labels[kill_start:][-1], mob_drop_presence.ACTION_LABEL,
+            "the generation that repopulates the floor is no longer last in "
+            "the kill burst",
+        )
+        # It carries the older row too, which is why the owner saw the FIRST
+        # monster's drop come back when the SECOND one died.
+        self.assertIn(
+            floor[0].drop_key,
+            [row.drop_key for row in state.mob_loot_cell.ledger.drops],
+        )
+        self.assertGreater(len(state.mob_loot_cell.ledger.drops), len(floor))
+
     def test_the_kills_generation_carries_the_whole_floor_not_just_this_kills_rows(self):
         """MOB_LOOT_WIRING shape 4b, measured instead of quoted -- and the
         reason step 6's ordering rule is not a preference.
