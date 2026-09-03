@@ -1228,6 +1228,15 @@ class SessionSurfaceTests(_Case):
         # that fails if it ever reaches dispatch; this subset check cannot
         # catch that, for the same reason the entry above says.
         chat_command_action.CLIENT_CONFIRMED_SCENE_BASIS_FIELD,
+        # Its companion, and READ ONLY for the same reason (pf-adversary,
+        # round `3qh50k`, D1).  chief's flag is what says the field above is
+        # STALE: it goes True the moment `_gm_warp_resync_selected_scene`
+        # relabels a scene and stays True until a warp's coordinates
+        # confirm, and through that window the client's last report is
+        # evidence of nothing about where the GM is standing now.  Reading
+        # the first without the second is what let this lane print an
+        # affirmative false claim wearing the stronger evidence word.
+        "scene_label_is_server_guess",
     }
     ALLOWED_ON_SELECTED = {"position", "id"}
 
