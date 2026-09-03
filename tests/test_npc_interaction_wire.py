@@ -50,6 +50,11 @@ EXPECTED_TABLES = {
     "sessions",
     "character_backpacks",
     "character_backpack_items",
+    # ground_drops: world-state ledger of items dropped on the ground, not
+    # quest/shop/reward state -- COO-DECISION 20260903_1843 ordered the table,
+    # COO-DECISION 20260903_2050 approved this one-line whitelist addition in
+    # the same round that lands it.
+    "ground_drops",
 }
 
 
