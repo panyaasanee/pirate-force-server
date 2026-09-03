@@ -85,12 +85,25 @@ hypothesis, and there is no opt-in kwarg anywhere in it.
 
 THE ONE LINE THIS LANE HANDS THE CHIEF is :data:`MOB_PICKUP_PERSIST_HEADLINE_
 CALL`, and it is pinned as an EXECUTED test rather than only described --
-``tests/test_mob_pickup_persist.py`` runs the exact text of it.  What is still
-NOT closed by this file, stated where a reader will see it and not in a
+``tests/test_mob_pickup_persist.py`` runs the exact text of it.  ~~What is
+still NOT closed by this file, stated where a reader will see it and not in a
 footnote: ``runtime.py`` has no inbound pickup opcode call site at all
 (``GT-124``), so no player has yet caused any of this to run.  This module
 changes what happens WHEN that line is added; it does not add it, and the file
-it would be added to is the chief's.
+it would be added to is the chief's.~~
+STRUCK IN ROUND tmgh1l, and this was the LOUDEST surviving copy of the
+sentence that round set out to end -- it sat in the module that performs the
+write, six lines above the constant that round's own new test parses, and the
+round corrected two quieter copies in ``mob_pickup.py`` first.  MEASURED on
+this tree: ``runtime.py`` calls
+``mob_pickup_request.dispatch_inbound_pickup_request``, that function calls
+``pickup_and_persist``, and ``persist_pickup`` under it calls
+``store.commit_acquired_backpack_item`` -- the three links
+``tests/test_mob_pickup.py`` re-derives from the AST every run.  A player's
+click HAS caused this to run: ``MOB_PICKUP_ROW_INSERTED`` twice in R303
+(RELAYED from ``pf_bridge/NOW.md`` and ``GT-204``, not measured here).  The
+headline call below is still the shape of the call, and it is still the
+chief's file it lives in; what is no longer true is that it is missing.
 """
 from __future__ import annotations
 
@@ -104,8 +117,11 @@ from . import mob_pickup
 production_allowed = True
 
 
-#: The line the chief adds at the inbound pickup opcode, once ``GT-124``'s
-#: call site exists.  ONE call: precheck, dispatch, persist.
+#: The line at the inbound pickup opcode.  ONE call: precheck, dispatch,
+#: persist.  ~~The line the chief adds ... once ``GT-124``'s call site
+#: exists~~ IS STRUCK IN ROUND tmgh1l: the call site exists and runs, one
+#: indirection away, through
+#: ``mob_pickup_request.dispatch_inbound_pickup_request``.
 MOB_PICKUP_PERSIST_HEADLINE_CALL = (
     "mob_pickup_persist.pickup_and_persist(store, sid, character_id, "
     "bag_cell, drop_ledger_cell, legacy, identity, x, y, z, object_ref_u32, "

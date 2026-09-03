@@ -3412,6 +3412,24 @@ class ThePublishedCeilingSentenceIsStruckTooTests(unittest.TestCase):
                         "an unstruck ceiling is published again: %s"
                         % entry[max(0, at - 40):at + len(phrase)])
 
+    def test_every_published_nonclaim_about_name_colour_carries_the_answer(
+            self):
+        """The twin of the same-named test in ``test_field_mobs.py``.
+
+        The scan above lists phrases and pf-adversary walked past it with a
+        new nonclaim in different words.  This one enumerates by SUBJECT:
+        anything this module publishes that speaks about name colour must
+        carry the address that refutes the ceiling.
+        """
+        for entry in self.published:
+            if not any(word in entry for word in
+                       ("RE-067", "name colour", "NAME COLOUR")):
+                continue
+            self.assertIn(
+                "0x00444400", entry,
+                "a published nonclaim speaks about name colour without the "
+                "refuting address: %s" % entry[:120])
+
 
 if __name__ == "__main__":
     unittest.main()

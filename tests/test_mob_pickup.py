@@ -216,6 +216,17 @@ def _calls_inside(module_name, function_name):
     return None
 
 
+def _top_level_functions(module_name):
+    """Names of the top-level functions a ``src/`` module defines."""
+    source = (
+        ROOT / "src" / "pirateforce_foundation" / f"{module_name}.py"
+    ).read_text(encoding="utf-8")
+    return {
+        node.name for node in ast.parse(source).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
 def _reaches_within(module_name, start, target):
     """Does ``start`` reach ``target`` through calls INSIDE one module?
 
@@ -1737,14 +1748,24 @@ class MobPickupTests(unittest.TestCase):
         match = re.match(r"mob_pickup_persist\.(\w+)\(", headline)
         self.assertIsNotNone(match, headline)
         persist_symbol = match.group(1)
-        entry = "dispatch_inbound_pickup_request"
-        request_calls = _calls_inside("mob_pickup_request", entry)
+        # DERIVED, NOT TYPED.  A first draft hardcoded the entry point's
+        # name, and pf-adversary renamed it with the chain fully intact:
+        # the test went red and its message told the author to delete the
+        # chain from a PUBLISHED string -- to publish "the wiring is gone"
+        # about wiring that runs.  That is the trap mob_pickup_request's own
+        # constant was built to end, arriving from the other side.  The
+        # entry is whatever function of mob_pickup_request runtime.py calls.
+        runtime_calls = _call_names("runtime")
+        entries = sorted(
+            _top_level_functions("mob_pickup_request") & runtime_calls)
+        reaching = [name for name in entries
+                    if _reaches_within("mob_pickup_request", name,
+                                       persist_symbol) is True]
         links = {
-            "runtime.py -> mob_pickup_request.%s" % entry: (
-                entry in _call_names("runtime")),
-            "%s -> mob_pickup_persist.%s" % (entry, persist_symbol): (
-                request_calls is not None
-                and persist_symbol in request_calls),
+            "runtime.py -> mob_pickup_request.<a function of it>": bool(
+                entries),
+            "that entry -> mob_pickup_persist.%s" % persist_symbol: bool(
+                reaching),
             "%s -> store.commit_acquired_backpack_item" % persist_symbol: (
                 _reaches_within("mob_pickup_persist", persist_symbol,
                                 "commit_acquired_backpack_item") is True),
@@ -1754,10 +1775,15 @@ class MobPickupTests(unittest.TestCase):
         owner = mob_pickup.GOVERNED_BAG_ALLOWLIST_OWNER
         if missing:
             # The chain is broken.  The prose must not go on claiming it.
+            # If you believe the tree is fine and this is the scan being
+            # narrow, WIDEN THE SCAN -- do not edit the sentence to green.
             self.assertNotIn(
                 "runtime.py calls", owner,
                 "GOVERNED_BAG_ALLOWLIST_OWNER describes a call chain that "
-                "the tree no longer has.  Missing: %s" % ", ".join(missing))
+                "the tree no longer has.  Missing: %s.  If the wiring is "
+                "really still there, this scan is too narrow: widen it "
+                "rather than rewriting the published string"
+                % ", ".join(missing))
             self.assertNotEqual(
                 mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS,
                 "landed",
@@ -1767,13 +1793,14 @@ class MobPickupTests(unittest.TestCase):
         # The chain is whole.  Every link has to be named in the string a
         # reader of the pin document is handed, and the sibling module's
         # derived word has to agree with it.
-        for symbol in (entry, persist_symbol,
+        for symbol in (reaching[0], persist_symbol,
                        "commit_acquired_backpack_item"):
             self.assertIn(
                 symbol, owner,
                 "the call chain is wired but GOVERNED_BAG_ALLOWLIST_OWNER "
                 "does not name %s -- the string a reader is handed is "
-                "behind the tree again" % symbol)
+                "behind the tree again.  The fix is the string, not the "
+                "tree: name what runs" % symbol)
         self.assertIn("~~", owner, "the superseded clause was deleted "
                                    "rather than struck")
         self.assertEqual(

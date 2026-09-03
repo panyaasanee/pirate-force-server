@@ -523,9 +523,14 @@ GOVERNED_BAG_ALLOWLIST_OWNER = (
     "store.commit_acquired_backpack_item - three links this lane's own "
     "test re-derives from the AST on every run.  Two rows were inserted "
     "on the owner's machine in R303 (MOB_PICKUP_ROW_INSERTED twice, "
-    "GT-204; RELAYED from NOW.md, not measured here).  What is left on "
-    "this path is not a blocker at all: it is the click that never "
-    "reaches the decoder (NOW.md P-1: 2 of 46)"
+    "GT-204; RELAYED from NOW.md, not measured here).  Nothing on this "
+    "path is a blocker any more.  ~~What is left is the click that never "
+    "reaches the decoder (NOW.md P-1: 2 of 46)~~ IS STRUCK BEFORE IT WAS "
+    "READ BY ANYONE (pf-adversary, same round): it contradicts its own "
+    "citation - 2 of 46 is not never - and 42 of 46 is a fact about the "
+    "tree of 2026-09-02 morning that this commit cannot re-derive, since "
+    "the multi-vital walker landed after it.  How many clicks reach the "
+    "decoder is measured in an attended round, not read off this file"
 )
 
 MOB_PICKUP_NONCLAIMS = (

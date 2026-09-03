@@ -1573,6 +1573,32 @@ class ThePublishedCeilingSentenceIsStruckTooTests(unittest.TestCase):
                         "an unstruck ceiling is published again: %s"
                         % entry[max(0, at - 40):at + len(phrase)])
 
+    def test_every_published_nonclaim_about_name_colour_carries_the_answer(
+            self):
+        """The scan above is a list of PHRASES; this one enumerates SITES.
+
+        pf-adversary broke the phrase scan in the round that shipped it: a
+        brand-new published nonclaim saying "no driver exists at the static
+        layer and there is nothing further to look for there" re-closes the
+        ceiling in the loudest place there is -- the composed scenario a
+        reader opens without touching the module -- and passes, because it
+        uses different words.  Remembering phrases is what failed twice.
+
+        What can be derived is the SUBJECT: every nonclaim this module
+        publishes that speaks about name colour at all must carry the
+        address that refutes the ceiling.  A new sentence on the subject
+        cannot be written without it, whatever words it chooses.
+        """
+        for entry in self.published:
+            if not any(word in entry for word in
+                       ("RE-067", "name colour", "NAME COLOUR")):
+                continue
+            self.assertIn(
+                "0x00444400", entry,
+                "a published nonclaim speaks about name colour without the "
+                "refuting address, so a reader can still be told the "
+                "static search is over: %s" % entry[:120])
+
 
 if __name__ == "__main__":
     unittest.main()

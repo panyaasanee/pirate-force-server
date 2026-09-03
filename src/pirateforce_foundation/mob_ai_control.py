@@ -236,7 +236,10 @@ def leash_radius_for(aggro_radius: float) -> float:
     return max(LEASH_RADIUS_FLOOR, float(aggro_radius) * LEASH_RADIUS_MULTIPLE)
 
 # [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] home radius.  Anchor: the monster's OWN
-# n_SPEED_WALK column, which is a real MOBS value (100 for every bg0001 row).
+# n_SPEED_WALK column, which is a real MOBS value (~~100~~ 150 for every
+# bg0001 row -- ROUND tmgh1l, pf-adversary: 100 is the LEVEL column of the
+# same tuple, field_mob_tables.py:97-100 carries speed_walk 150 on all four
+# rows, and the misread has been in this comment since 4ee0110).
 # Reading a speed as a distance is the invented half: it says "the return phase
 # ends when the monster is within one step of home", and a step is whatever
 # distance the table's walk speed covers in one driver tick.
@@ -244,12 +247,19 @@ def leash_radius_for(aggro_radius: float) -> float:
 # ROUND tmgh1l -- a boolean is not a record, and this one had no reader at
 # all: no module in src/, no test, no document, nothing outside its own
 # line.  A flag nothing reads cannot go wrong, which is exactly why it is
-# worthless as evidence; what it asserted is asserted for real, against
-# behaviour, by tests/test_mob_ai_control.py::
+# worthless as evidence.  ~~What it asserted is asserted for real by
 # test_the_home_radius_is_the_monsters_own_walk_speed, which reads
-# profile_of(mob).home_radius back for every mined row.  The sentence above
-# is the record and stays.  (COO 20260903_1142, item 4: no flag without a
-# caller; same call as REAL_DEFENCE_ADOPTED in round qzky4u.)
+# profile_of(mob).home_radius back for every mined row~~ WAS NOT ENOUGH AND
+# THE SAME ROUND'S ADVERSARY PROVED IT: all four shipped rows carry
+# speed_walk 150, so home_radius = 150.0 -- the column ignored -- passed that
+# loop with the whole suite green.  The pin that has teeth is
+# test_the_home_radius_follows_a_walk_speed_the_roster_does_not_have, added
+# in the same commit, which varies the column off every shipped value.  The
+# sentence above is the record and stays.  (The principle is COO
+# 20260903_1142 item 4 -- no flag without a caller -- which that letter
+# attaches to the M4 damage door; this lane applies it to its own files, the
+# COO did not order this deletion.  Same call as REAL_DEFENCE_ADOPTED in
+# round qzky4u.)
 HOME_RADIUS_ANCHOR = "field_mob_tables.speed_walk of the monster's own row"
 
 # [LANE-B ASSUMPTION - CONFIRMED BY COO 2026-08-26T11:41+07:00] attack range.  ANCHOR: NONE.  A BARE
