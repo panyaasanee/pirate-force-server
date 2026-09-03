@@ -369,9 +369,12 @@ class ItemMoveCaptureTests(unittest.TestCase):
             with pinned_store.connect() as db:
                 self.assertEqual(
                     db.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0],
-                    # moves with every new migration file; 9 since
-                    # migrations/009_character_birth_defaults.sql
-                    9,
+                    # moves with every new migration file (see letter
+                    # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
+                    # pins-outside-this-lane.md and chief's reply
+                    # 20260901_1459, which cover this exact pin); 10 since
+                    # migrations/010_ground_drops.sql (LANE-DB, round 5d02mu)
+                    10,
                 )
             self.assertFalse((capture_root / "capture-source.sqlite3").exists())
         finally:

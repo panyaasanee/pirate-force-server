@@ -19,11 +19,26 @@ from `tests/test_choose_npc_call_site_loot_cell.py`, for the reason that
 file itself gives for reproducing lane A's: importing another test class
 makes a production guarantee die quietly the day that file is reorganised.
 
-WHAT IS NOT DONE HERE.  No `migrations/` file, no `persistence_*.py`
-module, no `store.py` method. `COO 1649` is explicit: "ประตูใหม่สร้างได้
-ต่อเมื่อผมตอบใบนั้น" (a new door may only be built once COO answers that
-letter). This round only measures and proposes; the proposal is the letter,
-not this file.
+WHAT WAS NOT DONE IN THE ROUND THIS FILE WAS FIRST WRITTEN IN.  No
+`migrations/` file, no `persistence_*.py` module, no `store.py` method.
+`COO 1649` was explicit then: "ประตูใหม่สร้างได้ต่อเมื่อผมตอบใบนั้น" (a new
+door may only be built once COO answers that letter). That round only
+measured and proposed; the proposal was the letter this file's own
+`20260903_1740` report sent, not this file.
+
+ROUND `5d02mu` UPDATE.  `COO-DECISION 20260903_1843` answered that letter
+and ordered the door built: `migrations/010_ground_drops.sql` plus
+`SQLiteStore.commit_ground_drop`/`list_ground_drops_for_scene`
+(`tests/test_persistence_ground_drops_010.py` is that door's own test
+file). `NoSchemaExistsForGroundDrops` below is renamed and its two
+structural tests inverted to match -- they now pin that the table and the
+methods this scan finds are EXACTLY the ones that letter ordered, rather
+than that none exist, so this file keeps its watchdog job (catching an
+undocumented table or method under this name pattern) instead of asserting
+something now false. `GroundLedgerDoesNotSurviveARelogin` above is
+UNCHANGED and still true: the new table has no call site yet (that is
+LANE-B's, `20260903_1844`), so a relogin still loses an unpicked-up drop
+exactly as measured.
 
 WHAT THE TWO STRUCTURAL TESTS PROVE, AND WHAT THEY DO NOT.  `pf-adversary`
 (round `ld70iq`) demonstrated, in a disposable worktree, that the migration
@@ -34,13 +49,16 @@ named something that shares no substring with "ground"/"drop"/"loot" (e.g.
 real `migrations/*.sql` today (checked: every table name at HEAD is
 `schema_migrations`/`accounts`/`characters`/`character_positions`/
 `sessions`/`character_backpacks`/`character_backpack_items`/the `009`
-rebuild's own scratch tables), but a name-substring scan can only ever prove
-"no table under this naming convention", never "no table under any name".
+rebuild's own scratch tables/the `010` `ground_drops` table this round
+added), but a name-substring scan can only ever prove "no table under this
+naming convention beyond the pinned set", never "no table under any name".
 That is why this file does not rest on the scan alone: `test_the_ground_
 drop_does_not_persist_flag_agrees` below cross-checks against a SEPARATE,
 independently-maintained piece of evidence (`mob_loot.GROUND_DROP_DOES_NOT_
 PERSIST` and `docs/FUNCTIONAL_COVERAGE.json`'s own long history of this
-exact gap) rather than adding a second scan of the same shape.
+exact gap) rather than adding a second scan of the same shape -- and that
+flag is still `True` after this round, unchanged, because nothing yet
+calls the new door.
 """
 from __future__ import annotations
 
@@ -323,12 +341,30 @@ class GroundLedgerDoesNotSurviveARelogin(unittest.TestCase):
         )
 
 
-class NoSchemaExistsForGroundDrops(unittest.TestCase):
-    """Question (b) is moot without a table; this class proves there is
-    none, structurally, so the answer does not rot the day someone adds
-    an unrelated column named similarly."""
+class TheGroundDropDoorIsExactlyWhatWasOrderedTests(unittest.TestCase):
+    """Round `5d02mu`: `COO-DECISION 20260903_1843` ordered the door this
+    class's earlier form (`NoSchemaExistsForGroundDrops`) proved did not yet
+    exist -- `migrations/010_ground_drops.sql` plus `SQLiteStore.
+    commit_ground_drop`/`list_ground_drops_for_scene`
+    (`tests/test_persistence_ground_drops_010.py` is that door's own,
+    fuller, test file). Question (b) is no longer moot, so proving "zero
+    hits" here would now be proving a false claim about this tree.
+
+    What this class checks instead: that the table and the methods this
+    scan finds are EXACTLY the ones the letter ordered, no more -- the same
+    watchdog purpose the old form served (catching a table or method added
+    under this name pattern without a decision behind it), pointed at the
+    reality this round created rather than the one before it. A hit this
+    class does not expect is still worth failing loudly over."""
 
     NAME_FRAGMENTS = ("ground", "drop", "loot")
+
+    #: The only table/method names this scan may find, now that the door
+    #: `COO-DECISION 20260903_1843` ordered exists.  A name outside this set
+    #: means a later round added a ground/drop/loot table or method that
+    #: nobody updated this pin for.
+    EXPECTED_TABLE_HITS = frozenset({"010_ground_drops.sql: table 'ground_drops'"})
+    EXPECTED_METHOD_HITS = frozenset({"commit_ground_drop", "list_ground_drops_for_scene"})
 
     #: Matches across line breaks and arbitrary whitespace between the
     #: keywords and the table name -- `pf-adversary` round `ld70iq`
@@ -342,7 +378,7 @@ class NoSchemaExistsForGroundDrops(unittest.TestCase):
         re.IGNORECASE,
     )
 
-    def test_no_migration_creates_a_table_naming_ground_drop_or_loot(self):
+    def test_the_only_matching_table_is_the_ordered_ground_drops_table(self):
         hits = []
         for sql_file in sorted((ROOT / "migrations").glob("*.sql")):
             text = sql_file.read_text(encoding="utf-8")
@@ -351,10 +387,10 @@ class NoSchemaExistsForGroundDrops(unittest.TestCase):
                 if any(frag in name.lower() for frag in self.NAME_FRAGMENTS):
                     hits.append(f"{sql_file.name}: table {name!r}")
         self.assertEqual(
-            hits, [],
-            "a migration now creates a table whose name mentions ground/"
-            "drop/loot -- (b) needs answering for real: does "
-            f"select_and_start read it back? found: {hits}",
+            set(hits), set(self.EXPECTED_TABLE_HITS),
+            "a migration creates a table whose name mentions ground/drop/"
+            "loot that is not the one COO-DECISION 20260903_1843 ordered -- "
+            f"update EXPECTED_TABLE_HITS only after reading why: {hits}",
         )
 
     def test_ground_drop_does_not_persist_flag_agrees(self):
@@ -378,7 +414,7 @@ class NoSchemaExistsForGroundDrops(unittest.TestCase):
             "corroboration this test relies on may have been edited away",
         )
 
-    def test_sqlitestore_has_no_method_naming_ground_drop_or_loot(self):
+    def test_sqlitestore_has_only_the_two_ordered_ground_drop_methods(self):
         import pirateforce_foundation.store as store_module
 
         tree = ast.parse(Path(store_module.__file__).read_text(encoding="utf-8"))
@@ -395,9 +431,10 @@ class NoSchemaExistsForGroundDrops(unittest.TestCase):
             if any(frag in name.lower() for frag in self.NAME_FRAGMENTS)
         ]
         self.assertEqual(
-            hits, [],
-            "SQLiteStore now has a method naming ground/drop/loot -- "
-            f"read it before answering (b) again: {hits}",
+            set(hits), set(self.EXPECTED_METHOD_HITS),
+            "SQLiteStore has a method naming ground/drop/loot that is not "
+            "one of the two COO-DECISION 20260903_1843 ordered -- update "
+            f"EXPECTED_METHOD_HITS only after reading why: {hits}",
         )
 
 
