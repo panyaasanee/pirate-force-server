@@ -15,8 +15,39 @@ the fuller scope note; read it before extending this module).
     iazmrv: a self-hash alone "keeps matching itself forever regardless of
     what pf_bridge does").
 
-WHAT THIS MODULE ANSWERS.  Which of the 5 selectable classes an id names, and
-which 4 skill ids (from ``CHARCREATE_CLASS.s_SKILL_1..4``) it starts with.
+WHAT THIS MODULE ANSWERS.  Which of the 5 selectable classes an id names,
+which 4 skill ids (from ``CHARCREATE_CLASS.s_SKILL_1..4``) it starts with, and
+-- from the table columns alone -- which three ``(hat, chest, leggings)``
+value triples the table associates with the class's three character-creation
+"look" slots.
+
+STARTING DRESS SETS (COO-DECISION 20260904_0548 item 2) -- table-level fact
+ONLY, mechanism still [PROPOSED] not [MEASURED].  The table carries three
+parallel column triples -- ``n_DRESS_CHEST``/``n_DRESS_LEGGINGS``, ``_2``,
+and ``_3``.  What this module PROVES: those 15 (chest, leggings) values are
+internally consistent and pairwise distinct across all 5 classes and all 3
+slots.  What it does NOT prove: that slot #2/#3's values are what the client
+actually sends for a character created with look #2/#3 picked on screen --
+chief's own letter that proposed this accessor
+(``pf_bridge/notes_to_chief/20260904_0535_...md`` item D5) labels the
+"one column-triple per on-screen look" reading ``[เสนอ] กลไกยังไม่วัด`` and
+hedges it on "if the clothing follows the appearance the player actually
+picked"; the capture that would measure it (``GT-226``,
+``20260904_0549_COO-DECISION...md``) had not run as of this module's
+introduction.  Treat ``starting_dress_sets`` as "3 candidate looks per the
+table's own column layout", not as a proven character-creation binding,
+until GT-226 lands.  There is only one ``n_DRESS_HAT`` column (no
+``_2``/``_3``) -- that part IS a plain column-existence fact, not a client
+behavior claim -- so the hat slot cannot vary by look in this table and the
+same value is the third element of all three sets below.  In this snapshot
+``n_DRESS_HAT`` is 0 for every one of the 5 classes; this module returns
+that value as read and does not interpret 0 as "no hat" versus a valid
+catalog id -- that is out of scope here.  ``persistence_class_id.py``'s
+``CLASS_PRESETS`` (LANE-DB, COO-DECISION 20260904_0551) is the intended
+consumer: before this accessor existed, that table only matched a player's
+chest/leggings against look #1, so a player who picked look #2 or #3 at
+creation resolved to no class (chief 0535 D4/D5) -- wiring #2/#3 into
+CLASS_PRESETS still inherits the open GT-226 question above.
 
 WHAT THIS MODULE DOES NOT ANSWER (explicit nonclaims, all measured by
 pf-adversary round iazmrv before this module existed):
@@ -93,6 +124,12 @@ CLASS_ID_TO_NAME: dict[int, str] = {}
 CLASS_ID_TO_ICON: dict[int, str] = {}
 CLASS_ID_TO_STARTING_SKILL_IDS: dict[int, tuple[int, int, int, int]] = {}
 
+# Each element is (n_DRESS_HAT, chest, leggings) for look #1, #2, #3 in that
+# order.  n_DRESS_HAT has no _2/_3 column, so it repeats across all three.
+CLASS_ID_TO_STARTING_DRESS_SETS: dict[
+    int, tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]
+] = {}
+
 for _row in _ROWS:
     _class_id = int(_row["n_ID"])
     _icon = _row["s_ICON"]
@@ -103,6 +140,12 @@ for _row in _ROWS:
         _skill_ids(_row["s_SKILL_2"]),
         _skill_ids(_row["s_SKILL_3"]),
         _skill_ids(_row["s_SKILL_4"]),
+    )
+    _hat = int(_row["n_DRESS_HAT"])
+    CLASS_ID_TO_STARTING_DRESS_SETS[_class_id] = (
+        (_hat, int(_row["n_DRESS_CHEST"]), int(_row["n_DRESS_LEGGINGS"])),
+        (_hat, int(_row["n_DRESS_CHEST_2"]), int(_row["n_DRESS_LEGGINGS_2"])),
+        (_hat, int(_row["n_DRESS_CHEST_3"]), int(_row["n_DRESS_LEGGINGS_3"])),
     )
 
 CLASS_IDS: tuple[int, ...] = tuple(sorted(CLASS_ID_TO_NAME))
@@ -121,6 +164,23 @@ def starting_skill_ids(class_id: int) -> tuple[int, int, int, int]:
     """The 4 skill ids (s_SKILL_1..4 order) class_id starts with."""
     try:
         return CLASS_ID_TO_STARTING_SKILL_IDS[class_id]
+    except KeyError as exc:
+        raise KeyError("class_id %r is not in the class catalog" % (class_id,)) from exc
+
+
+def starting_dress_sets(
+    class_id: int,
+) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+    """The 3 (hat, chest, leggings) value triples the table carries for class_id.
+
+    Index 0/1/2 corresponds to the table's chest/leggings column-triple
+    #1/_2/_3.  hat is the same value in all three (the table has no per-look
+    hat column).  Table-level fact only: whether slot #2/#3 is really what
+    the client sends for a character created with on-screen look #2/#3 is
+    still unmeasured -- see the module docstring's GT-226 note.
+    """
+    try:
+        return CLASS_ID_TO_STARTING_DRESS_SETS[class_id]
     except KeyError as exc:
         raise KeyError("class_id %r is not in the class catalog" % (class_id,)) from exc
 
