@@ -79,7 +79,9 @@ the chief's file and not this lane's.~~ -- STRUCK, round `1tz15e`
 ``_dispatch_mob_combat``, which ``dispatch`` calls at ``runtime.py:10440``,
 and ``runtime.py:5217`` says in its own prose that no scenario flag gates it.
 ``damage_step`` folds through ``mob_aggro.apply_damage_threat``.  The lane IS
-reachable from production dispatch; the constant now says so, and the test
+reachable from production dispatch; the constant now says so -- under the
+narrower name ``MOB_AGGRO_DAMAGE_FOLD_REACHABLE`` since round `a7k5gy`, where
+its silent second half became ``MOB_AGGRO_TICK_REACHABLE`` -- and the test
 DERIVES it instead of pinning it, so the next time the answer changes the file
 cannot go on telling the old story.  What is still not built is OBSERVABILITY:
 no intent this lane decides reaches a client.  The decision loop is computable today,
@@ -246,18 +248,51 @@ MOB_AGGRO_MILESTONE = "MOB-AGGRO-001"
 # disconnect the lane in runtime.py and flip this line to match and the test
 # is green again.
 #
-# WHAT THIS LINE DOES NOT SAY, and the reason it needs a sibling nobody has
-# written yet: the damage FOLD is reached on every accepted hit, but the
-# DECISION TICK is not reached at all.  runtime.py:5887 gates the tick behind
-# lane_hooks.module_production_allowed("lane_hooks.lane_b_mob_ai_tick"), and
+# ~~MOB_AGGRO_DISPATCH_REACHABLE~~ -- RENAMED, round `a7k5gy` (2026-09-03), by
+# COO-DECISION 2026-09-03T16:47+07:00 item 1, which took this lane's own
+# question from the round before: ONE WORD WAS CARRYING TWO FACTS.  The damage
+# FOLD is reached on every accepted hit; the DECISION TICK is not reached at
+# all.  A single bool cannot be true and false at once, so it was answering
+# for whichever half the reader had in mind.  Two names now, one fact each,
+# each DERIVED by its own card and neither one hand-typed twice.
+MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
+# The other half, and the reason the name above got narrower.  The branch at
+# runtime.py:5888 gates the tick behind
+# lane_hooks.module_production_allowed(), with the argument on 5889, and
 # lane_hooks.__init__ prefixes a name that does not already start with its own
-# __name__, so that argument resolves to
-# "pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick" - a key
-# that exists nowhere - and the fail-closed lookup answers False on every
-# frame.  runtime.py is the chief's file; the finding is reported to him and
-# to the COO, and tests/test_mob_aggro.py pins today's measured answer so the
-# day it is corrected somebody has to come here and say so.
-MOB_AGGRO_DISPATCH_REACHABLE = True
+# __name__ - so the string that call site was handed,
+# "lane_hooks.lane_b_mob_ai_tick", resolved to
+# "pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick", a key that
+# exists nowhere, and the fail-closed lookup answered False on every frame
+# since the wiring landed.  approach, leash, target selection, cadence - the
+# loop this lane IS - has therefore never run for a player.
+#
+# WHOSE DEBT IT IS: half of it is this lane's.  The chief copied that string
+# character for character out of
+# lane_hooks.lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING, which is a lane-B
+# file, and this round rewrites that line to order the module's own
+# MODULE_NAME instead of a hand-typed literal (COO-DECISION 2026-09-03T16:47
+# item 3).  The call site itself is runtime.py and belongs to the chief, who
+# has ticket 1648 for it.
+#
+# THIS LINE IS NOT A PIN.  tests/test_mob_aggro.py reads the argument the real
+# call site passes STRAIGHT OUT OF THE AST of runtime.py - literal or
+# MODULE_NAME attribute, whichever is written there - hands it to the real
+# module_production_allowed(), and requires this constant to equal the answer.
+# So the day the chief lands 1648 this test goes red BY ITSELF, on the true
+# answer, and whoever landed it has to come here and say so.  It cannot go
+# stale in the quiet direction, which is exactly how the name above went
+# unnoticed.
+#
+# NOT EIGHT DAYS -- THREE.  A draft of this line said eight, which is the
+# number two paragraphs up, and that number belongs to a DIFFERENT fact:
+# how long MOB_AGGRO_DISPATCH_REACHABLE sat pinned False against a FOLD
+# that had been reachable since 2026-08-26.  The gate below is younger.
+# The wiring that carries the broken argument landed in 5ac93b31 on
+# 2026-08-31, so the tick has been refused for three days.  pf-adversary
+# D4 of round `a7k5gy` measured it: reading your own artifact's number
+# without reading what it is a number OF is how this lane keeps paying.
+MOB_AGGRO_TICK_REACHABLE = False
 # What is still NOT true, and is a different claim entirely: nothing this lane
 # decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.
 # ~~MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True~~ -- STRUCK, round

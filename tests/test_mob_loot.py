@@ -3128,82 +3128,37 @@ class TheDroppedBoundaryStashHasThreeNamesTests(unittest.TestCase):
         line.encode("ascii")
         line.encode("cp874")
 
-    def test_the_inline_site_and_this_lane_have_not_drifted_apart(self):
-        """A BASELINE ON ANOTHER LANE'S FILE, AND IT MUST BE ABLE TO DIE.
+    # ~~test_the_inline_site_and_this_lane_have_not_drifted_apart~~ RETIRED
+    # in round 42vxv6, on the day it was written for.  It held the merge of
+    # two vocabularies for this event while runtime.py still typed its own
+    # three words: EITHER the inline site spelled them and this lane's
+    # composer had to produce the same bytes, OR the site had adopted these
+    # helpers, in which case the test returned early on purpose.  Chief's
+    # round xcmfr6 (R321) landed the adoption -- runtime.py:7531 now calls
+    # boundary_stash_cleared_console_line() -- and he wrote to this lane the
+    # same round (pf_bridge notes_to_chief/20260903_1530) rather than edit a
+    # baseline this lane had staked on his file.  So from that landing the
+    # body no longer ran and what was left, assertTrue(set() <= words), was
+    # true of an empty set: green because it never got there.
+    #
+    # DELETED, NOT REWRITTEN, because both halves of what it asked are now
+    # asked by tests that reach further:
+    #  * BEHAVIOURAL: test_mob_loot_scene_boundary_wiring.py::
+    #    ThePickupGroundGenerationOnTheRealDispatcherTests::
+    #    test_the_dispatcher_and_this_lanes_composer_say_the_same_words
+    #    drives the real dispatcher and requires this lane's composed bytes
+    #    to appear verbatim in state.events AND on the console -- the same
+    #    equality, against what an operator actually sees rather than
+    #    against a format string read out of another lane's source.
+    #  * STRUCTURAL: the same file's TheThreeNamesHaveExactlyOneProducerTests
+    #    requires exactly one module to spell the three words, and forbids
+    #    runtime.py the literals AND a constant of its own -- the drift this
+    #    test existed to catch, closed at its source instead of compared
+    #    after the fact.
+    # A test kept alive past its landing is not a spare guard; it is a green
+    # tick that means nothing, which is the defect this lane keeps finding
+    # in other people's files.
 
-        ``runtime.py`` is the chief's file and this test may not freeze it.
-        What it holds is the merge itself: the inline site either still
-        types the three words and the line this lane mirrors, OR it has
-        adopted these helpers -- either way ONE vocabulary reaches the
-        console.  It fails only on the third state, the two sets drifting
-        apart again, which is what COO-DECISION 2026-09-03T00:54+07:00
-        question 2 exists to end.
-
-        IT READS THE AST, NOT THE TEXT (pf-adversary D1 of this round, which
-        measured the text version at 0 true positives and 1 false positive
-        over four probes).  Reformatting the chief's ``print`` across
-        different line splits changes the source text and changes nothing an
-        operator sees, so a substring check goes red on a non-event; a
-        rename left behind in a STRUCK COMMENT -- this house's own way of
-        retiring a name -- keeps a substring check green on a real drift.
-        Implicit string concatenation folds at parse time, so the AST sees
-        the joined line and neither mistake is available.  The sibling
-        pattern is ``test_mob_pickup_request`` and ``test_mob_drop_presence``,
-        which walk the same file for the same kind of fact.
-        """
-        # The PATH, not an import: importing the chief's module for a string
-        # check would drag a listener-shaped module into this lane's suite
-        # for no gain, and the file is the thing being asked about.
-        runtime_source = Path(mob_loot.__file__).with_name("runtime.py")
-        if not runtime_source.is_file():
-            # A source-less deployment is not a drift, and reporting it as
-            # one would be this test lying about the chief's file.
-            self.skipTest("no runtime.py source beside this module: %s"
-                          % (runtime_source,))
-        tree = ast.parse(runtime_source.read_text(encoding="utf-8"))
-        printed_lines = set()
-        typed_reasons = set()
-        adopted = False
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Constant)
-                    and isinstance(node.value, str)
-                    and node.value.startswith(
-                        "MOB_LOOT_BOUNDARY_STASH_CLEARED")):
-                printed_lines.add(node.value)
-            if (isinstance(node, ast.Assign)
-                    and isinstance(node.value, ast.Constant)
-                    and isinstance(node.value.value, str)
-                    and any(isinstance(target, ast.Name)
-                            and target.id == "reason"
-                            for target in node.targets)):
-                typed_reasons.add(node.value.value)
-            # An ATTRIBUTE access, so a comment or a docstring mentioning
-            # the helper cannot switch this check off -- comments are not in
-            # the tree at all.
-            if (isinstance(node, ast.Attribute)
-                    and node.attr in ("boundary_stash_cleared_console_line",
-                                      "boundary_stash_reason")):
-                adopted = True
-        words = {mob_loot.BOUNDARY_STASH_SUPERSEDED_REASON,
-                 mob_loot.BOUNDARY_STASH_STALE_REASON,
-                 mob_loot.BOUNDARY_STASH_UNPUBLISHED_REASON}
-        if adopted:
-            # Adoption is the other half of the merge and needs no literals;
-            # what may not survive it is a leftover word of its own.
-            self.assertTrue(typed_reasons <= words, typed_reasons)
-            return
-        self.assertEqual(len(printed_lines), 1, printed_lines)
-        # FILL THE CHIEF'S OWN FORMAT with the four values and require this
-        # lane's composer to have produced the same bytes.  Nothing here is
-        # a literal of the line: it comes out of his file.
-        self.assertEqual(
-            mob_loot.boundary_stash_cleared_console_line(
-                self.SCENE, 2, published_generations=(), ground_rows_left=0),
-            printed_lines.pop() % (mob_loot.BOUNDARY_STASH_STALE_REASON,
-                                   mob_loot.scene_key(self.SCENE), 2, 0),
-            "the inline site's console line and this lane's composer have "
-            "drifted apart")
-        self.assertEqual(typed_reasons, words, typed_reasons)
 
     def test_the_superseded_name_is_the_one_the_runtime_already_emits(self):
         """Adopting this helper may not RENAME a live event.

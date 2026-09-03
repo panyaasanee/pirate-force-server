@@ -324,7 +324,30 @@ MOB_AI_CONTROL_NONCLAIMS = (
     "mob_ai_scheduler.tick_session -> mob_ai_control.tick_step/commit_step "
     "per row, once per relevant frame a moving player already sends -- see "
     "mob_ai_scheduler.py's own header for the full chain. reconcile() is "
-    "still genuinely undispatched; that half of this sentence still holds.",
+    "still genuinely undispatched; that half of this sentence still holds. "
+    "[THE bgwgso CLAUSE IS ITSELF STALE as of round 42vxv6, "
+    "2026-09-03T17:0x+07:00, struck in place rather than removed]: the "
+    "CALL SITE exists but has never been REACHED. It is guarded by "
+    "lane_hooks.module_production_allowed('lane_hooks.lane_b_mob_ai_tick'), "
+    "and that argument is in neither form the resolver accepts -- not the "
+    "bare stem, not the fully qualified name -- so lane_hooks prefixes it "
+    "into pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick, "
+    "a key no module owns, and the fail-closed lookup answers False on "
+    "every frame. Measured this round on origin/main: the spelling the "
+    "call site passes answers False, the bare stem answers True. So "
+    "tick_step and commit_step have never run for a player, and the line "
+    "reference above (runtime.py:5196-5210) is stale too -- the block is "
+    "at runtime.py:5875-5900. WHAT IS NOT STRUCK: the damage FOLD is "
+    "reached and does run (MOB_AGGRO_DAMAGE_FOLD_REACHABLE is True, derived "
+    "by tests/test_mob_aggro.py, not declared -- renamed from "
+    "MOB_AGGRO_DISPATCH_REACHABLE in round a7k5gy, when COO-DECISION "
+    "20260903_1647 split the one word that was answering for both halves of "
+    "this sentence; the TICK half is now its own derived bool, "
+    "MOB_AGGRO_TICK_REACHABLE, False today); only the TICK is dead. "
+    "The one-string repair belongs to the chief (runtime.py is his file) "
+    "and is asked for in pf_bridge CORE-REQUEST 20260903_1639; the guard "
+    "that will go red the day it lands is "
+    "test_the_gate_answers_what_it_answered_at_every_hand_spelled_site.",
     "2. No frame is composed or sent here, so no claim is made about "
     "anything a player can see.",
     "3. n_AGGRO being a radius and n_OFFESIVE being an unprovoked-acquire "
@@ -1037,7 +1060,15 @@ def pin_document(mobs: tuple[FieldMob, ...]) -> dict:
         "promotion_ruling": MOB_AI_CONTROL_PROMOTION_RULING,
         "production_allowed": production_allowed,
         "mob_aggro_production_allowed": mob_aggro.production_allowed,
-        "mob_aggro_dispatch_reachable": mob_aggro.MOB_AGGRO_DISPATCH_REACHABLE,
+        # ROUND `a7k5gy`: was one key, "mob_aggro_dispatch_reachable", and one
+        # key cannot answer two questions.  COO-DECISION 2026-09-03T16:47+07:00
+        # item 1 split it: the damage fold is reached on every accepted hit,
+        # the decision tick is not reached at all.  Both are derived in
+        # tests/test_mob_aggro.py, neither is decided here; this file's job is
+        # only that the shipped pin carries what the module says.
+        "mob_aggro_damage_fold_reachable":
+            mob_aggro.MOB_AGGRO_DAMAGE_FOLD_REACHABLE,
+        "mob_aggro_tick_reachable": mob_aggro.MOB_AGGRO_TICK_REACHABLE,
         "attack_intent_deliverable": mob_aggro.ATTACK_INTENT_DELIVERABLE,
         "source_digests": dict(field_mob_ai_tables.SOURCE_DIGESTS),
         "mined_values": ["aggro_radius", "offensive"],

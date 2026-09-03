@@ -22,6 +22,7 @@ of the module's constants were in the same shape: mutating `CONSOLE_TOKEN`,
 compared them to themselves.  Both scars are pinned below.
 """
 
+import ast
 import io
 import sys
 import unittest
@@ -152,12 +153,57 @@ class TokenIsPinnedToItsConsumersTests(unittest.TestCase):
         )
 
     def test_the_token_is_the_one_runtime_prints_today(self):
+        """UPDATED IN THE ROUND THAT WIRED THE NOTICE (chief, R322).
+
+        This test used to pin the hand-rolled
+        ``print(f"WORLD_SCENE_ENTRY_REFUSED {exc}")`` in ``runtime.py``.
+        That line is GONE: the login-refusal handler now prints through
+        ``refusal_console_line``, which is what
+        ``CORE-REQUEST 20260903_1505`` asked for, so the literal no longer
+        appears in ``runtime.py`` at all -- this module is its single
+        producer, and that is the improvement, not a regression.
+
+        The promise being pinned is unchanged: the token this module
+        composes is the token that reaches the console.  It is now proven
+        by DERIVING the producer from ``runtime.py``'s tree instead of
+        retyping a line of it (house rule: no hand-copied lists).  The
+        handler-level guards -- which handler, with which arguments, and
+        that the GM-override probe stays untouched -- live in
+        ``tests/test_scene_refusal_notice_wiring.py``.
+        """
         runtime = (ROOT / "src" / "pirateforce_foundation" / "runtime.py")
         text = runtime.read_text(encoding="utf-8")
+        module = notice.__name__.rsplit(".", 1)[-1]
+        tree = ast.parse(text)
         self.assertIn(
-            'print(f"WORLD_SCENE_ENTRY_REFUSED {exc}")', text
+            module,
+            {
+                alias.asname or alias.name
+                for node in tree.body
+                if isinstance(node, ast.ImportFrom)
+                for alias in node.names
+            },
+            "runtime.py stopped importing the only producer of the token",
         )
-        self.assertIn(notice.CONSOLE_TOKEN, text)
+        composes = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "refusal_console_line"
+        ]
+        self.assertEqual(
+            len(composes),
+            1,
+            "runtime.py composes the refusal line zero times or more than "
+            "once; the token on the console is no longer this module's",
+        )
+        self.assertNotIn(
+            notice.CONSOLE_TOKEN,
+            text,
+            "the token literal is back in runtime.py beside the composer: "
+            "two producers of one console line (COO 20260903_0054 item 2)",
+        )
 
     def test_the_strictest_existing_reader_still_matches_a_composed_line(
         self,
