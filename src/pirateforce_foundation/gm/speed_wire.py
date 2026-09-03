@@ -160,6 +160,32 @@ def compose_sparse_speed_update(
 ) -> tuple[bytes, bytes]:
     """The ONE frame COO-ORDER 1641 approved: x=7 alone, no merge, no cache.
 
+    STILL A LIVE COMPOSER AFTER `COO-DECISION 20260904_0215` ("(b') IS NOW
+    (b'')") -- deliberately: that decision's guarantee is enforced at
+    `attr_wire.build_named_field_update`'s cache-completeness check, scoped
+    to THAT door, not inside the shared `attr_wire.encode_block` composer
+    this function calls through `make_update_attr_frame` -- see
+    `encode_block`'s own docstring for the measurement that found widening
+    IT would have broken this file's own `tests/test_gm_speed_shape_hold.py`
+    (pins GT-193's real attended-round frame byte-for-byte through this
+    exact sparse call shape) and a LANE-DB test outside this lane's write
+    zone.
+
+    THIS FUNCTION'S OWN TWO STANDING LOCKS (`SHAPES_CLEARED_BY_A_REAL_
+    CLIENT`, `SPEED_LOGIN_READ_LANDED`, both below) hold by default, but
+    they are NOT the only door: `chat_command_action._speed_action` reads
+    `trial_admits(stored)` first and, when the owner has armed
+    `PF_SPEED_TRIAL=<value>` in her own process environment, both locks are
+    bypassed on purpose and this function composes and sends -- a real,
+    COO-approved, owner-only, single-session escape hatch for exactly the
+    GT-218 attended round, not a bug this docstring is hiding. pf-adversary
+    (this round) measured that (b'') does not cover this path: the sparse
+    shape this function still produces is byte-for-byte the shape that
+    killed a client in GT-218/GT-193. Whether that is an accepted, scoped
+    risk or something (b'') should also close is raised, not settled, in
+    `pf_bridge/notes_to_chief/20260904_0309_LANE-GM-ALARM-speed-trial-gate-
+    and-encode-block-not-covered-by-bdprime.md`.
+
     Raises `SpeedWireError` for a non-finite or non-numeric `value`.
     Everything else -- `identity_lo`/`identity_hi` types, the f32 encode
     itself -- is `attr_wire.encode_block`'s own contract; this function does

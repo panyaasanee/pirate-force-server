@@ -101,6 +101,12 @@ class ParseSpeedValueTests(unittest.TestCase):
 
 
 class ComposeSparseSpeedUpdateTests(unittest.TestCase):
+    """(b'') (`COO-DECISION 20260904_0215`) does not change this function's
+    own composition -- see `attr_wire.encode_block`'s docstring for why
+    (b'') is enforced at `attr_wire.build_named_field_update` instead of
+    inside the shared composer this function calls through. These tests
+    are therefore unchanged in shape from before (b'')."""
+
     def setUp(self):
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 

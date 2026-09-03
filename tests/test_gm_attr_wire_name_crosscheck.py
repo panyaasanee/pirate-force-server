@@ -46,8 +46,21 @@ HP_STATIC = ROOT / "tools" / "pf_hp_death_respawn_static.py"
 # The rows the trigger letter asked to widen.  x=30 is in the letter's list
 # and is refused twice over (SENSITIVE_FIELDS), which is why the module says
 # eighteen and the letter says nineteen.
+#
+# x=9 REMOVED from this tuple by `COO-DECISION 20260904_0215` item 2 -- NOT
+# because the trigger letter's ask was granted (it was not; the letter's own
+# "identity-scheme" reasoning for widening x=9 is unrelated and still
+# refused by `SELECTOR_NOTE_R301`'s "no renames" ruling). x=9 was widened for
+# a DIFFERENT, proven reason (b'') needed: `SELECTOR_NOTE_R301` shows [PROVEN,
+# in-repo] that it is the selector 0x430E10 reads to choose which HP pair the
+# client displays, so (b'') requires this lane to send its REAL value on
+# every frame rather than let it go unset (an unset selector bit is a ZERO on
+# the client, the same mechanism GT-218 crashed on). `SelectorNoteTests`
+# above still pins that no row claims to have decoded 0x430E10 ITSELF or
+# category 8's meaning -- x=9 moving to `known=True` says nothing about
+# either question.
 REFUSED_WIDENING = (
-    7, 9, 10, 12, 15, 26, 27, 28, 30, 38, 39, 44, 45, 46, 47, 49, 50, 51, 55,
+    7, 10, 12, 15, 26, 27, 28, 30, 38, 39, 44, 45, 46, 47, 49, 50, 51, 55,
 )
 # The rows the trigger letter asked to rename, with the name each must keep.
 REFUSED_RENAME = {
@@ -177,13 +190,16 @@ class RefusedWideningTests(unittest.TestCase):
             )
 
     def test_only_the_rows_that_were_already_permitted_are_permitted(self):
-        # Snapshot of the permitted set at the start of round `ehx4w6`.  Any
-        # addition or removal has to be made on purpose, here.
+        # Snapshot of the permitted set at the start of round `ehx4w6`,
+        # updated by `COO-DECISION 20260904_0215` item 2 to add x=9 (see
+        # `REFUSED_WIDENING`'s own comment for why this is not the letter's
+        # ask being granted).  Any OTHER addition or removal has to be made
+        # on purpose, here.
         permitted = frozenset(x for x, f in BY_X.items() if f[7])
         self.assertEqual(
             permitted,
             frozenset(
-                {1, 2, 3, 4, 5, 6, 8, 11, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+                {1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 16, 17, 18, 19, 20, 21, 22, 23, 24,
                  31, 32, 33, 34, 35, 37, 52, 53}
             ),
         )
