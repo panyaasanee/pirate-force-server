@@ -116,6 +116,19 @@ on every arrival -- see that responder module's own docstring for what a
 player sees because of the flip and the two gaps it ships with, pinned
 rather than fixed.
 
+EVERY COMPOSER'S RESULT NOW CARRIES LANE B'S ROSTER IDENTITIES TOO
+(COO-DECISION 20260903_2247).  ``SceneCensusResult.actor_identities`` is
+``field_mobs.roster_for_scene_id(scene_id)``'s identities, read through that
+lane's own public reader in ``_field_mob_identities`` below -- never a
+per-scene import of a table module lane B owns.  Lane B asked for this
+because it cannot splice hostility onto scene 14's arrivals without knowing
+which identities the census that scene actually sent carries, and it could
+not answer that question itself without reaching across the lane boundary.
+The field is on every scene this file composes for, not only scene 14: a
+scene lane B has not mined a roster for (today, every scene but 1, 2 and 14)
+answers ``()``, which is a real "nothing registered yet" and not a defect
+this file owns.
+
 THE ONE THING STILL IN THE WAY (defect D3, this lane's debt).
 ``player_wire``'s faction-1 serializer refuses any ``scene_id`` outside
 ``(1, 2)``, because the byte shape was only ever proven at those two.  So a
@@ -133,6 +146,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from .. import field_mobs
 from .. import lane_hooks
 from .. import mob_census_hostility
 from .. import world_population_bg0003
@@ -507,6 +521,34 @@ def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
         )
 
 
+def _field_mob_identities(scene_id: int) -> tuple[int, ...]:
+    """Lane B's hostile-mob identities for ``scene_id``, or ``()``.
+
+    COO-DECISION 20260903_2247.  Goes through ``field_mobs.roster_for_scene_id``
+    -- that lane's OWN public per-scene-id reader, already scene-agnostic and
+    already answering ``()`` for a scene its registry does not address --
+    rather than importing a per-scene table module (``field_mob_hostile_
+    bg0015`` or any sibling) by name.  That keeps this file from growing one
+    new import per scene lane B mines, the same shape ``_CONSOLE_LINES_OF``
+    above already avoids for a different reason.
+
+    Fail-closed like every other reporter in this module
+    (``_hostility_lines`` is the sibling this mirrors): a failure here must
+    become an empty identity list, never a refused census, because the
+    census this scene actually sends does not depend on lane B's registry at
+    all.
+    """
+    try:
+        return tuple(
+            mob.actor_identity
+            for mob in field_mobs.roster_for_scene_id(scene_id)
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - see the docstring
+        return ()
+
+
 def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
     """The seam's own membership, handed back ONLY if a registered,
     production-allowed ChooseNPC responder exists for ``scene_id``.
@@ -576,6 +618,7 @@ def _compose_for_scene(scene_id: int):
             console_lines=console_lines,
             initial_reapply_ms=handoff.reapply_ms,
             membership=_membership_if_answerable(scene_id, handoff),
+            actor_identities=_field_mob_identities(scene_id),
         )
 
     return compose
