@@ -1268,17 +1268,42 @@ class ItIsFailClosedTests(_Case):
         self.assertNotEqual(action and action[0],
                             chat_command_action.SPEED_ACTION_LABEL)
 
-    def test_both_locks_open_is_what_sends(self):
-        # The control: without it, the tests above prove only that something
-        # somewhere refuses, not that THESE two gates are what hold.
+    def test_both_locks_open_is_what_reaches_the_composer(self):
+        # ~~is what sends~~ -- struck by `COO-DECISION 20260904_0345` item 2:
+        # a third lock now sits BELOW these two, in the composer itself.  The
+        # control still does its job, and it is still needed for the same
+        # reason: without it the tests above prove only that something
+        # somewhere refuses, not that THESE two gates are what hold.  The
+        # evidence just moved one word along -- opening both gates changes
+        # which refusal the route reaches (the composer's, named by exception
+        # type) instead of reaching none of them.
         store = self.store()
+        session = self.session(store)
         with self.deferral_lifted(), mock.patch.object(
             speed_wire,
             "SHAPES_CLEARED_BY_A_REAL_CLIENT",
             frozenset({(speed_wire.SECTION_ACTOR_ATTR,)}),
         ):
-            action = self.act(self.session(store))
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+            self.act(session)
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_DEFERRED, session.events
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED,
+            session.events,
+        )
+        self.assertTrue(
+            [
+                event
+                for event in session.events
+                if event.startswith(
+                    chat_command_action
+                    .EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX
+                )
+            ],
+            f"neither gate held and the composer was not reached: "
+            f"{session.events!r}",
+        )
 
     def test_the_deferral_is_the_default_in_the_source_not_a_computed_guess(self):
         # COO 1847 forbids guessing.  `SPEED_LOGIN_READ_LANDED` is a literal a

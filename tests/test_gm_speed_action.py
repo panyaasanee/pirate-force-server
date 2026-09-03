@@ -29,6 +29,7 @@ import ast
 import contextlib
 import io
 import json
+import math
 import os
 import struct
 import sys
@@ -186,6 +187,59 @@ class FakeSession:
         self.foundation = FakeFoundation(selected, db_path)
 
 
+def sparse_composer_as_it_was_before_it_closed(legacy):
+    """The composer this file was written against, as a TEST-ONLY stand-in.
+
+    `COO-DECISION 20260904_0345` item 2 closed
+    `speed_wire.compose_sparse_speed_update`: a one-row `0x309A` block zeroes
+    the other 54 rows on the client (`RE-222` Q0, the mechanism `GT-218`
+    measured), so there is no safe value left on that shape and the function
+    refuses every call.  `attr_wire.make_update_attr_frame` refuses the shape
+    a second time, structurally (item 1).
+
+    THIS FILE IS ABOUT THE ROUTE, NOT THE SHAPE.  Its tests ask whether
+    `_speed_action` hands the composer the right identity, the right
+    read-back value, and returns the composer's own bytes rather than
+    building a second frame of its own -- questions that outlive any one
+    frame shape and that would otherwise become untestable the moment the
+    door shut.  So the composer is stood in for here exactly as this file
+    already stands in for the two locks above it (see `setUp`): a test-only
+    simulation, assembling the envelope by hand from
+    `attr_wire.encode_block`, which stays sparse-capable on purpose.
+
+    NOTHING HERE REACHES A SOCKET AND NOTHING HERE WEAKENS THE WALL.  The
+    shipped default -- the composer refusing, the route ending in a refusal
+    with a console line and zero bytes -- is pinned by
+    `TheClosedDoorIsTheShippedDefaultTests` at the foot of this file, and by
+    `tests/test_gm_speed_wire.py` and `tests/test_gm_speed_shape_hold.py`.
+    """
+
+    def _stand_in(_legacy, identity_lo, identity_hi, value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise speed_wire.SpeedWireError(
+                f"speed value must be a number, got {value!r}"
+            )
+        fvalue = float(value)
+        if not math.isfinite(fvalue):
+            raise speed_wire.SpeedWireError(
+                f"speed value must be finite, got {value!r}"
+            )
+        body, _bm, _am = attr_wire.encode_block(
+            legacy, identity_lo, identity_hi, {speed_wire.SPEED_FIELD_X: fvalue}
+        )
+        payload = (
+            legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, attr_wire.AC_ATTR_ID)
+            + legacy.u32tag(0x14, len(body))
+            + body
+        )
+        return legacy.make_runtime_vitals(
+            [(attr_wire.UPDATE_ATTR_VITAL_ID, 0, payload)]
+        )
+
+    return _stand_in
+
+
 class _Case(unittest.TestCase):
     GM_ACCOUNT = "GM_ONE"
     PLAYER_ACCOUNT = "DECKHAND"
@@ -246,6 +300,22 @@ class _Case(unittest.TestCase):
         )
         _deferral_lifted.start()
         self.addCleanup(_deferral_lifted.stop)
+        # AND THE THIRD LOCK, WHICH LANDED BELOW BOTH: `COO-DECISION
+        # 20260904_0345` item 2 shut the composer itself.  Same posture as
+        # the two patches above -- a TEST-ONLY simulation, so the questions
+        # this file exists to ask (does the route hand the composer the right
+        # identity and the right read-back, and does it return the composer's
+        # own bytes) survive the shape being closed.  See
+        # `sparse_composer_as_it_was_before_it_closed` for why that is not a
+        # hole, and `TheClosedDoorIsTheShippedDefaultTests` for the pin on
+        # what actually ships.
+        _composer_open = mock.patch.object(
+            speed_wire,
+            "compose_sparse_speed_update",
+            sparse_composer_as_it_was_before_it_closed(self.legacy),
+        )
+        _composer_open.start()
+        self.addCleanup(_composer_open.stop)
 
     def act(self, session, text):
         return chat_command_action.make_gm_chat_command_action(
@@ -1921,3 +1991,73 @@ class TheLineMustNotLieAboutTheRowItNamesTests(_Case):
 # is worse than no green at all.
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheClosedDoorIsTheShippedDefaultTests(unittest.TestCase):
+    """WHAT ACTUALLY SHIPS, with none of `_Case`'s three patches on.
+
+    Every other class in this file runs with the two locks patched open and
+    the composer stood in for (`setUp`).  This one runs with nothing patched,
+    so it measures the route a real boot takes today: `COO-DECISION
+    20260904_0345` item 2 shut `compose_sparse_speed_update`, and the
+    requirement COO wrote for it is exact -- "refusal with one console line,
+    no bytes out".  All three halves of that are asserted here.
+    """
+
+    GM_ACCOUNT = "GM_ONE"
+
+    def setUp(self):
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        self._trial_saved = os.environ.pop("PF_SPEED_TRIAL", None)
+        self.addCleanup(self._restore_trial_env)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.config_path = self.tmp / "gm_accounts.json"
+        self.config_path.write_text(
+            json.dumps({"gm_accounts": [self.GM_ACCOUNT]}), encoding="utf-8"
+        )
+        self.log_path = self.tmp / "capture" / "gm_command_log.ndjson"
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def _restore_trial_env(self):
+        if self._trial_saved is None:
+            os.environ.pop("PF_SPEED_TRIAL", None)
+        else:
+            os.environ["PF_SPEED_TRIAL"] = self._trial_saved
+
+    def test_the_composer_that_ships_refuses_every_value(self):
+        for value in (5.0, 300.0, 400.0, 1.0):
+            with self.subTest(value=value):
+                with self.assertRaises(speed_wire.SpeedWireError):
+                    speed_wire.compose_sparse_speed_update(
+                        self.legacy, 1, 0, value
+                    )
+
+    def test_the_frame_exit_refuses_that_block_even_if_the_composer_reopens(self):
+        with self.assertRaises(attr_wire.AttrWireError):
+            attr_wire.make_update_attr_frame(
+                self.legacy, 1, 0, {speed_wire.SPEED_FIELD_X: 5.0}
+            )
+
+    def test_an_armed_trial_key_no_longer_reaches_a_frame(self):
+        # `PF_SPEED_TRIAL` was the one live route past both locks
+        # (`COO-DECISION 2026-09-03 06:46`, WITHDRAWN by `20260904_0345`
+        # item 2 because it predates `RE-222`).  Arming it is now a refusal
+        # like any other -- and a LOUD one: the console line is what stops
+        # this being the silent-drop failure the owner reported on `/warp`.
+        os.environ["PF_SPEED_TRIAL"] = "5.0"
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            action = chat_command_action.make_gm_chat_command_action(
+                FakeSession(),
+                make_chat_payload("/speed 5.0"),
+                self.legacy,
+                config_path=str(self.config_path),
+                log_path=str(self.log_path),
+            )
+        self.assertIsNotNone(action)
+        self.assertNotEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        printed = err.getvalue()
+        self.assertIn("GM_CHAT_NO_BYTES_SENT", printed)
+        self.assertIn("SpeedWireError", printed)
