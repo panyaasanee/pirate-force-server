@@ -8030,9 +8030,18 @@ herself.~~
 > **closed, and re-filing it is forbidden.** What happened, in order: chief landed the call site,
 > `#651` merged it at `c1660fd` (13:41+07:00), the COO ordered it withdrawn, and `#652` reverted
 > it on `main` at 14:35+07:00. The census module and its tests were never touched -- only the
-> call site in `runtime.py` and chief's own wiring tests. A source-derived guard in the server now
-> makes naming the census module anywhere in `runtime.py` RED, so a round that reads this
-> paragraph and re-files the request would be asking for something the repository refuses.
+> call site in `runtime.py` and chief's own wiring tests. A source-derived guard in the server
+> (`tests/test_world_census_wiring.py:1426-1431`) makes it RED to name `identity_registry_census`
+> on a NON-COMMENT line of `runtime.py`.
+>
+> 🔴 **The guard is narrower than that sentence originally claimed here, and the difference is
+> written down rather than glossed** (pf-adversary, round `0ymgul`, D6, re-measured): comments are
+> exempt by design -- `runtime.py:10248` names the module in a comment today and the tree is green
+> -- and the guard reads `runtime.py` and no other file, so a one-line shim module in `gm/` that
+> re-exports `describe_scene`, called from the withdrawn call site, restores the console line with
+> the guard still passing (measured: `30 passed`). So the repository refuses ONE SPELLING IN ONE
+> FILE, not the idea. Re-wiring this is forbidden by the COO's order, not by the test suite; do
+> not read the guard as permission to stop reading the order.
 > The single condition that reopens it is written as a comment at the withdrawn call site:
 > `RE-2xx typed/live gate reachability` returning an identity that is **not** the index -- only
 > then does `unique_within_scene=NO` mean anything. On that day the whole wiring is re-appliable
