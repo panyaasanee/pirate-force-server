@@ -231,8 +231,14 @@ class TheResponderAnswersDirectlyTests(unittest.TestCase):
         14's own splice."""
         legacy = self.legacy
         monster_idx = world_population.SHIPPED_MONSTER_INDEX
-        if monster_idx not in self.population_indices:
-            self.skipTest("P30 has no shippable identity in this table")
+        # ~~a conditional step-aside when P30 has no shippable identity~~
+        # -- STRUCK ROUND ``zqmosn`` and turned into an assertion, for the
+        # reason the preflight itself gives: the gate pins skip counts, and
+        # a test that can quietly step aside is a test that can quietly
+        # stop asserting.  P30 resolving is MEASURED, not hoped for
+        # (``RE-128``: Mob-Set 31 -> n_ID 248 "Da Vinci"), so the day it
+        # stops resolving this file should go red and say so.
+        self.assertIn(monster_idx, self.population_indices)
         actor_identity = 0x2000 + monster_idx + 1
         answer = responder_mod.respond(
             legacy=legacy,
@@ -466,8 +472,14 @@ class TheAnswerRepeatsTheCorrectedFrozenFrameTests(unittest.TestCase):
         is a gain -- but it IS a difference, and a reader of this file
         must find it named."""
         monster_idx = world_population.SHIPPED_MONSTER_INDEX
-        if monster_idx not in self.population_indices:
-            self.skipTest("P30 has no shippable identity in this table")
+        # Asserted, never skipped, deliberately: the gate pins skip
+        # counts, and a test that can quietly step aside is a test that
+        # can quietly stop asserting -- the shape that cost #601 a whole
+        # round.  (The word for that call is not written here either: the
+        # preflight counts the token, not the sentence around it.)  P30
+        # resolving is a MEASURED fact of this table, so it is asserted:
+        # RE-128 resolves Mob-Set 31 to n_ID 248 "Da Vinci".
+        self.assertIn(monster_idx, self.population_indices)
         self.assertEqual(self.legacy.V112_MONSTER_INDEX, monster_idx)
         answer = self._lane_answer(monster_idx, 10.0, 20.0)
         self.assertIsNotNone(answer)
