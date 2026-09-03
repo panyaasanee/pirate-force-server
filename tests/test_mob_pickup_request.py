@@ -33,7 +33,8 @@ import struct
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager, redirect_stdout
+from unittest import mock
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,9 +49,16 @@ from pirateforce_foundation import (  # noqa: E402
     mob_pickup_persist,
     mob_pickup_request,
     vital_walk,
+    world_scene_folder,
 )
+from pirateforce_foundation.gm import accounts as gm_accounts  # noqa: E402
+from pirateforce_foundation.gm import login_scene_override  # noqa: E402
 from pirateforce_foundation.inventory import INITIAL_BACKPACK  # noqa: E402
-from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation.legacy_bridge import (  # noqa: E402
+    LegacyProjector,
+    load_legacy,
+)
+from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.mob_loot import (  # noqa: E402
     DropLedger,
     DropLedgerCell,
@@ -67,6 +75,7 @@ from pirateforce_foundation.mob_pickup_request import (  # noqa: E402
     read_inbound_pickup_request,
 )
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MODULE_SOURCE = (
@@ -3148,6 +3157,533 @@ class TheOwnersBatchedClickTests(LegacyFixture):
                 self.assertNotIn(
                     read.reason,
                     mob_pickup_request.MOB_PICKUP_REQUEST_RETIRED_REASONS)
+
+
+# ---------------------------------------------------------------------------
+# 8. THE BATCHED FRAME, DRIVEN THROUGH THE DISPATCHER TO A DATABASE ROW
+# ---------------------------------------------------------------------------
+
+class TheBatchedClickReachesTheRow(unittest.TestCase):
+    """The last mile of P-1, and the one no test on this tree covered.
+
+    TWO THINGS WERE ALREADY PROVED SEPARATELY AND NEITHER IS THIS ONE.
+    ``TheWiringHarness`` above drives wire bytes to a database row, but its
+    frame carries ONE vital.  ``tests/test_vital_walk.py`` drives a BATCHED
+    frame through the dispatcher, and stops at "the pickup lane produced a
+    verdict" -- which a REFUSAL satisfies as well as a take.  So the
+    sentence the owner is waiting on ("the click ends with the item in my
+    bag") had no test anywhere: a mutation that let the batched path reach
+    the lane and then refuse every claim left both files green.
+
+    WHICH SHAPE R303's NUMBERS BELONG TO, because an earlier draft of this
+    class got it backwards and the correction is the point.  The 46 is a
+    count of ``MOB_PICKUP_REQUEST_*`` console lines, and on that tree those
+    existed only for frames ``runtime.py`` dispatched on ``parse_outer``'s
+    FIRST nested id -- so all 46, the 42 ``vital_count_not_one`` included,
+    were frames whose pickup vital arrived FIRST (this module says so at
+    ``MOB_PICKUP_REQUEST_R303_DENOMINATOR``; ``vital_walk`` NONCLAIM 4 says
+    the counted token can only be produced when the pickup vital is first).
+    The pickup-LAST shape contributed ZERO of the 46 and has never been
+    counted by anybody.  That is not a reason to skip it -- it is the
+    reason it needs a test: it is the shape nothing on this tree has ever
+    driven to a row, and no round may cite 42/46 as evidence about it.
+
+    WHAT IS REAL HERE AND WHAT IS SEEDED, stated rather than implied:
+      * REAL -- a store on disk with the project's own migrations, a login,
+        a character creation and a StartGame driven through
+        ``make_state_class``, no flag and no scenario object anywhere; the
+        bag cell and the claimant identity are the ones that boot produced,
+        and the claimant position is the one the session learned from a
+        batched frame the frozen parser cannot read.
+      * SEEDED -- the ground ledger.  The rows are placed into the
+        session's own cell instead of being rolled by a kill.  NONCLAIM:
+        this file does not prove a kill writes the ledger (``mob_loot``'s
+        own tests own that) and it does not prove anything a player can see
+        (``GT-216`` owns that).  What it proves is the half between the
+        two: given rows on the floor, the batched click takes them.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        # The two files that can redirect a login to a GM scene are pointed
+        # at paths that do not exist, so this boot is the production one
+        # even in an environment where somebody exported them.  UNTESTED AS
+        # A NEUTRALISER (pf-adversary D8): in an ordinary run the variables
+        # are unset and the pin is a no-op, so what it buys is protection
+        # from an environment, not an assertion this file makes.
+        pin = mock.patch.dict(gm_accounts.os.environ, {
+            login_scene_override.ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_gm_login_scene.json"),
+            login_scene_override.STANDALONE_ENV_OVERRIDE:
+                str(Path(self.tmp.name) / "no_standalone_map.json"),
+        })
+        pin.start()
+        self.addCleanup(pin.stop)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, ROOT / "migrations")
+        self.store.migrate()
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(1, 0, self.legacy.V135_PLAYER_X,
+                     self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+
+    # -- the frame builders, composed from the legacy tag helpers ----------
+
+    def _on_land(self, x=1.0, y=2.0, z=3.0, heading=4.0, tail=1):
+        body = b"".join(self.legacy.f32tag(value)
+                        for value in (x, y, z, heading))
+        body += self.legacy.u16tag(0x0F, tail)
+        return (self.legacy.u16tag(0x12, self.legacy.ON_LAND_VITAL)
+                + self.legacy.u8tag(0x0B, 0) + body)
+
+    def _target_pos(self, x, y, z, heading=0.0, moving=1, tail=0):
+        body = b"".join(self.legacy.f32tag(value)
+                        for value in (x, y, z, heading))
+        body += self.legacy.u8tag(0x0B, moving) + self.legacy.u8tag(0x0B, tail)
+        return (self.legacy.u16tag(0x12, self.legacy.TARGET_POS_VITAL)
+                + self.legacy.u8tag(0x0B, 0) + body)
+
+    def _pickup(self, object_ref, opaque=0):
+        return (self.legacy.u16tag(
+                    0x12, mob_pickup_request.PICKUP_REQUEST_VITAL_ID)
+                + self.legacy.u8tag(0x0B, 0) + _body(object_ref, opaque))
+
+    def _noise(self):
+        """``UPDATE_SERVER_SETTING_VITAL`` -- an id the walk has no row for.
+
+        Not an invented adversarial vital: ``vital_walk``'s own NONCLAIM 1
+        names 0x0F01 as an id ``v141`` classes as one the client sends
+        continuously, and the length table covers four ids out of the 49
+        v141 knows.
+        """
+        return (self.legacy.u16tag(0x12, 0x0F01)
+                + self.legacy.u8tag(0x0B, 0) + b"\x2a\x00\x00\x00\x00")
+
+    def _frame(self, vitals, *, vital_count=None):
+        return bytes(
+            self.legacy.u16tag(0x12, self.legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + self.legacy.u32tag(0x14, 0)
+            + self.legacy.u8tag(0x08, 0)
+            + self.legacy.u8tag(0x0B, 2)
+            + self.legacy.u16tag(
+                0x12, len(vitals) if vital_count is None else vital_count)
+            + b"".join(vitals))
+
+    # -- the session ------------------------------------------------------
+
+    #: WHERE THE STORE THINKS SHE IS.  The singleton movement frame is read
+    #: by v141's own branch, which writes the stored position; the BATCHED
+    #: frames after it are not, so ``selected.position`` stays here while
+    #: ``last_target_pos`` walks away.  That gap is deliberate and it is
+    #: what makes the position source falsifiable -- pf-adversary D3
+    #: measured a fixture whose two candidate sources were the same number,
+    #: and re-adding the withdrawn ``selected.position`` fallback (which
+    #: runtime.py's own comment says was measured to commit a cross-scene
+    #: take) left every test in this class green.
+    STANDS_AT = (100.0, 200.0, 300.0)
+    #: WHERE SHE ACTUALLY IS, learned only from a batched frame.
+    WALKED_TO = (6000.0, 200.0, 300.0)
+    #: 173 units from ``WALKED_TO`` -- R303's own number, the distance at
+    #: which that round refused a player -- and 6073 from ``STANDS_AT``,
+    #: which is more than PICKUP_RADIUS.  So a claim resolved against the
+    #: stored position refuses ``claimant_out_of_range`` and this class
+    #: goes red.
+    ROWS_AT = (6173.0, 200.0, 300.0)
+    #: Derived from the crosswalk rather than typed, so the day scene 1's
+    #: folder is spelled differently this fixture follows it (D6).
+    SCENE_ENTERED = world_scene_folder.scene_folder_for_scene_id(1)
+
+    def _started_session(self, token="pickup_batched"):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector)
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(
+            state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)))
+        # A SINGLETON FIRST, because that is what ends the login sequence
+        # and sets npc_spawn_sent -- reaching that state through the
+        # dispatcher rather than by setting the flag is the difference
+        # between testing the wiring and testing a mock.  NOT a claim about
+        # what a real client sends: runtime.py's own comment says R303's
+        # client does not send a single-vital TargetPos.
+        state.dispatch(self.legacy.parse_outer(
+            self._frame([self._target_pos(*self.STANDS_AT)])))
+        # Then she WALKS, in the shape the client really uses.
+        state.dispatch(self.legacy.parse_outer(self._frame([
+            self._on_land(), self._target_pos(*self.WALKED_TO)])))
+        return state
+
+    def _identity(self, state):
+        """The claimant identity the way runtime.py composes it."""
+        selected = state.foundation.selected
+        return ((selected.identity_hi & 0xFFFFFFFF) << 32
+                | (selected.identity_lo & 0xFFFFFFFF))
+
+    def _seed_the_floor(self, state, count, quantities=None):
+        """``count`` rows on the floor of the scene the session is in.
+
+        The killer is this session's own identity because the lane's
+        killer-only rule (NONCLAIM 4 of ``mob_pickup``) would otherwise
+        refuse every claim -- which is the state a real kill leaves behind.
+        """
+        killer = self._identity(state)
+        if quantities is None:
+            quantities = [1] * count
+        drops = tuple(
+            mob_loot.GroundDrop(
+                mob_loot.DROP_KEY_BASE + offset, ITEM, quantities[offset],
+                mob_loot.as_wire_float(self.ROWS_AT[0]),
+                mob_loot.as_wire_float(self.ROWS_AT[1]),
+                mob_loot.as_wire_float(self.ROWS_AT[2]),
+                MOB, killer, self.SCENE_ENTERED,
+            )
+            for offset in range(count)
+        )
+        state.mob_loot_cell = DropLedgerCell(
+            DropLedger(drops, 1, mob_loot.DROP_KEY_BASE + count, ()),
+            scene=self.SCENE_ENTERED,
+        )
+        return drops
+
+    def _click(self, state, drop_key, *, before=None, after=None):
+        """One click through the real dispatcher, in a batched frame.
+
+        ``before``/``after`` are the vitals that share the frame with it, so
+        a test says WHICH shape it is driving instead of a helper deciding.
+        The default is the five-vital burst with the pickup body LAST -- the
+        shape nothing on this tree had ever driven to a row, and the one
+        R303 never counted.
+        """
+        if before is None and after is None:
+            before = ("on_land",) * 4
+        vitals = [self._compose(name) for name in (before or ())]
+        vitals.append(self._pickup(drop_key))
+        vitals.extend(self._compose(name) for name in (after or ()))
+        return self._dispatch(state, vitals)
+
+    def _compose(self, name):
+        if name == "on_land":
+            return self._on_land()
+        if name == "noise":
+            return self._noise()
+        raise AssertionError("unknown fixture vital %r" % (name,))
+
+    def _dispatch(self, state, vitals):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            state.dispatch(self.legacy.parse_outer(self._frame(vitals)))
+        return out.getvalue() + err.getvalue()
+
+    def _rows(self, state):
+        db = sqlite3.connect(self.path)
+        try:
+            return [
+                tuple(row) for row in db.execute(
+                    "SELECT item_identity,template_id,quantity,slot "
+                    "FROM character_backpack_items WHERE character_id=? "
+                    "ORDER BY item_identity",
+                    (state.mob_pickup_character_id,),
+                )
+            ]
+        finally:
+            db.close()
+
+    def _acquired(self, state, baseline):
+        """The rows this session PICKED UP, not the ones it was born with.
+
+        A newborn character already carries ``INITIAL_BACKPACK`` rows, so a
+        bare row count reads 5 for one pickup and would let a test that
+        meant "one" pass on "five".
+        """
+        return [row for row in self._rows(state) if row not in baseline]
+
+    def _pickup_events(self, state):
+        return [event for event in state.events
+                if event.startswith("mob_pickup_request_")]
+
+    # -- the tests --------------------------------------------------------
+
+    def test_the_fixture_can_tell_the_two_position_sources_apart(self):
+        """The guard on every position claim below (pf-adversary D3).
+
+        If the stored position and the learned one are ever the same
+        number again, the class stops being able to say WHICH one the
+        pickup branch read, and the withdrawn cross-scene fallback becomes
+        a mutant nothing catches.  So the gap is asserted, not assumed.
+        """
+        state = self._started_session("pickup_batched_sources")
+        stored = state.foundation.selected.position
+        learned = state.last_target_pos
+        self.assertEqual(
+            (stored.x, stored.y, stored.z), self.STANDS_AT,
+            "the store no longer holds the singleton's coordinates")
+        self.assertEqual(learned[:3], self.WALKED_TO)
+        self.assertGreater(
+            mob_pickup.squared_distance(
+                (stored.x, stored.y, stored.z), self.ROWS_AT),
+            mob_pickup.PICKUP_RADIUS ** 2,
+            "a claim resolved against the STORED position would still be "
+            "in range, so this fixture cannot tell the two sources apart")
+        self.assertTrue(mob_pickup.within_pickup_radius(
+            self.WALKED_TO, self.ROWS_AT))
+
+    def test_the_batched_click_ends_as_a_backpack_row(self):
+        """P-1's headline sentence, wire bytes to database row.
+
+        Every assertion below is on the wire/DB layer.  G5: none of it says
+        anything about what the owner sees, and this file must never be
+        cited as if it did.
+        """
+        state = self._started_session()
+        drops = self._seed_the_floor(state, 1)
+        baseline = self._rows(state)
+        self.assertEqual(
+            len(baseline), len(INITIAL_BACKPACK.items),
+            "the newborn bag is not the one this file thinks it is")
+
+        console = self._click(state, drops[0].drop_key)
+
+        self.assertIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_DECODED_TOKEN, console,
+            "the batched click never reached the decoder")
+        self.assertIn(
+            "MOB_PICKUP_ROW_INSERTED", console,
+            "the click decoded and no row was written")
+        self.assertIn(
+            "mob_pickup_request_%s" % (ACCEPTED,), state.events,
+            "the dispatcher recorded no accepted outcome for the click")
+        acquired = self._acquired(state, baseline)
+        self.assertEqual(
+            len(acquired), 1,
+            "the backpack did not grow by exactly one acquired row")
+        self.assertEqual(acquired[0][1], ITEM)
+
+    def test_the_promoted_line_reports_the_frame_the_client_sent(self):
+        """THE LINE AN ATTENDED ROUND GREPS, AND THE COUNT IT CARRIES.
+
+        pf-adversary measured that setting ``walked_frame_vital_count`` to
+        1 in ``runtime.py`` -- so the console reports the shape of the
+        object that branch BUILT rather than the shape of the frame the
+        client sent -- was green in this class, green in
+        ``test_vital_walk`` and green across the whole suite.  ``GT-216``
+        pass criterion 4 grades on this exact line, so a round could have
+        read "vital_count=1" off a five-vital frame and recorded the
+        inverse of the truth with nothing turning red.
+
+        The expected line is composed by the module that prints it, so this
+        is a test of the COUNT, not a second transcription of the format.
+        """
+        state = self._started_session("pickup_batched_promoted")
+        drops = self._seed_the_floor(state, 1)
+
+        console = self._click(state, drops[0].drop_key)
+
+        self.assertIn("vital_walk_pickup_promoted", state.events)
+        self.assertIn(
+            vital_walk.walk_promoted_console_line(
+                mob_pickup_request.PICKUP_REQUEST_VITAL_ID, 5),
+            console,
+            "the promoted line does not carry the count the client sent")
+
+    def test_a_click_that_lands_prints_no_refusal_at_all(self):
+        """One outcome per click, and it is the accepted one.
+
+        ~~``assertNotIn("vital_count_not_one", console)``~~ IS STRUCK as the
+        assertion here (pf-adversary D5): that name is emitted by no code
+        path in ``src``, so it could not fail on any input and read as a
+        measurement while asserting nothing.  ``test_the_retired_name_is_
+        never_said_again`` above owns that question and drives every family
+        to prove it.  What CAN fail, and is what this test means, is that
+        the batched click produced no refusal LINE and exactly one accepted
+        outcome.
+        """
+        state = self._started_session("pickup_batched_clean")
+        drops = self._seed_the_floor(state, 1)
+
+        console = self._click(state, drops[0].drop_key)
+
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_REFUSED_TOKEN, console)
+        self.assertEqual(
+            self._pickup_events(state),
+            ["mob_pickup_request_%s" % (ACCEPTED,)])
+
+    def test_ten_batched_clicks_leave_ten_rows(self):
+        """"Playable" is a rate, not a single success.
+
+        ``GT-204`` proved one pickup can happen; ``GT-216`` grades on ten
+        objects.  Ten distinct rows are clicked here in one session, each
+        through its own dispatched frame, and every one has to land -- so a
+        path that works once and then wedges its cell, its bag or its
+        identity block turns this red.
+        """
+        state = self._started_session("pickup_batched_ten")
+        quantities = [offset + 1 for offset in range(10)]
+        drops = self._seed_the_floor(state, 10, quantities)
+        baseline = self._rows(state)
+
+        for drop in drops:
+            console = self._click(state, drop.drop_key)
+            with self.subTest(drop_key=drop.drop_key):
+                self.assertIn("MOB_PICKUP_ROW_INSERTED", console)
+
+        acquired = self._acquired(state, baseline)
+        self.assertEqual(
+            len(acquired), 10, "ten clicks did not leave ten acquired rows")
+        # The quantities identify WHICH drop each row came from, so a lane
+        # that wrote ten copies of the first object would be red here.
+        self.assertEqual(
+            sorted(row[2] for row in acquired), sorted(quantities))
+        self.assertEqual(
+            self._pickup_events(state),
+            ["mob_pickup_request_%s" % (ACCEPTED,)] * 10)
+
+    def test_a_second_click_on_a_taken_row_is_refused_by_name(self):
+        """Fail-closed on the frame an impatient player really produces.
+
+        ``GT-216`` step 5 tells the tester to click again if the object does
+        not vanish, so this is not a hypothetical shape -- and the second
+        click must not write a second row.
+        """
+        state = self._started_session("pickup_batched_twice")
+        drops = self._seed_the_floor(state, 1)
+        self._click(state, drops[0].drop_key)
+        rows_after_one = self._rows(state)
+
+        console = self._click(state, drops[0].drop_key)
+
+        self.assertIn(
+            "%s reason=" % (
+                mob_pickup_request.MOB_PICKUP_REQUEST_REFUSED_TOKEN,),
+            console)
+        self.assertEqual(self._rows(state), rows_after_one)
+
+    def test_a_click_before_any_kill_refuses_by_name_and_writes_nothing(self):
+        """MEASURED THIS ROUND, and it is why the fixture declares a scene.
+
+        A session that has only logged in carries a ground cell that does
+        not know which scene it is in: ``enter_scene_frames`` runs at a
+        scene boundary and ``loot_a_kill`` sets it from the monster, and a
+        login crosses neither.  There are no rows on that floor either, so
+        nothing is lost -- what matters is the SHAPE of the answer, and it
+        has to be a registered name rather than a traceback out of a branch
+        sitting under an inbound frame from a stranger.
+
+        THIS TEST DIES ON ITS OWN the day a login declares a scene, and it
+        does it WITHOUT A SKIP: the expected name is read off the cell the
+        boot produced, so a login that starts declaring a scene moves this
+        test to the other fail-closed name instead of silently stopping.
+        """
+        state = self._started_session("pickup_batched_no_scene")
+        expected = (
+            mob_pickup.REFUSE_CELL_HAS_NO_SCENE
+            if state.mob_loot_cell.current_scene is None
+            else mob_pickup.REFUSE_OBJECT_REF_NEVER_ISSUED)
+        baseline = self._rows(state)
+
+        console = self._click(state, mob_loot.DROP_KEY_BASE)
+
+        self.assertIn(
+            "%s reason=%s" % (
+                mob_pickup_request.MOB_PICKUP_REQUEST_REFUSED_TOKEN, expected),
+            console)
+        self.assertEqual(self._rows(state), baseline)
+
+    def test_the_leading_shape_still_lands_the_same_row(self):
+        """The shape that worked on main must not be traded for the other.
+
+        The dispatcher has two ways into the branch -- the walked path and
+        the leading-id fallback -- and a change that fixed the batched frame
+        by breaking the one R303 actually counted would be a regression the
+        owner would feel as "it used to work sometimes".
+        """
+        state = self._started_session("pickup_batched_leading")
+        drops = self._seed_the_floor(state, 1)
+        baseline = self._rows(state)
+
+        console = self._click(
+            state, drops[0].drop_key, before=(), after=("on_land",) * 4)
+        self.assertIn("MOB_PICKUP_ROW_INSERTED", console)
+        self.assertEqual(len(self._acquired(state, baseline)), 1)
+
+    def test_one_frame_that_walks_and_clicks_does_both(self):
+        """The richest shape, and the one the story is actually about.
+
+        R303's frame #714 carries four movement vitals and a TargetPos --
+        and NO pickup vital, so "the frame the client sends" is a
+        composition here, not a capture.  What this drives is the
+        interaction that composition exists to ask about: a single frame
+        that both MOVES her and CLICKS.  Both halves have to happen, and
+        the position has to be the one this frame carried, not the one the
+        session had a moment ago.
+        """
+        state = self._started_session("pickup_batched_walk_and_click")
+        drops = self._seed_the_floor(state, 1)
+        baseline = self._rows(state)
+        moved_to = (self.ROWS_AT[0], self.ROWS_AT[1], self.ROWS_AT[2])
+
+        console = self._dispatch(state, [
+            self._on_land(),
+            self._target_pos(*moved_to),
+            self._pickup(drops[0].drop_key),
+        ])
+
+        self.assertIn("MOB_PICKUP_ROW_INSERTED", console)
+        self.assertEqual(len(self._acquired(state, baseline)), 1)
+        self.assertEqual(state.last_target_pos[:3], moved_to)
+
+    def test_a_click_behind_an_untabled_vital_is_dropped_and_says_so(self):
+        """MEASURED THIS ROUND (pf-adversary D1), AND IT IS A REAL HOLE.
+
+        The walk covers four vital ids out of the 49 ``v141`` knows, and one
+        id it does NOT cover -- 0x0F01 -- is in v141's own
+        ``CAPTURE_NOISE_IDS``, an id it says the client sends continuously.
+        A frame that batches one of those BEFORE the pickup body walks
+        nowhere: ``isolate_vital`` needs the whole frame to walk, the
+        dispatcher's leading-id fallback does not apply because the pickup
+        vital is not first, and the click is dropped.
+
+        Two things this test pins, and neither is an approval of the
+        behaviour.  FAIL-CLOSED: nothing is granted and no row is written.
+        AUDIBLE, BUT NOT IN THIS LANE'S VOCABULARY: the only trace is the
+        walker's own refusal event, so a round grepping the pickup lane's
+        tokens sees NOTHING and would read this as "the click never
+        arrived".  ``GT-216`` prediction P3 is the entry that catches it on
+        a real client, and the fix -- a longer table, or a walk that skips
+        what it cannot measure -- is ``vital_walk``'s to make, not this
+        lane's.  The day it lands, this test goes red and says so.
+        """
+        state = self._started_session("pickup_batched_noise")
+        drops = self._seed_the_floor(state, 1)
+        baseline = self._rows(state)
+
+        console = self._dispatch(state, [
+            self._on_land(),
+            self._noise(),
+            self._on_land(),
+            self._pickup(drops[0].drop_key),
+        ])
+
+        self.assertEqual(
+            self._acquired(state, baseline), [],
+            "a click behind an untabled vital took a row after all -- if "
+            "the walk grew a row for 0x0F01 this test is the one to delete")
+        self.assertEqual(self._pickup_events(state), [])
+        self.assertNotIn(
+            mob_pickup_request.MOB_PICKUP_REQUEST_DECODED_TOKEN, console)
+        self.assertIn("vital_walk_refused_unknown_vital_id", state.events)
 
 
 if __name__ == "__main__":
