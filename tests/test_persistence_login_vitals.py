@@ -2750,5 +2750,257 @@ class TheHpPinSurvivesTheRequestedChangeTests(unittest.TestCase):
                 "signature defaults that feed its two u32tag calls")
 
 
+class TheThreeRowFixtureIsPermanentTests(
+        NoHandleOutlivesItsTempDirMixin, unittest.TestCase):
+    """`COO-DECISION 20260903_1051`: the three rows that tell "the server read
+    the row" apart from "the server sent its constant", pinned instead of
+    left in a letter.
+
+    WHY THREE AND NOT ONE.  `NOW.md` carried, in COO's own words, that after
+    `009` the column DEFAULTs equal the hardcoded login constants, so on
+    every live database -- the owner's included -- reading the row and
+    sending the constant produce THE SAME BYTES, and only a fixture holding
+    some other number can separate them.  Round `l8tn7f` measured that
+    separation and reported it in `pf_bridge/notes_to_chief/
+    20260903_0925_LANE-DB-REPORT-COO-the-revive-writes-updated-at-too.md`;
+    that letter is a letter, and a letter is not a card.  This is the card.
+
+    Three shapes rather than one because one is a coincidence away from
+    meaningless: a single row at `level 9 / hp_max 250` could be matched by
+    any wrong implementation that happened to send 9 and 250 (a stale
+    constant, a value cached from another character, a number the test itself
+    wrote into the resolver).  Three rows whose levels and maxima are all
+    different, resolved through the same call, cannot all be produced by any
+    one constant.
+
+    EACH ROW IS ALSO DEAD (`hp_current = 0`), so the answer travels through
+    the revive `COO-DECISION 20260903_0250` ordered, and the number that
+    comes back is the ROW's own `hp_max` -- the one thing a constant heal
+    could never produce for three different maxima.
+
+    !! WHAT THIS DOES NOT CLAIM.  Nothing here is client-observable.  This is
+    the wire/DB half only: the resolution and the object handed to the
+    composer are checked, no frame is composed and nothing is sent.  The
+    round `l8tn7f` letter proposed these three rows as the shape of an
+    ATTENDED test, and COO opened that ticket separately (`1052`); this file
+    is not that test and cannot stand in for it.
+    """
+
+    #: (level, hp_max), copied by hand from the letter COO accepted -- not
+    #: re-chosen here, because the attended ticket he opened off it
+    #: (`1052`) will use these numbers on the owner's screen and a fixture
+    #: that has quietly drifted from the ticket proves nothing about it.
+    #:
+    #: !! "COPIED BY HAND" IS THE HONEST WORD AND "VERBATIM" WAS NOT.  The
+    #: letter lives in `pf_bridge`, which is a DIFFERENT REPOSITORY and is
+    #: not present on the gate, so nothing here can grade these six numbers
+    #: against it -- unlike `tests/test_persistence_vitals_seed_007.py`,
+    #: which grades its label against `007`'s own bytes because that file IS
+    #: in this repository.  A `pf-adversary` pass pointed out that the first
+    #: draft stated the drift risk and then installed no guard against it.
+    #: There is no guard available; there is only this sentence, and the
+    #: rule that follows from it: if the ticket's numbers change, THIS
+    #: constant is edited in the same round, by hand, on purpose.
+    #:
+    #: !! ROW THREE'S LEVEL IS A LOGIN CONSTANT (`level = 1`), and it is left
+    #: that way deliberately with the fact written down rather than hidden:
+    #: the first draft of the control below asserted that none of the six
+    #: numbers is a wire constant and went RED on it.  What separates row
+    #: three is its `hp_max = 7`, and what the class actually needs is that
+    #: no row's TRIPLE can be produced by the constants -- which is what the
+    #: control asserts now.  All three levels differ and all three maxima
+    #: differ, so no single constant can match more than one row.
+    THREE_ROWS = ((3, 40), (9, 250), (1, 7))
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.guard_the_temp_dir(self.tmp)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.account_id = self.store.ensure_account("three-row-fixture")
+        self.home = Position(1, 0, 1.0, 2.0, 3.0, heading=0.0)
+
+    def _born(self, tag):
+        return self.store.create_character(
+            self.account_id, "Three" + tag, "three" + tag,
+            "fingerprint-three-" + tag, _build_wire, self.home)
+
+    def _write_row(self, character_id, **columns):
+        assignments = ", ".join("%s = ?" % name for name in columns)
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE characters SET %s WHERE id = ?" % assignments,
+                (*columns.values(), character_id))
+
+    def test_the_fixture_numbers_are_not_login_constants(self):
+        """The control.  If a future round changes a login constant to 250 or
+        to 7, this class stops separating anything and must be re-chosen --
+        and it says so here instead of quietly passing."""
+        # !! THE CONTROL MUST NOT PASS WHEN IT CANNOT CONTROL.  If
+        # `_login_hp_literals()` cannot be derived this module sets both HP
+        # fallbacks to `None` and `WIRE_CONSTANTS` shrinks to the level and
+        # the walk speed -- so every `assertNotIn` below would pass over a
+        # set that no longer contains the two constants this test exists to
+        # exclude.  A `pf-adversary` pass found that hole; the rest of the
+        # class reddens anyway (the other tests pass `None` into the
+        # resolver), but the one test whose job is to be the control would
+        # have stopped controlling silently.
+        self.assertEqual(
+            HP_PIN_REFUSAL, "",
+            "the HP literals could not be derived (%s), so WIRE_CONSTANTS "
+            "no longer holds them and this control excludes nothing"
+            % (HP_PIN_REFUSAL,))
+        for level, hp_max in self.THREE_ROWS:
+            # The maximum is what carries the separation on every row, so it
+            # is the one that may never be a constant.
+            self.assertNotIn(hp_max, WIRE_CONSTANTS, hp_max)
+            # And the triple as a whole, which is the thing actually sent.
+            self.assertNotEqual(
+                (level, hp_max, hp_max),
+                (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX))
+        self.assertEqual(len({row[0] for row in self.THREE_ROWS}), 3)
+        self.assertEqual(len({row[1] for row in self.THREE_ROWS}), 3)
+        # Only ONE of the three levels may coincide with the login constant;
+        # two would mean the fixture had drifted toward it.
+        self.assertEqual(
+            len([row for row in self.THREE_ROWS if row[0] == FALLBACK_LEVEL]),
+            1)
+
+    def test_each_row_comes_back_as_its_own_numbers(self):
+        sent = []
+        for index, (level, hp_max) in enumerate(self.THREE_ROWS):
+            character = self._born("r%d" % index)
+            self._write_row(
+                character.id,
+                **{vitals.LEVEL_COLUMN: level,
+                   vitals.HP_CURRENT_COLUMN: 0,
+                   vitals.HP_MAX_COLUMN: hp_max})
+            resolved = login_vitals.resolve_for_character(
+                self.store, character.id, **FALLBACKS)
+            with self.subTest(level=level, hp_max=hp_max):
+                self.assertEqual(
+                    resolved.reason,
+                    login_vitals.ROW_HP_NOT_POSITIVE_REVIVED_ON_LOGIN)
+                self.assertEqual(
+                    (resolved.level, resolved.hp_current, resolved.hp_max),
+                    (level, hp_max, hp_max))
+            sent.append((resolved.level, resolved.hp_current, resolved.hp_max))
+
+        # THE SEPARATION ITSELF, stated as the thing a constant cannot do:
+        # three calls to one function returned three different triples.
+        self.assertEqual(len(set(sent)), 3, sent)
+        for triple in sent:
+            self.assertNotEqual(
+                triple,
+                (FALLBACK_LEVEL, FALLBACK_HP_CURRENT, FALLBACK_HP_MAX),
+                "a fixture row resolved to the login literals, so this row "
+                "separates nothing")
+
+    #: One ALIVE row, and the class does not work without it.  A
+    #: `pf-adversary` pass showed why: every row in `THREE_ROWS` is dead and
+    #: comes back healed to full, so `hp_current == hp_max` in every
+    #: assertion above, and TWO mutants walked past all of them -- a
+    #: `wire_kwargs()` that TRANSPOSES the HP pair, and one that sends
+    #: `hp_current = self.hp_max` so a character at 37/250 logs in at
+    #: 250/250 every time.  This file already names that trap forty lines up
+    #: ("transposing the two HP fallbacks inside the module is invisible when
+    #: they are equal") and the first draft of this class reproduced it.
+    #: The numbers are outside `WIRE_CONSTANTS` and differ from each other
+    #: and from every row above.
+    ALIVE_ROW = (5, 37, 250)
+
+    def test_an_alive_row_separates_current_from_max(self):
+        character = self._born("alive")
+        level, hp_current, hp_max = self.ALIVE_ROW
+        self.assertNotEqual(hp_current, hp_max)
+        self._write_row(
+            character.id,
+            **{vitals.LEVEL_COLUMN: level,
+               vitals.HP_CURRENT_COLUMN: hp_current,
+               vitals.HP_MAX_COLUMN: hp_max})
+        resolved = login_vitals.resolve_for_character(
+            self.store, character.id, **FALLBACKS)
+        self.assertEqual(resolved.reason, login_vitals.FROM_ROW,
+                         "an alive row was not read as an alive row, so this "
+                         "test is measuring the revive instead")
+        self.assertEqual(
+            (resolved.level, resolved.hp_current, resolved.hp_max),
+            (level, hp_current, hp_max))
+        # Stated separately from the tuple above so the failure message says
+        # WHICH half moved, which is the whole point of the alive row.
+        self.assertEqual(resolved.hp_current, hp_current,
+                         "the current HP is not the row's current HP")
+        self.assertEqual(resolved.hp_max, hp_max,
+                         "the max HP is not the row's max HP")
+        self.assertLess(resolved.hp_current, resolved.hp_max)
+        for value in self.ALIVE_ROW:
+            self.assertNotIn(value, WIRE_CONSTANTS, value)
+
+        # !! AND THROUGH THE SEAM, WHICH IS WHERE THE MUTANT LIVED.  The
+        # first version of this test stopped at the resolution and the
+        # `wire_kwargs()` mutant that sends `hp_current = self.hp_max`
+        # walked past it, measured -- the resolution was right and the dict
+        # splatted onto the character was not.  A number that stops at the
+        # resolution is a number no client ever sees.
+        carried = login_vitals.apply_to_character(
+            self._seam_character(character.id), resolved)
+        self.assertEqual(carried.hp_current, hp_current,
+                         "the seam carried something other than the row's "
+                         "current HP")
+        self.assertEqual(carried.hp_max, hp_max)
+        self.assertEqual(carried.level, level)
+
+    @staticmethod
+    def _seam_character(character_id):
+        """An object shaped like `model.Character` AFTER the seam.
+
+        Deliberately not `model.Character` itself, for the reason
+        `ApplyToCharacterTests` gives above: that class does not have the
+        three fields today, and a test needing it to would be a test that
+        cannot run until another lane moves.
+        """
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class SeamCharacter:
+            id: int = 0
+            name: str = "three"
+            actor_wire: bytes = b"\x01"
+            level: int | None = None
+            hp_current: int | None = None
+            hp_max: int | None = None
+
+        return SeamCharacter(id=character_id)
+
+    def test_the_numbers_reach_the_object_the_composer_is_handed(self):
+        """One layer further out than the resolver, because a number that
+        stops at the resolution is a number no client ever sees.  Still not
+        a frame -- `apply_to_character` is the last thing this lane owns.
+
+        !! THESE THREE ROWS CANNOT SEE A TRANSPOSED HP PAIR, because all
+        three are revived to full and their two HP numbers are equal.  That
+        is what `test_an_alive_row_separates_current_from_max` is for; this
+        one measures that the ROW's numbers rather than the constants arrive,
+        across three different shapes.
+        """
+        for index, (level, hp_max) in enumerate(self.THREE_ROWS):
+            character = self._born("c%d" % index)
+            self._write_row(
+                character.id,
+                **{vitals.LEVEL_COLUMN: level,
+                   vitals.HP_CURRENT_COLUMN: 0,
+                   vitals.HP_MAX_COLUMN: hp_max})
+            resolved = login_vitals.resolve_for_character(
+                self.store, character.id, **FALLBACKS)
+            carried = login_vitals.apply_to_character(
+                self._seam_character(character.id), resolved)
+            with self.subTest(level=level, hp_max=hp_max):
+                self.assertEqual(
+                    (carried.level, carried.hp_current, carried.hp_max),
+                    (level, hp_max, hp_max))
+                self.assertEqual(carried.id, character.id)
+
 if __name__ == "__main__":
     unittest.main()

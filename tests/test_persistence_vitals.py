@@ -40,6 +40,8 @@ import re
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -50,6 +52,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
 from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
+from pirateforce_foundation import store as store_module  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -1533,6 +1536,412 @@ class NewCharacterVitalsTests(unittest.TestCase):
             "in one edit; a second caller is a second place." % (callers,),
         )
 
+
+class ContendedDamageWaitsInsteadOfStarvingTests(unittest.TestCase):
+    """`COO-DECISION 20260903_1047` point 1: the damage door gets the same
+    waiting the healing door got, and these are the tests that die without it.
+
+    WHAT WAS WRONG, and it was not the lock.
+    `BeginImmediateHoldsTheWriteLockTests` above proves the IMMEDIATE
+    transaction is right and still fails if it is removed.  What was missing
+    is the other property -- tolerate contention -- which reached the two
+    healing-side doors of `store.py` and did NOT reach `apply_hp_damage`.
+    (The two healing-side doors are named here only by description, never
+    spelled: `tests/test_persistence_vitals_heal.py::NothingIsWiredTests`
+    scans this repository for their spellings to prove nothing has wired
+    them, and a mention in prose is indistinguishable from a call to a regex
+    -- the same courtesy that file's header extends to this file's damage
+    door.)  On a loaded runner a hit that loses the race gets
+    `OperationalError('database is locked')` from a bare `BEGIN IMMEDIATE`
+    against `connect()`'s 5,000 ms ceiling, and the caller's punch is gone.
+    SQLite's busy handler makes no fairness guarantee, so that ceiling is a
+    bet on machine speed, not a property.
+
+    !! WHICH DECISION SAYS WHAT, because the first draft of this docstring
+    got the citation wrong and a `pf-adversary` pass opened the file.
+    `COO-DECISION 20260902_1646` ordered the tolerance, but it is about the
+    HEALING TEST that closed another lane's pull request; it does not mention
+    `apply_hp_damage` at all.  The reading that the order was about THE DOOR
+    and reached only one half is COO's OWN, written later, in
+    `COO-DECISION 20260903_1047` point 1 reason (1).  1047 authorises this
+    class; 1646 supplies the mechanism and the forbidden repairs.
+
+    WHAT THIS FILE MAY NOT DO ABOUT IT, carried over from the four repairs
+    1646 forbade by name, plus a fifth this class adds for itself:
+    `BEGIN IMMEDIATE` may not be weakened or removed, `THREADS` and `HITS`
+    may not be lowered to make a red go green, no test here may be skipped,
+    xfailed or labelled flaky, no green counts without a test proving no hit
+    is lost and none lands twice -- and `SLOW_TRANSACTION_S` MAY NOT BE
+    LOWERED EITHER.  That fifth is not decoration; see the constant.
+
+    WHY THE MULTI-THREAD TEST PATCHES NO PRODUCTION CONSTANT.  The healing
+    file learned this the expensive way and the lesson transfers exactly: a
+    version that manufactured contention by patching
+    `HEAL_LOCK_BUSY_TIMEOUT_MS` down was GREEN with the repair removed, five
+    runs out of five, because the patched constant reaches SQLite only
+    through the code under test -- delete the helper call and the threads go
+    back to `connect()`'s own 5,000 ms and nothing notices.  The control had
+    deleted itself.  So the multi-thread test here changes the one variable
+    that is not part of the repair: how long the transaction takes.
+
+    !! WHICH TEST KILLS WHICH MUTANT, ranked, because the first draft called
+    the eight-thread test "the mutant-killing test, the one the whole class
+    exists for" and a `pf-adversary` pass measured that ranking backwards:
+
+    * plain revert (`db.execute("BEGIN IMMEDIATE")`): ALL FIVE go red.
+    * `pass  # no transaction` in the helper: all five red, and
+      `BeginImmediateHoldsTheWriteLockTests` too.
+    * LANE-B's own recommended repair (`20260902_1642` section 4 option
+      (ก)): bare `BEGIN IMMEDIATE` here AND `connect()`'s
+      `PRAGMA busy_timeout` raised 5,000 -> 30,000.  The EIGHT-THREAD TEST
+      PASSES under it, 3 runs of 3.  The other four kill it, and
+      `test_the_damage_door_really_goes_through_the_waiting_helper` kills it
+      unambiguously.
+
+    So the eight-thread test is the one that proves the PROPERTY (a race
+    loser keeps its punch, end to end, through the real door); the source pin
+    is the one that proves THIS repair rather than a different one.  Neither
+    substitutes for the other and neither may be deleted as redundant.
+
+    !! WHAT THIS DOES NOT CLAIM.  M4 did not move.  `apply_hp_damage` still
+    has no caller anywhere in `src/` or `tools/` -- MEASURED this round by
+    grep and by an AST call map over every tracked module, not by the scan in
+    `NothingIsWiredTests` above, which is a TEXTUAL regex that exempts three
+    files including a live production module and would not see a call added
+    inside one of them.  So nothing in the game can take HP off a row today.
+    This makes the door WAIT.  It does not make anything walk through it.
+    """
+
+    THREADS = 8
+    HITS = 25
+    #: HOW LONG ONE TRANSACTION IS MADE TO TAKE, injected inside it.  This is
+    #: the variable LANE-B's measurement varied
+    #: (`pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*` section
+    #: 2, "เปลี่ยนตัวแปรเดียวคือเวลาที่ธุรกรรมหนึ่งใช้") and it is not a
+    #: production knob, which is why patching it cannot delete its own
+    #: control the way patching `HEAL_LOCK_BUSY_TIMEOUT_MS` did.
+    #:
+    #: !! IT IS ALSO THE WHOLE MARGIN, AND LOWERING IT IS FORBIDDEN.  The
+    #: mechanism, written down here because a `pf-adversary` pass showed
+    #: nothing in the class stated it and no later round could re-derive it:
+    #: the eight threads serialise, so the lock is held for about
+    #: `THREADS * HITS * SLOW_TRANSACTION_S` in total, and a thread starves
+    #: past `connect()`'s 5,000 ms ceiling only when that product is
+    #: comfortably above it.  Measured on Linux/CPython 3.11 with the repair
+    #: REMOVED, three runs each: 0.040 -> 2-4 lost hits (and 20 runs of 20
+    #: red), 0.030 -> 1, **0.025 -> 0, green with the door unrepaired**.
+    #: A 15 ms edit here therefore turns this class's only concurrency
+    #: evidence into a test that passes on the broken door.
+    #: `test_the_starvation_margin_is_still_there` asserts the inequality so
+    #: that edit goes red instead of going quiet.
+    #:
+    #: !! NOT ESTABLISHED ON THE MACHINE THAT DECIDES GREEN.  Those numbers
+    #: are Linux/3.11; the gate is CPython 3.14 on `windows-latest`.  The
+    #: direction of any error is safe for the gate (too small a product makes
+    #: this test PASS, never fail, once the repair is in) but it is unsafe
+    #: for the evidence, which is why the margin is asserted rather than
+    #: trusted.
+    SLOW_TRANSACTION_S = 0.040
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        account_id = self.store.ensure_account("damage-contention")
+        self.character = self.store.create_character(
+            account_id, "Contended", "contended-dmg",
+            "fingerprint-contended-dmg", _build_wire,
+            Position(1, 0, 0.0, 0.0, 0.0, heading=0.0),
+        )
+        self.store.write_typed_attributes(self.character.id, {
+            "level": 1, "hp_current": 100000, "hp_max": 100000,
+        })
+
+    def _hp(self):
+        db = sqlite3.connect(self.path)
+        try:
+            return db.execute(
+                "SELECT hp_current FROM characters WHERE id=?",
+                (self.character.id,)).fetchone()[0]
+        finally:
+            db.close()
+
+    @contextlib.contextmanager
+    def _write_lock_held_for(self, seconds):
+        """Another connection holds the database's write lock for `seconds`.
+
+        A real `BEGIN IMMEDIATE` on a second connection -- exactly what a
+        concurrent hit does -- and not a mock, because the thing under test
+        is SQLite's own busy handler.
+        """
+        released = threading.Event()
+        holding = threading.Event()
+
+        def hold():
+            db = sqlite3.connect(str(self.path))
+            try:
+                db.execute("PRAGMA busy_timeout=5000")
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    "UPDATE characters SET updated_at=updated_at WHERE id=?",
+                    (self.character.id,))
+                holding.set()
+                released.wait(seconds)
+                db.rollback()
+            finally:
+                db.close()
+
+        thread = threading.Thread(target=hold)
+        thread.start()
+        self.assertTrue(holding.wait(10), "the competitor never took the lock")
+        try:
+            yield
+        finally:
+            released.set()
+            thread.join(20)
+            self.assertFalse(thread.is_alive())
+
+    @contextlib.contextmanager
+    def _counted_sleeps(self):
+        """Count the retries by counting the waits between them.
+
+        `store.time` is replaced with a shim rather than patching the real
+        `time.sleep`, so nothing else running in this process is affected.
+        """
+        import time as real_time
+
+        class _Clock:
+            def __init__(self):
+                self.sleeps = 0
+
+            def monotonic(self):
+                return real_time.monotonic()
+
+            def sleep(self, seconds):
+                self.sleeps += 1
+                real_time.sleep(seconds)
+
+        clock = _Clock()
+        with mock.patch.object(store_module, "time", clock):
+            yield clock
+
+    def test_a_hit_survives_a_competitor_that_outlasts_the_busy_timeout(self):
+        """The repair itself, measured ON THE RETRY rather than on a bigger
+        timeout: the per-attempt ceiling is patched down to 20 ms, far below
+        the 300 ms the competitor holds the lock, so the only thing that can
+        make this hit land at all is the bounded retry.  It is the retry
+        LOOP this pins, not the repair as a whole -- the class's mutant test
+        below is the one that dies when the helper call is reverted."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 20):
+            with self._counted_sleeps() as clock:
+                with self._write_lock_held_for(0.3):
+                    outcome = self.store.apply_hp_damage(self.character.id, 5)
+        self.assertGreater(
+            clock.sleeps, 0,
+            "the hit never had to retry; this test measured nothing about "
+            "contention")
+        self.assertEqual(outcome.hp_before, before)
+        self.assertEqual(outcome.hp_after, before - 5)
+        # ONCE, not once per attempt.  The retry is on `BEGIN IMMEDIATE`, so
+        # a retried call must subtract exactly one hit.
+        self.assertEqual(self._hp(), before - 5)
+
+    def test_many_retries_still_apply_the_hit_exactly_once(self):
+        """The write-once half, under a LOT of retries.  A retry loop that
+        double-applied would show up here as `before - 14` and it does not."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 5):
+            with mock.patch.object(
+                    store_module, "HEAL_LOCK_RETRY_BACKOFF_S", 0.001):
+                with self._counted_sleeps() as clock:
+                    with self._write_lock_held_for(0.5):
+                        self.store.apply_hp_damage(self.character.id, 7)
+        self.assertGreater(clock.sleeps, 2, clock.sleeps)
+        self.assertEqual(self._hp(), before - 7)
+
+    def test_when_the_budget_is_spent_it_says_so_and_writes_nothing(self):
+        """The control that makes the two tests above mean something, and the
+        error LANE-B asked for: how long it waited and how many attempts it
+        made, instead of a bare `database is locked` a reader of a red gate
+        cannot tell from a real defect."""
+        before = self._hp()
+        with mock.patch.object(store_module, "HEAL_LOCK_BUSY_TIMEOUT_MS", 5):
+            with mock.patch.object(store_module, "HEAL_LOCK_TOTAL_WAIT_S", 0.0):
+                with self._write_lock_held_for(0.4):
+                    with self.assertRaises(
+                            store_module.WriteLockTimeout) as caught:
+                        self.store.apply_hp_damage(self.character.id, 5)
+        message = str(caught.exception)
+        self.assertIn("attempt", message)
+        self.assertIn("ms", message)
+        self.assertEqual(self._hp(), before)
+        # !! AND WHAT THE SENTENCE SAYS HAPPENED, which the first draft did
+        # not check.  Until 2026-09-03 the helper's message read "could not
+        # take the write lock for this character's HEALING" for both doors,
+        # so a lost HIT reported itself as a failed heal and sent a reader of
+        # a red gate to the login-revive path.  A `pf-adversary` pass read
+        # that sentence out of this very call.  Two numbers in a message are
+        # not the message.
+        self.assertNotIn("healing", message)
+        self.assertIn("write lock", message)
+
+    def test_eight_threads_lose_no_hit_when_the_transaction_is_slow(self):
+        """THE PROPERTY ITSELF, end to end, through the real door.
+
+        !! IT IS NOT THE WHOLE CLASS'S KILLER, and the first draft of this
+        docstring said it was.  A `pf-adversary` pass applied LANE-B's own
+        recommended repair -- bare `BEGIN IMMEDIATE` here plus `connect()`'s
+        ceiling raised to 30,000 ms -- and THIS TEST PASSED, 3 runs of 3,
+        with the damage door never touching the helper.  What it proves is
+        that a race loser keeps its punch; what proves it is THIS repair is
+        `test_the_damage_door_really_goes_through_the_waiting_helper`.  The
+        class docstring ranks all five against three mutants.
+
+        The race loser must not lose the punch.  Eight threads take 25 points
+        off one character, one point at a time, through the REAL door at the
+        SHIPPED ceilings, while every transaction is made to take 40 ms by
+        delaying `persistence_vitals.verify_schema` -- which the damage path
+        calls after it opens the transaction.  No production constant is
+        patched and no production code knows this test exists.
+
+        Measured on this machine, three runs each:
+
+            with a plain `BEGIN IMMEDIATE` (what `main` shipped before this
+            round):  OperationalError('database is locked') raised, and the
+            hits behind those errors NEVER LANDED -- stored HP too high
+            with the retry (what this branch ships):  0 errors, all 200 hits
+            landed, stored HP exactly 200 lower
+
+        Both halves are asserted: an empty error list AND the arithmetic.
+        Either alone can be satisfied by a wrong repair -- swallowing the
+        exception passes the first, and a door that never runs passes
+        neither, which is why the count is checked against a value only 200
+        distinct landed writes can produce.
+        """
+        errors = []
+        before = self._hp()
+
+        def worker():
+            for _ in range(self.HITS):
+                try:
+                    self.store.apply_hp_damage(self.character.id, 1)
+                except Exception as exc:  # noqa: BLE001 - reported, not hidden
+                    errors.append(exc)
+
+        real_verify = vitals.verify_schema
+
+        def slow_verify(db):
+            result = real_verify(db)
+            time.sleep(self.SLOW_TRANSACTION_S)
+            return result
+
+        with mock.patch.object(vitals, "verify_schema", slow_verify):
+            threads = [threading.Thread(target=worker)
+                       for _ in range(self.THREADS)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        self.assertEqual([], [repr(e) for e in errors])
+        self.assertEqual(self._hp(), before - self.THREADS * self.HITS)
+
+    def test_the_starvation_margin_is_still_there(self):
+        """The guard on the class's own numbers, and it reads the ceiling
+        out of `store.py` instead of retyping it.
+
+        WHY IT EXISTS.  A `pf-adversary` pass measured that lowering
+        `SLOW_TRANSACTION_S` from 0.040 to 0.025 -- a 15 ms edit to one class
+        attribute, on the slowest test in this file, whose own comment says
+        it is "not a production knob" -- makes
+        `test_eight_threads_lose_no_hit_when_the_transaction_is_slow` pass
+        WITH THE REPAIR REMOVED.  The forbidden-repairs list named `THREADS`
+        and `HITS` and said nothing about this one, so nothing stopped a
+        future round trimming the runtime and quietly deleting the evidence.
+
+        The inequality: the eight writers serialise, so the write lock is
+        held for roughly `THREADS * HITS * SLOW_TRANSACTION_S` in total, and
+        a thread starves past `connect()`'s ceiling only when that product is
+        comfortably above it.  1.5x is the floor asserted here; measured, the
+        class ships 1.6x (8.0 s against 5.0 s) and goes green with the door
+        unrepaired at 1.0x.
+
+        THE CEILING IS PARSED FROM `store.py`, not typed: the day
+        `connect()`'s `PRAGMA busy_timeout` is raised -- which is exactly
+        LANE-B's alternative repair -- this margin has to be recomputed, and
+        a hardcoded 5,000 here would have hidden that.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation" / "store.py"
+                  ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        connect = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "connect")
+        ceilings = re.findall(
+            r"PRAGMA busy_timeout=(\d+)", ast.dump(connect))
+        self.assertEqual(
+            len(ceilings), 1,
+            "`connect()` no longer sets exactly one busy_timeout (%r); this "
+            "test cannot say what a starving thread is measured against "
+            "any more" % (ceilings,))
+        ceiling_s = int(ceilings[0]) / 1000.0
+        product = self.THREADS * self.HITS * self.SLOW_TRANSACTION_S
+        self.assertGreaterEqual(
+            product, ceiling_s * 1.5,
+            "THREADS x HITS x SLOW_TRANSACTION_S = %.3f s of serialised lock "
+            "time against a %.3f s ceiling.  Below about 1.2x this class's "
+            "eight-thread test goes GREEN WITH THE REPAIR REMOVED (measured: "
+            "green at 1.0x), so these three numbers may not be trimmed for "
+            "runtime -- see the note on SLOW_TRANSACTION_S."
+            % (product, ceiling_s))
+
+    def test_the_damage_door_really_goes_through_the_waiting_helper(self):
+        """Pinned at the source, because the body above can be green for the
+        wrong reason.
+
+        !! THIS IS A CHARACTERIZATION TEST BY SHAPE -- it asserts that the
+        method calls a named private helper -- and `COO-DECISION 20260903_1047`
+        point 1 asked for a test that is NOT one.  Both are satisfied,
+        because the order's phrase attaches to the proof about the race
+        loser, and `test_eight_threads_lose_no_hit_when_the_transaction_is_
+        slow` supplies that.  This one exists for a job that test measurably
+        cannot do: a `pf-adversary` pass showed the eight-thread test passes
+        under LANE-B's alternative repair (bare `BEGIN IMMEDIATE` plus a
+        wider `connect()` ceiling), and the sibling healing file ships this
+        same shape for the same reason.  Written down rather than left for a
+        reviewer to notice.
+
+        The other reason the property test cannot stand alone: its margin is
+        a product of three class constants (see `SLOW_TRANSACTION_S`), and an
+        edit to any of them is an edit a source pin does not care about.
+        This says the thing where reverting it is unambiguous --
+        `apply_hp_damage` calls `_begin_immediate_under_contention` and does
+        not open its own transaction with a bare `execute`.
+
+        The docstring is STRIPPED before the check, the same trap the healing
+        file was caught by: the phrase `BEGIN IMMEDIATE` appears in this
+        method's prose, so a body that opened no transaction at all would
+        pass a test that searched the whole function.
+        """
+        source = (ROOT / "src" / "pirateforce_foundation" / "store.py"
+                  ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        function = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "apply_hp_damage")
+        body = list(function.body)
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            body = body[1:]
+        statements = "\n".join(ast.dump(node) for node in body)
+        self.assertIn("_begin_immediate_under_contention", statements)
+        self.assertNotIn("'BEGIN IMMEDIATE'", statements)
+        self.assertNotIn('"BEGIN IMMEDIATE"', statements)
 
 if __name__ == "__main__":
     unittest.main()
