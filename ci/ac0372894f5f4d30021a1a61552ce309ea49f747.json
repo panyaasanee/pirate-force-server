@@ -1,1 +1,1 @@
-{"sha":"ac0372894f5f4d30021a1a61552ce309ea49f747","conclusion":"failure","event":"push","ref":"refs/heads/claude/confident-babbage-omhpqj","run_id":"33753206854","utc":"2026-09-03T12:24:05Z"}
+{"sha":"ac0372894f5f4d30021a1a61552ce309ea49f747","conclusion":"failure","event":"pull_request","ref":"refs/pull/669/merge","run_id":"33753246968","utc":"2026-09-03T12:26:20Z"}
