@@ -920,6 +920,89 @@ class VocabularyTests(unittest.TestCase):
         self.assertEqual(len(set(ma.MOB_AGGRO_REFUSAL_REASONS)),
                          len(ma.MOB_AGGRO_REFUSAL_REASONS))
 
+    def test_a_shipped_roster_really_does_decide_to_attack(self):
+        # ROUND `nfrrqa`.  THIS CARD EXISTS BECAUSE THE PROSE WAS WRONG.
+        # mob_aggro.py's own comment said "every shipped roster is
+        # non-offensive, so on a walk past an undamaged mob the tick returns
+        # a register equal to the one it was given" -- true of bg0001's four
+        # dummies, carried from there to "every roster", and never re-driven
+        # against Bg0002, the scene the owner actually plays in.  It is
+        # false there, and the sentence is struck in place in mob_aggro.py
+        # with this measurement beside it.
+        #
+        # DERIVED, NOT PINNED TO A NUMBER THIS FILE TYPES: the counts come
+        # out of the shipped table through the shipped driver.  The day a
+        # mining round changes that table, this card reports the new truth
+        # instead of accusing anybody.
+        from pirateforce_foundation import (
+            field_mob_tables_bg0002, field_mobs, mob_ai_control, mob_combat,
+            mob_ai_scheduler,
+        )
+        roster = field_mobs._parse_hostile_placements(field_mob_tables_bg0002)
+        register = mob_ai_control.open_register(roster)
+        ledger = mob_combat.open_ledger(roster)
+        orc_chief = next(m for m in roster if m.placement_index == 92)
+        _after, results = mob_ai_scheduler.tick_session(
+            register, ledger, 0x750059,
+            (orc_chief.x, orc_chief.y, orc_chief.z))
+        deciding = [
+            r for r in results
+            if r.intent_kind == ma.INTENT_ATTACK_UNDELIVERABLE
+        ]
+        acquired = [
+            r for r in results if r.after_phase == ma.PHASE_AGGRO
+        ]
+        self.assertGreater(
+            len(deciding), 0,
+            "no row of the Bg0002 roster decides to attack a player standing "
+            "on it: if a mining round made every row non-offensive, the "
+            "struck sentence in mob_aggro.py is true again and should be "
+            "unstruck -- with this measurement quoted")
+        self.assertGreater(len(acquired), len(deciding))
+        self.assertLess(len(acquired), len(results))
+        # THE PROSE NUMBERS, PINNED (pf-adversary D11: the first draft
+        # asserted only the inequalities, so every number the struck
+        # sentence in mob_aggro.py quotes -- 17 rows, 5 acquiring,
+        # placement 92, cadence 1 -- was unbacked prose).  Pinned as
+        # DERIVED values, so a mining round that changes the table fails
+        # here with the new truth rather than being told the old one.
+        self.assertEqual(len(results), 17)
+        self.assertEqual(len(acquired), 5)
+        self.assertEqual([r.actor_identity for r in deciding],
+                         [orc_chief.actor_identity])
+        self.assertEqual(mob_ai_control.ATTACK_CADENCE_TICKS, 1)
+        self.assertEqual(mob_ai_control.MELEE_ATTACK_RANGE, 275.0)
+        # AND THE PART THAT DID NOT CHANGE, so nobody reads this card as
+        # Door B opening: deciding to attack still sends no byte.
+        self.assertIs(ma.ATTACK_INTENT_DELIVERABLE, False)
+
+    def test_the_paid_debt_names_a_card_that_exists(self):
+        # pf-adversary D11: the `[PAID, round nfrrqa]` note above cites a
+        # test by path with no class, and nothing checked it.  Rename or
+        # delete that card and the PAID claim would have survived it for
+        # ever -- which is the exact failure mode this lane keeps paying
+        # for, one file over.
+        # READ, NOT IMPORTED: importing a sibling test module depends on
+        # which directory pytest put on sys.path, and this card must mean
+        # the same thing under the Windows gate as it does here.
+        sibling = ast.parse(
+            (Path(__file__).resolve().parent
+             / "test_mob_ai_control_dispatch.py").read_text(encoding="utf-8"))
+        defined = {
+            node.name for node in ast.walk(sibling)
+            if isinstance(node, ast.FunctionDef)
+        }
+        for name in (
+            "test_a_target_pos_frame_really_runs_the_tick_not_only_the_gate",
+            "test_the_tick_does_not_run_on_a_frame_that_is_not_a_target_pos",
+        ):
+            self.assertIn(
+                name, defined,
+                "the D7 debt above is marked PAID by citing %s in "
+                "tests/test_mob_ai_control_dispatch.py, and it is not there: "
+                "either it moved (and the citation must move with it) or the "
+                "debt is unpaid again" % name)
+
 
 class ContainmentTests(unittest.TestCase):
     """Pure server logic: no wire, no database, no dispatch, no scenario."""
@@ -1037,13 +1120,24 @@ class ContainmentTests(unittest.TestCase):
             "no module in src/ imports mob_aggro by any form the scan can "
             "see: the promotion COO-DECISION 2026-08-26T04:02+07:00 ordered "
             "has been undone, or the edge has gone back to being an argument")
+        # A THIRD IMPORTER, ROUND `nfrrqa`, AND THIS CARD GOING RED IS HOW IT
+        # WAS ADDED -- which is the whole point of a census and the reason it
+        # is widened here by hand rather than derived.  ``mob_ai_player_
+        # damage`` reads ``mob_aggro.INTENT_ATTACK_UNDELIVERABLE`` (the
+        # constant, never a copy of its spelling: a hand-typed literal is the
+        # defect that kept the tick gate shut for three days) to decide which
+        # tick results become an HP write.  It is an importer and not a
+        # mention because a lane that only MENTIONS a constant is a lane that
+        # re-spells it.
         self.assertEqual(
             sorted(importers),
-            sorted([ma.MOB_AGGRO_IMPORTER + ".py", "mob_ai_scheduler.py"]))
+            sorted([ma.MOB_AGGRO_IMPORTER + ".py", "mob_ai_player_damage.py",
+                    "mob_ai_scheduler.py"]))
         self.assertEqual(
             sorted(mentions),
             ["lane_hooks/lane_b_mob_ai_tick.py", "mob_ai_control.py",
-             "mob_ai_scheduler.py", "mob_combat.py"])
+             "mob_ai_player_damage.py", "mob_ai_scheduler.py",
+             "mob_combat.py"])
         # The edge that must NOT come back: the damage driver's wiring line
         # still passes None, so threat never arrives through an argument the
         # scan above cannot see.  It arrives through the importer named on the
@@ -1255,6 +1349,18 @@ class ContainmentTests(unittest.TestCase):
         # dispatcher headless, and until a card there shows tick_step running
         # on a frame, the shipped pin must not carry a reachability claim
         # nobody executed.
+        #
+        # [PAID, round `nfrrqa`]  That card exists now:
+        # tests/test_mob_ai_control_dispatch.py::
+        # test_a_target_pos_frame_really_runs_the_tick_not_only_the_gate.  It
+        # reads NO console token: a hit folds threat and leaves the row IDLE
+        # (measured there, not assumed), then ONE real TargetPos frame
+        # through the real dispatcher takes it to PHASE_AGGRO targeting this
+        # player, in the register the session kept.  Its control card pins
+        # that an ACTION frame does NOT tick.  So the True this constant
+        # carries is now backed by an execution, not only by a dictionary
+        # hit -- which is what the paragraph above was refusing to accept on
+        # credit.
 
     # THE ANSWER THE GATE GIVES AT EVERY CALL SITE THAT SPELLS ITS OWN NAME.
     # Measured 2026-09-03, round `42vxv6`.  Key is "<file>::<spelling>", value

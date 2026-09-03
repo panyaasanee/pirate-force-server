@@ -76,6 +76,20 @@ LANE_B_MODULES = (
     # position a per-session driver already owns. Listed in the same commit
     # as the module, same reason every other entry on this tuple gives.
     "mob_ai_scheduler.py",
+    # ROUND `nfrrqa`: the door that turns a tick's attack decision into one
+    # clamped, floored, read-back call to LANE-DB's damage door on the store
+    # (COO-DECISION 20260903_1745 point 2 -- the method is deliberately NOT
+    # spelled here, because tests/test_persistence_vitals.py sweeps every
+    # tree for files that name it and this file is not on its allowlist).
+    # IT IS EXACTLY THE KIND OF MODULE THIS SWEEP
+    # EXISTS FOR: it is the first module of this lane to write a number onto
+    # a PLAYER's row, so a fabricated player stat here would be worse than
+    # anywhere else on the tuple.  Its one number,
+    # PLAYER_DAMAGE_PER_ATTACK_DECISION = 1, is [OUR DESIGN] and labelled as
+    # such, and it comes from no table at all -- least of all a player one.
+    # Listed in the same commit as the module, same reason every other entry
+    # on this tuple gives.
+    "mob_ai_player_damage.py",
     # ROUND wmomy7: the scene-scoped hostile census override, and the
     # census-backing check that found five roster rows with no body.
     "mob_census_hostility.py",
