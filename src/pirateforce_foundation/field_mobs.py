@@ -193,6 +193,7 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+from . import field_mob_tables_bg0015
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
 # item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
@@ -509,8 +510,10 @@ def assert_single_scene_tables(table_modules: Any) -> None:
 _SCENE_TABLE_MODULES = {
     field_mob_tables.SCENE: field_mob_tables,
     field_mob_tables_bg0002.SCENE: field_mob_tables_bg0002,
+    field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
+BG0015_SCENE = field_mob_tables_bg0015.SCENE
 
 
 def assert_scene_table_keys_match_their_own_modules(table: Any) -> None:
@@ -636,6 +639,17 @@ OWNER_REFUSED_PLACEMENTS: dict[str, tuple[int, ...]] = {
 OWNER_REFUSAL_REASON: dict[str, str] = {
     'Bg0002': 'n_id_101_104_block_meaning_unknown_owner_says_do_not_place',
 }
+# Bg0015's placement 87 (template 924, "Carlos") is NOT here.  It was tried
+# and withdrawn this round: ``tests/test_mob_census_hostility.py``'s own
+# drift guard (``assert_owner_refusals_match_scene_source``) correctly
+# refused it, because ``OWNER_REFUSED_PLACEMENTS`` must be traceable to a
+# MINED source table carrying the owner's own reason string (Bg0002's is
+# ``scene2_prison_exile_tables.UNRESOLVED_PLACEMENTS``) -- it is not a
+# channel for this lane to decide a monster should not ship because a
+# DIFFERENT gate (a death ruling) has not landed for it.  Carlos ships live;
+# he is a known, named, accepted UNKILLABLE row until a ruling covers him --
+# see ``mob_death``'s own coverage tests and ``mob_combat_bg0015_gates.
+# templates_without_a_death_ruling``.
 
 
 def owner_refused_placements(scene: str) -> tuple[int, ...]:

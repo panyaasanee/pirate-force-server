@@ -1019,21 +1019,25 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             {row["actor_identity"] for row in probe},
             {mob.actor_identity for mob in load_roster()})
 
-    def test_bg0015_is_measurable_even_though_load_roster_refuses_it(self) -> None:
-        # field_mob_tables_bg0015 is deliberately NOT in
-        # field_mobs._SCENE_TABLE_MODULES (still unwired, still COO-gated
-        # out of src/) -- this function must still be able to read it for a
-        # caller-supplied report, without that meaning load_roster() can
-        # load it, and without field_mobs.py itself ever importing it (this
-        # test file is under tests/, not src/pirateforce_foundation/, so its
-        # own import of field_mob_tables_bg0015 above does not trip
-        # test_field_mob_tables_bg0015.py's src-only AST guard).
-        with self.assertRaises(FieldMobContractError):
-            load_roster(scene=field_mob_tables_bg0015.SCENE)
+    def test_bg0015_is_measurable_and_load_roster_now_accepts_it(self) -> None:
+        # RENAMED, COO-DECISION 20260903_1942 item 2: field_mob_tables_bg0015
+        # is now registered in field_mobs._SCENE_TABLE_MODULES (layer 2/3
+        # unlocked this round) -- ~~load_roster refuses it~~ is no longer
+        # true, so the old name asserting a refusal would be stale.  What
+        # this test is actually about -- that this table can be MEASURED by
+        # this function using an explicitly caller-supplied tuple, the same
+        # call shape it always used -- is unchanged and is the assertion
+        # below; only the load_roster half flips from refusal to success.
+        roster = load_roster(scene=field_mob_tables_bg0015.SCENE)
+        self.assertEqual(len(roster), 12)
+        for mob in roster:
+            self.assertEqual(mob.scene, field_mob_tables_bg0015.SCENE)
         # ROUND 8ftmbx: ~~3~~ -> 0 for this pair too; the three were
-        # withdrawn bg0001 rows.  What this test is actually about -- that a
-        # COO-gated dormant table can still be MEASURED without becoming
-        # loadable -- is unchanged and is the assertion above.
+        # withdrawn bg0001 rows.  Zero remains correct for the bg0001 x
+        # Bg0015 pair specifically -- the live collision registration
+        # introduces is Bg0002 x Bg0015 (0x2058), pinned in
+        # test_all_three_known_tables_together_find_one_pairwise_collision
+        # below, not this pair.
         collisions = cross_scene_identity_collisions(
             (field_mob_tables, field_mob_tables_bg0015))
         self.assertEqual(collisions, ())
