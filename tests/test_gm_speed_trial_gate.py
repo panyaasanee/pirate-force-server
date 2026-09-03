@@ -57,7 +57,9 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import login_speed  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs  # noqa: E402
+from pirateforce_foundation import player_wire  # noqa: E402
 
 RUN_COPY_DB_FILENAME = "pirateforce_lane_gm_20260903_0713.sqlite3"
 
@@ -68,6 +70,11 @@ RUN_COPY_DB_FILENAME = "pirateforce_lane_gm_20260903_0713.sqlite3"
 #: `20260903_0635` section 4 states the same rule for its own file).
 ARMED = "450"
 ARMED_F32 = 450.0
+
+#: The number `main` sends at login today, read from the module that owns it
+#: rather than typed here -- this file must never become a second place
+#: `400.0` is written down (`login_speed.py` states the same rule).
+CONSTANT = player_wire.PLAYER_LOGIN_MOVEMENT_SPEED
 
 
 def make_chat_payload(message: str, speaker: str = "") -> bytes:
@@ -644,6 +651,72 @@ class TheWordsAGraderGrepsAreLiteralsTests(_Case):
         trial = chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
         self.assertFalse(deferred.startswith(trial))
         self.assertFalse(trial.startswith(deferred))
+
+
+class TheKeyDoesNOTReopenTheLOGINDoorTests(_Case):
+    """chief named this failure before it could happen; this is its pin.
+
+    `login_speed.py`'s module docstring, point 3 (`wire_trial_only`, written
+    after pf-adversary caught chief's own first draft in round `4lf2hl`, D1),
+    states the trap in as many words: if this lane implemented COO `0646`'s
+    trial by making `send_deferred()` answer `False`, then a login gated on
+    `send_deferred()` alone would send WHATEVER THE ROW HOLDS -- and `/speed`
+    writes its row even when the frame is withheld.  His worked example is the
+    exact `GT-193` disaster: the trial opens for `400`, the tester types
+    `/speed 300` (frame withheld, ROW WRITTEN), the ticket's own recovery step
+    is a re-login, and `00 00 96 43` goes out.
+
+    THIS LANE DID NOT IMPLEMENT IT THAT WAY -- `send_deferred()` is untouched
+    and the key wraps the holds instead -- and that is a property, not a
+    coincidence, so it is measured here rather than left to the two modules'
+    comments agreeing with each other.  `login_speed.py` is chief's file and
+    nothing here edits it; these tests only read it.
+    """
+
+    def test_send_deferred_is_still_true_with_the_key_armed(self):
+        with environment(ARMED):
+            self.assertTrue(
+                speed_wire.send_deferred(),
+                "the trial was implemented by flipping the deferral, which "
+                "opens the login door login_speed.py point 3 holds shut",
+            )
+
+    def test_the_login_frame_still_carries_the_constant_after_a_trial_speed(self):
+        # End to end: arm the key, send a `/speed`, then ask the resolver what
+        # the NEXT login would put on the wire for that character.
+        store = self.store()
+        session = self.session(store)
+        with environment(ARMED):
+            action = self.act(session)
+            self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+            resolved = login_speed.resolve_for_character(
+                store, 1, fallback=CONSTANT
+            )
+        self.assertEqual(
+            resolved.value,
+            CONSTANT,
+            "the row a trial /speed left behind reached the login frame",
+        )
+        # `WIRE_DEFERRED`, not `WIRE_TRIAL_ONLY`, and the difference IS the
+        # result: `wire_trial_only` is the belt chief added for the OTHER
+        # implementation shape -- the one that flips `send_deferred()` for the
+        # session -- and it is never reached from here, because this lane did
+        # not take that shape.  The plain deferral is what answers, exactly as
+        # it did before this round existed.
+        self.assertEqual(resolved.reason, login_speed.WIRE_DEFERRED)
+        self.assertNotEqual(resolved.reason, login_speed.WIRE_TRIAL_ONLY)
+
+    def test_the_row_really_did_move_so_the_test_above_is_not_vacuous(self):
+        # Without this, the assertion above would pass on a route that never
+        # wrote anything at all.
+        store = self.store()
+        session = self.session(store)
+        with environment(ARMED):
+            self.act(session)
+        self.assertEqual(
+            store.stored.get(chat_command_action.SPEED_TYPED_COLUMN), ARMED_F32
+        )
+        self.assertNotEqual(ARMED_F32, CONSTANT)
 
 
 class TheKeyOpensNOTHINGABOVEItselfTests(_Case):

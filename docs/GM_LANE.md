@@ -7904,6 +7904,17 @@ value>` and nothing else.
   is today's behaviour and a console word, never an open door for a value nobody chose. `-0.0` and
   `0.0` are compared as `repr()` rather than with `==`, so `PF_SPEED_TRIAL=0` does not admit
   `/speed -0`.
+- **And it does not reopen the LOGIN door, which chief named before it could happen.**
+  `login_speed.py`'s point 3 (`wire_trial_only`, written after pf-adversary caught chief's own
+  first draft in round `4lf2hl`, D1) states the trap: implement this trial by making
+  `send_deferred()` answer `False` and a login gated on `send_deferred()` alone sends whatever the
+  ROW holds -- and `/speed` writes its row even when the frame is withheld. His worked example is
+  the `GT-193` disaster verbatim: trial opens for `400`, tester types `/speed 300` (frame withheld,
+  row written), the ticket's own recovery step is a re-login, `00 00 96 43` goes out. This lane did
+  not take that shape: `send_deferred()` is untouched, so after a trial `/speed 450` the resolver
+  still answers the constant, with reason `wire_deferred` -- never `wire_trial_only`, which is the
+  belt for the shape this round did not build. Measured end to end here, with a companion test that
+  proves the row really did move so the assertion is not vacuous.
 
 **The console line, because the operator is the whole point.** `SPEED TRIAL OPEN account=...
 command=speed env=PF_SPEED_TRIAL trial_opens_for=450.0 sending=450.0 identity=...`, printed BELOW
