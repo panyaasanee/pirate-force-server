@@ -7890,7 +7890,22 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     "mob_pickup_request_%s"
                     % (str(outcome.reason).split(":", 1)[0].strip(),))
                 if outcome.delta is None:
-                    return []          # no reply, exactly as an unknown vital
+                    # CORE-REQUEST LANE-B 2026-09-03T22:49+07:00, ordered by
+                    # COO-DECISION 2026-09-03T23:46+07:00 item 1.  Every
+                    # refusal has ``delta is None`` -- but since round f4oh9y
+                    # a refusal can ALSO carry a composed removal generation
+                    # (an expiry the click's own dispatch swept), and until
+                    # this branch existed that generation was composed and
+                    # thrown away here: EXPIRY_PUBLICATION_CALL_SITE_STATUS
+                    # said so in the word "composed_not_sent".  An empty
+                    # ``ground_after`` is still the ordinary refusal with
+                    # nothing owed, and still answers exactly like an unknown
+                    # vital.
+                    if not outcome.ground_after:
+                        return []      # no reply, exactly as an unknown vital
+                    return list(self._mob_loot_boundary_flush()) + [
+                        ("MOB_PICKUP_GROUND_AFTER", gpc, gframe, 0.0)
+                        for gpc, gframe in outcome.ground_after]
                 pc, frame = outcome.delta
                 # THE HELD BOUNDARY GENERATION GOES FIRST, and it is not
                 # tidiness (pf-adversary D3, round g1y1yc, driven on the real

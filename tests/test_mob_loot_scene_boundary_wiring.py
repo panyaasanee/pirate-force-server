@@ -39,6 +39,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import io
+import random
 import sys
 import tempfile
 import unittest
@@ -48,11 +49,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import mob_drop_presence              # noqa: E402
+from pirateforce_foundation import field_mobs                     # noqa: E402
+from pirateforce_foundation import mob_drop_presence               # noqa: E402
 from pirateforce_foundation import mob_loot                       # noqa: E402
 from pirateforce_foundation import mob_pickup_request             # noqa: E402
 from pirateforce_foundation import world_scene_folder             # noqa: E402
 from pirateforce_foundation import world_scene_travel             # noqa: E402
+from pirateforce_foundation.mob_death import DeathRecord           # noqa: E402
 from pirateforce_foundation.gm.chat_command_action import (       # noqa: E402
     WARP_ACTION_LABEL,
 )
@@ -796,6 +799,134 @@ class ThePickupGroundGenerationOnTheRealDispatcherTests(
             state._mob_loot_boundary_flush(),
             [("MOB_LOOT_DROP", b"owed-pc", b"owed-frame", 0.0)],
         )
+
+    def test_an_unrelated_refusal_still_leaves_a_committed_boundary_owed(self):
+        """pf-adversary D2, round 233yho, the half of D3 this file never
+        drove with the census already committed.
+
+        The sibling above (``test_a_refused_take_leaves_the_boundary_
+        generation_owed``) never sets ``world_census_sent = True`` before its
+        click, so the flush is already held for an unrelated reason and
+        cannot tell a correct guard from a missing one. This is the case
+        that can: the census HAS committed, so a flush would really release
+        the stash if the new refusal branch (COO-DECISION 20260903_2346)
+        called it unconditionally instead of only when ``ground_after`` is
+        nonempty.
+
+        MUTATION-PROOF: delete the ``if not outcome.ground_after: return []``
+        guard in runtime.py's pickup branch (return the flush-and-append
+        unconditionally) and this refusal -- which composes nothing, because
+        the clicked key was never issued -- drains the committed stash into
+        a reply the click never earns, and the assertion on ``actions``
+        below fails.
+        """
+        state = self._state("tok-pickup-refused-unrelated-committed")
+        self._warp(state, DESTINATION_SCENE_ID)
+        self._floor(state)
+        held = ((b"owed-pc", b"owed-frame"),)
+        self._hold(state, held)
+        state.world_census_sent = True
+        actions = self._dispatch(
+            state, self._pickup_pc(mob_loot.DROP_KEY_BASE + 900))
+        self.assertEqual(
+            actions, [],
+            "an unrelated refusal (nothing composed) must not touch the "
+            "committed boundary stash: %r" % (actions,))
+        self.assertEqual(state.mob_loot_boundary_frames_pending, held)
+
+    def test_a_refused_expired_click_flushes_the_held_boundary_first(self):
+        """pf-adversary D1, round 233yho: the refusal branch (COO-DECISION
+        20260903_2346, CORE-REQUEST 20260903_2249) obeys the SAME
+        boundary-first ordering doctrine as the successful-pickup sibling
+        above (``test_a_pickup_releases_a_committed_boundary_before_its_own_
+        reply``) -- and until this test, nothing drove it there:
+        ``tests/test_mob_pickup_ground_expiry.py`` calls
+        ``dispatch_inbound_pickup_request`` directly, never
+        ``state.dispatch()``, so runtime.py's own
+        ``_mob_loot_boundary_flush()`` call at this branch had zero
+        execution coverage -- confirmed by two mutants (delete the guard;
+        swap the two halves of the return) that both survived the full
+        suite untouched before this test existed.
+
+        Two rows on the ground; the clicked one is past its deadline, the
+        other survives the sweep, so the refusal's own ``ground_after`` is
+        the survivor's removal generation -- nonempty, same as R307's
+        scene-not-yet-empty case in ``pirate-force-server#684``.
+
+        MUTATION-PROOF: swap the return to
+        ``[...ground_after entries...] + list(self._mob_loot_boundary_
+        flush())`` and the committed boundary generation rides AFTER this
+        dispatch's own expiry floor -- the exact RE-082 rollback the
+        successful-pickup branch's own comment warns about by name -- and
+        the order assertion below fails.
+        """
+        state = self._state("tok-pickup-refused-expiry-flush")
+        self._warp(state, DESTINATION_SCENE_ID)
+        folder = world_scene_folder.scene_folder_for_scene_id(
+            DESTINATION_SCENE_ID)
+        identity = self._identity(state)
+
+        class _Clock:
+            """A clock that only moves when this test says so."""
+
+            def __init__(self, now=1000.0):
+                self.now = float(now)
+
+            def __call__(self):
+                return self.now
+
+            def advance(self, seconds):
+                self.now += float(seconds)
+
+        clock = _Clock()
+        expiring = mob_loot.GroundDrop(
+            mob_loot.DROP_KEY_BASE, self.ITEM, 1,
+            mob_loot.as_wire_float(self.DROP_AT[0]),
+            mob_loot.as_wire_float(self.DROP_AT[1]),
+            mob_loot.as_wire_float(self.DROP_AT[2]),
+            self.MOB, identity, folder,
+        )
+        cell = mob_loot.DropLedgerCell(
+            mob_loot.DropLedger(
+                (expiring,), 1, mob_loot.DROP_KEY_BASE + 1, ()),
+            scene=folder, clock=clock,
+        )
+        # Advance PAST the first row's own deadline before placing the
+        # survivor, so the survivor's own deadline (set from THIS later
+        # clock reading) lands after it -- the same "place the second row
+        # late enough that the first deadline passes alone" shape
+        # ``tests/test_mob_pickup_ground_expiry.py`` pins at the cell level.
+        clock.advance(mob_loot.DROP_LIFETIME_SECONDS + 1.0)
+        roster = field_mobs.load_roster(scene=folder)
+        mob = roster[0]
+        record = DeathRecord(mob.actor_identity, identity, mob.max_hp)
+        survivor_drops = ()
+        seed = 0
+        while not survivor_drops:
+            seed += 1
+            survivor_drops = cell.loot_a_kill(
+                mob, record, mob_loot.roll_drops(mob, random.Random(seed)),
+                kill_token=seed)
+        state.mob_loot_cell = cell
+        state.last_target_pos = (
+            self.DROP_AT[0], self.DROP_AT[1], self.DROP_AT[2], 0.0)
+        held = ((b"stale-pc", b"stale-frame"),)
+        self._hold(state, held)
+        state.world_census_sent = True
+
+        actions = self._dispatch(
+            state, self._pickup_pc(mob_loot.DROP_KEY_BASE))
+        labels = [action[0] for action in actions]
+        self.assertEqual(
+            labels,
+            [mob_drop_presence.ACTION_LABEL, "MOB_PICKUP_GROUND_AFTER"],
+            "the held boundary generation is not first, or this dispatch's "
+            "own expiry-owed floor is not the reply at all: %r" % (labels,),
+        )
+        self.assertEqual(actions[0][1:3], held[0])
+        self.assertEqual(state.mob_loot_boundary_frames_pending, ())
+        self.assertTrue(
+            survivor_drops, "fixture bug: the late kill dropped nothing")
 
     def test_a_refused_publication_is_not_reported_as_an_empty_scene(self):
         """THE THIRD NAME, and the measured reason it exists.
