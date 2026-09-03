@@ -78,10 +78,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_population_bg0003  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
@@ -630,6 +632,120 @@ class ComposerContractTests(unittest.TestCase):
                 scene_id=278,
                 scene_entry_registry=registry,
             ))
+
+
+class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
+    """``SceneCensusResult.actor_identities``, COO-DECISION 20260903_2247.
+
+    Lane B needed a way to know which identities a scene's own census
+    actually carries without importing this lane's files, so the field
+    reads lane B's public ``field_mobs.roster_for_scene_id`` -- never a
+    per-scene table module by name.  The same path serves every scene this
+    file composes for; nothing here special-cases scene 14.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.legacy = _legacy()
+        cls._work = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._work.cleanup)
+        cls.open_registry, _ = _registry_with_door_open(
+            Path(cls._work.name), (VOLCANO, SLAVE_MARKET))
+
+    def _compose(self, scene_id):
+        return lane_a._compose_for_scene(scene_id)(
+            legacy=self.legacy,
+            anchor=world_scene_travel.spawn_position(
+                world_scene_travel.destination(scene_id, self.open_registry)),
+            scene_id=scene_id,
+            scene_entry_registry=self.open_registry,
+        )
+
+    def test_a_scene_lane_b_has_registered_carries_its_identities(self):
+        # Bg0015 is registered in `field_mobs._SCENE_TABLE_MODULES`
+        # (server#679), so scene 14 must answer with exactly what that
+        # registry names for it -- read the SAME way lane B reads it, not
+        # re-derived by a second computation this test could get wrong in
+        # the same way twice.
+        expected = tuple(
+            mob.actor_identity
+            for mob in field_mobs.roster_for_scene_id(VOLCANO)
+        )
+        self.assertGreater(len(expected), 0)
+        result = self._compose(VOLCANO)
+        self.assertEqual(result.actor_identities, expected)
+
+    def test_a_scene_lane_b_has_not_mined_answers_empty_not_raise(self):
+        # Scene 4 has no row in `field_mobs._SCENE_TABLE_MODULES` today.
+        # The documented, real, safe answer is an empty tuple -- never a
+        # raise, and never a silent fallback to some other scene's rows.
+        self.assertIsNone(field_mobs.scene_for_scene_id(SLAVE_MARKET))
+        result = self._compose(SLAVE_MARKET)
+        self.assertEqual(result.actor_identities, ())
+
+    def test_the_field_is_derived_from_the_registry_not_hardcoded(self):
+        # FIXTURE-DRIVEN GUARD: a mutant that hardcodes `()`, or that reads
+        # `handoff.generation.actor_identities` (this scene's OWN neutral
+        # roster, a different set -- see the module docstring's "THE
+        # COLLISION IS DORMANT") instead of asking lane B's registry, must
+        # go red here.  The fixture is a bare object carrying only the one
+        # attribute this lane's reader touches, so nothing about a real
+        # `FieldMob` is exercised by accident.
+        # `field_mobs.roster_for_scene_id` is shared module state: this
+        # scene's own hostility-coverage line (`_hostility_lines`) asks it
+        # too, through `mob_census_hostility`, so the patch below sees more
+        # than this lane's one call -- `assert_any_call` is the honest
+        # assertion, not `assert_called_once_with`.
+        fake_mob = mock.Mock()
+        fake_mob.actor_identity = 0x9999
+        with mock.patch.object(
+            lane_a.field_mobs, "roster_for_scene_id",
+            return_value=(fake_mob,),
+        ) as patched:
+            result = self._compose(VOLCANO)
+        patched.assert_any_call(VOLCANO)
+        self.assertEqual(result.actor_identities, (0x9999,))
+
+    def test_a_registry_failure_is_reported_empty_not_a_refused_census(self):
+        # The census this scene sends does not depend on lane B's registry
+        # being readable at all -- a failure there must never turn into a
+        # refused arrival for a player standing in a scene this lane can
+        # otherwise populate just fine.
+        with mock.patch.object(
+            lane_a.field_mobs, "roster_for_scene_id",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = self._compose(VOLCANO)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.actor_identities, ())
+        self.assertGreater(result.actor_count, 0)
+
+    def test_a_registry_failure_is_distinguishable_from_no_roster_on_console(
+            self):
+        # pf-adversary (round t8m3ab): the first draft made "the registry
+        # blew up" and "no roster registered for this scene" both answer a
+        # bare `()` with nothing anywhere to tell them apart -- the exact
+        # failure mode `_hostility_lines` was built NOT to have.  A console
+        # line naming the failure type closes that gap.
+        with mock.patch.object(
+            lane_a.field_mobs, "roster_for_scene_id",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = self._compose(VOLCANO)
+        note = [
+            line for line in result.console_lines
+            if line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
+        ]
+        self.assertEqual(len(note), 1, result.console_lines)
+        self.assertIn("reason=RuntimeError", note[0])
+        # The everyday "not (yet) registered" case prints no such line --
+        # it is a real, safe answer and must not read as a failure.
+        ordinary = self._compose(SLAVE_MARKET)
+        self.assertEqual(ordinary.actor_identities, ())
+        self.assertFalse(any(
+            line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
+            for line in ordinary.console_lines
+        ))
 
 
 class OnTheRealDispatcherTests(unittest.TestCase):

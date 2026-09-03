@@ -116,6 +116,19 @@ on every arrival -- see that responder module's own docstring for what a
 player sees because of the flip and the two gaps it ships with, pinned
 rather than fixed.
 
+EVERY COMPOSER'S RESULT NOW CARRIES LANE B'S ROSTER IDENTITIES TOO
+(COO-DECISION 20260903_2247).  ``SceneCensusResult.actor_identities`` is
+``field_mobs.roster_for_scene_id(scene_id)``'s identities, read through that
+lane's own public reader in ``_field_mob_identities`` below -- never a
+per-scene import of a table module lane B owns.  Lane B asked for this
+because it cannot splice hostility onto scene 14's arrivals without knowing
+which identities the census that scene actually sent carries, and it could
+not answer that question itself without reaching across the lane boundary.
+The field is on every scene this file composes for, not only scene 14: a
+scene lane B has not mined a roster for (today, every scene but 1, 2 and 14)
+answers ``()``, which is a real "nothing registered yet" and not a defect
+this file owns.
+
 THE ONE THING STILL IN THE WAY (defect D3, this lane's debt).
 ``player_wire``'s faction-1 serializer refuses any ``scene_id`` outside
 ``(1, 2)``, because the byte shape was only ever proven at those two.  So a
@@ -133,6 +146,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from .. import field_mobs
 from .. import lane_hooks
 from .. import mob_census_hostility
 from .. import world_population_bg0003
@@ -507,6 +521,48 @@ def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
         )
 
 
+TOKEN_ACTOR_IDENTITIES_UNREPORTABLE = (
+    "WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE"
+)
+
+
+def _field_mob_identities(scene_id: int) -> tuple[tuple[int, ...], str | None]:
+    """Lane B's hostile-mob identities for ``scene_id``, plus a console note.
+
+    COO-DECISION 20260903_2247.  Goes through ``field_mobs.roster_for_scene_id``
+    -- that lane's OWN public per-scene-id reader, already scene-agnostic and
+    already answering ``()`` for a scene its registry does not address --
+    rather than importing a per-scene table module (``field_mob_hostile_
+    bg0015`` or any sibling) by name.  That keeps this file from growing one
+    new import per scene lane B mines, the same shape ``_CONSOLE_LINES_OF``
+    above already avoids for a different reason.
+
+    Fail-closed like every other reporter in this module
+    (``_hostility_lines`` is the sibling this mirrors): a failure here must
+    become an empty identity list, never a refused census, because the
+    census this scene actually sends does not depend on lane B's registry at
+    all.  UNLIKE the first draft of this function (pf-adversary, round
+    t8m3ab), a failure is not silently identical to "no roster registered":
+    it also returns a console note, so a reader of an attended round's
+    capture can tell "this scene has no field-mob table yet" from "the
+    registry blew up and this lane swallowed it" -- the same distinction
+    ``_hostility_lines`` already makes for its own failure, and the one this
+    function's own first draft did not.
+    """
+    try:
+        identities = tuple(
+            mob.actor_identity
+            for mob in field_mobs.roster_for_scene_id(scene_id)
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - see the docstring
+        return (), "%s reason=%s" % (
+            TOKEN_ACTOR_IDENTITIES_UNREPORTABLE, type(failure).__name__,
+        )
+    return identities, None
+
+
 def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
     """The seam's own membership, handed back ONLY if a registered,
     production-allowed ChooseNPC responder exists for ``scene_id``.
@@ -564,10 +620,12 @@ def _compose_for_scene(scene_id: int):
             # the arrival path never asked for, and no census either.
             return None
         source = world_scene_travel.CENSUS_SOURCES[scene_id]
+        field_mob_identities, field_mob_note = _field_mob_identities(scene_id)
         console_lines = (
             (world_population_handoff.handoff_console_line(handoff),)
             + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
             + _hostility_lines(scene_id, handoff.generation)
+            + (() if field_mob_note is None else (field_mob_note,))
         )
         return lane_hooks.SceneCensusResult(
             actor_count=handoff.actor_count,
@@ -576,6 +634,7 @@ def _compose_for_scene(scene_id: int):
             console_lines=console_lines,
             initial_reapply_ms=handoff.reapply_ms,
             membership=_membership_if_answerable(scene_id, handoff),
+            actor_identities=field_mob_identities,
         )
 
     return compose
