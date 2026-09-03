@@ -36,6 +36,7 @@ labels it an assumption of LANE B and NONCLAIM 12 is open.  Wire/DB only.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import sys
@@ -873,6 +874,195 @@ class ThePickupGroundGenerationOnTheRealDispatcherTests(
              or e.startswith("mob_loot_boundary_last_object")], [],
         )
         self.assertNotIn("MOB_LOOT_BOUNDARY_STASH_CLEARED", self.console)
+
+
+class TheThreeNamesHaveExactlyOneProducerTests(unittest.TestCase):
+    """ROUND xcmfr6.  ONE VOCABULARY, DERIVED FROM SOURCE, NOT RECITED.
+
+    COO-DECISION 2026-09-03T00:54+07:00 question 2 ruled that the two
+    spellings of this event's three names become one and that the words the
+    dispatcher emits win.  This class pins the STRUCTURAL half of that
+    ruling: the words are spelled in exactly one module, and the dispatcher
+    emits NOTHING BUT what that module's composers returned.
+
+    !! IT ASKS THE SECOND QUESTION ON PURPOSE, and the first draft of this
+    class did not (pf-adversary D2, measured).  "Does ``runtime.py``
+    mention the composers somewhere in nine thousand lines" is a token that
+    fires on the drift, not on the goal: the reviewer put the three-way
+    ladder back spelled with ``mob_loot.BOUNDARY_STASH_*_REASON``, appended
+    a hand-built name, called a composer into a discarded variable, and the
+    first draft stayed green with TWO producers back on ``main``.  So the
+    assertions below are structural: the ``dropped_event`` call must BE the
+    single argument of ``self.events.append(...)``, the console call must BE
+    the single argument of ``print(...)``, and ``runtime.py`` may reach
+    neither the words nor the module's reason constants by any other route.
+
+    IT COUNTS ITS OWN UNIVERSE rather than sweeping the places somebody
+    remembered: it walks every module under the package, so a third module
+    that starts spelling the words fails this test on the day it lands.
+    (The norm is the bridge repository's ``AGENTS.md`` rule "a fact's number
+    of homes must be derived, not restated"; this repository's own
+    ``AGENTS.md`` has no numbered sections, and the first draft of this
+    docstring cited one that does not exist -- pf-adversary D7.)
+
+    !! A DOCSTRING IS NOT A PRODUCER EITHER, and the first draft claimed the
+    opposite in the same breath as reading it wrong (pf-adversary D3): a
+    docstring IS an ``ast.Constant``, so the draft went red when the lane
+    that owns ``ground_rows_left`` explained the third name in prose.  The
+    words are looked for in string constants that are NOT docstrings, which
+    is the set an operator's console can actually be reached from; prose may
+    say the words anywhere -- in a comment or in a docstring alike.
+
+    !! A SIBLING'S BROKEN FILE IS NOT THIS LANE'S FAILURE (pf-adversary D4):
+    a module is parsed only when its TEXT contains one of the words, so a
+    half-written ``lane_hooks/`` file or a file somebody saved as cp874
+    cannot take this guard down -- and a file that does mention a word and
+    cannot be parsed fails by NAME, not as a ``SyntaxError`` out of
+    ``ast.py``.
+
+    WHAT THIS DOES NOT PROVE: that the console bytes are right.  That is
+    pinned by ``tests/test_mob_loot.py``'s own literals and by
+    ``test_the_dispatcher_and_this_lanes_composer_say_the_same_words``
+    above, which is now a CALL-SITE pin rather than a comparison between two
+    producers -- there is only one producer to compare (pf-adversary D8).
+    THE RETIREMENT THAT COMES WITH THAT, said out loud rather than left for
+    somebody to find: ``test_mob_loot.py``'s
+    ``test_the_inline_site_and_this_lane_have_not_drifted_apart`` takes its
+    ``adopted`` early return from this round on, so its byte-comparison body
+    no longer executes.  That check was the sibling lane's, its adopted
+    branch is the landing that lane wrote for this day, and this class is
+    what now carries the weight (pf-adversary D1; letter to LANE-B, round
+    ``xcmfr6``).
+
+    MUTATION-PROOF, EVERY ONE MEASURED THIS ROUND: re-inline the ladder as
+    literals -> ``test_runtime_does_not_spell_the_three_names_itself``;
+    re-inline it as the module's constants ->
+    ``test_runtime_reads_no_reason_constant_of_its_own``; hand-build the
+    appended name or the printed line while still calling a composer
+    somewhere -> ``test_the_dispatcher_emits_only_what_the_composers_
+    returned``; delete either call -> the same test; spell a word in a third
+    module -> ``test_exactly_one_module_spells_the_words``.
+    """
+
+    WORDS = (
+        mob_loot.BOUNDARY_STASH_SUPERSEDED_REASON,
+        mob_loot.BOUNDARY_STASH_STALE_REASON,
+        mob_loot.BOUNDARY_STASH_UNPUBLISHED_REASON,
+    )
+    CONSOLE_LABEL = "MOB_LOOT_BOUNDARY_STASH_CLEARED"
+    REASON_CONSTANT_PREFIX = "BOUNDARY_STASH_"
+
+    @classmethod
+    def _package_root(cls):
+        return Path(mob_loot.__file__).resolve().parent
+
+    def _parse(self, path):
+        """The module's tree, or ``None`` when it has nothing to say."""
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            return None            # not this lane's file and not its failure
+        if not any(word in text for word in self.WORDS):
+            return None
+        try:
+            return ast.parse(text)
+        except SyntaxError as exc:
+            self.fail("%s mentions one of the three names and does not "
+                      "parse: %s" % (path, exc))
+
+    @staticmethod
+    def _docstring_ids(tree):
+        holders = (ast.Module, ast.ClassDef,
+                   ast.FunctionDef, ast.AsyncFunctionDef)
+        ids = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, holders) or not node.body:
+                continue
+            first = node.body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                ids.add(id(first.value))
+        return ids
+
+    def _spoken_constants(self, tree):
+        """Every string constant in `tree` that is not a docstring."""
+        skip = self._docstring_ids(tree)
+        return [node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in skip]
+
+    def _runtime_tree(self):
+        return ast.parse(
+            (self._package_root() / "runtime.py").read_text(encoding="utf-8"))
+
+    @classmethod
+    def _is_composer_call(cls, node, composer):
+        return (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == composer
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "mob_loot")
+
+    def test_exactly_one_module_spells_the_words(self):
+        spellers = {}
+        for path in sorted(self._package_root().rglob("*.py")):
+            tree = self._parse(path)
+            if tree is None:
+                continue
+            said = sorted({word for word in self.WORDS
+                           for text in self._spoken_constants(tree)
+                           if word in text})
+            if said:
+                spellers[path.name] = said
+        self.assertEqual(
+            sorted(spellers), [Path(mob_loot.__file__).name], spellers)
+        self.assertEqual(
+            spellers[Path(mob_loot.__file__).name], sorted(self.WORDS))
+
+    def test_runtime_does_not_spell_the_three_names_itself(self):
+        spoken = self._spoken_constants(self._runtime_tree())
+        for word in self.WORDS + (self.CONSOLE_LABEL,):
+            with self.subTest(word=word):
+                self.assertEqual([text for text in spoken if word in text], [])
+
+    def test_runtime_reads_no_reason_constant_of_its_own(self):
+        """The other half of D2: the words also have a NAMED form.
+
+        Banning the literals alone leaves ``reason =
+        mob_loot.BOUNDARY_STASH_STALE_REASON`` open, which is the same two
+        producers with an import in between.
+        """
+        reached = sorted({node.attr for node in ast.walk(self._runtime_tree())
+                          if isinstance(node, ast.Attribute)
+                          and node.attr.startswith(self.REASON_CONSTANT_PREFIX)})
+        self.assertEqual(reached, [], reached)
+
+    def test_the_dispatcher_emits_only_what_the_composers_returned(self):
+        tree = self._runtime_tree()
+        appends = [node for node in ast.walk(tree)
+                   if isinstance(node, ast.Call)
+                   and isinstance(node.func, ast.Attribute)
+                   and node.func.attr == "append"
+                   and len(node.args) == 1
+                   and self._is_composer_call(
+                       node.args[0], "boundary_stash_dropped_event")]
+        self.assertEqual(len(appends), 1, "the event name must BE the "
+                                          "composer's return value")
+        printed = [node for node in ast.walk(tree)
+                   if isinstance(node, ast.Call)
+                   and isinstance(node.func, ast.Name)
+                   and node.func.id == "print"
+                   and len(node.args) == 1
+                   and self._is_composer_call(
+                       node.args[0], "boundary_stash_cleared_console_line")]
+        self.assertEqual(len(printed), 1, "the console line must BE the "
+                                          "composer's return value")
+        for call in appends + printed:
+            composer = call.args[0].func.attr
+            with self.subTest(composer=composer):
+                self.assertTrue(hasattr(mob_loot, composer))
 
 
 if __name__ == "__main__":
