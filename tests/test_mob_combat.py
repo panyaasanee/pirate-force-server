@@ -165,8 +165,17 @@ def _is_production_module(tree: ast.Module) -> bool:
     The two convention markers every module in ``src/`` carries.  Absent, a
     module counts as production: the markers are what an author writes to opt
     OUT, and a missing marker must never be read as an opt-out.
+
+    !! MODULE LEVEL ONLY, ROUND 91tlkk (pf-adversary D8 of that round, found
+    on the sibling scan and true here word for word).  ~~``ast.walk``~~ IS
+    STRUCK: it read a LOCAL VARIABLE named ``production_allowed`` -- at any
+    nesting depth, in anybody's file -- as the whole module opting out of
+    production.  An ordinary, entitled edit in another lane's file could
+    therefore move this lane's status word, and the failure message would
+    have told its author to move the label.  D4 of the round that wrote this
+    scan exists to stop exactly that; this is the hole it left open.
     """
-    for node in ast.walk(tree):
+    for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
         for target in node.targets:
@@ -224,7 +233,18 @@ def call_site_status_of_tree(paths) -> str:
     for path in sorted(paths):
         if path.name == "mob_combat.py":
             continue
-        got = call_site_status_of_source(path.read_text(encoding="utf-8"))
+        try:
+            got = call_site_status_of_source(
+                path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, SyntaxError, ValueError):
+            # ROUND 91tlkk, pf-adversary D9.  A module that does not decode
+            # as UTF-8 (this project writes Thai; cp874 files exist) or does
+            # not parse cannot be imported, so it cannot host a running call
+            # site.  Skipped rather than raised on -- though if the skipped
+            # file is the one holding the call site, this still answers with
+            # a weaker word and this lane's test still goes red, which is the
+            # honest outcome and not an immunity.
+            continue
         if rank.index(got) > rank.index(best):
             best = got
         if best == rank[-1]:

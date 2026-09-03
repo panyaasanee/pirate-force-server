@@ -13,9 +13,19 @@ being true on 2026-09-02 (see
 :data:`PICKUP_REQUEST_DISPATCH_CALL_SITE_LANDED`).  What COO-DECISION
 20260902_0254 named as the reason this file exists -- that in production mode
 no code in ``src/`` could read one byte of an inbound pickup request -- is
-the history that produced it, not the state of the tree.  TODAY THAT FRAME
-IS READ: every ground click reaches this module through
-``runtime.py``'s dispatch.  This module is still that one half and only that
+the history that produced it, not the state of the tree.  TODAY THE BRANCH
+EXISTS: ``runtime.py`` reaches this module on any frame whose NESTED id is
+``PICKUP_REQUEST_VITAL_ID``.
+!! AND NOT ONE INCH FURTHER (pf-adversary D12, round 91tlkk).  ~~every ground
+click reaches this module through runtime.py's dispatch~~ IS STRUCK BEFORE IT
+EVER SHIPPED: that is a WIRE claim built out of a SOURCE fact, and it
+contradicts the sentence this lane's own test forces the chief to keep beside
+his call -- 0x4543 is DERIVED on the static-image layer and HAS NEVER BEEN
+OBSERVED ON ANY WIRE (NONCLAIM 1, RE-125).  If that nonclaim is right, a real
+click may wear some other id and reach the unchanged unknown-vital path
+instead.  What landed is a BRANCH; which frames enter it is a question only
+an attended capture answers.
+This module is still that one half and only that
 half: it READS the request.  It grants nothing, takes nothing off the ground,
 writes no row and sends no byte.
 
@@ -114,12 +124,20 @@ NONCLAIMS -- read these before using one symbol from this file
      ``MOB_PICKUP_ROW_INSERTED`` beside a bag that grew on the owner's own
      screen -- and it is measured there, never here.
      !! AND READ THE STRIKE THE RIGHT WAY ROUND.  It does not upgrade this
-     lane by one inch; it downgrades the excuse.  ``NOW.md`` P-1's open
-     number is "2 of 46 clicks reached the decoder", and those 44 are not
-     frames that fell through an unwired branch -- they are frames this
-     module read and REFUSED.  A reader who takes the old sentence at face
-     value looks for a missing call site instead of for a refusal reason,
-     which is a day of the wrong search.
+     lane by one inch; it downgrades the excuse.  A reader who takes the old
+     sentence at face value goes looking for a MISSING CALL SITE, and there
+     is none missing: whatever is costing the owner clicks is on this side of
+     a branch that exists, which is a different search.
+     !! AND THE NUMBER THAT SENT THIS ROUND HERE IS NOT A FACT ABOUT THIS
+     TREE (pf-adversary D13, round 91tlkk).  ``NOW.md`` P-1 records "2 of 46
+     clicks reached the decoder, ``reason=vital_count_not_one`` 42 times" --
+     measured on the tree of 2026-09-02 morning.  ``vital_count_not_one`` is
+     RETIRED on this tree (see ``MOB_PICKUP_REQUEST_RETIRED_REASONS``, whose
+     own rule is that a retired name is produced by NOTHING), so a reader
+     sent after that reason today is sent after a word this code cannot
+     emit.  The count is kept as the history that motivated the strike, never
+     as a measurement of what refuses clicks now; what refuses them now is
+     re-derived per round or it is not claimed.
   6. THE MONSTER-DROP FAMILY IS STILL UNDECODED.  A separate client-side
      module family may carry monster-drop pickup instead of this message.
      This lane is not claimed to explain that path.
@@ -287,10 +305,21 @@ PICKUP_REQUEST_WIRING_BLOCKERS = (
     "line, and do not mention the three above",
 )
 #: DID THE CALL SITE LAND, weakest evidence first.  Registered so a word that
-#: is not one of these two cannot end up in the wiring note and be searched
+#: is not one of these three cannot end up in the wiring note and be searched
 #: for in vain.
+#:
+#: THREE WORDS AND NOT TWO (pf-adversary D10, round 91tlkk).  The first draft
+#: had two and counted only a call expression, so a lookup by string --
+#: ``getattr(mob_pickup_request, "dispatch_inbound_pickup_request")(...)``, a
+#: name bound to the function and called later, a dict of handlers -- scored
+#: "nothing calls it".  That is the same blind spot
+#: ``mob_combat.GROUND_UNDER_PUBLICATION_CALL_SITE_STATUSES`` was hardened
+#: against last round after LANE-A measured it on a real hook, and shipping
+#: the pre-hardened version of it in a commit about stale claims would have
+#: been this lane repeating its own scar.
 PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUSES = (
     "requested_not_landed",
+    "wired_by_name_lookup",
     "landed",
 )
 #: WHY THIS CONSTANT EXISTS, and it is the whole of this round's change:
@@ -310,12 +339,32 @@ PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUSES = (
 #:
 #: IT IS NOT A LABEL A HUMAN KEEPS UP TO DATE -- that is precisely what
 #: failed.  ``tests/test_mob_pickup_request.py`` RE-DERIVES it from the AST
-#: of every production file in ``src/`` on every run and is red in BOTH
-#: directions: too low after a call site lands, too high after one is
-#: reverted.  And it is not decoration either: :data:`MOB_PICKUP_REQUEST_
-#: WIRING` -- the note the chief and an operator actually read -- is
-#: COMPOSED from it, so the document cannot say "cleared to land" about a
-#: branch that landed a day ago.
+#: of every production file in ``src/`` on every run.  And it is not
+#: decoration either: :data:`MOB_PICKUP_REQUEST_WIRING` -- the note the chief
+#: and an operator actually read -- is COMPOSED from it through
+#: :func:`wiring_headline`, so the document cannot say "cleared to land"
+#: about a branch that landed a day ago.
+#:
+#: !! WHAT THE WORD DOES AND DOES NOT ANSWER, and ~~red in BOTH directions:
+#: too low after a call site lands, too high after one is reverted~~ IS
+#: STRUCK AS OVERSTATED (pf-adversary D7, round 91tlkk, measured).  The scan
+#: sees LEXICAL PRESENCE of a call expression in a production module.  It
+#: OVER-COUNTS a dead wrapper nobody invokes, a call under ``if False``, and
+#: a call on an unrelated object whose method shares the name -- so the day a
+#: lane adds a replay helper that names this entry point and never runs it, a
+#: reverted runtime branch would still score "landed".  The direction that IS
+#: reliable is the one that actually failed here: a call site that lands
+#: cannot go on being reported as absent.
+#:
+#: !! AND WHEN THE SCAN IS THE ONE THAT IS LYING (pf-adversary's closing
+#: question, round 91tlkk).  The failure message offers two moves, raise the
+#: label or lower it, and both change what a human reads about the wire.
+#: Neither is the answer when the tree and the scan disagree: the answer is
+#: to WIDEN THE SCAN or add a word to the vocabulary -- which is how the
+#: middle word above got here -- and, when neither is possible in that round,
+#: to strike the sentence in place and say so, the way this block does.
+#: Moving the label to make a test green is the failure this constant was
+#: built to end, arriving from the other side.
 PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS = "landed"
 #: When, and in which commit, so a reader who lands on the struck sentences
 #: below can date them rather than wonder.  Documentation only: nothing
@@ -1693,23 +1742,51 @@ MOB_PICKUP_REQUEST_READ_ONLY_CALL = (
     "mob_pickup_request.read_inbound_pickup_request(legacy, parsed)"
 )
 
-#: The one sentence that must change by itself when the branch lands or is
-#: reverted.  COMPOSED, never typed: a note whose head sentence is a literal
-#: is a note that goes on saying "cleared to land" for a day after landing,
-#: which is exactly what this file did.
-_WIRING_HEADLINE = {
+#: One sentence per registered word; the note picks by CALLING
+#: :func:`wiring_headline`.  A FUNCTION AND NOT A LOOKUP AT IMPORT TIME
+#: (pf-adversary D1/D2/D3 of round 91tlkk, all three measured GREEN on the
+#: first draft): that draft selected the sentence at import, so the module
+#: only ever held the SELECTED STRING.  Every branch but today's was dead
+#: code no test could reach, the whole composition could be replaced by a
+#: hand-typed literal with a green suite, and deleting a key -- also green --
+#: turned the recovery the failing test PRESCRIBES ("lower the constant")
+#: into a ``KeyError`` at import that made the file uncollectable.
+_WIRING_HEADLINES = {
     "requested_not_landed": "THIS BRANCH IS CLEARED TO LAND AND HAS NOT "
                             "LANDED.  The block below is a REQUEST.",
+    "wired_by_name_lookup": "THIS BRANCH IS REACHED ONLY BY A NAME LOOKUP: "
+                            "somebody fetches the entry point by string.  "
+                            "That is evidence somebody FETCHES it, never "
+                            "that a frame goes through it.",
     "landed": "THIS BRANCH HAS LANDED (see "
               "PICKUP_REQUEST_DISPATCH_CALL_SITE_LANDED).  The block below "
               "is no longer a request: it is the RECORD of what runtime.py "
               "must keep containing, and tests/test_mob_pickup_request.py "
               "compares the landed call against it argument for argument.",
-}[PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS]
+}
+
+
+def wiring_headline(status: str) -> str:
+    """The note's head sentence for one registered status word.
+
+    IT CANNOT RAISE, for the reason D3 measured rather than for politeness:
+    this runs at import time, and the one moment it would blow up is the
+    moment somebody is halfway through changing the vocabulary -- which is
+    exactly when a reader needs the file to still import so they can read
+    what it says.  A word this table does not know is REPORTED as unknown,
+    which a human notices, instead of a traceback that hides the note.
+    """
+    return _WIRING_HEADLINES.get(
+        status,
+        "THE LANDING STATUS OF THIS BRANCH IS NOT A REGISTERED WORD (%r).  "
+        "Read nothing into it: this note cannot say whether the branch "
+        "landed." % (status,))
+
 
 MOB_PICKUP_REQUEST_WIRING = (
     "STATUS: " + PICKUP_REQUEST_WIRING_STATUS + " / "
-    + PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS + ".  " + _WIRING_HEADLINE
+    + PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS + ".  "
+    + wiring_headline(PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS)
     + "  " + PICKUP_REQUEST_WIRING_APPROVAL + ".  What each former "
     "blocker was and what lifted it is kept, struck through, in "
     "PICKUP_REQUEST_WIRING_BLOCKERS.\n"
@@ -1719,9 +1796,19 @@ MOB_PICKUP_REQUEST_WIRING = (
     "observed on any wire.  A comment carrying the words 'never been "
     "observed on any wire' (any casing) must sit within ten lines of the "
     "call, or tests/test_mob_pickup_request.py goes red on the gate and the "
-    "PR carrying the call site cannot merge.  The branch is landed on a "
+    "PR carrying the call site cannot merge.  ~~The branch is landed on a "
     "static-image reading, so if the id is wrong the branch never fires and "
-    "every frame keeps today's behaviour.\n"
+    "every frame keeps today's behaviour.~~ IS STRUCK, round 91tlkk "
+    "(pf-adversary D11): runtime.py struck that same sentence at its own "
+    "call site after measuring it FALSE, and this note went on carrying it.  "
+    "The branch claims on the NESTED ID ALONE, before any shape check, so a "
+    "wrong id means this branch SWALLOWS whatever really wears 0x4543 -- "
+    "measured on a flagless boot as one frame of deferral each for the world "
+    "census, the server-online line and the music control (latched, so a "
+    "deferral and not a loss).  The cost of a wrong id is small and bounded.  "
+    "It is not zero, and WHO WITHDRAWS THIS BRANCH if 0x4543 turns out to be "
+    "another live message is still an open question with no named owner "
+    "(raised with COO in the R300 handback).\n"
     "  WHERE: runtime.py, in the inbound runtime-request dispatch, as a "
     "PRODUCTION branch -- no scenario object in the condition, no flag, no "
     "allowlisted profile -- keyed on the NESTED vital id and never on the "
