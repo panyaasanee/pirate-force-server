@@ -3109,5 +3109,223 @@ class TheCallSiteScanKnowsTheShapesItClaimsToKnowTests(unittest.TestCase):
             "composed_not_called")
 
 
+class TheRealDefenceColumnIsPricedNotTaken(unittest.TestCase):
+    """ROUND qzky4u.  ka1-B's letter of 2026-09-01 22:05 item (4) named the
+    real defence columns, and ``mob_defender``'s own docstring had promised
+    that the round which found them would replace it.  This class is why that
+    round did not, and it exists so the refusal carries a number instead of an
+    opinion -- and so it DIES the day either half of the trade stops being
+    true.
+
+    WHERE THE FIXTURE ROWS COME FROM, STATED HONESTLY BECAUSE A DRAFT OF THIS
+    DOCSTRING GOT IT WRONG.  The draft said they were "exactly as the letter
+    gives them".  THE LETTER GIVES NO PER-LEVEL ROWS -- it names columns,
+    IMAGE offsets and coefficients only.  These three rows were read by this
+    lane out of ``pf_bridge/gamedata/tables/CONSTDATA_TH__STANDARD_MOB.tsv``
+    (file rows 26, 28 and 101, i.e. ``n_ID`` 25, 27 and 100).  That file is on
+    the bridge clone and client tables do not come into this repository, so
+    they are transcribed here as a fixture -- which makes their provenance a
+    transcription by this lane, not a citation of anybody.
+
+    AND THE "CONTROL" IN THIS CLASS IS WEAKER THAN A DRAFT CLAIMED.  Comparing
+    the fixture's ``n_HPMAX`` against the roster's ``max_hp`` cannot detect a
+    wrong level index, because ``tools/pf_mine_scene_mob_roster.py`` derives
+    ``max_hp`` as ``STANDARD_MOB[MOBS.n_LEVEL_MIN].n_HPMAX`` -- the same index.
+    It is a TRANSCRIPTION check: it catches a mistyped row, and nothing else.
+    ka1-B's own nonclaim says the rest out loud -- "the DATA census does not
+    prove which mob resolves to which row" -- so if the client resolves a
+    monster's FightAttr row by ``MOBS.n_ID`` rather than by level, the priced
+    conclusion below is about the wrong rows entirely.  That is one more reason
+    the column is not adopted this round, and it is named here rather than in a
+    comment nobody reads.
+    """
+
+    # level -> (n_CONSITUTION, n_AC_PHYSICS, n_HPMAX), transcribed by this lane
+    # from CONSTDATA_TH__STANDARD_MOB.tsv on the bridge clone.
+    STANDARD_MOB_ROWS = {
+        25: (49, 74, 3138),
+        27: (55, 86, 3857),
+        100: (554, 4467, 198125),
+    }
+
+    def setUp(self):
+        self.attacker = mob_combat.pin_attacker()
+        self.attack = (
+            mob_combat.ATK_BASE
+            + mob_combat.K_ATK_STR * self.attacker.ability_str
+            + mob_combat.K_ATK_LV * self.attacker.level)
+
+    def _hits_to_kill(self, max_hp, damage):
+        return -(-max_hp // damage)
+
+    def _adopted_damage(self, level):
+        constitution, ac_physics, _hp = self.STANDARD_MOB_ROWS[level]
+        defence = mob_combat.K_DEF_CON * constitution + ac_physics
+        return max(mob_combat.MIN_HIT, self.attack - defence)
+
+    def _shipped(self, scene_id):
+        return field_mobs.roster_for_scene_id(scene_id)
+
+    def test_the_fixture_hp_column_transcribes_the_shipped_roster(self):
+        # A TRANSCRIPTION check, not a resolution control -- see the class
+        # docstring for why it cannot be the second thing.
+        seen = {}
+        for scene_id in (1, 2):
+            for mob in self._shipped(scene_id):
+                seen.setdefault(mob.level, set()).add(mob.max_hp)
+        self.assertEqual(set(seen), set(self.STANDARD_MOB_ROWS))
+        for level, hitpoints in seen.items():
+            self.assertEqual(
+                hitpoints, {self.STANDARD_MOB_ROWS[level][2]},
+                "shipped level %d does not carry the fixture's n_HPMAX" % level)
+
+    def test_the_lane_has_not_taken_it(self):
+        # Asserted on BEHAVIOUR, not on a flag.  An earlier draft carried a
+        # REAL_DEFENCE_ADOPTED = False constant with no production reader:
+        # flipping it changed nothing and failed only the test that re-read
+        # it.  It is gone; what is left is the defender the driver builds.
+        self.assertFalse(hasattr(mob_combat, "REAL_DEFENCE_ADOPTED"))
+        self.assertEqual(mob_combat.MOB_ABILITY_CON, 22)
+        for mob in self._shipped(2):
+            self.assertEqual(
+                mob_combat.mob_defender(mob).ability_con,
+                mob_combat.MOB_ABILITY_CON)
+        self.assertEqual(
+            mob_combat.REAL_DEFENCE_AUTHORITATIVE_SCOPE,
+            "CLIENT_COMPUTED_UI_OR_MODEL_VALUE_NOT_SERVER_AUTHORITY")
+
+    def test_on_the_roster_p1_fights_the_swap_changes_no_kill_count(self):
+        # The half of the trade that says "this is nearly free".  If a later
+        # round makes it expensive on Bg0002, this test is what says so.
+        priced = {}
+        for mob in self._shipped(2):
+            today = mob_combat.resolve_damage(
+                self.attacker, mob_combat.mob_defender(mob))
+            adopted = self._adopted_damage(mob.level)
+            self.assertLess(adopted, today)
+            self.assertGreater(adopted, mob_combat.MIN_HIT)
+            priced[mob.level] = (
+                today, self._hits_to_kill(mob.max_hp, today),
+                adopted, self._hits_to_kill(mob.max_hp, adopted))
+        # Every cell of the table in mob_combat's own comment block, so the
+        # block cannot drift away from the code it describes.
+        self.assertEqual(priced, {25: (966, 4, 873, 4), 27: (964, 5, 849, 5)})
+        self.assertEqual(self.attack, 1045)
+
+    def test_on_port_royal_the_defence_half_alone_hits_the_floor(self):
+        # The half of the trade that says "and here is what it costs".
+        for mob in self._shipped(1):
+            today = mob_combat.resolve_damage(
+                self.attacker, mob_combat.mob_defender(mob))
+            adopted = self._adopted_damage(mob.level)
+            self.assertEqual((today, self._hits_to_kill(mob.max_hp, today)),
+                             (891, 223))
+            self.assertEqual(adopted, mob_combat.MIN_HIT)
+            self.assertEqual(
+                self._hits_to_kill(mob.max_hp, adopted), mob.max_hp)
+            self.assertEqual(mob.max_hp, 198125)
+        self.assertIn(
+            "STANDARD_MOB+0x20", mob_combat.REAL_DAMAGE_ATTACK_HALF)
+
+    def test_the_ladder_control_is_what_the_swap_would_spend(self):
+        # ``test_the_driver_reproduces_the_ladder_gt035_watched`` above is the
+        # lane's only tie to numbers watched on a screen.  Adopting the column
+        # breaks it -- proved here rather than asserted in a comment.
+        subject = field_mobs.gt035_observed_subject()
+        profiles = hostile_hp_link_hypothesis.HOSTILE_HP_LINK_ATTACKER_PROFILES
+        pinned = hostile_hp_link_hypothesis.HOSTILE_HP_LINK_DAMAGE_PINNED
+        constitution, ac_physics, _hp = self.STANDARD_MOB_ROWS[subject.level]
+        adopted_defence = mob_combat.K_DEF_CON * constitution + ac_physics
+        for name in ("MOB_WEAK", "MOB_STRONG"):
+            level, ability_str = profiles[name]
+            attacker = Combatant(
+                level=level, ability_str=ability_str, ability_con=0)
+            watched = mob_combat.resolve_damage(
+                attacker, mob_combat.mob_defender(subject))
+            self.assertEqual(-watched, pinned[name])
+            attack = (mob_combat.ATK_BASE
+                      + mob_combat.K_ATK_STR * ability_str
+                      + mob_combat.K_ATK_LV * level)
+            self.assertNotEqual(
+                max(mob_combat.MIN_HIT, attack - adopted_defence), watched)
+
+    def test_the_ac_column_is_load_bearing_and_not_a_free_variable(self):
+        # The adversarial review of this round found that at level 100 the
+        # constitution term alone (2*554 = 1108) already exceeds attack 1045,
+        # so `adopted == MIN_HIT` held for ANY n_AC_PHYSICS >= 0 and the 4467
+        # in the module's comment was a re-typed literal nothing could catch.
+        # Pinned here where it does work: at level 25 and 27 the AC term is
+        # what makes the number, and dropping it changes the answer.
+        for level in (25, 27):
+            constitution, ac_physics, _hp = self.STANDARD_MOB_ROWS[level]
+            with_ac = self._adopted_damage(level)
+            without_ac = max(mob_combat.MIN_HIT,
+                             self.attack - mob_combat.K_DEF_CON * constitution)
+            self.assertEqual(without_ac - with_ac, ac_physics)
+        # And at level 100 the constitution term alone already floors it, so
+        # that row proves nothing about the AC column.  Said out loud so the
+        # comment's 4467 is never read as measured by this class.
+        constitution, ac_physics, _hp = self.STANDARD_MOB_ROWS[100]
+        self.assertGreater(mob_combat.K_DEF_CON * constitution, self.attack)
+        self.assertGreater(ac_physics, 0)
+
+    def test_the_module_says_why_in_a_sentence_a_reader_can_check(self):
+        # Every recorded constant asserted against something that is not
+        # itself: the table name against a real filename on the bridge clone
+        # as this repository spells it, the deferral sentence against the
+        # numbers it claims, the attack half against the offset it names.
+        self.assertEqual(
+            mob_combat.REAL_DEFENCE_COLUMN_TABLE, "CONSTDATA_TH__STANDARD_MOB")
+        # Tied to the table the roster is actually mined from, so the
+        # adversary's mutant (CONSTDATA_TH__MOBS) fails: MOBS is where the
+        # placement rows come from, STANDARD_MOB is where the per-level
+        # columns come from, and only the second one has an n_HPMAX.
+        generated = (
+            ROOT / "src/pirateforce_foundation/field_mob_tables.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("STANDARD_MOB[n_LEVEL_MIN].n_HPMAX", generated)
+        self.assertNotIn("MOBS[n_LEVEL_MIN]", generated)
+        self.assertTrue(
+            mob_combat.REAL_DEFENCE_COLUMN_TABLE.endswith("STANDARD_MOB"),
+            mob_combat.REAL_DEFENCE_COLUMN_TABLE)
+        from pirateforce_foundation import field_mob_tables
+        self.assertIn(
+            mob_combat.REAL_DEFENCE_COLUMN_TABLE.rsplit("__", 1)[-1].lower(),
+            field_mob_tables.SOURCE_DIGESTS)
+        because = mob_combat.REAL_DEFENCE_DEFERRED_BECAUSE
+        for owed in ("kill count", "MIN_HIT", "GT-035"):
+            self.assertIn(owed, because)
+        # The sentence must say the swap is FREE on the fighting roster and
+        # EXPENSIVE at Port Royal, in that order, in words that match the
+        # tests above.  A rewrite that says the opposite while keeping the
+        # three greps passed an earlier draft of this test.
+        self.assertLess(because.index("no kill count"), because.index("floor"))
+        self.assertIn("4 and 5 hits either way", because)
+        self.assertEqual(
+            mob_combat.REAL_DEFENCE_COLUMN_NAMES,
+            ("n_CONSITUTION", "n_AC_PHYSICS"))
+        self.assertEqual(mob_combat.REAL_DEFENCE_AC_PHYSICS_IMAGE_OFFSET, 0x30)
+        # The attack half names a DIFFERENT offset in the same row; if the
+        # two ever collapse to one number, one of them has been mistyped.
+        self.assertIn("+0x20", mob_combat.REAL_DAMAGE_ATTACK_HALF)
+        self.assertIn("strength*1.0", mob_combat.REAL_DAMAGE_ATTACK_HALF)
+        self.assertNotIn(
+            "+0x%02X" % mob_combat.REAL_DEFENCE_AC_PHYSICS_IMAGE_OFFSET,
+            mob_combat.REAL_DAMAGE_ATTACK_HALF)
+        source = (
+            ROOT / "src/pirateforce_foundation/mob_combat.py"
+        ).read_text(encoding="utf-8")
+        # The first draft's wrong arithmetic is struck in place, not deleted -
+        # and it must not be repeated anywhere else in the file, which is
+        # exactly what the adversarial review caught it doing in
+        # mob_defender's own docstring.
+        self.assertIn("THIRTY-EIGHT MINUTES A KILL", source)
+        self.assertIn("THAT WAS WRONG", source)
+        self.assertNotIn("floors the shipped subject at MIN_HIT", source)
+        # A true-but-superseded sentence is labelled, never struck.
+        self.assertIn("SUPERSEDED, NOT WRONG", source)
+        self.assertNotIn("~~no MOBS column carries a constitution~~", source)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -135,6 +135,21 @@ client through this exact carrier, and the results are split:
   ``notes_to_chief/20260827_1620_GT084R2-RESULT-PASS-hostile-kill-full-wire-
   but-corpse-freezes-no-target-panel.md`` for the full attended account.
 
+  ROUND qzky4u TRIED TO REPLACE THE WORD ``BODY-DEPENDENT`` WITH A MECHANISM
+  AND WITHDREW IT BEFORE PUSH.  The draft read the dead task's promote layer
+  (ka1-B, 2026-09-01 22:05) as the discriminator: parked at ``+0x14``, started
+  only once the ordinary queue at ``+0x04`` drains, so a monster under attack
+  freezes and an idle one falls.  It fits GT-022/GT-025 against GT-084-R2 - and
+  it MISPREDICTS the observation it was offered for.  In R303 the corpse fell
+  when the owner struck the NEXT monster; under the queue reading the dead
+  monster's own task drains on its own, with no player input, and it would have
+  fallen unaided.  What striking another monster does produce is another
+  whole-scene census, which is the explanation ka1-A already measured.  So the
+  word stands unstruck, the promote layer is recorded above
+  :data:`DEATH_TASK_PROMOTE_SPAN` as a third candidate behind the census
+  republish and RE-107's model-loaded bit, and the falsifying input (a death
+  task queued with mode 1) is named there.
+
 WHAT THE PLAYER SEES THAT THEY DID NOT SEE YESTERDAY.  Yesterday a monster a
 player fought converged to 1 HP and stayed there forever, and the server
 answered every further hit with silence - that was this lane's own nonclaim.
@@ -896,9 +911,127 @@ DYING_PREDICATE_VA = 0x43BDA0          # actor vtable +0x40, needs timer > 0
 DEATH_PREDICATE_VA = 0x43BD70          # actor vtable +0x3C, needs timer <= 0
 DYING_LATCH_WRITE_VA = 0x44384C        # [actor+0x70] |= 0x200
 DEATH_TASK_GATE_VA = 0x443990          # builds the task when the gate holds
+                                       # (round qzky4u tried to strike this
+                                       # line and was wrong - see below)
 DEATH_TASK_CTOR_VA = 0x472810          # CActorTask_Dead
 DEATH_ANIMATION_NAME_VA = 0xF0F060     # L"_F_DIE_000"
 DEATH_ANIMATION_NAME = "_F_DIE_000"
+
+# ---------------------------------------------------------------------------
+# ROUND qzky4u -- ONE LAYER THIS MODULE DID NOT RECORD, AND THREE CLAIMS THIS
+# ROUND TRIED TO MAKE AND HAD TO WITHDRAW BEFORE PUSH.
+#
+# Source: notes_to_chief/20260901_2205_KA1B-TO-LANE-B-death-task-never-
+# promotes-plus-real-defence-column.md items (1) and (2), from
+# PF_COMBAT_LETHAL_TAIL_DELTA.tsv / PF_COMBAT_LIFECYCLE.tsv span LT-IMG-011
+# 0x004A0C90..0x004A0D78.  That letter sat unconsumed for 36 hours; this block
+# is this lane consuming it, AND the record of how much of it this repository
+# already knew.
+#
+# WHAT THE FIRST DRAFT OF THIS BLOCK CLAIMED, AND WHY IT IS GONE.  It said
+# ~~"0x443990 IS NOT THE GATE - the guard is actor+0x30 at 0x44399B, eleven
+# bytes later"~~ and struck the HYP-PF-023 evidence gap as explained.  The
+# adversarial review of this round refuted it FROM THIS REPOSITORY'S OWN MINED
+# BYTES, and it was right:
+#     tools/pf_runtimeres_actor_entry_static.py:571
+#       gbytes(0x443990, "807c2413000f84ec000000",
+#              "0x443990: vtable+0x3C gates everything below")
+# ``80 7C 24 13 00`` is ``cmp byte [esp+0x13], 0`` and ``0F 84 EC 00 00 00`` is
+# the jump: ELEVEN BYTES OF ONE INSTRUCTION PAIR.  So 0x44399B is not a second
+# guard at all - it is the FALL-THROUGH, the first instruction of the block
+# 0x443990 guards, which is exactly how
+# reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md:300 has recorded it
+# since 2026-08-19 (``CActorTask_Dead`` 0x44399B..0x443A86, condition
+# ``[esp+0x13] != 0``).  ``DEATH_TASK_GATE_VA`` was right.  The eleven bytes
+# the letter measured are real and mean the opposite of what this lane read
+# into them.
+#
+# TWO MORE THINGS THE FIRST DRAFT CALLED NEW THAT THIS REPOSITORY ALREADY HAD:
+#   * "one guard, two tails" - the same report puts the current-target clear
+#     at 0x443A00..0x443A86 "inside the branch [esp+0x13] != 0".  Since
+#     2026-08-19.  So the observation that no experiment varying only hold_ms
+#     and the two frames can separate RE-107 from RE-108 stands, and it is not
+#     this round's, and it is not the letter's either.
+#   * the HYP-PF-023 gap.  0x443990 does not read the 0x200 latch bit because
+#     it reads ``[esp+0x13]`` (vt+0x3C), while the latch at 0x44384C sits under
+#     the mutually exclusive vt+0x40 predicate.  That is a REASON, and the gap
+#     is still a gap: nothing here shows the task needs the latch or does not.
+#     The nonclaim below is NOT struck.
+#
+# WHAT IS ACTUALLY NEW, AND IT IS ONE THING: THE TASK DOES NOT START WHERE THE
+# CTOR ENDS.  Every artifact in this repository stops at
+# ``0x4439E9 -> 0x472810`` and reasons as though reaching the constructor were
+# reaching a running task.  The letter walks one layer further: the wrapper
+# hands the object to ``manager_add`` 0x4A0C90, which PARKS it at ``+0x14``;
+# ``queue_update`` 0x4A0B50 -> ``promote_start`` 0x4A09C0 is what starts it,
+# and 0x4A0A7A moves pending ``+0x14`` into current ``+0x10`` only once the
+# ordinary linked queue at ``+0x04`` is empty (0x4A0A33 serves it first).
+# Manager flags ``+0x1C``/``+0x1D`` defer an incoming task, ``+0x1E`` destroys
+# it.  A dead task that is constructed and never promoted is a shape nobody in
+# this project had written down.
+#
+# WHAT THAT DOES **NOT** EXPLAIN, AND THE FIRST DRAFT SAID IT DID.  It said the
+# queue was the discriminator behind ~~"a corpse that only fell when the owner
+# struck the NEXT monster"~~ in R303.  It is not, and the round's own cited
+# evidence says so:
+#   * Under the queue reading, a corpse promotes when ITS OWN ordinary task
+#     drains - shortly after death, with no player input.  R303 says it fell
+#     only on the next strike.  The mechanism mispredicts the observation it
+#     was offered to explain.
+#   * The competing explanation is already measured and is SERVER-SIDE:
+#     notes_to_chief/20260902_1805_KA1A-TO-LANE-B-...md finds every death
+#     published as a whole-scene census, so the pose changes when the NEXT
+#     census arrives - which is what striking another monster produces.  That
+#     letter's own words: "the timing is NOT the problem".
+#     This repository implements that republish (mob_scene_recompose.py) and
+#     can therefore TEST the census story today; it cannot test the queue one.
+# So the queue layer is recorded here as a THIRD candidate, behind the census
+# republish and behind the model-loaded bit RE-107 already closed on
+# ([actor+0x70] & 0x40 at 0x472850).  It is not this project's answer to the
+# frozen corpse and no line of this module treats it as one.
+#
+# THE INPUT THAT WOULD MAKE IT WRONG, named because a mechanism nobody can
+# falsify is not a mechanism: A DEATH TASK QUEUED WITH MODE 1.  "mode 0 parks
+# at +0x14" is the letter's; the only ``0x4A0C90`` call this repository has
+# traced passes a separate argument of 1 (STATUS.md:618, COMBAT-KNOCK-001).
+# Nothing establishes what the DEATH wrapper 0x4843C0 passes.  If it is 1, the
+# parking never happens and everything above is irrelevant.
+#
+# THE ALLOC ADDRESS IS THREE DIFFERENT NUMBERS IN THREE PLACES AND THIS ROUND
+# DOES NOT PICK ONE: tools/pf_runtimeres_actor_entry_static.py:573 says the
+# allocation is at 0x4439C7; PF_CHUNK2_Q3_BIND_THUNK_FINDINGS says the 0x24
+# pool is at 0x4439D2; the letter says 0x004439D1.  Recorded as a conflict.
+#
+# NOTHING IN THIS MODULE CHANGES BEHAVIOUR ON ANY OF IT.  The one server-side
+# lever the queue story would point at is ``DEATH_TASK_HOLD_MS``, and
+# COO-DECISION 20260826_0551 reserves that number for chief's 0/250/700/2000 ms
+# sweep, so this round does not touch it - and, on the reading above, that
+# sweep is not the experiment that would settle this either.
+# ---------------------------------------------------------------------------
+DEATH_TASK_FALL_THROUGH_VA = 0x44399B      # first instruction 0x443990 guards
+DEATH_TASK_ALLOC_VA_CONFLICT = {           # three artifacts, three numbers
+    "tools_pf_runtimeres_actor_entry_static": 0x4439C7,
+    "reports_PF_CHUNK2_Q3_BIND_THUNK_FINDINGS": 0x4439D2,
+    "ka1b_letter_20260901_2205": 0x4439D1,
+}
+DEATH_TASK_QUEUE_WRAPPER_VA = 0x4843C0     # wrapper -> manager_add
+DEATH_TASK_MANAGER_ADD_VA = 0x4A0C90       # mode 0 parks the task at +0x14
+DEATH_TASK_MANAGER_ADD_MODE_IS_UNPROVEN = True   # STATUS.md:618 traces mode 1
+DEATH_TASK_QUEUE_UPDATE_VA = 0x4A0B50      # the tick that may promote
+DEATH_TASK_PROMOTE_START_VA = 0x4A09C0     # promote_start
+DEATH_TASK_ORDINARY_QUEUE_FIRST_VA = 0x4A0A33  # ordinary +0x04 served first
+DEATH_TASK_PROMOTE_MOVE_VA = 0x4A0A7A      # +0x14 -> +0x10, empty queue only
+DEATH_TARGET_CLEAR_TAIL_SPAN = (0x443A00, 0x443A86)   # the report's, not new
+TASK_MANAGER_ORDINARY_QUEUE_HEAD_OFFSET = 0x04
+TASK_MANAGER_CURRENT_TASK_OFFSET = 0x10
+TASK_MANAGER_PENDING_TASK_OFFSET = 0x14
+# LT-IMG-011's span: manager_add's OWN body.  The functions it calls
+# (queue_update, promote_start) sit BELOW it, so this is not a range that
+# contains the whole chain and must not be read as one.
+DEATH_TASK_PROMOTE_SPAN = (0x4A0C90, 0x4A0D78)
+DEATH_SYNC_SPAN = (0x4437C0, 0x443A9A)     # frozen gspan, already in tools/
+DEATH_TARGET_CLEAR_VA = 0x43E1D0           # current-target clear (0, 0)
+DEATH_TARGET_IS_DEAD_VSLOT = 0x210         # vslot called at 0x00443A78
 # A SECOND pair of predicates reads the same +0x58 field: 0x454A70 at vt+0x3C
 # and 0x454AC0 at vt+0x40, plus the local player's Main_Dead open-gate at
 # 0x44A540 (FACTPACK R102).  ~~This lane does not claim which actor class each
@@ -1028,7 +1161,27 @@ MOB_DEATH_NONCLAIMS = (
     "the dying latch is NOT a proven prerequisite for the death task: the "
     "HYP-PF-023 evidence gap records that the gate at 0x443990 does not read "
     "the 0x200 bit, so the two-frame shape is how the fall was WATCHED, not a "
-    "chain anyone has shown to be required",
+    "chain anyone has shown to be required. "
+    "[ROUND qzky4u: this gap is NOT closed, and a draft of this round claimed "
+    "it was]. What is known is only a reason the two do not meet: 0x443990 "
+    "tests [esp+0x13] (vt+0x3C) while the latch at 0x44384C sits under the "
+    "mutually exclusive vt+0x40 predicate. Whether the task NEEDS the latch "
+    "is still unanswered",
+    "ROUND qzky4u: the dead task's promote layer this module now records "
+    "(death_task_promote_chain in the pin) is ka1-B's static reading, "
+    "RELAYED, NOT MEASURED BY THIS LANE, not re-derived here, and NOT this "
+    "project's answer to the frozen corpse.  It mispredicts the one "
+    "observation offered for it - in R303 the corpse fell on the owner's NEXT "
+    "strike, and a task that drains on its own would have fallen unaided - so "
+    "it ranks BEHIND the whole-scene census republish ka1-A measured and "
+    "behind the model-loaded bit RE-107 closed on.  The falsifier is named in "
+    "the module: a death task queued with mode 1, which this repository's own "
+    "only traced 0x4A0C90 call passes (STATUS.md COMBAT-KNOCK-001).  Several "
+    "of these VAs were already in this repository (0x4A0C90 in STATUS.md and "
+    "tools/pf_action_consumer_probe.py, 0x43E1D0 in tools/ and reports/, the "
+    "0x4437C0..0x443A9A span as a frozen gspan); a draft of this round claimed "
+    "none of them were, and that was the falsest sentence in it.  NO "
+    "BEHAVIOUR IN THIS MODULE CHANGED ON ANY OF IT",
     "a client that connects AFTER the kill has never seen the identity, so "
     "the corpse entry takes the SPAWN branch, which never touches the "
     "dead sync: that player sees a body standing at 0 HP, and nothing in this "
@@ -1058,9 +1211,14 @@ MOB_DEATH_NONCLAIMS = (
     "is unidentified, not misrouted). So the accurate nonclaim is narrower: "
     "name colour is not claimed by this lane, and RE-067/RE-068 already "
     "looked for what decides it and could not find a driver at the static "
-    "layer - that is a measured ceiling, not an open ticket waiting on more "
-    "static work, and it is GT-084/RIDER-084-A's client-observable layer "
-    "that still has to answer whether a player ever sees this render red",
+    "layer - that is a ~~measured ceiling~~, not an open ticket waiting on "
+    "more static work, and it is GT-084/RIDER-084-A's client-observable layer "
+    "that still has to answer whether a player ever sees this render red. "
+    "[ROUND qzky4u]: the ceiling is REFUTED - the colour-deciding read is in "
+    "the actor updater 0x00444400, not in NameBoardNPC::update, and the "
+    "faction path to it is closed end to end in ka1-B's letter of "
+    "2026-09-01 22:00.  RELAYED, not re-derived here, and nothing in this "
+    "module changed on it",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -2586,8 +2744,20 @@ def full_roster_override(
     ``GT-084``/``RIDER-084-A`` (client-observable layer, queued not
     delayed) exists to answer - RE-067/RE-068 already answered what they
     could at the static layer, and what they could not answer they closed
-    as a measured ceiling, not an open question waiting on more static
+    as a ~~measured ceiling~~, not an open question waiting on more static
     work.
+    [ROUND qzky4u, 2026-09-03 -- THE CEILING IS REFUTED.  RELAYED, NOT
+    MEASURED HERE.]  ``NameBoardNPC::update`` really does not read it; that
+    is why the search stopped at the wrong function.  ka1-B's letter of
+    2026-09-01 22:00 puts the read in the ACTOR UPDATER 0x00444400 ->
+    name-style selector 0x00443F50, using the relation predicate's FACTION
+    fallback at 0x0043C5C9..0x0043C5FF and the comparator at
+    0x004A1D50..0x004A1E14, and pushing a FontStyleID into controller vslot
+    +0x34.  So "no successor ticket is open" was the right bookkeeping and
+    "the search is finished" was the wrong conclusion drawn from it.  Two
+    readers found the same chain independently.  This lane re-derived none of
+    it and changed no behaviour on it; ``NOW.md`` P-2 still forbids a
+    faction-only fix and a hardcoded FontStyleID.
     [STALE as of ``pf_bridge/CLIENT_RE_QUEUE.md`` chief R163, 2026-08-25
     ~15:xx+07:00] [MEASURED, by reading the draft ticket file itself and
     ``CLIENT_RE_QUEUE.md``'s note on it, line ~1400]: the sentence above
@@ -2849,9 +3019,20 @@ def describe_death(step: DeathStep) -> tuple[str, ...]:
         "  dying frame %d bytes, timer %r (> 0, latches 0x%X) - same SHAPE as "
         "the frame GT-022/GT-025 watched drop an NPC, not the same body" % (
             len(step.dying_frame), step.dying_timer, DYING_LATCH_WRITE_VA),
+        # ROUND qzky4u changes EXACTLY SIX WORDS of this line, and the gate
+        # address is not among them.  It used to end "gate is static; its
+        # effect has never been observed".  The first half is true and stays.
+        # The second half was false the day GT-084-R2 ran and false nine more
+        # times in R303: the effect HAS been observed, and what was observed is
+        # a corpse that does not fall.  A diagnostic that tells the reader a
+        # thing was never seen, printed on every kill of the thing that was
+        # seen, is the exact shape this lane was told to stop shipping.
+        # The first draft of this round also swapped 0x443990 for 0x44399B
+        # here; it was wrong (0x443990 is a cmp+jz pair eleven bytes long and
+        # 0x44399B is its fall-through) and the address is unchanged.
         "  dead frame %d bytes, timer %r (<= 0, gates 0x%X -> "
-        "CActorTask_Dead 0x%X) - gate is static; its effect has never been "
-        "observed" % (
+        "CActorTask_Dead 0x%X) - gate is static; the observed outcome so far "
+        "is a corpse that does not fall" % (
             len(step.dead_frame), step.dead_timer, DEATH_TASK_GATE_VA,
             DEATH_TASK_CTOR_VA),
         "  hold %d ms between them [COO-confirmed provisional, unmeasured]" % (
@@ -2954,6 +3135,46 @@ def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) ->
         "death_predicate_va": "0x%X" % DEATH_PREDICATE_VA,
         "death_task_gate_va": "0x%X" % DEATH_TASK_GATE_VA,
         "death_task_ctor_va": "0x%X" % DEATH_TASK_CTOR_VA,
+        # ROUND qzky4u.  ``death_task_gate_va`` above is KEPT so the pin's
+        # history stays readable, and is CORRECTED here: the branch is the
+        # actor+0x30 exclusion guard eleven bytes later, and reaching the ctor
+        # is not reaching a running task.  Sourced from ka1-B's letter of
+        # 2026-09-01 22:05; nothing in it was measured by this lane.
+        # ROUND qzky4u.  ``death_task_gate_va`` above is CORRECT and stays: a
+        # draft of this round tried to strike it and the repository's own
+        # mined bytes refuted the strike.  What this sub-dict adds is the ONE
+        # layer no artifact here had: the task does not start where the ctor
+        # ends.  Sourced from ka1-B's letter of 2026-09-01 22:05, measured by
+        # nobody in this lane, ranked BEHIND two better-supported explanations
+        # of the frozen corpse, and falsifiable by ``manager_add_mode``.
+        "death_task_promote_chain": {
+            "fall_through_of_the_gate_va": "0x%X" % DEATH_TASK_FALL_THROUGH_VA,
+            "alloc_va_conflict": {
+                key: "0x%X" % va
+                for key, va in sorted(DEATH_TASK_ALLOC_VA_CONFLICT.items())},
+            "queue_wrapper_va": "0x%X" % DEATH_TASK_QUEUE_WRAPPER_VA,
+            "manager_add_va": "0x%X" % DEATH_TASK_MANAGER_ADD_VA,
+            "manager_add_mode_is_unproven": (
+                DEATH_TASK_MANAGER_ADD_MODE_IS_UNPROVEN),
+            "queue_update_va": "0x%X" % DEATH_TASK_QUEUE_UPDATE_VA,
+            "promote_start_va": "0x%X" % DEATH_TASK_PROMOTE_START_VA,
+            "ordinary_queue_first_va": "0x%X" % (
+                DEATH_TASK_ORDINARY_QUEUE_FIRST_VA),
+            "promote_move_va": "0x%X" % DEATH_TASK_PROMOTE_MOVE_VA,
+            "pending_task_offset": "0x%02X" % TASK_MANAGER_PENDING_TASK_OFFSET,
+            "current_task_offset": "0x%02X" % TASK_MANAGER_CURRENT_TASK_OFFSET,
+            "ordinary_queue_head_offset": "0x%02X" % (
+                TASK_MANAGER_ORDINARY_QUEUE_HEAD_OFFSET),
+            "promote_span": ["0x%X" % va for va in DEATH_TASK_PROMOTE_SPAN],
+            "death_sync_span": ["0x%X" % va for va in DEATH_SYNC_SPAN],
+            "target_clear_va": "0x%X" % DEATH_TARGET_CLEAR_VA,
+            "target_clear_tail_span": [
+                "0x%X" % va for va in DEATH_TARGET_CLEAR_TAIL_SPAN],
+            "target_is_dead_vslot": "0x%X" % DEATH_TARGET_IS_DEAD_VSLOT,
+            "one_guard_two_tails_was_already_in_this_repo_since_20260819": True,
+            "explains_the_r303_corpse": False,
+            "measured_by_this_lane": False,
+        },
         # Named with what it is: the string the static chain ends at, NOT a
         # thing anyone has watched play.  The first draft carried it as a bare
         # top-level fact next to measured byte counts, which is how a pin gets

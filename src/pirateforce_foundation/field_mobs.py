@@ -64,9 +64,23 @@ half closed BOUNDED NEGATIVE (no colour-deciding read of ``actor_type``,
 faction, or ``FONT_COLOR`` was found; the driver is unidentified, and the
 "renders in PLAYER colour" theory this module never repeated was chief
 R163's own retracted draft).  What decides name colour is still unknown,
-but the search for it at the static layer is finished, not open; see
+but ~~the search for it at the static layer is finished, not open~~; see
 ``mob_death.py``'s ``full_roster_override`` docstring for the full
-citation trail.  What is claimed is
+citation trail.
+[ROUND qzky4u, 2026-09-03 -- THE CEILING IS REFUTED.  RELAYED, NOT MEASURED
+BY THIS LANE.]  ``notes_to_chief/20260901_2200_KA1B-TO-LANE-A-B-
+name-colour-bounded-negative-is-refuted.md`` closes the path end to end
+(``PF_MONSTER_COLOR_MECHANISM_JOIN.tsv`` MCMJ-IMG-003/004/005/006,
+MCMJ-DATA-001): BasicAttr +0x68 faction -> relation predicate 0x0043C380 ->
+FACTION comparator 0x004A1D50..0x004A1E14 -> used at 0x00444018 INSIDE the
+CNetNPC name-style selector 0x00443F50 -> FontStyleID into controller vslot
++0x34.  The reason four modules in this repository recorded the search as
+finished is named there too: the read is not in ``NameBoardNPC::update``, it
+is in the actor updater 0x00444400.  Two readers found it independently.
+NOTHING IN THIS MODULE CHANGED ON IT.  ``NOW.md`` P-2 forbids a
+faction-only fix and forbids hardcoding a FontStyleID, and this lane has not
+re-derived one row of that letter.  What is struck here is only the sentence
+that told the next reader to stop looking.  What is claimed is
 narrower and testable: the body is byte-for-byte the frozen ``make_npc_attr``
 body for that monster, with the BasicAttr mask widened by exactly bit 0x0400
 and exactly five bytes of tagged faction spliced in at the ascending-mask-order
