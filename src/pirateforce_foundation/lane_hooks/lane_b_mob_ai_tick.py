@@ -99,6 +99,7 @@ from __future__ import annotations
 from typing import Any, Tuple
 
 from . import announce_direct_fire, console_safe
+from .. import mob_ai_player_damage
 from .. import mob_ai_scheduler
 
 # Deliberately NOT importing mob_ai_control/mob_combat here for their types:
@@ -170,7 +171,16 @@ LANE_B_MOB_AI_TICK_WIRING = (
     "x, y, z, _heading = self.last_target_pos; "
     "self.mob_ai_register, _tick_results = "
     "lane_b_mob_ai_tick.maybe_tick(self.mob_ai_register, "
-    "self.mob_combat_ledger, performer, (x, y, z)). "
+    "self.mob_combat_ledger, performer, (x, y, z), "
+    "store=getattr(getattr(self.foundation, 'lifecycle', None), 'store', "
+    "None), character_id=self.foundation.selected.id). "
+    "MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD: the store=/character_id= pair "
+    "above is the ONLY part of this line that is not already landed, and it "
+    "is NOT to be pasted until the COO answers "
+    "pf_bridge/notes_to_chief/20260903_1952_LANE-B-ASK-COO-* -- measured "
+    "there: with it, a player inside 275 units of Bg0002 placement 92 loses "
+    "one HP per TargetPos frame they send and no frame tells them. "
+    "Everything else in this line is what runtime.py already does. "
     "Needs 'from .lane_hooks import lane_b_mob_ai_tick' added to "
     "runtime.py's own imports. Composes no frame either way (see this "
     "module's own NONCLAIMS), so this is safe to add without opening "
@@ -184,6 +194,8 @@ def maybe_tick(
     player_identity: int,
     player_position: Tuple[float, float, float],
     player_alive: bool = True,
+    store: Any = None,
+    character_id: Any = None,
 ) -> Tuple[Any, tuple]:
     """One :func:`mob_ai_scheduler.tick_session` pass, with the
     project's console-proof convention wrapped around it.
@@ -204,12 +216,36 @@ def maybe_tick(
     the new register and the full per-row result tuple, unchanged, so a
     caller that DOES want every row (e.g. a future headless proof) still
     has it.  Nothing here is dropped, only what prints is filtered.
+
+    ``store``/``character_id`` (round ``nfrrqa``, COO-DECISION
+    ``20260903_1745`` point 2) are the M4 half: pass BOTH and an attack
+    decision this tick becomes a clamped, floored, read-back HP write
+    through :func:`mob_ai_player_damage.apply_tick_damage`.  Pass neither --
+    the default, and what ``runtime.py`` passes today -- and NOTHING
+    touches the database, so this argument pair is the whole opt-in and
+    there is no flag hiding behind it.  Passing exactly one is a caller
+    contract error and raises, rather than half-working: a store with no id
+    would write against nobody, and an id with no store would silently
+    never write, which is the failure mode this lane spent three days on.
+
+    The write is deliberately AFTER the tick and outside the phase-line
+    loop below: the decision is what is being persisted, so the register
+    must already hold it, and a refusal from the damage door may not eat
+    the console lines that describe the tick that produced it.
     """
+    if (store is None) != (character_id is None):
+        raise mob_ai_player_damage.MobAiPlayerDamageError(
+            mob_ai_player_damage.REFUSE_TYPE_NOT_TYPED_RECORD,
+            "store and character_id must be passed together: "
+            "store is None=%r character_id=%r"
+            % (store is None, character_id))
     announce_direct_fire(MODULE_NAME, POINT)
     register, results = mob_ai_scheduler.tick_session(
         ai_register, combat_ledger, player_identity, player_position,
         player_alive=player_alive,
     )
+    if store is not None:
+        mob_ai_player_damage.apply_tick_damage(store, character_id, results)
     for result in results:
         if result.before_phase == result.after_phase:
             continue

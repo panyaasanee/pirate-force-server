@@ -24,6 +24,8 @@ the module docstring and CORE-REQUEST-007's own letter.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
 import tempfile
 import unittest
@@ -245,6 +247,83 @@ class MobAiControlDispatchTests(unittest.TestCase):
             mob_ai_control.commit_step = real_commit_step
         self.assertEqual(calls["n"], 2)
         self.assertEqual(state.mob_ai_register.generation, 1)
+
+    # ----- D7: the TICK actually runs, watched rather than inferred -------
+
+    def _target_pos_pc(self, xyz, heading=0.0, moving=0, derived=0):
+        # Same builder tests/test_mob_ai_tick_gate_wiring.py uses, and for
+        # the same reason: a real TargetPos frame through the real parser,
+        # never a synthesised call into the hook.
+        legacy = self.legacy
+        return (
+            legacy.u16tag(0x12, legacy.GSCN_RUNTIME_PROTOCOL_REQ)
+            + legacy.u32tag(0x14, 0)
+            + legacy.u8tag(0x08, 0)
+            + legacy.u8tag(0x0B, 2)
+            + legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, legacy.TARGET_POS_VITAL)
+            + legacy.u8tag(0x0B, 0)
+            + b"".join(legacy.f32tag(value) for value in (*xyz, heading))
+            + legacy.u8tag(0x0B, moving)
+            + legacy.u8tag(0x0B, derived)
+        )
+
+    def test_a_target_pos_frame_really_runs_the_tick_not_only_the_gate(self):
+        # D7, THE DEBT tests/test_mob_aggro.py NAMES IN ITS OWN CARD:
+        # "the behavioural half belongs beside
+        # tests/test_mob_ai_control_dispatch.py ... until a card there shows
+        # tick_step running on a frame, the shipped pin must not carry a
+        # reachability claim nobody executed."  This is that card, and it
+        # deliberately reads NO console token: a token proves a branch was
+        # ENTERED, and what is owed is proof that the decision loop RAN.
+        #
+        # THE SHAPE, and why it is a hit first and a step second.  bg0001's
+        # roster is four non-offensive dummies, so walking past one moves
+        # nothing -- which is why this card cannot be written by walking.  A
+        # hit folds threat through damage_step and, MEASURED HERE RATHER
+        # THAN ASSUMED, leaves the row in PHASE_IDLE: the fold writes the
+        # threat table, it does not decide a phase.  Deciding is the tick's
+        # job, and one TargetPos frame is where it happens -- idle -> aggro,
+        # with the threat the hit left, in the register the SESSION kept.
+        # Delete the call site, discard the register it returns, or close
+        # the gate, and the row is still idle and this card goes red.
+        state = self._state("ai_tick_behaviour")
+        self._attack(state, CONTROL_TARGET)
+        after_hit = state.mob_ai_register.state_of(CONTROL_TARGET)
+        self.assertEqual(after_hit.phase, mob_aggro.PHASE_IDLE)
+        performer = self._performer(state)
+        self.assertEqual(
+            [identity for identity, _threat in after_hit.threat], [performer])
+        generation_after_hit = state.mob_ai_register.generation
+
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                (self.control_mob.x, self.control_mob.y, self.control_mob.z))))
+
+        after_step = state.mob_ai_register.state_of(CONTROL_TARGET)
+        self.assertEqual(
+            after_step.phase, mob_aggro.PHASE_AGGRO,
+            "the tick gate answers True and a TargetPos frame arrived, but "
+            "the row this player hit is still idle: maybe_tick did not run, "
+            "or the register it returned was discarded")
+        self.assertEqual(after_step.target_identity, performer)
+        self.assertGreater(
+            state.mob_ai_register.generation, generation_after_hit,
+            "the session kept a register the tick did not write")
+
+    def test_the_tick_does_not_run_on_a_frame_that_is_not_a_target_pos(self):
+        # The control for the card above.  Without it, a call site that
+        # ticked on EVERY frame would pass that one too -- and "the AI runs
+        # whenever anything arrives" is a different, worse server than the
+        # one the published order describes.  Two ACTION frames fold threat
+        # twice and decide nothing: the row is still idle.
+        state = self._state("ai_tick_control")
+        self._attack(state, CONTROL_TARGET)
+        self._attack(state, CONTROL_TARGET)
+        row = state.mob_ai_register.state_of(CONTROL_TARGET)
+        self.assertEqual(row.phase, mob_aggro.PHASE_IDLE)
+        self.assertNotEqual(row.threat, ())
 
 
 if __name__ == "__main__":
