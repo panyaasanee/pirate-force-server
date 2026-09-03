@@ -1604,10 +1604,21 @@ class DamageDoorHasItsOwnShortBudgetTests(unittest.TestCase):
       written down here because a `pf-adversary` pass on an earlier version
       of this docstring found the "both go red" claim above FALSE by running
       the mutant, not by reasoning about it.
-    * add ANY `time.sleep` call back onto this path, success or refusal
-      (measured with a single `time.sleep(0.001)` inserted right before the
-      raise): every test in this class that wraps `_counted_sleeps()` sees a
-      nonzero count where it asserts zero and goes red.
+    * add a `time.sleep` call back onto this path -- MEASURED at two
+      different insertion points, not assumed to behave the same:
+      `time.sleep(0.001)` right after `started = time.monotonic()` (on the
+      SHARED prefix both the success and refusal branches run) is caught by
+      BOTH tests that wrap `_counted_sleeps()`
+      (`test_a_hit_survives_a_competitor_shorter_than_the_budget` and
+      `test_when_the_competitor_outlasts_the_budget_the_write_is_refused_
+      and_printed`).  The SAME sleep placed instead right before the
+      `raise WriteLockTimeout(...)` -- reachable only on the refusal branch
+      -- is caught by ONLY the refusal test; the success-path test never
+      executes that line, so it stays green.  !! AN EARLIER DRAFT OF THIS
+      BULLET CLAIMED "every test... goes red" for the refusal-only
+      placement, which a `pf-adversary` pass ran and found false -- written
+      here instead of quietly corrected, the same courtesy this file's own
+      sibling classes extend to their own wrong first drafts.
     * widen the console message or drop the print: `test_when_the_
       competitor_outlasts_the_budget_the_write_is_refused_and_printed` reads
       stdout for `DAMAGE_WRITE_LOCK_REFUSED_TOKEN`, the character id and both
