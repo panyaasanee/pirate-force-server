@@ -282,9 +282,15 @@ class SceneCensusResult(NamedTuple):
     # read through that lane's public per-scene-id reader
     # (``field_mobs.roster_for_scene_id``), never by importing one of its
     # per-scene table modules by name.  Lane B needed this to splice
-    # hostility onto scene 14's arrivals without guessing; the field is
-    # scene-agnostic on purpose so scenes 2/3/4/5/14 all answer through the
-    # one path and none of them is a special case.  Empty for any scene the
+    # hostility onto scene 14's arrivals without guessing.  The field is
+    # scene-agnostic in EVERY composer this tuple can come from: no
+    # composer special-cases scene 14 to fill it.  CORRECTED, pf-adversary
+    # (round t8m3ab): an earlier draft of this comment also named scene 2
+    # here, which is false -- scenes 1 and 2 never reach a
+    # ``SceneCensusResult`` at all (``runtime.py``'s own lane-census branch
+    # excludes both by id, and ``lane_a_scene_census.
+    # RESERVED_BY_RUNTIME_BRANCHES`` does the same on this lane's side), so
+    # this field is never constructed for either.  Empty for any scene the
     # registry does not (yet) address -- that is a real, safe answer, not a
     # failure: a composer defaults to it and never raises for it.
     actor_identities: "tuple[int, ...]" = ()

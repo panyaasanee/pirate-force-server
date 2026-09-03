@@ -521,8 +521,13 @@ def _hostility_lines(scene_id: int, generation: Any) -> tuple[str, ...]:
         )
 
 
-def _field_mob_identities(scene_id: int) -> tuple[int, ...]:
-    """Lane B's hostile-mob identities for ``scene_id``, or ``()``.
+TOKEN_ACTOR_IDENTITIES_UNREPORTABLE = (
+    "WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE"
+)
+
+
+def _field_mob_identities(scene_id: int) -> tuple[tuple[int, ...], str | None]:
+    """Lane B's hostile-mob identities for ``scene_id``, plus a console note.
 
     COO-DECISION 20260903_2247.  Goes through ``field_mobs.roster_for_scene_id``
     -- that lane's OWN public per-scene-id reader, already scene-agnostic and
@@ -536,17 +541,26 @@ def _field_mob_identities(scene_id: int) -> tuple[int, ...]:
     (``_hostility_lines`` is the sibling this mirrors): a failure here must
     become an empty identity list, never a refused census, because the
     census this scene actually sends does not depend on lane B's registry at
-    all.
+    all.  UNLIKE the first draft of this function (pf-adversary, round
+    t8m3ab), a failure is not silently identical to "no roster registered":
+    it also returns a console note, so a reader of an attended round's
+    capture can tell "this scene has no field-mob table yet" from "the
+    registry blew up and this lane swallowed it" -- the same distinction
+    ``_hostility_lines`` already makes for its own failure, and the one this
+    function's own first draft did not.
     """
     try:
-        return tuple(
+        identities = tuple(
             mob.actor_identity
             for mob in field_mobs.roster_for_scene_id(scene_id)
         )
     except (KeyboardInterrupt, SystemExit):
         raise
-    except BaseException:  # noqa: BLE001 - see the docstring
-        return ()
+    except BaseException as failure:  # noqa: BLE001 - see the docstring
+        return (), "%s reason=%s" % (
+            TOKEN_ACTOR_IDENTITIES_UNREPORTABLE, type(failure).__name__,
+        )
+    return identities, None
 
 
 def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
@@ -606,10 +620,12 @@ def _compose_for_scene(scene_id: int):
             # the arrival path never asked for, and no census either.
             return None
         source = world_scene_travel.CENSUS_SOURCES[scene_id]
+        field_mob_identities, field_mob_note = _field_mob_identities(scene_id)
         console_lines = (
             (world_population_handoff.handoff_console_line(handoff),)
             + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
             + _hostility_lines(scene_id, handoff.generation)
+            + (() if field_mob_note is None else (field_mob_note,))
         )
         return lane_hooks.SceneCensusResult(
             actor_count=handoff.actor_count,
@@ -618,7 +634,7 @@ def _compose_for_scene(scene_id: int):
             console_lines=console_lines,
             initial_reapply_ms=handoff.reapply_ms,
             membership=_membership_if_answerable(scene_id, handoff),
-            actor_identities=_field_mob_identities(scene_id),
+            actor_identities=field_mob_identities,
         )
 
     return compose

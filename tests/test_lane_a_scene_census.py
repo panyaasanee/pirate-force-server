@@ -720,6 +720,33 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         self.assertEqual(result.actor_identities, ())
         self.assertGreater(result.actor_count, 0)
 
+    def test_a_registry_failure_is_distinguishable_from_no_roster_on_console(
+            self):
+        # pf-adversary (round t8m3ab): the first draft made "the registry
+        # blew up" and "no roster registered for this scene" both answer a
+        # bare `()` with nothing anywhere to tell them apart -- the exact
+        # failure mode `_hostility_lines` was built NOT to have.  A console
+        # line naming the failure type closes that gap.
+        with mock.patch.object(
+            lane_a.field_mobs, "roster_for_scene_id",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = self._compose(VOLCANO)
+        note = [
+            line for line in result.console_lines
+            if line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
+        ]
+        self.assertEqual(len(note), 1, result.console_lines)
+        self.assertIn("reason=RuntimeError", note[0])
+        # The everyday "not (yet) registered" case prints no such line --
+        # it is a real, safe answer and must not read as a failure.
+        ordinary = self._compose(SLAVE_MARKET)
+        self.assertEqual(ordinary.actor_identities, ())
+        self.assertFalse(any(
+            line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
+            for line in ordinary.console_lines
+        ))
+
 
 class OnTheRealDispatcherTests(unittest.TestCase):
     """End to end: open the door in a temp registry and 81 actors ship.
