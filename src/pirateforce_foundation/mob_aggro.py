@@ -301,10 +301,21 @@ MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
 # days, from 5ac93b31 (2026-08-31) to that commit.
 #
 # WHAT THIS DOES NOT SAY.  Reachable is not observable and is not even
-# "the AI did something": every shipped roster is non-offensive, so on a
+# "the AI did something": ~~every shipped roster is non-offensive, so on a
 # walk past an undamaged mob the tick returns a register equal to the one
-# it was given.  ATTACK_INTENT_DELIVERABLE below is still False and Door
-# B is still shut -- no intent this lane decides reaches a client.
+# it was given~~ STRUCK, round `nfrrqa`, MEASURED AND FALSE.  Driven on the
+# real Bg0002 roster -- the scene the owner actually plays in, not bg0001 --
+# through mob_ai_scheduler.tick_session: 17 rows, FIVE acquire the player by
+# proximity (ai_wander 11: n_OFFESIVE = 1, n_AGGRO = 1200), and placement 92
+# ("Orc Chief", template 103, the one of those five with a combat script)
+# returns INTENT_ATTACK_UNDELIVERABLE on EVERY tick inside
+# mob_ai_control.MELEE_ATTACK_RANGE, because ATTACK_CADENCE_TICKS is 1.  The
+# struck sentence is true of bg0001's four dummies only, and it was carried
+# from there to "every roster" without being re-driven.  A card in
+# tests/test_mob_aggro.py now derives the count instead of the prose
+# asserting it.  WHAT IS STILL TRUE, and is the part that matters here:
+# ATTACK_INTENT_DELIVERABLE below is still False and Door B is still shut --
+# no intent this lane decides reaches a client, however many rows decide it.
 MOB_AGGRO_TICK_REACHABLE = True
 # What is still NOT true, and is a different claim entirely: nothing this lane
 # decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.

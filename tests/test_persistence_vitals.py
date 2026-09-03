@@ -867,6 +867,32 @@ class NothingIsWiredTests(unittest.TestCase):
         # class makes is intact: no production caller was added this round,
         # and the round file says so with the grep that measured it.
         "tests/test_login_vitals_revive_under_contention.py",
+        # LANE-B round `nfrrqa`, 2026-09-03, under COO-DECISION
+        # `20260903_1745` point 2 ("start calling apply_hp_damage from the
+        # aggro tick the moment the tick gate is really open on main" -- it
+        # is: server#668).  THIS ENTRY IS THE ONE THIS CLASS WAS WAITING
+        # FOR, and its own failure message is what authorised the edit:
+        # "That is not forbidden -- it means this test's claim ... must be
+        # rewritten."  So it is rewritten rather than widened silently.
+        #
+        # WHAT IS TRUE NOW, precisely.  `mob_ai_player_damage` is a REAL
+        # caller of `apply_hp_damage`, not an exercise: it clamps a tick's
+        # attack decisions to `hp_current - 1`, calls the door, reads the
+        # row back and raises if the two disagree.  What it is NOT is a
+        # caller on a live path: `runtime.py` passes it no store (its two
+        # arguments are optional and default to None), so on a running
+        # server the door is still opened by nobody.  A card in
+        # `tests/test_lane_b_mob_ai_tick.py::MaybeTickDamageOptInTests::
+        # test_todays_call_site_passes_neither_and_touches_no_database`
+        # measures that, and the order that would change it carries an
+        # `MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD` marker pending a COO answer.
+        #
+        # SO THE CLAIM ABOVE IS NARROWED, NOT ABANDONED: nothing on a SEND
+        # path calls these methods.  The day runtime.py passes that store,
+        # the sentence to rewrite is this one, and the round that does it
+        # owes this class a new comment saying so.
+        "src/pirateforce_foundation/mob_ai_player_damage.py",
+        "tests/test_lane_b_mob_ai_tick.py",
     )
 
     def test_no_call_site_outside_this_lane_calls_either_new_method(self):
