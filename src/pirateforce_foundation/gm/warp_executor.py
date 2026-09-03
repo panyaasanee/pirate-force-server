@@ -166,6 +166,42 @@ from .teleport_wire import make_force_pos_frame_with_body
 # `FORCE_POS_VITAL_VERSION_CONFIRMED`'s own history holds for its constant.
 WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED = True
 
+# COO-DECISION 2026-09-03T17:44+07:00 item 3 (pf_bridge/notes_to_chief/
+# 20260903_1744_COO-DECISION-lane-gm-gt218-fail-clears-the-value-and-convicts-
+# the-frame-shape-fold-it-into-your-one-re-ticket.md), repeated in
+# `COO-DECISION 20260903_1845` item 3: the SAME-SCENE `warp <scene_id> x y`
+# shape -- the ForcePos half, and only that half -- is CLOSED until its
+# 45-byte frame shape has been compared against a real server's.
+#
+# WHAT WAS MEASURED, not inferred: attended round R306, 2026-09-03, cross-lane
+# finding 3.  The owner typed a coordinate warp inside her own scene; the
+# 45-byte ForcePos frame went out and the CLIENT CLOSED ITSELF with
+# `ErrorData=28317`.  Nothing about the typed coordinates was out of range --
+# the same shape of finding `GT-218` produced for `/speed` on the same day,
+# where a value that logs in safely every day killed the client inside one
+# 74-byte frame.  Twice in one day this project guessed a frame shape from an
+# opcode instead of from a capture, and twice the client died; COO's ruling
+# is that the guessing stops until there is a capture to diff against.
+#
+# THIS IS A THIRD, SEPARATE GATE, and it is deliberately not any of the two
+# it sits beside:
+#   * `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is a BYTE (RE-129
+#     answered it; COO opened it to 0).  A byte that is proven does not
+#     become unproven because a frame built around it killed a client, and
+#     flipping it back would file this fact under the wrong ticket and
+#     silently re-close a `/say`-adjacent question nobody asked about.
+#   * `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` above governs the
+#     TeleportVital halves, which R306 measured PASSING five times in one
+#     round ("`/warp <n>` alone passed five times, do not touch it" --
+#     COO `1744` item 3, last clause).  Folding this closure into that flag
+#     would shut the one `/warp` shape the owner can currently use.
+#
+# A named boolean rather than a None-until-RE constant, same discipline as
+# its neighbour: the RE ticket that reopens it (the `UpdateAttrVital`/frame-
+# shape ticket of COO `1744` item 2, once it is widened to this frame) flips
+# it back to True, and the tests pin both the value and this citation.
+WARP_SAME_SCENE_FORCE_POS_AUTHORIZED = False
+
 
 class WarpExecutorError(ValueError):
     """A `warp` command cannot be executed via `ForcePos`/`TeleportVital` as

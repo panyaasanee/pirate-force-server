@@ -902,8 +902,18 @@ class QueuedRowLandsEndToEndTests(ChatCommandDispatchWiringTests):
         with mock.patch.dict(
             gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(path)},
         ):
+            # TWO GATES SINCE `COO-DECISION 20260903_1744` ITEM 3: the
+            # same-scene ForcePos route ships shut by policy after R306
+            # measured it closing the client (`ErrorData=28317`).  This
+            # fixture's subject is the ARMING wiring, not the policy, so it
+            # opens the gate rather than switching to another command --
+            # `SameSceneForcePosClosedTests` in
+            # `tests/test_gm_chat_command_action.py` is where the shipped
+            # answer for this typed line is asserted.
             with mock.patch.object(
                 teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", 7,
+            ), mock.patch.object(
+                warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True,
             ):
                 state = self._login_and_start(token)
                 return state, self._say(state, "/warp 1 100 200")

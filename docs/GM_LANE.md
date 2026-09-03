@@ -8153,3 +8153,138 @@ carries `LANE_GM_CHAT_TAIL reason=... tail_vitals=N ids=0x.... vital_count=unava
 reason per connection. And the null result is usable too: an attended run of `GT-192` or `GT-218`
 that never prints that token is evidence that this client's chat frames really do carry one vital,
 which is what every capture has said and what the NONCLAIM above still rests on.
+
+## Round 07kjfd -- the warp the owner typed, and the warp that closed her client
+
+**What she asked for, in her own words.** During the R307 attended round (2026-09-03 ~17:58+07:00)
+Panya typed `/warp 2` while standing in scene 2 and nothing happened on her screen. The server's
+answer was `GM_CHAT_STAGED_NEXT_LOGIN`: it had written her NEXT login scene and put no bytes on
+the wire. Mid-session that is useless -- relogging costs the whole session, because the logout
+buttons are still refused -- so her workaround was `/warp 1` then `/warp 2`, paying for two live
+cross-scene teleports to get back to one scene's spawn. Her decision
+(`PANYA-DECISION 20260903_1800`, carried into this lane by `COO-DECISION 20260903_1845`): typing
+`/warp <n>` with no coordinates while already in scene `<n>` must move her to that scene's spawn,
+live, now.
+
+**How it is built.** `_warp_action`'s no-coordinates live branch lost its
+`target_scene_id != position.scene_id` test. Nothing else about the branch changed: the same
+`_warp_teleport_action_no_coords` handler, the same
+`make_warp_teleport_frame_no_coords_with_target` composer, the same
+`LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_TELEPORT_VITAL` label, the same 73-byte TeleportVital
+aimed at the destination's own `world_scene_travel`-pinned marker spawn. A test composes both
+shapes through the real route and asserts the two frames are byte-identical, so the claim "the
+same frame the cross-scene warp uses" is measured rather than asserted by comment.
+
+**One console token is the only difference, and it is not decoration.** The label an attended
+tester reads says CROSS_SCENE, and since this decision that label also goes out for a warp that
+crosses nothing. So a same-scene send prints `GM_CHAT_SAME_SCENE_TELEPORT_SENT` -- the first token
+in this module printed for a command that DID send. It is keyed on `_make_action`'s own `sent`
+answer, not on the verdict, so a frame the audit failure dropped prints the no-bytes line instead
+and never claims a teleport. `GM_CHAT_STAGED_NEXT_LOGIN` must no longer appear for a marker-backed
+same-scene warp, and the test that pins that is named after the mutant it kills.
+
+**What still stages, unchanged.** A MARKERLESS destination (17/126/278/997, `n_MARKER == 0`,
+GT-182 nonclaim 4) -- same scene or not. `warp_no_coords_live_target` is still the one place that
+decides which scenes qualify and this round did not touch it, so GT-141's pinned scene-278 answer
+is the same answer it was yesterday.
+
+**The second half: the warp that killed the client is now shut.** R306 measured `/warp <n> <x> <y>`
+typed inside the connection's own scene closing the game client with `ErrorData=28317` -- a 45-byte
+ForcePos frame, the same day `GT-218` proved a `/speed` value that logs in safely every day kills
+the client inside one 74-byte `UpdateAttrVital`. Twice in one day this project guessed a frame
+shape from an opcode instead of from a capture, and twice the client died.
+`COO-DECISION 20260903_1744` item 3 shut the route, and this round shuts it with a third, separate
+gate: `warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED = False`.
+
+It is deliberately NOT either flag beside it. `teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED` is
+a byte RE-129 answered and COO opened to 0; a proven byte does not become unproven because a frame
+built around it killed a client, and flipping it back would file this fact under a closed ticket.
+`WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` governs the TeleportVital halves, which R306 measured
+PASSING five times in the same round -- folding this closure into that flag would shut the one
+`/warp` shape the owner can currently use. A test asserts the two flags hold opposite values, so a
+later round that shuts both, or opens both, goes red rather than quietly losing the measurement.
+
+The refusal sits ABOVE the composer and above `_park_warp_target`, so it leaves no parked
+destination behind for chief's confirmation token to compare a real walked step against. It prints
+`GM_CHAT_NO_BYTES_SENT ... why=withheld_same_scene_force_pos_frame_shape` with a blocker sentence
+that names R306 and `ErrorData=28317` -- not RE-129, because sending an attended tester to a closed
+ticket is how a console line costs more than it is worth.
+
+**What pf-adversary found, and what it cost.** Twelve defects, ten of them measured on the real
+dispatcher. Two of the three worst were in the one artifact an attended tester actually reads.
+
+D1: the first draft of the same-scene console line said `next='you were moved to this scene own
+spawn point now; nothing was staged for the next login'`. BOTH halves were wrong. "You were moved"
+is a claim about her screen made from a wire fact -- the exact claim this file's own NONCLAIM
+forbids, printed where it outranks three explanations she will never read. And "nothing was staged"
+is a claim about account state the printer never reads: measured, `/warp 278` then `/warp 1` left
+`gm_login_scene.json` still holding 278 while the line denied it, so she would relog into 278 having
+been told otherwise. The line now says only what the command did -- a frame left the server, this
+line is not the client's answer, and THIS command wrote no next-login scene -- and a test asserts
+the two struck phrases are absent.
+
+D2, and it is the one the lane could not fully fix: `same_scene` is decided against
+`selected.position.scene_id`, which `runtime.py` REWRITES to a cross-scene warp's destination at
+queue time with nothing from the client confirming it. Measured: a GM in scene 1 types `/warp 5`,
+sees nothing, types `/warp 5` again -- and the second one prints the same-scene token. Typing it
+again is exactly what this round exists to make work. The routing is still right (both shapes send
+the same frame to the same spawn), but the WORD is the server's belief, not a measured fact. The
+field that would fix it -- a last CLIENT-CONFIRMED scene -- lives in `runtime.py`, chief's file. So
+the line carries `basis=server_believed_scene`, which names the hazard where the tester greps, and
+`CORE-REQUEST-GM-051` asks chief for the field. Naming it is what this lane can honestly do from
+inside its own zone; hiding it was the alternative.
+
+D3 and D4 are runtime holes this round OPENED and cannot close. Before it, a bare same-scene
+`/warp` queued no action, so nothing downstream armed. Now `GM_WARP_POSITION_CONFIRMED` fires on
+the player's own next step after a warp whose commanded target was the point she already occupied
+(measured: `CONFIRMED` and `TARGET_MISMATCH` on consecutive lines, contradicting each other), and
+the move-authority grace window -- reopened on the substring `TELEPORT` with no comparison to the
+commanded target -- is now bought by a warp that need not displace anyone (measured: a 180,000-unit
+jump admitted and written durably). Both are in `runtime.py`. Both are written up as
+`CORE-REQUEST-GM-051`/`-052` rather than left for someone else to rediscover, because this round
+caused them.
+
+D5 through D9: five single-line mutants survived the whole `gm_` suite. The token's own spelling
+could be changed to `..._DONE` and nothing went red, because every test read it through the
+constant while COO and Panya name it by literal. The new outcome word could become `withheld_xxxxx`
+though GT-127 grades the ndjson. The blocker sentence could become "no blocker text". The `next=`
+sentence -- the one D1 proved was lying -- was graded by nothing at all. And the load-bearing
+ordering (policy gate above the version gate) was unfalsifiable by construction, since the shipped
+version constant is 0 and every helper that shuts it forces the policy gate open. All five now have
+a test, and the ordering one shuts BOTH gates, which nothing else in the suite does.
+
+D10: three artifacts -- two test files and this document -- pointed at `SameSceneForcePosClosedTests`,
+the class that makes the helper widening reviewable. It did not exist; the tests were sitting in
+`WarpActionTests`. The class exists now.
+
+D11: the function's headline routing docstring, the paragraph a reviewer reads first, still
+described the PREVIOUS round's behaviour on both halves while the inline comment eighty lines below
+was carefully struck. Rewritten to what the code does, with the old paragraph struck beneath it.
+
+D12: with the policy gate shipped False and read first, RE-129's version gate and everything below
+it are unreachable on a real boot -- green because they are never got to. Written down at the
+refusal, because nothing else recorded it.
+
+**The test-helper widening, stated because it is the risky part.** Six test files reached the
+ForcePos composer through `/warp 2 100 200`, using it as a generic "a command that composes"
+vehicle. Their `open_the_version_gate`/`open_the_warp_gate` helpers now open BOTH gates, and their
+`close_the_*` siblings hold the POLICY gate open while shutting the version one -- because the
+policy gate is read first, and a test isolating the version gate that left it shut would assert on
+the wrong refusal and go green with its own branch never reached. The shipped answer for
+`/warp <n> <x> <y>` is asserted in exactly one place,
+`tests/test_gm_chat_command_action.py::SameSceneForcePosClosedTests`, which patches no gate at all.
+
+**NONCLAIM (G-OBS), and it is the whole rung this round sits on.** Composing and returning these
+frames is evidence that correctly-shaped bytes left the server. It is NOT evidence that the client
+moved, that the marker spawn is walkable, that the scene re-rendered, or that anything is fixed on
+Panya's screen. RE-162's finding that no census follows a mid-session TeleportVital is inherited by
+the same-scene shape unchanged and is not closed here; whether a same-scene teleport should re-send
+the scene census is LANE-A/LANE-B's call by the owner's own decision (`1800` item 3). No milestone
+is claimed from anything a GM command did.
+
+**What the tester can do today that she could not yesterday.** Yesterday, `/warp 2` typed in scene 2
+staged her next login and sent nothing, and the only way back to a scene's spawn was `/warp 1`
+followed by `/warp 2` -- two scene loads to undo a walk. Today that one line sends the same
+teleport a cross-scene warp sends, to that scene's own spawn, and the console says which of the two
+it was. And `/warp 2 100 200`, the line that closed her client on 2026-09-03, now costs her a
+console sentence instead of the session.

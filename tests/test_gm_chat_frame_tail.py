@@ -41,6 +41,7 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import chat_frame_tail  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import teleport_wire  # noqa: E402
+from pirateforce_foundation.gm import warp_executor  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
 UNPROVEN_TEST_VERSION = 7
@@ -139,11 +140,27 @@ class _Case(unittest.TestCase):
         )
 
     def open_the_version_gate(self):
-        return mock.patch.object(
-            teleport_wire,
-            "FORCE_POS_VITAL_VERSION_CONFIRMED",
-            UNPROVEN_TEST_VERSION,
-        )
+        return self._force_pos_gates(UNPROVEN_TEST_VERSION)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _force_pos_gates(version):
+        """Both gates the same-scene ForcePos route now stands behind.
+
+        `COO-DECISION 20260903_1744` item 3 added a POLICY gate
+        (`warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED`, shipped
+        False after R306 measured this frame closing the client with
+        `ErrorData=28317`) in front of the version byte.  It is read FIRST,
+        so a test isolating the version gate -- open OR shut -- has to hold
+        the policy gate open, or it asserts on the wrong refusal and goes
+        green while its own branch is never reached.
+        """
+        with mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", version
+        ), mock.patch.object(
+            warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ):
+            yield
 
     def log_records(self):
         if not self.log_path.exists():

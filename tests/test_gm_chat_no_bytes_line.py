@@ -167,14 +167,45 @@ class _Case(unittest.TestCase):
         20260830_1645/1742 the shipped constant is `0`, not `None`, so a test
         that means to walk the withheld `/warp` branch must patch this in
         explicitly rather than getting it for free.
+
+        IT ALSO HOLDS THE POLICY GATE OPEN (`COO-DECISION 20260903_1744` item
+        3).  `warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` ships False
+        after R306 measured this frame closing the client, and it is read
+        BEFORE the version byte -- so a test isolating the version gate that
+        left it shut would assert on the policy refusal instead, and go green
+        with its own branch unreached.
         """
-        return mock.patch.object(
-            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
-        )
+        return self._force_pos_gates(None)
+
+    def open_the_version_gate(self):
+        """The sibling: both gates open, for a `/warp <n> x y` that composes."""
+        return self._force_pos_gates(UNPROVEN_TEST_VERSION)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _force_pos_gates(version):
+        with mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", version
+        ), mock.patch.object(
+            warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ):
+            yield
 
 
 class TheSixSilentCommandsTests(_Case):
-    """Each accepted command that sends nothing prints exactly one line."""
+    """Each accepted command that sends nothing prints exactly one line.
+
+    ~~SIX~~ -- pf-adversary D11, round `07kjfd`: a shipped boot now has a
+    SEVENTH silent shape, `/warp <n> <x> <y>`, shut by
+    `warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` after R306 measured
+    that frame closing the client (`COO-DECISION 20260903_1744` item 3).
+    The class name and the `/warp 2 100 200` row below are kept as they are
+    because this class is about the VERSION gate's silence and forces that
+    gate shut itself -- the row's `why=withheld_force_pos_vital_version` is
+    the word that configuration produces, not the word a real boot produces.
+    The shipped word is graded in `tests/test_gm_chat_command_action.py::
+    SameSceneForcePosClosedTests`, which patches no gate at all.
+    """
 
     CASES = (
         ("/warp 2 100 200", "warp", "withheld_force_pos_vital_version"),
@@ -674,6 +705,164 @@ class TheStagedWarpTests(_Case):
         self.assertIn("scene_id=unknown ", printed)
 
 
+class TheSameSceneWarpTests(_Case):
+    """`PANYA-DECISION 20260903_1800`: the one SENT command that also speaks.
+
+    The owner typed `/warp 2` while standing in scene 2 during R307 and read
+    `GM_CHAT_STAGED_NEXT_LOGIN` as "nothing happened" -- correctly, because
+    nothing had reached her client.  These tests pin the two halves of the
+    fix: the frame goes out, and the console says which kind of warp it was.
+    """
+
+    SAME_SCENE = chat_command_action.SAME_SCENE_TELEPORT_CONSOLE_TOKEN
+
+    def test_it_says_the_teleport_was_sent_and_names_the_scene(self):
+        action, err = self.act("/warp 2", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        self.assertIsNotNone(action)
+        said = self.lines(err, self.SAME_SCENE)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("scene_id=2 ", said[0])
+        self.assertIn("coordinates=none ", said[0])
+        # The no-bytes token must not appear: bytes DID go out.
+        self.assertEqual(self.lines(err, TOKEN), [], err)
+
+    def test_the_staged_token_is_not_printed_for_a_same_scene_marker_warp(self):
+        # THE MUTANT THIS TEST KILLS is the old routing itself: restore the
+        # `target_scene_id != position.scene_id` test on the no-coordinates
+        # branch in `_warp_action` and this line comes back, which is exactly
+        # the sentence `PANYA-DECISION 1800` forbids for this shape.
+        action, err = self.act("/warp 2", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        self.assertIsNotNone(action)
+        self.assertEqual(
+            self.lines(err, chat_command_action.STAGED_CONSOLE_TOKEN), [], err
+        )
+        self.assertNotIn("log out and log back in", err)
+
+    def test_a_cross_scene_bare_warp_does_not_borrow_this_token(self):
+        # The token exists to tell the two apart on one console. A cross-scene
+        # `/warp 4` from scene 2 sends the same label and must stay silent
+        # here, or the line means nothing.
+        action, err = self.act("/warp 4", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        self.assertIsNotNone(action)
+        self.assertEqual(self.lines(err, self.SAME_SCENE), [], err)
+
+    def test_a_same_scene_warp_whose_audit_failed_claims_no_teleport(self):
+        # The frame is dropped when its outcome row cannot be written, so a
+        # line saying "you were moved" would name a move that never left.
+        with mock.patch.object(
+            chat_command_action,
+            "log_gm_command_outcome",
+            side_effect=OSError("read-only capture directory"),
+        ):
+            action, err = self.act("/warp 2", session=self.session(
+                position=FakePosition(scene_id=2)
+            ))
+        self.assertIsNone(action)
+        self.assertEqual(self.lines(err, self.SAME_SCENE), [], err)
+        said = self.lines(err, TOKEN)
+        self.assertEqual(len(said), 1, err)
+
+    def test_it_never_prints_a_scene_it_could_not_read(self):
+        # Same contract as `_print_staged_way_out`'s own: a diagnostic may
+        # never alter dispatch, and by the time this line runs the frame is
+        # already on its way.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            chat_command_action._print_same_scene_teleport(
+                self.session(), self.GM_ACCOUNT, object()
+            )
+        printed = err.getvalue()
+        self.assertEqual(len(printed.splitlines()), 1, printed)
+        self.assertIn("scene_id=unknown ", printed)
+
+    def test_the_token_is_its_own_grep(self):
+        # Same rule the no-bytes token keeps: an operator greps one question
+        # at a time, and a token sharing a prefix with another returns the
+        # other's lines too.
+        for other in (
+            chat_command_action.CONSOLE_TOKEN,
+            chat_command_action.STAGED_CONSOLE_TOKEN,
+            chat_command_action.WARP_REFUSED_CONSOLE_TOKEN,
+            TOKEN,
+        ):
+            with self.subTest(other=other):
+                self.assertFalse(self.SAME_SCENE.startswith(other))
+                self.assertFalse(other.startswith(self.SAME_SCENE))
+
+    def test_the_token_is_spelled_the_way_the_decision_spells_it(self):
+        # pf-adversary D5: every other test in this class reads the token
+        # THROUGH the constant, so renaming the constant's VALUE left the
+        # whole suite green while an attended round greping COO's and
+        # PANYA's spelling found nothing. The literal is the contract.
+        self.assertEqual(
+            chat_command_action.SAME_SCENE_TELEPORT_CONSOLE_TOKEN,
+            "GM_CHAT_SAME_SCENE_TELEPORT_SENT",
+        )
+
+    def test_the_line_says_what_it_did_and_refuses_the_two_claims_it_cannot_make(self):
+        # pf-adversary D1, MEASURED: the first draft said "you were moved"
+        # (a claim about her screen, from a wire fact) and "nothing was
+        # staged for the next login" (a claim about account state this
+        # printer never reads -- `/warp 278` then `/warp 1` left 278 staged
+        # while this line denied it). D9: nothing graded the sentence at all.
+        _, err = self.act("/warp 2", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertIn(
+            "next='a teleport frame for this scene own pinned spawn left the"
+            " server; this line does not say the client moved, and this"
+            " command wrote no next-login scene'",
+            said,
+        )
+        self.assertNotIn("you were moved", said)
+        self.assertNotIn("nothing was staged", said)
+
+    def test_the_line_names_what_same_scene_was_decided_from(self):
+        # pf-adversary D2, MEASURED: "same scene" is decided against
+        # `selected.position.scene_id`, which `runtime.py` rewrites to a
+        # cross-scene warp's DESTINATION at queue time with nothing from the
+        # client confirming it -- so a repeated `/warp 5` gets this token.
+        # The lane cannot fix that from its own zone; it can refuse to hide
+        # it on the line the tester greps.
+        _, err = self.act("/warp 2", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertIn("basis=server_believed_scene ", said)
+        self.assertEqual(
+            chat_command_action.SAME_SCENE_BASIS_FIELD, "server_believed_scene"
+        )
+
+    def test_a_repeat_warp_to_the_scene_the_server_thinks_you_are_in_is_named(self):
+        # The retry pf-adversary D2 measured, reproduced at THIS layer: a
+        # session whose recorded scene is already the destination -- which is
+        # what `runtime.py` leaves behind after one cross-scene warp -- gets
+        # the same-scene token, and the `basis=` field is the only thing that
+        # tells the tester the word rests on the server's own bookkeeping.
+        _, err = self.act("/warp 5", session=self.session(
+            position=FakePosition(scene_id=5)
+        ))
+        said = self.lines(err, self.SAME_SCENE)
+        self.assertEqual(len(said), 1, err)
+        self.assertIn("basis=server_believed_scene ", said[0])
+
+    def test_the_line_is_ascii(self):
+        # The bridge console is cp874; a non-ASCII byte in a token an
+        # attended round greps is a line that lane cannot read back.
+        _, err = self.act("/warp 2", session=self.session(
+            position=FakePosition(scene_id=2)
+        ))
+        said = self.lines(err, self.SAME_SCENE)[0]
+        self.assertEqual(said, said.encode("ascii").decode())
+
+
 class TheAuditFailurePathTests(_Case):
     """`why` is the word the ndjson CARRIES, not the word the verdict wanted.
 
@@ -722,9 +911,7 @@ class TheAuditFailurePathTests(_Case):
 
     def test_a_dropped_frame_says_the_audit_row_is_why(self):
         session = self.session()
-        with mock.patch.object(
-            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", UNPROVEN_TEST_VERSION
-        ), mock.patch.object(
+        with self.open_the_version_gate(), mock.patch.object(
             chat_command_action,
             "log_gm_command_outcome",
             # The real shape of this failure: the capture directory is
@@ -817,9 +1004,7 @@ class TheLineNeverAltersDispatchTests(_Case):
         # The backstop runs on the same pass as a SENT command; a mutant
         # that returns early from `_make_action` after printing would take
         # the one command that works away from the tester.
-        with mock.patch.object(
-            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", UNPROVEN_TEST_VERSION
-        ):
+        with self.open_the_version_gate():
             action, err = self.act("/warp 2 100 200")
         self.assertIsNotNone(action)
         self.assertEqual(self.lines(err, TOKEN), [], err)

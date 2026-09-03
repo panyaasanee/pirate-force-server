@@ -168,11 +168,30 @@ class _Case(unittest.TestCase):
         ]
 
     def open_the_version_gate(self):
-        return mock.patch.object(
-            teleport_wire,
-            "FORCE_POS_VITAL_VERSION_CONFIRMED",
-            UNPROVEN_TEST_VERSION,
-        )
+        """TWO GATES SINCE `COO-DECISION 20260903_1744` ITEM 3, not one.
+
+        The name is kept because ~60 call sites read it and the meaning to a
+        test author is unchanged: "let the same-scene ForcePos route
+        compose".  What changed is that the route now stands behind a POLICY
+        gate as well as a version byte -- R306 measured this frame closing
+        the owner's client (`ErrorData=28317`), so
+        `warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` ships False.
+
+        A test that wants the SHIPPED answer for a coordinate warp must not
+        call this: see `SameSceneForcePosClosedTests` below, which is the
+        only place that asserts what an unpatched `/warp 2 100 200` does.
+        """
+        return self._both_force_pos_gates(UNPROVEN_TEST_VERSION)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _both_force_pos_gates(version):
+        with mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", version
+        ), mock.patch.object(
+            warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ):
+            yield
 
     def close_the_version_gate(self):
         """The sibling of `open_the_version_gate`, for the tests that prove
@@ -181,10 +200,25 @@ class _Case(unittest.TestCase):
         anything on its own -- a test that means to exercise the withheld
         branch must say so explicitly, by patching the gate SHUT itself,
         instead of relying on what used to be the default.
+
+        IT OPENS THE POLICY GATE WHILE IT SHUTS THE VERSION ONE (`COO-DECISION
+        20260903_1744` item 3).  Both now stand in front of the same route and
+        the policy gate is read FIRST, so leaving it shut here would make
+        every one of these tests pass on the wrong refusal -- green while the
+        branch they are about went unreached.  A test isolating one gate has
+        to hold the other open.
         """
-        return mock.patch.object(
+        return self._version_gate_shut_policy_gate_open()
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _version_gate_shut_policy_gate_open():
+        with mock.patch.object(
             teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
-        )
+        ), mock.patch.object(
+            warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ):
+            yield
 
 
 class VersionGateTests(_Case):
@@ -418,14 +452,236 @@ class WarpActionTests(_Case):
         )
         self.assertEqual({self.GM_ACCOUNT: 4}, self.staged_login_scenes())
 
-    def test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing(self):
-        # ~~Refused~~ (round `gejldf`): the bare form carries no coordinates
+class SameSceneForcePosClosedTests(_Case):
+    """The SHIPPED answer for `/warp <n> <x> <y>`, with no gate patched.
+
+    THE ONLY PLACE IN THIS FILE THAT ASKS WHAT A REAL BOOT DOES with a
+    coordinate warp.  Every other test that reaches the ForcePos composer
+    goes through `open_the_version_gate`, which since `COO-DECISION
+    20260903_1744` item 3 also forces this policy gate open -- so without
+    this class the closure would be asserted nowhere, and the widening of
+    those helpers would be unreviewable.
+
+    ~~It lived inside `WarpActionTests` when round `07kjfd` first wrote it,
+    while three artifacts (two test files and `docs/GM_LANE.md`) already
+    pointed at a class by this name that did not exist~~ -- pf-adversary D10.
+    """
+
+    def test_the_shipped_answer_for_a_coordinate_warp_is_no_bytes(self):
+        # `COO-DECISION 20260903_1744` item 3, from R306's cross-lane finding
+        # 3: this 45-byte ForcePos closed the owner's client with
+        # `ErrorData=28317`, so the route ships SHUT.  NO GATE IS PATCHED
+        # HERE, deliberately -- this is the one test in the file that asks
+        # what a real boot does with `/warp 2 100 200`, and every other test
+        # that composes ForcePos reaches it through `open_the_version_gate`,
+        # which now opens this policy gate too.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 2 100 200")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_WARP_WITHHELD_FORCE_POS_CLOSED,
+            session.events,
+        )
+        # NOT the version gate's event: RE-129's byte is answered and shipped
+        # at 0, and a tester sent to that ticket by this refusal would be
+        # reading a closed question.
+        self.assertNotIn(
+            chat_command_action.EVENT_WARP_WITHHELD_NO_VERSION, session.events
+        )
+        records = self.log_records()
+        self.assertEqual(
+            records[-1]["outcome"],
+            chat_command_action.OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED,
+        )
+
+    def test_the_closure_parks_no_target_for_the_position_reader(self):
+        # The refusal is above `_park_warp_target` on purpose: a target
+        # parked by a warp that sent nothing would let chief's confirmation
+        # token (CORE-REQUEST-GM-031) measure a step the player walked
+        # against a warp that never happened.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        self.act(session, "/warp 2 100 200")
+        self.assertIsNone(getattr(session, "gm_last_warp_target", None))
+
+    def test_the_outcome_word_is_the_one_gt127_will_read(self):
+        # pf-adversary D6: the word was only ever asserted against itself, so
+        # renaming it to `withheld_xxxxx` left the suite green. Its two
+        # siblings are pinned as literals in this repo for exactly that
+        # reason -- GT-127 grades the ndjson `outcome`, not a constant.
+        self.assertEqual(
+            chat_command_action.OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED,
+            "withheld_same_scene_force_pos_frame_shape",
+        )
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        self.act(session, "/warp 2 100 200")
+        self.assertEqual(
+            self.log_records()[-1]["outcome"],
+            "withheld_same_scene_force_pos_frame_shape",
+        )
+
+    def test_the_blocker_sentence_names_r306_and_not_re129(self):
+        # pf-adversary D7: the sentence could be replaced with "no blocker
+        # text" and nothing went red -- while the only test that grades warp
+        # blocker CONTENT runs with this gate force-opened, i.e. against a
+        # configuration production never takes. Graded here, unpatched.
+        blocker = chat_command_action.NO_BYTES_BLOCKERS[
+            chat_command_action.OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED
+        ]
+        self.assertIn("ErrorData=28317", blocker)
+        self.assertIn("R306", blocker)
+        # It must NOT send the tester to RE-129: that byte is answered and
+        # shipped at 0, and the whole reason this is a separate gate is that
+        # the frame shape, not the version, is what killed the client.
+        self.assertNotIn("RE-129", blocker)
+
+    def test_the_policy_gate_is_read_before_the_version_gate(self):
+        # pf-adversary D8: the ordering is load-bearing in two artifacts and
+        # was unfalsifiable -- the shipped version constant is 0, so the
+        # version gate never trips on a real boot, and every helper that
+        # shuts it also forces the policy gate open. Shut BOTH here, which
+        # nothing else in the suite does, and the policy word must win. If
+        # RE-129 ever reverts to None, this is what keeps the console from
+        # silently sending an attended tester to the wrong ticket.
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        with mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
+        ):
+            action = self.act(session, "/warp 2 100 200")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_WARP_WITHHELD_FORCE_POS_CLOSED,
+            session.events,
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_WARP_WITHHELD_NO_VERSION, session.events
+        )
+
+    def test_the_shipped_flag_is_shut_and_its_sibling_is_not(self):
+        # Two flags, opposite values, and the pair is the whole point: R306
+        # measured the ForcePos frame killing the client and the bare
+        # cross-scene TeleportVital passing five times in the SAME round.
+        # A future round that shuts both, or opens both, is a round that
+        # stopped reading the measurement.
+        self.assertFalse(warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED)
+        self.assertTrue(warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED)
+
+    def test_the_closure_does_not_touch_the_bare_form(self):
+        # COO `1744` item 3, last clause: "`/warp <n>` alone passed five
+        # times in one round -- do not touch it."  Both bare shapes still
+        # compose with no gate patched.
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        same = self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 2")
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        cross = self.act(FakeSession(position=FakePosition(scene_id=2)), "/warp 4")
+        self.assertIsNotNone(same)
+        self.assertIsNotNone(cross)
+
+
+class SameSceneBareWarpTests(_Case):
+    """`PANYA-DECISION 20260903_1800`, at the routing layer.
+
+    Its console half lives in `tests/test_gm_chat_no_bytes_line.py`
+    (`TheSameSceneWarpTests`), which is where this route's console lines are
+    graded.
+    """
+
+    def test_a_same_scene_bare_warp_teleports_to_that_scenes_own_spawn(self):
+        # ~~test_scene_only_warp_with_no_coordinates_stages_and_sends_nothing~~
+        # ~~Refused (round `gejldf`): the bare form carries no coordinates
         # for ForcePos to put in a frame, which is exactly the case the
         # next-login override can serve -- the login path spawns at the
         # scene's own registry entry point and needs no x/y.  What has not
-        # changed: no action, no frame, gate patched open or not.
-        session = FakeSession(position=FakePosition(scene_id=2))
+        # changed: no action, no frame, gate patched open or not.~~
+        #
+        # STRUCK, NOT DELETED, BY THE OWNER: `PANYA-DECISION 20260903_1800`,
+        # said live in the R307 attended round and carried into this lane by
+        # `COO-DECISION 20260903_1845`.  What she measured is the assertion
+        # this test used to make: `/warp 2` typed in scene 2 staged the NEXT
+        # login and put nothing on the wire, which mid-session reads as
+        # "nothing happened".  It must now send the SAME live TeleportVital a
+        # cross-scene bare `/warp 2` sends, aimed at scene 2's own pinned
+        # marker spawn.
+        from pirateforce_foundation import world_scene_travel
+
+        target = world_scene_travel.destination(2)
+        x, y, z = world_scene_travel.spawn_position(target)
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
         with self.open_the_version_gate():
+            action = self.act(session, "/warp 2")
+        self.assertIsNotNone(action)
+        label, pc, frame, delay = action
+        # THE SAME LABEL, not a fourth one: `runtime.py`'s `_GM_WARP_LABELS`
+        # resync and its `TELEPORT`-substring move-authority rule both read
+        # this label, and a new one would have had to be added to both by
+        # hand -- the drift pf-adversary caught in round `zkqaq1`.
+        self.assertEqual(
+            label,
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+        self.assertEqual(delay, 0.0)
+        # THE BYTES ARE DERIVED FROM THE REGISTRY FIXTURE, not typed here:
+        # COO `0846` -- a number a test spells out itself proves only that
+        # the test and the code agree about a constant.
+        expected_pc, expected_frame = self.legacy.make_login_teleport(
+            2, 0, x, y, z
+        )
+        self.assertEqual(bytes(pc), bytes(expected_pc))
+        self.assertEqual(bytes(frame), bytes(expected_frame))
+        # The z on the wire is scene 2's own pinned marker z, NOT the 30.0
+        # the connection is standing at -- the same GT-172 F-2 property the
+        # cross-scene sibling asserts, and the reason "warp me back to spawn"
+        # means anything at all.
+        self.assertNotEqual(z, 30.0)
+        # NOTHING IS STAGED any more, and this is the half of the owner's
+        # decision that a mutant restoring the old routing fails on.
+        self.assertEqual({}, self.staged_login_scenes())
+        self.assertNotIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}2", session.events
+        )
+
+    def test_the_same_scene_frame_is_byte_identical_to_the_cross_scene_one(self):
+        # `COO-DECISION 20260903_1845` item 2 in one assertion: "the SAME
+        # 73-byte frame the cross-scene warp uses".  Both sides are composed
+        # by the route under test rather than spelled out here, so this
+        # cannot pass by two constants agreeing with each other -- flip
+        # either composer and the two frames stop matching.
+        from_inside = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        from_outside = FakeSession(position=FakePosition(scene_id=5, z=77.0))
+        same = self.act(from_inside, "/warp 2")
+        gm_dispatch.reset_rate_limit_state_for_tests()
+        cross = self.act(from_outside, "/warp 2")
+        self.assertIsNotNone(same)
+        self.assertIsNotNone(cross)
+        self.assertEqual(bytes(same[1]), bytes(cross[1]))
+        self.assertEqual(bytes(same[2]), bytes(cross[2]))
+        self.assertEqual(same[0], cross[0])
+        # The one length this lane has told COO in writing, read off the
+        # frame the route composed, not typed into the composer.
+        self.assertEqual(len(bytes(same[2])), 73)
+
+    def test_a_same_scene_bare_warp_to_a_markerless_scene_still_stages(self):
+        # The owner's decision widened the LIVE branch; it did not touch
+        # `warp_no_coords_live_target`'s marker gate.  Scene 278 has a pinned
+        # spawn with `n_MARKER == 0` (GT-182 nonclaim 4), so the same-scene
+        # bare warp into it keeps the OLD stage-only answer -- the boundary
+        # a mutant that drops the marker check entirely would cross.
+        session = FakeSession(position=FakePosition(scene_id=278))
+        action = self.act(session, "/warp 278")
+        self.assertIsNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_WARP_STAGED_PREFIX}278", session.events
+        )
+        self.assertEqual({self.GM_ACCOUNT: 278}, self.staged_login_scenes())
+
+    def test_a_same_scene_bare_warp_falls_back_to_staging_with_the_gate_shut(self):
+        # The kill switch still governs BOTH shapes of the no-coordinates
+        # branch: with `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` off, the
+        # owner's same-scene case returns to staging like its cross-scene
+        # sibling, rather than finding some other way onto the wire.
+        session = FakeSession(position=FakePosition(scene_id=2))
+        with mock.patch.object(
+            warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
+        ):
             action = self.act(session, "/warp 2")
         self.assertIsNone(action)
         self.assertIn(
@@ -1207,6 +1463,9 @@ class EventNameContractTests(_Case):
         "EVENT_WARP_WITHHELD_NO_VERSION": (
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"
             "version_re129_open"
+        ),
+        "EVENT_WARP_WITHHELD_FORCE_POS_CLOSED": (
+            "gm_chat_action_warp_withheld_same_scene_force_pos_closed_r306"
         ),
         # Round `w8hnu9`, the say action path.  pf-adversary measured that
         # without these three rows, renaming any of them left all 3941 tests
