@@ -69,11 +69,15 @@ from pirateforce_foundation.mob_combat import MobCombatContractError  # noqa: E4
 
 BG0001_SCENE_ID = 1
 BG0002_SCENE_ID = 2
-# Addressed by lane A's registry, mined by this lane, and deliberately NOT
-# live: field_mob_tables_bg0015 is in _KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING
-# and not in _SCENE_TABLE_MODULES.  Making it live is an act someone has to
-# perform on purpose; until then this scene ships no monsters.
-BG0015_SCENE_ID_DORMANT = 14
+# ~~Addressed by lane A's registry, mined by this lane, and deliberately NOT
+# live~~ -- WITHDRAWN, COO-DECISION 20260903_1942 item 2: registered in
+# _SCENE_TABLE_MODULES this round, on purpose, the act the old comment said
+# someone had to perform.  Live now, all 12 mined rows shipped -- including
+# placement 87 / template 924 "Carlos", who has no death ruling yet (see
+# tests/test_mob_death_wired_widening.py's own accepted-exception handling;
+# an owner-refusal was tried and withdrawn for him, field_mobs.
+# OWNER_REFUSED_PLACEMENTS explains why).
+BG0015_SCENE_ID = 14
 # Addressed by lane A, no roster mined at all.
 BG1001_SCENE_ID_UNSHIPPED = 17
 # Not addressed by lane A's registry: the reader answers None for it.
@@ -121,21 +125,30 @@ class SceneBindingTest(unittest.TestCase):
         # the half that calls it: register a live table under a spelling that
         # differs from the client's folder ONLY in case, and require that the
         # scene id resolving to that folder still refuses to find it.  An
-        # implementation that case-folds returns "BG0015" here.
+        # implementation that case-folds returns "BG1001" here.
+        #
+        # RETARGETED, COO-DECISION 20260903_1942 item 2: this probe used
+        # scene 14 (Bg0015) because it was addressed but not yet registered
+        # -- Bg0015 is registered now, so the probe moved to
+        # BG1001_SCENE_ID_UNSHIPPED (still addressed, still no mined table
+        # at all), which keeps testing the exact same case-folding hazard.
         table = field_mobs._SCENE_TABLE_MODULES
-        self.assertNotIn("BG0015", table)
-        table["BG0015"] = field_mob_tables_bg0015
+        self.assertNotIn("BG1001", table)
+        table["BG1001"] = field_mob_tables_bg0015
         try:
             self.assertIsNone(
-                field_mobs.scene_for_scene_id(BG0015_SCENE_ID_DORMANT))
+                field_mobs.scene_for_scene_id(BG1001_SCENE_ID_UNSHIPPED))
             self.assertEqual(
-                field_mobs.roster_for_scene_id(BG0015_SCENE_ID_DORMANT), ())
+                field_mobs.roster_for_scene_id(BG1001_SCENE_ID_UNSHIPPED), ())
         finally:
-            del table["BG0015"]
+            del table["BG1001"]
 
     def test_a_scene_with_no_shipped_roster_opens_an_empty_ledger(self):
+        # ~~BG0015_SCENE_ID~~ REMOVED from this loop, COO-DECISION
+        # 20260903_1942 item 2: scene 14 now ships a roster (see
+        # test_the_third_live_scene_binds_to_its_own_table below), so it no
+        # longer belongs among the scenes with an empty one.
         for scene_id in (
-            BG0015_SCENE_ID_DORMANT,
             BG1001_SCENE_ID_UNSHIPPED,
             UNADDRESSED_SCENE_ID,
         ):
@@ -156,15 +169,33 @@ class SceneBindingTest(unittest.TestCase):
         self.assertIsNone(
             world_scene_folder.scene_folder_for_scene_id(UNADDRESSED_SCENE_ID))
 
-    def test_the_dormant_scene_is_addressed_and_still_ships_nothing(self):
-        # The distinction this pins: lane A DOES address scene 14, and this
-        # lane HAS mined that scene's table.  The empty answer above is not an
-        # accident of a missing address -- it is _SCENE_TABLE_MODULES saying
-        # the scene is not live yet.
+    def test_the_third_live_scene_binds_to_its_own_table(self):
+        # RENAMED AND REWRITTEN, COO-DECISION 20260903_1942 item 2: the
+        # distinction this test used to pin -- lane A addresses scene 14,
+        # this lane mined its table, and it STILL shipped nothing because
+        # _SCENE_TABLE_MODULES said so -- is exactly the thing this round's
+        # registration ends.  Mirrors
+        # test_the_two_live_scenes_bind_to_their_own_tables' own shape for
+        # the third scene rather than only flipping the old assertion, so a
+        # binding that silently loaded the wrong table would show up here
+        # too.
         self.assertEqual(
             world_scene_folder.scene_folder_for_scene_id(
-                BG0015_SCENE_ID_DORMANT), "Bg0015")
-        self.assertNotIn("Bg0015", field_mobs.live_scenes())
+                BG0015_SCENE_ID), "Bg0015")
+        self.assertIn("Bg0015", field_mobs.live_scenes())
+        self.assertEqual(
+            field_mobs.scene_for_scene_id(BG0015_SCENE_ID),
+            field_mob_tables_bg0015.SCENE)
+        roster = field_mobs.roster_for_scene_id(BG0015_SCENE_ID)
+        self.assertTrue(roster, "scene 14 shipped no rows")
+        self.assertEqual({mob.scene for mob in roster}, {"Bg0015"})
+        self.assertEqual(roster, field_mobs.load_roster("Bg0015"))
+        # All 12 mined rows ship live, Carlos (template 924, placement 87)
+        # included -- his missing death ruling is a separate, already-
+        # accepted gate (see tests/test_mob_death_wired_widening.py), not
+        # a reason to hold this row out of the roster.
+        self.assertEqual(len(roster), 12)
+        self.assertIn(924, {mob.template_id for mob in roster})
 
     def test_an_empty_ledger_refuses_every_strike_by_name(self):
         empty = mob_combat.open_ledger_for_scene_id(BG1001_SCENE_ID_UNSHIPPED)
@@ -282,7 +313,8 @@ class SceneBindingTest(unittest.TestCase):
         for scene_id in (
             BG0001_SCENE_ID,
             BG0002_SCENE_ID,
-            BG0015_SCENE_ID_DORMANT,
+            BG0015_SCENE_ID,
+            BG1001_SCENE_ID_UNSHIPPED,
             UNADDRESSED_SCENE_ID,
         ):
             line = field_mobs.describe_scene_roster_binding(scene_id)
@@ -302,9 +334,20 @@ class SceneBindingTest(unittest.TestCase):
         # exists to describe -- ADDRESSED but NOT live -- was checked for its
         # prefix and its ASCII only, so a mutant reporting `live=1` for the
         # dormant scene survived the whole suite.  Pinned as a whole line.
+        #
+        # RETARGETED, COO-DECISION 20260903_1942 item 2: scene 14 (Bg0015)
+        # used to be this file's one addressed-but-not-live example; it is
+        # live now, so BG1001_SCENE_ID_UNSHIPPED (addressed by lane A, no
+        # roster mined at all) carries this case instead.  Scene 14 moves
+        # to the live-line assertion alongside scenes 1 and 2.
         self.assertEqual(
-            field_mobs.describe_scene_roster_binding(BG0015_SCENE_ID_DORMANT),
-            "MOB_SCENE_ROSTER scene_id=14 folder=Bg0015 live=0 mobs=0")
+            field_mobs.describe_scene_roster_binding(
+                BG1001_SCENE_ID_UNSHIPPED),
+            "MOB_SCENE_ROSTER scene_id=17 folder=Bg1001 live=0 mobs=0")
+        self.assertEqual(
+            field_mobs.describe_scene_roster_binding(BG0015_SCENE_ID),
+            "MOB_SCENE_ROSTER scene_id=14 folder=Bg0015 live=1 mobs=%d"
+            % len(field_mobs.roster_for_scene_id(BG0015_SCENE_ID)))
         self.assertEqual(
             field_mobs.describe_scene_roster_binding(BG0001_SCENE_ID),
             "MOB_SCENE_ROSTER scene_id=1 folder=bg0001 live=1 mobs=%d"

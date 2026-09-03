@@ -159,6 +159,16 @@ class Bg0015PrepShapeTests(unittest.TestCase):
         round's prep is no longer required to stay universally inert -- one
         named lane-B module may import it.  Everything else still must not.
 
+        LAYER 2/3 UNLOCKED, COO-DECISION 20260903_1942 item 2: registering
+        ``field_mob_tables_bg0015`` in ``field_mobs._SCENE_TABLE_MODULES``
+        (making Bg0015 a live, loadable scene) is now this round's own
+        work, not a future gate -- so ``field_mobs.py`` joins the approved
+        list below, the ONE additional file this decision names.  Nothing
+        else does: ``mob_scene_recompose.py``'s scene-14 composer imports
+        ``world_population_bg0015`` (lane A's population builder), never
+        ``field_mob_tables_bg0015`` directly, so it does not need to be on
+        this list and this guard would still catch it if it ever did.
+
         RENAMED from ``test_nothing_under_src_imports_the_bg0015_module``,
         not merely edited in place: the old name asserted "nothing", which
         stopped being true the moment ``field_mob_hostile_bg0015.py`` landed,
@@ -193,18 +203,20 @@ class Bg0015PrepShapeTests(unittest.TestCase):
         check vacuously green, which is exactly the "green because it never
         got there" shape this project has already shipped once.
 
-        WHAT STILL MUST STAY TRUE, EVEN AFTER THE UNLOCK.  ``field_mobs.py``
-        itself -- the module that owns ``_SCENE_TABLE_MODULES``,
-        ``live_scenes()`` and every pinned assertion the other 182
-        references across six test files depend on meaning "two scenes
-        shipped so far" -- is deliberately NOT on the approved list. Layer 1
-        is "an importer may exist"; making Bg0015 a live, loadable scene
-        (layer 2/3) is chief's ``runtime.py:7501`` CORE-REQUEST, still gated,
-        and a stray ``field_mobs.py`` import would be the exact silent
-        drift this guard exists to catch before a human notices on screen.
+        WHAT STILL MUST STAY TRUE, EVEN AFTER BOTH UNLOCKS.  Wiring the
+        splice this scene's composer needs into ``runtime.py`` (the branch
+        chief's own ``runtime.py:7501`` CORE-REQUEST names) still does not
+        import this table module -- it consumes
+        ``mob_scene_recompose.splice_identity_override`` and
+        ``field_mob_hostile_bg0015``'s own overrides, never this module by
+        name -- so ``runtime.py`` stays off the approved list and this
+        guard would still catch it if a future round took the shortcut of
+        importing the raw table there instead of going through
+        ``field_mobs``/``field_mob_hostile_bg0015``.
         """
         approved_importers = {
             str(SRC / "pirateforce_foundation" / "field_mob_hostile_bg0015.py"),
+            str(SRC / "pirateforce_foundation" / "field_mobs.py"),
         }
         py_files = sorted(SRC.rglob("*.py"))
         # A hard floor well under the real count (66 measured 2026-08-26),
@@ -251,9 +263,10 @@ class Bg0015PrepShapeTests(unittest.TestCase):
         offenders = sorted(set(offenders))
         self.assertEqual(
             offenders, [],
-            "field_mob_tables_bg0015 must stay unimported outside the one "
-            "approved lane-B hostile composer (COO-DECISION "
-            "2026-08-31T16:48+07:00 unlocked layer 1 for that module only); "
+            "field_mob_tables_bg0015 must stay unimported outside the two "
+            "approved lane-B modules (COO-DECISION 2026-08-31T16:48+07:00 "
+            "unlocked layer 1 for field_mob_hostile_bg0015.py; COO-DECISION "
+            "20260903_1942 item 2 unlocked layer 2/3 for field_mobs.py); "
             "found an extra reference in: %s" % offenders,
         )
 

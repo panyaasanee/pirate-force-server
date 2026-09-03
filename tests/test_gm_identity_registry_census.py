@@ -340,7 +340,14 @@ class WithinOneSceneTests(unittest.TestCase):
                 self.assertEqual((), expected)
             shipped += verdict.roster_count
         self.assertGreater(shipped, 0, "no scene shipped a roster at all")
-        self.assertEqual(2, checked, "only scenes 1 and 2 ship rosters today")
+        # COO-DECISION 20260903_1942 item 2: scene 14 (Bg0015) joined
+        # scenes 1 and 2 as a roster-shipping scene this round -- the
+        # per-scene subTest loop above already proved its 12 live roster
+        # identities are every one a census identity of that same scene
+        # (the assertion this test exists for); this count just has to
+        # keep up with which scenes were checked.
+        self.assertEqual(
+            3, checked, "only scenes 1, 2 and 14 ship rosters today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
         # The routing itself, driven directly.  Shipped data cannot reach

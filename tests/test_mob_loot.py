@@ -639,6 +639,58 @@ class MobLootTests(unittest.TestCase):
                 kill_token=6, mob_identity=identity)
         self.assertEqual(caught.exception.args[0], "mob_already_looted")
 
+    def test_the_now_live_bg0002_bg0015_identity_collision_does_not_wrongly_refuse_a_rekill(
+            self):
+        """The risk ``mob_loot.py``'s ``looted`` field comment names was
+        HYPOTHETICAL when it was written (round `h40iwu`) -- Bg0015 was not
+        registered in ``field_mobs._SCENE_TABLE_MODULES`` yet, so
+        ``field_mobs.cross_scene_identity_collisions()`` had nothing live to
+        report.  COO-DECISION 20260903_1942 item 2 (round `n4pv7k`)
+        registered it, and the comment's own named collision -- Bg0002
+        placement 87 (template 34) and Bg0015 placement 87 (template 924,
+        "Carlos") both mining wire identity ``0x2058`` -- is live now
+        (``mob_combat_bg0015_gates.bg0002_bg0015_identity_collisions() ==
+        (0x2058,)``).  pf-adversary (round n4pv7k, adversarial review of
+        that same round's diff) traced whether the comment's predicted
+        failure -- "a re-kill of the colliding identity would be wrongly
+        refused as mob_already_looted" -- actually reaches a player, and
+        could not construct it from ``kill_token`` monotonicity alone; this
+        test drives the exact scenario end to end on the real identity
+        rather than leaving the question to a code-reading argument.
+
+        A kill of Bg0002's monster at this identity, followed by a LATER
+        kill of Bg0015's DIFFERENT monster at the SAME wire identity (a
+        genuine, distinct kill this ledger has never seen before, in a
+        different scene), must NOT be refused as an already-looted replay --
+        the two kills are different monsters that happen to share a wire
+        identity, and ``kill_token``'s session-wide monotonicity is what is
+        supposed to keep this ledger from confusing them for one.
+        """
+        collision_identity = 0x2058
+        _roll, _record, drops = self._one_kill()
+        # Real Bg0002 drop rows (self.mob's own scene), relabelled onto the
+        # collision identity -- the shape a real Bg0002 kill of placement 87
+        # produces, not a synthetic row this test invented from nothing.
+        bg0002_row = replace(drops[0], mob_identity=collision_identity)
+        self.assertEqual(bg0002_row.scene, field_mobs.BG0002_SCENE)
+        ledger = commit_drops(
+            DropLedger(), (bg0002_row,), base_generation=0, kill_token=10,
+            mob_identity=collision_identity)
+        self.assertEqual(ledger.looted, ((collision_identity, 10),))
+        # A LATER, DIFFERENT kill: Bg0015's own Carlos (placement 87, same
+        # wire identity) falls in Bg0015, one drop key higher, one kill
+        # token higher -- a genuine new death, not a replay of the one above.
+        bg0015_row = replace(
+            drops[0], drop_key=bg0002_row.drop_key + 1,
+            mob_identity=collision_identity, scene="Bg0015")
+        healed = commit_drops(
+            ledger, (bg0015_row,), base_generation=ledger.generation,
+            kill_token=11, mob_identity=collision_identity)
+        self.assertEqual(healed.looted, ((collision_identity, 11),))
+        self.assertEqual(
+            {drop.drop_key for drop in healed.drops},
+            {bg0002_row.drop_key, bg0015_row.drop_key})
+
     def test_the_next_key_follows_the_highest_key_ever_issued(self):
         _roll, _record, drops = self._one_kill()
         ledger = commit_drops(DropLedger(), drops, base_generation=0, kill_token=1)
