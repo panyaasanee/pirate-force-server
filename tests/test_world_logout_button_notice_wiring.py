@@ -26,16 +26,22 @@ WHAT THIS FILE DOES NOT PROVE, and the distinction is the whole point of
 * Not that anything RENDERS.  This is the wire/DB layer only, and that is
   unchanged by what follows.  ~~No server-composed line on
   ``Channel_LocalTalkMessageVital`` has ever been watched to appear on a
-  normal boot (``gm/say_wire.py`` says so itself in capitals).  A negative
-  ``GT-205`` is worth as much as a positive one.~~  STRUCK, round
-  ``kozzu1``: ``GT-205`` came back POSITIVE on 2026-09-02 (R303, owner at
-  the keyboard, flagless boot -- ``BACK REFUSED`` on screen), so one such
-  line HAS now been watched to appear.  Two things do not follow from
-  that and a reader of this file must not take either: this file still
-  proves only the wire/DB half (the console token was not even copied back
-  off that boot -- "wire/DB: not separately instrumented for this ticket"),
+  normal boot (``gm/say_wire.py`` says so itself in capitals).~~  NARROWED,
+  round ``kozzu1``: ``GT-205`` came back POSITIVE on 2026-09-02 (R303,
+  owner at the keyboard -- ``BACK REFUSED`` on screen), so one such line
+  HAS now been watched to appear, on a boot that provably carried no
+  LOGOUT scenario.  **A negative ``GT-205`` is worth as much as a positive
+  one** -- NOT struck, and it did not become false by being satisfied; it
+  is the rule that stops a POSITIVE here from being read as evidence for
+  ``GT-211``, which is a different button on a different subcode.
+  Three things do not follow from the positive and a reader of this file
+  must not take any of them: this file still proves only the wire/DB half
+  (the console token was not even copied back off that boot -- "wire/DB:
+  not separately instrumented for this ticket"); the boot's argv was never
+  recorded, so "flagless" is NOT established, only "no logout scenario";
   and ``gm/say_wire.py`` has not been corrected, so its capitals are stale
-  rather than a second source.  The full measurement is under point 2 of
+  rather than a second source.  The full measurement, and the seven things
+  R303 did not settle, are under point 2 of
   ``world_logout_button_notice``'s own docstring.
 * Not that UI-A works.  Nothing here makes the client return to character
   select; ``GT-184`` is still open on that question.  This turns "click and
