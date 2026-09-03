@@ -1342,6 +1342,71 @@ class SQLiteStore:
         census["database"] = self.path
         return census
 
+    def typed_column_null_audit(self) -> dict:
+        """How many rows in THIS database hold NULL in each ADJUDICATED
+        column, live and on disk.
+
+        LANE-DB owns this method; no existing method is touched by it.
+        Ordered by `COO-DECISION 20260903_1047` point 2, and the caller it
+        exists for is named in that decision: COO cannot rule on whether the
+        `008` -> `009` cohort needs a backfill without knowing how many rows
+        are in it.  A backfill remains FORBIDDEN until the number is seen.
+
+        !! IT GOES THROUGH `connect_read_only`, AND THE FIRST DRAFT WENT
+        THROUGH `connect()` WHILE CLAIMING TO WRITE NOTHING.  A
+        `pf-adversary` pass measured the difference on a real file: `connect`
+        executes `PRAGMA journal_mode=WAL` and commits on exit, so counting a
+        rollback-journal database MOVED ITS BYTES (sha256 changed, header
+        bytes 18/19 `01 01` -> `02 02`, mtime changed, `data_version` 1 -> 2).
+        This method exists to be pointed at the owner's canonical database and
+        at snapshots of it, where `AGENTS.md` requires the hash not to move,
+        and where the whole point of keeping a snapshot is that reading it
+        does not change it.  `connect_read_only` opens `?mode=ro` with
+        `PRAGMA query_only=ON`: same ten numbers, zero bytes moved --
+        measured, and pinned in `tests/test_persistence_null_audit.py`.
+
+        !! A COUNT THAT COULD NOT BE TAKEN COMES BACK AS `None`, NOT `0`.
+        `SUM()` over zero rows is SQL NULL, and an earlier draft coerced
+        every value to an int -- which made a database with no characters at
+        all print a report line for line identical to a fully seeded one.
+        That is `COO-DECISION 20260901_1059`'s banned guessed zero arriving at
+        the layer whose output goes into a letter.  `characters_any` is
+        `COUNT(*)` and is always an int; every other value -- the per-column
+        counts AND `characters_live`, which is a `SUM()` too -- is `int` or
+        `None`, and `persistence_null_audit.format_report` prints `None` as
+        `not-counted`.
+
+        NOT the vitals seeding census, and the difference is the point.  That
+        method counts values PRESENT in the three vitals, whose list lives on
+        the write path; this one counts values ABSENT in four columns, the
+        fourth being `speed_walk` -- which the census cannot see and must not
+        be taught to, because its list is `persistence_vitals.VITAL_COLUMNS`
+        and that tuple decides how a character is BORN.  The two numbers are
+        not derivable from each other on a database with deleted rows.
+
+        Raises `ValueError` for an in-memory store and `FileNotFoundError`
+        for a path that does not exist -- both from `connect_read_only`, and
+        both are honest: there is no file to count.
+        """
+        from . import persistence_null_audit as null_audit
+        from . import persistence_vitals as vitals
+
+        with self.connect_read_only() as db:
+            vitals.verify_schema(db)
+            row = db.execute(null_audit.audit_sql()).fetchone()
+        audit = {}
+        for key in row.keys():
+            value = row[key]
+            audit[key] = None if value is None else int(value)
+        # `database` travels with the counts for the same reason the census
+        # carries it: a number quoted into a letter without the file it was
+        # counted from is worth nothing.  RESOLVED, not the string the caller
+        # happened to construct the store with, so two operators quoting
+        # "state.sqlite3" from two directories cannot look like one file.
+        audit["database"] = str(Path(self.path).resolve()) \
+            if self.path != ":memory:" else self.path
+        return audit
+
     def apply_hp_damage(self, character_id: int, amount: int):
         """Subtract `amount` from this character's stored `hp_current`, with a
         floor of zero, and return the `persistence_vitals.DamageOutcome`.
