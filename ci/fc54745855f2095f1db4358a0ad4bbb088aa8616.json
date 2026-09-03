@@ -1,1 +1,1 @@
-{"sha":"fc54745855f2095f1db4358a0ad4bbb088aa8616","conclusion":"success","event":"push","ref":"refs/heads/claude/kind-cray-gjyxt5","run_id":"33750296798","utc":"2026-09-03T11:49:15Z"}
+{"sha":"fc54745855f2095f1db4358a0ad4bbb088aa8616","conclusion":"failure","event":"pull_request","ref":"refs/pull/668/merge","run_id":"33750971717","utc":"2026-09-03T11:57:14Z"}
