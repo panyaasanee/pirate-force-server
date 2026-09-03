@@ -17,6 +17,7 @@ import pathlib
 import re
 import sys
 import unittest
+import unittest.mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -203,22 +204,58 @@ class MeasuredOffsetTests(unittest.TestCase):
         row = field_mobs.load_roster()[0]
         self.assertEqual(row.actor_identity - row.placement_index, measured)
 
-    def test_a_family_that_renumbers_makes_the_offset_refuse(self):
+    def test_a_family_that_renumbers_makes_measured_offset_raise(self):
+        # The first draft of this test never called the function; it built a
+        # set by hand and asserted `len == 2`, which tests Python (pf-
+        # adversary D5).  This drives the real refusal, so deleting the
+        # `families disagree` raise turns it red.
         class Renumbered:
             placement_index = 7
             actor_identity = 7  # offset 0, unlike every real family
             n_id = 1
             display_name = "x"
 
-        real = census.roster_claims(1)
-        self.assertTrue(real, "scene 1 ships no roster; this test proves nothing")
-        odd = census._claim(1, census.FAMILY_SCENE_CENSUS, "probe", Renumbered())
-        offsets = {claim.identity - claim.placement_index for claim in real}
-        offsets.add(odd.identity - odd.placement_index)
-        self.assertEqual(
-            2, len(offsets),
-            "the probe row was supposed to disagree with the real ones",
+        scene_id, (source, _loader) = next(
+            iter(census._SCENE_CENSUS_SOURCES.items())
         )
+        patched = dict(census._SCENE_CENSUS_SOURCES)
+        patched[scene_id] = (source, lambda: (Renumbered(),))
+        with unittest.mock.patch.object(
+            census, "_SCENE_CENSUS_SOURCES", patched
+        ):
+            with self.assertRaises(census.IdentityCensusError) as caught:
+                census.measured_identity_offset(legacy=self.legacy)
+        self.assertIn("disagree", str(caught.exception))
+
+    def test_the_offset_is_not_a_constant_in_the_file(self):
+        # M8 (`return 0x2001` first thing) survived the first draft because
+        # the comparison value was itself 0x2001.  This drives the function
+        # over a table whose offset is NOT today's, so a hardcoded return
+        # cannot satisfy it.
+        class Shifted:
+            placement_index = 4
+            actor_identity = 4 + 0x3000
+            n_id = 1
+            display_name = "x"
+
+        patched = {
+            scene_id: (source, lambda: (Shifted(),))
+            for scene_id, (source, _loader) in census._SCENE_CENSUS_SOURCES.items()
+        }
+        with unittest.mock.patch.object(
+            census, "_SCENE_CENSUS_SOURCES", patched
+        ):
+            with unittest.mock.patch.object(
+                census.field_mobs, "roster_for_scene_id", lambda scene_id: ()
+            ):
+                # A scene id no family claims, so the legacy-backed branch
+                # is simply unavailable and skipped rather than raising.
+                with unittest.mock.patch.object(
+                    census, "_LEGACY_BACKED_SCENE_ID", 9999
+                ):
+                    self.assertEqual(
+                        0x3000, census.measured_identity_offset(legacy=None)
+                    )
 
 
 class WithinOneSceneTests(unittest.TestCase):
@@ -232,32 +269,154 @@ class WithinOneSceneTests(unittest.TestCase):
             for scene_id in census.scene_ids_with_a_census()
         }
 
-    def test_no_scene_hands_one_identity_to_two_different_placements(self):
+    def test_the_conflicting_bucket_is_a_tripwire_not_a_measurement(self):
+        # pf-adversary (D1): `conflicting` cannot fire while identity is a
+        # pure function of the placement index, so asserting it is empty
+        # measures NOTHING on its own.  What is asserted instead is the
+        # REASON, computed here from the claims: one offset for every claim
+        # in the scene.  The day that stops holding, this goes red and the
+        # emptiness below starts meaning something again.
         for scene_id, verdict in sorted(self.verdicts.items()):
+            claims = census.roster_claims(scene_id)
+            try:
+                claims += census.census_claims(scene_id, legacy=self.legacy)
+            except census.IdentityFamilyUnavailable:  # pragma: no cover
+                pass
+            offsets = {
+                claim.identity - claim.placement_index for claim in claims
+            }
             with self.subTest(scene=scene_id):
+                self.assertEqual(1, len(offsets), offsets)
                 self.assertEqual((), verdict.conflicting)
                 self.assertTrue(verdict.is_unique_within_the_scene())
-                # Not vacuous: the scene really was enumerated.
-                self.assertGreater(verdict.census_count, 0)
 
-    def test_distinct_identity_count_equals_the_census_row_count(self):
-        # The strongest form of "unique within the scene": every census row
-        # got its own number, and the roster added no number of its own.
+    def test_distinct_identity_count_is_recomputed_here_not_read_back(self):
+        # M16 (`distinct_identities = len(census)`) survived the first draft
+        # because the only assertion compared the field against the other
+        # field.  This recomputes it from the claims.
         for scene_id, verdict in sorted(self.verdicts.items()):
+            claims = census.roster_claims(scene_id)
+            try:
+                claims += census.census_claims(scene_id, legacy=self.legacy)
+            except census.IdentityFamilyUnavailable:  # pragma: no cover
+                pass
+            expected = len({claim.identity for claim in claims})
             with self.subTest(scene=scene_id):
+                self.assertGreater(expected, 0)
+                self.assertEqual(expected, verdict.distinct_identities)
                 self.assertEqual(verdict.census_count, verdict.distinct_identities)
 
     def test_every_roster_identity_is_also_a_census_identity_of_that_scene(self):
-        # `world_population.apply_identity_override` is keyed by identity and
-        # refuses a key its generation does not carry.  This containment is
-        # what keeps that door from refusing at boot; nothing else enforces
-        # it, so it is pinned here.
+        # WHY THIS MATTERS, corrected: `world_population.apply_identity_
+        # override` does NOT refuse a key its generation does not carry --
+        # `entries.append(override.get(identity, original))`, and its own
+        # docstring says so.  A roster identity missing from the census is
+        # SILENTLY DROPPED: the monster's bytes never leave and the client
+        # draws the census NPC in that slot.  Nothing else enforces the
+        # containment, so it is pinned here.
+        #
+        # Recomputed from the claims rather than read off the field, because
+        # `absent = ()` survived the first draft (pf-adversary D4).
         shipped = 0
+        checked = 0
         for scene_id, verdict in sorted(self.verdicts.items()):
+            roster = census.roster_claims(scene_id)
+            if not roster:
+                continue
+            checked += 1
+            census_identities = {
+                claim.identity
+                for claim in census.census_claims(scene_id, legacy=self.legacy)
+            }
+            expected = tuple(
+                sorted(
+                    claim.identity
+                    for claim in roster
+                    if claim.identity not in census_identities
+                )
+            )
             with self.subTest(scene=scene_id):
-                self.assertEqual((), verdict.roster_identities_absent_from_census)
+                self.assertEqual(expected, verdict.roster_identities_absent_from_census)
+                self.assertEqual((), expected)
             shipped += verdict.roster_count
         self.assertGreater(shipped, 0, "no scene shipped a roster at all")
+        self.assertEqual(2, checked, "only scenes 1 and 2 ship rosters today")
+
+    def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
+        # The routing itself, driven directly.  Shipped data cannot reach
+        # this branch (the identity formula makes it impossible), so a
+        # mutant that hardcoded `same_placement=True` -- or filed every
+        # dispute as benign -- survived the whole first draft.  This is what
+        # would have to work on the day the formula grows a scene term.
+        class Row:
+            def __init__(self, index, identity, template):
+                self.placement_index = index
+                self.actor_identity = identity
+                self.n_id = template
+                self.display_name = "probe"
+
+        scene_id = 3
+        source, _loader = census._SCENE_CENSUS_SOURCES[scene_id]
+        patched = dict(census._SCENE_CENSUS_SOURCES)
+        patched[scene_id] = (
+            source,
+            lambda: (Row(0, 0x2001, 1), Row(5, 0x2001, 2)),
+        )
+        with unittest.mock.patch.object(
+            census, "_SCENE_CENSUS_SOURCES", patched
+        ):
+            verdict = census.scene_verdict(scene_id)
+        self.assertEqual(1, len(verdict.conflicting))
+        self.assertEqual((), verdict.shared)
+        self.assertFalse(verdict.conflicting[0].same_placement)
+        self.assertFalse(verdict.is_unique_within_the_scene())
+        self.assertIn("unique_within_scene=NO", census.describe_verdict(verdict))
+
+    def test_two_rows_on_one_placement_that_agree_are_not_a_conflict(self):
+        # The other side of the routing, so the test above is not just
+        # "anything with two claims is a conflict".
+        class Row:
+            def __init__(self, template):
+                self.placement_index = 4
+                self.actor_identity = 0x2005
+                self.n_id = template
+                self.display_name = "probe"
+
+        scene_id = 3
+        source, _loader = census._SCENE_CENSUS_SOURCES[scene_id]
+        patched = dict(census._SCENE_CENSUS_SOURCES)
+        patched[scene_id] = (source, lambda: (Row(7), Row(7)))
+        with unittest.mock.patch.object(
+            census, "_SCENE_CENSUS_SOURCES", patched
+        ):
+            verdict = census.scene_verdict(scene_id)
+        self.assertEqual((), verdict.conflicting)
+        self.assertEqual(1, len(verdict.shared))
+        self.assertEqual((), verdict.disagreeing)
+
+    def test_a_roster_identity_outside_the_census_is_reported(self):
+        # The positive half: the computation really runs.  A roster row the
+        # census does not carry is the state that gets silently dropped on
+        # the wire, so the census has to be able to say it out loud.
+        class Ghost:
+            placement_index = 9000
+            actor_identity = 0x2000 + 9000 + 1
+            template_id = 1
+            display_name = "ghost"
+
+        real = field_mobs.roster_for_scene_id(2)
+        with unittest.mock.patch.object(
+            field_mobs, "roster_for_scene_id",
+            lambda scene_id: tuple(real) + (Ghost(),) if scene_id == 2 else (),
+        ):
+            verdict = census.scene_verdict(2, legacy=self.legacy)
+        self.assertEqual(
+            (Ghost.actor_identity,), verdict.roster_identities_absent_from_census
+        )
+        # And the distinct count really counts identities rather than census
+        # rows: on shipped data the two numbers are equal, so only a roster
+        # identity outside the census can tell them apart (M16).
+        self.assertEqual(verdict.census_count + 1, verdict.distinct_identities)
 
     def test_the_two_families_only_ever_share_the_same_placement(self):
         for scene_id, verdict in sorted(self.verdicts.items()):
@@ -310,9 +469,13 @@ class AcrossScenesTests(unittest.TestCase):
             "result worth reading, not a green test to keep",
         )
 
-    def test_at_least_one_identity_is_claimed_by_every_censused_scene(self):
+    def test_an_identity_is_shared_by_more_than_one_scene(self):
+        # ~~asserted that some identity is claimed by EVERY censused scene~~
+        # -- pf-adversary (D8) showed that is a false-red generator: one new
+        # scene mined with a non-overlapping placement range turns it red
+        # with nothing wrong.  The structural claim is the one that matters.
         widest = max(len(item.scenes) for item in self.ambiguities)
-        self.assertEqual(len(census.scene_ids_with_a_census()), widest)
+        self.assertGreaterEqual(widest, 2)
 
     def test_each_ambiguity_names_more_than_one_scene_in_ascending_order(self):
         for item in self.ambiguities:
@@ -335,7 +498,12 @@ class ConsoleLineTests(unittest.TestCase):
 
     def test_the_line_is_one_ascii_line_carrying_the_grep_token(self):
         line = census.describe_scene(2, legacy=self.legacy)
-        self.assertTrue(line.startswith(census.CONSOLE_TOKEN))
+        # The LITERAL token, not `census.CONSOLE_TOKEN` -- comparing the
+        # constant against itself let a rename survive while every grep
+        # pattern and every document naming it silently stopped matching
+        # (pf-adversary D7).
+        self.assertTrue(line.startswith("GM_IDENTITY_CENSUS"), line)
+        self.assertEqual("GM_IDENTITY_CENSUS", census.CONSOLE_TOKEN)
         self.assertNotIn("\n", line)
         line.encode("ascii")
 
@@ -355,26 +523,45 @@ class ConsoleLineTests(unittest.TestCase):
                     re.search(r"\b%s=%d\b" % (field, value), line), line
                 )
 
-    def test_a_scene_with_a_conflict_would_say_NO(self):
-        # The word only means something if the other word is reachable.
+    def test_the_line_really_says_NO_when_the_verdict_does(self):
+        # Driven through the PRINTER, not just the predicate: a mutant that
+        # printed `yes` unconditionally survived the first draft, because
+        # nothing could build a verdict that disagreed (pf-adversary D7).
+        disputed = census.DisputedIdentity(
+            identity=0x2001,
+            scene_id=2,
+            claims=(),
+            same_placement=False,
+            templates_agree=False,
+        )
         conflicted = census.SceneIdentityVerdict(
             scene_id=2,
             census_count=1,
             roster_count=1,
             distinct_identities=1,
-            conflicting=(
-                census.DisputedIdentity(
-                    identity=0x2001,
-                    scene_id=2,
-                    claims=(),
-                    same_placement=False,
-                    templates_agree=False,
-                ),
-            ),
+            conflicting=(disputed,),
             shared=(),
+            disagreeing=(),
             roster_identities_absent_from_census=(),
         )
         self.assertFalse(conflicted.is_unique_within_the_scene())
+        line = census.describe_verdict(conflicted)
+        self.assertIn("unique_within_scene=NO", line)
+        self.assertIn("conflicting=1", line)
+
+    def test_the_line_says_families_agree_NO_where_the_data_disagrees(self):
+        # Scene 1 is the shipped case, so this one needs no hand-built
+        # verdict at all.
+        line = census.describe_scene(population.SCENE_ID, legacy=self.legacy)
+        self.assertIn("families_agree=NO", line)
+        self.assertIn("disagreeing=4", line)
+        self.assertIn(
+            "families_agree=yes", census.describe_scene(2, legacy=self.legacy)
+        )
+
+    def test_the_printer_refuses_something_that_is_not_a_verdict(self):
+        with self.assertRaises(census.IdentityCensusError):
+            census.describe_verdict("scene=2")
 
 
 class ThisModuleUnlocksNothingTests(unittest.TestCase):
@@ -393,9 +580,15 @@ class ThisModuleUnlocksNothingTests(unittest.TestCase):
         # stripped and what is left is what the interpreter executes.  Same
         # rule `name_color_gate` is held to, applied to the file that could
         # most easily smuggle a scheme in.
-        for banned in ("FontStyleID", "fontstyle", "0x8000_0000", "-0x2000"):
+        # NORMALISED before the comparison: pf-adversary (D6) got
+        # `FONT_STYLE_ID` and `0x80000000` past the first draft's literal
+        # list.  Underscores out, case folded, so the spellings collapse.
+        normalised = (
+            self.executable_source().replace("_", "").lower()
+        )
+        for banned in ("fontstyleid", "fontstyle", "0x80000000", "-0x2000"):
             with self.subTest(banned=banned):
-                self.assertNotIn(banned, self.executable_source())
+                self.assertNotIn(banned.replace("_", "").lower(), normalised)
 
     def executable_source(self) -> str:
         path = PACKAGE / "gm" / "identity_registry_census.py"
@@ -427,12 +620,41 @@ class ThisModuleUnlocksNothingTests(unittest.TestCase):
         self.assertIn("def scene_verdict", stripped)
 
     def test_it_writes_nothing_and_composes_no_frame(self):
-        source = (
-            PACKAGE / "gm" / "identity_registry_census.py"
-        ).read_text(encoding="utf-8")
-        for banned in ("open(", "write", "compose", "send", "socket"):
-            with self.subTest(banned=banned):
-                self.assertNotIn(banned + "(", source)
+        # ~~substring bans on `open(`/`write(`/...~~ -- pf-adversary (D6)
+        # walked straight past them with `write_text(`, and proved it by
+        # creating a file on disk while the suite stayed green.  A spelling
+        # ban cannot express "no side effects"; the import surface can.
+        # Nothing in this module may reach a filesystem, a process, or a
+        # socket, so nothing it imports may be able to.
+        tree = ast.parse(
+            (PACKAGE / "gm" / "identity_registry_census.py").read_text(
+                encoding="utf-8"
+            )
+        )
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.level == 0 and node.module:
+                    imported.add(node.module.split(".")[0])
+                else:
+                    imported.update(alias.name for alias in node.names)
+        forbidden = imported & {
+            "os", "io", "sys", "pathlib", "shutil", "socket", "subprocess",
+            "tempfile", "sqlite3", "json", "csv", "struct", "pickle",
+        }
+        self.assertEqual(set(), forbidden, sorted(imported))
+        # And the calls it makes are its own or the tables'; no builtin that
+        # can reach outside the process.
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertEqual(
+            set(), called & {"open", "exec", "eval", "compile", "__import__"}
+        )
 
 
 if __name__ == "__main__":

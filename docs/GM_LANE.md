@@ -7953,19 +7953,37 @@ rows behind `population.load_port_royal_placements`, and both live `field_mobs` 
 reports who claims which wire identity. It sends no byte, writes nothing, grants no GM status, and
 chooses no identity value.
 
+**What was already runnable, said first, because the first draft of this section implied nothing
+was.** `field_mobs` exports `same_scene_identity_collisions` and `cross_scene_identity_collisions`
+-- between MOB TABLES -- and all fourteen families already refuse duplicate placement indices at
+import (`world_bgXXXX_identity._self_check`, `population.load_port_royal_placements`, five guards in
+`field_mobs`). What had no runner: the twelve `world_bgXXXX_identity` census tables, the comparison
+BETWEEN the census family and the mob family inside one scene, and the cross-scene ambiguity as data.
+
 **What it measured, on the tables at `1864e4a`.**
 * The identity offset is READ BACK from all sixteen sources and agrees everywhere; it is not a
   constant in the file, so the day one family renumbers, `measured_identity_offset` raises by name
   instead of a hardcoded number quietly disagreeing with the wire.
-* **Within a scene the claim holds**: no scene hands one identity to two different placements, and
-  the distinct-identity count equals the census row count in all fourteen. Measured, not asserted.
-* **Across scenes it does not**: 113 identity values are handed out by more than one scene, and one
-  value is handed out by all fourteen. An identity is NOT a key on its own -- `(scene_id, identity)`
-  is. That is the runnable form of the defect `field_mobs.scene_for_scene_id` already documents in
-  prose, from the round a player in Bg0002 landed a hit that debited a Port Royal monster.
-* Every field-mob roster identity is also a census identity OF THE SAME SCENE. That containment is
-  what keeps `world_population.apply_identity_override` -- keyed by identity alone -- from refusing
-  a key its generation does not carry. Nothing else enforced it; a test does now.
+* **Within a scene there is nothing left to discover, and the module says so.** `actor_identity` is
+  a property returning the placement index plus one constant in every family, so inside one scene an
+  identity collision IS an index collision -- and duplicate indices are already refused at import,
+  fourteen times over. pf-adversary (D1) measured that the "no identity names two placements" check
+  is therefore unreachable, and that a mutant filing every dispute as benign survived the whole
+  first draft. It is now labelled a TRIPWIRE for the day the formula grows a scene term, driven
+  directly by a test rather than asserted empty against shipped data.
+* **Across scenes uniqueness does not hold**: 113 identity values are handed out by more than one
+  scene, and **28** of them are handed out by all fourteen. An identity is NOT a key on its own --
+  `(scene_id, identity)` is. That is the runnable form of the defect `field_mobs.scene_for_scene_id`
+  already documents in prose, from the round a player in Bg0002 landed a hit that debited a Port
+  Royal monster.
+* Every field-mob roster identity is also a census identity OF THE SAME SCENE, and the reason that
+  matters is the opposite of what this section first said. `world_population.apply_identity_override`
+  does **not** refuse a key its generation does not carry: it is
+  `entries.append(override.get(identity, original))`, and that function's own docstring says a
+  missing key "is not an error". So a roster identity outside the census is SILENTLY DROPPED -- the
+  monster's bytes never leave, the client draws the census NPC in that slot, and nothing raises or
+  logs. Worse than a refusal, which is why the containment is pinned, and pinned by recomputing it
+  rather than reading the field back.
 * **Scene 1's two families disagree about what four identities ARE**: the census says template 97
   `Mutant Green Eagle`, the roster says template 916 `Training Iron Man`, on the same placement.
   That is not reported as a defect -- the override exists precisely to replace those census entries
@@ -7984,10 +8002,25 @@ negative-identity scheme is proposed here; no `FontStyleID` appears in the execu
 test strips docstrings before it looks, and a second test proves the stripper strips). Closing a
 precondition the order names is not permission to do the thing the order forbids.
 
+**pf-adversary, round `g0nqnz`, and what it changed before this landed.** It wrote 22 mutants plus
+three evasions and three real-data injections, and **nine mutants survived the first draft**. D1
+(the unreachable check above) rewrote the module's central claim; D3 corrected the override sentence
+in the opposite direction; D5 caught `test_a_family_that_renumbers_makes_the_offset_refuse` never
+calling the function it was named for; D6 created a real file on disk at import time while the suite
+stayed green, because the "writes nothing" guard banned the spelling `write(` and not `write_text(`
+-- that guard is now an import-surface check plus a normalised token ban; D7 renamed the console
+token and survived, because the only assertion compared the constant against itself; D8 showed one
+test was a false-red generator for any future scene mined with a non-overlapping index range. All
+nine are dead as of this commit, re-measured mutant by mutant. Two findings were accepted as stated
+rather than fixed: the module's fifteen parent-package imports are a coupling outlier for this lane
+(a census has to read the tables it censuses), and claim 5 survived the attack intact.
+
 **What the tester can do today that she could not yesterday.** Yesterday, an attended tester who saw
 a hit land on the wrong body, or a server log naming a monster she was not looking at, had no way to
-ask whether that scene hands one identity to two actors -- the answer lived in a comment in one
-module's docstring about one scene. Today `describe_scene(scene_id, legacy=...)` answers it for any
-scene in one greppable ASCII line, `GM_IDENTITY_CENSUS ... unique_within_scene=yes|NO`, and names
-how many identities the two families share. `CORE-REQUEST-GM-050` asks chief for the one call site
-in `runtime.py` that would print it at scene entry; until that lands she runs it herself.
+ask what else in that scene answers to that number, or whether the two halves of the server agree
+about what the number IS -- the answer lived in a comment in one module's docstring about one scene.
+Today `describe_scene(scene_id, legacy=...)` answers it for any scene in one greppable ASCII line,
+`GM_IDENTITY_CENSUS ... disagreeing=N ... unique_within_scene=yes|NO families_agree=yes|NO`, and
+scene 1 answers `families_agree=NO disagreeing=4` today. `CORE-REQUEST-GM-050` asks chief for the
+one call site in `runtime.py` that would print it at scene entry; until that lands she runs it
+herself.

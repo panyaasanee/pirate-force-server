@@ -27,6 +27,18 @@ fixed, only unrealised", and ``field_mobs.scene_for_scene_id`` records a round
 where it WAS realised.  This module turns the claim into measurements a test
 can hold, and it reports what it measures rather than what the comment says.
 
+WHAT WAS ALREADY RUNNABLE, named because the first draft of this docstring
+implied nothing was (pf-adversary, round ``g0nqnz``, D10).  ``field_mobs``
+exports ``same_scene_identity_collisions`` and
+``cross_scene_identity_collisions`` -- between MOB TABLES.  And every family
+already refuses duplicate placement indices at import, so WITHIN one family
+uniqueness has never been in doubt (see
+:data:`IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX` for why that settles
+within-scene uniqueness outright).  What had no runner at all, and is what
+this module adds: the twelve ``world_bgXXXX_identity`` census tables, the
+comparison BETWEEN the census family and the mob family inside one scene,
+and the cross-scene ambiguity as data rather than as a sentence.
+
 What it does NOT do, said before the API so nobody reads past it
 ----------------------------------------------------------------
 * It does not propose, allocate, or validate a NEGATIVE identity scheme.
@@ -301,11 +313,16 @@ def roster_claims(scene_id: int) -> tuple[IdentityClaim, ...]:
 class DisputedIdentity:
     """One identity two families both claim, with what each says it is.
 
-    ``same_placement`` is the whole point.  Two families naming the SAME
-    placement index are describing ONE actor -- that is containment, not a
-    collision.  Two families naming DIFFERENT placement indices under one
-    identity in one scene generation is the real thing, and nothing in this
-    repository would resolve it.
+    ~~"Two families naming DIFFERENT placement indices under one identity in
+    one scene generation is the real thing"~~ -- STRUCK THE ROUND THAT WROTE
+    IT.  pf-adversary (round ``g0nqnz``, D1) measured that ``same_placement``
+    is True for EVERY dispute this code can construct, and it is right: see
+    :data:`IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX`.  The reachable dispute
+    is the other field.
+
+    ``templates_agree`` is the one that can be False on shipped data, and is
+    (scene 1, four identities).  ``same_placement`` is kept as a TRIPWIRE for
+    the day the identity formula grows a scene term, not as a live check.
     """
 
     identity: int
@@ -313,6 +330,34 @@ class DisputedIdentity:
     claims: tuple[IdentityClaim, ...]
     same_placement: bool
     templates_agree: bool
+
+
+#: WHY ONE OF THE TWO CHECKS BELOW CANNOT FIRE TODAY, said in the module
+#: rather than discovered by the next reader.
+#:
+#: ``actor_identity`` is a ``@property`` in every family -- ``population``,
+#: ``scene2_prison_exile_tables``, ``field_mobs`` and all twelve
+#: ``world_bgXXXX_identity`` modules -- and every one of them returns the
+#: placement index plus one constant (:func:`measured_identity_offset` reads
+#: that back rather than asserting it).  So WITHIN one scene
+#: ``identity_a == identity_b`` if and only if ``index_a == index_b``, and a
+#: dispute with two DIFFERENT placement indices is unreachable while that
+#: holds.  Duplicate INDICES are already refused at import by each family's
+#: own guard (``world_bgXXXX_identity._self_check`` raises "actor identities
+#: collide within this table"; ``population.load_port_royal_placements``
+#: raises "duplicate placement index"; ``field_mobs`` carries five such).
+#:
+#: So this module does NOT claim to have discovered within-scene uniqueness.
+#: It claims to have made the CROSS-FAMILY and CROSS-SCENE comparisons
+#: runnable, which no guard covers, and it keeps the within-scene check as
+#: the thing that goes red the day ``actor_identity`` grows a scene term and
+#: the equivalence above stops holding.
+IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX = (
+    "within one scene an identity collision IS a placement-index collision, "
+    "because every family composes identity as index + one constant; the "
+    "per-family import guards already refuse duplicate indices, so the "
+    "conflicting bucket is a tripwire for a formula change, not a discovery"
+)
 
 
 @dataclass(frozen=True)
@@ -323,35 +368,62 @@ class SceneIdentityVerdict:
     census_count: int
     roster_count: int
     distinct_identities: int
-    #: Two families, one identity, DIFFERENT placements.  Empty today; the
-    #: test pins the emptiness so the day it stops being empty is red.
+    #: Two families, one identity, DIFFERENT placements.  UNREACHABLE while
+    #: the identity formula holds -- see
+    #: :data:`IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX`.  Kept as the
+    #: tripwire for the day it stops holding, and labelled as one.
     conflicting: tuple[DisputedIdentity, ...]
-    #: Two families, one identity, one placement -- the override relationship
-    #: ``world_population.apply_identity_override`` is keyed on.
+    #: Two families, one identity, one placement -- the relationship
+    #: ``world_population.apply_identity_override`` walks.
     shared: tuple[DisputedIdentity, ...]
+    #: The subset of ``shared`` where the two families name DIFFERENT MOBS
+    #: templates for the one actor.  THIS is the reachable dispute, and it is
+    #: non-empty on shipped data (scene 1).
+    disagreeing: tuple[DisputedIdentity, ...]
     #: Roster rows whose identity NO census row in the same scene claims.
-    #: The override door refuses a key its generation does not carry, so this
-    #: being non-empty is a boot-time refusal waiting to happen.
+    #:
+    #: ~~"the override door refuses a key its generation does not carry, so
+    #: this being non-empty is a boot-time refusal waiting to happen"~~ --
+    #: STRUCK, and it was backwards.  pf-adversary (round ``g0nqnz``, D3)
+    #: read ``world_population.apply_identity_override`` and measured it:
+    #: ``entries.append(override.get(identity, original))``, and that
+    #: function's own docstring says a key the generation does not carry "is
+    #: not an error".  So a roster identity missing from the census is
+    #: SILENTLY DROPPED -- the monster's bytes never leave, the client draws
+    #: the census NPC in that slot, and nothing raises or logs.  That is
+    #: worse than a refusal, which is why the containment is pinned.
     roster_identities_absent_from_census: tuple[int, ...]
 
     def is_unique_within_the_scene(self) -> bool:
-        """True iff no identity in this scene names two different placements."""
+        """True iff no identity in this scene names two different placements.
+
+        A corollary of the identity formula today, not an independent
+        measurement -- see :data:`IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX`.
+        """
         return not self.conflicting
+
+    def families_agree_on_every_shared_actor(self) -> bool:
+        """True iff no identity has two families naming two templates."""
+        return not self.disagreeing
 
 
 def scene_verdict(scene_id: int, *, legacy: Any = None) -> SceneIdentityVerdict:
     """Census both families for one scene and compare them claim by claim.
 
     WHAT THE FIRST RUN OF THIS FUNCTION FOUND, recorded here because it is
-    the reason the ``templates_agree`` field exists: in scene 1 the roster
-    and the census DISAGREE about what four identities are.  Placement 103
-    is template 97 to ``population`` and template 916 to ``field_mobs``, and
-    the two carry different display names.  That is not a bug this module
-    fixes or reports as one -- ``world_population.apply_identity_override``
-    exists precisely to replace those census entries with the roster's bytes,
-    so exactly one of the two reaches a client.  It IS worth a reader's
-    attention, because an attended tester reading a server log will see one
-    name where the census printed another, and until now nothing said so.
+    the reason the ``disagreeing`` bucket exists: in scene 1 the roster and
+    the census DISAGREE about what four identities are.  Placement 103 is
+    template 97 to ``population`` and template 916 to ``field_mobs``, and the
+    two carry different display names.  Both numbers are real
+    ``CONSTDATA_TH__MOBS.n_ID`` rows, so it is not two numbering spaces being
+    compared -- see :func:`_template_of` for how that was ruled out.
+
+    That is not a bug this module fixes or reports as one:
+    ``world_population.apply_identity_override`` exists precisely to replace
+    those census entries with the roster's bytes, so exactly one of the two
+    reaches a client.  It IS worth a reader's attention, because an attended
+    tester reading a server log will see one name where the census printed
+    another, and until now nothing said so.
     """
     census = census_claims(scene_id, legacy=legacy)
     roster = roster_claims(scene_id)
@@ -376,6 +448,10 @@ def scene_verdict(scene_id: int, *, legacy: Any = None) -> SceneIdentityVerdict:
         )
         (shared if disputed.same_placement else conflicting).append(disputed)
 
+    disagreeing = tuple(
+        disputed for disputed in shared if not disputed.templates_agree
+    )
+
     census_identities = {claim.identity for claim in census}
     absent = tuple(
         sorted(
@@ -391,6 +467,7 @@ def scene_verdict(scene_id: int, *, legacy: Any = None) -> SceneIdentityVerdict:
         distinct_identities=len(by_identity),
         conflicting=tuple(conflicting),
         shared=tuple(shared),
+        disagreeing=disagreeing,
         roster_identities_absent_from_census=absent,
     )
 
@@ -464,17 +541,27 @@ def cross_scene_ambiguities(*, legacy: Any = None) -> tuple[CrossSceneAmbiguity,
     )
 
 
-def describe_scene(scene_id: int, *, legacy: Any = None) -> str:
+def describe_verdict(verdict: SceneIdentityVerdict) -> str:
     """One console line an attended tester can grep for.
 
     ASCII, one line, no caller-supplied text -- the same discipline every
     console line in this lane carries, for the same reason (the bridge
     console is cp874 and a name off a table is not this lane's text).
+
+    Split from :func:`describe_scene` so the ``NO`` words can be REACHED by a
+    test: pf-adversary (round ``g0nqnz``, D7) measured that a mutant printing
+    ``yes`` unconditionally survived the whole file, because nothing could
+    build a verdict that says otherwise without re-mining a table.
     """
-    verdict = scene_verdict(scene_id, legacy=legacy)
+    if type(verdict) is not SceneIdentityVerdict:
+        raise IdentityCensusError(
+            "describe_verdict needs a SceneIdentityVerdict, not %s"
+            % type(verdict).__name__
+        )
     return (
         "%s scene=%d census=%d roster=%d distinct=%d conflicting=%d "
-        "shared=%d roster_absent_from_census=%d unique_within_scene=%s"
+        "shared=%d disagreeing=%d roster_absent_from_census=%d "
+        "unique_within_scene=%s families_agree=%s"
         % (
             CONSOLE_TOKEN,
             verdict.scene_id,
@@ -483,7 +570,14 @@ def describe_scene(scene_id: int, *, legacy: Any = None) -> str:
             verdict.distinct_identities,
             len(verdict.conflicting),
             len(verdict.shared),
+            len(verdict.disagreeing),
             len(verdict.roster_identities_absent_from_census),
             "yes" if verdict.is_unique_within_the_scene() else "NO",
+            "yes" if verdict.families_agree_on_every_shared_actor() else "NO",
         )
     )
+
+
+def describe_scene(scene_id: int, *, legacy: Any = None) -> str:
+    """Census one scene and describe it in one line."""
+    return describe_verdict(scene_verdict(scene_id, legacy=legacy))
