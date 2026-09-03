@@ -256,8 +256,9 @@ MOB_AGGRO_MILESTONE = "MOB-AGGRO-001"
 # for whichever half the reader had in mind.  Two names now, one fact each,
 # each DERIVED by its own card and neither one hand-typed twice.
 MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
-# The other half, and the reason the name above got narrower.  runtime.py:5887
-# gates the tick behind lane_hooks.module_production_allowed(...), and
+# The other half, and the reason the name above got narrower.  The branch at
+# runtime.py:5888 gates the tick behind
+# lane_hooks.module_production_allowed(), with the argument on 5889, and
 # lane_hooks.__init__ prefixes a name that does not already start with its own
 # __name__ - so the string that call site was handed,
 # "lane_hooks.lane_b_mob_ai_tick", resolved to
@@ -280,8 +281,17 @@ MOB_AGGRO_DAMAGE_FOLD_REACHABLE = True
 # module_production_allowed(), and requires this constant to equal the answer.
 # So the day the chief lands 1648 this test goes red BY ITSELF, on the true
 # answer, and whoever landed it has to come here and say so.  It cannot go
-# stale in the quiet direction, which is exactly how the name above stayed
-# wrong for eight days.
+# stale in the quiet direction, which is exactly how the name above went
+# unnoticed.
+#
+# NOT EIGHT DAYS -- THREE.  A draft of this line said eight, which is the
+# number two paragraphs up, and that number belongs to a DIFFERENT fact:
+# how long MOB_AGGRO_DISPATCH_REACHABLE sat pinned False against a FOLD
+# that had been reachable since 2026-08-26.  The gate below is younger.
+# The wiring that carries the broken argument landed in 5ac93b31 on
+# 2026-08-31, so the tick has been refused for three days.  pf-adversary
+# D4 of round `a7k5gy` measured it: reading your own artifact's number
+# without reading what it is a number OF is how this lane keeps paying.
 MOB_AGGRO_TICK_REACHABLE = False
 # What is still NOT true, and is a different claim entirely: nothing this lane
 # decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.

@@ -162,9 +162,12 @@ class WiringLineTests(unittest.TestCase):
         # 'lane_hooks.lane_b_mob_ai_tick', the chief pasted it verbatim into
         # runtime.py:5887 as an order from this file is meant to be pasted, and
         # lane_hooks.__init__ prefixed it into a key that exists nowhere.  The
-        # gate answered False on every frame for eight days and the only card
-        # watching was a substring search for "maybe_tick(", which stayed green
-        # because the CALL was there; the gate above it was not being read.
+        # gate answered False on every frame from the day the wiring landed
+        # (5ac93b31, 2026-08-31 -- three days, not the eight a draft of this
+        # comment borrowed off a neighbouring fact, pf-adversary D4) and the
+        # only card watching was a substring search for "maybe_tick(", which
+        # stayed green because the CALL was there; the gate above it was not
+        # being read.
         #
         # THE GUARD, and why it is shaped like this: a literal in an order is
         # wrong in a way no reader sees, because it is a string in prose and
@@ -178,21 +181,40 @@ class WiringLineTests(unittest.TestCase):
         line = lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING
         opener = "module_production_allowed("
         self.assertIn(opener, line)
-        # The ARGUMENT ONLY, not the whole order.  A first draft of this card
-        # forbade any quoted word starting "lane" anywhere in the string, and
-        # that is a false-accusation waiting to happen: this same order
-        # already quotes 'from .lane_hooks import lane_b_mob_ai_tick' as the
-        # import a future round must add, which is prose about a source line,
-        # not a key handed to a resolver.  What may not be a literal is the
-        # thing the GATE is asked, so that is what gets read.
-        argument = line.split(opener, 1)[1].split(")", 1)[0]
-        self.assertEqual(
-            argument, "lane_b_mob_ai_tick.MODULE_NAME",
+        # THE ARGUMENTS ONLY, AND ALL OF THEM.  Two earlier drafts of this
+        # card were wrong in opposite directions and pf-adversary measured
+        # both (D5):
+        #  * the first forbade any quoted word starting "lane" ANYWHERE in the
+        #    string.  Over-broad: this same order already quotes
+        #    'from .lane_hooks import lane_b_mob_ai_tick' as the import a
+        #    future round must add -- prose about a source line, not a key
+        #    handed to a resolver -- and any future 'lane_id' dict key or
+        #    'lane_b_tick' telemetry string would be accused of the
+        #    20260903_1647 defect it has nothing to do with.
+        #  * the second read only the FIRST module_production_allowed( in the
+        #    order.  Under-broad: an order that gates correctly on
+        #    MODULE_NAME and then gates a SECOND lane on a hand-typed key
+        #    passed every assertion, the chief pastes it, and the identical
+        #    bug ships one module over in a line this card certified.
+        # So: every gate the order places, and what may not appear in any of
+        # their arguments is a quote.
+        arguments = [chunk.split(")", 1)[0]
+                     for chunk in line.split(opener)[1:]]
+        for argument in arguments:
+            for quote in ("'", '"'):
+                self.assertNotIn(
+                    quote, argument,
+                    "the wiring order hands a gate a hand-typed key (%r): "
+                    "that is the exact defect COO-DECISION 20260903_1647 "
+                    "item 3 ordered removed from this line, and a literal "
+                    "here is wrong in a way no reader of prose can see"
+                    % (argument,))
+        self.assertIn(
+            "lane_b_mob_ai_tick.MODULE_NAME", arguments,
             "the wiring order must hand the gate this module's own "
             "MODULE_NAME, so the argument cannot drift from the key "
-            "lane_hooks._discover() registered -- it currently orders "
-            "%r, and a hand-typed key there is the exact defect "
-            "COO-DECISION 20260903_1647 item 3 ordered removed" % (argument,))
+            "lane_hooks._discover() registered -- it currently orders %r"
+            % (arguments,))
         # And the attribute it orders has to EXIST and be the registry key, or
         # the order is a different kind of wrong: runtime.py would raise
         # AttributeError instead of silently answering False.
@@ -202,36 +224,20 @@ class WiringLineTests(unittest.TestCase):
             "MODULE_NAME is not this module's own __name__, so it is not the "
             "key lane_hooks registers it under")
 
-    def test_the_gate_answers_true_to_the_name_the_wiring_orders(self):
-        # The order above is only worth anything if the key it names actually
-        # opens the gate.  Asked with THIS module's MODULE_NAME -- the value
-        # the corrected call site will pass -- the real, fail-closed lookup
-        # must answer True.  Measured here rather than assumed, because the
-        # round that wrote the broken order also believed its string worked.
-        #
-        # NOT A CLAIM THAT THE TICK RUNS.  runtime.py still passes the old
-        # literal until the chief lands ticket 1648; what is False today, and
-        # by how the gate answers rather than by anyone's say-so, is pinned in
-        # mob_aggro.MOB_AGGRO_TICK_REACHABLE and derived from runtime.py's AST
-        # by tests/test_mob_aggro.py::test_the_tick_gate_is_reported_not_assumed.
-        # reachable is not observable either way (mob_aggro's own NONCLAIMS).
-        from pirateforce_foundation import lane_hooks
-        self.assertIs(
-            lane_hooks.module_production_allowed(
-                lane_b_mob_ai_tick.MODULE_NAME), True)
-
-    def test_runtime_py_now_calls_maybe_tick_per_coo_decision_0145(self):
-        # WAS test_nothing_in_runtime_py_calls_maybe_tick_yet (pinned
-        # NotIn), until COO-DECISION 20260901_0145 ordered lane B to paste
-        # LANE_B_MOB_AI_TICK_WIRING into runtime.py's dispatch() this round.
-        # Flipped rather than deleted -- the history is that this file was
-        # readiness-only from round iok5z1 until this round.
-        runtime_source = (SRC_ROOT / "runtime.py").read_text(
-            encoding="utf-8")
-        self.assertIn("lane_b_mob_ai_tick", runtime_source)
-        self.assertIn(
-            "lane_b_mob_ai_tick.maybe_tick(", runtime_source,
-            "the wiring must call maybe_tick(), not just import the module")
+    # ~~test_the_gate_answers_true_to_the_name_the_wiring_orders~~ -- WRITTEN
+    # AND DELETED IN THE SAME ROUND (`a7k5gy`), by pf-adversary D3, which is
+    # the round's own subject caught in the round's own new code.  It asserted
+    # module_production_allowed(MODULE_NAME) is True.  But _discover()
+    # registers under __name__, the card above already requires MODULE_NAME to
+    # EQUAL __name__, and test_production_allowed_is_true_with_no_flag already
+    # pins the flag -- so it was a whole test that could only fail after one of
+    # those had already failed.  Decoration, and this diff's own prose condemns
+    # it twelve lines away: "repeating it here would be a second copy, not a
+    # second guard."  The one place that expression earns its keep is inside
+    # tests/test_mob_aggro.py::test_the_tick_gate_is_reported_not_assumed,
+    # where it is the CONTROL that separates "the argument did not resolve"
+    # from "the lane was switched off" -- two states the gate answers
+    # identically, on purpose, by its own docstring.
 
     def test_this_module_and_runtime_py_are_the_only_importers_in_src(self):
         # WAS test_this_module_is_the_only_importer_of_itself_in_src

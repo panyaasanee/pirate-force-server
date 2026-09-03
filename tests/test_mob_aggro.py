@@ -232,6 +232,75 @@ def _calls_the_tick(nodes, aliases) -> bool:
     return False
 
 
+def methods_reachable_from_dispatch(runtime_tree) -> set:
+    """Method names ``dispatch`` reaches through ``self.<method>()``.
+
+    pf-adversary D6 of round `a7k5gy`: the fold card walks FROM ``dispatch``
+    before it will call anything reachable, and the tick card did not -- it
+    accepted an ``if`` anywhere in the module.  Failure scenario it measured:
+    the chief lands ticket 1648 and in the same commit moves the block into a
+    helper he forgets to call from ``dispatch``.  The tick card would then go
+    red demanding ``True``, this lane would dutifully publish
+    ``mob_aggro_tick_reachable: true`` into the shipped pin, and the tick would
+    still never run.  A card that pushes its own lane into an unmeasured claim
+    is worse than no card.  Same standard for both constants now.
+    """
+    self_calls = {}
+    for node in ast.walk(runtime_tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        mine = set()
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and isinstance(inner.func.value, ast.Name)
+                    and inner.func.value.id == "self"):
+                mine.add(inner.func.attr)
+        self_calls.setdefault(node.name, set()).update(mine)
+    seen = set()
+    frontier = ["dispatch"]
+    while frontier:
+        name = frontier.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        frontier.extend(self_calls.get(name, ()))
+    return seen
+
+
+def _positive_conjuncts(test) -> list:
+    """The operands of ``test`` that must ALL be truthy for the branch to run.
+
+    pf-adversary D1 of round `a7k5gy`, and it was severe: the first draft
+    searched ``ast.walk(node.test)`` for the gate call and never looked at how
+    its RESULT was used.  Three edits at runtime.py:5888 -- ``not gate(...)``,
+    ``gate(...) is False``, ``gate(...) or True`` -- each make the tick run on
+    every frame while the card stays green and the shipped pin goes on saying
+    the tick is refused.  (They died, but in LANE-A's census card by
+    side-effect, which is a stranger holding the door shut, not a guard.)
+    A gate reached through ``not``, a comparison, or an ``or`` is therefore not
+    a gate this card will read: it is returned nowhere, and the caller raises.
+    """
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        found = []
+        for value in test.values:
+            found.extend(_positive_conjuncts(value))
+        return found
+    return [test]
+
+
+def _dotted(node) -> str:
+    """``a.b.c`` for an attribute chain of plain names, else ``""``."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
 def tick_gate_argument(runtime_tree):
     """The value runtime.py's tick gate really hands ``module_production_allowed``.
 
@@ -244,46 +313,86 @@ def tick_gate_argument(runtime_tree):
 
     Returns ``(value, how)`` where ``how`` names the FORM found, so a failure
     message can say whether the call site passes a literal or the module's own
-    ``MODULE_NAME``.  Raises ``AssertionError`` when the call site cannot be
-    found or is written in a form this card cannot resolve -- silence is the
-    one answer that must not be available, since a card that quietly finds
-    nothing is the same as no card.
+    ``MODULE_NAME``.
+
+    WHAT IT ACCEPTS, widened after pf-adversary D2 measured three of the
+    chief's plausible correct fixes going red with a message that accused him
+    of removing wiring he had just repaired: the gate called as
+    ``lane_hooks.module_production_allowed(...)`` or bare after a ``from``
+    import; the argument passed positionally or as ``module_name=``; and the
+    attribute written ``lane_b_mob_ai_tick.MODULE_NAME`` or
+    ``lane_hooks.lane_b_mob_ai_tick.MODULE_NAME``.
+
+    Raises ``AssertionError`` when the call site cannot be found, or is gated
+    through a negation/comparison/``or`` (see ``_positive_conjuncts``), or
+    passes an argument this card cannot resolve.  Silence is the one answer
+    that must not be available: a card that quietly finds nothing is no card.
     """
     aliases = module_aliases(runtime_tree)
-    for node in ast.walk(runtime_tree):
-        if not isinstance(node, ast.If) or not _calls_the_tick(node.body, aliases):
+    reachable = methods_reachable_from_dispatch(runtime_tree)
+    saw_the_branch = False
+    for owner in ast.walk(runtime_tree):
+        if not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        for inner in ast.walk(node.test):
-            if not isinstance(inner, ast.Call):
+        if owner.name not in reachable:
+            continue
+        for node in ast.walk(owner):
+            if not isinstance(node, ast.If):
                 continue
-            callee = inner.func
-            if not isinstance(callee, ast.Attribute):
+            if not _calls_the_tick(node.body, aliases):
                 continue
-            if callee.attr != "module_production_allowed":
-                continue
-            spelled = inner.args[0] if inner.args else None
-            for keyword in inner.keywords:
-                if keyword.arg == "module_name":
-                    spelled = keyword.value
-            if spelled is None:
-                continue
-            if isinstance(spelled, ast.Constant) and isinstance(
-                    spelled.value, str):
-                return spelled.value, "a hand-typed string literal"
-            if (isinstance(spelled, ast.Attribute)
-                    and isinstance(spelled.value, ast.Name)):
-                stem = aliases.get(spelled.value.id, spelled.value.id)
-                if stem.rsplit(".", 1)[-1] == "lane_b_mob_ai_tick":
-                    return (getattr(lane_b_mob_ai_tick, spelled.attr),
-                            "lane_b_mob_ai_tick.%s" % spelled.attr)
+            saw_the_branch = True
+            for operand in _positive_conjuncts(node.test):
+                if not isinstance(operand, ast.Call):
+                    continue
+                callee = operand.func
+                if isinstance(callee, ast.Attribute):
+                    called = callee.attr
+                elif isinstance(callee, ast.Name):
+                    called = callee.id
+                else:
+                    continue
+                if called != "module_production_allowed":
+                    continue
+                spelled = operand.args[0] if operand.args else None
+                for keyword in operand.keywords:
+                    if keyword.arg == "module_name":
+                        spelled = keyword.value
+                if spelled is None:
+                    continue
+                if isinstance(spelled, ast.Constant) and isinstance(
+                        spelled.value, str):
+                    return spelled.value, "a hand-typed string literal"
+                dotted = _dotted(spelled)
+                if dotted:
+                    head, _, attribute = dotted.rpartition(".")
+                    stem = aliases.get(head.split(".")[0], head.split(".")[0])
+                    if (head.rsplit(".", 1)[-1] == "lane_b_mob_ai_tick"
+                            or stem.rsplit(".", 1)[-1] == "lane_b_mob_ai_tick"):
+                        return (getattr(lane_b_mob_ai_tick, attribute),
+                                "lane_b_mob_ai_tick.%s" % attribute)
+                raise AssertionError(
+                    "runtime.py gates the tick on an argument this card "
+                    "cannot resolve (%s): teach it the new form, do not "
+                    "delete the card" % ast.dump(spelled))
             raise AssertionError(
-                "runtime.py gates the tick on an argument this card cannot "
-                "resolve (%s): teach it the new form, do not delete the card"
-                % ast.dump(spelled))
+                "runtime.py still branches on module_production_allowed "
+                "around the tick, but the gate is no longer a bare positive "
+                "conjunct of that branch's condition -- it is behind a not, a "
+                "comparison, or an or.  That inverts what the gate MEANS "
+                "without changing what it ANSWERS, which is the one shape "
+                "this card cannot read and the one shape that would let the "
+                "tick run while the shipped pin says it is refused.")
     raise AssertionError(
-        "no if-branch in runtime.py both calls lane_b_mob_ai_tick.maybe_tick "
-        "and gates on module_production_allowed: either the wiring was "
-        "removed or it was rewritten in a shape this card cannot read")
+        "this card found no branch that calls lane_b_mob_ai_tick.maybe_tick "
+        "inside a method runtime.py's dispatch() reaches. THIS IS NOT AN "
+        "ACCUSATION THAT THE WIRING IS BROKEN: it is equally what a correct "
+        "repair looks like if the branch moved somewhere this card does not "
+        "walk. %s Either way the tick's reachability is no longer measured, "
+        "so come and teach the card the new shape."
+        % ("The branch exists but is gated in a shape this card rejects."
+           if saw_the_branch else
+           "No such branch was found at all."))
 
 
 def profile(**overrides):
@@ -1129,6 +1238,23 @@ class ContainmentTests(unittest.TestCase):
         # is observable by a player -- ATTACK_INTENT_DELIVERABLE is pinned
         # False by test_the_lane_is_not_reachable_from_production_dispatch,
         # and repeating it here would be a second copy, not a second guard.
+        #
+        # WHAT THIS CARD STILL DOES NOT MEASURE, and the next round owes it.
+        # pf-adversary closed round `a7k5gy` on this question and it is the
+        # right one: this card asks WHAT THE GATE ANSWERS to the argument the
+        # call site passes.  The fact the constant is NAMED for is whether
+        # maybe_tick() actually executes on a frame.  Those two coincide only
+        # while the gate call is a bare positive conjunct of the branch
+        # condition inside a method dispatch reaches -- which the helpers above
+        # now require, and which is the whole reason they do.  But requiring
+        # the SHAPE is not the same as watching the CALL happen.  So the day
+        # the chief lands ticket 1648 and this card goes red, RED IS NOT
+        # PERMISSION TO WRITE True HERE ON THE STRENGTH OF A DICTIONARY HIT:
+        # the behavioural half belongs beside
+        # tests/test_mob_ai_control_dispatch.py, which drives the real
+        # dispatcher headless, and until a card there shows tick_step running
+        # on a frame, the shipped pin must not carry a reachability claim
+        # nobody executed.
 
     # THE ANSWER THE GATE GIVES AT EVERY CALL SITE THAT SPELLS ITS OWN NAME.
     # Measured 2026-09-03, round `42vxv6`.  Key is "<file>::<spelling>", value

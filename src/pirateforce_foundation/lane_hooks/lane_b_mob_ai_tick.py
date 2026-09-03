@@ -130,21 +130,25 @@ POINT = "vital_inbound_target_pos_mob_ai_tick"
 # ROUND `a7k5gy`, COO-DECISION 2026-09-03T16:47+07:00 item 3 -- THE GATE
 # STRING BELOW USED TO BE A HAND-TYPED LITERAL AND IT WAS WRONG.  This line
 # said ``lane_hooks.module_production_allowed('lane_hooks.lane_b_mob_ai_tick')``
-# and the chief pasted it into runtime.py:5887 character for character, as an
-# order from this file is meant to be pasted.  But lane_hooks.__init__
-# (:553-556) prefixes any name that does not already start with its own
+# and the chief pasted it into runtime.py:5888-5889 character for character,
+# as an order from this file is meant to be pasted.  But lane_hooks.__init__
+# (:550-554) prefixes any name that does not already start with its own
 # ``__name__``, so that argument resolved to
 # ``pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick`` -- a key
 # that exists nowhere -- and the fail-closed lookup answered False on every
-# frame from the day the wiring landed.  The tick never ran, for anyone.
+# frame from the day the wiring landed (5ac93b31, 2026-08-31: three days,
+# not the eight a draft of this comment borrowed off a neighbouring fact --
+# pf-adversary D4).  The tick never ran, for anyone.
 #
 # The COO's ruling on whose fault that is, kept here because it is the useful
 # half: HALF THE DEBT IS THIS LANE'S.  The chief copied what this file told
 # him to copy.  So the order now names ``lane_b_mob_ai_tick.MODULE_NAME``,
-# which runtime.py can already reach (it imports this module at runtime.py:41)
+# which runtime.py can already reach (it imports this module at runtime.py:42)
 # and which cannot drift from the key ``_discover()`` actually registered,
 # because it IS that key.  A literal here can be wrong in a way no reader
-# sees; an attribute cannot.
+# sees; an attribute cannot.  THE ORDER IS NOT THE CALL SITE: runtime.py
+# still passes the old literal, and the tick is still refused on every
+# frame, until the chief lands ticket 1648.
 #
 # tests/test_lane_b_mob_ai_tick.py::WiringLineTests refuses to let this line
 # go back to a literal, and tests/test_mob_aggro.py reads the argument out of
