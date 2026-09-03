@@ -27,12 +27,14 @@ door; this round's first draft put the composer beside it and the full suite
 caught it.  The split is not an evasion of that card, because the thing the
 card protects is provenance and the provenance here is different: the block
 this module composes never comes from the vitals door.  It comes from the
-chief's read point, and it may only be composed at all once LANE-DB's own
-adjudicator says every row in it has an honest value.  Reported to the COO
-as a deviation from the file ``0045`` named.
+chief's read point, and every row this door adjudicates comes from
+``gm/attr_wire.named_field_x()`` -- LANE-DB's ``persistence_attr_compose``
+adjudicator is withdrawn from this door entirely (``COO-DECISION
+20260904_0546``, pf-adversary D2; see "THE GATES" below).  Reported to the
+COO as a deviation from the file ``0045`` named.
 
-THE FOUR GATES, IN THE ORDER THEY ARE CHECKED
----------------------------------------------
+THE GATES, IN THE ORDER THEY ARE CHECKED
+-----------------------------------------
 1. :data:`MOB_HIT_FRAME_CONFIRMED` -- THIS LANE'S, gate (ii) of ``0045``
    point 3.  ``None`` today.
 2. ``gm/attr_wire``'s full-block unlock -- LANE-GM'S, gate (i).  Absent
@@ -46,10 +48,25 @@ THE FOUR GATES, IN THE ORDER THEY ARE CHECKED
    would mean two copies of the player's state on one connection, and the
    next ``/lv`` would re-assert the HP this frame just changed
    (pf-adversary D6, which measured exactly that on the first draft).
-4. LANE-DB'S ADJUDICATOR.  ``persistence_attr_compose.block_gaps`` is the
-   in-repo module that already answers "may the server put a value in a
-   0x309A block at all", and at this commit it answers NO for all 55 rows.
-   Nothing here overrides it or reimplements it.
+4. THE LIVE VALUE SOURCE, checked against ``gm/attr_wire.named_field_x()``
+   -- the 26-row set a hit frame is "about" -- and NEVER against LANE-DB's
+   55-row ``persistence_attr_compose.compose_full_block``/``block_gaps``.
+   ``COO-DECISION 20260904_0546`` settled a question this module's own
+   NONCLAIMS section used to leave open: that module is LANE-DB's own
+   persistence composer, not a gate of this wire door, and it is WITHDRAWN
+   from this door's adjudication path entirely (pf-adversary round
+   ``f2qyxx``, D2).  What is checked here is narrower and cheaper than an
+   adjudicator: every key the live source hands back must be a real row of
+   ``attr_wire.FIELDS`` (:data:`STANDDOWN_LIVE_SOURCE_NOT_A_FIELD`) and must
+   be one of the 26 named rows (:data:`STANDDOWN_LIVE_SOURCE_NOT_NAMED`).
+   COMPLETENESS of that set is not asked of the live source either: the
+   bytes this door actually composes come from the CONNECTION's own
+   ``RawBlockCache`` (gate 3), never from the live source, and
+   ``attr_wire.build_named_field_update`` already refuses a cache that does
+   not satisfy ``attr_wire.all_field_x()`` in full -- LANE-GM's own gate,
+   unwidened by this round.  A caller whose live source names fewer than
+   all 26 rows still reaches a named refusal; it is simply the encoder's,
+   one gate later than before (see :data:`STANDDOWN_ENCODER_REFUSED`).
 
 WHY "FULL BLOCK" IS A REQUIREMENT AND NOT A PREFERENCE.  ``RE-222`` (static,
 SHA-pinned, LANE-GM) established that the client's apply path for 0x309A is
@@ -57,8 +74,13 @@ a FULL-OBJECT COPY: every field the frame omits comes back as the fresh
 constructor's zero.  A hit frame carrying ``hp_current`` alone would zero
 the player's cash and HP-max -- which is not an analogy for ``GT-218``, it
 is what ``GT-218`` was.  So this module composes a 55-row block or it
-composes nothing, and "55" is enforced by the adjudicator above rather than
-by a count written here.
+composes nothing, and "55" is enforced by ``gm/attr_wire.build_named_field_
+update`` (against ``all_field_x()``, on the CONNECTION's cache) rather than
+by a count written here.  SUPERSEDED 2026-09-04, ``COO-DECISION
+20260904_0546``: it used to be LANE-DB's ``persistence_attr_compose.
+block_gaps`` this door consulted directly for the same "55 or nothing"
+promise; that dependency is withdrawn (pf-adversary D2).  The requirement
+itself did not move -- only which gate enforces it did.
 
 NONCLAIMS
 ---------
@@ -98,7 +120,6 @@ from __future__ import annotations
 import struct
 from typing import Any, Dict, Optional, Tuple
 
-from . import persistence_attr_compose
 from .gm import attr_wire
 from .mob_ai_player_damage import (
     HP_FLOOR,
@@ -180,8 +201,13 @@ STANDDOWN_NO_SESSION_CACHE = "no_session_cache"
 STANDDOWN_NO_LIVE_SOURCE = "no_live_source"
 STANDDOWN_LIVE_SOURCE_REFUSED = "live_source_refused"
 STANDDOWN_LIVE_SOURCE_NOT_A_FIELD = "live_source_not_a_field"
-STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED = "live_source_not_server_owned"
-STANDDOWN_BLOCK_NOT_ADJUDICATED = "block_not_adjudicated"
+#: RENAMED from ``STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED`` (pf-adversary
+#: round f2qyxx D2, ``COO-DECISION 20260904_0546``): this door no longer
+#: measures a live row against LANE-DB's ``SERVER_OWNED_FIELDS`` -- it
+#: measures it against ``gm/attr_wire.named_field_x()``, the 26-row set a
+#: hit frame is "about".  The old name would now describe a check this
+#: module does not make.
+STANDDOWN_LIVE_SOURCE_NOT_NAMED = "live_source_not_named"
 STANDDOWN_ENCODER_REFUSED = "encoder_refused"
 
 MOB_HIT_FRAME_STAND_DOWN_REASONS = (
@@ -191,18 +217,19 @@ MOB_HIT_FRAME_STAND_DOWN_REASONS = (
     STANDDOWN_NO_LIVE_SOURCE,
     STANDDOWN_LIVE_SOURCE_REFUSED,
     STANDDOWN_LIVE_SOURCE_NOT_A_FIELD,
-    STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED,
-    STANDDOWN_BLOCK_NOT_ADJUDICATED,
+    STANDDOWN_LIVE_SOURCE_NOT_NAMED,
     STANDDOWN_ENCODER_REFUSED,
 )
 
-#: Everything the encoder or the adjudicator can throw at this door.
+#: Everything the encoder can throw at this door.  ``persistence_attr_
+#: compose.AttrComposeError`` used to be named here too; it is withdrawn
+#: along with the import (pf-adversary D2, ``COO-DECISION 20260904_0546``)
+#: -- this door no longer calls anything that can raise it.
 #: ``struct.error`` is a ``ValueError`` subclass on CPython but is named
 #: anyway, because that inheritance is an implementation detail nobody here
 #: should have to know.
 _ENCODER_ERRORS = (
     attr_wire.AttrWireError,
-    persistence_attr_compose.AttrComposeError,
     struct.error,
     TypeError,
     ValueError,
@@ -297,16 +324,16 @@ def compose_player_hit_frame(
 ) -> Optional[Tuple[bytes, bytes]]:
     """The ``UpdateAttrVital`` a hit would send -- composed, never sent.
 
-    Returns ``(pc, frame)`` only when all four gates are open AND LANE-DB's
-    adjudicator agrees every row of the block has an honest value.  In every
-    other case it prints exactly one named :func:`hit_frame_stand_down_line`
-    and returns ``None``.  At this commit every call returns ``None`` at the
-    first gate.
+    Returns ``(pc, frame)`` only when all the gates in the module docstring
+    are open AND the live value source names rows entirely within
+    ``gm/attr_wire.named_field_x()``.  In every other case it prints exactly
+    one named :func:`hit_frame_stand_down_line` and returns ``None``.  At
+    this commit every call returns ``None`` at the first gate.
 
     NOTHING BELOW RAISES ONCE THE ARGUMENTS ARE VALID.  This runs inside a
     walking player's own dispatch, so a hook that explodes, an encoder that
-    refuses, a row LANE-GM renamed and a value the adjudicator will not
-    stand behind are all STAND-DOWNS with a name, never an exception.  What
+    refuses, a row LANE-GM renamed and a value the encoder will not accept
+    are all STAND-DOWNS with a name, never an exception.  What
     does raise is a bad ARGUMENT -- a caller passing an HP this lane is
     forbidden to write is a programmer error, and swallowing it behind a
     gate that will one day be open is how it would reach a player.
@@ -379,40 +406,24 @@ def compose_player_hit_frame(
                    % (sorted(map(repr, not_fields)),))
         return None
 
-    # LANE-DB's adjudicator only accepts values for rows IT considers
-    # server-owned; a value for any other row cannot honestly enter a block
-    # (`persistence_attr_compose.compose_full_block` refuses them outright,
-    # and this door names the refusal instead of catching an exception).
-    stray = sorted(x for x in live
-                   if x not in persistence_attr_compose.SERVER_OWNED_FIELDS)
+    # A hit frame is "about" the 26-row NAMED set only, never LANE-DB's
+    # 55-row persistence block -- `COO-DECISION 20260904_0546`, which
+    # withdrew `persistence_attr_compose` (`compose_full_block`/
+    # `block_gaps`) from this door's adjudication path entirely
+    # (pf-adversary D2).  A value for any row outside `named_field_x()`
+    # cannot honestly be something a hit frame is about.
+    named = set(attr_wire.named_field_x())
+    stray = sorted(x for x in live if x not in named)
     if stray:
-        stand_down(STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED,
-                   "the read point supplied rows LANE-DB does not treat as "
-                   "server-owned: %r" % (stray,))
-        return None
-
-    # -- the adjudicator: the answer to "is this block complete?" ----------
-    # NOT a count written here, and not this lane's opinion.  At this commit
-    # it answers NO for all 55 rows, which is why a reader who opens the
-    # console finds this line and not a frame.
-    gaps = persistence_attr_compose.block_gaps(live)
-    if gaps:
-        stand_down(
-            STANDDOWN_BLOCK_NOT_ADJUDICATED,
-            "persistence_attr_compose.block_gaps names %d row(s) with no "
-            "honest value; first: %s"
-            % (len(gaps), ", ".join(
-                "x=%d(%s):%s" % (g.x, g.field_name, g.reason)
-                for g in gaps[:3])))
+        stand_down(STANDDOWN_LIVE_SOURCE_NOT_NAMED,
+                   "the read point supplied rows outside "
+                   "gm.attr_wire.named_field_x(): %r" % (stray,))
         return None
 
     # -- compose, through the ONE encoder 0045 names -----------------------
     try:
         rows = hit_frame_vital_rows()
-        # Composed and written NOWHERE.  This is the last place a value the
-        # adjudicator passed can still blow up (a struct range, a wstr that
-        # will not encode), and it must blow up here as a named stand-down
-        # rather than inside LANE-GM's encoder.
+        # Composed and written NOWHERE.
         #
         # pf-adversary round f2qyxx D7, MEASURED: these two lines used to be
         #     if not cache.is_captured(): cache.capture_initial(block)
@@ -424,7 +435,20 @@ def compose_player_hit_frame(
         # refuses to MAKE a cache; not writing one this door did not seed is
         # the same rule, and it was missing.  An unseeded cache is the
         # ENCODER's refusal to name, and it already names it.
-        persistence_attr_compose.compose_full_block(live)
+        #
+        # COMPLETENESS of the 55-row block is NOT checked here (round
+        # f2qyxx D2 withdrew the duplicate check this door used to run
+        # through `persistence_attr_compose.compose_full_block`, whose
+        # result was called for and then thrown away).  It is checked by
+        # `attr_wire.build_named_field_update` itself, against the
+        # CONNECTION's own cache and `attr_wire.all_field_x()` -- the one
+        # place a struct range or an un-encodable wstr can still blow up,
+        # and it blows up there as a named `AttrWireError`, caught below as
+        # a stand-down rather than let out (pf-adversary D12: three of this
+        # module's own bad-value regression payloads never used to reach
+        # that far, because the withdrawn duplicate check intercepted them
+        # first on the strength of a `live` dict that was never even the
+        # source of the bytes this function sends).
         return attr_wire.build_named_field_update(
             legacy, cache, identity_lo, identity_hi,
             rows[HIT_FRAME_CHANGED_FIELD_NAME], hp_after,
