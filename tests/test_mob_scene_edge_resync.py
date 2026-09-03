@@ -47,9 +47,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import world_scene_folder  # noqa: E402
 from pirateforce_foundation import world_scene_travel  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_b_mob_ai_tick,
+)
 from pirateforce_foundation.gm.warp_executor import WarpTarget  # noqa: E402
 from pirateforce_foundation.gm.warp_target_record import (  # noqa: E402
     SESSION_ATTRIBUTE as GM_WARP_TARGET_SESSION_ATTRIBUTE,
@@ -75,6 +79,10 @@ STEP_ANCHOR = (11.0, 22.0, 33.0)
 AWAY_SCENE_ID = 278
 AWAY_FOLDER = "Bg1177"
 KILLER = 0x1234
+# The real resolver captured at import, so a test can patch
+# scene_folder_for_scene_id to return None for ONE unaddressed id while
+# every other scene still resolves truthfully.
+_REAL_FOLDER = world_scene_folder.scene_folder_for_scene_id
 
 
 def _legacy():
@@ -295,16 +303,16 @@ class SceneEdgeResyncTests(unittest.TestCase):
             "floor of the scene the player left",
         )
 
-    def test_an_unaddressed_scene_empties_the_resident_register(self):
-        # THE #2 FIX (pf-adversary round pk14rf).  313 of the 330 GM-warpable
-        # scene ids are not addressed by world_scene_folder.  Standing in one
-        # must leave the register the tick reads EMPTY -- an early draft
-        # returned early on folder=None and left bg0001's four rows in place,
-        # so MOB_AI_TICK_LIVE still printed mobs=4 in a scene with no mobs.
-        # Booted on the home scene (bg0001, four rows), then the folder
-        # lookup is forced to None the way an unaddressed scene resolves.
-        state = self._booted("edge_unaddressed_empty")
-        self.assertEqual(len(state.mob_ai_register.rows), 4)
+    def test_an_unaddressed_scene_leaves_the_combat_state_untouched(self):
+        # RECONCILED WITH LANE-B (pf-adversary round pk14rf finding 2 vs
+        # test_scene_scoped_combat_wiring).  An unaddressed scene is a
+        # refusal, not an arrival: the combat folder, ledger and register
+        # must stay on the departed scene here.  The tick lie is killed at
+        # the tick (next card), not by swapping the scene on a refusal.
+        state = self._booted("edge_unaddressed_untouched")
+        folder_before = state.mob_combat_scene_folder
+        ids_before = state.mob_combat_ledger.identities()
+        rows_before = state.mob_ai_register.rows
         state.foundation.selected = replace(
             state.foundation.selected,
             position=replace(
@@ -315,25 +323,54 @@ class SceneEdgeResyncTests(unittest.TestCase):
             world_scene_folder, "scene_folder_for_scene_id",
             return_value=None,
         ):
-            self._step(state)
-        self.assertEqual(
-            state.mob_ai_register.rows, (),
-            "an unaddressed scene left the departed scene's mobs in the "
-            "register the tick reads",
+            state._sync_combat_scene_at_edge()
+        self.assertEqual(state.mob_combat_scene_folder, folder_before)
+        self.assertEqual(state.mob_combat_ledger.identities(), ids_before)
+        self.assertEqual(state.mob_ai_register.rows, rows_before)
+
+    def test_the_tick_does_not_fire_in_a_scene_the_register_is_not_for(self):
+        # THE #2 FIX, at the tick.  313 of the 330 GM-warpable scene ids are
+        # unaddressed; standing in one leaves the register on the departed
+        # scene (card above), so the tick and its MOB_AI_TICK_LIVE line must
+        # NOT run off it -- that is the exact scene=N mobs=4 lie.  The gate
+        # compares the current scene's folder to the register's; they
+        # disagree here, so nothing fires and nothing prints.
+        state = self._booted("edge_tick_guard")
+        # Force production_allowed so the ONLY thing standing the tick down
+        # is the folder-agreement guard, not the lane switch.
+        previous = lane_hooks._PRODUCTION_ALLOWED.get(
+            lane_b_mob_ai_tick.MODULE_NAME)
+        lane_hooks._PRODUCTION_ALLOWED[
+            lane_b_mob_ai_tick.MODULE_NAME] = True
+        self.addCleanup(
+            lane_hooks._PRODUCTION_ALLOWED.__setitem__,
+            lane_b_mob_ai_tick.MODULE_NAME, previous)
+        state.foundation.selected = replace(
+            state.foundation.selected,
+            position=replace(
+                state.foundation.selected.position, scene_id=12,
+            ),
         )
-        self.assertEqual(state.mob_combat_ledger.identities(), ())
-        self.assertIsNone(state.mob_combat_scene_folder)
-        self.assertTrue(any(
-            e.startswith("combat_scene_edge_unaddressed_12_from_bg0001")
-            for e in state.events
-        ), "the unaddressed clear left no trail (scar #5: a silent skip)")
+        with mock.patch.object(
+            world_scene_folder, "scene_folder_for_scene_id",
+            side_effect=lambda sid: (
+                None if sid == 12
+                else _REAL_FOLDER(sid)
+            ),
+        ):
+            out, err = self._step(state)
+        self.assertEqual(
+            [l for l in out.splitlines() if l.startswith(LIVE_TOKEN)], [],
+            "MOB_AI_TICK_LIVE printed off a register that is not this "
+            "scene's -- the scene=N mobs=4 lie",
+        )
+        self.assertNotIn(lane_b_mob_ai_tick.MODULE_NAME, err)
 
     def test_an_unaddressed_scene_still_refuses_an_attack_by_name(self):
-        # Emptying the resident register (above) must NOT change the attack
+        # Leaving the combat state alone (above) must NOT change the attack
         # path's own answer: _dispatch_mob_combat calls _sync_combat_scene_
         # state itself, which re-resolves the folder and returns None for an
-        # unaddressed scene, so an attack there still refuses by name rather
-        # than resolving against the emptied structures.
+        # unaddressed scene, so an attack there still refuses by name.
         state = self._booted("edge_unaddressed_attack")
         state.foundation.selected = replace(
             state.foundation.selected,

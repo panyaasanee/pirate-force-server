@@ -4391,18 +4391,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             evaluated once; a walking player in a settled scene costs one
             int compare and nothing else.
 
-            THE UNADDRESSED SCENE IS EMPTIED, NOT LEFT STALE.  When the
-            player stands in a scene ``world_scene_folder`` does not address
-            (313 of the 330 GM-warpable ids, pf-adversary round pk14rf), the
-            resident register the tick reads must be EMPTY -- otherwise it
-            ticks the departed scene's mobs in a scene that has none, which
-            is the ``MOB_AI_TICK_LIVE scene=N mobs=4`` lie this whole change
-            exists to kill.  This is a different question from the ATTACK
-            path's "no roster" refusal: that path calls
-            ``_sync_combat_scene_state`` itself, which re-resolves the folder
-            and answers ``None`` independently, so emptying the resident
-            structures here does not weaken it -- an attack in an
-            unaddressed scene still refuses by name.
+            AN UNADDRESSED SCENE IS LEFT UNTOUCHED HERE, and the lie is
+            killed at the tick instead.  When the player stands in a scene
+            ``world_scene_folder`` does not address (313 of the 330
+            GM-warpable ids, pf-adversary round pk14rf), the register the
+            tick reads would otherwise still hold the departed scene's mobs
+            -- the ``MOB_AI_TICK_LIVE scene=N mobs=4`` lie R306/R307 caught.
+            An early draft emptied the register HERE, but that swaps the
+            combat scene on a refusal, which LANE-B's scene-scoped-combat
+            contract forbids ("a refusal is not an arrival",
+            test_scene_scoped_combat_wiring: mob_combat_scene_folder must
+            stay on the departed scene, and the attack path refuses on its
+            own by re-resolving the folder to None).  So the two are
+            reconciled by leaving the combat state alone here and gating the
+            TICK on the register's folder matching the scene the player
+            stands in (see ``dispatch``): the tick and its live line skip
+            until the two agree, no scene swap required.  This method's job
+            narrows to the ADDRESSED scene change -- the case that actually
+            has a new roster to open.
 
             GROUND ROWS ARE NOT TOUCHED, and this is a condition of the
             ruling above ("re-open the ledger MUST NOT delete ground rows",
@@ -4458,25 +4464,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 )
                 if folder == self.mob_combat_scene_folder:
                     return
-                departed = self.mob_combat_scene_folder
                 if folder is None:
-                    # Unaddressed: the resident roster the tick reads must be
-                    # empty, or it ticks the departed scene's mobs here.  Not
-                    # the attack path's refusal -- that re-resolves and says
-                    # None on its own.  open_ledger((), scene=None) and an
-                    # empty register are the truthful "no mobs stand here".
-                    self.mob_combat_ledger = mob_combat.open_ledger(
-                        (), scene=None
-                    )
-                    self.mob_ai_register = mob_ai_control.open_register(
-                        (), epoch=0
-                    )
-                    self.mob_combat_scene_folder = None
-                    self.events.append(
-                        f"combat_scene_edge_unaddressed_{scene_id}_from_"
-                        f"{departed}_roster_cleared"
-                    )
+                    # Unaddressed scene: leave the combat structures exactly
+                    # where they are.  LANE-B's scene-scoped-combat contract
+                    # (test_scene_scoped_combat_wiring, "a refusal is not an
+                    # arrival") requires mob_combat_scene_folder to stay on
+                    # the departed scene here, and the attack path refuses on
+                    # its own by re-resolving the folder to None.  The lie
+                    # this ruling exists to kill -- MOB_AI_TICK_LIVE reading
+                    # a stale register -- is stopped at the tick instead (see
+                    # dispatch's folder-agreement guard), which needs no
+                    # scene swap and so does not collide with that contract.
+                    # scene_id is already advanced above, so this costs one
+                    # folder lookup per arrival, not one per frame.
                     return
+                departed = self.mob_combat_scene_folder
                 self._sync_combat_scene_state()
                 self.events.append(
                     f"combat_scene_edge_resynced_{departed}_to_{folder}"
@@ -6083,8 +6085,26 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     getattr(self, "mob_ai_register", None) is not None and
                     getattr(self, "mob_combat_ledger", None) is not None and
                     self.foundation.selected is not None and
+                    world_scene_folder.scene_folder_for_scene_id(
+                        self.foundation.selected.position.scene_id
+                    ) == self.mob_combat_scene_folder and
                     lane_hooks.module_production_allowed(
                         lane_b_mob_ai_tick.MODULE_NAME)):
+                # THE REGISTER MUST BE FOR THE SCENE THE PLAYER STANDS IN
+                # (pf-adversary round pk14rf, finding 2, reconciled with
+                # LANE-B's scene-scoped-combat contract).  The scene-edge
+                # detector re-opens the register on every ADDRESSED scene
+                # change, but an UNADDRESSED scene is a refusal that leaves
+                # the combat structures on the departed scene by decree
+                # (test_scene_scoped_combat_wiring: "a refusal is not an
+                # arrival"), and a same-dispatch scene relabel is one frame
+                # ahead of the detector.  In both cases the resident
+                # register is NOT this scene's, and ticking it -- or
+                # printing MOB_AI_TICK_LIVE off it -- is the exact
+                # scene=278 mobs=4 lie R306/R307 caught.  Comparing the
+                # current scene's folder against the one the register was
+                # opened on skips the tick until the two agree, without
+                # touching the combat state the attack path owns.
                 # COO-DECISION 2026-09-03T16:48+07:00 item 3, LANE-B's
                 # CORE-REQUEST 20260903_1639.  This argument used to be the
                 # hand-typed string "lane_hooks.lane_b_mob_ai_tick", which
