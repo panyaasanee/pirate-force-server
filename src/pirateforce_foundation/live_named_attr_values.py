@@ -111,7 +111,12 @@ THIS MODULE NEVER SENDS AND NEVER WRITES.  It reads.  Every caller of it is
 on a path that composes bytes somewhere else, behind its own gate
 (COO-DECISION 20260904_0047 item 1: "do not send bytes from this point").
 """
+import sys
 from typing import Any, Callable
+
+#: The one token a console grep can look for when this module answers less
+#: than it should.  ASCII, and it never carries a character's data.
+READ_REFUSED_CONSOLE_TOKEN = "LIVE_ATTR_READ_REFUSED"
 
 
 #: The rows ``named_field_x()`` asks for that this server cannot reach AT ALL
@@ -138,7 +143,18 @@ def named_rows_wanted() -> tuple[int, ...]:
     return attr_wire.named_field_x()
 
 
-def values_for(store, character_id) -> dict:
+def _say(stream, text: str) -> None:
+    """One ASCII line about a swallowed failure, on a stream that may be
+    closed.  Never raises: a module that exists to keep a listener thread
+    alive may not die reporting that it nearly did."""
+    try:
+        print("".join(c for c in text if 32 <= ord(c) <= 126),
+              file=sys.stderr if stream is None else stream)
+    except Exception:  # noqa: BLE001 - a broken stream is not this bug
+        pass
+
+
+def values_for(store, character_id, *, stream=None) -> dict:
     """Every named row this repository really knows for ``character_id``.
 
     Returns a dict keyed by ``x``.  A row with no honest source is ABSENT --
@@ -152,6 +168,15 @@ def values_for(store, character_id) -> dict:
     are "we know nothing about this character", which is a complete and
     honest answer here and becomes a named per-row refusal one layer up.
     An empty dict is therefore a real answer, not an error signal.
+
+    NEVER SILENT EITHER, and the first draft was (pf-adversary, round
+    ``dwvbpm``, D9): it swallowed both reads with no console line at all, so a
+    renamed store method, a typo'd column or a database that never migrated
+    became a permanently empty answer that looked exactly like a character
+    nobody has seeded.  Every swallow now names itself on ``stream``
+    (default stderr), ASCII only -- the bridge console is cp874.  The
+    character's own data is never printed: the line names the failure, not
+    the row.
 
     ``store`` is duck-typed on purpose: the two methods it needs are read-only
     and already public, and the tests hand in a stub rather than a migrated
@@ -167,7 +192,9 @@ def values_for(store, character_id) -> dict:
         from . import persistence_typed_attrs as typed_attrs  # noqa: PLC0415
 
         columns = store.read_typed_attributes(character_id)
-    except Exception:  # noqa: BLE001 - see docstring
+    except Exception as error:  # noqa: BLE001 - see docstring
+        _say(stream, f"{READ_REFUSED_CONSOLE_TOKEN} typed_columns "
+                     f"{type(error).__name__}")
         columns = {}
     else:
         x_for_column = {
@@ -186,7 +213,9 @@ def values_for(store, character_id) -> dict:
     if 1 in wanted:
         try:
             name = store.get_character(character_id).name
-        except Exception:  # noqa: BLE001 - see docstring
+        except Exception as error:  # noqa: BLE001 - see docstring
+            _say(stream, f"{READ_REFUSED_CONSOLE_TOKEN} character_row "
+                         f"{type(error).__name__}")
             name = None
         if isinstance(name, str) and name:
             values[1] = name
@@ -205,5 +234,9 @@ def source_for_store(store) -> Callable[[Any], dict]:
     """
     def read_live_named_attr_values(character_id) -> dict:
         return values_for(store, character_id)
+
+    read_live_named_attr_values.__qualname__ = (
+        "live_named_attr_values.source_for_store.read_live_named_attr_values"
+    )
 
     return read_live_named_attr_values
