@@ -419,9 +419,41 @@ def apply_tick_damage(
 #: inside 275 units of Bg0002 placement 92, because that roster row is
 #: offensive and the cadence constant is 1.  Grinding a player to 1 HP with
 #: no frame telling them is not a decision this lane may take alone, so the
-#: order below goes to the COO with three options in this round's letter
-#: (throttle in this lane / cadence from a mined column / wire as is) and to
-#: the chief only after an answer.  [LANE-B assumption -- awaiting COO.]
+#: order below WENT to the COO with three options in round nfrrqa's letter
+#: (throttle in this lane / cadence from a mined column / wire as is).
+#:
+#: ANSWERED, round `5pvte3`, 2026-09-04: COO-DECISION 20260903_2050 (cc
+#: chief) rejected options 1 and 2 outright and left option 3 open only on
+#: a condition neither this module nor the `1952` letter had named yet --
+#: the write may go live ONLY together with a frame the player actually
+#: sees land (``UpdateAttrVital``, the same frame LANE-GM's RE-222 was
+#: already decoding).  RE-222 answered PARTIAL the same night: its Q0 gives
+#: the exact ``UpdateAttrVital``/``ActorAttr`` wire container and proves
+#: the apply path is a FULL-OBJECT COPY -- any BasicAttr/ActorAttr field
+#: this lane's frame omits reverts to the fresh constructor's zero, which
+#: is what zeroed GT-218's cash and HP-max.
+#:
+#: WHAT "PREPARE DOOR B" (the COO's own next-step wording) NEEDS, AND WHERE
+#: IT ALREADY LIVES: the byte offset and presence-mask bit for
+#: hp_current/hp_max/mp_current/mp_max inside BasicAttr.  This round found
+#: it is NOT an open research question -- it is already named, as
+#: ``known=True`` rows, in ``gm/attr_wire.FIELDS`` (LANE-GM's module, rows
+#: 3-6: mask 0x0004/offset 0x044 hp_current, 0x0008/0x048 hp_max,
+#: 0x0010/0x04C mp_current, 0x0020/0x050 mp_max), sourced from the owner's
+#: own live ``PF_ADHOC_ATTR_PROBE`` run (266 commands, one connection, no
+#: crash) rather than a static guess.  What is NOT true yet, checked the
+#: same round: that module's own send gate,
+#: ``gm.attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED``, is locked to every
+#: caller except one scoped exception (``/speed`` sparse x=7 only,
+#: COO-DECISION 2026-09-01T18:47+07:00), and that module's own docstring
+#: says its 3-point unlock condition (b) -- lossless preservation of every
+#: UNNAMED field -- is still open.  So this is not an RE gap, it is a
+#: CROSS-LANE ONE: whether combat damage reuses ``gm/attr_wire.py``'s
+#: encoder (and inherits its still-open unlock condition) or LANE-B builds
+#: an independent, narrower encoder against the same four named rows is an
+#: architecture question this lane has not been given and has not decided.
+#: See this round's letter to COO. [LANE-B assumption -- awaiting COO; not
+#: an RE ticket, because the RE fact already exists and is cited above.]
 #:
 #: BOTH EXPRESSIONS BELOW WERE READ OUT OF runtime.py, NOT COMPOSED: the
 #: store is fetched exactly as the pickup branch already fetches it
@@ -430,7 +462,13 @@ def apply_tick_damage(
 #: ``.id``, not ``.character_id``, which does not exist on that record).
 MOB_AI_PLAYER_DAMAGE_WIRING = (
     "MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD -- do not paste this line until "
-    "the COO answers pf_bridge/notes_to_chief/20260903_1952_LANE-B-ASK-COO-*"
+    "a Door B send path exists that fires UpdateAttrVital carrying the "
+    "full current BasicAttr/ActorAttr state (COO-DECISION 20260903_2050). "
+    "The field layout is not missing -- gm/attr_wire.FIELDS rows 3-6 "
+    "already name hp_current/hp_max/mp_current/mp_max's offset and mask -- "
+    "but that module's own send gate and its open lossless-preservation "
+    "condition are LANE-GM's, so which lane's encoder this door calls is "
+    "a COO architecture call, not an RE question"
     "; the rate it would run at is measured, not chosen (one HP per "
     "TargetPos frame for a player inside 275 units of Bg0002 placement 92, "
     "with no frame telling them). "
