@@ -618,14 +618,28 @@ class TheExecutedBirthNamesOnlyTheThreeTests(
 
     def test_the_trigger_layers_really_fire_on_a_migration_that_adds_one(self):
         """The mutation for the two trigger checks, run for real: a scratch
-        migration directory with an extra `010` that installs exactly the
+        migration directory with one extra file that installs exactly the
         forbidden trigger.  Both the schema read and the authorizer must
         report it -- otherwise those checks pass because the query is wrong
         rather than because the schema is clean (today `characters` carries
-        zero triggers, so the two are indistinguishable without this)."""
+        zero triggers, so the two are indistinguishable without this).
+
+        THE EXTRA FILE'S VERSION IS DERIVED, NOT A LITERAL `010`.  It was a
+        literal until round `5d02mu`, when `010_ground_drops.sql` landed for
+        real and this probe's own hard-coded `010` collided with it
+        (`RuntimeError: duplicate migration version`) -- the same class of
+        failure `BootSnapshotProtects008Tests.test_a_snapshot_is_due_while_
+        008_is_the_pending_file` hit for the same reason.  One free slot
+        past whatever this tree's own newest real migration is stays free
+        forever, unlike a number typed here.
+        """
         scratch = Path(self.tmp.name) / "migrations"
         shutil.copytree(MIGRATIONS, scratch)
-        (scratch / "010_probe_speed_trigger.sql").write_text(
+        newest = max(
+            int(path.name[:3])
+            for path in scratch.glob("[0-9][0-9][0-9]_*.sql")
+        )
+        (scratch / ("%03d_probe_speed_trigger.sql" % (newest + 1))).write_text(
             "CREATE TRIGGER pf_probe_speed AFTER INSERT ON characters\n"
             "BEGIN UPDATE characters SET %s=777.0 WHERE id=NEW.id; END;\n"
             % FOURTH_COLUMN, encoding="utf-8")
