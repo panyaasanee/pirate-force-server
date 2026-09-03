@@ -57,6 +57,15 @@ production_allowed = True
 POINT = "vital_inbound_trigger_vital"
 TOKEN = "LANE_A_TRIGGER_VITAL"
 
+# gm/lane_gate_name_audit.py's dead-hook-point half: this module registers a
+# point nothing fires yet, ON PURPOSE (see the paragraph above), and this is
+# the house declaration that says so out loud instead of leaving the audit to
+# report a defect.  It is a declaration, not a mute button: the audit's
+# inverse guard goes RED the moment something DOES fire this point, so the
+# chief PR that adds the `lane_hooks.fire("vital_inbound_trigger_vital", ...)`
+# call site must delete this line in the same commit.
+registered_but_not_fired = ("vital_inbound_trigger_vital",)
+
 # The trigger id rides in a tag 0x0F (u16 LE) field, per the R307 capture
 # shape `12 B2 1F 0B 01 0F <u16 trigger> 00 0B 04 2A x 2A y 2A z` (letter
 # notes_to_chief/20260903_1901, five frames, 69 bytes each).
@@ -142,7 +151,13 @@ def console_line(payload: bytes) -> str:
     )
 
 
-@hook(POINT)
+# The point name is spelled as a STRING LITERAL here, not as ``POINT``.
+# gm/lane_gate_name_audit.py reads @hook() arguments from source: a Name node
+# makes "no fire() call names this point" unanswerable for the WHOLE tree, and
+# the audit correctly refuses to grade any hook point in the repository while
+# one dynamic name is in play.  Measured -- the first draft of this file used
+# ``@hook(POINT)`` and turned that audit red for every lane.
+@hook("vital_inbound_trigger_vital")
 def _on_trigger_vital(session: object = None, payload: object = b"", **_ignored) -> None:
     # `session` is accepted and unused: the call site chief will write passes
     # it the way every other vital_inbound_* point does, and taking it here

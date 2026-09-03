@@ -126,6 +126,17 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         self.assertIs(hooklog.production_allowed, True)
         self.assertIs(lane_hooks.module_production_allowed(hooklog.__name__), True)
 
+    def test_the_never_fired_state_is_declared_the_way_the_audit_reads_it(self):
+        # gm/lane_gate_name_audit.py's dead-hook-point half reports a
+        # registered-but-never-fired point as a defect unless the module
+        # declares it.  Measured: without this declaration
+        # tests/test_gm_lane_gate_name_audit.py goes red on this file, and
+        # with a non-literal @hook() argument it goes red for the WHOLE tree.
+        from pirateforce_foundation.gm import lane_gate_name_audit as audit
+
+        self.assertEqual(hooklog.registered_but_not_fired, (hooklog.POINT,))
+        self.assertEqual(audit.dead_hook_point_findings(), ())
+
     def test_the_point_it_registers_on_is_not_fired_by_runtime_yet(self):
         # Truth-in-advertising for the module docstring: today the hook is
         # registered and never fires, and the CORE-REQUEST one-liner in the
