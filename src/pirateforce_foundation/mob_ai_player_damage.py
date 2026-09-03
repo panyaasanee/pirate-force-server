@@ -89,18 +89,28 @@ NONCLAIMS
   The day an attack-power column is mined, this constant is what that
   round deletes, and the tests below pin the SHAPE (clamped, floored, read
   back), never the number 1 alone.
-* NO claim that this composes a frame.  It sends nothing; the player's own
-  client is not told its HP changed by anything in this file.  A vital
-  frame for that is a separate decision this lane has not been given.
+* [SUPERSEDED round 096evp, 2026-09-04 -- kept, not deleted, because it was
+  true when it was written and a reader of an old letter will come looking
+  for it] ~~NO claim that this composes a frame.  It sends nothing; the
+  player's own client is not told its HP changed by anything in this file.
+  A vital frame for that is a separate decision this lane has not been
+  given.~~  The decision LANDED: ``COO-DECISION 20260904_0045`` gave this
+  lane the caller for that frame, and it is the DOOR B section at the foot
+  of this file.  What survives of the old sentence, unchanged and now
+  enforced by a gate rather than by an absence: NOTHING THIS FILE COMPOSES
+  REACHES A SOCKET.  See :data:`MOB_HIT_FRAME_CONFIRMED`.
+* NO claim that this file sends anything.  It composes; it has no socket, no
+  call site, and two shut gates.
 * NO claim about a second player.  ``tick_session`` sees exactly one, so a
   write here is always against the character its caller named.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 from . import mob_aggro
+from .gm import attr_wire
 
 # Same convention every other shippable module in this lane uses: True means
 # "no scenario flag needed, safe for every connection".  There is nothing a
@@ -442,6 +452,23 @@ def apply_tick_damage(
 #: 0x0010/0x04C mp_current, 0x0020/0x050 mp_max), sourced from the owner's
 #: own live ``PF_ADHOC_ATTR_PROBE`` run (266 commands, one connection, no
 #: crash) rather than a static guess.  What is NOT true yet, checked the
+#: ANSWERED IN FULL, round `096evp`, 2026-09-04: `COO-DECISION 20260904_0045`
+#: closed the cross-lane question below.  ONE encoder, `gm/attr_wire.py`,
+#: and LANE-B is its CALLER (option (b), a narrower LANE-B encoder, was
+#: rejected outright).  The caller is the DOOR B section at the foot of this
+#: file.  THE HOLD ON THIS ORDER DOES NOT LIFT WITH IT, and the reason is
+#: now two named gates instead of an unanswered question: the frame cannot
+#: leave until LANE-GM opens `attr_wire`'s full-block unlock (b') AND this
+#: lane sets :data:`MOB_HIT_FRAME_CONFIRMED`, and a live HP write with no
+#: frame the player sees is exactly what `20260903_2050` forbids.  So the
+#: two paragraphs below are HISTORY, not the current state: they describe
+#: the question, and `0045` is the answer.
+#:
+#: [SUPERSEDED -- the open cross-lane question, kept for the reader of an
+#: older letter] ~~which lane's encoder this door calls is an architecture
+#: question this lane has not been given and has not decided~~ -- decided,
+#: see above.
+#:
 #: same round: that module's own send gate,
 #: ``gm.attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED``, is locked to every
 #: caller except one scoped exception (``/speed`` sparse x=7 only,
@@ -452,8 +479,12 @@ def apply_tick_damage(
 #: encoder (and inherits its still-open unlock condition) or LANE-B builds
 #: an independent, narrower encoder against the same four named rows is an
 #: architecture question this lane has not been given and has not decided.
-#: See this round's letter to COO. [LANE-B assumption -- awaiting COO; not
-#: an RE ticket, because the RE fact already exists and is cited above.]
+#: See this round's letter to COO. ~~[LANE-B assumption -- awaiting COO; not
+#: an RE ticket, because the RE fact already exists and is cited above.]~~
+#: TAG WITHDRAWN round `096evp`: the COO answered on 2026-09-04T00:45 and
+#: the answer is recorded above; an "awaiting COO" tag left standing over an
+#: answered question is a reader being told to wait for a letter that has
+#: already arrived.
 #:
 #: BOTH EXPRESSIONS BELOW WERE READ OUT OF runtime.py, NOT COMPOSED: the
 #: store is fetched exactly as the pickup branch already fetches it
@@ -467,8 +498,12 @@ MOB_AI_PLAYER_DAMAGE_WIRING = (
     "The field layout is not missing -- gm/attr_wire.FIELDS rows 3-6 "
     "already name hp_current/hp_max/mp_current/mp_max's offset and mask -- "
     "but that module's own send gate and its open lossless-preservation "
-    "condition are LANE-GM's, so which lane's encoder this door calls is "
-    "a COO architecture call, not an RE question"
+    "condition are LANE-GM's.  WHICH LANE'S ENCODER IS NO LONGER OPEN: "
+    "COO-DECISION 20260904_0045 says gm/attr_wire.py, called by this lane, "
+    "and mob_ai_player_damage.compose_player_hit_frame is that caller.  What "
+    "still holds this order shut is the two gates that caller reads -- "
+    "LANE-GM's attr_wire full-block unlock and this lane's own "
+    "MOB_HIT_FRAME_CONFIRMED, both closed at this commit"
     "; the rate it would run at is measured, not chosen (one HP per "
     "TargetPos frame for a player inside 275 units of Bg0002 placement 92, "
     "with no frame telling them). "
@@ -484,3 +519,299 @@ MOB_AI_PLAYER_DAMAGE_WIRING = (
     "mob_ai_player_damage.HP_FLOOR is enforced inside this lane, so this "
     "line cannot kill a player."
 )
+
+
+# ===========================================================================
+# DOOR B -- the frame that tells the player their HP moved
+# ===========================================================================
+#
+# WHAT THIS HALF IS FOR.  Everything above this line moves a NUMBER IN THE
+# DATABASE and says so on the console.  A player staring at the client sees
+# none of it: `COO-DECISION 20260903_2050` is explicit that the live HP write
+# may only go live TOGETHER with a frame they actually see land, and this
+# section is that frame's composer -- the "Door B" the COO named.
+#
+# WHO OWNS WHAT, DECIDED AND NOT ASSUMED.  Round `5pvte3` routed one
+# architecture question to the COO (does combat reuse `gm/attr_wire.py`'s
+# encoder, or does LANE-B build a narrower one against the same four rows?)
+# and `COO-DECISION 20260904_0045` answered it in as many words:
+#
+#   1. opcode 0x309A has exactly ONE encoder in this repository,
+#      `gm/attr_wire.py`, owned by LANE-GM.  LANE-B is a CALLER.  Option (b),
+#      a narrow LANE-B encoder, was rejected outright -- two lanes holding
+#      two encoders for one opcode is two future bug sets.
+#   2. combat does NOT inherit the `/speed` sparse-x=7 exception of
+#      `COO-DECISION 2026-09-01T18:47+07:00`.  `GT-218` proved that exception
+#      kills the client in one frame (HP `0/1`, cash `0`, death dialog), so
+#      it may not become anybody's precedent.  A hit frame is FULL BLOCK or
+#      it is nothing.
+#   3. the bytes may leave only when BOTH gates are true: LANE-GM's own
+#      unlock of `attr_wire` AND this lane's own constant below.  Either lane
+#      flipping its own gate must not put the other lane's bytes on a socket.
+#
+# WHY FULL BLOCK, IN ONE SENTENCE, WITH ITS SOURCE.  `RE-222` (static,
+# SHA-pinned, LANE-GM, 2026-09-03) established that the client's apply path
+# for 0x309A is a FULL-OBJECT COPY: every BasicAttr/ActorAttr field the frame
+# omits comes back as the fresh constructor's zero.  A hit frame carrying
+# `hp_current` alone would therefore zero the player's cash and HP-max --
+# which is precisely, and not by analogy, what happened on the owner's screen
+# in `GT-218`.
+#
+# NONCLAIMS FOR THIS HALF
+# -----------------------
+# * NO claim that anything sends.  :data:`MOB_HIT_FRAME_CONFIRMED` is `None`
+#   and there is no call site: `grep -rn "compose_player_hit_frame" src/`
+#   finds this file and nothing else.  The gate is checked BEFORE the first
+#   byte is built, so "gate is None" and "zero bytes" are the same statement
+#   rather than two hopeful ones (`HitFrameGateMutantTests`).
+# * NO claim that the live-value read point exists.  It does not, at the
+#   commit that writes this: `lane_hooks.current_named_attr_values` was
+#   ordered from the chief in `COO-DECISION 20260904_0047` point 1 and is
+#   not on `main` yet -- grepped, whole repo, in this round.  Until it lands
+#   this door stands down BY NAME, which is the behaviour the COO asked for
+#   in `0045` point 4 and not a fallback this lane chose.
+# * NO claim that this closes `attr_wire`'s unlock condition (b'), and one
+#   measurement says it CANNOT: the read point carries `known=True` rows
+#   only (`0047` point 1 names exactly those), while (b') also governs the
+#   UNNAMED rows, whose bytes come from the owner's own probe.  So the
+#   chief's hook landing does not by itself open gate (i); LANE-GM still has
+#   to flip its own, and this lane cannot do it for them.
+# * NO claim about a damage MODEL or a rate.  Nothing in this half chooses a
+#   number; `hp_after` is an argument, and the only value it is ever meant to
+#   carry is one this module already read back out of the database.
+
+#: LANE-B'S OWN SEND GATE for the hit frame -- gate (ii) of
+#: `COO-DECISION 20260904_0045` point 3.  Same shape as
+#: `gm/attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED` and
+#: `gm/teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED`: `None` means no
+#: frame this lane composes may reach a real socket, an `int` means a
+#: measured vital_version byte AND a COO-approved flip.
+#:
+#: THE ONE THING THAT FLIPS IT, quoted from `0045` so nobody has to go and
+#: find the letter: a single GT ticket on the owner's own screen -- one
+#: monster hits her once, HP drops by exactly the value this module read
+#: back, and cash / HP-max / MP do not move.  The STOP-on-HP-0 rule applies.
+#: `pf-queue-author` writes that ticket only once this caller is on `main`.
+MOB_HIT_FRAME_CONFIRMED: Optional[int] = None
+
+#: Gate (i) is LANE-GM's and is read, never guessed at.  It is deliberately
+#: NOT `attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED`: that constant is
+#: already `0`, but only because of the scoped `/speed` exception that
+#: `0045` point 2 forbids this lane from inheriting.  Reading it here would
+#: be this lane quietly taking a permission that was granted to one other
+#: door.  So the gate this half reads is a SEPARATE attribute that
+#: `gm/attr_wire.py` does not define today -- absent means locked, which is
+#: fail-closed by construction -- and the request for LANE-GM to define it
+#: when their (b') unlock lands goes out as this round's letter.
+#: [LANE-B assumption -- awaiting COO confirmation]
+ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR = "FULL_BLOCK_UNLOCK_CONFIRMED"
+
+#: The chief's read point, by name, resolved at call time and never imported
+#: at module scope: it does not exist yet, and a module-scope import of a
+#: name that is not there is an ImportError in a walking player's dispatch.
+LIVE_ATTR_VALUES_HOOK_ATTR = "current_named_attr_values"
+
+#: The four rows a hit frame is ABOUT, named rather than numbered.  The `x`
+#: numbers and byte offsets live in exactly one place (`attr_wire.FIELDS`)
+#: and are looked up through :func:`hit_frame_vital_rows` -- so the day
+#: LANE-GM renames one of them, this lane's tests go red and somebody has to
+#: come and say what changed, instead of a silently mis-encoded frame.
+HIT_FRAME_VITAL_FIELD_NAMES = ("hp_current", "hp_max", "mp_current", "mp_max")
+
+#: The one row a hit CHANGES.  The other three are carried at their live
+#: value so the full-object copy does not zero them.
+HIT_FRAME_CHANGED_FIELD_NAME = "hp_current"
+
+STANDDOWN_GATE_NOT_CONFIRMED = "gate_not_confirmed"
+STANDDOWN_ENCODER_LOCKED = "encoder_locked"
+STANDDOWN_NO_LIVE_SOURCE = "no_live_source"
+STANDDOWN_LIVE_SOURCE_REFUSED = "live_source_refused"
+STANDDOWN_LIVE_SOURCE_INCOMPLETE = "live_source_incomplete"
+STANDDOWN_LIVE_SOURCE_UNNAMED_ROW = "live_source_unnamed_row"
+
+MOB_HIT_FRAME_STAND_DOWN_REASONS = (
+    STANDDOWN_GATE_NOT_CONFIRMED,
+    STANDDOWN_ENCODER_LOCKED,
+    STANDDOWN_NO_LIVE_SOURCE,
+    STANDDOWN_LIVE_SOURCE_REFUSED,
+    STANDDOWN_LIVE_SOURCE_INCOMPLETE,
+    STANDDOWN_LIVE_SOURCE_UNNAMED_ROW,
+)
+
+
+def hit_frame_stand_down_line(reason: str, character_id: Any,
+                              detail: str) -> str:
+    """The line printed instead of a frame, ASCII, greppable.
+
+    `COO-DECISION 20260904_0045` point 4 spells the missing-read-point case
+    literally -- ``MOB_HIT_FRAME_STANDDOWN reason=no_live_source`` -- so the
+    prefix and the first key are that letter's, not this lane's invention,
+    and the other five reasons are spelled the same way for one grep.
+    """
+    if reason not in MOB_HIT_FRAME_STAND_DOWN_REASONS:
+        raise AssertionError("unnamed stand-down reason: %s" % reason)
+    return console_safe(
+        "MOB_HIT_FRAME_STANDDOWN reason=%s char=%r detail=%s"
+        % (reason, character_id, detail)
+    )
+
+
+def hit_frame_vital_rows() -> Dict[str, int]:
+    """``{name: x}`` for :data:`HIT_FRAME_VITAL_FIELD_NAMES`, from
+    ``attr_wire.BY_NAME`` -- the encoder's own table, never a copy.
+
+    Raises :class:`MobAiPlayerDamageError` when a name has gone or has
+    stopped being `known=True`, because both mean the same thing for this
+    door: the row this lane thought it was carrying is not the row the
+    encoder would encode.
+    """
+    rows: Dict[str, int] = {}
+    for name in HIT_FRAME_VITAL_FIELD_NAMES:
+        field = attr_wire.BY_NAME.get(name)
+        if field is None:
+            raise MobAiPlayerDamageError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "attr_wire.FIELDS no longer names a row %r" % (name,))
+        if not field[7]:
+            raise MobAiPlayerDamageError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "attr_wire row %r is no longer known=True" % (name,))
+        rows[name] = field[0]
+    return rows
+
+
+def _resolve_live_attr_values(lane_hooks_module: Any = None) -> Any:
+    """The chief's read point, or ``None`` when it is not on this tree.
+
+    Import failure and attribute absence collapse to the same answer on
+    purpose: from this door's side "the hook module blew up" and "the hook
+    is not written yet" are both "there is no live source", and both must
+    stand the frame down rather than raise inside a player's dispatch.
+    """
+    module = lane_hooks_module
+    if module is None:
+        try:
+            from . import lane_hooks as module  # type: ignore[no-redef]
+        except Exception:
+            return None
+    hook = getattr(module, LIVE_ATTR_VALUES_HOOK_ATTR, None)
+    return hook if callable(hook) else None
+
+
+def hit_frame_encoder_unlocked() -> bool:
+    """Gate (i): has LANE-GM opened `attr_wire`'s full-block unlock?
+
+    Absent attribute (today) and `None` both mean locked.  See
+    :data:`ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR` for why this is not the
+    `/speed` constant.
+    """
+    return getattr(attr_wire, ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR, None) is not None
+
+
+def _named_known_rows() -> Dict[int, str]:
+    return {f[0]: f[6] for f in attr_wire.FIELDS
+            if f[7] and f[0] not in attr_wire.SENSITIVE_FIELDS}
+
+
+def compose_player_hit_frame(
+    legacy: Any,
+    character_id: int,
+    identity_lo: int,
+    identity_hi: int,
+    hp_after: int,
+    lane_hooks_module: Any = None,
+) -> Optional[Tuple[bytes, bytes]]:
+    """The ``UpdateAttrVital`` a hit would send -- composed, never sent.
+
+    Returns ``(pc, frame)`` when both gates are open and the chief's read
+    point handed over a live block, and ``None`` -- after printing one named
+    :func:`hit_frame_stand_down_line` -- in every other case.  Today every
+    call returns ``None`` at the first check.
+
+    The order of the checks is load-bearing and is the order of `0045`:
+    THIS LANE'S gate first, then LANE-GM's, then the values.  A reader of a
+    stand-down line learns which lane owes the next move, and no byte is
+    built by a tree whose own gate is shut.
+
+    ``hp_after`` is the number the caller READ BACK out of the database
+    (:func:`apply_tick_damage` returns it as ``PlayerDamageOutcome.hp_after``)
+    -- this function does not compute damage, does not look at the store, and
+    will not accept a value below :data:`HP_FLOOR`, so the frame can never
+    tell a client something this lane is forbidden to write.
+    """
+    character_id = _require_character_id(character_id)
+    if type(hp_after) is not int or isinstance(hp_after, bool):
+        raise MobAiPlayerDamageError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "hp_after=%r" % (hp_after,))
+    if hp_after < HP_FLOOR:
+        raise MobAiPlayerDamageError(
+            REFUSE_FLOOR_WAS_BREACHED,
+            "hp_after=%d is below floor=%d" % (hp_after, HP_FLOOR))
+
+    if MOB_HIT_FRAME_CONFIRMED is None:
+        print(hit_frame_stand_down_line(
+            STANDDOWN_GATE_NOT_CONFIRMED, character_id,
+            "MOB_HIT_FRAME_CONFIRMED is None (COO-DECISION 20260904_0045 "
+            "point 3 gate ii)"))
+        return None
+
+    if not hit_frame_encoder_unlocked():
+        print(hit_frame_stand_down_line(
+            STANDDOWN_ENCODER_LOCKED, character_id,
+            "gm.attr_wire.%s is not set (LANE-GM unlock b')"
+            % (ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR,)))
+        return None
+
+    hook = _resolve_live_attr_values(lane_hooks_module)
+    if hook is None:
+        print(hit_frame_stand_down_line(
+            STANDDOWN_NO_LIVE_SOURCE, character_id,
+            "lane_hooks.%s is not on this tree (COO-DECISION 20260904_0047 "
+            "point 1)" % (LIVE_ATTR_VALUES_HOOK_ATTR,)))
+        return None
+
+    try:
+        live = hook(character_id)
+    except Exception as exc:  # the hook's own errors, not this lane's
+        print(hit_frame_stand_down_line(
+            STANDDOWN_LIVE_SOURCE_REFUSED, character_id, "%r" % (exc,)))
+        return None
+    if not isinstance(live, dict) or not live:
+        print(hit_frame_stand_down_line(
+            STANDDOWN_NO_LIVE_SOURCE, character_id,
+            "the read point returned %r" % (live,)))
+        return None
+
+    known = _named_known_rows()
+    unnamed = sorted(x for x in live if x not in known)
+    if unnamed:
+        # `0047` point 1 forbids the read point to guess or to fill a row
+        # with 0; a key this encoder does not name as known is either a
+        # guess or a row the encoder itself would refuse, and either way
+        # this door does not launder it into a frame.
+        print(hit_frame_stand_down_line(
+            STANDDOWN_LIVE_SOURCE_UNNAMED_ROW, character_id,
+            "rows not known=True in attr_wire.FIELDS: %r" % (unnamed,)))
+        return None
+
+    rows = hit_frame_vital_rows()
+    missing = sorted(name for name, x in rows.items() if x not in live)
+    if missing:
+        print(hit_frame_stand_down_line(
+            STANDDOWN_LIVE_SOURCE_INCOMPLETE, character_id,
+            "the read point has no value for %r" % (missing,)))
+        return None
+
+    # The cache is the encoder's OWN baseline object and it is seeded with
+    # the live block, never with a synthesized one -- that is the single
+    # unconditional guarantee `attr_wire`'s docstring ships, and this caller
+    # keeps it rather than working around it.  One instance per compose: a
+    # cache that outlived a frame would be this lane holding a second copy
+    # of the player's state, which is the whole class of bug `0045` point 1
+    # refused.
+    cache = attr_wire.RawBlockCache()
+    cache.capture_initial(dict(live))
+    return attr_wire.build_named_field_update(
+        legacy, cache, identity_lo, identity_hi,
+        rows[HIT_FRAME_CHANGED_FIELD_NAME], hp_after,
+    )
