@@ -954,16 +954,33 @@ class CensusVerdictTests(unittest.TestCase):
         self.assertEqual(parsed[0][0], "tests/test_x.py")
 
     def test_a_reason_truncated_by_a_narrow_console_still_matches_its_pin(self):
-        """pytest cuts summary lines to the console width; the pin must survive."""
-        entry = self.pins["design_skips"][0]
-        for cut in (len(entry["reason"]) - 8, len(entry["reason"]) - 1):
-            with self.subTest(cut=cut):
-                lines = [skip_line(entry["module"], 200,
-                                   entry["reason"][:cut] + "...")
-                         for _ in range(entry["count"])]
-                self.assertEqual(
-                    self.run_census(lines, present=ALL_PRESENT), [],
-                )
+        """pytest cuts summary lines to the console width; the pin must survive.
+
+        Round 096evp/recovery added a second design_skips entry; this test
+        used to hardcode design_skips[0] and build a transcript with only
+        that one entry's line, which the census then read as every OTHER
+        pinned design skip having silently vanished (PIN DRIFT, not the
+        truncation-tolerance question this test is actually asking).  Every
+        pinned entry gets its own truncation check now, each run against a
+        transcript that still carries every other entry at its full count.
+        """
+        for entry in self.pins["design_skips"]:
+            others = [
+                skip_line(other["module"], 300 + i, other["reason"])
+                for other in self.pins["design_skips"]
+                if other is not entry
+                for i in range(other["count"])
+            ]
+            for cut in (len(entry["reason"]) - 8, len(entry["reason"]) - 1):
+                with self.subTest(module=entry["module"], cut=cut):
+                    lines = others + [
+                        skip_line(entry["module"], 200,
+                                  entry["reason"][:cut] + "...")
+                        for _ in range(entry["count"])
+                    ]
+                    self.assertEqual(
+                        self.run_census(lines, present=ALL_PRESENT), [],
+                    )
 
     def test_tolerance_runs_one_way_only(self):
         """A pin must not be satisfied by a reason that says MORE than it."""

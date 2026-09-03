@@ -1003,6 +1003,12 @@
       "module": "tests/test_runtimeres_death_hypothesis.py",
       "count": 1,
       "note": "Not a missing artifact: the test guarded a transitional state that the source has since left behind.  It is pinned so it cannot quietly become two."
+    },
+    {
+      "reason": "persistence_attr_compose stands behind no block at this commit, so there is no full block for Door B to compose; test_the_block_is_not_adjudicated_on_this_tree is the card that measures that",
+      "module": "tests/test_lane_b_mob_ai_tick.py",
+      "count": 1,
+      "note": "Not a missing artifact: LANE-DB's block_gaps adjudicator refuses all 55 rows on this tree (measured by test_the_block_is_not_adjudicated_on_this_tree), so the completeness card that needs an adjudicated block has nothing to run against yet. Round 096evp closed pirate-force-server#694 on this exact UNDECLARED SKIP; pinned here so recovery does not repeat it. WHEN IT GOES TO ZERO, CORRECTED round f2qyxx (pf-adversary D9): the earlier note said 'the day block_gaps stands behind a real block', which reads as transitional and is not. Measured on this tree with EVERY row supplied, block_gaps still returns 33 gaps, and x=30 among them is 'refused_sensitive' - persistence_attr_compose's own text is 'never composed, in any direction'. So this skip does not lift when LANE-DB finishes adjudicating; it lifts only if x=30 leaves SENSITIVE_FIELDS, or if the card stops asking for a 55-row block. Delete this pin in the same commit that removes the skipTest, whichever of those two happens."
     }
   ]
 }

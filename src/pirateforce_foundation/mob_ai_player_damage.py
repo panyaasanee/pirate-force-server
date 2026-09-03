@@ -89,9 +89,18 @@ NONCLAIMS
   The day an attack-power column is mined, this constant is what that
   round deletes, and the tests below pin the SHAPE (clamped, floored, read
   back), never the number 1 alone.
-* NO claim that this composes a frame.  It sends nothing; the player's own
-  client is not told its HP changed by anything in this file.  A vital
-  frame for that is a separate decision this lane has not been given.
+* [SUPERSEDED round 096evp, 2026-09-04 -- kept, not deleted, because it was
+  true when it was written and a reader of an old letter will come looking
+  for it] ~~NO claim that this composes a frame.  It sends nothing; the
+  player's own client is not told its HP changed by anything in this file.
+  A vital frame for that is a separate decision this lane has not been
+  given.~~  The decision LANDED: ``COO-DECISION 20260904_0045`` gave this
+  lane the caller for that frame, and it is the DOOR B section at the foot
+  of this file.  What survives of the old sentence, unchanged and now
+  enforced by a gate rather than by an absence: NOTHING THIS FILE COMPOSES
+  REACHES A SOCKET.  See :data:`MOB_HIT_FRAME_CONFIRMED`.
+* NO claim that this file sends anything.  It composes; it has no socket, no
+  call site, and two shut gates.
 * NO claim about a second player.  ``tick_session`` sees exactly one, so a
   write here is always against the character its caller named.
 """
@@ -442,6 +451,23 @@ def apply_tick_damage(
 #: 0x0010/0x04C mp_current, 0x0020/0x050 mp_max), sourced from the owner's
 #: own live ``PF_ADHOC_ATTR_PROBE`` run (266 commands, one connection, no
 #: crash) rather than a static guess.  What is NOT true yet, checked the
+#: ANSWERED IN FULL, round `096evp`, 2026-09-04: `COO-DECISION 20260904_0045`
+#: closed the cross-lane question below.  ONE encoder, `gm/attr_wire.py`,
+#: and LANE-B is its CALLER (option (b), a narrower LANE-B encoder, was
+#: rejected outright).  The caller is the DOOR B section at the foot of this
+#: file.  THE HOLD ON THIS ORDER DOES NOT LIFT WITH IT, and the reason is
+#: now two named gates instead of an unanswered question: the frame cannot
+#: leave until LANE-GM opens `attr_wire`'s full-block unlock (b') AND this
+#: lane sets :data:`MOB_HIT_FRAME_CONFIRMED`, and a live HP write with no
+#: frame the player sees is exactly what `20260903_2050` forbids.  So the
+#: two paragraphs below are HISTORY, not the current state: they describe
+#: the question, and `0045` is the answer.
+#:
+#: [SUPERSEDED -- the open cross-lane question, kept for the reader of an
+#: older letter] ~~which lane's encoder this door calls is an architecture
+#: question this lane has not been given and has not decided~~ -- decided,
+#: see above.
+#:
 #: same round: that module's own send gate,
 #: ``gm.attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED``, is locked to every
 #: caller except one scoped exception (``/speed`` sparse x=7 only,
@@ -452,8 +478,12 @@ def apply_tick_damage(
 #: encoder (and inherits its still-open unlock condition) or LANE-B builds
 #: an independent, narrower encoder against the same four named rows is an
 #: architecture question this lane has not been given and has not decided.
-#: See this round's letter to COO. [LANE-B assumption -- awaiting COO; not
-#: an RE ticket, because the RE fact already exists and is cited above.]
+#: See this round's letter to COO. ~~[LANE-B assumption -- awaiting COO; not
+#: an RE ticket, because the RE fact already exists and is cited above.]~~
+#: TAG WITHDRAWN round `096evp`: the COO answered on 2026-09-04T00:45 and
+#: the answer is recorded above; an "awaiting COO" tag left standing over an
+#: answered question is a reader being told to wait for a letter that has
+#: already arrived.
 #:
 #: BOTH EXPRESSIONS BELOW WERE READ OUT OF runtime.py, NOT COMPOSED: the
 #: store is fetched exactly as the pickup branch already fetches it
@@ -467,8 +497,12 @@ MOB_AI_PLAYER_DAMAGE_WIRING = (
     "The field layout is not missing -- gm/attr_wire.FIELDS rows 3-6 "
     "already name hp_current/hp_max/mp_current/mp_max's offset and mask -- "
     "but that module's own send gate and its open lossless-preservation "
-    "condition are LANE-GM's, so which lane's encoder this door calls is "
-    "a COO architecture call, not an RE question"
+    "condition are LANE-GM's.  WHICH LANE'S ENCODER IS NO LONGER OPEN: "
+    "COO-DECISION 20260904_0045 says gm/attr_wire.py, called by this lane, "
+    "and mob_ai_player_damage.compose_player_hit_frame is that caller.  What "
+    "still holds this order shut is the two gates that caller reads -- "
+    "LANE-GM's attr_wire full-block unlock and this lane's own "
+    "MOB_HIT_FRAME_CONFIRMED, both closed at this commit"
     "; the rate it would run at is measured, not chosen (one HP per "
     "TargetPos frame for a player inside 275 units of Bg0002 placement 92, "
     "with no frame telling them). "
@@ -484,3 +518,22 @@ MOB_AI_PLAYER_DAMAGE_WIRING = (
     "mob_ai_player_damage.HP_FLOOR is enforced inside this lane, so this "
     "line cannot kill a player."
 )
+
+
+#: DOOR B LIVES IN ITS OWN MODULE, AND THAT IS NOT A STYLE CHOICE.
+#: `COO-DECISION 20260904_0045` point 3 named THIS file for the combat send
+#: gate.  It is in `mob_hit_frame.py` instead, and the reason is measured,
+#: not preferred: `tests/test_persistence_vitals_or_none.py`'s
+#: `NothingComposesFromThisDoorTests` -- another lane's standing card, built
+#: on the owner's ban of the guessed zero (`COO-DECISION 20260901_1059`,
+#: "zero on the HP field means DEAD") -- goes RED for any single file that
+#: both names `read_character_vitals_or_none` and hands anything to an
+#: attribute composer.  This file names that door (`_read_vitals`), so a
+#: composer in it turns that card red; the first draft of this round did
+#: exactly that and the full suite caught it.  Splitting is not an evasion of
+#: that card: the block Door B composes never comes from the vitals door at
+#: all -- it comes from the chief's read point, through LANE-DB's own
+#: adjudicator (`persistence_attr_compose.block_gaps`).  Reported to the COO
+#: in this round's letter as a deviation from the file `0045` named.
+#: See :mod:`pirateforce_foundation.mob_hit_frame`.
+MOB_HIT_FRAME_MODULE = "pirateforce_foundation.mob_hit_frame"

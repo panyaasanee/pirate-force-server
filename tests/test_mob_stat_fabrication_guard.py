@@ -157,6 +157,14 @@ LANE_B_MODULES = (
     # record: a module missing from this tuple is a module the fabrication
     # sweep never reads.
     "mob_scene_recompose.py",
+    # ROUND 096evp: Door B, the composer for the frame that would tell a
+    # player their HP moved (COO-DECISION 20260904_0045).  Listed in the same
+    # commit as the module, for the reason every entry above records -- and
+    # for a sharper one this round measured: the sweep below reads each of
+    # these files as ASCII and DIES on the first byte that is not, so a
+    # module missing from this tuple is not swept, and a module in it with
+    # one non-ASCII byte stops every module after it from being swept too.
+    "mob_hit_frame.py",
 )
 
 # The exact identifiers RE-122's own BUILD_IMPACT line names, plus the exact
