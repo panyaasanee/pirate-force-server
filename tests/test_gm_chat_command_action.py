@@ -1610,6 +1610,15 @@ class EventNameContractTests(_Case):
         "EVENT_SPEED_TRIAL_ADMITTED": (
             "gm_chat_action_speed_runtime_trial_admitted"
         ),
+        # Fires beside the compose-refused event when the trial gate admitted
+        # a value and the (b'') wall refused it anyway -- `SPEED_TRIAL_
+        # CONSOLE_TOKEN`'s send-branch line is dead code since `COO-DECISION
+        # 20260904_0345` item 2, this is its replacement.  See
+        # `tests/test_gm_speed_trial_gate.py::
+        # TheArmedButRefusedLineReplacesTheDeadTokenTests`.
+        "EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED": (
+            "gm_chat_action_speed_trial_admitted_but_refused"
+        ),
         # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
         # ~~`store.write_typed_attributes_and_compose_sparse`~~ was live on
         # `main` -- the door became `store.write_speed_by_identity` in round
