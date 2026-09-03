@@ -1368,9 +1368,17 @@ class SQLiteStore:
         the 480 hits vanished (hp 99752 instead of 99520) and surfaced as
         `KeyError`, which this method's own contract says means "no such
         character".  A lost hit reported as a missing character is the worst
-        shape this method could fail in, so the lock now has a test that
-        fails without it (`tests/test_persistence_vitals.py`,
-        `BeginImmediateHoldsTheWriteLockTests`).
+        shape this method could fail in, so the lock now has TWO tests that
+        fail without it, both in `tests/test_persistence_vitals.py`:
+        `BeginImmediateHoldsTheWriteLockTests` (the lock is taken before the
+        SELECT, measured through an outsider connection) and
+        `ContendedDamageWaitsInsteadOfStarvingTests` (a hit that loses the
+        race is not lost, measured through eight real threads).  Note that
+        the `BEGIN IMMEDIATE` this paragraph names is no longer spelled
+        inline here -- since `COO-DECISION 20260903_1047` point 1 it is
+        opened by `_begin_immediate_under_contention`, so "delete the line"
+        below means the call, and deleting it leaves a DEFERRED transaction
+        exactly as before.
 
         The `UPDATE` also carries `hp_current=?` for the value it read.  An
         earlier draft of this docstring said no test could be made to fail by
@@ -1393,6 +1401,31 @@ class SQLiteStore:
         inconsistent character, or for an amount that is not a whole number of
         points of damage.  Nothing is written when anything is refused.
 
+        ALSO RAISES `store.WriteLockTimeout`, AND ALSO BLOCKS, SINCE
+        2026-09-03, and this paragraph is the notice.  `COO-DECISION
+        20260903_1047` point 1 put this method behind
+        `_begin_immediate_under_contention`, so a refused write lock is
+        waited out rather than raised at once.  What a caller must plan for:
+
+        * this call can now BLOCK for up to `HEAL_LOCK_TOTAL_WAIT_S`
+          (120 s today) before it gives up, where it previously gave up at
+          `connect()`'s 5,000 ms;
+        * on giving up it raises `WriteLockTimeout`, which SUBCLASSES
+          `sqlite3.OperationalError`, so an `except OperationalError` still
+          catches it and the type is not a break -- the waiting is;
+        * `PRAGMA busy_timeout` is raised to `HEAL_LOCK_BUSY_TIMEOUT_MS`
+          (30 s) for the whole of this method's transaction, not only for
+          the `BEGIN`.
+
+        !! 120 s WAS CHOSEN FOR A DOOR THAT RUNS ONCE PER LOGIN, and this
+        method is meant to run many times per second once combat calls it.
+        `pf_bridge/FINDINGS_R18_SERVER_IS_STRICTLY_SERIAL.md` measured this
+        server as strictly serial, one client per listener, so a hit that
+        waits two minutes is a two-minute freeze.  Nobody has adjudicated a
+        budget for THIS door; the question is open and is on its way to COO
+        (LANE-DB round `r53lc8`).  A caller arriving before that is answered
+        should say so rather than assume 120 s was chosen for it.
+
         "INCONSISTENT" WIDENED on 2026-09-02 and this sentence is the notice.
         `COO-DECISION 20260902_0443` point 4 made a stored `level = 0` a
         refusal, and this method resolves the whole vitals state before it
@@ -1408,7 +1441,32 @@ class SQLiteStore:
 
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            # WAS `db.execute("BEGIN IMMEDIATE")` until `COO-DECISION
+            # 20260903_1047` point 1, which authorises this line.  The
+            # TRANSACTION is unchanged -- the helper still opens an IMMEDIATE
+            # one -- and a refused `BEGIN IMMEDIATE` is now waited out
+            # instead of raising `database is locked` at the caller.
+            #
+            # !! TWO THINGS DO CHANGE FOR THIS METHOD, and the first draft of
+            # this comment claimed "nothing else", which a `pf-adversary`
+            # pass measured false:
+            #   * `PRAGMA busy_timeout` goes 5,000 ms (what `connect()` sets)
+            #     to `HEAL_LOCK_BUSY_TIMEOUT_MS` = 30,000 ms, and the pragma
+            #     STAYS IN FORCE for this connection's SELECT, UPDATE and
+            #     COMMIT as well -- the helper's own comment says so.
+            #   * the worst case before this method raises goes from 5 s to
+            #     `HEAL_LOCK_TOTAL_WAIT_S` = 120 s, and the exception becomes
+            #     `WriteLockTimeout`.  Both are in the `Raises` paragraph
+            #     above, where a caller reads.
+            # `COO-DECISION 20260902_1646` is where the tolerance itself was
+            # ordered -- FOR THE HEALING TEST that closed another lane's pull
+            # request; it does not mention this method.  The reading that the
+            # order covered THE DOOR and reached only one half is COO's own,
+            # written later, in `20260903_1047` point 1 reason (1).  Cite
+            # 1047 for this line; 1646 only for the mechanism.
+            # Why the retry cannot double-apply a hit is argued once, in the
+            # helper.
+            self._begin_immediate_under_contention(db)
             vitals.verify_schema(db)
             row = db.execute(
                 f"SELECT {','.join(columns)} FROM characters "
@@ -1469,6 +1527,13 @@ class SQLiteStore:
     def _begin_immediate_under_contention(db):
         """`BEGIN IMMEDIATE`, kept waiting instead of allowed to starve.
 
+        TWO CALLERS SINCE 2026-09-03, and the prose below still says
+        "healing" because that is the history: `COO-DECISION 20260903_1047`
+        point 1 ruled that `apply_hp_damage` -- the door the original order
+        was written about -- had been left on a bare `BEGIN IMMEDIATE` and
+        gets this same waiting.  Nothing here changed for it; read every
+        "heal" below as "the write this door makes".
+
         WHAT IT IS FOR.  `COO-DECISION 20260902_1646` -- and the measurement
         behind it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`
         -- named the defect: the healing lock is correct and the test that
@@ -1527,8 +1592,19 @@ class SQLiteStore:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise WriteLockTimeout(
+                        # SAID "healing" UNTIL 2026-09-03, AND THE DAMAGE
+                        # DOOR MADE IT A LIE.  A `pf-adversary` pass ran the
+                        # timeout through `apply_hp_damage` and read back
+                        # "could not take the write lock for this
+                        # character's healing" over a LOST HIT -- the same
+                        # shape `apply_hp_damage`'s own docstring argues
+                        # against for `KeyError`: an operator reading a red
+                        # gate walks to the login-revive path for a defect
+                        # in the damage door.  "write" is what both callers
+                        # are actually doing, and it is the only word here
+                        # that is true of both.
                         "could not take the write lock for this character's "
-                        "healing after %d attempt(s) over %.0f ms (budget "
+                        "write after %d attempt(s) over %.0f ms (budget "
                         "%.0f ms, per-attempt busy_timeout at most %d ms): %s"
                         % (attempts, (time.monotonic() - started) * 1000.0,
                            HEAL_LOCK_TOTAL_WAIT_S * 1000.0,
