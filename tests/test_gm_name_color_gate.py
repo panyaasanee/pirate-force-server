@@ -337,7 +337,11 @@ def test_no_fontstyleid_number_is_hardcoded_in_the_gate_module():
 # (d) the refusal points FORWARD as well as backward -- and says what nothing
 #     is filed against
 #
-# Round `5ddsii` filed RE-211 (COO-DECISION 2026-09-03T10:46+07:00 item (b)).
+# Round `5ddsii` filed the ticket (COO-DECISION 2026-09-03T10:46+07:00 item
+# (b)); chief queued it as `RE-222`, not the ~~`RE-211`~~ the draft drew --
+# the queue counter is shared with `GAME_TEST_QUEUE.md` (chief `20260903_1304`
+# point 2).  These tests pin the QUEUED number, because that is the one an
+# operator can look up.
 # Filing a ticket is the one thing that can hollow out a refusal without
 # touching a single one of its blockers: a reader sees "a ticket is open",
 # reads that as "this is nearly unblocked", and writes the colour code the
@@ -387,12 +391,12 @@ def test_filing_the_ticket_did_not_weaken_the_refusal_by_one_byte():
 def test_nothing_here_reads_a_result_so_no_question_may_read_as_an_answer():
     """S7.  A question rewritten into an answer is how "a ticket is filed"
     becomes "P-2 is unblocked" without a single blocker being retired."""
-    values = tuple(gate.RE_211_QUESTION_FOR_BLOCKER.values())
+    values = tuple(gate.RE_222_QUESTION_FOR_BLOCKER.values())
     assert values, "the map went empty"
     for value in values:
         if not value:
             continue
-        assert value.startswith("RE-211 Q"), value
+        assert value.startswith("RE-222 Q"), value
         # long enough that a truncation mutant (`value[:6]`) cannot pass
         assert len(value) > 80, value
     # and the join site may not transform them on the way out: a `[:6]` in
@@ -401,8 +405,8 @@ def test_nothing_here_reads_a_result_so_no_question_may_read_as_an_answer():
     for entry in gate.open_questions():
         name, sep, question = entry.partition(" -> ")
         assert sep, entry
-        assert question == gate.RE_211_QUESTION_FOR_BLOCKER[name], entry
-    haystack = " ".join(values) + " ".join(gate.RE_211_QUESTION_LABELS)
+        assert question == gate.RE_222_QUESTION_FOR_BLOCKER[name], entry
+    haystack = " ".join(values) + " ".join(gate.RE_222_QUESTION_LABELS)
     for forbidden in ("ANSWERED", "RESULT", "measured that", "confirmed that"):
         assert forbidden not in haystack, (
             f"{forbidden!r} in the question text: this module reads no result"
@@ -412,10 +416,10 @@ def test_nothing_here_reads_a_result_so_no_question_may_read_as_an_answer():
 def test_all_three_questions_the_letter_asks_are_named_here():
     """O1.  Two of the three retire a blocker; the third prices the direction
     and retires nothing.  A reader who greps this module must still see it."""
-    labels = gate.RE_211_QUESTION_LABELS
+    labels = gate.RE_222_QUESTION_LABELS
     assert len(labels) == 3
     assert [label[:2] for label in labels] == ["Q1", "Q2", "Q3"]
-    mapped_text = " ".join(gate.RE_211_QUESTION_FOR_BLOCKER.values())
+    mapped_text = " ".join(gate.RE_222_QUESTION_FOR_BLOCKER.values())
     assert "Q3" not in mapped_text, (
         "Q3 prices the direction; claiming it retires a blocker is the "
         "overclaim this test exists to stop"
@@ -426,11 +430,11 @@ def test_the_inferred_mapping_is_labelled_as_this_lanes_inference():
     """O2.  The letter never mentions the hit writer.  The link is this
     lane's reasoning, and an unlabelled inference read as measurement is
     exactly one unit of false progress."""
-    value = gate.RE_211_QUESTION_FOR_BLOCKER[
+    value = gate.RE_222_QUESTION_FOR_BLOCKER[
         "hit_writer_needs_a_signed_negative_target"
     ]
     assert "[PROPOSED" in value, value
-    corroborated = gate.RE_211_QUESTION_FOR_BLOCKER["identity_scheme_is_positive"]
+    corroborated = gate.RE_222_QUESTION_FOR_BLOCKER["identity_scheme_is_positive"]
     assert "[letter says so]" in corroborated, corroborated
 
 
@@ -442,8 +446,8 @@ def test_the_ticket_constants_have_not_been_edited_silently():
     too.  Named for what it does, after pf-adversary (round `5ddsii`, O3)
     found the earlier name claiming a fact the assertions do not establish.
     """
-    assert gate.RE_211_TICKET_ID == "RE-211"
-    assert gate.RE_211_TICKET_LETTER == (
+    assert gate.RE_222_TICKET_ID == "RE-222"
+    assert gate.RE_222_TICKET_LETTER == (
         "notes_to_chief/20260903_1119_LANE-GM-RE-211-TICKET-"
         "typed-and-live-gate-for-nonpositive-identity.md"
     )
@@ -458,7 +462,7 @@ def test_a_blocker_no_ticket_covers_is_counted_out_loud():
     # S3: a superset passes a "each name appears" check, so pin the SET.
     assert unaddressed == {"faction_is_a_fallback_operand_only"}
     assert len(addressed) == 2
-    # deliberate retyped name, and the only one in this file: RE-211 asks
+    # deliberate retyped name, and the only one in this file: RE-222 asks
     # about the identity split and what a nonpositive identity costs the
     # client's registry.  It does NOT reopen RE-195's faction finding, and
     # its own out-of-scope section says so.  A round that files against that
@@ -482,7 +486,7 @@ def test_the_question_map_cannot_drift_from_the_blockers_in_any_direction(
     monkeypatch.undo()
     # (b) a question aimed at a route that has already moved
     monkeypatch.setitem(
-        gate.RE_211_QUESTION_FOR_BLOCKER, "a_route_that_left", "RE-211 Q9"
+        gate.RE_222_QUESTION_FOR_BLOCKER, "a_route_that_left", "RE-222 Q9"
     )
     with pytest.raises(gate.NameColorGateError):
         gate.open_questions()
@@ -528,9 +532,9 @@ def test_every_string_this_module_hands_out_survives_a_cp874_console():
     the one surface in this module where a stray dash or quote would land."""
     for text in (
         gate.open_questions()
-        + gate.RE_211_QUESTION_LABELS
-        + tuple(gate.RE_211_QUESTION_FOR_BLOCKER.values())
-        + (gate.RE_211_TICKET_ID, gate.RE_211_TICKET_LETTER)
+        + gate.RE_222_QUESTION_LABELS
+        + tuple(gate.RE_222_QUESTION_FOR_BLOCKER.values())
+        + (gate.RE_222_TICKET_ID, gate.RE_222_TICKET_LETTER)
     ):
         assert text.isascii(), text
 
