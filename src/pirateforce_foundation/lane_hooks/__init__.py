@@ -564,6 +564,212 @@ def registered_points() -> dict[str, int]:
     return {point: len(fns) for point, fns in _HOOKS.items()}
 
 
+#: The one process-wide source of live named-field values, installed by boot
+#: wiring (``app.py``) and read by ``current_named_attr_values`` below.
+#: ``None`` -- the state of any process that has not wired it, every test that
+#: does not ask for it, and every import of this package on its own -- means
+#: the read point answers "nothing", which its consumer turns into a refusal.
+_LIVE_ATTR_VALUES_SOURCE = None
+#: One line per process, not per call: see ``current_named_attr_values``.
+_LIVE_ATTR_NO_SOURCE_ANNOUNCED = False
+
+
+def register_live_attr_values_source(source) -> None:
+    """Install the callable ``current_named_attr_values`` reads through.
+
+    ``source`` is ``callable(character_id) -> {x: value}``; today the boot
+    wiring hands in ``live_named_attr_values.source_for_store(store)``.
+    Passing ``None`` uninstalls it, which is how a test puts the process back
+    the way it found it.
+
+    LAST REGISTRATION WINS, AND IT SAYS SO OUT LOUD.  The first draft called
+    this "deliberately and harmlessly: the process opens exactly one store" --
+    pf-adversary (round dwvbpm, D6) measured that claim false: `app.py` is one
+    of THIRTEEN places in this repository that construct a ``SQLiteStore``
+    (the twelve ``tools/pf_*_headless_replay.py`` each open their own), and
+    the sibling registries next door (``census_composer``,
+    ``choose_npc_responder``) refuse a duplicate loudly on the grounds that
+    two authors for one answer is a bug between two callers.  So a REPLACEMENT
+    is now a console line rather than a silent overwrite.  It is still
+    last-wins rather than first-wins: unlike a scene composer, this thing is
+    installed by boot wiring, and a boot that re-installs must win over
+    whatever a test or an earlier boot left behind.
+
+    A non-callable is REFUSED here with a ``TypeError`` rather than stored,
+    because the alternative is a failure that surfaces later, at a send, as an
+    opaque ``read_point_raised_TypeError`` in a lane that did nothing wrong.
+
+    THE TOKEN IS THE ONLY THING A WIRED-v2 GREP CAN SEE (pf-adversary, D3).
+    This package prints a token for every hook, composer and responder it
+    registers; this source had none, so "the boot installed it" and "nobody
+    installed it" read identically on a console.  stderr, same reason as
+    ``fire()``.
+    """
+    global _LIVE_ATTR_VALUES_SOURCE
+    if source is not None and not callable(source):
+        raise TypeError(
+            "live attr values source must be callable(character_id) -> dict, "
+            f"got {type(source).__name__}"
+        )
+    replacing = _LIVE_ATTR_VALUES_SOURCE is not None and source is not None
+    _LIVE_ATTR_VALUES_SOURCE = source
+    if source is None:
+        print(
+            _console_safe("LANE_HOOK_LIVE_ATTR_SOURCE CLEARED"),
+            file=sys.stderr,
+        )
+        return
+    print(
+        _console_safe(
+            "LANE_HOOK_LIVE_ATTR_SOURCE REGISTERED "
+            f"{getattr(source, '__qualname__', type(source).__name__)}"
+            + (" REPLACED_AN_EARLIER_SOURCE" if replacing else "")
+        ),
+        file=sys.stderr,
+    )
+
+
+def current_named_attr_values(character_id) -> dict:
+    """Every named ActorAttr/BasicAttr row whose value this server really
+    knows for ``character_id``, keyed by ``x``.
+
+    ORDERED BY ``COO-DECISION 2026-09-04T00:47+07:00`` item 1 and named there
+    letter for letter -- ``gm.attr_wire`` has been resolving this attribute by
+    name (``attr_wire.LIVE_VALUE_READ_POINT``) since before it existed, and
+    refusing every send while it did not.  Two consumers were waiting on it:
+    LANE-GM's ``RawBlockCache`` seeding (COO-DECISION 20260904_0046) and
+    LANE-B's Door B hit frame (COO-DECISION 20260904_0045).
+
+    A MISSING ROW IS AN ABSENT KEY, NEVER A ZERO.  The consumer
+    (``attr_wire.live_named_values``) refuses the WHOLE send when one row it
+    needs is absent, and that refusal is the point: the client's apply is a
+    full-object copy (``RE-222`` Q0), so a mask bit left unset writes zero
+    into the field it names.  ``GT-218`` is what that costs when it is got
+    wrong.
+
+    THIS POINT READS AND NEVER SENDS.  It composes no frame, touches no
+    socket and writes nothing -- the same contract ``fire()`` has, for the
+    same reason.
+
+    IT NEVER RAISES.  With no source installed it returns ``{}``; a source
+    that raises is reported on stderr with the package's own
+    ``LANE_HOOK ... ERR`` shape and also becomes ``{}``.  Both arrive at the
+    consumer as "every row is missing", which is a refusal with a named
+    per-row reason -- strictly more useful than the opaque
+    ``read_point_raised_<Type>`` an escape would produce.  Anything but a
+    ``dict`` from a source is treated the same way rather than passed on: the
+    consumer's own ``not_a_mapping`` branch would name the read point for a
+    fault that belongs to whoever registered.
+    """
+    global _LIVE_ATTR_NO_SOURCE_ANNOUNCED
+    source = _LIVE_ATTR_VALUES_SOURCE
+    if source is None:
+        # pf-adversary (round dwvbpm, D4): `{}` here and `{}` from a source
+        # that genuinely knows nothing become the SAME
+        # `missing_named_rows: ...` refusal one layer up, differing only by
+        # a few row numbers in a list of twenty-six -- so "nobody wired a
+        # source in this process" is indistinguishable from "this server
+        # does not know these values", which is exactly the distinction the
+        # layer above spent a named constant (`no_read_point`) on.  The
+        # return value cannot carry that difference (a dict is the
+        # contract), so the CONSOLE does, once per process: repeating it per
+        # call would let a client drive an unbounded log.
+        # NOT A FULL FIX and it is not claimed as one: a distinct refusal
+        # STRING belongs in `gm/attr_wire.live_named_values`, which is
+        # LANE-GM's file.  Asked for by letter, not taken here.
+        if not _LIVE_ATTR_NO_SOURCE_ANNOUNCED:
+            _LIVE_ATTR_NO_SOURCE_ANNOUNCED = True
+            print(
+                _console_safe(
+                    "LANE_HOOK live_attr_values NO_SOURCE_REGISTERED "
+                    "current_named_attr_values answers nothing in this "
+                    "process"
+                ),
+                file=sys.stderr,
+            )
+        return {}
+    try:
+        values = source(character_id)
+    except Exception as error:      # noqa: BLE001 - see docstring
+        print(
+            _console_safe(
+                "LANE_HOOK live_attr_values current_named_attr_values ERR "
+                f"{error!r}"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(values, dict):
+        print(
+            _console_safe(
+                "LANE_HOOK live_attr_values current_named_attr_values ERR "
+                f"source returned {type(values).__name__}, not dict"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    # Keys are coerced to ``int`` because ``x`` is an int everywhere else in
+    # this contract and a str key would silently miss every lookup the
+    # consumer makes.  A key that cannot be one is dropped, never raised on:
+    # one bad key must not cost the other twenty.
+    #
+    # STRICT, AND THE FIRST DRAFT WAS NOT (pf-adversary, round dwvbpm, D7):
+    # it used a bare ``int(key)`` inside ``except (TypeError, ValueError)``,
+    # which TRUNCATED ``2.9`` onto x=2 -- landing a value on `level`, a row
+    # nobody addressed -- and let ``{2: 40, "2": 999}`` silently drop one of
+    # the two.  A row number is never a float and never ambiguous, so a
+    # non-integer key is a bug in the source, not a value to round.  Both
+    # rejections are named on stderr rather than swallowed.
+    #
+    # THE ITERATION IS INSIDE THE NET TOO (pf-adversary, round dwvbpm, D5):
+    # ``values`` is only known to be a ``dict`` INSTANCE, and a dict subclass
+    # may override ``items()``.  An escape from here would leave this
+    # function raising out of a docstring that promises it never does, into
+    # a START_GAME_REQ handler that catches only KeyError/PermissionError/
+    # ValueError/RuntimeError.
+    try:
+        items = list(values.items())
+    except Exception as error:      # noqa: BLE001 - see above
+        print(
+            _console_safe(
+                "LANE_HOOK live_attr_values current_named_attr_values ERR "
+                f"iterating the source's mapping raised {error!r}"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    coerced: dict = {}
+    for key, value in items:
+        if isinstance(key, bool) or not isinstance(key, int):
+            # `str` digits are accepted because a JSON-ish source hands
+            # those back naturally; everything else -- float, None, tuple --
+            # is refused rather than rounded or stringified.
+            if isinstance(key, str) and key.isdigit():
+                key = int(key)
+            else:
+                print(
+                    _console_safe(
+                        "LANE_HOOK live_attr_values current_named_attr_values"
+                        f" ERR dropped key {key!r} ({type(key).__name__} is"
+                        " not a row number)"
+                    ),
+                    file=sys.stderr,
+                )
+                continue
+        if key in coerced:
+            print(
+                _console_safe(
+                    "LANE_HOOK live_attr_values current_named_attr_values ERR"
+                    f" duplicate row {key} after key coercion; keeping the"
+                    " first"
+                ),
+                file=sys.stderr,
+            )
+            continue
+        coerced[key] = value
+    return coerced
+
+
 def module_production_allowed(module_name: str) -> bool:
     """Is this lane module cleared to run on the production path?
 
