@@ -49,7 +49,20 @@ def persist_class_id_from_starting_gear(store, character) -> int | None:
     message can carry a character name, and a non-ASCII byte on the bridge's
     cp874 console kills the tool that is reading it.
 
-    Returns the class id written, or None.
+    WHY THE WRITE IS NULL-ONLY (pf-adversary D2 on `#705`, `COO-DECISION
+    20260904_0549` item 1).  A re-sent `CreateActorDataEx` replays this
+    call on the SAME row through `create_character`'s create-fingerprint
+    retry path, and an unconditional write here would silently revert a
+    class id another writer (LANE-DB's NULL-only backfill, `COO-DECISION
+    20260904_0445`) already set on that row between the two attempts.
+    `store.write_typed_attribute_if_unset` closes that inside one
+    transaction; a caller-side read-then-write would reopen the same race.
+
+    Returns the class id written, or `None` on any of the four reasons
+    nothing was written: unresolvable body, no single preset match, the
+    write refused (soft-deleted row), or the column already held a value
+    from another writer -- that last one is not a failure, it is the guard
+    doing its job.
     """
     from . import persistence_class_id
     from . import world_avatar_attr
@@ -77,15 +90,23 @@ def persist_class_id_from_starting_gear(store, character) -> int | None:
         )
         return None
     try:
-        store.write_typed_attributes(character_id, {"class_id": resolved})
+        wrote = store.write_typed_attribute_if_unset(
+            character_id, "class_id", resolved
+        )
     except Exception as error:
         _say(
             f"CHARACTER_CLASS_ID cid={character_id} not_written "
             f"reason=write_refused ({type(error).__name__})"
         )
         return None
-    _say(f"CHARACTER_CLASS_ID cid={character_id} written class_id={resolved}")
-    return resolved
+    if wrote is None:
+        _say(
+            f"CHARACTER_CLASS_ID cid={character_id} not_written "
+            "reason=already_set"
+        )
+        return None
+    _say(f"CHARACTER_CLASS_ID cid={character_id} written class_id={wrote}")
+    return wrote
 
 
 class CharacterLifecycle:
@@ -150,8 +171,12 @@ class CharacterLifecycle:
         # nested write on a locked row.  By the time this line runs, on EVERY
         # return path of that method (the fresh INSERT and the
         # create-fingerprint retry alike), the transaction is closed and the
-        # row is readable.  The retry path re-resolving the same body to the
-        # same class id is idempotent, not a second birth.
+        # row is readable.  The retry path re-resolving the same body is not
+        # what makes this safe on its own (pf-adversary D2 on `#705`: an
+        # unconditional write here would revert a class id another writer
+        # set on this row between the first attempt and the retry) --
+        # `write_typed_attribute_if_unset` is what makes it safe, by only
+        # ever writing a NULL column.
         persist_class_id_from_starting_gear(self.store, character)
         return character
 

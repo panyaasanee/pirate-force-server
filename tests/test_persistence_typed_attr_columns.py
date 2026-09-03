@@ -952,6 +952,100 @@ class StoreRoundTripTests(unittest.TestCase):
                          self.birth)
 
 
+class WriteIfUnsetTests(unittest.TestCase):
+    """`write_typed_attribute_if_unset` -- added for the class-id creation
+    hookup (`pirate-force-server`'s `lifecycle.persist_class_id_from_
+    starting_gear`, pf-adversary D2 on `#705`, `COO-DECISION 20260904_0549`
+    item 1): the same guard `pirate-force-server`'s own tests exercise
+    through the fake store, measured here directly against a real one.
+
+    `class_id` is the probe column: `009_character_birth_defaults.sql`
+    gives it no birth default, so every character in this group is born
+    with it NULL -- the exact starting state the guard exists for.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("write-if-unset")
+        self.character = self.store.create_character(
+            self.account_id, "WriteIfUnset", "writeifunset",
+            "fingerprint-write-if-unset", _build_wire, self.home,
+        )
+        self.assertNotIn(
+            "class_id", self.store.read_typed_attributes(self.character.id),
+        )
+
+    def test_a_null_column_is_written(self):
+        written = self.store.write_typed_attribute_if_unset(
+            self.character.id, "class_id", 4,
+        )
+        self.assertEqual(written, 4)
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["class_id"],
+            4,
+        )
+
+    def test_a_set_column_is_left_alone_and_reports_none(self):
+        self.store.write_typed_attributes(self.character.id, {"class_id": 1})
+        written = self.store.write_typed_attribute_if_unset(
+            self.character.id, "class_id", 4,
+        )
+        self.assertIsNone(written)
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id)["class_id"],
+            1,
+        )
+
+    def test_a_refused_value_writes_nothing_and_raises(self):
+        with self.assertRaises(typed.TypedAttrError):
+            self.store.write_typed_attribute_if_unset(
+                self.character.id, "class_id", -1,
+            )
+        self.assertNotIn(
+            "class_id", self.store.read_typed_attributes(self.character.id),
+        )
+
+    def test_an_unknown_character_is_a_key_error(self):
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attribute_if_unset(999999, "class_id", 4)
+
+    def test_a_soft_deleted_character_is_a_key_error_and_does_not_write(self):
+        self.store.soft_delete_character(
+            self.store.open_session(self.account_id), self.character.selector,
+        )
+        with self.assertRaises(KeyError):
+            self.store.write_typed_attribute_if_unset(
+                self.character.id, "class_id", 4,
+            )
+        db = sqlite3.connect(self.path)
+        try:
+            row = db.execute(
+                "SELECT class_id FROM characters WHERE id=?",
+                (self.character.id,),
+            ).fetchone()
+        finally:
+            db.close()
+        self.assertIsNone(row[0])
+
+    def test_write_typed_attributes_is_untouched_by_this_method_existing(self):
+        """LANE-DB's charter (`COO-DECISION 20260901_1100`): a new method may
+        be added, an existing one may not change.  `write_typed_attributes`
+        stays the unconditional writer other callers (`/speed`, the class-id
+        backfill) still need."""
+        self.store.write_typed_attribute_if_unset(
+            self.character.id, "class_id", 4,
+        )
+        after = self.store.write_typed_attributes(
+            self.character.id, {"class_id": 1},
+        )
+        self.assertEqual(after["class_id"], 1)
+
+
 class TheGateStillRefusesTests(unittest.TestCase):
     """Built columns are not composed blocks, and this file says so."""
 
