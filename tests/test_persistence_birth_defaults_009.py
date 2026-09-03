@@ -185,6 +185,19 @@ class _PreNineFixture(unittest.TestCase):
         for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
             if int(path.name[:3]) <= 8:
                 shutil.copy(path, self.upto_008 / path.name)
+        # ROUND `5d02mu`: pinned to <= 9, not to "whatever MIGRATIONS holds
+        # today", the moment `010_ground_drops.sql` landed beside this file.
+        # Every "at 009" assertion in this file -- the ledger's last version,
+        # "nothing but `characters` moved", the snapshot-before-009 count --
+        # was written against a `MIGRATIONS` directory that happened to stop
+        # at 009 and stopped meaning that the day a 010 was added. A file
+        # that grades "at 009" must build its own tree that stops there,
+        # the same way `upto_008` above already does for "at 008".
+        self.upto_009 = self.root / "migrations_009"
+        self.upto_009.mkdir()
+        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+            if int(path.name[:3]) <= 9:
+                shutil.copy(path, self.upto_009 / path.name)
 
     def _store_at_008(self):
         store = SQLiteStore(self.path, self.upto_008)
@@ -192,12 +205,12 @@ class _PreNineFixture(unittest.TestCase):
         return store
 
     def _store_at_009(self):
-        return SQLiteStore(self.path, MIGRATIONS)
+        return SQLiteStore(self.path, self.upto_009)
 
     def _mutated_dir(self, replacements):
         mutant_root = self.root / ("mutant_%d" % len(list(self.root.iterdir())))
         mutant_root.mkdir()
-        for path in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
+        for path in sorted(self.upto_009.glob("[0-9][0-9][0-9]_*.sql")):
             shutil.copy(path, mutant_root / path.name)
         # newline="" on BOTH halves, and it is not style.  `read_text` /
         # `write_text` translate line endings, and on Windows the write half
@@ -256,7 +269,7 @@ class _PreNineFixture(unittest.TestCase):
 class ANewbornHoldsTheFourNumbersTests(_PreNineFixture):
 
     def test_a_character_born_on_a_fresh_install_holds_the_birth_defaults(self):
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, self.upto_009)
         store.migrate()
         account = store.ensure_account("account-a")
         born = self._create(store, account, "Newborn", "newborn")
@@ -274,7 +287,7 @@ class ANewbornHoldsTheFourNumbersTests(_PreNineFixture):
         must still refuse a block for them by name, or 009 has traded the
         birth hole for the guessed zero `COO-DECISION 20260901_1059` forbids.
         """
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, self.upto_009)
         store.migrate()
         account = store.ensure_account("account-a")
         born = self._create(store, account, "Newborn", "newborn")
@@ -301,7 +314,7 @@ class ANewbornHoldsTheFourNumbersTests(_PreNineFixture):
         modules that own the numbers, so a default that drifts from them is
         red here even though the database would be perfectly consistent.
         """
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, self.upto_009)
         store.migrate()
         defaults = {name: dflt for _, name, _, _, dflt, _
                     in _table_info(self.path)}
@@ -329,7 +342,7 @@ class ANewbornHoldsTheFourNumbersTests(_PreNineFixture):
 
     def test_the_typed_write_door_still_refuses_what_it_refused_before(self):
         """The CHECKs came back: the rebuild is not a way past them."""
-        store = SQLiteStore(self.path, MIGRATIONS)
+        store = SQLiteStore(self.path, self.upto_009)
         store.migrate()
         account = store.ensure_account("account-a")
         born = self._create(store, account, "Newborn", "newborn")
@@ -396,7 +409,7 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
         self.assertEqual(store.read_typed_attributes(pre_plug.id), {})
 
         self._store_at_009().migrate()
-        after = SQLiteStore(self.path, MIGRATIONS)
+        after = SQLiteStore(self.path, self.upto_009)
         self.assertEqual(after.read_typed_attributes(rookie.id), born_with)
         self.assertEqual(after.read_typed_attributes(pre_plug.id), {},
                          "009 backfilled a row; it is a DEFAULT, not an "
@@ -441,7 +454,7 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
             db.close()
         self.assertEqual(after, before)
         self.assertEqual(
-            SQLiteStore(self.path, MIGRATIONS).get_character(veteran.id).id,
+            SQLiteStore(self.path, self.upto_009).get_character(veteran.id).id,
             veteran.id)
 
     def test_a_soft_deleted_slot_can_still_be_reused_after_the_rebuild(self):
@@ -449,7 +462,7 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
         store = self._store_at_008()
         account_a, account_b, _, _, _, deleted = self._populate(store)
         self._store_at_009().migrate()
-        after = SQLiteStore(self.path, MIGRATIONS)
+        after = SQLiteStore(self.path, self.upto_009)
         replacement = self._create(after, account_b, "Ghost", "ghost-again",
                                    _build_wire_second_account, 9.0)
         self.assertEqual(replacement.selector, deleted.selector)
@@ -466,7 +479,7 @@ class ExistingRowsSurviveTheRebuildTests(_PreNineFixture):
         account_a, _, veteran, _, _, _ = self._populate(store)
         held = store.read_typed_attributes(veteran.id)
         self._store_at_009().migrate()
-        after = SQLiteStore(self.path, MIGRATIONS)
+        after = SQLiteStore(self.path, self.upto_009)
         again = self._create(after, account_a, "Veteran", "veteran", x=1.0)
         self.assertEqual(again.id, veteran.id)
         self.assertEqual(after.read_typed_attributes(veteran.id), held)
@@ -569,7 +582,7 @@ class TheSnapshotReallyHappensTests(_PreNineFixture):
         self._populate(store)
         before = _all_rows(self.path)
         backups = self.root / "backups"
-        snapshot = SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+        snapshot = SQLiteStore(self.path, self.upto_009).migrate_with_backup(
             backups_root=backups)
         self.assertIsNotNone(
             snapshot, "009 was pending, so a snapshot was owed and none was "
@@ -599,7 +612,7 @@ class TheSnapshotReallyHappensTests(_PreNineFixture):
         blocked = self.root / "blocked"
         blocked.write_text("not a directory", encoding="utf-8")
         with self.assertRaises(BackupError):
-            SQLiteStore(self.path, MIGRATIONS).migrate_with_backup(
+            SQLiteStore(self.path, self.upto_009).migrate_with_backup(
                 backups_root=blocked)
         self.assertEqual(_applied(self.path)[-1], 8)
         self.assertEqual(_all_rows(self.path), before)
@@ -715,7 +728,7 @@ class TheGuardsInTheFileReallyFireTests(_PreNineFixture):
             db.close()
         before = _all_rows(self.path)
         with self.assertRaises(Exception) as caught:
-            SQLiteStore(self.path, MIGRATIONS).migrate()
+            SQLiteStore(self.path, self.upto_009).migrate()
         self.assertIn("guard_every_other_object_is_unchanged",
                       str(caught.exception))
         self.assertEqual(_applied(self.path)[-1], 8)
@@ -868,7 +881,7 @@ class TheLedgerStillGovernsThisFileTests(_PreNineFixture):
         the owner's canonical database refuses to boot against a changed one,
         with a message naming the file."""
         self._store_at_008()
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        SQLiteStore(self.path, self.upto_009).migrate()
         self.assertEqual(_applied(self.path)[-1], 9)
         edited = self._mutated_dir([("-- 009_character_birth_defaults.sql",
                                      "-- 009 (edited after it was applied)")])
@@ -880,10 +893,10 @@ class TheLedgerStillGovernsThisFileTests(_PreNineFixture):
     def test_applying_twice_changes_nothing(self):
         store = self._store_at_008()
         self._populate(store)
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        SQLiteStore(self.path, self.upto_009).migrate()
         rows = _all_rows(self.path)
         columns = _table_info(self.path)
-        SQLiteStore(self.path, MIGRATIONS).migrate()
+        SQLiteStore(self.path, self.upto_009).migrate()
         self.assertEqual(_all_rows(self.path), rows)
         self.assertEqual(_table_info(self.path), columns)
         self.assertEqual(_applied(self.path).count(9), 1)
