@@ -425,7 +425,8 @@ class PlayerDamageDoorTests(unittest.TestCase):
         self.assertIsNone(outcome)
         self.assertEqual(store.damage_calls, [])
         self.assertIn("MOB_AI_PLAYER_DAMAGE_STAND_DOWN", printed)
-        self.assertIn("floor_already_reached", printed)
+        self.assertIn(mob_ai_player_damage.STAND_DOWN_FLOOR_ALREADY_REACHED,
+                      printed)
 
     def test_a_store_that_raises_stands_the_write_down_and_says_so(self):
         class _Angry:
@@ -475,6 +476,102 @@ class PlayerDamageDoorTests(unittest.TestCase):
             self._run(_Liar(hp_current=100), _attack_results(0x2001))
         self.assertEqual(caught.exception.reason,
                          mob_ai_player_damage.REFUSE_WRITE_DID_NOT_LAND)
+
+    def test_a_read_back_that_refuses_after_the_write_also_raises(self):
+        # pf-adversary D8: replacing this branch with `return None` left the
+        # whole suite green, in the one place the module's own docstring
+        # calls "the important half ... which may never be swallowed".  A
+        # read that WORKED one line ago and refuses after the write is not
+        # the ordinary unseeded case; it is a row that moved under us.
+        class _GoesBlindAfterTheWrite(_RecordingStore):
+            def read_character_vitals_or_none(self, character_id):
+                if self.damage_calls:
+                    return None
+                return super().read_character_vitals_or_none(character_id)
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._run(_GoesBlindAfterTheWrite(hp_current=100),
+                      _attack_results(0x2001))
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_WRITE_DID_NOT_LAND)
+
+    def test_a_write_the_store_refuses_stands_down_and_does_not_raise(self):
+        # pf-adversary D7: the READ was wrapped and the WRITE was not, and
+        # the write is the one with a documented failure mode -- the damage
+        # door gives up after DAMAGE_LOCK_BUSY_TIMEOUT_MS, which on this
+        # strictly serial server happens whenever a healing door holds the
+        # same lock.  A raise there would come out of dispatch(), taking a
+        # walking player's session with it AND skipping runtime.py's own
+        # close of the GM warp-confirm window a few lines below the call.
+        # Nothing committed, so this is an environment refusal, by name.
+        class _LockedOut(_RecordingStore):
+            def apply_hp_damage(self, character_id, amount):
+                raise RuntimeError("database is locked")
+
+        store = _LockedOut(hp_current=100)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertIsNone(outcome)
+        self.assertIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                      printed)
+        self.assertEqual(store.vitals.hp_current, 100)
+
+    def test_a_character_id_that_is_not_a_positive_int_is_refused(self):
+        # pf-adversary D8: deleting _require_character_id left the suite
+        # green -- a whole named refusal nothing executed.
+        store = _RecordingStore(hp_current=100)
+        for bad in (0, -1, None, "4242", True):
+            with self.subTest(character_id=bad):
+                with self.assertRaises(
+                        mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+                    with redirect_stdout(io.StringIO()):
+                        mob_ai_player_damage.apply_tick_damage(
+                            store, bad, _attack_results(0x2001))
+                self.assertEqual(
+                    caught.exception.reason,
+                    mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
+        self.assertEqual(store.damage_calls, [])
+
+    def test_a_per_attack_that_is_not_a_positive_int_is_refused(self):
+        # pf-adversary D8, same shape: the validation was dead to the suite.
+        store = _RecordingStore(hp_current=100)
+        for bad in (0, -3, None, 1.0):
+            with self.subTest(per_attack=bad):
+                with self.assertRaises(
+                        mob_ai_player_damage.MobAiPlayerDamageError):
+                    with redirect_stdout(io.StringIO()):
+                        mob_ai_player_damage.apply_tick_damage(
+                            store, self.CHARACTER, _attack_results(0x2001),
+                            per_attack=bad)
+        self.assertEqual(store.damage_calls, [])
+
+    def test_a_result_row_that_is_not_a_typed_record_is_refused(self):
+        # pf-adversary D8: both type guards in attack_decisions were dead.
+        class _Loose:
+            def __init__(self, kind, actor):
+                self.intent_kind = kind
+                self.actor_identity = actor
+
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            mob_ai_player_damage.attack_decisions([_Loose(None, 0x2001)])
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_TYPE_NOT_TYPED_RECORD)
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            mob_ai_player_damage.attack_decisions(
+                [_Loose(mob_aggro.INTENT_ATTACK_UNDELIVERABLE, 0)])
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
+
+    def test_the_console_line_reports_every_number_the_outcome_carries(self):
+        # pf-adversary D8: hp_max and hp_before could be replaced with
+        # anything and no card noticed, while both are printed.
+        store = _RecordingStore(hp_current=57, hp_max=123)
+        outcome, printed = self._run(store, _attack_results(0x2001))
+        self.assertEqual(outcome.hp_before, 57)
+        self.assertEqual(outcome.hp_max, 123)
+        self.assertIn("hp=57->56/123", printed)
 
     def test_an_outcome_that_reports_a_death_raises(self):
         # The floor above makes this unreachable through this lane's own
@@ -550,14 +647,42 @@ class MaybeTickDamageOptInTests(unittest.TestCase):
         # there may not eat the evidence of the tick that produced it.
         self.assertIn("LANE_B_MOB_AI_TICK", printed)
 
-    def test_passing_one_of_the_pair_refuses_instead_of_half_working(self):
+    def test_a_store_with_no_character_is_a_caller_defect_and_raises(self):
         store = _RecordingStore(hp_current=100)
-        for kwargs in ({"store": store}, {"character_id": 4242}):
-            with self.subTest(kwargs=sorted(kwargs)):
-                with self.assertRaises(
-                        mob_ai_player_damage.MobAiPlayerDamageError):
-                    self._tick(**kwargs)
+        with self.assertRaises(
+                mob_ai_player_damage.MobAiPlayerDamageError) as caught:
+            self._tick(store=store)
+        self.assertEqual(caught.exception.reason,
+                         mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE)
         self.assertEqual(store.damage_calls, [])
+
+    def test_a_character_with_no_store_stands_down_and_the_tick_survives(self):
+        # pf-adversary D3, MEASURED ON A SHIPPED SESSION CLASS.  The first
+        # draft raised here, symmetrically with the card above.  That was
+        # wrong, and the proof is that the published order -- pasted
+        # verbatim, as an order is meant to be -- produces exactly this
+        # shape on `session.ReadOnlyFoundationSession`, which `app.py`
+        # installs for every scene-load scenario: it has a `store` but no
+        # `lifecycle`, so the order's getattr chain yields None while
+        # `selected.id` is a real number.  The raise came out of dispatch()
+        # and took the session's frame with it.  A missing store is an
+        # ENVIRONMENT fact -- the module's own order already promised it
+        # would be "refused by name, never crashed on" -- so it stands down,
+        # says so once per process, and the tick still runs.
+        del lane_b_mob_ai_tick._STORELESS_ANNOUNCED[:]
+        _register, results, printed = self._tick(character_id=4242)
+        self.assertIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                      printed)
+        self.assertTrue(any(
+            r.intent_kind == mob_aggro.INTENT_ATTACK_UNDELIVERABLE
+            for r in results),
+            "the tick must still have run: standing the WRITE down may not "
+            "stand the decision loop down with it")
+        # ONCE PER PROCESS, not once per frame: this fires on every TargetPos
+        # such a session sends, and a truth repeated that often is noise.
+        _r2, _res2, printed_again = self._tick(character_id=4242)
+        self.assertNotIn(mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                         printed_again)
 
     def test_the_order_names_the_arguments_the_function_really_takes(self):
         # THE BINDING THE THREE-DAY DEFECT DID NOT HAVE.  The order is a
@@ -582,6 +707,60 @@ class MaybeTickDamageOptInTests(unittest.TestCase):
                      (SRC_ROOT / "mob_ai_player_damage.py").read_text(
                          encoding="utf-8")):
             self.assertIn("MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD", text)
+
+    def test_the_hold_is_a_state_of_runtime_py_and_not_a_comment(self):
+        # pf-adversary D2 OF THIS ROUND, AND THE QUESTION IT CLOSED WITH:
+        # "what, executable, goes red on the day someone pastes those two
+        # keyword arguments into runtime.py without a COO answer?"  It
+        # measured that the answer was NOTHING -- it pasted the order and
+        # every card in the round stayed green, because the only thing
+        # holding the hold was a string in a comment.  This card is the
+        # answer, and it is the whole point of writing it: the marker and
+        # the call site are read TOGETHER, out of the AST, so exactly one of
+        # the two states is green.
+        #
+        # WHILE THE MARKER STANDS: the maybe_tick call in runtime.py must
+        # pass NEITHER keyword.  THE DAY THE COO ANSWERS: the marker comes
+        # out of the order in the same round the keywords go in, and this
+        # card requires BOTH -- so a paste without an answer is red, and an
+        # answer without a paste is red too.  Neither half can drift alone.
+        runtime_tree = ast.parse(
+            (SRC_ROOT / "runtime.py").read_text(encoding="utf-8"))
+        passed = set()
+        calls = 0
+        for node in ast.walk(runtime_tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and func.attr == "maybe_tick"):
+                continue
+            calls += 1
+            passed.update(
+                keyword.arg for keyword in node.keywords if keyword.arg)
+        self.assertEqual(
+            calls, 1,
+            "expected exactly one maybe_tick call site in runtime.py; found "
+            "%d, so this card cannot say which one carries the hold" % calls)
+        held = "MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD" in (
+            lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING)
+        wired = {"store", "character_id"} & passed
+        if held:
+            self.assertEqual(
+                wired, set(),
+                "the order still carries MOB_AI_PLAYER_DAMAGE_WIRING_ON_HOLD "
+                "but runtime.py already passes %r to maybe_tick.  Either the "
+                "COO answered and the marker must come out of the order in "
+                "the same round, or this is the paste the hold exists to "
+                "stop -- see pf_bridge/notes_to_chief/20260903_1952_LANE-B-"
+                "ASK-COO-*" % (sorted(wired),))
+        else:
+            self.assertEqual(
+                wired, {"store", "character_id"},
+                "the hold marker is gone from the order, so the COO has "
+                "answered -- but runtime.py passes %r.  A lifted hold with no "
+                "call site is a door nobody opened wearing an open sign"
+                % (sorted(wired),))
 
 
 class RealDatabaseDamageTests(unittest.TestCase):
@@ -648,7 +827,8 @@ class RealDatabaseDamageTests(unittest.TestCase):
         after = self.store.read_character_vitals_or_none(self.character_id)
         self.assertEqual(after.hp_current, mob_ai_player_damage.HP_FLOOR)
         self.assertIs(after.alive, True)
-        self.assertIn("floor_already_reached", buf.getvalue())
+        self.assertIn(mob_ai_player_damage.STAND_DOWN_FLOOR_ALREADY_REACHED,
+                      buf.getvalue())
 
 
 if __name__ == "__main__":

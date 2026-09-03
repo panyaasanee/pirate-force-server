@@ -319,8 +319,11 @@ def apply_tick_damage(
 
     Raises :class:`MobAiPlayerDamageError` for a contract violation, and --
     the important half -- for anything wrong AFTER the write: a read-back
-    that disagrees with the store's own outcome, or an HP at or below
-    :data:`HP_FLOOR`.  Neither may be logged and continued.
+    that disagrees with the store's own outcome, or an HP BELOW
+    :data:`HP_FLOOR`.  Neither may be logged and continued.  Landing exactly
+    ON the floor is the clamp working and is not an error; an earlier draft
+    of this paragraph said "at or below", which described a module that
+    would raise on its own success path (pf-adversary D10).
     """
     character_id = _require_character_id(character_id)
     if type(per_attack) is not int or per_attack < 1:
@@ -352,9 +355,27 @@ def apply_tick_damage(
             "hp=%d floor=%d requested=%d" % (hp_before, HP_FLOOR, requested)))
         return None
 
-    outcome = store.apply_hp_damage(character_id, applied)
+    # THE WRITE IS WRAPPED AND THE READ-BACK IS NOT, AND THAT ASYMMETRY IS
+    # THE POINT (pf-adversary D7).  A raise out of `apply_hp_damage` means
+    # the transaction did not commit: `_begin_immediate_for_damage` gives up
+    # after DAMAGE_LOCK_BUSY_TIMEOUT_MS with nothing opened, which happens on
+    # this strictly serial server whenever a healing door (which may hold the
+    # same lock for up to HEAL_LOCK_TOTAL_WAIT_S) is in flight.  So it is an
+    # ENVIRONMENT refusal like the read above: no HP moved, stand down by
+    # name.  Letting it propagate would take a walking player's dispatch down
+    # -- and worse, it would skip runtime.py's own close of the GM warp
+    # confirm window a few lines below the call site, latching state past its
+    # frame.  Anything AFTER a committed write still raises; see below.
+    try:
+        outcome = store.apply_hp_damage(character_id, applied)
+    except Exception as exc:  # the store's own errors, not this lane's
+        print(stand_down_console_line(
+            REFUSE_STORE_CANNOT_BE_ASKED, character_id,
+            "the damage door refused the write (nothing committed): %r"
+            % (exc,)))
+        return None
 
-    if outcome.hp_after <= HP_FLOOR - 1 or outcome.died:
+    if outcome.hp_after < HP_FLOOR or outcome.died:
         raise MobAiPlayerDamageError(
             REFUSE_FLOOR_WAS_BREACHED,
             "hp_after=%r died=%r floor=%d applied=%d"

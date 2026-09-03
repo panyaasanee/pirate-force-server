@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_aggro  # noqa: E402
 from pirateforce_foundation import mob_ai_control  # noqa: E402
+from pirateforce_foundation import mob_ai_scheduler  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_combat_membership  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
@@ -313,17 +314,68 @@ class MobAiControlDispatchTests(unittest.TestCase):
             "the session kept a register the tick did not write")
 
     def test_the_tick_does_not_run_on_a_frame_that_is_not_a_target_pos(self):
-        # The control for the card above.  Without it, a call site that
-        # ticked on EVERY frame would pass that one too -- and "the AI runs
-        # whenever anything arrives" is a different, worse server than the
-        # one the published order describes.  Two ACTION frames fold threat
-        # twice and decide nothing: the row is still idle.
+        # The control for the card above.  pf-adversary MEASURED THE FIRST
+        # DRAFT OF THIS CARD VACUOUS and it was right: it sent two ACTION
+        # frames and never a TargetPos, so `state.last_target_pos` was None
+        # and dispatch's SECOND conjunct short-circuited.  The mutant it
+        # claims to catch -- the nested-id guard widened to "any frame" --
+        # left it green, because the branch was never entered for a reason
+        # this card was not testing.
+        #
+        # FIXED BY GIVING THE SESSION A REMEMBERED POSITION FIRST: one real
+        # TargetPos frame (which ticks, and whose bump is recorded), then an
+        # ACTION frame, which must NOT tick.  Now every guard except the
+        # nested-id one is satisfied when the ACTION frame arrives, so the
+        # nested-id guard is the only thing that can hold the tick back and
+        # the mutant has nowhere to hide.
         state = self._state("ai_tick_control")
         self._attack(state, CONTROL_TARGET)
-        self._attack(state, CONTROL_TARGET)
-        row = state.mob_ai_register.state_of(CONTROL_TARGET)
-        self.assertEqual(row.phase, mob_aggro.PHASE_IDLE)
-        self.assertNotEqual(row.threat, ())
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                (self.control_mob.x, self.control_mob.y, self.control_mob.z))))
+        self.assertIsNotNone(
+            state.last_target_pos,
+            "the TargetPos frame must leave a remembered position, or the "
+            "ACTION frame below is refused by a guard that is not the one "
+            "under test -- the exact hole pf-adversary measured")
+        after_tick = state.mob_ai_register.state_of(CONTROL_TARGET)
+        self.assertEqual(after_tick.phase, mob_aggro.PHASE_AGGRO)
+
+        # COUNTED, NOT INFERRED FROM STATE.  A second tick on the ACTION
+        # frame would recompute the same aggro state from the same
+        # observation -- tick_step is pure -- so no register field can tell
+        # the two apart.  What CAN is whether the driver was entered at all,
+        # so the real tick_session is wrapped (never replaced: it still runs
+        # and the register it returns is still what the session keeps, the
+        # same shape test_a_stale_register_refusal_retries_and_folds_exactly_
+        # once already uses on commit_step).
+        from pirateforce_foundation.lane_hooks import lane_b_mob_ai_tick
+        real_tick_session = mob_ai_scheduler.tick_session
+        calls = {"n": 0}
+
+        def counting_tick_session(*args, **kwargs):
+            calls["n"] += 1
+            return real_tick_session(*args, **kwargs)
+
+        mob_ai_scheduler.tick_session = counting_tick_session
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                self._attack(state, CONTROL_TARGET)
+                self.assertEqual(
+                    calls["n"], 0,
+                    "an ACTION frame ran the aggro tick: the call site is "
+                    "not guarded on TARGET_POS_VITAL any more")
+                # and the positive control, in the same session and the same
+                # patch, so a zero above cannot be the wrapper not being
+                # installed:
+                state.dispatch(self.legacy.parse_outer(self._target_pos_pc(
+                    (self.control_mob.x, self.control_mob.y,
+                     self.control_mob.z))))
+            self.assertEqual(calls["n"], 1)
+        finally:
+            mob_ai_scheduler.tick_session = real_tick_session
 
 
 if __name__ == "__main__":

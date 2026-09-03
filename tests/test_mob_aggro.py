@@ -960,9 +960,48 @@ class VocabularyTests(unittest.TestCase):
             "unstruck -- with this measurement quoted")
         self.assertGreater(len(acquired), len(deciding))
         self.assertLess(len(acquired), len(results))
+        # THE PROSE NUMBERS, PINNED (pf-adversary D11: the first draft
+        # asserted only the inequalities, so every number the struck
+        # sentence in mob_aggro.py quotes -- 17 rows, 5 acquiring,
+        # placement 92, cadence 1 -- was unbacked prose).  Pinned as
+        # DERIVED values, so a mining round that changes the table fails
+        # here with the new truth rather than being told the old one.
+        self.assertEqual(len(results), 17)
+        self.assertEqual(len(acquired), 5)
+        self.assertEqual([r.actor_identity for r in deciding],
+                         [orc_chief.actor_identity])
+        self.assertEqual(mob_ai_control.ATTACK_CADENCE_TICKS, 1)
+        self.assertEqual(mob_ai_control.MELEE_ATTACK_RANGE, 275.0)
         # AND THE PART THAT DID NOT CHANGE, so nobody reads this card as
         # Door B opening: deciding to attack still sends no byte.
         self.assertIs(ma.ATTACK_INTENT_DELIVERABLE, False)
+
+    def test_the_paid_debt_names_a_card_that_exists(self):
+        # pf-adversary D11: the `[PAID, round nfrrqa]` note above cites a
+        # test by path with no class, and nothing checked it.  Rename or
+        # delete that card and the PAID claim would have survived it for
+        # ever -- which is the exact failure mode this lane keeps paying
+        # for, one file over.
+        # READ, NOT IMPORTED: importing a sibling test module depends on
+        # which directory pytest put on sys.path, and this card must mean
+        # the same thing under the Windows gate as it does here.
+        sibling = ast.parse(
+            (Path(__file__).resolve().parent
+             / "test_mob_ai_control_dispatch.py").read_text(encoding="utf-8"))
+        defined = {
+            node.name for node in ast.walk(sibling)
+            if isinstance(node, ast.FunctionDef)
+        }
+        for name in (
+            "test_a_target_pos_frame_really_runs_the_tick_not_only_the_gate",
+            "test_the_tick_does_not_run_on_a_frame_that_is_not_a_target_pos",
+        ):
+            self.assertIn(
+                name, defined,
+                "the D7 debt above is marked PAID by citing %s in "
+                "tests/test_mob_ai_control_dispatch.py, and it is not there: "
+                "either it moved (and the citation must move with it) or the "
+                "debt is unpaid again" % name)
 
 
 class ContainmentTests(unittest.TestCase):

@@ -119,6 +119,12 @@ from .. import mob_ai_scheduler
 production_allowed = True
 
 MODULE_NAME = "pirateforce_foundation.lane_hooks.lane_b_mob_ai_tick"
+
+# One line per process, not one per frame: the storeless stand-down below
+# fires on EVERY TargetPos a session with no lifecycle sends, and a truth
+# repeated sixty times a second stops being read.  A list rather than a bool
+# so a test can inspect and reset it without reaching for a global statement.
+_STORELESS_ANNOUNCED: list = []
 POINT = "vital_inbound_target_pos_mob_ai_tick"
 
 # The exact block a future runtime.py round can paste into dispatch(),
@@ -223,22 +229,38 @@ def maybe_tick(
     through :func:`mob_ai_player_damage.apply_tick_damage`.  Pass neither --
     the default, and what ``runtime.py`` passes today -- and NOTHING
     touches the database, so this argument pair is the whole opt-in and
-    there is no flag hiding behind it.  Passing exactly one is a caller
-    contract error and raises, rather than half-working: a store with no id
-    would write against nobody, and an id with no store would silently
-    never write, which is the failure mode this lane spent three days on.
+    there is no flag hiding behind it.
 
-    The write is deliberately AFTER the tick and outside the phase-line
-    loop below: the decision is what is being persisted, so the register
-    must already hold it, and a refusal from the damage door may not eat
-    the console lines that describe the tick that produced it.
+    ~~Passing exactly one is a caller contract error and raises, rather than
+    half-working.~~ STRUCK, same round, MEASURED WRONG BY pf-adversary (D3)
+    BEFORE IT SHIPPED, and the measurement is worth more than the rule: the
+    published order fetches the store with
+    ``getattr(getattr(self.foundation, 'lifecycle', None), 'store', None)``,
+    and ``session.ReadOnlyFoundationSession`` -- which ``app.py`` installs
+    for every scene-load scenario -- has a ``store`` but NO ``lifecycle``.
+    So the order, pasted verbatim, hands this function ``store=None`` with a
+    real ``character_id``, and the raise came out of ``dispatch()`` on a
+    shipped session class.  A NONE STORE IS NOW A NAMED STAND-DOWN, WHICH IS
+    WHAT THIS FILE'S OWN ORDER ALREADY PROMISED IN WORDS ("refused by name as
+    store_cannot_be_asked, never crashed on") and did not do.  The half that
+    stays a raise is the one that cannot be an environment fact: a real store
+    with no character id would write against nobody.
     """
-    if (store is None) != (character_id is None):
+    if store is None and character_id is not None:
+        if not _STORELESS_ANNOUNCED:
+            _STORELESS_ANNOUNCED.append(character_id)
+            print(console_safe(mob_ai_player_damage.stand_down_console_line(
+                mob_ai_player_damage.REFUSE_STORE_CANNOT_BE_ASKED,
+                character_id,
+                "maybe_tick was given a character but no store: this session "
+                "has no lifecycle to fetch one from (said once per process)")))
+        character_id = None
+    elif store is not None and character_id is None:
         raise mob_ai_player_damage.MobAiPlayerDamageError(
-            mob_ai_player_damage.REFUSE_TYPE_NOT_TYPED_RECORD,
-            "store and character_id must be passed together: "
-            "store is None=%r character_id=%r"
-            % (store is None, character_id))
+            mob_ai_player_damage.REFUSE_IDENTITY_NOT_POSITIVE,
+            "maybe_tick was given a store but no character_id: a write with "
+            "no character to write against is a caller defect, not an "
+            "environment fact")
     announce_direct_fire(MODULE_NAME, POINT)
     register, results = mob_ai_scheduler.tick_session(
         ai_register, combat_ledger, player_identity, player_position,
