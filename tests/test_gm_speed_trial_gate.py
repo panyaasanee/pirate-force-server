@@ -1040,5 +1040,90 @@ class TheGuardAroundTheTwoHoldsIsOneNotOverOneNameTests(_Case):
                     )
 
 
+class TheArmedButRefusedLineReplacesTheDeadTokenTests(_Case):
+    """`SPEED_TRIAL_CONSOLE_TOKEN` (`SPEED TRIAL OPEN`) cannot print on any
+    route on `main` since `COO-DECISION 20260904_0345` item 2 shut the
+    composer unconditionally -- `_speed_action`'s `if trial_admitted:` block
+    that used to print it sits AFTER a `compose_sparse_speed_update` call
+    that now always raises, so it is never reached (pf-adversary, round
+    `tof9cw`, measured; recorded in `pf_bridge#1067`).  That silently cost
+    the one guarantee `COO 0646` item 2's fourth bullet asked for: an owner
+    who arms `PF_SPEED_TRIAL` must be able to tell, from the console alone,
+    that the key was RECOGNISED even though the value never shipped.  This
+    class pins the replacement line this round adds.
+    """
+
+    def test_armed_and_refused_notes_its_own_event_beside_the_compose_refusal(
+        self,
+    ):
+        session = self.session()
+        with environment(ARMED):
+            self.act(session)
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED,
+            session.events,
+        )
+        self.assertTrue(
+            [
+                event
+                for event in session.events
+                if event.startswith(
+                    chat_command_action
+                    .EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX
+                )
+            ],
+            f"the new event must accompany the compose refusal, not replace "
+            f"it: {session.events!r}",
+        )
+
+    def test_unarmed_notes_neither_event(self):
+        # The default (`main` with no environment variable set) must be
+        # untouched by this line, the same property every other class in
+        # this file pins for its own gate.
+        session = self.session()
+        self.act(session)
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED,
+            session.events,
+        )
+
+    def test_the_console_names_the_armed_value_and_the_refusing_exception(self):
+        session = self.session()
+        with environment(ARMED):
+            _action, console = self.act_capturing_console(session)
+        line = self.one_line_starting(
+            console, chat_command_action.SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN
+        )
+        self.assertIn(f"trial_opens_for={ARMED_F32!r}", line)
+        self.assertIn("refused_by=SpeedWireError", line)
+        # No `sending=` field: this branch never puts a `0x309A` byte on any
+        # wire, and a field named `sending=` here would be exactly the
+        # overclaim `pf_bridge#1067` measured and this round removes.
+        self.assertNotIn("sending=", line)
+
+    def test_the_old_dead_token_still_never_prints(self):
+        # The replacement is additive -- `SPEED_TRIAL_CONSOLE_TOKEN` itself
+        # stays dead, and this class must not accidentally resurrect it.
+        session = self.session()
+        with environment(ARMED):
+            _action, console = self.act_capturing_console(session)
+        self.assertNotIn(chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN, console)
+
+    def test_that_line_is_pure_ascii(self):
+        session = self.session()
+        with environment(ARMED):
+            _action, console = self.act_capturing_console(session)
+        line = self.one_line_starting(
+            console, chat_command_action.SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN
+        )
+        line.encode("ascii")
+
+    def test_the_token_text_itself(self):
+        self.assertEqual(
+            chat_command_action.SPEED_TRIAL_ARMED_REFUSED_CONSOLE_TOKEN,
+            "SPEED TRIAL ARMED REFUSED",
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
