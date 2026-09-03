@@ -315,10 +315,15 @@ from .chat_command import (
     # copy of the string in this file is how the two would drift apart.
     REFUSAL_PARSE_ERROR_PREFIX,
     REFUSAL_RATE_LIMITED,
+    # CHAT-TAIL-001: the one refusal this round may retry, imported by name
+    # from the module that owns the word, for the reason spelled out three
+    # imports above.
+    REFUSAL_UNDECODABLE_PREFIX,
     SERVER_SIDE_DROP_REFUSALS,
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
 )
+from . import chat_frame_tail
 from . import login_scene_admission
 from .login_scene_admission import stageable_scene_ids
 # The way out for THIS module's refusals: `/warp` writes the single-use map,
@@ -844,6 +849,15 @@ EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX = "gm_chat_action_npc_recompose_diagnostic
 EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX = "gm_chat_action_item_catalog_diagnostic_"
 EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
 EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
+# CHAT-TAIL-001.  One event per frame whose payload was NOT a bare chat body
+# -- either because the tail walked (the command still runs, on the isolated
+# body) or because it did not (the command is refused exactly as it is on
+# main today).  `no_tail` -- every frame ever captured -- writes nothing.
+EVENT_CHAT_TAIL_PREFIX = "gm_chat_action_chat_tail_"
+# The per-connection latch that keeps the console line above bounded.  Held
+# on the session, not on the module, so two connections do not silence each
+# other and a reconnect reports again.
+SESSION_CHAT_TAIL_REPORTED = "_gm_chat_tail_reported"
 EVENT_WARP_WITHHELD_NO_VERSION = (
     "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
 )
@@ -1409,6 +1423,130 @@ def _note(session: object, event: str) -> None:
         pass
 
 
+def _print_chat_tail_once(
+    session: object,
+    split: object,
+    payload_length: int,
+) -> None:
+    """One console line per connection per reason, and never more.
+
+    WHY A LATCH AND NOT A PLAIN PRINT.  This still runs ahead of the rate
+    limiter -- the limiter lives inside `handle_local_talk_chat`, below the
+    decode this round is retrying -- so an unlatched line would be one
+    console write per frame, which is the defect pf-adversary measured on
+    this very module (D3, round `9wy444`: 100 console lines from 100 crafted
+    frames).  The bound here is per-connection: at most one line for each
+    distinct reason, at most as many lines as `chat_frame_tail` has reason
+    names, for the life of a connection.
+
+    WHO CAN DRIVE IT AT ALL, which is the half that matters more than the
+    latch: only an account already on the GM allowlist.  The call site
+    reaches this function only after `handle_local_talk_chat` has authorized
+    the account and refused the frame, so a stranger's chat -- however
+    crafted -- reaches neither this print nor the `_note` beside it.
+
+    WHAT IS LOST BY LATCHING, said plainly: the console cannot be used to
+    COUNT these frames, only to learn that this connection saw one.  The
+    count lives on `session.events`.
+
+    !! AND `session.events` IS NOT A QUIET TRAIL -- pf-adversary (D7, round
+    `uyzr8c`) is right that calling it one would be wrong.  `runtime.py`'s
+    `_EventEchoList` echoes EVERY append through the stdout exporter when
+    the process runs with `--export-events`, so an event here is a stdout
+    line there.  It is not latched, and this round does not claim it is
+    bounded: it is one extra line on a path that already writes
+    `gm_chat_action_refused_*` for the same frame, driven only by an
+    allowlisted GM, which is why it is left un-latched rather than made to
+    lie about how many frames arrived.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- the rule the three sibling
+    printers in this file hold: everything that can raise is inside the
+    guard, a `None` stderr returns rather than letting `print` fall back to
+    STDOUT, and a console that cannot be written is NAMED on the event trail.
+    A session that will not hold the latch attribute still gets its command;
+    it just gets a line per frame instead of one, which is why the failure to
+    latch is itself recorded rather than swallowed.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        reason = split.reason
+        reported = getattr(session, SESSION_CHAT_TAIL_REPORTED, None)
+        if isinstance(reported, set):
+            if reason in reported:
+                return
+            reported.add(reason)
+        else:
+            try:
+                setattr(session, SESSION_CHAT_TAIL_REPORTED, {reason})
+            except Exception:  # noqa: BLE001 - see the docstring's last line
+                _note(session, f"{EVENT_CHAT_TAIL_PREFIX}latch_unavailable")
+        print(
+            console_safe(
+                chat_frame_tail.tail_console_line(split, payload_length),
+                stream,
+            ),
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - a diagnostic may not raise
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _is_undecodable_payload(outcome: object) -> bool:
+    """True for the ONE refusal CHAT-TAIL-001 is allowed to retry.
+
+    Narrow on purpose.  `chat_payload_undecodable_*` is the refusal a chat
+    body with another vital glued to its end produces, and it is the only
+    one this round may look at: it is returned below the identity check and
+    below the size ceiling, so seeing it proves both have already passed.
+    Every other refusal -- not a GM, too large, rate limited, not a command,
+    a parse error -- means the frame was understood and answered, and
+    retrying any of them would be this lane arguing with a verdict.
+    """
+    reason = getattr(outcome, "refusal_reason", None)
+    if not isinstance(reason, str):
+        return False
+    return reason.startswith(REFUSAL_UNDECODABLE_PREFIX)
+
+
+def _isolated_chat_payload(
+    session: object,
+    payload: bytes,
+    legacy: object,
+) -> bytes:
+    """The chat body of `payload`, which on every captured frame IS `payload`.
+
+    CHAT-TAIL-001, and the whole of what it changes: when v141 hands this
+    lane a payload that is a chat body FOLLOWED BY whole nested vitals, the
+    command runs on the isolated body instead of being refused as
+    `chat_payload_undecodable_ChatDecodeError`.  In every other case --
+    including every frame this project has ever captured -- THE CALLER'S OWN
+    OBJECT is returned (identity, not equality: the call site tests `is not`
+    to decide whether to retry at all) and the route behaves exactly as it
+    does on main.
+
+    IT NEVER WIDENS WHO MAY COMMAND, and after pf-adversary's D1 it never
+    even RUNS for a non-GM: the call site reaches this only after
+    `handle_local_talk_chat` has authorized the account and refused the
+    frame as undecodable.  See `gm/chat_frame_tail.py`'s docstring for the
+    argument in full, and for the sentence that says no multi-vital chat
+    frame has ever been captured.
+    """
+    split = chat_frame_tail.split_local_talk_payload(payload, legacy)
+    if split.reason == chat_frame_tail.NO_TAIL:
+        return payload
+    if split.reason == chat_frame_tail.TAIL_WALKED:
+        _note(session, f"{EVENT_CHAT_TAIL_PREFIX}walked_{len(split.tail_ids)}")
+        _print_chat_tail_once(session, split, len(payload))
+        return split.body
+    if split.reason not in chat_frame_tail.QUIET_REASONS:
+        _note(session, f"{EVENT_CHAT_TAIL_PREFIX}{split.reason}")
+        _print_chat_tail_once(session, split, len(payload))
+    return payload
+
+
 def _note_npc_recompose_diagnostic(session: object, command: object) -> None:
     """Read-only diagnostic for a parsed `npc` command; never touches verdict.
 
@@ -1708,6 +1846,29 @@ def _make_action(
     outcome = handle_local_talk_chat(
         token, payload, config_path=config_path, log_path=log_path
     )
+    # CHAT-TAIL-001, AND IT RUNS SECOND ON PURPOSE.  The first draft of this
+    # round split the payload BEFORE this call, and pf-adversary (D1, round
+    # `uyzr8c`) measured what that cost: a non-GM's chat line reached a
+    # UTF-16 decode, a `session.events` append and a stderr write, which
+    # falsifies two `[MEASURED]` sentences that were true on main -- this
+    # module's own "a non-GM still causes no write, no decode and no
+    # rate-limit charge" and `runtime.py`'s "a non-GM chat line produces
+    # stdout='' AND stderr=''".  It also moved an 8 KB decode ahead of the
+    # 4096-byte ceiling `MAX_CHAT_PAYLOAD_LENGTH` exists to enforce.
+    #
+    # Asking the question SECOND costs nothing and keeps every one of those
+    # properties, because the refusal we retry on is returned BELOW the
+    # identity check, BELOW the size ceiling and ABOVE the rate limiter and
+    # the audit writer (`chat_command.handle_local_talk_chat`): reaching it
+    # proves the account is on the allowlist, proves the frame is under the
+    # ceiling, and spends no limiter slot and writes no audit row that the
+    # retry would then duplicate.
+    if _is_undecodable_payload(outcome):
+        isolated = _isolated_chat_payload(session, payload, legacy)
+        if isolated is not payload:
+            outcome = handle_local_talk_chat(
+                token, isolated, config_path=config_path, log_path=log_path
+            )
     if outcome.command is None:
         _note(session, f"{EVENT_REFUSED_PREFIX}{outcome.refusal_reason}")
         _print_command_refusal_way_out(session, token, outcome)
