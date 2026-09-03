@@ -409,9 +409,22 @@ def compose_player_hit_frame(
     # -- compose, through the ONE encoder 0045 names -----------------------
     try:
         rows = hit_frame_vital_rows()
-        block = persistence_attr_compose.compose_full_block(live)
-        if not cache.is_captured():
-            cache.capture_initial(block)
+        # Composed and written NOWHERE.  This is the last place a value the
+        # adjudicator passed can still blow up (a struct range, a wstr that
+        # will not encode), and it must blow up here as a named stand-down
+        # rather than inside LANE-GM's encoder.
+        #
+        # pf-adversary round f2qyxx D7, MEASURED: these two lines used to be
+        #     if not cache.is_captured(): cache.capture_initial(block)
+        # so a door on its way OUT -- including out through a REFUSAL --
+        # left 55 rows in the CONNECTION's cache.
+        # `build_named_field_update` requires exactly the 26
+        # `named_field_x()` rows, so one stand-down broke every later named
+        # send on that connection ("it holds 55 of 26 named rows").  Gate 3
+        # refuses to MAKE a cache; not writing one this door did not seed is
+        # the same rule, and it was missing.  An unseeded cache is the
+        # ENCODER's refusal to name, and it already names it.
+        persistence_attr_compose.compose_full_block(live)
         return attr_wire.build_named_field_update(
             legacy, cache, identity_lo, identity_hi,
             rows[HIT_FRAME_CHANGED_FIELD_NAME], hp_after,

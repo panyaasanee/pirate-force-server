@@ -938,8 +938,19 @@ class HitFrameDoorBTests(unittest.TestCase):
         # a single byte is built, and gate (i) right after it, both ahead
         # of the read point in `compose_player_hit_frame`.  So the card
         # now measures the door, not the calendar.
+        #
+        # SECOND DRAFT, pf-adversary D1, MEASURED: this card's first rewrite
+        # still carried `assertFalse(hit_frame_encoder_unlocked())`, and the
+        # adversary landed `FULL_BLOCK_UNLOCK_CONFIRMED = 0` in
+        # `gm/attr_wire.py` and turned this card red -- with the constant
+        # THIS ROUND'S OWN LETTER asks LANE-GM to define.  That is the same
+        # death, one file over: the day LANE-GM answers, a branch cut before
+        # that hour is green on the push gate and red on the pull_request
+        # gate.  So the shipped-state card now names ONE thing, and it is
+        # this lane's own: gate (ii).  The encoder gate is read as a
+        # CONTRACT under `_gates`, in the cards below, where the value is
+        # patched and never read off whatever `main` happens to hold.
         self.assertIsNone(self.door.MOB_HIT_FRAME_CONFIRMED)
-        self.assertFalse(self.door.hit_frame_encoder_unlocked())
         # ...and the door composed through the REAL `lane_hooks` -- not a
         # stand-in -- still sends nothing and says which gate stopped it.
         with redirect_stdout(io.StringIO()) as buffer:
@@ -952,33 +963,41 @@ class HitFrameDoorBTests(unittest.TestCase):
                       buffer.getvalue())
 
     def test_the_read_point_resolution_is_consistent_either_way(self):
-        # The half of the old card worth keeping, written as a CONTRACT
-        # instead of a snapshot: `resolve_live_attr_values` answers either
-        # `(None, a reason naming the attribute)` or `(a callable, "")`.
-        # Both branches are legal on `main` at different hours; a pair that
-        # is neither is a bug in the door, and this card catches it in
-        # whichever direction the tree happens to be pointing today.
-        hook, why_not = self.door.resolve_live_attr_values()
-        if hook is None:
-            self.assertIn(self.door.LIVE_ATTR_VALUES_HOOK_ATTR, why_not)
-        else:
-            self.assertTrue(callable(hook))
-            self.assertEqual(why_not, "")
+        # SECOND DRAFT, pf-adversary D13, MEASURED: the first one read the
+        # REAL tree and branched on what it found, so on a tree where the
+        # hook exists it asserted `callable(hook)` about a value the
+        # function only returns AFTER checking `callable` -- a tautology.
+        # The adversary deleted the callable guard from `mob_hit_frame.py`
+        # outright and the whole file stayed green.  It also mislabelled its
+        # other branch: an unimportable `lane_hooks` answers "importing
+        # lane_hooks raised ...", which does not contain the attribute name.
+        #
+        # So the contract is exercised with STAND-IN MODULES, one per
+        # branch, and every branch can now die for its own reason.
+        class _Empty:
+            pass
 
-    def test_the_chiefs_read_point_is_on_this_tree(self):
-        # A DELIBERATE BASELINE ON ANOTHER LANE'S CODE, allowed to die on
-        # its own (NOW.md, `0053`/`0149`): `COO-DECISION 20260904_0047`
-        # point 1 ordered the read point and server `#695` landed it, and
-        # Door B's whole route to a player runs through it.  If this card
-        # goes red the read point left `main` -- that is news for this
-        # lane, and it should arrive as a named failure here rather than
-        # as a stand-down line nobody greps.
-        hook, why_not = self.door.resolve_live_attr_values()
-        self.assertIsNotNone(
-            hook,
-            "lane_hooks.%s is gone from this tree (%s); it landed in "
-            "server #695 and Door B reads its live values through it"
-            % (self.door.LIVE_ATTR_VALUES_HOOK_ATTR, why_not))
+        class _NotCallable:
+            pass
+        setattr(_NotCallable, self.door.LIVE_ATTR_VALUES_HOOK_ATTR, 7)
+
+        class _Good:
+            pass
+        setattr(_Good, self.door.LIVE_ATTR_VALUES_HOOK_ATTR,
+                staticmethod(lambda cid: {3: 1}))
+
+        hook, why_not = self.door.resolve_live_attr_values(_Empty)
+        self.assertIsNone(hook)
+        self.assertIn(self.door.LIVE_ATTR_VALUES_HOOK_ATTR, why_not)
+        self.assertIn("not defined on this tree", why_not)
+
+        hook, why_not = self.door.resolve_live_attr_values(_NotCallable)
+        self.assertIsNone(hook, "a non-callable read point resolved as one")
+        self.assertIn("not callable", why_not)
+
+        hook, why_not = self.door.resolve_live_attr_values(_Good)
+        self.assertTrue(callable(hook))
+        self.assertEqual(why_not, "")
 
     def test_gate_none_composes_zero_bytes_whatever_else_is_open(self):
         # THE MUTANT `0045` ASKS FOR, run as a mutant rather than asserted as
@@ -1234,6 +1253,45 @@ class HitFrameDoorBTests(unittest.TestCase):
                 if name == "compose_player_hit_frame":
                     callers.append("%s:%d" % (path.name, node.lineno))
         self.assertEqual(callers, [], "Door B grew a call site: %r" % (callers,))
+
+    def test_this_door_never_writes_into_the_connections_cache(self):
+        # pf-adversary round f2qyxx D7, MEASURED on the recovered draft:
+        # `compose_player_hit_frame` ended with
+        #     if not cache.is_captured(): cache.capture_initial(block)
+        # so a door standing DOWN still left 55 rows in the CONNECTION's
+        # RawBlockCache -- and `build_named_field_update` requires exactly
+        # the 26 `named_field_x()` rows, so one refusal broke every later
+        # named send on that connection.
+        #
+        # A behavioural card cannot reach that line today (LANE-DB's
+        # adjudicator refuses all 55 rows first), and a card that cannot
+        # reach the bug is a card that cannot die for it. So this asks the
+        # AST, like `test_nothing_calls_this_door_yet` above: this module
+        # calls NOTHING that mutates the cache it was handed. Re-add the
+        # line and this goes red on the line number.
+        mutators = ("capture_initial", "capture", "update", "seed",
+                    "seed_cache_from_live_values")
+        found = []
+        tree = ast.parse(
+            (SRC_ROOT / "mob_hit_frame.py").read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute):
+                continue
+            if func.attr not in mutators:
+                continue
+            target = getattr(func.value, "id", None)
+            if target in ("cache", "attr_wire"):
+                found.append("%s.%s at line %d"
+                             % (target, func.attr, node.lineno))
+        self.assertEqual(
+            found, [],
+            "Door B writes into state it does not own: %r. The cache "
+            "belongs to the connection and is seeded by its owner; this "
+            "door reads it and composes from it, and on every refusal it "
+            "leaves it exactly as it found it." % (found,))
 
     def test_this_module_is_pure_ascii(self):
         # The sibling guard `test_mob_stat_fabrication_guard` reads every
