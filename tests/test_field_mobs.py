@@ -1422,5 +1422,70 @@ class Bg0001RegenerateAndDiffTest(unittest.TestCase):
             self.assertTrue(reason, "an unreadable placement with no reason")
 
 
+class TheBoundedNegativeCeilingIsStruckInEveryPlaceThisLaneOwns(
+        unittest.TestCase):
+    """ROUND qzky4u.  ka1-B's letter of 2026-09-01 22:00 (unconsumed for 36
+    hours) names four places in ``src/`` that told the next reader the static
+    search for the name-colour driver was FINISHED rather than open.  That
+    sentence is why nobody looked again, and the letter closes the path end to
+    end -- through the ACTOR UPDATER 0x00444400, not through
+    ``NameBoardNPC::update``, which is why the search stopped at the wrong
+    function.
+
+    NOTHING IN ANY MODULE CHANGED ON IT.  ``NOW.md`` P-2 forbids a
+    faction-only fix and a hardcoded FontStyleID, and this lane re-derived not
+    one row.  What this class pins is only that the ceiling sentence is struck
+    everywhere this lane owns it, and that every strike carries the word that
+    says the claim is second-hand -- so a reader cannot mistake a relay for a
+    measurement, and a later round cannot quietly re-shut the search.
+    """
+
+    OWNED = (
+        "field_mobs.py",
+        "mob_combat.py",
+        "mob_death.py",
+        "mob_census_hostility.py",
+    )
+
+    def _source(self, name):
+        return (
+            ROOT / "src/pirateforce_foundation" / name
+        ).read_text(encoding="utf-8")
+
+    def test_no_module_this_lane_owns_still_says_the_search_is_finished(self):
+        for name in self.OWNED:
+            source = self._source(name)
+            self.assertNotIn(
+                "but the search for it at the static layer is finished",
+                source,
+                "%s still closes the search without a strike" % name)
+
+    def test_every_strike_says_it_is_relayed_and_names_the_updater(self):
+        for name in self.OWNED:
+            source = self._source(name)
+            self.assertIn("ROUND qzky4u", source, name)
+            self.assertIn("0x00444400", source, name)
+            self.assertIn("RELAYED", source.upper(), name)
+
+    def test_the_four_sites_are_struck_and_nothing_was_deleted(self):
+        # Struck, not deleted: the words the letter refutes must still be
+        # readable next to the strike, or the correction is unauditable.
+        for name, struck in (
+                ("field_mobs.py",
+                 "~~the search for it at the static layer is finished"),
+                ("mob_combat.py", "closed ~~BOUNDED NEGATIVE~~ instead"),
+                ("mob_death.py", "a ~~measured ceiling~~"),
+                ("mob_census_hostility.py",
+                 "both closed ~~BOUNDED NEGATIVE~~")):
+            self.assertIn(struck, self._source(name), name)
+
+    def test_the_lane_did_not_touch_the_faction_pair_p2_reserves(self):
+        # The same letter's item 2 says our own (1, 6) pair routes to pink.
+        # NOW.md P-2 reserves that; if this lane ever moves it, this dies.
+        self.assertEqual(
+            (field_mobs.PLAYER_PAIR_FACTION, field_mobs.FIELD_MOB_FACTION),
+            (1, 6))
+
+
 if __name__ == "__main__":
     unittest.main()

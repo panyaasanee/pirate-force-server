@@ -31,6 +31,41 @@
   "death_predicate_va": "0x43BD70",
   "death_task_gate_va": "0x443990",
   "death_task_ctor_va": "0x472810",
+  "death_task_promote_chain": {
+    "fall_through_of_the_gate_va": "0x44399B",
+    "alloc_va_conflict": {
+      "ka1b_letter_20260901_2205": "0x4439D1",
+      "reports_PF_CHUNK2_Q3_BIND_THUNK_FINDINGS": "0x4439D2",
+      "tools_pf_runtimeres_actor_entry_static": "0x4439C7"
+    },
+    "queue_wrapper_va": "0x4843C0",
+    "manager_add_va": "0x4A0C90",
+    "manager_add_mode_is_unproven": true,
+    "queue_update_va": "0x4A0B50",
+    "promote_start_va": "0x4A09C0",
+    "ordinary_queue_first_va": "0x4A0A33",
+    "promote_move_va": "0x4A0A7A",
+    "pending_task_offset": "0x14",
+    "current_task_offset": "0x10",
+    "ordinary_queue_head_offset": "0x04",
+    "promote_span": [
+      "0x4A0C90",
+      "0x4A0D78"
+    ],
+    "death_sync_span": [
+      "0x4437C0",
+      "0x443A9A"
+    ],
+    "target_clear_va": "0x43E1D0",
+    "target_clear_tail_span": [
+      "0x443A00",
+      "0x443A86"
+    ],
+    "target_is_dead_vslot": "0x210",
+    "one_guard_two_tails_was_already_in_this_repo_since_20260819": true,
+    "explains_the_r303_corpse": false,
+    "measured_by_this_lane": false
+  },
   "death_animation_named_by_the_static_chain_never_observed": "_F_DIE_000",
   "predicate_pair_is_class_dependent": {
     "netnpc_actor_type_4_used_here": [
@@ -60,9 +95,10 @@
     "named AND hostile in one body has never been sent and never been observed; the corpse body inherits that nonclaim from field_mobs and adds a bit nobody has combined with it either (mask 0x078D). [STALE as of GT-084-R2, 2026-08-27] [MEASURED]: it HAS now been sent and observed - see the CLIENT-OBSERVABLE update above and RE-107/RE-108 (CLIENT_RE_QUEUE.md, opened this round) for what is still open about it",
     "nothing here decides loot: what a dead monster drops is M5, and the drop ids in the roster are carried, not read, by this lane",
     "the register lives in the caller's process only; nothing in this project persists a monster's death across a server restart",
-    "the dying latch is NOT a proven prerequisite for the death task: the HYP-PF-023 evidence gap records that the gate at 0x443990 does not read the 0x200 bit, so the two-frame shape is how the fall was WATCHED, not a chain anyone has shown to be required",
+    "the dying latch is NOT a proven prerequisite for the death task: the HYP-PF-023 evidence gap records that the gate at 0x443990 does not read the 0x200 bit, so the two-frame shape is how the fall was WATCHED, not a chain anyone has shown to be required. [ROUND qzky4u: this gap is NOT closed, and a draft of this round claimed it was]. What is known is only a reason the two do not meet: 0x443990 tests [esp+0x13] (vt+0x3C) while the latch at 0x44384C sits under the mutually exclusive vt+0x40 predicate. Whether the task NEEDS the latch is still unanswered",
+    "ROUND qzky4u: the dead task's promote layer this module now records (death_task_promote_chain in the pin) is ka1-B's static reading, RELAYED, NOT MEASURED BY THIS LANE, not re-derived here, and NOT this project's answer to the frozen corpse.  It mispredicts the one observation offered for it - in R303 the corpse fell on the owner's NEXT strike, and a task that drains on its own would have fallen unaided - so it ranks BEHIND the whole-scene census republish ka1-A measured and behind the model-loaded bit RE-107 closed on.  The falsifier is named in the module: a death task queued with mode 1, which this repository's own only traced 0x4A0C90 call passes (STATUS.md COMBAT-KNOCK-001).  Several of these VAs were already in this repository (0x4A0C90 in STATUS.md and tools/pf_action_consumer_probe.py, 0x43E1D0 in tools/ and reports/, the 0x4437C0..0x443A9A span as a frozen gspan); a draft of this round claimed none of them were, and that was the falsest sentence in it.  NO BEHAVIOUR IN THIS MODULE CHANGED ON ANY OF IT",
     "a client that connects AFTER the kill has never seen the identity, so the corpse entry takes the SPAWN branch, which never touches the dead sync: that player sees a body standing at 0 HP, and nothing in this lane re-sends it",
     "the production census (world_population) reads neither the ledger nor the register and re-asserts full HP for every placement it rebuilds, and it has no parameter to receive corpse_override at all; until somebody gives it one, STAYING down is not this lane's to claim - a corpse survives exactly until the next rebuild",
-    "name colour is not claimed by this lane either: the owner's own ruling warns that a death proven on the sanctioned target proves 'the target we built can die', not 'an enemy can die', because the label still renders in the client's PLAYER colour - RE-067 is open and owns that question. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163, 2026-08-25 ~15:xx+07:00 (retracted BEFORE RE-067 was even opened) and chief R165, 2026-08-25 ~17:0x+07:00 (RE-067 itself closed)] [MEASURED, by reading CLIENT_RE_QUEUE.md line ~1400 (R163's own retraction of this exact claim) and its RE-067 result block, line ~1655]: both halves of this sentence are wrong, not just outdated. 'The label renders in the client's PLAYER colour' is the draft theory chief R163 struck down before this ticket opened - the re-derived evidence is that the server always sends actor_type=4 for this identity, not that the client misclassifies it into a player slot. And 'RE-067 is open' is false: it closed PASS/MIXED - the item-name half PASSED, the actor-name half closed BOUNDED NEGATIVE (NameBoardNPC::update does not read actor_type, faction, or any FONT_COLOR path as a colour selector; the real driver is unidentified, not misrouted). So the accurate nonclaim is narrower: name colour is not claimed by this lane, and RE-067/RE-068 already looked for what decides it and could not find a driver at the static layer - that is a measured ceiling, not an open ticket waiting on more static work, and it is GT-084/RIDER-084-A's client-observable layer that still has to answer whether a player ever sees this render red"
+    "name colour is not claimed by this lane either: the owner's own ruling warns that a death proven on the sanctioned target proves 'the target we built can die', not 'an enemy can die', because the label still renders in the client's PLAYER colour - RE-067 is open and owns that question. [STALE as of pf_bridge/CLIENT_RE_QUEUE.md chief R163, 2026-08-25 ~15:xx+07:00 (retracted BEFORE RE-067 was even opened) and chief R165, 2026-08-25 ~17:0x+07:00 (RE-067 itself closed)] [MEASURED, by reading CLIENT_RE_QUEUE.md line ~1400 (R163's own retraction of this exact claim) and its RE-067 result block, line ~1655]: both halves of this sentence are wrong, not just outdated. 'The label renders in the client's PLAYER colour' is the draft theory chief R163 struck down before this ticket opened - the re-derived evidence is that the server always sends actor_type=4 for this identity, not that the client misclassifies it into a player slot. And 'RE-067 is open' is false: it closed PASS/MIXED - the item-name half PASSED, the actor-name half closed BOUNDED NEGATIVE (NameBoardNPC::update does not read actor_type, faction, or any FONT_COLOR path as a colour selector; the real driver is unidentified, not misrouted). So the accurate nonclaim is narrower: name colour is not claimed by this lane, and RE-067/RE-068 already looked for what decides it and could not find a driver at the static layer - that is a ~~measured ceiling~~, not an open ticket waiting on more static work, and it is GT-084/RIDER-084-A's client-observable layer that still has to answer whether a player ever sees this render red. [ROUND qzky4u]: the ceiling is REFUTED - the colour-deciding read is in the actor updater 0x00444400, not in NameBoardNPC::update, and the faction path to it is closed end to end in ka1-B's letter of 2026-09-01 22:00.  RELAYED, not re-derived here, and nothing in this module changed on it"
   ]
 }

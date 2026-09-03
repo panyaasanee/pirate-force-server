@@ -72,10 +72,17 @@ WHERE THE EVIDENCE FOR EACH HALF COMES FROM, AND WHERE IT STOPS.
       round dvxb6f] [MEASURED, by reading CLIENT_RE_QUEUE.md]: RE-067 is
       CLOSED (PASS/MIXED), and the "rendered in PLAYER colour" theory was
       chief R163's own draft, retracted before RE-067 opened - the actor
-      half closed BOUNDED NEGATIVE instead (no colour-deciding read of
+      half closed ~~BOUNDED NEGATIVE~~ instead (no colour-deciding read of
       actor_type/faction/FONT_COLOR found; the real driver is unidentified,
       not "player colour"). See mob_death.py's full_roster_override
       docstring for the full correction and citations.
+      [ROUND qzky4u]: the bounded negative is REFUTED - a colour-deciding
+      read of faction DOES exist, at 0x00444018 inside the CNetNPC name-style
+      selector 0x00443F50, reached from the actor updater 0x00444400 rather
+      than from NameBoardNPC::update.  RELAYED from ka1-B's letter of
+      2026-09-01 22:00, re-derived by nobody in this lane, and nothing in
+      this module changed on it: see field_mobs.py's own block for the chain
+      and for what NOW.md P-2 forbids doing with it.
 * What is NOT proven and is not claimed here: that a player's own click can
   reach this driver.  The inbound side is the SCENE-007 EA7D ActionVital the
   client already sends for an action on a target (``action_ack.py``), and no
@@ -323,11 +330,100 @@ K_DEF_CON = 2
 K_DEF_LV = 1
 MIN_HIT = 1
 
-# OURS, not a table's: no MOBS column carries a constitution.  The value is the
-# one HYP-PF-038 used for this same defender, kept so that the numbers this
+# OURS, not a table's: no MOBS column carries a constitution (STILL TRUE - see
+# the SUPERSEDED block below; a draft of round qzky4u struck this sentence and
+# the review was right that striking a true sentence tells the next reader it
+# was wrong).  The value is
+# the one HYP-PF-038 used for this same defender, kept so that the numbers this
 # production driver ships are the numbers two observers already watched fall on
 # a real screen in GT-035, rather than a second set nobody has seen.
 MOB_ABILITY_CON = 22
+
+# ---------------------------------------------------------------------------
+# ROUND qzky4u -- SUPERSEDED, NOT WRONG.  THE REAL DEFENCE COLUMN HAS A NAME
+# NOW, AND THIS LANE IS NOT TAKING IT TODAY.  The sentence above ("no MOBS
+# column carries a constitution") is STILL TRUE of MOBS - MOBS was always the
+# wrong table to look in, and that is what makes it superseded rather than
+# false.  This distinction has a cost: the house convention only has ~~strike~~
+# for "this was wrong", so a true-but-superseded sentence must be labelled in
+# words, as here, and NOT struck.
+# ka1-B's letter of 2026-09-01 22:05 item (4) names the columns in
+# CONSTDATA_TH__STANDARD_MOB (255 rows x 38 columns, the same table
+# ``field_mobs`` already indexes by ``MOBS.n_LEVEL_MIN`` for ``n_HPMAX``):
+# ``n_CONSITUTION`` (misspelt in the source), ``n_AC_PHYSICS`` at IMAGE offset
+# +0x30, ``n_STRENGH``, ``n_AGILITY``, and the client's own coefficients
+#     ac_physics = trunc(constitution * 2.0 + opt(CBuffAttr+0xFC)
+#                        + opt(STANDARD_MOB+0x30))
+# So :data:`K_DEF_CON` = 2 is not ours by luck - it is the client's own factor.
+# ``mob_defender``'s docstring below promised that "a later round that mines a
+# real defence column replaces this function and nothing else".  That round is
+# available.  IT IS DEFERRED, DELIBERATELY, and the arithmetic is why.
+#
+# MEASURED THIS ROUND, PER SHIPPED ROSTER, against the production attacker
+# (:data:`runtime.MOB_COMBAT_DEFAULT_ATTACKER` = ``pin_attacker()``, attack
+# 1045) -- the costing class in tests/test_mob_combat.py
+# derives every cell below from the fixture rows, none of them is typed twice:
+#
+#   scene 2 (Bg0002, the roster P-1's attended round fights)
+#     level 25, 3138 HP: defence  79 -> 966 dmg ->  4 hits | 172 -> 873 ->  4
+#     level 27, 3857 HP: defence  81 -> 964 dmg ->  5 hits | 196 -> 849 ->  5
+#   scene 1 (Port Royal, the four Training Iron Man dummies)
+#     level 100, 198125 HP: defence 154 -> 891 -> 223 hits | 5575 ->  1 dmg
+#                                                          -> 198,125 hits
+#
+# THE FIRST DRAFT OF THIS BLOCK SAID ADOPTING IT WOULD FLOOR THE BG0002
+# SUBJECT AT MIN_HIT AND COST THIRTY-EIGHT MINUTES A KILL.  THAT WAS WRONG, BY
+# A FACTOR OF ABOUT FORTY-FIVE, AND IT IS STRUCK HERE RATHER THAN QUIETLY
+# FIXED: the arithmetic was done on prose instead of on the code, and the code
+# says the fighting roster kills in THE SAME NUMBER OF HITS either way.  On
+# Bg0002 this swap is very nearly free.
+#
+# WHERE IT IS NOT FREE, AND WHY THIS ROUND STILL DOES NOT TAKE IT:
+#  1. The Port Royal dummies are level 100, and the client's AC curve is not
+#     linear - 4467 of that 5575 is the table's own n_AC_PHYSICS.  Adopting the
+#     DEFENCE half alone, while the ATTACK half stays at this lane's
+#     ATK_BASE/K_ATK_STR/K_ATK_LV, drops them onto the MIN_HIT floor: 223 hits
+#     becomes 198,125.  The client pairs that AC with its own
+#     ``dammin_phys = strength*1.0 + opt(STANDARD_MOB+0x20)``; half of a paired
+#     model is not a better model, it is a broken one.  Port Royal is also
+#     where this lane is told to test while it waits for a field.
+#  2. It costs ``test_the_driver_reproduces_the_ladder_gt035_watched``, the
+#     only control in this lane that ties the numbers the owner boots to
+#     numbers two observers watched fall on a real screen (3857 -> 2893 ->
+#     771).  Spending that during P-1, for a change that alters no kill count
+#     on the roster P-1 fights, buys nothing this week.
+#  3. ka1-B tags the whole equation ``authoritative_scope =
+#     CLIENT_COMPUTED_UI_OR_MODEL_VALUE_NOT_SERVER_AUTHORITY``: it is what the
+#     CLIENT computes for its own model/UI, not a recovered rule of the
+#     original server.  Better provenance than 22, still not a measurement.
+#
+# COO-DECISION 20260903_0954 drew this line for this lane on a different item:
+# while P-1 is open, the default is not to move what the client is holding.
+# Letter: notes_to_chief/20260903_1050_LANE-B-ASK-COO-the-real-defence-column-
+# is-named-and-costed.md -- recommends adopting BOTH halves together once P-1
+# closes.  [LANE-B ASSUMPTION - awaiting COO confirmation]
+# ---------------------------------------------------------------------------
+REAL_DEFENCE_COLUMN_TABLE = "CONSTDATA_TH__STANDARD_MOB"
+REAL_DEFENCE_COLUMN_NAMES = ("n_CONSITUTION", "n_AC_PHYSICS")
+REAL_DEFENCE_AC_PHYSICS_IMAGE_OFFSET = 0x30
+# NOTE: there is deliberately NO ``REAL_DEFENCE_ADOPTED`` flag here.  A draft
+# of this round shipped one; it had no production reader, so flipping it to
+# True changed nothing and failed only the test that re-read it.  What says
+# the column is not adopted is ``mob_defender`` still returning
+# :data:`MOB_ABILITY_CON`, and that is what the test asserts.
+REAL_DEFENCE_DEFERRED_BECAUSE = (
+    "on the Bg0002 roster P-1 fights it changes no kill count at all - 4 and 5 "
+    "hits either way - and on the level-100 Port Royal dummies the defence "
+    "half WITHOUT the client's matching attack half drops every hit to the "
+    "MIN_HIT floor; it also costs the GT-035 ladder, the only control tying "
+    "shipped damage to numbers watched on a screen, and nothing here proves "
+    "which STANDARD_MOB row a monster actually resolves to"
+)
+# The client's attack half, which has to move in the same round as the defence
+# half or the pair is broken.  Recorded, not implemented.
+REAL_DAMAGE_ATTACK_HALF = "dammin_phys = strength*1.0 + opt(STANDARD_MOB+0x20)"
+REAL_DEFENCE_AUTHORITATIVE_SCOPE = (
+    "CLIENT_COMPUTED_UI_OR_MODEL_VALUE_NOT_SERVER_AUTHORITY")
 
 # The wire, from the same static anchors the probe lanes carry.
 CHIT_RESULT_VITAL_ID = 0x16F7
@@ -846,8 +942,19 @@ def mob_defender(mob: FieldMob) -> Combatant:
     used for this exact defender, which is why this production driver
     reproduces the two damage numbers GT-035 watched on a screen
     (``test_the_driver_reproduces_the_ladder_gt035_watched``) instead of
-    quietly shipping different ones.  A later round that mines a real defence
-    column replaces this function and nothing else.
+    quietly shipping different ones.  ~~A later round that mines a real defence
+    column replaces this function and nothing else.~~
+
+    ROUND qzky4u: the column exists and has been named -- see
+    :data:`REAL_DEFENCE_COLUMN_NAMES` above -- and this function is UNCHANGED
+    anyway.  The block above costs the swap out, and the cost is NOT that the
+    shipped Bg0002 subject stops dying: it dies in the same five hits either
+    way.  (A draft of this docstring said it would floor at MIN_HIT for 3857
+    HP; that was the same wrong arithmetic the block above strikes, repeated
+    in the one function the letter is about, and the round's own test
+    ``test_on_the_roster_p1_fights_the_swap_changes_no_kill_count`` proves it
+    false.)  The promise is struck rather than acted on so that the next
+    reader does not read it as an instruction; the reasons are up there.
     """
     if type(mob) is not FieldMob:
         raise MobCombatContractError(

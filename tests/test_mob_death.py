@@ -2049,6 +2049,11 @@ class MobDeathTests(unittest.TestCase):
             widened=CONTROL_WIDENING)
         lines = describe_death(death)
         joined = "\n".join(lines)
+        # ROUND qzky4u: a draft of that round replaced this address with
+        # 0x44399B and the adversarial review refuted it from this repo's own
+        # mined bytes (tools/pf_runtimeres_actor_entry_static.py:571 -
+        # 807c2413 00 0f84ec000000 is one cmp+jz pair, eleven bytes, and
+        # 0x44399B is its fall-through).  The assertion stands unchanged.
         self.assertIn("0x443990", joined)
         self.assertIn("CActorTask_Dead", joined)
         # ROUND 8ftmbx: ~~"0x201F"~~ -- placement 30 is withdrawn, so the
@@ -2671,6 +2676,189 @@ class MobDeathTests(unittest.TestCase):
                 self.legacy, mob, self.killing_outcome(mob).outcome,
                 DeathRegister(), widened=WIDENED_916_RULING)
             self.assertTrue(step.register.is_dead(mob.actor_identity))
+
+
+class ThePromoteLayerIsRecordedAndOutrankedByTwoOtherStories(
+        unittest.TestCase):
+    """ROUND qzky4u.  ka1-B's letter of 2026-09-01 22:05 sat unconsumed for 36
+    hours while the owner spent an attended round (R303) rediscovering the
+    symptom it was offered to explain.
+
+    THIS CLASS IS MOSTLY A RECORD OF WHAT THAT ROUND HAD TO WITHDRAW.  The
+    draft claimed 0x443990 was not the gate, that the HYP-PF-023 gap was
+    closed, that "one guard, two tails" was new, that none of the promote VAs
+    were in this repository, and that the task queue was the discriminator
+    behind the frozen corpse.  Five claims, five refutations, all from
+    artifacts that were already here.  What survives is ONE layer - the task
+    does not start where the constructor ends - ranked behind two better
+    explanations and carrying a named falsifier.
+
+    Every assertion below is on POSITION or on VALUE, never on membership: the
+    adversarial review of this round showed that a console line with the
+    offsets and the VAs swapped pairwise passed an earlier draft of this class
+    while printing the exact inversion of what the round exists to say.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        cls.roster = field_mobs.load_roster()
+        cls.mob = [
+            m for m in cls.roster
+            if m.placement_index == field_mobs.CONTROL_PLACEMENT_INDEX
+        ][0]
+
+    def _step(self):
+        outcome = strike(
+            self.legacy, None, open_ledger(), None, self.mob, PERFORMER,
+            LETHAL).outcome
+        return kill(self.legacy, self.mob, outcome, DeathRegister(),
+                    widened=CONTROL_WIDENING)
+
+    def _dead_line(self):
+        for line in describe_death(self._step()):
+            if "dead frame" in line:
+                return line
+        self.fail("describe_death printed no dead-frame line")
+
+    def test_the_gate_address_is_the_one_the_repo_mined_and_it_still_prints(
+            self):
+        # The refutation, pinned so no later round re-makes the same edit: the
+        # eleven bytes ARE the gate instruction, and 0x44399B is its
+        # fall-through, not a second guard.
+        gate_bytes = (
+            ROOT / "tools/pf_runtimeres_actor_entry_static.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('gbytes(0x443990, "807c2413000f84ec000000"', gate_bytes)
+        self.assertEqual(
+            len(bytes.fromhex("807c2413000f84ec000000")),
+            mob_death.DEATH_TASK_FALL_THROUGH_VA - mob_death.DEATH_TASK_GATE_VA)
+        self.assertIn(
+            "gates 0x%X" % mob_death.DEATH_TASK_GATE_VA, self._dead_line())
+
+    def test_the_only_words_the_round_changed_are_the_false_ones(self):
+        line = self._dead_line()
+        # What was false: the effect had been observed, twice over.
+        self.assertNotIn("never been observed", line)
+        self.assertIn("a corpse that does not fall", line)
+        # What was true and must survive verbatim, in this order.
+        self.assertLess(line.index("gates 0x443990"),
+                        line.index("CActorTask_Dead 0x472810"))
+        self.assertLess(line.index("CActorTask_Dead 0x472810"),
+                        line.index("gate is static"))
+        # And the promote layer, which is unproven, must NOT be printed on
+        # every kill as though it were the explanation.
+        for unproven in ("+0x14", "+0x04", "promote", "ordinary queue"):
+            self.assertNotIn(unproven, line)
+
+    def test_the_promote_layer_reads_in_the_order_the_letter_closes_it(self):
+        # POSITIONAL, not membership: promote_start's two interesting
+        # instructions are inside promote_start, ordinary-first comes before
+        # the move, and the whole promote machinery sits below manager_add.
+        start = mob_death.DEATH_TASK_PROMOTE_START_VA
+        first = mob_death.DEATH_TASK_ORDINARY_QUEUE_FIRST_VA
+        move = mob_death.DEATH_TASK_PROMOTE_MOVE_VA
+        update = mob_death.DEATH_TASK_QUEUE_UPDATE_VA
+        add = mob_death.DEATH_TASK_MANAGER_ADD_VA
+        self.assertLess(start, first)
+        self.assertLess(first, move)
+        self.assertLess(move, update)
+        self.assertLess(update, add)
+        # LT-IMG-011's span is manager_add's own body, not a range that
+        # swallows every address it names.
+        low, high = mob_death.DEATH_TASK_PROMOTE_SPAN
+        self.assertEqual(low, add)
+        self.assertLess(low, high)
+        self.assertLess(update, low)
+        # The wrapper is called before the manager it hands the task to, and
+        # lives in a different part of the image from both the death-sync body
+        # and the task manager.
+        self.assertLess(mob_death.DEATH_TASK_QUEUE_WRAPPER_VA, add)
+        self.assertLess(mob_death.DEATH_SYNC_SPAN[1],
+                        mob_death.DEATH_TASK_QUEUE_WRAPPER_VA)
+        self.assertEqual(
+            (mob_death.TASK_MANAGER_ORDINARY_QUEUE_HEAD_OFFSET,
+             mob_death.TASK_MANAGER_CURRENT_TASK_OFFSET,
+             mob_death.TASK_MANAGER_PENDING_TASK_OFFSET),
+            (0x04, 0x10, 0x14))
+
+    def test_the_death_sync_span_is_the_frozen_one_the_tools_already_carry(
+            self):
+        tools = (
+            ROOT / "tools/pf_runtimeres_actor_entry_static.py"
+        ).read_text(encoding="utf-8")
+        low, high = mob_death.DEATH_SYNC_SPAN
+        self.assertIn("gspan(0x%X, 0x%X," % (low, high), tools)
+        # Both tails and the ctor live inside it; the wrapper and the manager
+        # do not, because they are elsewhere in the image.
+        for inside in (mob_death.DEATH_TASK_GATE_VA,
+                       mob_death.DEATH_TASK_FALL_THROUGH_VA,
+                       mob_death.DYING_LATCH_WRITE_VA):
+            self.assertLess(low, inside)
+            self.assertLess(inside, high)
+        clear_low, clear_high = mob_death.DEATH_TARGET_CLEAR_TAIL_SPAN
+        self.assertLess(mob_death.DEATH_TASK_FALL_THROUGH_VA, clear_low)
+        self.assertLess(clear_high, high)
+        for outside in (mob_death.DEATH_TASK_QUEUE_WRAPPER_VA,
+                        mob_death.DEATH_TASK_MANAGER_ADD_VA,
+                        mob_death.DEATH_TARGET_CLEAR_VA):
+            self.assertFalse(low < outside < high)
+
+    def test_the_alloc_address_is_carried_as_a_conflict_and_not_resolved(self):
+        conflict = mob_death.DEATH_TASK_ALLOC_VA_CONFLICT
+        self.assertEqual(len(set(conflict.values())), 3)
+        tools = (
+            ROOT / "tools/pf_runtimeres_actor_entry_static.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "gbytes(0x%X," % conflict["tools_pf_runtimeres_actor_entry_static"],
+            tools)
+        report = (
+            ROOT / "reports/PF_CHUNK2_Q3_BIND_THUNK_FINDINGS_20260819.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "0x%X" % conflict["reports_PF_CHUNK2_Q3_BIND_THUNK_FINDINGS"],
+            report)
+
+    def test_the_pin_ranks_the_layer_below_the_two_stories_that_beat_it(self):
+        chain = pin_document(self.legacy, self.mob)["death_task_promote_chain"]
+        self.assertFalse(chain["explains_the_r303_corpse"])
+        self.assertFalse(chain["measured_by_this_lane"])
+        self.assertTrue(chain["manager_add_mode_is_unproven"])
+        self.assertTrue(
+            chain["one_guard_two_tails_was_already_in_this_repo_since_20260819"])
+        # Every VA in the sub-dict is the module's, spelled the module's way -
+        # a mutant of any constant moves the pin and the committed JSON test
+        # catches it, and a mutant of the FORMATTING is caught here.
+        self.assertEqual(
+            chain["promote_move_va"],
+            "0x%X" % mob_death.DEATH_TASK_PROMOTE_MOVE_VA)
+        self.assertEqual(
+            chain["alloc_va_conflict"]["ka1b_letter_20260901_2205"], "0x4439D1")
+        self.assertEqual(chain["pending_task_offset"], "0x14")
+        self.assertEqual(chain["ordinary_queue_head_offset"], "0x04")
+        self.assertEqual(chain["target_is_dead_vslot"], "0x210")
+        self.assertEqual(chain["target_clear_va"], "0x43E1D0")
+
+    def test_the_module_records_that_it_withdrew_five_claims(self):
+        nonclaims = "\n".join(mob_death.MOB_DEATH_NONCLAIMS)
+        self.assertIn("RELAYED, NOT MEASURED BY THIS LANE", nonclaims)
+        self.assertIn("mispredicts", nonclaims)
+        self.assertIn("mode 1", nonclaims)
+        self.assertIn("this gap is NOT closed", nonclaims)
+        # The pin floor was 6 against 17 shipped nonclaims - eleven could be
+        # deleted in silence.  Tightened to what the module actually carries.
+        self.assertGreaterEqual(len(mob_death.MOB_DEATH_NONCLAIMS), 17)
+        # Nothing this round touched is allowed to have moved a frame number.
+        self.assertEqual(mob_death.DEATH_TASK_HOLD_MS, 700)
+        self.assertEqual(mob_death.DYING_TIMER_SECONDS, 20.0)
+        self.assertEqual(mob_death.DEAD_TIMER_SECONDS, 0.0)
+        source = (
+            ROOT / "src/pirateforce_foundation/mob_death.py"
+        ).read_text(encoding="utf-8")
+        # BODY-DEPENDENT was struck by the draft and UNSTRUCK by the review.
+        self.assertNotIn("~~BODY-DEPENDENT~~", source)
+        self.assertIn("MISPREDICTS the observation it was offered for", source)
 
 
 if __name__ == "__main__":
