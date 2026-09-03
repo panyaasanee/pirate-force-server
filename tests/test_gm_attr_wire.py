@@ -487,18 +487,26 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
         self.assertIn(SEED_REFUSED_CONSOLE_TOKEN, said)
         self.assertIn("no_read_point", said)
 
-    def test_the_real_lane_hooks_package_still_has_no_read_point(self):
-        # The same claim against the REAL package rather than a fake, so the
-        # day chief lands it this test goes red and this lane finds out from
-        # its own suite instead of from a letter.  When it does: delete this
-        # test, keep the rest.
+    def test_the_real_lane_hooks_package_now_has_the_read_point(self):
+        # WAS `..._still_has_no_read_point`, whose own comment said "the day
+        # chief lands it: delete this test, keep the rest".  It landed (chief
+        # round `dwvbpm`/R330, COO-DECISION 20260904_0047 item 1), so the
+        # claim is replaced by its opposite rather than removed -- this lane
+        # still finds a regression from its own suite.
+        #
+        # (b') IS NOT SATISFIED BY THIS ALONE and nothing here says it is:
+        # the point exists, and the server answers 4 of the 26 named rows,
+        # so a send still refuses -- with `missing_named_rows` naming them
+        # instead of `no_read_point`.  The full behaviour lives in
+        # tests/test_live_named_attr_values.py.
         from pirateforce_foundation import lane_hooks
 
-        self.assertFalse(
+        self.assertTrue(
             hasattr(lane_hooks, LIVE_VALUE_READ_POINT),
-            "chief's read point landed -- (b') can now be satisfied; see"
-            " attr_wire's module docstring",
+            "chief's read point is gone again -- every named-field send"
+            " refuses with no_read_point until it is back",
         )
+        self.assertTrue(callable(getattr(lane_hooks, LIVE_VALUE_READ_POINT)))
 
     def test_one_missing_named_row_refuses_the_whole_seed(self):
         # THE HEART OF (b').  A dict missing `cash` does not send "cash

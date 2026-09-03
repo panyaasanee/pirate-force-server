@@ -7,6 +7,8 @@ from .connection import GameConnectionBindings, adapt_game_listener
 from .legacy_bridge import LegacyProjector, load_legacy
 from .mob_loot import preserve_ground_heartbeat_frame
 from .lifecycle import CharacterLifecycle
+from . import lane_hooks
+from . import live_named_attr_values
 from .persistence_backup import BackupError
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
@@ -797,6 +799,18 @@ def main() -> int:
         return 13
     default = Position(1,0,legacy.V135_PLAYER_X,legacy.V135_PLAYER_Y,legacy.V135_PLAYER_Z)
     lifecycle = CharacterLifecycle(store, default, legacy.extract_avatar_attr_wire_from_actor)
+    # COO-DECISION 20260904_0047 item 1 (ordered again 20260904_0145 item 3):
+    # the ONE process-wide source behind `lane_hooks.current_named_attr_values`,
+    # installed here because this is where the process's one store exists and
+    # because the read point is per-character-id, not per-connection.  Boot
+    # order matters and is satisfied here: the store has already migrated
+    # (above), and nothing reads the point until a dispatch does.  This
+    # installs a READER; it composes no frame and sends no byte, and every
+    # send that eventually consumes it stays behind its own lane's gate
+    # (`attr_wire`'s named-field door is shut, `/speed`'s two locks are shut).
+    lane_hooks.register_live_attr_values_source(
+        live_named_attr_values.source_for_store(store)
+    )
     legacy.run_self_test(verbose=True)
     projector = LegacyProjector(legacy)
     session_factory = None

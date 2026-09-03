@@ -531,6 +531,106 @@ def registered_points() -> dict[str, int]:
     return {point: len(fns) for point, fns in _HOOKS.items()}
 
 
+#: The one process-wide source of live named-field values, installed by boot
+#: wiring (``app.py``) and read by ``current_named_attr_values`` below.
+#: ``None`` -- the state of any process that has not wired it, every test that
+#: does not ask for it, and every import of this package on its own -- means
+#: the read point answers "nothing", which its consumer turns into a refusal.
+_LIVE_ATTR_VALUES_SOURCE = None
+
+
+def register_live_attr_values_source(source) -> None:
+    """Install the callable ``current_named_attr_values`` reads through.
+
+    ``source`` is ``callable(character_id) -> {x: value}``; today the boot
+    wiring hands in ``live_named_attr_values.source_for_store(store)``.
+    Passing ``None`` uninstalls it, which is how a test puts the process back
+    the way it found it.
+
+    LAST REGISTRATION WINS, deliberately and harmlessly: the source is bound
+    to a store, the process opens exactly one, and the character id -- not the
+    registration -- is what selects a character.  A non-callable is REFUSED
+    here with a ``TypeError`` rather than stored, because the alternative is a
+    failure that surfaces later, at a send, as an opaque
+    ``read_point_raised_TypeError`` in a lane that did nothing wrong.
+    """
+    global _LIVE_ATTR_VALUES_SOURCE
+    if source is not None and not callable(source):
+        raise TypeError(
+            "live attr values source must be callable(character_id) -> dict, "
+            f"got {type(source).__name__}"
+        )
+    _LIVE_ATTR_VALUES_SOURCE = source
+
+
+def current_named_attr_values(character_id) -> dict:
+    """Every named ActorAttr/BasicAttr row whose value this server really
+    knows for ``character_id``, keyed by ``x``.
+
+    ORDERED BY ``COO-DECISION 2026-09-04T00:47+07:00`` item 1 and named there
+    letter for letter -- ``gm.attr_wire`` has been resolving this attribute by
+    name (``attr_wire.LIVE_VALUE_READ_POINT``) since before it existed, and
+    refusing every send while it did not.  Two consumers were waiting on it:
+    LANE-GM's ``RawBlockCache`` seeding (COO-DECISION 20260904_0046) and
+    LANE-B's Door B hit frame (COO-DECISION 20260904_0045).
+
+    A MISSING ROW IS AN ABSENT KEY, NEVER A ZERO.  The consumer
+    (``attr_wire.live_named_values``) refuses the WHOLE send when one row it
+    needs is absent, and that refusal is the point: the client's apply is a
+    full-object copy (``RE-222`` Q0), so a mask bit left unset writes zero
+    into the field it names.  ``GT-218`` is what that costs when it is got
+    wrong.
+
+    THIS POINT READS AND NEVER SENDS.  It composes no frame, touches no
+    socket and writes nothing -- the same contract ``fire()`` has, for the
+    same reason.
+
+    IT NEVER RAISES.  With no source installed it returns ``{}``; a source
+    that raises is reported on stderr with the package's own
+    ``LANE_HOOK ... ERR`` shape and also becomes ``{}``.  Both arrive at the
+    consumer as "every row is missing", which is a refusal with a named
+    per-row reason -- strictly more useful than the opaque
+    ``read_point_raised_<Type>`` an escape would produce.  Anything but a
+    ``dict`` from a source is treated the same way rather than passed on: the
+    consumer's own ``not_a_mapping`` branch would name the read point for a
+    fault that belongs to whoever registered.
+    """
+    source = _LIVE_ATTR_VALUES_SOURCE
+    if source is None:
+        return {}
+    try:
+        values = source(character_id)
+    except Exception as error:      # noqa: BLE001 - see docstring
+        print(
+            _console_safe(
+                "LANE_HOOK live_attr_values current_named_attr_values ERR "
+                f"{error!r}"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(values, dict):
+        print(
+            _console_safe(
+                "LANE_HOOK live_attr_values current_named_attr_values ERR "
+                f"source returned {type(values).__name__}, not dict"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    # Keys are coerced to ``int`` because ``x`` is an int everywhere else in
+    # this contract and a str key would silently miss every lookup the
+    # consumer makes.  A key that cannot be an int is dropped, not raised on:
+    # one bad key must not cost the other twenty.
+    coerced: dict = {}
+    for key, value in values.items():
+        try:
+            coerced[int(key)] = value
+        except (TypeError, ValueError):
+            continue
+    return coerced
+
+
 def module_production_allowed(module_name: str) -> bool:
     """Is this lane module cleared to run on the production path?
 
