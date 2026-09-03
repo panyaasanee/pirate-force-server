@@ -361,7 +361,7 @@ MOB_ABILITY_CON = 22
 #
 # MEASURED THIS ROUND, PER SHIPPED ROSTER, against the production attacker
 # (:data:`runtime.MOB_COMBAT_DEFAULT_ATTACKER` = ``pin_attacker()``, attack
-# 1045) -- ``TheRealDefenceColumnIsPricedNotTaken`` in tests/test_mob_combat.py
+# 1045) -- the costing class in tests/test_mob_combat.py
 # derives every cell below from the fixture rows, none of them is typed twice:
 #
 #   scene 2 (Bg0002, the roster P-1's attended round fights)
@@ -400,7 +400,7 @@ MOB_ABILITY_CON = 22
 # COO-DECISION 20260903_0954 drew this line for this lane on a different item:
 # while P-1 is open, the default is not to move what the client is holding.
 # Letter: notes_to_chief/20260903_1050_LANE-B-ASK-COO-the-real-defence-column-
-# is-named-and-priced.md -- recommends adopting BOTH halves together once P-1
+# is-named-and-costed.md -- recommends adopting BOTH halves together once P-1
 # closes.  [LANE-B ASSUMPTION - awaiting COO confirmation]
 # ---------------------------------------------------------------------------
 REAL_DEFENCE_COLUMN_TABLE = "CONSTDATA_TH__STANDARD_MOB"
@@ -947,7 +947,7 @@ def mob_defender(mob: FieldMob) -> Combatant:
 
     ROUND qzky4u: the column exists and has been named -- see
     :data:`REAL_DEFENCE_COLUMN_NAMES` above -- and this function is UNCHANGED
-    anyway.  The block above prices the swap and the price is NOT that the
+    anyway.  The block above costs the swap out, and the cost is NOT that the
     shipped Bg0002 subject stops dying: it dies in the same five hits either
     way.  (A draft of this docstring said it would floor at MIN_HIT for 3857
     HP; that was the same wrong arithmetic the block above strikes, repeated
