@@ -728,11 +728,33 @@ def _stem(literal: str) -> str:
 
 
 def _module_source(stem: str) -> str | None:
-    """The source of the lane module ``stem``, module or package, or None."""
-    for candidate in (
-        LANE_HOOKS_DIR / f"{stem}.py",
-        LANE_HOOKS_DIR / stem / "__init__.py",
-    ):
+    """The source of the lane module ``stem``, module or package, or None.
+
+    Matches against the real directory listing BY EXACT STRING, never by
+    ``Path.is_file()`` alone -- Windows resolves paths case-insensitively,
+    Linux does not, and the gate this audit runs on is Windows.  A misspelled
+    stem like ``Lane_GM_chat_command`` must read as "no such module" on
+    every OS this audit ever runs on, not just the one the round happens to
+    be measured from: MEASURED (round ``wtlgld``, recovering ``lx4yib``)
+    that ``Path.is_file()`` for ``Lane_GM_chat_command.py`` returns True on
+    the Windows gate (resolves to the real ``lane_gm_chat_command.py``) and
+    False on the Linux cloud clone -- so the cloud run stayed green while the
+    gate reddened on every single run, which is a real OS-dependent bug in
+    this module, not a flake.
+    """
+    try:
+        entries = {entry.name for entry in LANE_HOOKS_DIR.iterdir()}
+    except OSError:
+        entries = set()
+    file_name = f"{stem}.py"
+    if file_name in entries:
+        candidate = LANE_HOOKS_DIR / file_name
+        try:
+            return candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return ""
+    if stem in entries:
+        candidate = LANE_HOOKS_DIR / stem / "__init__.py"
         if candidate.is_file():
             try:
                 return candidate.read_text(encoding="utf-8")

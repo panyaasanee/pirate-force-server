@@ -22,6 +22,7 @@ from __future__ import annotations
 import sys
 import textwrap
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1144,6 +1145,46 @@ class ProductionFlagReadingTests(unittest.TestCase):
             [f.kind for f in findings],
             [audit.FINDING_DECLARED_ALLOWED_BUT_UNREGISTERED],
         )
+
+    def test_a_case_mismatched_stem_is_not_found_even_if_is_file_would_say_yes(self):
+        # Round `wtlgld`, recovering `server#667` (closed, never merged):
+        # `_module_source` used to resolve a stem straight through
+        # `Path.is_file()`. Windows resolves paths case-insensitively, Linux
+        # does not -- so `_module_source("Lane_GM_chat_command")` (the exact
+        # literal `test_a_misspelled_prefix_is_inside_the_asserted_subset`
+        # feeds through) returned the REAL `lane_gm_chat_command.py`'s source
+        # on the Windows gate and `None` on this lane's own Linux clone. That
+        # made the gate-scope test green here and red on every single gate
+        # run -- not a flake, a platform-dependent answer to "does this file
+        # exist" hiding behind one stdlib call.
+        #
+        # The fix lists the real directory once and matches the stem against
+        # it BY EXACT STRING before any `Path` call decides existence. This
+        # is the test that PROVES that ordering rather than asserting it:
+        # `Path.is_file` is patched to return True unconditionally -- the
+        # worst case-insensitive filesystem this module could ever run under
+        # -- and the mismatched stem must still resolve to nothing, because
+        # the exact-match check must never fall through to `is_file()` for
+        # the decision. Without this, Linux's own case-sensitive filesystem
+        # would make the fix and the bug it replaces answer identically here
+        # (both `None`), and a later round reintroducing an `is_file()`
+        # fallback would stay green on this lane's own clone -- exactly the
+        # blind spot pf-adversary measured this round.
+        with _TempTree() as hooks_root:
+            _write(hooks_root, "lane_gm_probe_case.py", "production_allowed = True\n")
+            with _HooksDirAt(hooks_root):
+                with unittest.mock.patch.object(Path, "is_file", return_value=True):
+                    self.assertIsNone(
+                        audit._module_source("Lane_GM_probe_case")
+                    )
+                    # Sanity: the patch really is in effect and the correctly
+                    # -cased stem still resolves, so the assertion above is
+                    # not vacuously passing because nothing in this tree
+                    # would ever be found.
+                    self.assertEqual(
+                        audit._module_source("lane_gm_probe_case"),
+                        "production_allowed = True\n",
+                    )
 
     def test_a_lane_module_shipped_as_a_package_is_found(self):
         # The D1 shape, at the layer that reads it: pkgutil.iter_modules

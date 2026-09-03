@@ -8444,3 +8444,61 @@ second spring on the same trap `OneOfTwoWiringTests` already holds.
 composition is gated on `module_production_allowed("lane_gm_chat_command")` at `runtime.py:6911` --
 can no longer die the silent way LANE-B's tick died, and neither can a route no lane has written
 yet.
+
+## Round `wtlgld` -- salvaging `server#667`: the gate ran on Windows, the clone runs on Linux
+
+`server#667` (this section's own `lx4yib` content above) was closed unmerged: the branch was intact
+but never landed. The round file that first diagnosed it
+(`pf_bridge/rounds/GM_20260903_1916_07kjfd_same-scene-warp-teleports-and-force-pos-shut.md`) found
+one cause and left it as the next round's first item, with the cause already in hand. This round is
+that recovery: the four files above were cherry-picked onto current `main` unchanged, and one
+function was fixed.
+
+**The cause.** `_module_source(stem)` resolved a lane module by building
+`LANE_HOOKS_DIR / f"{stem}.py"` and asking `Path.is_file()`. Windows resolves paths
+case-insensitively; Linux does not. `GateScopeTests::test_a_misspelled_prefix_is_inside_the_asserted_subset`
+feeds the literal `Lane_GM_chat_command` -- a stem whose only defect is its casing -- through this
+path expecting `FINDING_NAMES_NO_MODULE`. On the Linux cloud clone this lane develops on,
+`Path("Lane_GM_chat_command.py").is_file()` is `False`, matching the test's expectation. On the
+Windows gate that actually decides whether a PR merges, the same call resolves to the real
+`lane_gm_chat_command.py` and returns `True`, so the function read that file's source and the
+classifier answered `FINDING_DECLARED_ALLOWED_BUT_UNREGISTERED` instead -- red, every single gate
+run, never intermittent. Not a flake: a platform-dependent answer to "does this file exist" hiding
+behind one stdlib call, on the one platform this lane's own test loop never runs.
+
+**The fix.** `_module_source` now lists `LANE_HOOKS_DIR.iterdir()` once and matches the stem against
+the real entry names by exact Python string equality before any `Path` call is asked to decide
+existence. `Path.is_file()`/`.read_text()` are only ever reached on a path whose exact case was
+already confirmed correct. This makes the resolution answer identically on both platforms, because
+it no longer depends on either platform's own case-folding behaviour for the match -- only Python's,
+which does not fold.
+
+**The blind spot pf-adversary measured, and the test that closes it.** A mutant that reintroduces the
+old `is_file()` path as a fallback after the exact-match check -- the shape a later round could very
+plausibly add back "for robustness" -- passes `test_a_misspelled_prefix_is_inside_the_asserted_subset`
+and the rest of this file's suite unchanged on Linux, because Linux's own case-sensitive filesystem
+makes the fallback agree with the fix by coincidence, not by construction. Nothing in the existing
+suite told the two apart. `ProductionFlagReadingTests::test_a_case_mismatched_stem_is_not_found_even_if_is_file_would_say_yes`
+does: it patches `Path.is_file` to return `True` unconditionally -- the worst case-insensitive
+filesystem this module could ever run under -- and asserts a case-mismatched stem still resolves to
+`None`, with a sanity check alongside it that the correctly-cased stem still resolves under the same
+patch (so the assertion is not vacuously passing because nothing in the tree would ever be found).
+That mutant now reds on this lane's own Linux clone, which is the platform where it would otherwise
+have shipped invisibly.
+
+### nonclaim
+
+1. No GM status was granted, no GM command fired, no byte left a socket, no screen was involved.
+2. This round did not re-run the Windows gate itself -- there is no Windows machine in this
+   environment. The fix is argued from the mechanism (an exact-string match cannot depend on either
+   platform's case-folding) and demonstrated by a test that fails when the mechanism regresses to the
+   old one, not by a second Windows measurement. The gate run on the recovery PR is the first real
+   confirmation.
+3. Nothing in this round's content is new capability; it is the same `lx4yib` content `server#667`
+   already carried, unblocked.
+
+### What the tester can do today that she could not yesterday
+
+Nothing new reaches her screen. What changed is that `server#667`'s registered-hook audit -- caught
+between two lanes' silent-dead-hook classes in the section above -- can merge, because the one thing
+standing between it and the gate was a stdlib call whose answer depended on which OS ran it.
