@@ -605,6 +605,11 @@
 # round swlc56 - shared code-token scanner for the static verifiers negatives
 !/tools/pf_code_token_scan.py
 
+# LANE-CS round iazmrv - generator for the class/skill starting-kit catalog;
+# has to ship with it or a fresh clone cannot re-derive the two catalogs'
+# committed local TSV copies from ../pf_bridge/gamedata.
+!/tools/pf_class_skill_starting_kit_extract.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/
