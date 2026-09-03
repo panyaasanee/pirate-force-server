@@ -130,16 +130,25 @@ NOT GET A VOTE.  ``world_scene_travel``'s pinned console line reports
 ``return_ticket=not_needed`` for a scene whose ``n_MARKER`` is non-zero, and
 that line is quoted verbatim by ``GT-079`` so it is not changed here.  But
 ``n_MARKER`` is an ARRIVAL marker: it says the developers authored a point to
-arrive at, and says nothing whatever about a way back out.  ``RE-077`` is open
-for scene 2 exactly as it is for scene 278, and no measurement in this tree
-names a way out of either.  So ``SceneEntry.return_ticket_required`` is true
+arrive at, and says nothing whatever about a way back out.  ~~``RE-077`` is
+open for scene 2 exactly as it is for scene 278~~ -- STRUCK, MEASURED FALSE
+(LANE-A, round ``f6e5kd``, 2026-09-03): ``RE-077`` was answered 2026-08-26 and
+archived 2026-08-27, T0-T4 pinned and T5 a bounded negative.  The half of the
+sentence that survives is the load-bearing half and it needs no ticket to hold
+it up: NO MEASUREMENT IN THIS TREE NAMES A WAY OUT OF EITHER SCENE, because
+what ``RE-077`` pinned is the order the CLIENT requires for a switch, not an
+authored route home from a row whose ``n_MARKER`` is 0.  See
+``world_scene_travel``'s docstring for the citation and the full
+correction.  So ``SceneEntry.return_ticket_required`` is true
 for every non-home destination, and it will differ from the pinned line for
 scene 2 on purpose: the line reports the client's column, the field reports
 whether THIS project knows a way home.
 
 WHAT THIS MODULE DOES NOT DO.  It does not move a character who is already
-live from one scene to another - that is ``RE-077``, open, and guessing the
-sequence is how a lane ships something that works until it silently does not.
+live from one scene to another - that is ``RE-077`` (~~open~~ CLOSED
+2026-08-26; what is missing is not the answer but a server that has ever sent
+it), and guessing the sequence is how a lane ships something that works until
+it silently does not.
 It does not write anything: no database, no file, no socket.  It does not
 decide who gets sent to the stage; it answers what to do with the row a
 character already has.  And it does not claim scene 278 loads, renders, has
@@ -584,9 +593,10 @@ def resolve_entry(
         destination=target,
         teleport_fields=_teleport_from(target, position),
         population_source=world_scene_travel.population_source(target.n_id),
-        # Not from n_MARKER - see the module docstring.  RE-077 is open for
-        # every non-home scene, so this project knows a way home from none of
-        # them.
+        # Not from n_MARKER - see the module docstring.  ~~RE-077 is open
+        # for every non-home scene~~ (STRUCK: closed 2026-08-26) - this
+        # project knows a way home from none of them, which is a fact about
+        # this tree's own measurements and never depended on the ticket.
         return_ticket_required=target.n_id != HOME_SCENE_ID,
         relocated=moved,
         relocation_reason=reason,
@@ -656,8 +666,11 @@ def return_ticket(
     """The row that walks this character home, or ``None`` if none is owed.
 
     ``GT-079`` makes restoring this row a mandatory teardown step, because
-    scene 278 carries ``n_MARKER = 0`` and ``n_SAVE = 0`` and ``RE-077`` is
-    open, so a character left there has no in-game way back.  A ticket is owed
+    scene 278 carries ``n_MARKER = 0`` and ``n_SAVE = 0`` and ~~``RE-077`` is
+    open~~ (STRUCK, LANE-A round ``f6e5kd`` 2026-09-03: closed 2026-08-26 -
+    see the module docstring; the ticket was never what made this true) no
+    measurement in this tree names a way back out,
+    so a character left there has no in-game way back.  A ticket is owed
     for every non-home destination and not only that one: ``n_MARKER`` is an
     arrival marker and this project has measured no way out of any scene.
 
