@@ -44,7 +44,7 @@ comment above ``make_v98_conversation_face_state``) and, for the shop
 trigger, the trade-zoom action.  ~~A ``ChooseNpcResponse`` carries ONE
 ``pc``/``frame`` pair, so this responder cannot emit them~~ -- STRUCK,
 ROUND ``yjjtyn``: it carries ``extra_actions`` now, and this responder
-fills it with the talk trigger for every ordinary click.  The rest of the
+fills it with the talk trigger for an ordinary townsperson's click.  The rest of the
 sentence still stands and is why the gate has not moved: the call site
 sets ``actions = []`` on a decline with NO fallback to the frozen loop,
 NOTHING READS ``extra_actions`` YET (that line is chief's -- see step 1
@@ -54,16 +54,20 @@ unable to talk and the shop unable to open.
 
 WHAT MUST LAND BEFORE THIS FLAG MOVES (steps 1-3 in this order; 4-7 in
 any order, all of them before the flip):
-1.  ~~``ChooseNpcResponse`` becomes a COLLECTION of actions rather than one
-    pair.~~  DONE, ROUND ``yjjtyn``, ADDITIVELY: the type gained
+1.  ``ChooseNpcResponse`` becomes a COLLECTION of actions rather than one
+    pair.  NOT STRUCK, AND THE UN-STRIKING IS DELIBERATE (pf-adversary
+    ``yjjtyn`` D7): this file's convention is that struck text means
+    SHIPPED, and half of this item is not.  LANE HALF DONE, ROUND
+    ``yjjtyn``, ADDITIVELY: the type gained
     ``extra_actions`` (default ``()``, so every responder and the call
     site keep their present meaning) -- read that field's own paragraph in
     ``lane_hooks/__init__.py`` before reading anything here as live.  THE
     LANE HALF IS DONE AND THE FIELD IS STILL INERT: the one line that
     queues it (``actions.extend(response.extra_actions)`` in runtime.py's
     responder branch, right after ``actions = [(response.label, ...)]``)
-    is chief's, and CORE-REQUEST ``20260904_0137`` asks for it.  runtime.py's
-    own call-site comment named this as the fix and said whose it is: "a
+    is chief's, and CORE-REQUEST ``20260904_0137`` asks for it.  Strike
+    this item the day that line merges, not before.  runtime.py's own
+    call-site comment named this as the fix and said whose it is: "a
     ``lane_hooks``/lane_a design change outside a runtime.py guard's
     scope".
 2.  ~~This responder composes the conversation-default action for every
@@ -71,8 +75,12 @@ any order, all of them before the flip):
     helpers rather than from copies of their bytes.~~  HALF DONE, ROUND
     ``yjjtyn``, AND THE UNDONE HALF IS NAMED RATHER THAN ESTIMATED.  The
     CONVERSATION DEFAULT is composed for every ordinary click, by calling
-    ``legacy.make_npc_conversation_empty`` and keeping the frozen label
-    ``V98_NPC_CONVERSATION_DEFAULT_P<idx>`` (see ``_conversation_extra``).
+    ``legacy.make_npc_conversation_empty`` under the label
+    ``V98_NPC_CONVERSATION_DEFAULT_P<idx>_VIA_LANE_A`` (see
+    ``_conversation_extra``, including the four kinds of placement that
+    get nothing -- among them every row LANE B's own registry calls
+    hostile in this scene, which the frozen loop's single monster INDEX
+    does not cover).
     The two LATCHED actions are not, and cannot be from here as this
     responder is called today: the trade-zoom at the shop trigger
     (``shop_store5_open_sent``) and the q3020 conversation at the quest
@@ -245,6 +253,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .. import field_mobs
 from .. import lane_hooks
 from .. import world_census_level
 from .. import world_population
@@ -329,7 +338,7 @@ def _frozen_index(legacy: Any, name: str) -> int | None:
 
 
 def _conversation_extra(
-    legacy: Any, placement: Any, selected_idx: int,
+    legacy: Any, placement: Any, selected_idx: int, scene_id: int,
 ) -> tuple[tuple[tuple[str, bytes, bytes, float], ...], str]:
     """The talk trigger the frozen loop emits beside the face frame.
 
@@ -346,14 +355,23 @@ def _conversation_extra(
     ``make_v98_conversation_face_state``), so a responder that takes this
     scene over without it makes every townsperson unable to talk.  This
     composes it BY CALLING THE FROZEN BUILDER through the ``legacy`` module
-    the call site handed us -- never a copy of its bytes -- and keeps the
-    frozen LABEL verbatim, so ``pf_bridge/GAME_TEST_QUEUE.md``'s four
-    ``V98_NPC_CONVERSATION_DEFAULT`` greps still answer on the day this
-    responder takes the scene (``AGENTS.md`` grep rule); the lane's own
-    console line below is what says the lane composed it.
+    the call site handed us -- never a copy of its bytes.
 
-    THREE PLACEMENTS GET NOTHING FROM HERE, EACH FOR A MEASURED REASON,
-    AND NONE OF THEM IS "not implemented yet" IN DISGUISE:
+    THE LABEL CARRIES THE FROZEN NAME PLUS ``_VIA_LANE_A``, AND BOTH HALVES
+    ARE LOAD-BEARING (pf-adversary ``yjjtyn`` D5, MEASURED).  ~~The frozen
+    label verbatim~~ kept the queue's ``V98_NPC_CONVERSATION_DEFAULT``
+    greps answering -- true, and a prefix grep still answers with the
+    suffix on -- but it also made the two worlds indistinguishable: the
+    round's own control test (``test_todays_answer_to_an_ordinary_click_
+    carries_the_talk_trigger``) passed identically with the responder
+    withdrawn and with it live, so the one test whose job is to say "the
+    lane reproduces the frozen answer" could no longer say WHICH path
+    answered.  The suffix costs no grep (the tickets that name this string
+    match it as a prefix of ``..._DEFAULT_P<idx>``) and buys back the
+    distinction on every capture.
+
+    FOUR KINDS OF PLACEMENT GET NOTHING FROM HERE, EACH FOR A MEASURED
+    REASON, AND NONE OF THEM IS "not implemented yet" IN DISGUISE:
 
     * the QUEST ACTOR (``V129_QUEST_ACTOR_INDEX``): the frozen loop sends
       ``make_npc_conversation_quest3020`` there, ONCE PER SESSION
@@ -361,14 +379,38 @@ def _conversation_extra(
       session latch, so it cannot know whether that once has been spent.
       Composing the EMPTY conversation instead would replace a quest
       conversation with a blank one, which is worse than the gap.
-    * the SHOP TRIGGER (``V112_SHOP_TRIGGER_INDEX``): same shape --
+      NOTE: THIS ARM IS UNREACHABLE FROM ``respond()`` TODAY AND SAYING SO IS
+      THE POINT (pf-adversary ``yjjtyn`` D4, MEASURED): P0 has no
+      shippable identity, so it is not a key of ``_placements_by_index``
+      and ``respond()`` skips it before this function is called.  The arm
+      stays, because "unreachable today" is a property of the identity
+      table and not of this rule; what it is NOT is "the gap this round
+      named" -- the real quest-actor gap is that this responder cannot
+      answer P0 at all, which is item 5 of the module docstring's list,
+      not this function's business.
+    * the SHOP TRIGGER (``V112_SHOP_TRIGGER_INDEX``): same latch shape --
       ``make_trade_zoom_store5`` once per session
-      (``shop_store5_open_sent``), and no empty conversation at all.
+      (``shop_store5_open_sent``), and no empty conversation at all.  This
+      arm IS reachable: P91 is in the table.
     * the MONSTER (``V112_MONSTER_INDEX``): the frozen loop ``continue``s
       before composing anything for it.  This responder deliberately
       answers that click with a face frame (the module docstring's "P30 (a
       gain)"), and giving it a talk trigger the frozen path never sent
       would be a second, unmeasured change riding on the first.
+    * ANY ROW LANE B'S OWN REGISTRY CALLS HOSTILE IN THIS SCENE
+      (``field_mobs.roster_for_scene_id(scene_id)``, that lane's public
+      per-scene reader -- the same route ``lane_a_scene_census``
+      already takes, never a per-scene table import).  ADDED AFTER
+      pf-adversary ``yjjtyn`` D3 MEASURED that ``V112_MONSTER_INDEX`` is
+      the frozen HARNESS monster (placement 30) while the rows this
+      scene's AI actually ticks are placements 103/105/107/109 -- so the
+      index list alone would have handed every real Port Royal mob an
+      empty conversation window.  That is a symptom already on record
+      with an owner (``GT-104``: the empty conversation window opens and
+      there is no way into attack mode), and a lane must not quietly
+      become its second owner by shipping the same bytes from a new
+      place.  Parity with the frozen loop is not the test here; the
+      registry is.
 
     Those two latched actions are the rest of step 2 in the module
     docstring's list, and they need a session-state argument at the call
@@ -392,6 +434,25 @@ def _conversation_extra(
     if selected_idx == monster_idx:
         return (), "no_extra_monster_frozen_path_sends_none"
     try:
+        hostile_identities = frozenset(
+            mob.actor_identity
+            for mob in field_mobs.roster_for_scene_id(scene_id)
+        )
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException as failure:  # noqa: BLE001 - lane B's registry is
+        # not this answer's dependency, but it IS this rule's input, and
+        # without it this cannot tell a townsman from a hostile row.  Fail
+        # closed in the direction that composes LESS, and say which of the
+        # two silences this is -- the same distinction
+        # ``lane_a_scene_census._field_mob_identities`` already draws for
+        # its own reader.
+        return (), (
+            f"no_extra_hostile_registry_unreadable_{type(failure).__name__}"
+        )
+    if placement.actor_identity in hostile_identities:
+        return (), "no_extra_hostile_row_lane_b_registry"
+    try:
         conv_pc, conv_frame = legacy.make_npc_conversation_empty(
             placement.actor_identity,
         )
@@ -403,7 +464,8 @@ def _conversation_extra(
     return (
         (
             (
-                f"V98_NPC_CONVERSATION_DEFAULT_P{selected_idx}",
+                f"V98_NPC_CONVERSATION_DEFAULT_P{selected_idx}"
+                "_VIA_LANE_A",
                 conv_pc, conv_frame, 0.0,
             ),
         ),
@@ -531,7 +593,7 @@ def respond(
         pc, frame = compose_answer(
             legacy, entries, scene_id, mob_loot_cell)
         extra_actions, extra_reason = _conversation_extra(
-            legacy, by_idx[selected_idx], selected_idx,
+            legacy, by_idx[selected_idx], selected_idx, scene_id,
         )
         console_lines = (
             f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_ANSWERED "
@@ -546,7 +608,8 @@ def respond(
             # ``t8m3ab``).  ``extra=`` counts what a call site would queue
             # after the pair; ``extra_reason=`` says which of the four
             # reasons in ``_conversation_extra`` this click took.
-            f"extra={len(extra_actions)} extra_reason={extra_reason}",
+            f"extra_composed={len(extra_actions)} "
+            f"extra_reason={extra_reason}",
         )
         return lane_hooks.ChooseNpcResponse(
             label=f"LANE_A_CHOOSE_NPC_SCENE{scene_id}_FACE_P{selected_idx}",

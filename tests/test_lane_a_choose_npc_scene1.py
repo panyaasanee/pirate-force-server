@@ -35,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_census_level  # noqa: E402
 from pirateforce_foundation import world_face_frame  # noqa: E402
@@ -593,6 +594,18 @@ class TheGateStaysClosedForAMeasuredReasonTests(unittest.TestCase):
         trigger, and nothing else."""
         labels = self._labels_for_click("tok-scene1-talk", 3)
         self.assertIn("V98_NPC_CONVERSATION_DEFAULT_P3", labels)
+        # AND THE FACE LABEL IS THE FROZEN ONE, WHICH IS WHAT MAKES THIS A
+        # CONTROL (pf-adversary `yjjtyn` D5, MEASURED): without this line
+        # the class passed IDENTICALLY with the responder withdrawn and
+        # with it live, so the one test whose job is to describe "TODAY's
+        # production answer" could not say which path produced it.  The
+        # lane's own answer labels its face frame
+        # `LANE_A_CHOOSE_NPC_SCENE1_FACE_P3` and its trigger
+        # `..._VIA_LANE_A`, so both assertions below fail the day this
+        # class is accidentally driven against the lane path.
+        self.assertIn("V98_NPC_FACE_PLAYER_POSITION_HEADING_P3", labels)
+        self.assertNotIn("V98_NPC_CONVERSATION_DEFAULT_P3_VIA_LANE_A",
+                         labels)
         self.assertEqual(
             len(labels), 2,
             "an answer to an ordinary scene-1 click is exactly the face "
@@ -650,8 +663,11 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
     NONE OF THIS REACHES A PLAYER YET AND THE TESTS SAY SO BY WHAT THEY DO
     NOT ASSERT: nothing here drives ``runtime.py``, because the one line
     that would queue this field is chief's and is not on ``main``.  What
-    is pinned is the composition and the four ways it honestly composes
-    nothing.
+    is pinned is the composition and every way it honestly composes
+    nothing -- including the one pf-adversary `yjjtyn` D3 measured this
+    round's first draft missing: the rows LANE B's registry calls hostile
+    in this scene are placements 103/105/107/109, not the frozen loop's
+    single harness monster at index 30.
     """
 
     @classmethod
@@ -687,18 +703,21 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         self.assertIsNotNone(answer)
         self.assertEqual(len(answer.extra_actions), 1)
         label, pc, frame, delay = answer.extra_actions[0]
-        # THE LABEL IS THE FROZEN ONE ON PURPOSE: four greps in
-        # pf_bridge/GAME_TEST_QUEUE.md read it, and the house rule
-        # (AGENTS.md) is that a PR moving a string a ticket greps must keep
-        # the grep answering.
+        # THE LABEL IS THE FROZEN NAME PLUS `_VIA_LANE_A`: the greps in
+        # pf_bridge/GAME_TEST_QUEUE.md that read this string match it as a
+        # prefix, so the house rule (AGENTS.md - a PR moving a string a
+        # ticket greps must keep the grep answering) is satisfied, and the
+        # suffix keeps the lane path distinguishable from the frozen one on
+        # a capture (pf-adversary `yjjtyn` D5).
         self.assertEqual(
-            label, f"V98_NPC_CONVERSATION_DEFAULT_P{selected_idx}")
+            label,
+            f"V98_NPC_CONVERSATION_DEFAULT_P{selected_idx}_VIA_LANE_A")
         expected_pc, expected_frame = legacy.make_npc_conversation_empty(
             placement.actor_identity)
         self.assertEqual(bytes(pc), bytes(expected_pc))
         self.assertEqual(bytes(frame), bytes(expected_frame))
         self.assertEqual(delay, 0.0)
-        self.assertIn("extra=1", answer.console_lines[0])
+        self.assertIn("extra_composed=1", answer.console_lines[0])
         self.assertIn("extra_reason=conversation_default",
                       answer.console_lines[0])
         answer.console_lines[0].encode("cp874")
@@ -726,7 +745,9 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
 
     def test_the_three_latched_or_skipped_placements_get_no_extra(self):
         """Each refusal is its own named reason, because "composed
-        nothing" is four different facts on a capture."""
+        nothing" is several different facts on a capture, and a capture
+        that cannot tell them apart is the evidence channel this project
+        keeps deleting."""
         legacy = self.legacy
         placement = self.placements[self._ordinary_index()]
         for idx, reason in (
@@ -739,7 +760,7 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         ):
             with self.subTest(placement=idx):
                 extras, got = responder_mod._conversation_extra(
-                    legacy, placement, idx)
+                    legacy, placement, idx, PORT_ROYAL)
                 self.assertEqual(extras, ())
                 self.assertEqual(got, reason)
 
@@ -754,7 +775,7 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
 
         extras, reason = responder_mod._conversation_extra(
             _NoConstants(), self.placements[self._ordinary_index()],
-            self._ordinary_index(),
+            self._ordinary_index(), PORT_ROYAL,
         )
         self.assertEqual(extras, ())
         self.assertEqual(reason, "no_extra_frozen_indices_unreadable")
@@ -783,9 +804,60 @@ class TheTalkTriggerRidesAlongAsAnExtraActionTests(unittest.TestCase):
         self.assertIsNotNone(answer)
         self.assertTrue(answer.pc)
         self.assertEqual(answer.extra_actions, ())
-        self.assertIn("extra=0", answer.console_lines[0])
+        self.assertIn("extra_composed=0", answer.console_lines[0])
         self.assertIn("extra_reason=no_extra_builder_refused_RuntimeError",
                       answer.console_lines[0])
+
+    def test_every_row_lane_b_calls_hostile_here_gets_no_talk_trigger(self):
+        """pf-adversary `yjjtyn` D3, MEASURED: the frozen loop's monster
+        INDEX is the harness monster (placement 30), while the rows this
+        scene's AI actually ticks are lane B's registry rows.  Handing one
+        of those an empty conversation window is `GT-104`'s symptom, and
+        this lane must not become its second owner from a new place.
+
+        Derived from lane B's OWN public reader, never a per-scene table
+        import and never a copy of the placement numbers -- the same route
+        `lane_a_scene_census._field_mob_identities` takes."""
+        legacy = self.legacy
+        hostiles = [
+            mob for mob in field_mobs.roster_for_scene_id(PORT_ROYAL)
+            if (mob.actor_identity - 0x2000 - 1) in self.placements
+        ]
+        if not hostiles:
+            self.skipTest(
+                "lane B's registry names no hostile row this responder's "
+                "own table can answer for scene 1 today"
+            )
+        for mob in hostiles:
+            idx = mob.actor_identity - 0x2000 - 1
+            with self.subTest(placement=idx):
+                extras, reason = responder_mod._conversation_extra(
+                    legacy, self.placements[idx], idx, PORT_ROYAL)
+                self.assertEqual(extras, ())
+                self.assertEqual(reason, "no_extra_hostile_row_lane_b_registry")
+
+    def test_an_unreadable_hostile_registry_composes_nothing(self):
+        """Fail closed in the direction that composes LESS, and say which
+        silence this is -- the same distinction the census's own reader
+        draws for its failure path."""
+        legacy = self.legacy
+        selected_idx = self._ordinary_index()
+        real = field_mobs.roster_for_scene_id
+
+        def _boom(scene_id):
+            raise RuntimeError("registry refused")
+
+        field_mobs.roster_for_scene_id = _boom
+        try:
+            extras, reason = responder_mod._conversation_extra(
+                legacy, self.placements[selected_idx], selected_idx,
+                PORT_ROYAL,
+            )
+        finally:
+            field_mobs.roster_for_scene_id = real
+        self.assertEqual(extras, ())
+        self.assertEqual(
+            reason, "no_extra_hostile_registry_unreadable_RuntimeError")
 
     def test_the_new_field_defaults_to_empty_for_every_other_responder(self):
         """The default is the safety argument for the other four
