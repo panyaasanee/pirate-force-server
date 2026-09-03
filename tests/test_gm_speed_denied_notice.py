@@ -96,17 +96,16 @@ class FakeStore:
     def write_typed_attributes(self, character_id, values):
         self.stored.update(values)
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
         if self.raises is not None:
             raise self.raises
-        self.stored.update(values)
+        if getattr(self, "refuses", False):
+            # `None` == the row was NOT touched, so `stored` is left alone.
+            return None
+        self.stored[chat_command_action.SPEED_TYPED_COLUMN] = speed
         if self.readback is not None:
             return dict(self.readback)
-        return {
-            speed_wire.SPEED_FIELD_X: float(
-                values[chat_command_action.SPEED_TYPED_COLUMN]
-            )
-        }
+        return {speed_wire.SPEED_FIELD_X: float(speed)}
 
 
 class _StoreWithoutPersistence:
@@ -418,13 +417,17 @@ class TheNineRefusalPathsTests(_Case):
         )
         self.assertEqual(
             body.count("_speed_denied("),
-            10,
+            11,
             "the number of refusal paths in _speed_action changed (%d found, "
-            "10 expected). That is not a failure by itself -- add or remove a "
+            "11 expected). That is not a failure by itself -- add or remove a "
             "test above to match, and re-read COO-DECISION 20260902_0345, "
             "whose condition is stated over ALL refusal paths. ~~9~~ became "
             "10 in round `et2ux4`: GT-193's shape hold is a refusal like any "
-            "other and goes out through the same notice."
+            "other and goes out through the same notice.  ~~10~~ became 11 in "
+            "round `ntf90h`, when the write moved onto "
+            "`store.write_speed_by_identity`: that door reports its refusal "
+            "as `None`, and a `None` means THE ROW IS UNTOUCHED, which no "
+            "existing word on this route was allowed to say."
             % body.count("_speed_denied("),
         )
 

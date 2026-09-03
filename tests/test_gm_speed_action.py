@@ -46,8 +46,10 @@ from pirateforce_foundation.gm import chat_command_action  # noqa: E402
 from pirateforce_foundation.gm import dispatch as gm_dispatch  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+from pirateforce_foundation import persistence_attr_compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation import store  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 MIGRATIONS = ROOT / "migrations"
@@ -85,11 +87,17 @@ class FakeStore:
     """`.path` for the run-copy gate, plus LANE-DB's persistence entry point.
 
     The method's name and signature are copied from the real
-    `store.SQLiteStore.write_typed_attributes_and_compose_sparse`
-    (`character_id`, `values`) -> the SPARSE `{x: value}` for the columns
-    written.  `PersistenceIntegrationTests` at the bottom of this file runs
-    the same command against a REAL `SQLiteStore` on a temp file, so this
-    double can never be the only thing the wiring is proven against.
+    `store.SQLiteStore.write_speed_by_identity` (`identity_lo`,
+    `identity_hi`, `speed`) -> the `{x: value}` READ BACK inside the door's
+    own transaction, or `None`, which that door contracts to mean THE ROW
+    WAS NOT TOUCHED.  `PersistenceIntegrationTests` at the bottom of this
+    file runs the same command against a REAL `SQLiteStore` on a temp file,
+    so this double can never be the only thing the wiring is proven against.
+
+    ~~`write_typed_attributes_and_compose_sparse` (`character_id`,
+    `values`)~~ -- struck with the production swap in round `ntf90h`; the
+    plain `write_typed_attributes` below stays, because `_speed_undo` still
+    restores through it.
     """
 
     def __init__(self, path):
@@ -99,6 +107,12 @@ class FakeStore:
         # the real one keys its return: by WIRE FIELD INDEX, not column name.
         self.readback = None
         self.raises = None
+        #: Set to True to make the door take its own refusal path: `None`
+        #: back, and the row untouched -- the property `store.write_speed_by
+        #: _identity` contracts for (every refusal raises INSIDE its
+        #: transaction, so nothing is committed).  `stored` is deliberately
+        #: left alone here, which is what makes that testable.
+        self.refuses = False
         #: The row as it stands.  Empty = the column was never written, which
         #: is the one case `_speed_undo` honestly cannot revert.
         self.stored = {}
@@ -117,22 +131,22 @@ class FakeStore:
         self.undo_writes.append((character_id, dict(values)))
         self.stored.update(values)
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
-        self.calls.append((character_id, dict(values)))
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
+        self.calls.append((identity_lo, identity_hi, speed))
         if self.raises is not None:
             raise self.raises
-        self.stored.update(values)
+        if self.refuses:
+            # NOTHING is written on this path, and that is the point: the
+            # real door raises inside its transaction and rolls back.
+            return None
+        self.stored[chat_command_action.SPEED_TYPED_COLUMN] = speed
         if self.readback is not None:
             return dict(self.readback)
         # Keyed through the send site's own constant, never the literal
         # "speed_walk" typed a second time -- pf-adversary (round `hw6dix`,
         # D5) caught this double doing exactly what the test two hundred
         # lines below forbids.
-        return {
-            speed_wire.SPEED_FIELD_X: float(
-                values[chat_command_action.SPEED_TYPED_COLUMN]
-            )
-        }
+        return {speed_wire.SPEED_FIELD_X: float(speed)}
 
 
 class FakeLifecycle:
@@ -428,8 +442,7 @@ class SpeedActionTests(_Case):
         # The row really is committed on that branch -- which is why it may
         # not share a word with the pre-write refusal.
         self.assertEqual(
-            session.foundation.lifecycle.store.calls,
-            [(1, {chat_command_action.SPEED_TYPED_COLUMN: 5.0})],
+            session.foundation.lifecycle.store.calls, [(1, 0, 5.0)]
         )
 
     def test_a_pre_write_parse_refusal_still_uses_the_pre_write_word(self):
@@ -778,13 +791,17 @@ class SpeedPersistenceTests(_Case):
         return session.foundation.lifecycle.store
 
     def test_the_store_is_called_with_this_connections_row_and_value(self):
-        session = FakeSession(selected=FakeSelected(character_id=42))
+        # The row is named by the IDENTITY PAIR now, not by `characters.id`:
+        # `store.write_speed_by_identity` does its own `deleted_at IS NULL`
+        # lookup, which is the predicate `migrations/004`'s partial unique
+        # index is built on.  `character_id=42` is still set on the double so
+        # this test fails loudly if the call ever goes back to naming a row id.
+        session = FakeSession(
+            selected=FakeSelected(character_id=42, identity_lo=9, identity_hi=4)
+        )
         action = self.act(session, "/speed 5.0")
         self.assertIsNotNone(action)
-        self.assertEqual(
-            self.store_of(session).calls,
-            [(42, {chat_command_action.SPEED_TYPED_COLUMN: 5.0})],
-        )
+        self.assertEqual(self.store_of(session).calls, [(9, 4, 5.0)])
 
     def test_no_frame_is_composed_before_the_row_is_written(self):
         """The ORDER, with a control that can actually see it.
@@ -858,21 +875,41 @@ class SpeedPersistenceTests(_Case):
         )
 
     def test_the_column_written_is_the_one_the_typed_table_owns_for_x7(self):
+        """The caller no longer names a column AT ALL, and that is the point.
+
+        ~~the call site passes `{column_for(SPEED_FIELD_X): value}`~~ --
+        struck with the door swap in round `ntf90h`.
+        `store.write_speed_by_identity` derives the column itself from
+        `store.SPEED_WALK_FIELD_X` through `persistence_typed_attrs.
+        column_for`, so `gm/` cannot spell a column name into this write even
+        by accident.  What still has to hold is the CROSSWALK -- the field
+        index the send site composes from and the one the door writes through
+        must be the same number, or the row and the frame would be about
+        different fields -- and that is what this test now pins, on the real
+        `store` module rather than on a double.
+        """
+        self.assertEqual(store.SPEED_WALK_FIELD_X, speed_wire.SPEED_FIELD_X)
+        self.assertEqual(
+            persistence_typed_attrs.column_for(store.SPEED_WALK_FIELD_X),
+            chat_command_action.SPEED_TYPED_COLUMN,
+        )
         session = FakeSession()
         self.act(session, "/speed 3.0")
-        (_character_id, values), = self.store_of(session).calls
-        self.assertEqual(
-            list(values),
-            [persistence_typed_attrs.column_for(speed_wire.SPEED_FIELD_X)],
-        )
+        (call,), = [self.store_of(session).calls]
+        self.assertEqual(call[2], 3.0)
 
     def test_exactly_one_field_is_written_never_a_merged_block(self):
         # COO-ORDER 20260901_1641's rule for this path, now applying to the
-        # WRITE as well as to the frame.
+        # WRITE as well as to the frame -- and STRUCTURAL since the door
+        # swap: the door takes ONE scalar, so there is no mapping this route
+        # could widen into a merged block in the first place.
         session = FakeSession()
         self.act(session, "/speed 3.0")
-        (_character_id, values), = self.store_of(session).calls
-        self.assertEqual(len(values), 1)
+        (call,), = [self.store_of(session).calls]
+        self.assertEqual(len(call), 3)
+        self.assertIsInstance(call[2], float)
+        for part in call:
+            self.assertNotIsInstance(part, dict)
 
     def test_the_frame_carries_the_stores_readback_not_the_typed_text(self):
         # The store says the row holds 9.5 while the GM typed 5.0.  Real
@@ -1154,6 +1191,109 @@ class SpeedUndoTests(_Case):
             [(1, {chat_command_action.SPEED_TYPED_COLUMN: 100.0})],
         )
 
+    def test_the_untouched_row_branch_runs_no_undo_even_when_the_audit_breaks(
+        self,
+    ):
+        """The property the door swap was FOR, pinned where it can actually fail.
+
+        pf-adversary (round `ntf90h`, D1) measured that the round which added
+        `refused_speed_row_not_touched` pinned it with an assertion that could
+        not see the mutant: `store.undo_writes == []` on a run whose outcome
+        append SUCCEEDS is vacuous, because the undo only ever fires when that
+        append FAILS.  Carrying `undo` into the branch -- one word -- was green
+        across the whole file, and produced a real `write_typed_attributes`
+        against a row whose own console sentence promises it "still holds
+        exactly what it held before this command", plus an
+        `outcome_stage_reverted` event claiming a revert of a write that never
+        happened.  That is the false-audit class this route exists to stop.
+
+        So: break the append, and require BOTH that no undo write happened and
+        that the revert event was never claimed.
+        """
+        session = FakeSession()
+        store = _StoreThatReturnsNone(DEFAULT_RUN_COPY_DB_PATH)
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 100.0}
+        session.foundation.lifecycle.store = store
+        patcher, _real = self.break_the_outcome_append()
+        with patcher:
+            action = self.act(session, "/speed 777.0")
+        self.assertIsNone(action)
+        self.assertEqual(
+            store.undo_writes,
+            [],
+            "an undo wrote a row back that the door never wrote in the first "
+            "place",
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_OUTCOME_STAGE_REVERTED,
+            session.events,
+            "the audit claimed it reverted a write that never happened",
+        )
+        self.assertEqual(
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], 100.0
+        )
+
+    def test_a_store_with_only_the_old_door_refuses_and_never_writes(self):
+        # pf-adversary (round `ntf90h`, D4).  The comment at the `persist =
+        # getattr(...)` line claims there is no silent fallback to the
+        # composing door; this is the shape that can prove it.  Not
+        # exploitable at HEAD -- the real `SQLiteStore` carries the new door --
+        # but the property was stated and held by nothing.
+        session = FakeSession()
+        store = _StoreWithOnlyTheOldDoor(DEFAULT_RUN_COPY_DB_PATH)
+        session.foundation.lifecycle.store = store
+        action = self.act(session, "/speed 400")
+        # The refusal still reaches the screen through the local-talk notice
+        # (COO `0345`), so `action` is that notice, never a speed frame.
+        self.assertEqual(action[0], "LANE_GM_CHAT_SPEED_DENIED_LOCAL_TALK_NOTICE")
+        self.assertIn(chat_command_action.EVENT_SPEED_NO_STORE, session.events)
+        self.assertEqual(
+            store.old_door_calls,
+            [],
+            "the route fell back to the composing door instead of refusing",
+        )
+        self.assertEqual(store.stored, {}, "a fallback wrote the row")
+
+    def test_the_field_this_route_composes_is_the_only_approved_sparse_field(
+        self,
+    ):
+        """The policy gate the door swap stopped applying, pinned as an equality.
+
+        pf-adversary (round `ntf90h`, D7): the OLD door ended in
+        `persistence_attr_compose.compose_sparse_block`, which enforces
+        `SPARSE_APPROVED_FIELDS`; `store.write_speed_by_identity` composes
+        through `typed_values_for_compose` and does not, and nothing
+        downstream re-applies it.  He measured both doors over six values
+        including `-0.0` and got byte-identical frames, so NOTHING CHANGED
+        TODAY -- and the only reason is that the approved set is exactly this
+        one field.  The day it is widened, this route is composing past a
+        gate, and this equality is what turns that day into a red test
+        instead of a silent widening.
+        """
+        self.assertEqual(
+            persistence_attr_compose.SPARSE_APPROVED_FIELDS,
+            frozenset({speed_wire.SPEED_FIELD_X}),
+            "SPARSE_APPROVED_FIELDS is no longer exactly /speed's field, so "
+            "the sparse-approval gate that store.write_speed_by_identity does "
+            "not apply has started to mean something on this route -- read "
+            "the D7 paragraph in _speed_action's DB FIRST block before "
+            "changing this test",
+        )
+
+    def test_the_untouched_row_branch_emits_its_own_session_event(self):
+        # pf-adversary (round `ntf90h`, D2): the event-name contract table is a
+        # SPELLING pin, not an EMISSION pin, and deleting the `_note` call was
+        # green.  Every sibling refusal on this route has an emission
+        # assertion; this one is the reason the round exists and had none.
+        session = FakeSession()
+        session.foundation.lifecycle.store = _StoreThatReturnsNone(
+            DEFAULT_RUN_COPY_DB_PATH
+        )
+        self.act(session, "/speed 400")
+        self.assertIn(
+            chat_command_action.EVENT_SPEED_ROW_NOT_TOUCHED, session.events
+        )
+
     def test_a_store_with_no_prior_value_reports_not_reverted_rather_than_lying(
         self,
     ):
@@ -1260,6 +1400,46 @@ class UndoIntegrationTests(PersistenceIntegrationTests):
 
 
 
+class _StoreWithOnlyTheOldDoor:
+    """A store carrying the door this route USED to call, and not the new one.
+
+    pf-adversary (round `ntf90h`, D4): the diff asserts in a comment that a
+    store predating `write_speed_by_identity` "earns the SAME refusal rather
+    than falling back to the composing write", and nothing measured it --
+    every no-persistence double in the suite has NEITHER method, so
+    `or getattr(store, "write_typed_attributes_and_compose_sparse", None)`
+    survived the whole file.  This double is the one shape that can tell the
+    two apart.
+
+    It does NOT subclass `FakeStore`: the attribute has to be genuinely
+    absent, and an override that raises would be found by `getattr` and land
+    on the `refused_speed_persist_AssertionError` branch instead -- a
+    different word, and not the one under test.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.old_door_calls = []
+        self.stored = {}
+        self.undo_writes = []
+
+    def read_typed_attributes(self, character_id):
+        return dict(self.stored)
+
+    def write_typed_attributes(self, character_id, values):
+        self.undo_writes.append((character_id, dict(values)))
+        self.stored.update(values)
+
+    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+        self.old_door_calls.append((character_id, dict(values)))
+        self.stored.update(values)
+        return {
+            speed_wire.SPEED_FIELD_X: float(
+                values[chat_command_action.SPEED_TYPED_COLUMN]
+            )
+        }
+
+
 class _StoreThatReturnsNone(FakeStore):
     """LANE-DB's entry point answering `None` instead of a sparse mapping.
 
@@ -1268,15 +1448,20 @@ class _StoreThatReturnsNone(FakeStore):
     (parse failure / DB returns None / success).  `FakeStore` cannot express
     it: its `readback` attribute is read as "use this mapping instead of the
     default", so setting it to `None` selects the DEFAULT rather than the
-    answer under test.  A subclass is the honest way to say it, and it keeps
-    the write itself real -- the row IS updated before the `None` comes
-    back, which is exactly why the refusal below must not be read as
-    "nothing was stored".
+    answer under test.  A subclass is the honest way to say it.
+
+    ~~"and it keeps the write itself real -- the row IS updated before the
+    `None` comes back, which is exactly why the refusal below must not be
+    read as 'nothing was stored'"~~ -- STRUCK in round `ntf90h`, and struck
+    rather than deleted because it was TRUE of the door this route used to
+    call.  `store.write_speed_by_identity` is the door now, and its whole
+    contract is the opposite: every refusal raises INSIDE its transaction,
+    so `None` means the row was NOT touched.  This double therefore leaves
+    `stored` alone, and the refusal below says so by name.
     """
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
-        self.calls.append((character_id, dict(values)))
-        self.stored.update(values)
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
+        self.calls.append((identity_lo, identity_hi, speed))
         return None
 
 
@@ -1453,17 +1638,31 @@ class TheRefusalNamesThisConnectionTests(_Case):
         self.assertIn("do NOT read this as", line)
 
     def test_a_store_that_answers_none_refuses_and_names_the_connection(self):
-        # COO's own third case, spelled by hand in the decision.
+        # COO's own third case, spelled by hand in the decision.  The WORD it
+        # earns changed with the door in round `ntf90h`: `None` used to be an
+        # unusable read-back after a committed write, and is now the door's
+        # own "nothing was written" report.
         session = FakeSession(selected=self.selected())
-        session.foundation.lifecycle.store = _StoreThatReturnsNone(
-            DEFAULT_RUN_COPY_DB_PATH
-        )
+        store = _StoreThatReturnsNone(DEFAULT_RUN_COPY_DB_PATH)
+        store.stored = {chat_command_action.SPEED_TYPED_COLUMN: 111.0}
+        session.foundation.lifecycle.store = store
         action, err = self.say(session, "/speed 400")
         self.assertRefusalWentToTheScreen(action)
         line = self.the_one_line(err)
-        self.assertIn("why=refused_speed_persist_readback_unusable", line)
+        self.assertIn("why=refused_speed_row_not_touched", line)
         for field in self.expected_fields():
             self.assertIn(field, line)
+        # The property the swap bought, asserted rather than described: the
+        # row still holds what it held, and NO undo write was attempted --
+        # `_make_action` was handed no undo to run, because there is nothing
+        # to put back.
+        self.assertEqual(
+            store.stored, {chat_command_action.SPEED_TYPED_COLUMN: 111.0}
+        )
+        self.assertEqual(store.undo_writes, [])
+        # And the console must NOT reach for the committed-row warning: that
+        # sentence is for the branches where a row may already have moved.
+        self.assertNotIn("do NOT read this as", line)
 
     def test_a_connection_with_nothing_selected_says_none_not_a_guess(self):
         session = FakeSession(selected=None)

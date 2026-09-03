@@ -160,14 +160,10 @@ class FakeStore:
     def write_typed_attributes(self, character_id, values):
         self.stored.update(values)
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
-        self.calls.append((character_id, dict(values)))
-        self.stored.update(values)
-        return {
-            speed_wire.SPEED_FIELD_X: float(
-                values[chat_command_action.SPEED_TYPED_COLUMN]
-            )
-        }
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
+        self.calls.append((identity_lo, identity_hi, speed))
+        self.stored[chat_command_action.SPEED_TYPED_COLUMN] = speed
+        return {speed_wire.SPEED_FIELD_X: float(speed)}
 
 
 class FakeLifecycle:
