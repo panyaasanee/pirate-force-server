@@ -518,6 +518,32 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
     except Exception as error:
         return _refusal(REFUSE_NO_LEGACY, repr(error), lifetime)
 
+    # THE KILL PAYS THE SCENE'S REMOVAL DEBT (round f4oh9y).  ``frames``
+    # carries this scene's surviving ground, so by RE-130's static reading
+    # the consumer drops every key it omits -- which is what the rows a sweep
+    # retired are owed.  ``live`` is the POST-TRIM tuple the ledger above was
+    # rebuilt from, so the rows named here really are the rows in the frames.
+    # Telling the cell keeps DropLedgerCell.frames_after_rows_expired from
+    # composing a second generation saying the same thing on the next refused
+    # click.  This step is the one publisher in this file that may claim a
+    # payment: runtime.py sends a kill's generation with no gate in front of
+    # it (unlike the boundary stash, which three gates can drop).
+    #
+    # NOT FATAL, and the asymmetry is the point: a debt that fails to clear
+    # costs one redundant generation later, while a kill that fails to
+    # publish costs the player their drop.  The narrow catch is deliberate --
+    # note_scene_published raises only its two named contract refusals, and
+    # neither is reachable here (``live`` is nonempty by the branch above and
+    # is made of this module's own rows), so a broad ``except`` would only
+    # hide the day that stops being true.
+    try:
+        cell.note_scene_published(scene, live)
+    except mob_loot.MobLootContractError:
+        # Swallowed, never widened: the frames below are already composed and
+        # a kill must not lose them over bookkeeping.  What survives the
+        # swallow is the DEBT, which the next publisher pays.
+        pass
+
     announced = sum(1 for row in rows if row.from_this_kill)
     return PresenceStep(
         state=STATE_TRIMMED_TO_FIT if trimmed else STATE_SUSTAINED,

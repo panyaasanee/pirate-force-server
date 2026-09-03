@@ -614,6 +614,35 @@ MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN = "MOB_PICKUP_DELTA_GROUND_CLEARED"
 #: boot ever exists where the two files disagree.
 GROUND_AFTER_CALL_SITE_STATUS = "sent"
 
+#: ROUND f4oh9y, THE EXPIRY HALF, and it is a different call site from the one
+#: above even though it is the same branch of ``runtime.py``.  A REFUSED click
+#: never reaches the ``ground_after`` lines: the branch returns ``[]`` the
+#: moment ``outcome.delta is None``, which every refusal is.  So the removal
+#: publication this module now composes for an expiry (see
+#: :func:`_expiry_publication`) is composed and DROPPED until the chief moves
+#: that early return -- the one-line CORE-REQUEST this round's PR body carries.
+#: Same discipline as the constant above and for the same reason: a console
+#: line saying PUBLISHED on a boot that sends nothing is a false negative
+#: against the CLIENT.  ``tests/test_mob_pickup_ground_expiry.py`` re-derives
+#: this value from ``runtime.py``'s own AST, so the day the chief's line lands
+#: the word changes with it -- and the day somebody deletes it, this goes red
+#: rather than lying.
+EXPIRY_PUBLICATION_CALL_SITE_STATUS = "composed_not_sent"
+
+#: What the console says when a refused click carried a removal the sweep
+#: owed.  PUBLISHED only while :data:`EXPIRY_PUBLICATION_CALL_SITE_STATUS`
+#: says the frames really leave.
+MOB_PICKUP_GROUND_EXPIRY_PUBLISHED_TOKEN = "MOB_PICKUP_GROUND_EXPIRY_PUBLISHED"
+MOB_PICKUP_GROUND_EXPIRY_COMPOSED_TOKEN = (
+    "MOB_PICKUP_GROUND_EXPIRY_COMPOSED_NOT_SENT_NO_CALL_SITE")
+#: The sweep took the scene's LAST row, so there is no nonempty generation to
+#: compose and RE-130 says an empty one removes nothing.  The debt is NOT
+#: cleared (see ``DropLedgerCell.frames_after_rows_expired``): the next kill
+#: or arrival in that scene pays it.
+MOB_PICKUP_GROUND_EXPIRY_HELD_TOKEN = (
+    "MOB_PICKUP_GROUND_EXPIRY_HELD_SCENE_EMPTY")
+MOB_PICKUP_GROUND_EXPIRY_REFUSED_TOKEN = "MOB_PICKUP_GROUND_EXPIRY_REFUSED"
+
 ACCEPTED = "exact_pickup_request"
 
 # Every refusal means: no fields, no reply, nothing taken, nothing written.
@@ -1406,7 +1435,14 @@ class PickupRequestOutcome:
     ``ground_after`` (round lh21ua) is the REMOVAL PUBLICATION: the (pc,
     frame) pairs that tell the client the taken object is gone, by publishing
     the scene's remaining rows without it (RE-082: a nonempty generation
-    erases the keys it omits).  It is ``()`` on every refusal, ``()`` when the
+    erases the keys it omits).  ~~It is ``()`` on every refusal~~ IS STRUCK,
+    ROUND f4oh9y: a refusal that happens after a clean decode now carries the
+    removal an EXPIRY SWEEP owed, when one is owed and the scene still has a
+    row to compose from (:func:`_expiry_publication`, KA1A R307's seven
+    ghost clicks).  The row the click ASKED for is still refused and is never
+    in that generation -- it is gone, which is why it is owed.  A refusal
+    before the decode, or with no ground cell, still carries ``()``.  It is
+    also ``()`` when the
     taken row was the scene's LAST one -- the hole RE-208 is open on, where no
     known message removes one object and an empty generation is a client
     no-op by RE-082's static reading -- and ``()`` when the publication itself
@@ -1423,6 +1459,12 @@ class PickupRequestOutcome:
     line -- ``MOB_PICKUP_GROUND_REMOVAL_REFUSED`` is printed for the second
     and nothing at all for the first -- and ``handled``, which is False only
     for the first.  A caller must not read the count as a refusal reason.
+
+    ROUND f4oh9y NARROWS THAT ONE MORE TIME rather than widening it: on a
+    refusal carrying an expiry publication the count is that scene's
+    remaining rows, so ``handled`` False no longer implies ``-1``.  What
+    ``-1`` still means everywhere is "no generation was composed", and the
+    console line still says which of the reasons it was.
     """
 
     handled: bool
@@ -1477,7 +1519,14 @@ def dispatch_inbound_pickup_request(
             read.fields.opaque_u8, echo=echo)
     except (mob_pickup.MobPickupContractError,
             mob_pickup_persist.MobPickupPersistError) as exc:
-        return _refused_after_read(read, str(exc.args[0]), echo)
+        # THE REFUSAL THAT R307 MEASURED ARRIVES HERE.  A click on a row the
+        # sweep already retired refuses ``drop_already_taken`` out of the
+        # transaction, and until this round that was the end of it: the
+        # client kept drawing a label nothing would ever answer for.  The
+        # cell is passed so the refusal can carry what the SWEEP owes -- the
+        # scene's remaining ground, which removes the ghost by omission.
+        return _refused_after_read(
+            read, str(exc.args[0]), echo, legacy, drop_ledger_cell)
     rows_left, ground_after = _ground_after_the_take(
         legacy, drop_ledger_cell, result, echo)
     delta = _the_delta_that_matches_the_floor(
@@ -1699,17 +1748,126 @@ def _say(echo: bool, line: str) -> bool:
     return True
 
 
+#: The refusal reasons that mean "the row you clicked is gone from THIS
+#: ground" -- the only ones an expiry publication may ride.  pf-adversary of
+#: round f4oh9y: the cell's scene only advances on a kill or a GM warp, so a
+#: player who WALKED across a boundary can click a stale label of the scene
+#: they left; publishing "the cell's scene" on that refusal would send scene
+#: A's ground to a client standing in scene B.  ``drop_is_in_another_scene``
+#: is that refusal by name and is deliberately NOT here.  This narrows the
+#: exposure; it does not close it, because a server that never learns about a
+#: walked crossing cannot -- see the CORE-REQUEST letter, which says so to the
+#: chief before he lands the line that makes these frames travel.
+EXPIRY_PUBLICATION_REASONS = (
+    "drop_already_taken",
+    "drop_expired",
+    "drop_not_in_ledger",
+)
+
+
+def _expiry_publication(
+        legacy: Any, drop_ledger_cell: Any, reason: Any, echo: bool
+) -> tuple:
+    """The removal a SWEEP owes, composed onto the click that found it gone.
+
+    ``(rows_left, frames)``, and ``(-1, ())`` whenever nothing was composed --
+    the same shape and the same convention as :func:`_ground_after_the_take`.
+
+    WHY A REFUSED CLICK IS THE RIGHT EVENT, and it is measured rather than
+    argued.  KA1A R307 (2026-09-03, the owner at her own client): two drops
+    past their 120 s deadline, seven clicks, seven
+    ``MOB_PICKUP_REQUEST_REFUSED reason=drop_already_taken``.  The rows had
+    been swept off the server's ground inside somebody's earlier read, and
+    this server publishes a ground generation on a kill, on a successful
+    pickup and on a scene crossing -- so nothing was ever going to tell the
+    client, and the labels stayed on her floor as ghosts that refuse every
+    click.  The click IS the event: once per player action, only when a sweep
+    has really retired a row that no generation has covered since.  That is
+    the distinction the 2026-08-26 refusal of ``DROP_REFRESH_MS`` draws --
+    an event, not a timer.
+
+    !! AND IT DOES NOT ANSWER R307's OWN SHAPE, said here first because a
+    reader who stops after the paragraph above will believe it does: those
+    two drops were that scene's whole ground, so the sweep left it empty and
+    ``DropLedgerCell.frames_after_rows_expired`` has nothing nonempty to
+    compose.  Seven clicks there still send nothing.  What this covers is a
+    scene with a row still standing.
+
+    ONLY ON THE REFUSALS THAT MEAN "GONE FROM THIS GROUND"
+    (:data:`EXPIRY_PUBLICATION_REASONS`).  A refusal that means "you are not
+    where that row is" must not answer with this scene's ground.
+
+    IT CANNOT RAISE, for the same reason as every other helper under
+    :func:`dispatch_inbound_pickup_request`: this sits under an inbound frame
+    from a stranger and a listener that throws hands over the session.  A
+    publication that cannot be composed costs a redraw and says so.
+
+    IT NEVER CHANGES THE REFUSAL.  The click was refused before this ran and
+    is still refused after it: nothing here can turn a "gone" into an item,
+    and the reason string is untouched.
+    """
+    if drop_ledger_cell is None:
+        return -1, ()
+    if str(reason) not in EXPIRY_PUBLICATION_REASONS:
+        return -1, ()
+    try:
+        expired, rows_left, frames = (
+            drop_ledger_cell.frames_after_rows_expired(
+                legacy, EXPIRY_PUBLICATION_CALL_SITE_STATUS == "sent"))
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        _say(echo, "%s reason=%s" % (
+            MOB_PICKUP_GROUND_EXPIRY_REFUSED_TOKEN,
+            mob_pickup_persist.console_safe(str(
+                exc.args[0] if exc.args else type(exc).__name__))[:120]))
+        return -1, ()
+    if not expired:
+        # Nothing was owed.  NO LINE ON PURPOSE: this runs on every refused
+        # click, and a token printed on the ordinary case is a token a
+        # grader learns to ignore on the interesting one.
+        return -1, ()
+    if not frames:
+        # HELD, AND AT MOST ONCE PER DEBT.  The design holds this debt for
+        # ever when the scene emptied, so an unconditional line here is one
+        # console line per click for the rest of the session (measured 7/7 in
+        # R307's own shape).  The cell answers whether this exact held set
+        # has been announced already.
+        try:
+            fresh = drop_ledger_cell.note_held_debt_announced()
+        except Exception:                        # noqa: BLE001 - never raise
+            fresh = False
+        if fresh:
+            _say(echo, "%s expired=%d rows_left=%d" % (
+                MOB_PICKUP_GROUND_EXPIRY_HELD_TOKEN, len(expired), rows_left))
+        return -1, ()
+    _say(echo, "%s expired=%d rows_left=%d frames=%d" % (
+        (MOB_PICKUP_GROUND_EXPIRY_PUBLISHED_TOKEN
+         if EXPIRY_PUBLICATION_CALL_SITE_STATUS == "sent"
+         else MOB_PICKUP_GROUND_EXPIRY_COMPOSED_TOKEN),
+        len(expired), rows_left, len(frames)))
+    return rows_left, frames
+
+
 def _refused_after_read(
-        read: PickupRequestRead, reason: str, echo: bool
+        read: PickupRequestRead, reason: str, echo: bool,
+        legacy: Any = None, drop_ledger_cell: Any = None,
 ) -> PickupRequestOutcome:
     """One console line per refusal that happens AFTER a clean decode.
 
     The decode line is already printed by then and says the frame was fine;
     without this second line an operator watching the console would see an
     accepted read and no outcome at all.
+
+    ROUND f4oh9y: a refusal may now carry a GROUND GENERATION -- not for the
+    row the click asked for, which is refused either way, but for rows an
+    EXPIRY SWEEP retired with nobody told.  See :func:`_expiry_publication`.
+    The two arguments default to ``None`` so a caller that has no cell (or no
+    serializer) refuses exactly as it did before this round.
     """
     _say(echo, "%s reason=%s" % (MOB_PICKUP_REQUEST_REFUSED_TOKEN, reason))
-    return PickupRequestOutcome(False, reason, read)
+    rows_left, frames = _expiry_publication(
+        legacy, drop_ledger_cell, reason, echo)
+    return PickupRequestOutcome(
+        False, reason, read, ground_after=frames, ground_rows_left=rows_left)
 
 
 # ---------------------------------------------------------------------------
