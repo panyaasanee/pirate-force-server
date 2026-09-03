@@ -143,8 +143,19 @@ PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN = "PRAGMA_BUSY_TIMEOUT_REFUSED"
 #: TOKEN` above, incremented by `_note_pragma_busy_timeout_refused` -- so a
 #: reader (or a test) can ask "how many, not just whether any" without
 #: parsing stdout.  Not reset between calls or characters on purpose: this
-#: is a process lifetime count, the same shape a census counter in this
-#: codebase already takes.
+#: is a process lifetime count.
+#:
+#: NOT LOCKED, and a `pf-adversary` pass flagged this honestly rather than
+#: asserting it away: `+= 1` on a plain module global is not atomic across
+#: threads, so two threads refused at the same GIL-preemption boundary
+#: could lose an increment.  Left this way because `PRAGMA busy_timeout`
+#: refusing at all is a broken-or-closed-connection condition this
+#: codebase has never observed outside a test double built to force it --
+#: adding a lock for a race nobody has measured would be exactly the kind
+#: of unmeasured change `COO-DECISION 20260901_1100` (this lane's charter)
+#: warns against.  If a real refusal under real concurrency is ever
+#: observed, that measurement is the thing that should decide whether this
+#: needs a lock, not a guess made here.
 PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT = 0
 
 
