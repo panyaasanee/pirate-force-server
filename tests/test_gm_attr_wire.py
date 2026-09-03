@@ -15,6 +15,7 @@ module does not claim to have answered.
 """
 from __future__ import annotations
 
+import io
 import struct
 import sys
 import unittest
@@ -30,6 +31,9 @@ from pirateforce_foundation.gm.attr_wire import (
     BY_X,
     DB_ATTRIBUTE_IDENTITY_BIT,
     FIELDS,
+    LIVE_VALUE_READ_POINT,
+    SEED_CAPTURED_CONSOLE_TOKEN,
+    SEED_REFUSED_CONSOLE_TOKEN,
     SENSITIVE_FIELDS,
     UPDATE_ATTR_VITAL_ID,
     UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
@@ -38,8 +42,12 @@ from pirateforce_foundation.gm.attr_wire import (
     build_named_field_update,
     encode_block,
     encode_field,
+    live_named_values,
     make_update_attr_frame,
+    named_field_x,
     parse_value,
+    seed_cache_from_live_values,
+    validate_field_value,
 )
 
 _KIND_WIDTH = {"u8": 1, "u16": 2, "u32": 4, "i32": 4, "f32": 4, "u64": 8}
@@ -414,6 +422,243 @@ class VersionGateTests(unittest.TestCase):
         pc, frame = build_named_field_update(legacy, cache, 1, 0, level_x, 5)
         self.assertGreater(len(pc), 0)
         self.assertGreater(len(frame), 0)
+
+
+class _Hooks:
+    """A stand-in for the `lane_hooks` package, with or without the read
+    point `COO-DECISION 20260904_0047` ordered chief to add."""
+
+    def __init__(self, values=None, raises=None):
+        self._values = values
+        self._raises = raises
+
+    def current_named_attr_values(self, character_id):
+        if self._raises is not None:
+            raise self._raises
+        return self._values
+
+
+class _NoReadPointHooks:
+    """The SHIPPED world: a `lane_hooks` package with no read point on it."""
+
+
+def _complete_values():
+    """A full, encodable value for every row (b') requires."""
+    values = {}
+    for x in named_field_x():
+        kind = BY_X[x][5]
+        if kind == "wstr":
+            values[x] = "x"
+        elif kind == "f32":
+            values[x] = 1.5
+        elif kind == "blob":
+            values[x] = b"\x00"
+        else:
+            values[x] = 1
+    return values
+
+
+class UnlockBPrimeSeedingTests(unittest.TestCase):
+    """(b') of the unlock -- `COO-DECISION 20260904_0046` item 3.
+
+    Every named row must carry a REAL value at send time; a row missing from
+    the read point's answer is not "unchanged", it is ZERO on the client
+    (full-object-copy apply, `RE-222` Q0), which is the `GT-218` crash in one
+    frame.  So every test below is about one question: can a partial or
+    unreadable answer reach the cache?
+    """
+
+    def capture(self, **kwargs):
+        """Run the seeder with stderr captured; returns (ok, lines)."""
+        stream = io.StringIO()
+        ok = seed_cache_from_live_values(stream=stream, **kwargs)
+        return ok, stream.getvalue()
+
+    def test_the_shipped_world_refuses_because_chiefs_read_point_is_absent(self):
+        # THE PATH THAT RUNS TODAY.  `lane_hooks.current_named_attr_values`
+        # was ordered on 2026-09-04 and does not exist; every send must die
+        # here, out loud, with no bytes and no cache.
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache, character_id=7, hooks=_NoReadPointHooks()
+        )
+        self.assertFalse(ok)
+        self.assertFalse(cache.is_captured())
+        self.assertIn(SEED_REFUSED_CONSOLE_TOKEN, said)
+        self.assertIn("no_read_point", said)
+
+    def test_the_real_lane_hooks_package_still_has_no_read_point(self):
+        # The same claim against the REAL package rather than a fake, so the
+        # day chief lands it this test goes red and this lane finds out from
+        # its own suite instead of from a letter.  When it does: delete this
+        # test, keep the rest.
+        from pirateforce_foundation import lane_hooks
+
+        self.assertFalse(
+            hasattr(lane_hooks, LIVE_VALUE_READ_POINT),
+            "chief's read point landed -- (b') can now be satisfied; see"
+            " attr_wire's module docstring",
+        )
+
+    def test_one_missing_named_row_refuses_the_whole_seed(self):
+        # THE HEART OF (b').  A dict missing `cash` does not send "cash
+        # unchanged" -- `encode_block` sets a bit only for keys present, and
+        # an unset bit is a zero on the client.  Partial must cost a refusal.
+        values = _complete_values()
+        cash_x = BY_NAME["cash"][0]
+        del values[cash_x]
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache, character_id=7, hooks=_Hooks(values)
+        )
+        self.assertFalse(ok)
+        self.assertFalse(cache.is_captured())
+        self.assertIn("missing_named_rows", said)
+        self.assertIn(str(cash_x), said)
+
+    def test_a_present_but_unsendable_row_is_as_fatal_as_a_missing_one(self):
+        # A read point that answers `None` for HP has not answered.  If this
+        # passed validation the refusal would move to compose time, leaving a
+        # cache holding a baseline no send can use.
+        values = _complete_values()
+        hp_x = BY_NAME["hp_current"][0]
+        values[hp_x] = None
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache, character_id=7, hooks=_Hooks(values)
+        )
+        self.assertFalse(ok)
+        self.assertFalse(cache.is_captured())
+        self.assertIn(str(hp_x), said)
+
+    def test_a_raising_read_point_never_escapes_and_never_seeds(self):
+        # This runs on the listener thread's dispatch path. v141's game
+        # listener has no `except` around `state.dispatch`, so an escape here
+        # takes the connection down, not just the command.
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache,
+            character_id=7,
+            hooks=_Hooks(raises=RuntimeError("boom")),
+        )
+        self.assertFalse(ok)
+        self.assertFalse(cache.is_captured())
+        self.assertIn("read_point_raised_RuntimeError", said)
+        self.assertNotIn("boom", said)
+
+    def test_a_read_point_that_answers_with_the_wrong_type_refuses(self):
+        for answer in (None, [], "1,2,3", 7):
+            with self.subTest(answer=answer):
+                cache = RawBlockCache()
+                ok, said = self.capture(
+                    cache=cache, character_id=7, hooks=_Hooks(answer)
+                )
+                self.assertFalse(ok)
+                self.assertFalse(cache.is_captured())
+                self.assertIn("not_a_mapping", said)
+
+    def test_a_complete_answer_seeds_exactly_the_named_rows_and_no_others(self):
+        cache = RawBlockCache()
+        ok, said = self.capture(
+            cache=cache, character_id=7, hooks=_Hooks(_complete_values())
+        )
+        self.assertTrue(ok, said)
+        self.assertTrue(cache.is_captured())
+        self.assertEqual(sorted(cache.current_values()), sorted(named_field_x()))
+        self.assertIn(SEED_CAPTURED_CONSOLE_TOKEN, said)
+
+    def test_extra_keys_from_the_read_point_can_never_set_an_unknown_bit(self):
+        # A read point that over-answers must not widen what this module
+        # sends.  An unknown row's bit carries a value nobody has confirmed
+        # the meaning of; x=30 is SENSITIVE_FIELDS outright.
+        values = _complete_values()
+        unknown_x = next(f[0] for f in FIELDS if not f[7] and f[0] not in SENSITIVE_FIELDS)
+        values[unknown_x] = 1
+        for sensitive_x in SENSITIVE_FIELDS:
+            values[sensitive_x] = b"\x00"
+        seeded = live_named_values(7, hooks=_Hooks(values))
+        self.assertNotIn(unknown_x, seeded)
+        for sensitive_x in SENSITIVE_FIELDS:
+            self.assertNotIn(sensitive_x, seeded)
+        self.assertEqual(sorted(seeded), sorted(named_field_x()))
+
+    def test_no_sensitive_row_is_ever_required_by_b_prime(self):
+        # Today the two sets do not overlap because x=30 is `known=False`.
+        # The subtraction in `named_field_x` is what keeps that true if an RE
+        # result ever renames it: x=30's own row comment says it must never
+        # be settable "even once this field is renamed True".
+        for sensitive_x in SENSITIVE_FIELDS:
+            self.assertNotIn(sensitive_x, named_field_x())
+
+    def test_the_console_lines_are_ascii(self):
+        # The bridge console is cp874; a non-ASCII byte in a token an
+        # attended round greps is a line that lane cannot read back.
+        cache = RawBlockCache()
+        _, said = self.capture(
+            cache=cache, character_id="GMก", hooks=_NoReadPointHooks()
+        )
+        self.assertEqual(said, said.encode("ascii").decode())
+
+    def test_seeding_sends_nothing_and_leaves_both_gates_where_they_were(self):
+        # NONCLAIM IN TEST FORM: this round prepares a consumer; it does not
+        # open a door.  The full-block door still refuses an unknown row, and
+        # still refuses an unseeded cache.
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        unknown_x = next(f[0] for f in FIELDS if not f[7] and f[0] not in SENSITIVE_FIELDS)
+        cache = RawBlockCache()
+        seed_cache_from_live_values(
+            cache, 7, hooks=_Hooks(_complete_values()), stream=io.StringIO()
+        )
+        with self.assertRaises(AttrWireError):
+            build_named_field_update(legacy, cache, 1, 0, unknown_x, 1)
+        with self.assertRaises(AttrWireError):
+            build_named_field_update(
+                legacy, RawBlockCache(), 1, 0, BY_NAME["level"][0], 5
+            )
+
+
+class ValidatorIsOneAnswerTests(unittest.TestCase):
+    """`validate_field_value` split out of `encode_field`, which now calls it.
+
+    Two copies of these bounds would be two answers to keep in agreement, and
+    the failure mode is a value the seeder blessed and the encoder refused
+    mid-compose.
+    """
+
+    def test_the_encoder_and_the_seeder_agree_on_every_kind(self):
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        bad = {
+            "u8": 0x100, "u16": 0x10000, "u32": 0x100000000,
+            "u64": 1 << 64, "i32": 1 << 31, "f32": "nope",
+            "wstr": 7, "blob": "nope",
+        }
+        for field in FIELDS:
+            kind = field[5]
+            with self.subTest(x=field[0], kind=kind):
+                value = bad[kind]
+                with self.assertRaises(AttrWireError):
+                    validate_field_value(field, value)
+                with self.assertRaises(AttrWireError):
+                    encode_field(legacy, field, value)
+
+    def test_a_bad_f32_or_blob_is_an_attrwireerror_not_a_bare_typeerror(self):
+        # Both used to escape as `TypeError` from `float()`/`bytes()` -- the
+        # one exception class this module's callers do not catch by name.
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        f32_field = next(f for f in FIELDS if f[5] == "f32")
+        blob_field = next(f for f in FIELDS if f[5] == "blob")
+        with self.assertRaises(AttrWireError):
+            encode_field(legacy, f32_field, object())
+        with self.assertRaises(AttrWireError):
+            encode_field(legacy, blob_field, object())
+
+    def test_a_bool_is_not_an_integer_value_for_the_wire(self):
+        # `True` is an `int` subclass and would encode as 1 for a level or an
+        # HP -- a read point returning a flag where a number belongs must be
+        # refused, not silently sent.
+        level_field = BY_NAME["level"]
+        with self.assertRaises(AttrWireError):
+            validate_field_value(level_field, True)
 
 
 if __name__ == "__main__":
