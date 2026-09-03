@@ -77,6 +77,29 @@ class _RootedAt:
         audit.AUDIT_ROOT = self._saved
 
 
+class _HooksDirAt:
+    """Point the audit's lane_hooks directory at a throwaway one.
+
+    So that a test needing a lane module ON DISK that the live registry has
+    never heard of -- the import-failure state, and the package shape -- does
+    not have to write an importable, `production_allowed = True` module into
+    the production package to get it.  The first version of those two tests
+    did exactly that, with an `rmdir` cleanup that raises the moment anything
+    imports the file (pf-adversary, second pass, measured: the directory and
+    its `__pycache__` survived the run).
+    """
+
+    def __init__(self, directory: Path) -> None:
+        self._dir = directory
+
+    def __enter__(self) -> None:
+        self._saved = audit.LANE_HOOKS_DIR
+        audit.LANE_HOOKS_DIR = self._dir
+
+    def __exit__(self, *exc: object) -> None:
+        audit.LANE_HOOKS_DIR = self._saved
+
+
 class ClassifierTests(unittest.TestCase):
     """Every combination of the four facts, so no branch rests on the repo."""
 
@@ -242,6 +265,67 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(findings, ())
         self.assertEqual(gate, ())
 
+    def test_a_module_level_alias_of_the_package_is_followed(self):
+        # pf-adversary, second pass: `_lh = lane_hooks` then
+        # `_lh.module_production_allowed("lane_hooks.lane_gm_chat_command")`
+        # killed the chat gate while every test here passed.  An alias is a
+        # binding; the walker reads assignments to a fixpoint now.
+        with _TempTree() as root:
+            _write(
+                root,
+                "runtime.py",
+                IMPORT_LINE
+                + "_lh = lane_hooks\n"
+                + "_lh2 = _lh\n"
+                + "_lh2.module_production_allowed"
+                '("lane_hooks.lane_gm_chat_command")\n',
+            )
+            with _RootedAt(root):
+                findings = audit.gate_findings_in_lane_gm_scope()
+        self.assertEqual(
+            [f.kind for f in findings], [audit.FINDING_SPELLING_UNREACHABLE]
+        )
+
+    def test_a_deeper_attribute_ending_in_the_package_name_is_not_a_call(self):
+        # pf-adversary, second pass: matching the LAST dotted segment made
+        # `self.config.lane_hooks.fire("not_a_point")` a hook registration.
+        # A binding has to match whole.
+        with _TempTree() as root:
+            _write(
+                root,
+                "runtime.py",
+                IMPORT_LINE
+                + 'self.config.lane_hooks.fire("not_a_point")\n'
+                + 'cannon.lane_hooks.module_production_allowed("lane_gm_no")\n',
+            )
+            with _RootedAt(root):
+                scan = audit.scan_sources(root)
+        self.assertEqual(scan.fire_calls, ())
+        self.assertEqual(scan.gate_calls, ())
+
+    def test_a_lane_shipped_as_a_package_is_inside_the_package(self):
+        # pf-adversary, second pass: `lane_hooks/lane_x_big/__init__.py` has
+        # parent `lane_x_big`, so its hooks AND its declaration were both
+        # invisible -- the flagship defect hiding in the one shape D1's own
+        # fix had just established as real.
+        with _TempTree() as root:
+            _write(
+                root,
+                "lane_hooks/lane_gm_big/__init__.py",
+                "from .. import hook\n"
+                'registered_but_not_fired = ("vital_declared",)\n'
+                '@hook("vital_declared")\n'
+                "def _on_declared():\n    pass\n"
+                '@hook("vital_dead")\n'
+                "def _on_dead():\n    pass\n",
+            )
+            with _RootedAt(root):
+                findings = audit.dead_hook_point_findings()
+        self.assertEqual(
+            [(f.kind, f.site.literal) for f in findings],
+            [(audit.FINDING_HOOK_POINT_NEVER_FIRED, "vital_dead")],
+        )
+
     def test_the_keyword_spelling_of_a_point_is_a_literal_not_a_refusal(self):
         # D3: `fire(point=...)` is what the signature offers, and the real
         # call already passes session=/payload= by keyword.  The first draft
@@ -369,48 +453,74 @@ class ResolutionTests(unittest.TestCase):
             audit.LANE_HOOKS_PACKAGE, lane_hooks.__name__.rsplit(".", 1)[-1]
         )
 
+    def test_the_keyword_names_this_audit_reads_are_the_live_parameters(self):
+        # pf-adversary, second pass, D10: only the three ATTRIBUTE names were
+        # pinned, so a parameter rename in `fire()` would silently degrade
+        # every keyword call to "dynamic point" -- the audit refusing the
+        # whole half with no rename signal anywhere.
+        import inspect
+
+        self.assertIn(
+            audit.POINT_KEYWORD,
+            inspect.signature(lane_hooks.fire).parameters,
+        )
+        self.assertIn(
+            audit.POINT_KEYWORD,
+            inspect.signature(lane_hooks.hook).parameters,
+        )
+        self.assertIn(
+            audit.GATE_KEYWORD,
+            inspect.signature(lane_hooks.module_production_allowed).parameters,
+        )
+
+    def test_the_production_flag_name_is_the_one_lane_hooks_reads(self):
+        from pirateforce_foundation.lane_hooks import lane_gm_chat_command
+
+        self.assertTrue(
+            hasattr(lane_gm_chat_command, audit.PRODUCTION_FLAG_NAME)
+        )
+        self.assertIn(
+            audit.PRODUCTION_FLAG_NAME,
+            Path(lane_hooks.__file__).read_text(encoding="utf-8"),
+        )
+
 
 class SourceListingTests(unittest.TestCase):
-    def test_an_untracked_file_in_a_checkout_is_not_audited(self):
-        # pf-adversary D9: the first draft rglobbed, and an untracked scratch
-        # file changed the verdict in both directions.  This repository has
-        # already been bitten by that shape once
-        # (tests/test_gm_source_is_cp874_safe.py: "green about an editor
-        # buffer, red about the thing that would be pushed").
+    def test_a_file_git_has_never_seen_is_audited_anyway(self):
+        # THIS REVERSES A DECISION ONE DRAFT OLD, and the reversal is the
+        # point.  pf-adversary's first pass was right that an untracked
+        # scratch file can move the verdict, and this module switched to
+        # `git ls-files`.  Its second pass measured the bill: the subprocess
+        # output decoded with the console codec raises UnicodeDecodeError on
+        # the bridge's cp874 console for any non-ASCII tracked path, escaping
+        # every `except` in the walker; and asking "is this a checkout" needs
+        # a skipTest whose reason the gate census then carries undeclared
+        # (measured: `UNDECLARED SKIP ... RESULT: FAIL, census exit=1`).
         #
-        # Measured on a checkout this test BUILDS, never on the repository
-        # this suite happens to be sitting in: writing a probe file into the
-        # live tree would leave litter behind on a failure, and asking
-        # whether the live tree is a checkout is a question whose "no"
-        # answer is a skip, which the gate census then has to carry.
+        # The deciding argument is neither of those.  An audit's dangerous
+        # failure is a FALSE NEGATIVE, and this lane has already reached that
+        # conclusion once, in test_gm_say_gate_lock.py, which walks the disk
+        # alone because "a brand-new module nobody has git added yet is the
+        # likeliest place a first ungated sender appears".  The graded
+        # verdict is still the tracked one: the gate runs on a clean
+        # checkout, where the two sets are identical.
         import subprocess
 
         with _TempTree() as root:
             init = subprocess.run(
                 ["git", "init", "-q", str(root)], capture_output=True
             )
-            if init.returncode != 0:
-                self.skipTest("git is not available on this machine")
             _write(
                 root,
-                "tracked.py",
+                "brand_new.py",
                 IMPORT_LINE
-                + 'lane_hooks.module_production_allowed("lane_zz_tracked")\n',
-            )
-            _write(
-                root,
-                "untracked.py",
-                IMPORT_LINE
-                + 'lane_hooks.module_production_allowed("lane_zz_untracked")\n',
-            )
-            subprocess.run(
-                ["git", "-C", str(root), "add", "tracked.py"],
-                capture_output=True,
-                check=True,
+                + 'lane_hooks.module_production_allowed("lane_zz_brand_new")\n',
             )
             seen = {site.literal for site in audit.scan_sources(root).gate_calls}
-        self.assertIn("lane_zz_tracked", seen)
-        self.assertNotIn("lane_zz_untracked", seen)
+        self.assertIn("lane_zz_brand_new", seen)
+        self.assertEqual(init.returncode, 0, "git init failed; the case above "
+                         "still measured what it claims, since the walk never "
+                         "asks git anything")
 
     def test_a_tree_that_is_not_a_checkout_falls_back_to_the_disk(self):
         with _TempTree() as root:
@@ -422,6 +532,50 @@ class SourceListingTests(unittest.TestCase):
             )
             scan = audit.scan_sources(root)
         self.assertEqual([site.literal for site in scan.gate_calls], ["lane_q_one"])
+
+    def test_a_source_file_saved_in_cp874_is_audited_not_dropped(self):
+        # pf-adversary, second pass: identical text, two encodings.  A
+        # Windows editor save with one Thai comment made this lane's OWN
+        # 5887-shaped defect invisible -- `read_text(encoding="utf-8")` threw
+        # UnicodeDecodeError and the walker's `except ... continue` swallowed
+        # the whole file, counting and naming nothing.
+        with _TempTree() as root:
+            source = (
+                IMPORT_LINE
+                + "# ทดสอบ\n"
+                + 'lane_hooks.module_production_allowed'
+                '("lane_hooks.lane_gm_chat_command")\n'
+            )
+            (root / "runtime.py").write_bytes(source.encode("cp874"))
+            with _RootedAt(root):
+                findings = audit.gate_findings_in_lane_gm_scope()
+        self.assertEqual(
+            [f.kind for f in findings], [audit.FINDING_SPELLING_UNREACHABLE]
+        )
+
+    def test_a_rewritten_file_is_rescanned_not_served_from_the_cache(self):
+        # The scan cache is keyed on the tree's own (path, mtime, size)
+        # fingerprint precisely so this holds.  A cache keyed on the root
+        # path alone would serve the first answer forever, and every
+        # synthetic case in this file that reuses a root would be measuring
+        # a stale tree.
+        with _TempTree() as root:
+            target = _write(
+                root,
+                "runtime.py",
+                IMPORT_LINE
+                + 'lane_hooks.module_production_allowed("lane_q_first")\n',
+            )
+            first = {s.literal for s in audit.scan_sources(root).gate_calls}
+            target.write_text(
+                IMPORT_LINE
+                + 'lane_hooks.module_production_allowed("lane_q_second")\n'
+                + "# a second line, so the size moves too\n",
+                encoding="utf-8",
+            )
+            second = {s.literal for s in audit.scan_sources(root).gate_calls}
+        self.assertEqual(first, {"lane_q_first"})
+        self.assertEqual(second, {"lane_q_second"})
 
     def test_the_tests_directory_is_not_audited(self):
         with _TempTree() as root:
@@ -725,15 +879,89 @@ class GateScopeTests(unittest.TestCase):
         # THE PERMANENT ASSERTION OF THIS FILE.  runtime.py:6911 reads
         # module_production_allowed("lane_gm_chat_command") before it
         # composes anything on the 0xAC52 chat route.
+        findings = audit.gate_findings_in_lane_gm_scope()
         self.assertEqual(
-            [f.line() for f in audit.gate_findings_in_lane_gm_scope()], []
+            [f.line() for f in findings],
+            [],
+            "THE FIX BELONGS IN THE FILE AND LINE EACH FINDING NAMES, not in "
+            "this test.  A gate literal that reaches no registry key is a "
+            "feature that is off and cannot be switched on; correct the "
+            "spelling at the call site, or -- if the module really is gone -- "
+            "delete the call site with it.  A finding carrying another lane's "
+            "known prefix should never appear here; if one does, that is a "
+            "defect in gate_findings_in_lane_gm_scope and belongs in "
+            "pf_bridge notes_to_chief as a letter to LANE-GM, not a deletion.",
         )
 
-    def test_the_asserted_subset_is_not_vacuous(self):
+    def test_the_asserted_subset_covers_the_gate_the_chat_route_reads(self):
         # pf-adversary D5: hoist runtime.py:6911's literal into a module
         # constant and the chat gate dies, the subset empties, and every
-        # test here still passes.  This is what reds when that happens.
-        self.assertTrue(audit.lane_gm_gate_literals())
+        # test here still passes.  The first fix pinned this NON-EMPTY, and
+        # the second pass measured that non-emptiness is not coverage: add
+        # one healthy `lane_gm_run_command` literal elsewhere, requalify the
+        # chat one behind an alias, and the pin was satisfied by the wrong
+        # literal while the chat gate answered False.  It names the literal
+        # now.
+        #
+        # This DOES couple to runtime.py:6911's spelling.  That is the
+        # intent: a legitimate refactor there reds this and a human decides,
+        # which is the whole subject of this file.
+        self.assertIn("lane_gm_chat_command", audit.lane_gm_gate_literals())
+
+    def test_the_literal_pin_reads_the_tree_rather_than_a_constant(self):
+        # Without this, the assertion above is satisfied by a function that
+        # returns the expected name unconditionally -- a mutant that survived
+        # until this case existed.
+        with _TempTree() as root:
+            _write(
+                root,
+                "runtime.py",
+                IMPORT_LINE
+                + 'lane_hooks.module_production_allowed("lane_gm_other")\n',
+            )
+            with _RootedAt(root):
+                literals = audit.lane_gm_gate_literals()
+        self.assertEqual(literals, ("lane_gm_other",))
+
+    def test_another_lanes_typo_is_reported_but_not_asserted_here(self):
+        # pf-adversary, second pass, the sharpest finding of it: the scope
+        # rule required the named module to EXIST, and NAMES_NO_MODULE is
+        # emitted only when it does not -- so no such finding could ever be
+        # attributed to another lane, and one character in chief's file
+        # (`lane_b_mob_ai_ticks`) reddened THIS lane's test file.  A lane
+        # whose test file reds for another lane's typo has no answer to
+        # "whose file do I edit", and the next round answers it by deleting
+        # the assertion.
+        with _TempTree() as root:
+            _write(
+                root,
+                "runtime.py",
+                IMPORT_LINE
+                + "lane_hooks.module_production_allowed"
+                '("lane_b_mob_ai_ticks")\n',
+            )
+            with _RootedAt(root):
+                reported = audit.gate_name_findings()
+                asserted = audit.gate_findings_in_lane_gm_scope()
+        self.assertEqual(
+            [f.kind for f in reported], [audit.FINDING_NAMES_NO_MODULE]
+        )
+        self.assertEqual(asserted, ())
+
+    def test_the_known_lane_prefixes_are_derived_from_the_real_directory(self):
+        prefixes = audit.known_lane_prefixes()
+        self.assertIn("lane_gm_", prefixes)
+        self.assertIn("lane_a_", prefixes)
+        self.assertIn("lane_b_", prefixes)
+        self.assertTrue(
+            all(p.startswith("lane_") and p.endswith("_") for p in prefixes)
+        )
+        # DERIVED, not typed.  A hardcoded list is the failure mode here:
+        # a prefix nobody owns would silently EXCLUDE that name from this
+        # lane's assertion, which is how a typo gets attributed to a lane
+        # that does not exist.
+        self.assertNotIn("lane_c_", prefixes)
+        self.assertNotIn("lane_zz_", prefixes)
 
     def test_the_live_repository_finding_is_the_one_this_module_was_written_for(
         self,
@@ -856,6 +1084,18 @@ class ProductionFlagReadingTests(unittest.TestCase):
             ("production_allowed: bool = True\n", True),
             ("", False),
             ("production_allowed = SOME_NAME\n", False),
+            # pf-adversary, second pass: reading the FIRST assignment turned
+            # the way a lane is actually switched off in a hurry into an
+            # accusation that the registry was refusing an allowed module,
+            # and it reddened this lane's own assertion.  An import binds
+            # the LAST one.
+            (
+                "production_allowed = True\n"
+                "# INCIDENT: switched off until the crash is understood.\n"
+                "production_allowed = False\n",
+                False,
+            ),
+            ("production_allowed = False\nproduction_allowed = True\n", True),
             ("def f():\n    production_allowed = True\n", False),
             ("def (:\n", False),
         ):
@@ -878,14 +1118,17 @@ class ProductionFlagReadingTests(unittest.TestCase):
         # exactly what an import failure leaves behind -- `_discover()`
         # prints IMPORT_FAILED once and records nothing.  Built here from
         # the real directory and the real resolver, not from a fact table.
-        package = audit.LANE_HOOKS_DIR / "lane_gm_audit_probe_import_fail"
-        init = package / "__init__.py"
-        package.mkdir(exist_ok=True)
-        self.addCleanup(lambda: package.exists() and package.rmdir())
-        self.addCleanup(lambda: init.exists() and init.unlink())
-        init.write_text("production_allowed = True\n", encoding="utf-8")
+        with _TempTree() as hooks_root:
+            (hooks_root / "lane_gm_probe_import_fail").mkdir()
+            (hooks_root / "lane_gm_probe_import_fail" / "__init__.py").write_text(
+                "production_allowed = True\n", encoding="utf-8"
+            )
+            with _HooksDirAt(hooks_root):
+                self._measure_import_failure_finding()
+
+    def _measure_import_failure_finding(self):
         self.assertFalse(
-            lane_hooks.module_production_allowed("lane_gm_audit_probe_import_fail")
+            lane_hooks.module_production_allowed("lane_gm_probe_import_fail")
         )
         with _TempTree() as root:
             _write(
@@ -893,7 +1136,7 @@ class ProductionFlagReadingTests(unittest.TestCase):
                 "runtime.py",
                 IMPORT_LINE
                 + "lane_hooks.module_production_allowed"
-                '("lane_gm_audit_probe_import_fail")\n',
+                '("lane_gm_probe_import_fail")\n',
             )
             with _RootedAt(root):
                 findings = audit.gate_findings_in_lane_gm_scope()
@@ -905,16 +1148,21 @@ class ProductionFlagReadingTests(unittest.TestCase):
     def test_a_lane_module_shipped_as_a_package_is_found(self):
         # The D1 shape, at the layer that reads it: pkgutil.iter_modules
         # discovers packages, so `_module_source` has to see one.
-        package = audit.LANE_HOOKS_DIR / "lane_gm_audit_probe_pkg"
-        init = package / "__init__.py"
-        package.mkdir(exist_ok=True)
-        self.addCleanup(lambda: package.exists() and package.rmdir())
-        self.addCleanup(lambda: init.exists() and init.unlink())
-        init.write_text("production_allowed = True\n", encoding="utf-8")
-        self.assertEqual(
-            audit._module_source("lane_gm_audit_probe_pkg"),
-            "production_allowed = True\n",
-        )
+        # NOT IN THE LIVE PACKAGE.  The first version of this test wrote an
+        # importable `production_allowed = True` module into
+        # src/.../lane_hooks/ and cleaned up with `rmdir`, which raises
+        # `Directory not empty` the moment anything imports it and leaves a
+        # permanent lane module behind (pf-adversary, second pass, measured).
+        with _TempTree() as hooks_root:
+            (hooks_root / "lane_gm_probe_pkg").mkdir()
+            (hooks_root / "lane_gm_probe_pkg" / "__init__.py").write_text(
+                "production_allowed = True\n", encoding="utf-8"
+            )
+            with _HooksDirAt(hooks_root):
+                self.assertEqual(
+                    audit._module_source("lane_gm_probe_pkg"),
+                    "production_allowed = True\n",
+                )
 
 
 class ReportTests(unittest.TestCase):
@@ -939,10 +1187,27 @@ class ReportTests(unittest.TestCase):
         # substrings over the whole text rather than line starts: the first
         # draft's version walked past `sys.stdout.write` and past a `print`
         # that was not first on its line (pf-adversary D9).
-        source = Path(audit.__file__).read_text(encoding="utf-8")
-        for forbidden in ("print(", "sys.stdout", "sys.stderr"):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, source)
+        #
+        # AST, not substrings.  The substring version this replaces went red
+        # on `_fingerprint(` -- which contains `print(` -- so a helper's NAME
+        # could fail a test about behaviour, and the obvious "fix" would have
+        # been to rename the helper rather than to fix the check.
+        import ast as _ast
+
+        tree = _ast.parse(Path(audit.__file__).read_text(encoding="utf-8"))
+        offenders = []
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Name):
+                if node.func.id == "print":
+                    offenders.append(f"print at line {node.lineno}")
+            if isinstance(node, _ast.Attribute) and node.attr in (
+                "stdout",
+                "stderr",
+            ):
+                value = node.value
+                if isinstance(value, _ast.Name) and value.id == "sys":
+                    offenders.append(f"sys.{node.attr} at line {node.lineno}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":  # pragma: no cover

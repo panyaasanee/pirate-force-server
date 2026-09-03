@@ -8228,7 +8228,47 @@ The first draft was largely rewritten, and the rewrite is the interesting part.
   `sys.stdout.write`; and a cross-lane-hostile assertion that reddened LANE-GM's file when LANE-B
   used the declaration mechanism exactly as advertised.
 
-### And one defect the adversary did not find, caught by running the neighbours
+### `pf-adversary` SECOND pass: **NOT APPROVED again** -- nine more, and three of them were the fixes
+
+The rewrite above earned its own review, and several of the first pass's remedies were themselves
+defects. Taken in full:
+
+* **Scope** required the named module to EXIST -- and `NAMES_NO_MODULE` is emitted only when it
+  does not, so no such finding could ever be attributed to another lane. One character in chief's
+  file (`"lane_b_mob_ai_ticks"`) reddened THIS lane's test file. Attribution is by KNOWN LANE
+  PREFIX now, read off the real directory.
+* **A package-shaped lane module** was invisible to the hook half: `lane_hooks/lane_x_big/__init__.py`
+  has parent `lane_x_big`, so its hooks and its declaration were both unread -- the flagship defect
+  hiding in the one shape the first pass's own fix had just established as real.
+* **The production flag** was read from the FIRST module-level assignment; an import binds the last.
+  `production_allowed = True` followed by an incident line and `production_allowed = False` -- how a
+  lane is actually switched off in a hurry -- became an accusation that the registry was refusing an
+  allowed module, and reddened this lane's assertion.
+* **A module-level alias** (`_lh = lane_hooks`) walked past the resolver entirely, which was enough
+  to kill LANE-GM's own chat gate with every test green.
+* **The dotted match** read the LAST segment, so `self.config.lane_hooks.fire("not_a_point")` was a
+  hook registration.
+* **`git ls-files`** -- the first pass's own remedy -- decodes subprocess output with the console
+  codec, so any non-ASCII tracked path raises `UnicodeDecodeError` past every `except` on the
+  bridge's cp874 console; and the "is this a checkout" question needs a `skipTest` the gate census
+  rejects as UNDECLARED (measured: `RESULT: FAIL, census exit=1`). Reversed to a filesystem walk,
+  on the argument this lane had already reached once in `test_gm_say_gate_lock.py`: an audit's
+  dangerous failure is a false negative, so it must see more, not less.
+* **A source file saved in cp874** was silently dropped -- one Thai comment in `runtime.py` made
+  this lane's OWN 5887-shaped defect invisible. `surrogateescape` does not fix it (`ast.parse` then
+  raises `UnicodeEncodeError`); a `latin-1` fallback does.
+* **The D5 non-vacuity pin** was non-emptiness, not coverage: one healthy `lane_gm_run_command`
+  literal elsewhere satisfied it while the audited chat literal walked away. It names the literal now.
+* **Two tests wrote an importable `production_allowed = True` module into the production package**
+  with an `rmdir` cleanup that raises the moment anything imports it. They point the audit's
+  directory constant at a temp tree instead.
+
+Fifteen mutants after the rewrite, then four more for the second-pass fixes; all dead, control
+green. Two mutants survive ON PURPOSE and say so in the code: the `if not module_names and not
+attribute_names: continue` shortcut is an optimisation, not the guard, and deleting it changes no
+verdict.
+
+### And one defect neither pass found, caught by running the neighbours
 
 Adding this module reddened LANE-B's `ContainmentTests::test_the_lane_is_not_reachable_from_production_dispatch`
 -- because that census counts every file under `src/` that so much as MENTIONS its module's name,
