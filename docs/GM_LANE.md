@@ -8676,3 +8676,130 @@ is now safe to send, sparse or full -- both locks stay exactly where an attended
 Nothing new on a screen. A future round reading `gm/speed_wire.py` or `gm/attr_wire.py` no longer
 has to take "the client apply is a bulk copy" on faith from an unverified note -- the same claim now
 carries a SHA-pinned static citation naming the exact function.
+
+## Round `3qh50k` (2026-09-04T01:13+07:00) -- the console word "same scene" stops resting on the server's own guess, and unlock (b) becomes (b')
+
+Two letters, both unconsumed at round start, both answered here.
+
+### chief's `client_confirmed_scene` landed, so both `basis=` lines changed together
+
+`CORE-REQUEST-GM-051` item 3 asked for "the scene the client last confirmed",
+so this lane's `same_scene` word would stop resting on
+`selected.position.scene_id` -- a field `runtime.py`'s
+`_gm_warp_resync_selected_scene` rewrites to a cross-scene warp's DESTINATION
+at queue time, which is why `/warp 5` typed twice from scene 1 earned the
+second one a same-scene token (pf-adversary `spt6fv` D2, MEASURED).
+
+chief landed it with a SHAPE THIS LANE DID NOT ASK FOR, and the difference
+matters more than the field does (letter
+`20260903_2306_CHIEF-TO-LANE-GM-051-item3-the-client-never-names-a-scene.md`):
+a static sweep of every inbound frame this server decodes found that **no
+client->server frame carries a scene or map id at all**. `StartGameReq` is one
+selector byte; `TargetPosVital` is x/y/z/heading; `ChooseNPC` is one identity
+qword; the two near-misses (`ActionVital.field_u16_4a`,
+`TeleportCheckVital.field_u16_14`) are called opaque / semantics-unassigned by
+the parser itself. chief also struck his own first wording: the field is NOT
+corroborated by the client's coordinates either -- nothing compares a position
+against a scene's geometry, and a report at `(1e9, -7.5e8, 3.3e8)` still
+records scene 1. What the field IS: **the scene label as of the last frame the
+client sent, at a moment we had no reason to disbelieve it.**
+
+What this lane built on top of it:
+
+- `CLIENT_CONFIRMED_SCENE_BASIS_FIELD` and `same_scene_with_basis(session,
+  target_scene_id, position)` in `gm/chat_command_action.py`. One call, in
+  `_warp_action`, answering both halves at once; the `(same_scene, basis)`
+  pair rides the `_Verdict` to whichever printer runs.
+- `_Verdict.same_scene_basis`, defaulting to the WEAKER word on the same rule
+  as every other default here: a construction site that forgets it understates
+  what it knows rather than claiming the client backed a word it never saw.
+- Both console lines now print the basis they were actually decided on:
+  `GM_CHAT_STAGED_NEXT_LOGIN` and `GM_CHAT_SAME_SCENE_TELEPORT_SENT`.
+- `None` -- chief's deliberate default for "the client has told us nothing",
+  chosen over "the scene of the row at login" because logging in is not the
+  client saying where it is -- falls back to the old comparison AND says
+  `basis=server_believed_scene`, which is exactly what shipped before.
+
+**A `bool` is refused on purpose.** `True` is an `int` subclass and would
+compare equal to scene 1; so would a float `2.0` against scene 2 if it were let
+through. Anything that is not an honest `int` falls back to the weaker word.
+
+**NONCLAIM.** This is a wire-layer fact, above `selected.position.scene_id`
+(which can be pure server guess) and below anything client-observable (G5).
+Nothing printed from it may be read as "seen on screen". Routing is untouched:
+`test_the_basis_decides_a_word_and_never_which_bytes_go_out` pins that two
+connections differing only in what the client confirmed produce byte-identical
+actions for the same typed line. And this lane never WRITES the field --
+`test_this_lane_never_writes_the_clients_own_testimony` -- because a lane that
+wrote the client's testimony would be manufacturing what it then cites.
+
+### unlock (b) -> (b') in `gm/attr_wire.py` (`COO-DECISION 20260904_0046` item 3)
+
+The old (b), "unnamed fields preserved lossless, never zeroed", was a condition
+**nobody could ever satisfy from this repository**: `CORE-REQUEST-GM-044` came
+back NEGATIVE on 2026-08-31 (`characters.actor_wire` is a `CreateActorDataEx`
+BLOB, a different codec, not a DBAttribute collection), so there was no
+raw-block source to preserve unnamed fields from, and none to wait for. A gate
+whose condition cannot be met is not a gate, it is a shelf.
+
+(b') as COO wrote it: every `known=True` row carries its REAL value at send
+time, read from `lane_hooks.current_named_attr_values(character_id)` (ordered
+to chief, `COO-DECISION 20260904_0047`); `known=False` rows are not sent at
+all, which is byte-for-byte the shape the owner's own probe ran live for 266
+commands over 2h20m without a crash. The residual risk is closed ON A SCREEN
+(cash / HP-max / MP unchanged after one frame), not here.
+
+**path1 and path2 are closed by this**, and the owner's letter `20260831_2327`
+stops waiting on her after four days. path1 ("send sparse and accept the
+risk") is REFUTED, not merely unchosen: `GT-218` priced it -- `/speed 400`, a
+value the login path sends every day, killed the client in one frame (HP
+`0/1`, cash `0`) through a sparse send.
+
+What this lane built, given that chief's read point does not exist yet:
+
+- `named_field_x()` -- `known=True` MINUS `SENSITIVE_FIELDS`. The subtraction
+  is not a no-op by luck: x=30 is `known=False` today, and its own row comment
+  says it must never be settable "even once this field is renamed True". Doing
+  the subtraction here means that rename cannot quietly turn a sensitive blob
+  into a required seed value.
+- `live_named_values(character_id, hooks=None)` -- resolves the read point
+  LAZILY and by name (a module-scope import would close a cycle: `lane_hooks`
+  imports this lane), and raises a NAMED `AttrWireError` for every failure:
+  `no_read_point`, `read_point_raised_<Type>`, `not_a_mapping`,
+  `missing_named_rows: <x list>`. **Never a partial dict** -- `encode_block`
+  sets a mask bit for every key present and no key absent, and the client's
+  apply is a full-object copy whose constructor zeroes HP/MP/cash before
+  decode touches them (`RE-222` Q0, SHA-pinned), so a dict missing `cash` does
+  not send "cash unchanged", it sends `cash = 0`. Extra keys are dropped, not
+  refused: the result is built from `named_field_x()` alone, so no unknown row
+  and no sensitive row can reach the cache by ANY input.
+- `seed_cache_from_live_values(...)` -- never raises (it runs on the listener
+  thread's dispatch path; v141 has no `except` around `state.dispatch`), reads
+  the cache back after writing it, and prints one pure-ASCII line either way:
+  `GM_ATTR_SEED_REFUSED` or `GM_ATTR_SEED_CAPTURED`. **Today it always returns
+  False**, and that is why it was worth building now: the refusal path is the
+  one that runs in production first.
+- `validate_field_value(field, value)` split out of `encode_field`, which now
+  calls it -- ONE answer to "is this value sendable", so the seeder cannot
+  bless a value the encoder then refuses mid-compose. `f32` and `blob` gained
+  a named error each; both used to escape as a bare `TypeError`.
+
+**Nothing here opens a door.** `build_named_field_update` still refuses every
+`known=False` row and still raises for an unseeded cache;
+`UPDATE_ATTR_VITAL_VERSION_CONFIRMED` still gates the one exception site that
+may reach a socket; `/speed`'s own two locks are untouched.
+`test_the_real_lane_hooks_package_still_has_no_read_point` fails the day chief
+lands it, so this lane finds out from its own suite.
+
+### What a tester can do today that she could not yesterday
+
+She can read `basis=` on a `/warp` console line and know whether "same scene"
+came from the client's own last report or from the server's bookkeeping -- and
+on a connection that has reported, a `/warp <n>` after a missed warp no longer
+tells her she is standing in a scene she never arrived in.
+
+### nonclaim (G-OBS) -- what GM skipped
+
+Nothing. No account was given GM status, no GM command was fired, no byte left
+a socket, and no screen was involved. `/speed` is locked, `/warp` with
+coordinates is refused, and the attr-wire door composed nothing.
