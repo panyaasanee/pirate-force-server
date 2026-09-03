@@ -7936,3 +7936,58 @@ value on a real client required a code change on `main` that would have opened t
 value at once, for everyone, permanently -- which is what `COO 2147` point 3 forbids. Today she
 types `set PF_SPEED_TRIAL=450` in her own server window, and `/speed 450` sends while `/speed 451`
 and every other value stay held by both locks.
+
+## Round `g0nqnz` (2026-09-03T10:2x+07:00) -- the uniqueness claim fourteen modules repeated, made runnable
+
+`NOW.md` P-2 forbids guessing a signed-negative identity "without closing uniqueness/registry".
+`gm/name_color_gate.py` already carries `RE-195`'s bounded negative and its closing ask -- "a
+coherent nonpositive identity mapping PLUS a typed/live gate proof". The typed/live half needs the
+client image and belongs to the RE runner. The uniqueness half is a question about OUR tables, and
+until this round the only answer was a COMMENT, hand-copied into fourteen scene modules almost word
+for word: *"Never sent in the same generation as another scene's census ... so sharing the numeric
+space is a collision in the abstract only."* A claim about data, repeated by hand, run by nobody.
+
+**`gm/identity_registry_census.py` runs it.** It reads the placement tables this repository already
+ships -- twelve `world_bgXXXX_identity` modules, `scene2_prison_exile_tables`, the frozen scene-1
+rows behind `population.load_port_royal_placements`, and both live `field_mobs` rosters -- and
+reports who claims which wire identity. It sends no byte, writes nothing, grants no GM status, and
+chooses no identity value.
+
+**What it measured, on the tables at `1864e4a`.**
+* The identity offset is READ BACK from all sixteen sources and agrees everywhere; it is not a
+  constant in the file, so the day one family renumbers, `measured_identity_offset` raises by name
+  instead of a hardcoded number quietly disagreeing with the wire.
+* **Within a scene the claim holds**: no scene hands one identity to two different placements, and
+  the distinct-identity count equals the census row count in all fourteen. Measured, not asserted.
+* **Across scenes it does not**: 113 identity values are handed out by more than one scene, and one
+  value is handed out by all fourteen. An identity is NOT a key on its own -- `(scene_id, identity)`
+  is. That is the runnable form of the defect `field_mobs.scene_for_scene_id` already documents in
+  prose, from the round a player in Bg0002 landed a hit that debited a Port Royal monster.
+* Every field-mob roster identity is also a census identity OF THE SAME SCENE. That containment is
+  what keeps `world_population.apply_identity_override` -- keyed by identity alone -- from refusing
+  a key its generation does not carry. Nothing else enforced it; a test does now.
+* **Scene 1's two families disagree about what four identities ARE**: the census says template 97
+  `Mutant Green Eagle`, the roster says template 916 `Training Iron Man`, on the same placement.
+  That is not reported as a defect -- the override exists precisely to replace those census entries
+  with the roster's bytes, so one of the two reaches a client. It is pinned because a reader of a
+  server log sees both names for one number, and because the day the disagreement SPREADS beyond
+  scene 1 should be a red test rather than a shrug. And it is NOT an artefact of comparing two
+  numbering spaces: both 97 and 916 are real `CONSTDATA_TH__MOBS.n_ID` rows, the census accessor
+  prefers `n_id` precisely because `template_id` in the `world_bgXXXX` families is that scene
+  table's own row index (810 rows expose both today and all 810 differ), and scene 2's twelve
+  shared identities -- census read through `n_id`, roster through `template_id` -- agree exactly,
+  which is what says the two accessors land in one space. Both halves are pinned.
+
+**NONCLAIM, and it is the paragraph that matters.** P-2 did not move. `p2_color_wiring_verdict()`
+still refuses, its three blockers are untouched, and a test pins that they are untouched. No
+negative-identity scheme is proposed here; no `FontStyleID` appears in the executable source (the
+test strips docstrings before it looks, and a second test proves the stripper strips). Closing a
+precondition the order names is not permission to do the thing the order forbids.
+
+**What the tester can do today that she could not yesterday.** Yesterday, an attended tester who saw
+a hit land on the wrong body, or a server log naming a monster she was not looking at, had no way to
+ask whether that scene hands one identity to two actors -- the answer lived in a comment in one
+module's docstring about one scene. Today `describe_scene(scene_id, legacy=...)` answers it for any
+scene in one greppable ASCII line, `GM_IDENTITY_CENSUS ... unique_within_scene=yes|NO`, and names
+how many identities the two families share. `CORE-REQUEST-GM-050` asks chief for the one call site
+in `runtime.py` that would print it at scene entry; until that lands she runs it herself.
