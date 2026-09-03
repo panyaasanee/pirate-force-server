@@ -417,6 +417,38 @@ class ChooseNpcResponse(NamedTuple):
     census point uses.  ``None`` from ``respond`` (not this type) means "no
     honest answer for this click", the same everyday-not-an-error meaning
     ``scene_census_composer`` gives its own ``None``.
+
+    ``extra_actions`` IS THE COLLECTION HALF, ADDED ROUND ``yjjtyn``
+    (LANE-A), AND ITS DEFAULT IS THE WHOLE SAFETY ARGUMENT.  The frozen
+    dispatcher answers ONE scene-1 click with MORE THAN ONE action -- the
+    face frame, plus the empty ``NPCConversation`` collection that is the
+    client's authentic default-talk trigger, plus a trade-zoom at the shop
+    trigger (``current/pf_login_game_server_v141.py:4395-4480``) -- while a
+    responder that claims a scene's vital family replaces that whole loop.
+    ``runtime.py``'s own call-site comment names the fix and its owner:
+    "needs ``ChooseNpcResponse`` to become a collection ... a
+    ``lane_hooks``/lane_a design change outside a runtime.py guard's
+    scope".  This field is that change, made ADDITIVELY: a tuple of
+    ``(label, pc, frame, delay)`` actions a call site should queue AFTER
+    the response's own pair, in order.  It defaults to ``()`` so every
+    responder written before it existed, and the call site that reads
+    ``label``/``pc``/``frame``/``delay`` today, mean exactly what they
+    meant.
+
+    NOTHING READS IT YET, AND THAT IS THE PLAIN STATUS OF THE FIELD, not a
+    promise about tomorrow: the one line that would read it
+    (``actions.extend(...)`` in the responder branch of ``runtime.py``,
+    just after ``actions = [(response.label, ...)]``) is chief's, and is
+    asked for by CORE-REQUEST rather than taken.  Until that line lands, a
+    responder that fills this field composes bytes no player receives --
+    read the field's presence as "ready for that line", never as "these
+    actions are being sent".
+
+    A CALL SITE MUST COERCE THESE LIKE EVERY OTHER LANE FIELD (the same net
+    the census point already runs): ``str(label)``, ``bytes(pc)``,
+    ``bytes(frame)``, ``float(delay)``, and a malformed entry means "send
+    the main pair only" -- never a dropped answer and never a raise on the
+    frame path.
     """
 
     label: str
@@ -424,6 +456,7 @@ class ChooseNpcResponse(NamedTuple):
     frame: bytes
     delay: float
     console_lines: tuple[str, ...]
+    extra_actions: tuple[tuple[str, bytes, bytes, float], ...] = ()
 
 
 _SCENE_CHOOSE_NPC_RESPONDERS: dict[int, "ChooseNpcResponder"] = {}
