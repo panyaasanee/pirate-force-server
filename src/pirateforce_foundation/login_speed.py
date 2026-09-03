@@ -74,6 +74,74 @@ WHAT THIS DOES NOT CLAIM
   this does is make the value that reaches the screen the value in the row.
 * It does not claim anything client-observable.  This layer is wire-only;
   the eyes-on-screen half is an attended ticket.
+
+ONE LOCK, TWO DOORS: THE `/speed` DEFERRAL HOLDS THE LOGIN FRAME TOO
+-------------------------------------------------------------------
+`COO-DECISION 20260903_0645`.  `/speed` sends zero bytes today -- LANE-GM's
+`gm/speed_wire.send_deferred()` holds every frame that door composes -- but
+`/speed` STILL COMMITS THE ROW, and since `#605` a login READS that row.  So
+the door this project closed is closed and the window beside it was open:
+`/speed 300` leaves `300.0` in the database, the next login encodes it as
+`00 00 96 43`, and that is the byte-for-byte value `GT-193` was sending when
+a real client locked itself for 426 frames -- with "log in again" being the
+RECOVERY STEP written in `GT-193` and `GT-218` themselves.
+
+So while `send_deferred()` is true this resolver returns the constant no
+matter what the row holds, and says `wire_deferred` rather than `from_row`.
+
+FOUR THINGS THAT ARE DELIBERATE ABOUT THAT GATE:
+
+1. It is asked LIVE, through the function, every login.  Copying the boolean
+   into a module constant here would mean the round that flips LANE-GM's
+   `SPEED_LOGIN_READ_LANDED` (one line, in their file) opens one door and not
+   the other -- which is the exact class of half-open state this gate exists
+   to prevent.
+2. It FAILS CLOSED.  An import error, a renamed function, an exception inside
+   it -- anything that stops this module from ASKING -- returns the constant
+   under `deferral_unreadable`.  A gate that cannot be read is a gate that is
+   shut.  (Not literally EVERY failure: an exception whose own `__str__`
+   raises escapes while this module is composing the detail.  That shape
+   predates this gate and lives on the store read as well.)
+3. A PER-SESSION TRIAL DOES NOT OPEN THIS DOOR -- `wire_trial_only`, and this
+   is the half a first draft got wrong (pf-adversary, round `4lf2hl`, D1).
+   `COO-DECISION 20260903_0646` opens `/speed` for an attended round through a
+   RUNTIME gate that sanctions ONE value: `PF_SPEED_TRIAL=<value>` lets
+   `/speed <that value>` out and holds every other value.  If that gate is
+   implemented by making `send_deferred()` answer False for the session, then
+   a login gated on `send_deferred()` alone would send WHATEVER the row holds
+   -- and `/speed` writes its row even when the frame is withheld, so the row
+   can hold a value the trial never sanctioned.  Concretely: trial opens for
+   `400`, tester types `/speed 300` (frame withheld, ROW WRITTEN), the ticket's
+   own recovery step re-logs in, and `00 00 96 43` goes out: the GT-193 bytes,
+   in the round written to prevent them.  So the row is allowed out only when
+   the wire is open for EVERY value, which is what LANE-GM's durable
+   `SPEED_LOGIN_READ_LANDED` means; a trial leaves this door shut.  Asking for
+   that flag is asking THEIR module live, exactly like the function -- it is
+   not a second copy of the truth, and there is an AST pin in the tests that
+   fails if this module ever grows one.
+4. It sits in `resolve_for_character` ONLY, never in `resolve`.  `resolve` is
+   a pure predicate, and LANE-GM's `/speed` console line calls it to print
+   `next_login=<reason>`: what THAT line answers is "what would the row do at
+   a login if it went out", and gating it would make the console announce the
+   deferral it is already announcing on the same line.  The wire path -- the
+   one that composes bytes for a client -- goes through
+   `resolve_for_character`, and that is where the frame is held.
+   !! THE COST OF THAT CHOICE, NAMED RATHER THAN HIDDEN: that console line's
+   `next_login_sends=<number>` now over-promises on the deferred route -- it
+   says what the row WOULD send, and this gate means no row goes out at all
+   while the wire is held.  That field is `gm/chat_command_action.py`'s, which
+   this round may not touch; LANE-GM was told in writing
+   (`pf_bridge/notes_to_chief/20260903_0725_CHIEF-TO-LANE-GM-*`).
+
+WHAT THIS COSTS TODAY, STATED WITHOUT THE COMFORTABLE HALF: after
+`migrations/009` the column's DEFAULT is `400.0`, which IS
+`player_wire.PLAYER_LOGIN_MOVEMENT_SPEED` -- so on a database whose rows still
+hold that default, the bytes are identical with the gate and without it, and
+nothing a player sees changes.  It is NOT true that this is free on every
+live database, the owner's included: hers may carry a `300.0` row from
+`GT-193` today, and on that database the gate changes the bytes -- which is
+the entire reason it exists.  `COO-DECISION 20260903_0645` states both halves
+and the first draft of this paragraph quoted only the reassuring one.
 """
 
 _CONSOLE_PREFIX = "LOGIN_SPEED"
@@ -92,6 +160,21 @@ ROW_COULD_NOT_BE_READ = "row_could_not_be_read"
 #: zero or negative.  See `_A_SPEED_A_PLAYER_CAN_USE` for why this floor lives
 #: here rather than in the write path's validator.
 ROW_SPEED_NOT_POSITIVE = "row_speed_not_positive"
+#: The `/speed` wire is deferred (`gm.speed_wire.send_deferred()`), so the row
+#: does not reach this login either and the constant goes out.  The row is not
+#: read at all under this reason: nothing about it can change the answer.
+#: `COO-DECISION 20260903_0645`.
+WIRE_DEFERRED = "wire_deferred"
+#: The deferral itself could not be asked (import error, renamed function, an
+#: exception inside it).  Fail-closed: the constant goes out exactly as if the
+#: wire were deferred, and the detail names what stopped the question.
+DEFERRAL_UNREADABLE = "deferral_unreadable"
+#: The `/speed` wire is open for ONE SANCTIONED VALUE only -- an attended
+#: trial (`PF_SPEED_TRIAL`, `COO-DECISION 20260903_0646`) rather than the
+#: durable landing.  This seam is handed no value to check against, so the row
+#: stays off the login frame: see point 3 of the module docstring for the
+#: concrete GT-218 sequence that makes this the safe answer.
+WIRE_TRIAL_ONLY = "wire_trial_only"
 
 #: Every reason this module can return.  A console reader (and the tests) may
 #: treat a token outside this set as a bug rather than as news.
@@ -101,6 +184,9 @@ REASONS = frozenset({
     ROW_REFUSED_BY_VALIDATOR,
     ROW_COULD_NOT_BE_READ,
     ROW_SPEED_NOT_POSITIVE,
+    WIRE_DEFERRED,
+    DEFERRAL_UNREADABLE,
+    WIRE_TRIAL_ONLY,
 })
 
 #: THE ONE FLOOR THIS MODULE OWNS, AND WHY IT IS NOT THE VALIDATOR'S JOB.
@@ -217,6 +303,102 @@ def resolve(stored, *, fallback: float) -> ResolvedLoginSpeed:
     return ResolvedLoginSpeed(value, FROM_ROW)
 
 
+def held_by_the_speed_deferral(fallback: float):
+    """The gate `COO-DECISION 20260903_0645` put across this seam.
+
+    Returns a `ResolvedLoginSpeed` carrying the constant when the `/speed`
+    wire is deferred OR when the deferral cannot be asked, and `None` when the
+    wire is open and the row may go out.
+
+    THE QUESTION IS ASKED THROUGH LANE-GM'S OWN FUNCTION, imported inside the
+    call rather than at module scope.  Two reasons, and neither is style: a
+    module-level import would freeze nothing (the function is re-read each
+    call) but WOULD make this module fail to import if `gm` ever failed to,
+    turning a deferral question into a dead login path; and the local import
+    is what makes the fail-closed branch below reachable and testable at all.
+
+    ANYTHING BUT A LITERAL `False` HOLDS THE FRAME.  `send_deferred()` is
+    typed `-> bool` today; if a later round returns `None` from an early exit,
+    the truthiness test that "reads naturally" would send the row.  The
+    deferral is the safe answer, so it is the DEFAULT answer.
+
+    TWO QUESTIONS, NOT ONE, and the second is the one a first draft missed
+    (pf-adversary, round `4lf2hl`, D1; module docstring point 3).  An attended
+    TRIAL opens `/speed` for a single sanctioned value; this seam is handed no
+    value to check, and the row can hold one the trial never sanctioned, so
+    the row is released only when LANE-GM's durable
+    `SPEED_LOGIN_READ_LANDED` is `True` as well -- read off THEIR module, live,
+    for the same reason the function is.
+    """
+    if not isinstance(fallback, float) or isinstance(fallback, bool):
+        # The same message `resolve` raises, because this gate now answers
+        # first and a caller with a bad fallback must still be pointed at its
+        # own call site rather than at the resolver's constructor.
+        raise TypeError(
+            "the login-speed fallback is a float (player_wire."
+            "PLAYER_LOGIN_MOVEMENT_SPEED); got "
+            f"{type(fallback).__name__}"
+        )
+    try:
+        from .gm import speed_wire
+        deferred = speed_wire.send_deferred()
+        landed = speed_wire.SPEED_LOGIN_READ_LANDED
+    except Exception as exc:   # noqa: BLE001 -- an unaskable gate is a shut one
+        return ResolvedLoginSpeed(
+            fallback, DEFERRAL_UNREADABLE,
+            detail=(
+                f"gm.speed_wire could not be asked "
+                f"({type(exc).__name__}: {exc}); the constant goes out"
+            ),
+        )
+    if deferred is not False:
+        return ResolvedLoginSpeed(
+            fallback, WIRE_DEFERRED,
+            detail=(
+                f"gm.speed_wire.send_deferred() returned {deferred!r}, so the "
+                f"row does not reach this login either"
+            ),
+        )
+    if landed is not True:
+        return ResolvedLoginSpeed(
+            fallback, WIRE_TRIAL_ONLY,
+            detail=(
+                "gm.speed_wire.send_deferred() is open but "
+                f"SPEED_LOGIN_READ_LANDED is {landed!r}: the wire is open for "
+                "a sanctioned value, not for whatever this row holds"
+            ),
+        )
+    return None
+
+
+def _withheld_row_detail(store, character_id) -> str:
+    """What the held frame WOULD have carried, for the console line only.
+
+    !! THIS READ EXISTS BECAUSE SKIPPING IT MADE THE GATE UNGRADEABLE, and
+    that was measured rather than argued (pf-adversary, round `4lf2hl`, D5).
+    Without it every login prints the identical `wire_deferred` line whether
+    the row holds the harmless default or the `300.0` that locked a client --
+    so an attended round can never show that the gate caught anything, and the
+    round that has to prove `COO-DECISION 20260903_0645` is on `main` has no
+    console evidence to point at.  It also restores a warning the gate would
+    otherwise have silenced (D6): a database missing `migrations/006` used to
+    say `no such column: speed_walk` at every login, and would have gone quiet
+    until the first trial session.
+
+    IT CANNOT CHANGE THE ANSWER AND IT CANNOT FAIL A LOGIN.  The caller has
+    already decided; this only appends text, and every failure -- including a
+    store whose exception cannot even be rendered -- comes back as a string.
+    """
+    try:
+        attributes = store.read_typed_attributes(character_id)
+        return f" withheld_row={attributes.get(COLUMN)!r}"
+    except Exception as exc:   # noqa: BLE001 -- a console detail outranks nothing
+        try:
+            return f" withheld_row=unreadable({type(exc).__name__})"
+        except Exception:   # noqa: BLE001
+            return " withheld_row=unreadable"
+
+
 def resolve_for_character(store, character_id, *, fallback: float) -> ResolvedLoginSpeed:
     """`resolve` fed by the store, with the read itself made non-fatal.
 
@@ -231,7 +413,20 @@ def resolve_for_character(store, character_id, *, fallback: float) -> ResolvedLo
     `ROW_COULD_NOT_BE_READ` carrying the constant -- the same value main sends
     today -- so the worst case of this whole change is the behaviour that
     preceded it.
+
+    THE `/speed` DEFERRAL IS ASKED FIRST, BEFORE THE ROW DECIDES ANYTHING
+    (`COO-DECISION 20260903_0645`).  While that wire is held, nothing the row
+    holds can change the answer -- but the row is still READ, for the console
+    line only, and `_withheld_row_detail` explains why a first draft that
+    skipped the read was wrong (pf-adversary D5/D6).  The module docstring's
+    "one lock, two doors" section carries the evidence for the gate itself.
     """
+    held = held_by_the_speed_deferral(fallback)
+    if held is not None:
+        return ResolvedLoginSpeed(
+            held.value, held.reason,
+            detail=held.detail + _withheld_row_detail(store, character_id),
+        )
     try:
         attributes = store.read_typed_attributes(character_id)
         stored = attributes.get(COLUMN)
