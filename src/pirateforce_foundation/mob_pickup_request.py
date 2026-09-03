@@ -615,19 +615,22 @@ MOB_PICKUP_DELTA_GROUND_CLEARED_TOKEN = "MOB_PICKUP_DELTA_GROUND_CLEARED"
 GROUND_AFTER_CALL_SITE_STATUS = "sent"
 
 #: ROUND f4oh9y, THE EXPIRY HALF, and it is a different call site from the one
-#: above even though it is the same branch of ``runtime.py``.  A REFUSED click
-#: never reaches the ``ground_after`` lines: the branch returns ``[]`` the
-#: moment ``outcome.delta is None``, which every refusal is.  So the removal
-#: publication this module now composes for an expiry (see
-#: :func:`_expiry_publication`) is composed and DROPPED until the chief moves
-#: that early return -- the one-line CORE-REQUEST this round's PR body carries.
+#: above even though it is the same branch of ``runtime.py``.  Before round
+#: 233yho a REFUSED click never reached the ``ground_after`` lines: the
+#: branch returned ``[]`` the moment ``outcome.delta is None``, which every
+#: refusal is.  So the removal publication this module composes for an
+#: expiry (see :func:`_expiry_publication`) was composed and DROPPED.
+#:
+#: MOVED TO "sent" BY THE CHIEF, round 233yho, COO-DECISION
+#: 2026-09-03T23:46+07:00 item 1 -- ``runtime.py``'s pickup branch now sends
+#: a refusal's ``ground_after`` (an empty one still returns ``[]`` unchanged).
 #: Same discipline as the constant above and for the same reason: a console
 #: line saying PUBLISHED on a boot that sends nothing is a false negative
 #: against the CLIENT.  ``tests/test_mob_pickup_ground_expiry.py`` re-derives
-#: this value from ``runtime.py``'s own AST, so the day the chief's line lands
-#: the word changes with it -- and the day somebody deletes it, this goes red
-#: rather than lying.
-EXPIRY_PUBLICATION_CALL_SITE_STATUS = "composed_not_sent"
+#: this value from ``runtime.py``'s own AST, so it cannot drift in either
+#: direction -- a status left at "composed_not_sent" after the line lands is
+#: as red as one left at "sent" before it does.
+EXPIRY_PUBLICATION_CALL_SITE_STATUS = "sent"
 
 #: What the console says when a refused click carried a removal the sweep
 #: owed.  PUBLISHED only while :data:`EXPIRY_PUBLICATION_CALL_SITE_STATUS`
