@@ -372,9 +372,10 @@ class ItemMoveCaptureTests(unittest.TestCase):
                     # moves with every new migration file (see letter
                     # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
                     # pins-outside-this-lane.md and chief's reply
-                    # 20260901_1459, which cover this exact pin); 10 since
-                    # migrations/010_ground_drops.sql (LANE-DB, round 5d02mu)
-                    10,
+                    # 20260901_1459, which cover this exact pin); 11 since
+                    # migrations/011_character_skills.sql (LANE-DB, round
+                    # 6796cv)
+                    11,
                 )
             self.assertFalse((capture_root / "capture-source.sqlite3").exists())
         finally:

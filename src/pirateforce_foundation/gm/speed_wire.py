@@ -185,12 +185,18 @@ def compose_sparse_speed_update(
     `attr_wire.live_full_block_values`) is the only shape allowed to carry
     a speed change now, and it refuses today because chief's two read points
     (`COO-DECISION 20260904_0216`) are not both on main.  So an owner who
-    arms `PF_SPEED_TRIAL` today gets a REFUSAL WITH ONE CONSOLE LINE AND
-    ZERO BYTES OUT -- `chat_command_action._speed_action` already routes a
-    raising composer to `_speed_denied` with its own audit word
-    (`speed_persist_compose_refused_SpeedWireError`), so this refusal is
-    never silent.  `GT-218` is not delayed BY this: it was already waiting
-    on chief's read points (see `NOW.md`).
+    arms `PF_SPEED_TRIAL` today gets a REFUSAL, never silent -- but said
+    PRECISELY rather than the way an earlier draft of this paragraph and of
+    `pirate-force-server#700`'s own PR body first put it (pf-adversary,
+    round `tof9cw`, measured; correction recorded in `pf_bridge#1067`):
+    no `0x309A` byte ever leaves (that half held), but
+    `chat_command_action._speed_denied` composes and sends one LocalTalk
+    "SPEED DENIED" notice frame -- which IS bytes, just never the attr
+    frame -- and the console prints TWO lines for that route, not one:
+    `GM_CHAT_NOTICE_SENT` (the notice going out) followed by
+    `GM_CHAT_NO_BYTES_SENT ... why=speed_persist_compose_refused_
+    SpeedWireError` (the attr frame that did not).  `GT-218` is not delayed
+    BY this: it was already waiting on chief's read points (see `NOW.md`).
 
     DEFENCE IN DEPTH, NOT THE WALL.  The wall is
     `attr_wire.make_update_attr_frame`, which since `COO-DECISION

@@ -8881,3 +8881,80 @@ character outside a category-8 context the honest alternate pair is plausibly
 `0/0` -- `GT-218`'s symptom arriving through the door (b') was revised to open.
 Raised in `20260904_0155_LANE-GM-ALARM-*`; nothing sends today, so nothing is
 at risk yet.
+
+## Round `n4vgpz` (2026-09-04T05:54+07:00) -- the three corrections round `tof9cw` owed after `pf_bridge#1067`
+
+Round `tof9cw`'s follow-up (`pf_bridge#1067`, recorded after that round had already
+pushed and released its lock) found three sentences its own `pirate-force-server#700`
+shipped as false or overbroad, and named this as the next LANE-GM round's first work
+item per `COO-DECISION 20260903_2345`. No pf-adversary result was outstanding on this
+lane this round (`#700`/`#1067`/`#705` all `merged=true`, checked at round start), so
+this round lands the three corrections directly rather than triaging a pending result.
+
+1. **`speed_wire.py` docstring, "ZERO BYTES OUT" was imprecise.** No `0x309A` frame
+   ever leaves on a refused `/speed`, but `_speed_denied` composes and sends one
+   LocalTalk "SPEED DENIED" notice frame -- which is bytes -- and the console prints
+   TWO lines for that route (`GM_CHAT_NOTICE_SENT` then `GM_CHAT_NO_BYTES_SENT`), not
+   one. The code was already correct (verified by reading `_announce_console_outcome`
+   and `_speed_denied`); only the comment overclaimed. Fixed in place, struck history
+   kept.
+2. **`SPEED TRIAL OPEN` was dead code, and the gap it opened had no replacement until
+   this round.** `compose_sparse_speed_update` raises `SpeedWireError` unconditionally
+   since `0345` item 2, so `_speed_action`'s `if trial_admitted:` print block (the
+   send branch) is unreachable on any route `main` has today -- every armed call now
+   lands in the compose-refused `except` above it. That silently erased the one
+   guarantee `COO 0646` item 2's fourth bullet asked for: an owner who arms
+   `PF_SPEED_TRIAL` must be able to tell, from the console alone, that the key was
+   RECOGNISED even though nothing shipped. Added `SPEED_TRIAL_ARMED_REFUSED_CONSOLE_
+   TOKEN` (`"SPEED TRIAL ARMED REFUSED"`), a paired event
+   (`EVENT_SPEED_TRIAL_ADMITTED_BUT_REFUSED`, fired BESIDE the existing compose-refused
+   event, never instead of it) and a new printer
+   (`_print_speed_trial_armed_refused`) that names the armed value and the refusing
+   exception type -- and deliberately never prints `sending=`, so it cannot repeat the
+   item-1 overclaim. Pinned by a new class in `tests/test_gm_speed_trial_gate.py`
+   (`TheArmedButRefusedLineReplacesTheDeadTokenTests`): the event fires only when
+   armed, the old token still never prints, the line is pure ASCII, and the default
+   (unarmed) checkout is untouched.
+3. **`TheFrameExitIsTheWallTests`' class docstring overclaimed "whatever route it
+   takes".** The wall is `attr_wire.make_update_attr_frame`; `stats_progression_
+   hypothesis.py`, `skill_attr_hypothesis.py` and `damage_hp_link_hypothesis.py` each
+   compose their own `0x309A` frames directly and never touch that function, so this
+   test suite proves nothing about them. Narrowed the claim to name the function the
+   wall actually is; the three modules stay `[PROPOSED, not measured]`, neither
+   cleared nor condemned by this correction.
+
+**Out of this lane's write zone, flagged rather than touched.**
+`live_named_attr_values.py` still reads `named_field_x()` "asks for 26 rows" / "4 of
+26 rows" in two places (lines ~30, ~105) -- measured this round at 27, not 26 (`len(
+attr_wire.named_field_x())`), matching what `pf_bridge#1067` already derived. Round
+`tof9cw` made a one-round exception to edit two pinned numbers in this file directly,
+by letter; this round did NOT repeat that exception (repeating an out-of-zone edit
+without a fresh, narrower justification is how a write zone erodes) and instead sent
+`notes_to_chief/20260904_0554_LANE-GM-TO-CHIEF-live-named-attr-values-still-says-26-not-27.md`.
+
+**pf-adversary**: `ToolSearch` for a subagent-spawning tool in this session found none
+(same gap round `20260901_1013` hit and reported). Manual self-review instead --
+low-risk, doc/comment corrections plus one small additive console branch, no gate
+logic moved, no lock touched. Not claimed as "passed adversary" anywhere; recorded as
+a session-availability gap, not a skipped step.
+
+**เขต GM ทั้งหมด**: `gm/speed_wire.py` (docstring only), `gm/chat_command_action.py`
+(one new constant, one new event, one new printer, called from the existing
+compose-refused branch), `tests/test_gm_attr_wire.py` (docstring only),
+`tests/test_gm_speed_trial_gate.py` (new test class), `tests/test_gm_chat_command_
+action.py` (registered the new event name in its completeness table).
+
+## ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+เมื่อวาน ผู้เทสที่ arm `PF_SPEED_TRIAL` แล้วพิมพ์ค่าที่ arm ไว้ ได้คอนโซลบรรทัดเดิมกับกรณีไม่ arm เลย
+(สองอย่างแยกไม่ออกจากจอ) วันนี้เห็นบรรทัด `SPEED TRIAL ARMED REFUSED` เพิ่มขึ้นมา บอกชัดว่าคีย์ที่ arm
+ไว้ถูกจำได้จริง และประตูยังปิดอยู่ด้วยเหตุผลอะไร (`refused_by=SpeedWireError`) -- ไม่ใช่ "คีย์ไม่ทำงาน"
+
+## nonclaim
+
+- ไม่ได้ใช้ GM ข้ามขั้นอะไรในรอบนี้ -- ไม่บูตเซิร์ฟเวอร์/เกม ไม่มีไบต์ `0x309A` ออกจากประตูใดที่ไม่เคยออกอยู่แล้ว
+  (สิ่งที่เพิ่มคือบรรทัดคอนโซลกับ event เท่านั้น พฤติกรรมการปฏิเสธเดิมไม่เปลี่ยน)
+- ไม่อ้างว่า `/speed`/(b'')/M2/M3/M4 ขยับ -- รอบนี้ไม่แตะตรรกะเกตใดเลย มีแค่แก้ถ้อยคำ + เพิ่มการมองเห็นบนคอนโซล
+- ไม่อ้างว่า pf-adversary ตรวจแล้วผ่าน -- เครื่องมือไม่มีให้เรียกในเซสชันนี้ ทำ manual self-review แทน
+- ไม่แตะ `runtime.py` / `app.py` / `pf_login_game_server_v141.py` / canonical DB / `scenarios/world_*.json`
+  / `scenarios/combat_*.json` / `live_named_attr_values.py` (นอกเขต ส่งจดหมายแทน)

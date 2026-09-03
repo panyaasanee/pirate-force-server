@@ -55,6 +55,13 @@ EXPECTED_TABLES = {
     # COO-DECISION 20260903_2050 approved this one-line whitelist addition in
     # the same round that lands it.
     "ground_drops",
+    # character_skills: the starting-skill-kit door, not quest/shop/reward
+    # state -- PANYA-DECISION 20260904_0328 piece 5 / COO-ORDER 20260904_0329
+    # item 5 ordered the table (migrations/011_character_skills.sql).  Same
+    # one-line whitelist pattern chief blessed for ground_drops above
+    # (notes_to_chief/20260901_1416 / 20260901_1459): this pin counts tables,
+    # it does not test this file's own npc_interaction behaviour.
+    "character_skills",
 }
 
 
