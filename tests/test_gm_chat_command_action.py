@@ -946,6 +946,15 @@ class SessionSurfaceTests(_Case):
         # `__getattribute__` skips underscore names), so this entry is
         # earning its place on the WRITE, which is the half that matters.
         "_gm_action_queued_confirm",
+        # CHAT-TAIL-001, round `uyzr8c`.  READ then WRITTEN, and ONLY on a
+        # frame whose payload was not a bare chat body -- so the case below,
+        # which sends the ordinary single-vital payload every capture holds,
+        # never touches it and would still fail if the module started
+        # latching unconditionally.  It is the bound on
+        # `LANE_GM_CHAT_TAIL` console lines (one per reason per connection),
+        # held on the session because two connections must not silence each
+        # other.  Underscore-prefixed for the same reason as the entry above.
+        chat_command_action.SESSION_CHAT_TAIL_REPORTED,
     }
     ALLOWED_ON_SELECTED = {"position", "id"}
 
@@ -1373,6 +1382,11 @@ class EventNameContractTests(_Case):
         "EVENT_OUTCOME_NOT_AUDITED_NOTICE_DROPPED": (
             "gm_chat_action_outcome_not_audited_notice_dropped"
         ),
+        # CHAT-TAIL-001 (round `uyzr8c`).  One event per frame whose payload
+        # was not a bare chat body; the suffix is either `walked_<n>` or one
+        # of `chat_frame_tail`'s refusal names.  Every frame this project has
+        # captured is `no_tail` and writes nothing at all.
+        "EVENT_CHAT_TAIL_PREFIX": "gm_chat_action_chat_tail_",
     }
 
     # Action labels are the same kind of interface as the event names, and a

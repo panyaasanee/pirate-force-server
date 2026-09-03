@@ -8024,3 +8024,51 @@ Today `describe_scene(scene_id, legacy=...)` answers it for any scene in one gre
 scene 1 answers `families_agree=NO disagreeing=4` today. `CORE-REQUEST-GM-050` asks chief for the
 one call site in `runtime.py` that would print it at scene entry; until that lands she runs it
 herself.
+
+---
+
+## Round `uyzr8c` (2026-09-03T12:xx+07:00) -- CHAT-TAIL-001: the GM command inside a frame that carries more than one vital
+
+**The defect, in one sentence.** `runtime.py:7026` hands this lane
+`bytes(parsed.nested_payload)`, and `v141.parse_outer` sets that to EVERY BYTE AFTER THE FIRST
+NESTED VITAL'S HEADER -- so on a frame carrying a second vital the chat body arrives with the
+next vital's bytes glued to its end, and `chat_command.decode_local_talk_payload` refuses the
+whole GM command with `trailing bytes after wstring#2`. The GM types `/warp 5`, nothing happens,
+and the refusal blames a codec.
+
+**Why now.** This is the R303 failure shape (attended, owner at the keyboard: `vital_count = 5`
+on live inbound traffic; 42 of 46 pickup clicks thrown away) applied to the one door this lane
+owns. `vital_walk.py` closed it for the lanes whose vitals have a fixed declared body length.
+The chat vital does not have one -- its body is two length-prefixed UTF-16LE strings -- so it
+needs the split this round adds instead of a table row.
+
+**What landed.** `gm/chat_frame_tail.py`. The two wstring headers at the FRONT of the payload
+PROPOSE a boundary; `decode_local_talk_payload` -- the shipped strict decoder, unchanged -- is
+the authority on whether the proposal is a chat body; and the bytes after the boundary must walk
+as whole nested vitals whose body lengths are DECLARED in `vital_walk.body_length_table`,
+landing exactly on the end. Anything else is a named refusal and the route keeps main's
+behaviour byte for byte. `chat_command_action._isolated_chat_payload` is the one call, placed
+immediately before `handle_local_talk_chat` so identity is still decided in exactly the same
+place, by exactly the same code.
+
+**The two-source shape of the chat body** (G1, and the second source was found this round):
+`external/PF_SERIALIZER_FIELDS.tsv` gives `Channel_LocalTalkMessageVital` exactly TWO fields, W
+and R alike, both `UNTAGGED_WSTRING16LE_LEN32LE` `4+N_bytes` -- there is no third field, which is
+the property that makes the body self-delimiting. The capture layer (GT-006/GT-009, three
+samples, three lengths) gives `5 + n1 + 5 + n2 == payload length`. The two disagree by one byte
+per field (the `0x48` tag the captures carry and the table calls untagged); this round does not
+resolve that and does not need to, because it reads the shape the shipped decoder already reads.
+
+**NONCLAIM.** NO CAPTURED CHAT FRAME CARRYING A SECOND VITAL EXISTS. Every multi-vital frame in
+the tests is built by hand. What is measured is that this client bundles up to five vitals into
+one frame on OTHER traffic, and that today's route would refuse a GM command inside such a frame
+while naming the wrong cause. This is hardening plus a named diagnostic, not the repair of an
+observed failure. It grants no reach: the same sentence sent as a bare chat body already reached
+the same place. It does not consume, forward or act on the tail vitals -- a movement riding
+along with a chat line is exactly as invisible as it was.
+
+**The half this lane cannot reach, filed rather than guessed.** If the chat vital is NOT FIRST in
+the frame, `parsed.nested_id` is not `0xAC52` and the GM chat branch in `runtime.py` is never
+entered at all -- this module is called too late to help. Letter to chief,
+`pf_bridge/notes_to_chief/20260903_1230_LANE-GM-TO-CHIEF-chat-route-cannot-see-a-chat-vital-that-is-not-first.md`,
+with both routes costed and the byte-level disagreement above written down for whoever takes it.

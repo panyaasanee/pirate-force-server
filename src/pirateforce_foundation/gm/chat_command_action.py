@@ -319,6 +319,7 @@ from .chat_command import (
     TYPED_COMMAND_REFUSAL_PREFIXES,
     handle_local_talk_chat,
 )
+from . import chat_frame_tail
 from . import login_scene_admission
 from .login_scene_admission import stageable_scene_ids
 # The way out for THIS module's refusals: `/warp` writes the single-use map,
@@ -844,6 +845,15 @@ EVENT_NPC_RECOMPOSE_DIAGNOSTIC_PREFIX = "gm_chat_action_npc_recompose_diagnostic
 EVENT_ITEM_CATALOG_DIAGNOSTIC_PREFIX = "gm_chat_action_item_catalog_diagnostic_"
 EVENT_BAD_SESSION_PREFIX = "gm_chat_action_bad_session_"
 EVENT_BAD_PAYLOAD_PREFIX = "gm_chat_action_bad_payload_"
+# CHAT-TAIL-001.  One event per frame whose payload was NOT a bare chat body
+# -- either because the tail walked (the command still runs, on the isolated
+# body) or because it did not (the command is refused exactly as it is on
+# main today).  `no_tail` -- every frame ever captured -- writes nothing.
+EVENT_CHAT_TAIL_PREFIX = "gm_chat_action_chat_tail_"
+# The per-connection latch that keeps the console line above bounded.  Held
+# on the session, not on the module, so two connections do not silence each
+# other and a reconnect reports again.
+SESSION_CHAT_TAIL_REPORTED = "_gm_chat_tail_reported"
 EVENT_WARP_WITHHELD_NO_VERSION = (
     "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
 )
@@ -1409,6 +1419,98 @@ def _note(session: object, event: str) -> None:
         pass
 
 
+def _print_chat_tail_once(
+    session: object,
+    split: object,
+    payload_length: int,
+) -> None:
+    """One console line per connection per reason, and never more.
+
+    WHY A LATCH AND NOT A PLAIN PRINT.  This runs BEFORE the rate limiter --
+    it has to, because the limiter lives inside `handle_local_talk_chat`,
+    which cannot read the payload until the body has been isolated -- so an
+    unlatched line here would be an unbounded write driven straight from the
+    wire.  That is the defect pf-adversary measured on this very module
+    (D3, round `9wy444`: 100 console lines from 100 crafted frames), and the
+    answer there was to move the print behind the limiter.  Here that is not
+    available, so the bound is per-connection instead: at most one line for
+    each distinct reason, at most `len(chat_frame_tail` reason names`)` lines
+    for the life of a connection.
+
+    WHAT IS LOST BY LATCHING, said plainly: the console cannot be used to
+    COUNT multi-vital chat frames, only to learn that this connection saw
+    one.  The count lives on `session.events`, which already grows one entry
+    per refused frame on this path and is the trail the headless tools read.
+
+    A DIAGNOSTIC MAY NEVER ALTER DISPATCH -- the rule the three sibling
+    printers in this file hold: everything that can raise is inside the
+    guard, a `None` stderr returns rather than letting `print` fall back to
+    STDOUT, and a console that cannot be written is NAMED on the event trail.
+    A session that will not hold the latch attribute still gets its command;
+    it just gets a line per frame instead of one, which is why the failure to
+    latch is itself recorded rather than swallowed.
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        reason = split.reason
+        reported = getattr(session, SESSION_CHAT_TAIL_REPORTED, None)
+        if isinstance(reported, set):
+            if reason in reported:
+                return
+            reported.add(reason)
+        else:
+            try:
+                setattr(session, SESSION_CHAT_TAIL_REPORTED, {reason})
+            except Exception:  # noqa: BLE001 - see the docstring's last line
+                _note(session, f"{EVENT_CHAT_TAIL_PREFIX}latch_unavailable")
+        print(
+            console_safe(
+                chat_frame_tail.tail_console_line(split, payload_length),
+                stream,
+            ),
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - a diagnostic may not raise
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
+def _isolated_chat_payload(
+    session: object,
+    payload: bytes,
+    legacy: object,
+) -> bytes:
+    """The chat body of `payload`, which on every captured frame IS `payload`.
+
+    CHAT-TAIL-001, and the whole of what it changes: when v141 hands this
+    lane a payload that is a chat body FOLLOWED BY whole nested vitals, the
+    command runs on the isolated body instead of being refused as
+    `chat_payload_undecodable_ChatDecodeError`.  In every other case --
+    including every frame this project has ever captured -- the caller's own
+    bytes are returned and the route behaves exactly as it does on main.
+
+    IT NEVER WIDENS WHO MAY COMMAND.  This runs before
+    `handle_local_talk_chat`, which is still the only place identity is
+    decided; the same sentence sent as a bare chat body reaches the same
+    place today.  See `gm/chat_frame_tail.py`'s docstring for the argument
+    in full, and for the sentence that says no multi-vital chat frame has
+    ever been captured.
+    """
+    split = chat_frame_tail.split_local_talk_payload(payload, legacy)
+    if split.reason == chat_frame_tail.NO_TAIL:
+        return payload
+    if split.reason == chat_frame_tail.TAIL_WALKED:
+        _note(session, f"{EVENT_CHAT_TAIL_PREFIX}walked_{len(split.tail_ids)}")
+        _print_chat_tail_once(session, split, len(payload))
+        return split.body
+    if split.reason not in chat_frame_tail.QUIET_REASONS:
+        _note(session, f"{EVENT_CHAT_TAIL_PREFIX}{split.reason}")
+        _print_chat_tail_once(session, split, len(payload))
+    return payload
+
+
 def _note_npc_recompose_diagnostic(session: object, command: object) -> None:
     """Read-only diagnostic for a parsed `npc` command; never touches verdict.
 
@@ -1704,6 +1806,12 @@ def _make_action(
     if not isinstance(payload, (bytes, bytearray)):
         _note(session, f"{EVENT_BAD_PAYLOAD_PREFIX}{type(payload).__name__}")
         return None
+
+    # CHAT-TAIL-001, and it is the LAST thing that happens to these bytes
+    # before identity is decided, never after: `_isolated_chat_payload`
+    # returns the caller's own object for every frame this project has
+    # captured, so on today's traffic this line is a no-op with a name.
+    payload = _isolated_chat_payload(session, payload, legacy)
 
     outcome = handle_local_talk_chat(
         token, payload, config_path=config_path, log_path=log_path
