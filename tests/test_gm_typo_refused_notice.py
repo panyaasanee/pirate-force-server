@@ -29,13 +29,20 @@ WHAT IS PROVEN HERE, AND AT WHICH RUNG
 --------------------------------------
 WIRE ONLY.  Every assertion below is about BYTES this server composes and
 hands back to `runtime.py`'s serve loop.  NOTHING here claims a human saw
-THESE words.  ~~"no server-composed 0xAC52 line has ever been observed on a
-screen on a default boot ... and `GT-193` step 10 ... is the first
-attempt."~~ STRUCK, same correction and same date as `gm/say_wire.py`'s own
-block: attended round R303 rendered `[thua pai] : BACK REFUSED` -- a
-DIFFERENT notice through the same composer -- on the owner's screen, so the
-sentence is expired for the channel.  It buys this file nothing: R303 graded
-no wire/DB rung, and `TYPO REFUSED` itself has still never been on a screen.
+THESE words.  ONE CLAUSE IS NARROWED, and only one -- ~~"no server-composed
+0xAC52 line has ever been observed on a screen"~~ -- because attended round
+R303 rendered `[thua pai] : BACK REFUSED`, a DIFFERENT notice through the
+same composer, on the owner's screen.
+
+!! THE REST OF THAT SENTENCE STANDS AND MUST NOT BE STRUCK.  A first draft
+of this correction struck it whole and pf-adversary (round `1nm6hh`, D8)
+measured what that costs: `GT-193` step 10 is `/speed fast` -> `TYPO
+REFUSED`, a SEPARATE claim about a SEPARATE code path from step 9, and the
+ticket says so in its own words.  R303 ran neither step, and `BACK REFUSED`
+is a third text again.  So `GT-193` step 10 IS still the first attempt at
+putting THIS module's words on a screen, `TYPO REFUSED` has never been on
+one, and a later round reading a struck-through step 10 here could drop the
+only queued attempt at the thing this file composes.
 The length is twelve because twelve is the only body
 length anybody has watched render on this channel (GT-006/GT-009), not
 because twelve is tidy.
