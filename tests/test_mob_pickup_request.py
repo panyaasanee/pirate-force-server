@@ -131,6 +131,175 @@ def _the_runtime_sends_the_ground_generation(runtime_source):
     return False
 
 
+#: The entry point ``PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS`` reports on.
+DISPATCH_ENTRY_POINT = "dispatch_inbound_pickup_request"
+
+
+def _is_production_module(tree):
+    """Does this module claim to run in production?
+
+    The two convention markers every module in ``src/`` carries.  ABSENT, A
+    MODULE COUNTS AS PRODUCTION: the markers are what an author writes to opt
+    OUT, and a missing marker must never be read as an opt-out.  Same rule,
+    same reason, as the sibling scan in ``tests/test_mob_combat.py``: a
+    hypothesis module calling this lane's entry point in a probe would
+    otherwise put "landed" in a note that is read as "a real player's click
+    goes through it".
+
+    !! MODULE LEVEL ONLY, AND THAT IS THE WHOLE OF pf-adversary D8 OF THIS
+    ROUND.  The first draft walked the entire tree, so ANY ``production_
+    allowed = False`` -- including a LOCAL VARIABLE inside one method of
+    somebody else's file -- marked the whole module out of production.
+    Measured: adding that local to one method of ``runtime.py`` (the chief's
+    file, an ordinary edit he is entitled to make) turned THIS LANE'S test
+    red, and the failure message then told him to lower the constant, which
+    would have made the wiring note say "HAS NOT LANDED" about a branch
+    running on every click.  A guard of this lane's must never be a trap laid
+    in another lane's file -- the rule this lane wrote for ITSELF last round
+    and then failed to apply here.  The sibling scan in
+    ``tests/test_mob_combat.py`` had the identical bug and is fixed in the
+    same commit.
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            if (target.id == "production_allowed"
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is False):
+                return False
+            if (target.id == "test_only"
+                    and isinstance(node.value, ast.Constant)
+                    and node.value.value is True):
+                return False
+    return True
+
+
+def _names_bound_to_the_entry_point(node):
+    """Every module-level name this assignment binds to the entry point's
+    own string, tuple targets unpacked (the sibling scan's D4)."""
+    value = node.value
+    targets = (node.targets if isinstance(node, ast.Assign)
+               else [node.target])
+    bound = set()
+    for target in targets:
+        if (isinstance(target, (ast.Tuple, ast.List))
+                and isinstance(value, (ast.Tuple, ast.List))
+                and len(target.elts) == len(value.elts)):
+            for one, item in zip(target.elts, value.elts):
+                if (isinstance(one, ast.Name)
+                        and isinstance(item, ast.Constant)
+                        and item.value == DISPATCH_ENTRY_POINT):
+                    bound.add(one.id)
+        elif (isinstance(target, ast.Name)
+                and isinstance(value, ast.Constant)
+                and value.value == DISPATCH_ENTRY_POINT):
+            bound.add(target.id)
+    return bound
+
+
+def _dispatch_call_site_status_of_source(source):
+    """Which of the three registered words ONE file's source earns.
+
+    A CALL OR A LOOKUP, NEVER A SUBSTRING, and on this lane that is not
+    pedantry: this module PUBLISHES its own call as a string
+    (``MOB_PICKUP_REQUEST_HEADLINE_CALL``), several files quote the wiring
+    note in prose, and every one of those mentions would score the strongest
+    word under a text search while sending not one byte.
+
+    THE MIDDLE WORD IS NOT DECORATION (pf-adversary D10 of this round).  The
+    first draft had two words and counted only ``ast.Call``, so
+    ``getattr(mob_pickup_request, "dispatch_inbound_pickup_request")(...)``,
+    a name bound to the function and called later, and a dict of handlers all
+    scored "nothing calls it".  That is the EXACT blind spot the sibling
+    token in ``mob_combat.py`` was hardened against last round after LANE-A
+    measured it on a real hook, and ``runtime.py`` records it having already
+    bitten this project once.  Shipping the pre-hardened version of a shape
+    this lane itself hardened, in a commit whose subject is stale claims,
+    is the joke this middle word exists to avoid.
+
+    !! WHAT IT OVER-COUNTS, WRITTEN DOWN RATHER THAN IMPLIED (pf-adversary
+    D7).  This is LEXICAL PRESENCE of a call expression, never proof that a
+    frame goes through it: a dead wrapper nobody invokes, a call under
+    ``if False``, a call on an unrelated object whose method happens to share
+    the name, and a call in a module nothing imports all score "landed".  So
+    the word answers "does the tree contain a live-looking call site", and
+    the sentence the wiring note composes from it must never be read as "a
+    player's click arrives here" -- which is what NONCLAIM 5 says in the
+    module itself.
+    """
+    tree = ast.parse(source)
+    if not _is_production_module(tree):
+        return "requested_not_landed"
+    names = {DISPATCH_ENTRY_POINT}
+    spellings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name == DISPATCH_ENTRY_POINT and alias.asname:
+                    names.add(alias.asname)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            spellings.update(_names_bound_to_the_entry_point(node))
+    status = "requested_not_landed"
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute)
+                and node.attr == DISPATCH_ENTRY_POINT):
+            status = "wired_by_name_lookup"
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = getattr(func, "attr", None) or getattr(func, "id", None)
+        if name in names:
+            return "landed"                       # the strongest evidence
+        if name != "getattr" or len(node.args) < 2:
+            continue
+        wanted = node.args[1]
+        if (isinstance(wanted, ast.Constant)
+                and wanted.value == DISPATCH_ENTRY_POINT):
+            status = "wired_by_name_lookup"
+        elif isinstance(wanted, ast.Name) and wanted.id in spellings:
+            status = "wired_by_name_lookup"
+    return status
+
+
+def _dispatch_call_site_status_of_tree(paths):
+    """The strongest word any production file in ``src/`` earns.
+
+    ``mob_pickup_request.py`` itself is skipped: it is where the entry point
+    is DEFINED, and its own internal helpers calling it would score the
+    landing of a call site that does not exist.
+
+    !! A FILE THIS SCAN CANNOT READ IS NOT A CALL SITE (pf-adversary D9).  A
+    module that does not decode as UTF-8 -- this project writes Thai, and
+    cp874 files exist -- or that does not parse cannot be imported, so it
+    cannot host a running call site.  It is skipped rather than raised on,
+    and the reason is written here rather than left in a bare ``except``.
+    !! WHAT THAT DOES *NOT* BUY, said plainly: if the skipped file is the one
+    holding the call site, this scan answers "not landed" and this lane's
+    test goes red anyway.  That is the honest outcome -- a tree whose call
+    site cannot be read is a tree nobody should be reporting a landing from
+    -- but it is not the "another lane's broken file cannot touch me" that a
+    reader might take from the paragraph above.
+    """
+    rank = mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUSES
+    best = rank[0]
+    for path in sorted(paths):
+        if path.name == "mob_pickup_request.py":
+            continue
+        try:
+            got = _dispatch_call_site_status_of_source(
+                path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, SyntaxError, ValueError):
+            continue
+        if rank.index(got) > rank.index(best):
+            best = got
+        if best == rank[-1]:
+            break
+    return best
+
+
 def _body(object_ref, opaque):
     """One request body, composed the way the delivery table declares it."""
     return (
@@ -973,7 +1142,16 @@ class TheWiringLineRunsTests(TheWiringHarness):
         """
         wiring = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
         self.assertTrue(wiring.startswith("STATUS: approved_by_coo_"))
-        self.assertIn("THIS BRANCH IS CLEARED TO LAND", wiring)
+        # ROUND 91tlkk: THE NOTE NOW CARRIES TWO STATUSES AND THEY ANSWER
+        # DIFFERENT QUESTIONS.  ~~assertIn("THIS BRANCH IS CLEARED TO LAND")~~
+        # IS STRUCK: it was true of an approved branch and stayed green for a
+        # full day after the branch actually landed, which is the drift this
+        # round exists to end.  What is pinned instead is that the headline
+        # AGREES with the landing status -- and the landing status is itself
+        # re-derived from src/ by
+        # test_the_dispatch_call_site_status_is_re_derived_from_src.
+        landed = mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS
+        self.assertIn(mob_pickup_request.wiring_headline(landed), wiring)
         # Not the whole six-word sentence: pf-adversary round okdfge got a
         # green suite out of "THIS BRANCH IS STILL HELD, DO NOT LAND IT",
         # which re-imposes the hold in prose while the status says cleared.
@@ -1936,6 +2114,266 @@ class NonclaimTests(unittest.TestCase):
         self.assertIn(
             "our_acceptance_design",
             mob_pickup_request.PICKUP_REQUEST_VITAL_VERSION_PROVENANCE)
+
+    def test_the_dispatch_call_site_status_is_re_derived_from_src(self):
+        """The constant is what the TREE says, not what a human remembered.
+
+        WHY THIS TEST EXISTS, and it is a measured failure rather than a
+        precaution.  The call site landed on 2026-09-02T00:35Z (R300, commit
+        3e8541e).  For the whole day after that, this module's docstring said
+        "NOTHING CALLS IT", NONCLAIM 5 said "No call site exists yet", and
+        the wiring note said "THIS BRANCH IS CLEARED TO LAND" -- with a green
+        suite, because every one of those sentences was a literal nobody
+        derived from anything.  On this lane that is not a cosmetic staleness:
+        NOW.md P-1's open number is "2 of 46 clicks reached the decoder", and
+        a reader who believes there is no call site reads the other 44 as a
+        branch that never fired instead of a branch that fired and refused.
+
+        RED IN BOTH DIRECTIONS, which is the only version of this test worth
+        having: too LOW after a call site lands (the failure above), and too
+        HIGH after one is reverted -- a note claiming a landed branch on a
+        tree that has none is the same lie pointing the other way.
+        """
+        derived = _dispatch_call_site_status_of_tree(
+            (ROOT / "src/pirateforce_foundation").glob("**/*.py"))
+        self.assertEqual(
+            derived,
+            mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS,
+            "src/ says %r and PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS says "
+            "%r.  If a call site just landed, raise the constant -- the "
+            "module docstring, NONCLAIM 5 and MOB_PICKUP_REQUEST_WIRING all "
+            "read it.  If one was just reverted, lower it: a note claiming a "
+            "landed branch on a tree that has none is worse than the note "
+            "that was stale for a day."
+            % (derived,
+               mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS))
+        self.assertIn(
+            mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS,
+            mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUSES,
+            "a word that is not registered cannot reach the wiring note")
+
+    def test_the_dispatch_scan_answers_the_shapes_that_fooled_a_text_search(
+            self):
+        """The scan's own vocabulary, driven shape by shape.
+
+        Each string below is a whole module body.  The point of the negative
+        half is that THIS FILE'S OWN SUBJECT is a module that publishes its
+        call as a string and is quoted in prose all over the tree: a text
+        search for the entry point's name scores "landed" on every one of
+        them.
+        """
+        call = "mob_pickup_request.%s(a, b)" % DISPATCH_ENTRY_POINT
+        landed = (
+            ("the module attribute call runtime.py makes",
+             "from x import mob_pickup_request\nout = %s\n" % call),
+            ("a direct import of the entry point",
+             "from x import %s\nout = %s(a, b)\n"
+             % (DISPATCH_ENTRY_POINT, DISPATCH_ENTRY_POINT)),
+            ("an aliased import, which defeated a name match once",
+             "from x import %s as go\nout = go(a, b)\n"
+             % DISPATCH_ENTRY_POINT),
+        )
+        for label, source in landed:
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    _dispatch_call_site_status_of_source(source), "landed")
+        # THE MIDDLE WORD (pf-adversary D10): a lookup by string is evidence
+        # somebody FETCHES the entry point, never that a frame goes through
+        # it -- and the two-word first draft scored every one of these
+        # "nothing calls it", which is the blind spot the sibling token in
+        # mob_combat.py was hardened against last round on a real hook.
+        looked_up = (
+            ("getattr by literal, the shape that bit the sibling",
+             'from x import mob_pickup_request\n'
+             'fn = getattr(mob_pickup_request, "%s")\nfn(a, b)\n'
+             % DISPATCH_ENTRY_POINT),
+            ("getattr through a module-level constant",
+             'from x import mob_pickup_request\nNAME = "%s"\n'
+             'fn = getattr(mob_pickup_request, NAME)\nfn(a, b)\n'
+             % DISPATCH_ENTRY_POINT),
+            ("the attribute fetched and called later",
+             "from x import mob_pickup_request\n"
+             "fn = mob_pickup_request.%s\nfn(a, b)\n"
+             % DISPATCH_ENTRY_POINT),
+            ("a tuple-unpacked constant, an entitled style change",
+             'from x import mob_pickup_request\nNAME, _O = "%s", "other"\n'
+             'fn = getattr(mob_pickup_request, NAME)\nfn(a, b)\n'
+             % DISPATCH_ENTRY_POINT),
+        )
+        for label, source in looked_up:
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    _dispatch_call_site_status_of_source(source),
+                    "wired_by_name_lookup")
+        # A direct call still WINS over a lookup in the same file: the
+        # stronger evidence is the one the note should report.
+        self.assertEqual(
+            _dispatch_call_site_status_of_source(
+                'from x import mob_pickup_request\n'
+                'fn = getattr(mob_pickup_request, "%s")\n%s\n'
+                % (DISPATCH_ENTRY_POINT, call)),
+            "landed")
+        not_landed = (
+            ("the name in a comment",
+             "# somebody should call %s one day\nx = 1\n"
+             % DISPATCH_ENTRY_POINT),
+            ("the name in a docstring",
+             '"""See %s in the sibling module."""\nx = 1\n'
+             % DISPATCH_ENTRY_POINT),
+            ("the published call as a STRING, which this lane publishes",
+             'NOTE = "%s"\n' % call),
+            ("a probe module that really calls it",
+             "production_allowed = False\nfrom x import mob_pickup_request\n"
+             "out = %s\n" % call),
+            ("a test-only module that really calls it",
+             "test_only = True\nfrom x import mob_pickup_request\n"
+             "out = %s\n" % call),
+            ("nothing at all", "x = 1\n"),
+        )
+        for label, source in not_landed:
+            with self.subTest(shape=label):
+                self.assertEqual(
+                    _dispatch_call_site_status_of_source(source),
+                    "requested_not_landed")
+        # A module with NO marker counts as production: absent is not an
+        # opt-out.  Written as its own assertion because the natural
+        # "tighten" of _is_production_module is to require the marker.
+        self.assertEqual(
+            _dispatch_call_site_status_of_source(
+                "from x import mob_pickup_request\nout = %s\n" % call),
+            "landed")
+
+    def test_every_registered_status_has_its_own_headline(self):
+        """EVERY branch of the composition is executed, by name.
+
+        pf-adversary D1/D2/D3 of round 91tlkk, all three measured on the
+        first draft of this round and all three GREEN there.  That draft
+        selected the sentence at import (``_WIRING_HEADLINE = {...}[status]``)
+        so the module held only the SELECTED STRING:
+
+          * D1 -- the whole dict and lookup could be replaced by a hand-typed
+            literal and the FULL suite stayed green, which made "COMPOSED,
+            never typed" a property of that day's text and of no test.
+          * D2 -- the other branch had never been evaluated, so its sentence
+            could be emptied, or inverted to say LANDED, unnoticed.
+          * D3 -- deleting a key was green, and then doing what the failing
+            assertion PRESCRIBES ("lower the constant") raised ``KeyError``
+            at import and made this whole file uncollectable.
+
+        So the headline is a FUNCTION now, and this drives it for every
+        registered word plus a word that is not registered at all.
+        """
+        rank = mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUSES
+        seen = {}
+        for status in rank:
+            with self.subTest(status=status):
+                line = mob_pickup_request.wiring_headline(status)
+                self.assertTrue(
+                    line.strip(),
+                    "every registered word needs a headline: the recovery "
+                    "this lane's own failure message prescribes is to CHANGE "
+                    "this word, and a word with no sentence used to be an "
+                    "import-time crash")
+                self.assertNotIn("NOT A REGISTERED WORD", line)
+                seen[status] = line
+        self.assertEqual(
+            len(set(seen.values())), len(rank),
+            "two registered words sharing a sentence is a note that cannot "
+            "tell them apart")
+        # The sentences must not agree about the fact they exist to report.
+        # D2 emptied one and inverted the other; both die here rather than
+        # on a spelling.
+        self.assertIn("HAS NOT LANDED", seen["requested_not_landed"])
+        self.assertNotIn("HAS NOT LANDED", seen["landed"])
+        self.assertIn("THIS BRANCH HAS LANDED", seen["landed"])
+        self.assertNotIn(
+            "THIS BRANCH HAS LANDED", seen["requested_not_landed"])
+        self.assertNotIn(
+            "THIS BRANCH HAS LANDED", seen["wired_by_name_lookup"])
+        # An unregistered word says so and does not raise (D3's recovery).
+        self.assertIn(
+            "NOT A REGISTERED WORD",
+            mob_pickup_request.wiring_headline("no_such_word"))
+        # ...and the note CARRIES the composed sentence for today's status
+        # rather than a copy typed beside it (D1).
+        today = mob_pickup_request.PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS
+        note = mob_pickup_request.MOB_PICKUP_REQUEST_WIRING
+        self.assertIn(seen[today], note)
+        for status in rank:
+            if status == today:
+                continue
+            with self.subTest(absent=status):
+                self.assertNotIn(
+                    seen[status], note,
+                    "the note carries the sentence for ONE status; carrying "
+                    "another lets a reader pick the one they like")
+        # The STATUS line must carry BOTH words: they answer different
+        # questions, and D16 dropped the landing one silently.
+        head = note.split(".", 1)[0]
+        self.assertIn(mob_pickup_request.PICKUP_REQUEST_WIRING_STATUS, head)
+        self.assertIn(today, head)
+
+    def test_the_struck_sentences_and_what_replaced_them_are_both_pinned(
+            self):
+        """History is crossed out, never erased -- and the REPLACEMENT is
+        pinned too, which is the half the first draft got wrong.
+
+        pf-adversary D4/D5/D6 of round 91tlkk, measured.  That draft asserted
+        only the strike MARKERS, so:
+
+          * D4 -- the replacement sentence was unpinned.  Rewriting it to
+            "NOTHING CALLS IT AND NOTHING EVER WILL" was green: the exact
+            sentence this round exists to delete was writable again, the same
+            day, with the strike marker still sitting above it.
+          * D5 -- the surviving half of NONCLAIM 5 was a substring pin, so
+            prefixing "IT IS NO LONGER THE CASE THAT" to it was green.  The
+            one sentence that stops a round reporting P-1 done could be
+            negated in place.
+          * D6 -- "the strike must name what replaced it" was VACUOUSLY TRUE:
+            the constant's own definition line satisfied the ``assertIn``, so
+            every ``:data:`` reference could be deleted from all three
+            strikes and nothing noticed.
+
+        Whitespace is normalised before every check (D19): these sentences
+        wrap across source lines, and an ordinary editorial rewrap must not
+        turn a lane's file red.
+        """
+        flat = " ".join(MODULE_SOURCE.split())
+        for phrase in ("~~NOTHING CALLS", "~~NOTHING HAS LANDED YET~~",
+                       "~~No call site"):
+            with self.subTest(struck=phrase):
+                self.assertIn(" ".join(phrase.split()), flat)
+        # D4: the replacement text, not just the marker above it.
+        self.assertIn(
+            "TODAY THE BRANCH EXISTS: ``runtime.py`` reaches this module on "
+            "any frame whose NESTED id is ``PICKUP_REQUEST_VITAL_ID``.", flat)
+        self.assertNotIn("NOTHING EVER WILL", flat)
+        # D5: the surviving half of NONCLAIM 5, with the clause that makes it
+        # a rule rather than an observation -- and not negated in place.
+        self.assertIn(
+            "READING A FRAME IS NOT A PLAYER HOLDING AN ITEM, so no round "
+            'may report P-1\'s "picked up" half as done on the strength of '
+            "this file.", flat)
+        self.assertNotIn("NO LONGER THE CASE", flat.upper())
+        # D6: the strikes must NAME the constant, so COUNT the references
+        # rather than prove the constant exists.  Its own definition is one
+        # of them; the strikes are the rest.
+        self.assertGreaterEqual(
+            flat.count("PICKUP_REQUEST_DISPATCH_CALL_SITE_LANDED"), 3,
+            "each strike has to point at where the truth now lives; an "
+            "assertIn was satisfied by the constant's own definition line")
+        # D12: the wire-layer overclaim this round nearly shipped stays
+        # struck, and its replacement stays inside the layer it can prove.
+        self.assertIn(
+            "~~every ground click reaches this module through runtime.py's "
+            "dispatch~~", flat)
+        # D11: the sentence runtime.py measured FALSE at its own call site
+        # must not be alive inside the note this round rewrote.
+        note = " ".join(mob_pickup_request.MOB_PICKUP_REQUEST_WIRING.split())
+        self.assertIn(
+            "~~The branch is landed on a static-image reading, so if the id "
+            "is wrong the branch never fires and every frame keeps today's "
+            "behaviour.~~", note)
 
     def test_the_call_site_is_absent_or_is_the_published_one(self):
         """Not a skip: a live assertion on both sides of the hold.
