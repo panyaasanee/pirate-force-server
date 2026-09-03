@@ -561,6 +561,129 @@ class TheNoticeTextIsPinnedByEvidenceTests(unittest.TestCase):
         )
 
 
+class TheCaptureNameIsOneRowPerButtonTests(unittest.TestCase):
+    """The name the capture carries, ordered by COO-DECISION `20260903_1746`.
+
+    Nothing here is on the wire.  This is the string the frozen sender
+    writes beside the bytes -- `GAME_LIVE.txt`'s `SENT label=`, the
+    console's `[G>]`, and the per-session raw log -- and with ONE of them
+    for two buttons an attended tester could not tell the owner's "back"
+    click from her "exit" click in any of them (both sentences are twelve
+    characters, so both receipts are the same byte count).
+
+    WHAT IS DELIBERATELY ABSENT: a matching table for `state.events`.  The
+    first draft of this round shipped one, on the inherited sentence that
+    the label also reaches "the exported events file".  Re-measured this
+    round (pf-adversary D1): `GAME_EVENTS_LIVE.txt` is written only by
+    `v141:7378`'s `event()`, whose call sites are `SESSION_START` and
+    eleven `MILESTONE` lines -- none of them inside the sender's range and
+    none of them handed a label or a `state.events` entry.  A second table
+    would have named a second artifact that does not exist.
+
+    The module holds the row; `runtime.py` still holds the literal, so
+    these tests pin the DATA and the wiring test pins what the call site
+    does with it -- including WHICH of the two worlds the tree is in.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+
+    def _observe(self, frame):
+        return notice.observe_parsed(
+            self.legacy, self.legacy.parse_outer(frame),
+        )
+
+    def test_the_table_covers_exactly_the_buttons_that_have_a_sentence(self):
+        # Key parity is what makes the unlabelled fallback unreachable from
+        # a frame: a button with words on screen always has a name in the
+        # capture, and a row added to one table without the other is this
+        # test's failure, not a tester's.
+        self.assertEqual(
+            set(notice.ACTION_LABEL_BY_BUTTON),
+            set(notice.NOTICE_TEXT_BY_BUTTON),
+        )
+
+    def test_the_exit_click_reports_its_own_name_not_the_back_one(self):
+        composed, _line = self._observe(UIB_REQUEST_FRAME)
+        self.assertIsNotNone(composed)
+        self.assertTrue(composed.classification.is_exit_game)
+        self.assertEqual(composed.action_label, notice.UIB_ACTION_LABEL)
+        self.assertIn("EXIT_REFUSED", composed.action_label)
+        self.assertNotEqual(composed.action_label, notice.UIA_ACTION_LABEL)
+
+    def test_the_back_click_keeps_the_label_chief_writes_today(self):
+        # NOT because a ticket greps it -- measured, it does not: `GT-205`
+        # carries zero occurrences of this string (pf-adversary D4).  It is
+        # unchanged because COO's order names one button, the UI-A label is
+        # not wrong for the UI-A click, and renaming it too would put a
+        # second line of chief's file in this lane's request for no gain.
+        composed, _line = self._observe(UIA_REQUEST_FRAME)
+        self.assertIsNotNone(composed)
+        self.assertEqual(
+            composed.action_label, "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE",
+        )
+
+    def test_no_two_buttons_share_a_name(self):
+        self.assertEqual(
+            len(set(notice.ACTION_LABEL_BY_BUTTON.values())),
+            len(notice.ACTION_LABEL_BY_BUTTON),
+            notice.ACTION_LABEL_BY_BUTTON,
+        )
+
+    def test_every_name_is_ascii_single_token_upper_and_greppable(self):
+        names = list(notice.ACTION_LABEL_BY_BUTTON.values()) + [
+            notice.UNLABELLED_BUTTON_ACTION_LABEL,
+        ]
+        for name in names:
+            with self.subTest(name=name):
+                self.assertTrue(name.isascii(), name)
+                self.assertTrue(name.isprintable(), name)
+                self.assertNotIn(" ", name)
+                self.assertEqual(name, name.upper())
+                self.assertTrue(name.startswith("LANE_A_"), name)
+
+    def test_a_button_with_no_row_is_named_unlabelled_not_the_other_button(
+        self,
+    ):
+        # The reader of this property is chief's `else:` branch, which is
+        # OUTSIDE his `try`: a KeyError there would take the listener
+        # thread down for the player whose click it was.  Reached the same
+        # way the stand-down branch is: by removing a row on purpose.
+        original = dict(notice.ACTION_LABEL_BY_BUTTON)
+        try:
+            notice.ACTION_LABEL_BY_BUTTON.pop(notice.BUTTON_EXIT_GAME)
+            composed, _line = self._observe(UIB_REQUEST_FRAME)
+            self.assertIsNotNone(composed)
+            self.assertEqual(
+                composed.action_label,
+                notice.UNLABELLED_BUTTON_ACTION_LABEL,
+            )
+            self.assertNotEqual(composed.action_label, notice.UIA_ACTION_LABEL)
+        finally:
+            notice.ACTION_LABEL_BY_BUTTON.clear()
+            notice.ACTION_LABEL_BY_BUTTON.update(original)
+        # And the table is whole again, so this patch is not a one-way
+        # door for the tests that run after it.
+        composed, _line = self._observe(UIB_REQUEST_FRAME)
+        self.assertEqual(composed.action_label, notice.UIB_ACTION_LABEL)
+
+    def test_the_name_is_not_in_the_bytes_the_player_receives(self):
+        # STATED AS WHAT IT IS, because the first draft called this a
+        # "mutation control" and the letter to chief repeated that
+        # (pf-adversary D6): it is a substring check.  It refutes exactly
+        # one thing -- that the label was embedded verbatim in the frame --
+        # and it CANNOT refute a composer that derived the sentence from
+        # the label.  What actually protects the player's bytes from a
+        # rename is `TheNoticeTextIsPinnedByEvidenceTests` here and the
+        # wiring test's recomputation of `expected_pc`/`expected_frame`
+        # from `say_wire`.
+        composed, _line = self._observe(UIB_REQUEST_FRAME)
+        name = composed.action_label.encode("ascii")
+        self.assertNotIn(name, composed.frame)
+        self.assertNotIn(name, composed.pc)
+
+
 class ThisModuleOnlyComposesTests(unittest.TestCase):
     """It must not be able to send, close, or reach into the runtime."""
 

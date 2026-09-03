@@ -77,9 +77,93 @@ from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
-NOTICE_ACTION_LABEL = "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE"
-NOTICE_COMPOSED_EVENT = "lane_a_uia_back_refused_notice_composed"
+# What chief's 0x1B40 branch attaches to the receipt it hands the sender.
+#
+# This file pins ANOTHER LANE'S LINE (`runtime.py` is chief's), and the
+# house rule for that is that such a test must be able to die on its own
+# rather than freeze the other lane's file (COO `20260901_0149`).  So it
+# READS chief's file to find out which of exactly two worlds this tree is
+# in, and then asserts the ONE label that world must produce:
+#
+#   legacy world  -- the call site still writes the literal below for both
+#                    buttons.  The two clicks' `SENT ... frame_bytes=66`
+#                    lines are byte-identical in `GAME_LIVE.txt`; that is
+#                    the defect COO-DECISION `20260903_1746` item 2
+#                    ordered removed, and it is STILL PRESENT.
+#   swapped world -- the call site writes `uia_notice.action_label`
+#                    (`CORE-REQUEST 20260903_1832`), so each button
+#                    carries its own row from
+#                    `world_logout_button_notice.ACTION_LABEL_BY_BUTTON`.
+#
+# WHY NOT "ACCEPT EITHER STRING PER BUTTON", which is what the first draft
+# of this round did: UI-A's row IS the legacy literal, so an "either"
+# check accepted UI-A's label for the EXIT click in every world, forever.
+# A chief who read the table with the wrong button constant would ship the
+# byte-identical capture the order forbids and NOTHING in either repository
+# would go red (pf-adversary D2, MEASURED as surviving mutant M3).  Reading
+# the call site instead means the swapped world is checked for the thing
+# that was actually asked for, and the legacy world states in one line that
+# it has not happened yet.
+LEGACY_SHARED_ACTION_LABEL = "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE"
+LEGACY_SHARED_COMPOSED_EVENT = "lane_a_uia_back_refused_notice_composed"
 OBSERVE_FAILED_PREFIX = "lane_a_uia_notice_observe_failed_"
+
+RUNTIME_SOURCE = ROOT / "src/pirateforce_foundation/runtime.py"
+
+
+def _call_site_writes_the_legacy_literal():
+    """True while chief's 0x1B40 branch still hard-codes the shared label.
+
+    The literal appears in `runtime.py` at that call site and nowhere else
+    (verified by grep across both repositories, round `omhpqj`), so its
+    presence IS the world flag.  When the swap lands the string leaves the
+    file and this returns False.
+    """
+
+    code = RUNTIME_SOURCE.read_text(encoding="utf-8")
+    return '"%s"' % LEGACY_SHARED_ACTION_LABEL in code
+
+
+def _expected_label(button):
+    """The one label this button's click must carry in THIS tree."""
+
+    if _call_site_writes_the_legacy_literal():
+        return LEGACY_SHARED_ACTION_LABEL
+    return notice.ACTION_LABEL_BY_BUTTON.get(
+        button, notice.UNLABELLED_BUTTON_ACTION_LABEL,
+    )
+
+
+def _every_action_label():
+    """Every label a composed receipt could ride under, in any world.
+
+    Used by the negatives: "nothing was composed" has to mean no receipt
+    under ANY name.  The fallback token is in here on purpose -- it is a
+    name this round created, and a receipt riding it past a scenario boot
+    was a live surviving mutant while it was missing (pf-adversary D3,
+    M6b).  The first draft of this file had a second hole of the same
+    shape: it filtered the negatives through UI-A's label alone, and the
+    UI-B scenario boot composes a UI-B receipt.
+    """
+
+    names = {LEGACY_SHARED_ACTION_LABEL, notice.UNLABELLED_BUTTON_ACTION_LABEL}
+    names.update(notice.ACTION_LABEL_BY_BUTTON.values())
+    return frozenset(names)
+
+
+def _every_composed_event():
+    """Every name a COMPOSED receipt could be recorded under, in any world.
+
+    There is no per-button event table: `state.events` reaches no attended
+    artifact at all (`GAME_EVENTS_LIVE.txt` is written only by `v141`'s
+    `event()`, which never sees it -- pf-adversary D1, re-measured this
+    round), so this round did not invent a second name for it.
+    """
+
+    return frozenset({
+        LEGACY_SHARED_COMPOSED_EVENT,
+        "lane_a_logout_notice_unlabelled_button",
+    })
 
 
 def _hex(text: str) -> bytes:
@@ -219,8 +303,25 @@ class UiaNoticeWiringTests(unittest.TestCase):
             actions = state.dispatch(self.legacy.parse_outer(frame))
         return state, actions, buffer.getvalue()
 
-    def _notice_actions(self, actions):
-        return [a for a in actions if a[0] == NOTICE_ACTION_LABEL]
+    def _notice_actions(self, actions, button=notice.BUTTON_CHARACTER_SELECT):
+        expected = _expected_label(button)
+        return [a for a in actions if a[0] == expected]
+
+    def _any_notice_action(self, actions):
+        every = _every_action_label()
+        return [a for a in actions if a[0] in every]
+
+    def _assert_composed_once(self, state, button):
+        seen = [e for e in state.events if e in _every_composed_event()]
+        self.assertEqual(len(seen), 1, (seen, state.events))
+        self.assertEqual(seen[0], LEGACY_SHARED_COMPOSED_EVENT, state.events)
+
+    def _assert_nothing_composed(self, state):
+        self.assertEqual(
+            [e for e in state.events if e in _every_composed_event()],
+            [],
+            state.events,
+        )
 
     # ---- the receipt itself -------------------------------------------
 
@@ -229,9 +330,9 @@ class UiaNoticeWiringTests(unittest.TestCase):
         composed = self._notice_actions(actions)
         self.assertEqual(len(composed), 1, actions)
         label, pc, frame, delay = composed[0]
-        self.assertEqual(label, NOTICE_ACTION_LABEL)
+        self.assertEqual(label, _expected_label(notice.BUTTON_CHARACTER_SELECT))
         self.assertEqual(delay, 0.0)
-        self.assertIn(NOTICE_COMPOSED_EVENT, state.events)
+        self._assert_composed_once(state, notice.BUTTON_CHARACTER_SELECT)
         expected_pc, expected_frame = say_wire.make_local_talk_notice_frame(
             self.legacy, notice.UIA_NOTICE_TEXT,
         )
@@ -259,13 +360,15 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # swallows the frame's own inherited replies while leaving this file
         # green.  So pin that the frame's own actions are STILL THERE and
         # still ahead, not just that the receipt is at the end.
-        self.assertEqual(actions[-1][0], NOTICE_ACTION_LABEL)
+        self.assertEqual(
+            actions[-1][0], _expected_label(notice.BUTTON_CHARACTER_SELECT),
+        )
         self.assertGreater(
             len(actions), 1,
             "the click's own inherited replies were swallowed",
         )
         self.assertEqual(
-            [a[0] for a in actions].count(NOTICE_ACTION_LABEL), 1,
+            len(self._notice_actions(actions)), 1, actions,
         )
 
     def test_a_scenario_boot_composes_nothing_and_never_says_composed(self):
@@ -283,8 +386,8 @@ class UiaNoticeWiringTests(unittest.TestCase):
         state, actions, out = self._scenario_click(
             "uia_scenario", UIA_REQUEST_FRAME
         )
-        self.assertEqual(self._notice_actions(actions), [])
-        self.assertNotIn(NOTICE_COMPOSED_EVENT, state.events)
+        self.assertEqual(self._any_notice_action(actions), [])
+        self._assert_nothing_composed(state)
         self.assertNotIn(notice.TOKEN_NOTICE_COMPOSED, out)
         self.assertIn("LANE_A_UIA_NOTICE_NOT_THIS_BOOT", out)
         self.assertIn("lane_a_uia_notice_scenario_owns_frame", state.events)
@@ -301,8 +404,8 @@ class UiaNoticeWiringTests(unittest.TestCase):
         state, actions, out = self._scenario_click(
             "uib_scenario", UIB_REQUEST_FRAME
         )
-        self.assertEqual(self._notice_actions(actions), [])
-        self.assertNotIn(NOTICE_COMPOSED_EVENT, state.events)
+        self.assertEqual(self._any_notice_action(actions), [])
+        self._assert_nothing_composed(state)
         self.assertNotIn(notice.TOKEN_NOTICE_COMPOSED, out)
         self.assertNotIn("EXIT REFUSED", out)
         self.assertIn("LANE_A_UIA_NOTICE_NOT_THIS_BOOT", out)
@@ -331,11 +434,11 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # site sends whatever `observe_parsed` returns, so this test is
         # the proof that the existing wiring carries the second button.
         state, actions, out = self._click("uib", UIB_REQUEST_FRAME)
-        composed = self._notice_actions(actions)
+        composed = self._notice_actions(actions, notice.BUTTON_EXIT_GAME)
         self.assertEqual(len(composed), 1, actions)
         _label, pc, frame, delay = composed[0]
         self.assertEqual(delay, 0.0)
-        self.assertIn(NOTICE_COMPOSED_EVENT, state.events)
+        self._assert_composed_once(state, notice.BUTTON_EXIT_GAME)
         expected_pc, expected_frame = say_wire.make_local_talk_notice_frame(
             self.legacy, notice.UIB_NOTICE_TEXT,
         )
@@ -364,13 +467,16 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # proves the second click keeps its inherited replies, because on
         # the second click there are none to keep.
         _state, actions, _out = self._click("uib_last", UIB_REQUEST_FRAME)
-        self.assertEqual(actions[-1][0], NOTICE_ACTION_LABEL)
+        self.assertEqual(
+            actions[-1][0], _expected_label(notice.BUTTON_EXIT_GAME),
+        )
         self.assertGreater(
             len(actions), 1,
             "the click's own inherited replies were swallowed",
         )
         self.assertEqual(
-            [a[0] for a in actions].count(NOTICE_ACTION_LABEL), 1,
+            len(self._notice_actions(actions, notice.BUTTON_EXIT_GAME)),
+            1, actions,
         )
 
     def test_a_repeated_click_still_answers_and_answers_only_once(self):
@@ -392,12 +498,16 @@ class UiaNoticeWiringTests(unittest.TestCase):
                     self.legacy.parse_outer(UIB_REQUEST_FRAME)
                 )
             seen.append([a[0] for a in actions])
-            self.assertEqual(len(self._notice_actions(actions)), 1, actions)
+            self.assertEqual(
+                len(self._notice_actions(actions, notice.BUTTON_EXIT_GAME)),
+                1, actions,
+            )
             self.assertIn(notice.TOKEN_NOTICE_COMPOSED, buffer.getvalue())
         # The later clicks carry nothing but the receipt, which is exactly
         # why the assertion in the test above is first-request-only.
-        self.assertEqual(seen[1], [NOTICE_ACTION_LABEL], seen)
-        self.assertEqual(seen[2], [NOTICE_ACTION_LABEL], seen)
+        expected = _expected_label(notice.BUTTON_EXIT_GAME)
+        for later in (seen[1], seen[2]):
+            self.assertEqual(later, [expected], seen)
 
     def test_a_non_logout_scenario_boot_still_composes_the_receipt(self):
         # MEASURED, and it contradicts the sentence this lane first wrote
@@ -437,7 +547,10 @@ class UiaNoticeWiringTests(unittest.TestCase):
             buffer.seek(0)
             actions = state.dispatch(legacy.parse_outer(UIB_REQUEST_FRAME))
         out = buffer.getvalue()
-        self.assertEqual(len(self._notice_actions(actions)), 1, actions)
+        self.assertEqual(
+            len(self._notice_actions(actions, notice.BUTTON_EXIT_GAME)),
+            1, actions,
+        )
         self.assertIn(notice.TOKEN_NOTICE_COMPOSED, out)
         self.assertIn("button=EXIT_GAME", out)
         self.assertNotIn("LANE_A_UIA_NOTICE_NOT_THIS_BOOT", out)
@@ -450,6 +563,37 @@ class UiaNoticeWiringTests(unittest.TestCase):
         guard = head[head.rindex("elif ("):]
         self.assertIn("logout_hypothesis_scenario is not None", guard)
 
+    def test_the_ordered_fix_is_either_landed_or_visibly_not_landed(self):
+        # THE ONE TEST THAT CAN GO RED ON THE GOAL ITSELF, and the answer
+        # to "if chief never lands it, what carries the unfinished state
+        # forward?" (pf-adversary, round `omhpqj`).  It drives both of the
+        # owner's captured clicks through the real dispatcher and reads the
+        # labels the sender would write, then holds the tree to whichever
+        # world chief's file says it is in:
+        #
+        #   not landed -> the two labels are THE SAME STRING, which is the
+        #                 defect `20260903_1746` item 2 named: two clicks,
+        #                 byte-identical `SENT` lines.  Green here is not
+        #                 approval, it is the debt stated in one place.
+        #   landed     -> the two labels MUST DIFFER, and each must be its
+        #                 own button's row.  A call site that reads the
+        #                 table with one fixed button constant lands here
+        #                 and goes RED (surviving mutant M3, now closed).
+        _a_state, a_actions, _a_out = self._click("world_a", UIA_REQUEST_FRAME)
+        _b_state, b_actions, _b_out = self._click("world_b", UIB_REQUEST_FRAME)
+        a_label = self._any_notice_action(a_actions)[0][0]
+        b_label = self._any_notice_action(b_actions)[0][0]
+        if _call_site_writes_the_legacy_literal():
+            self.assertEqual(a_label, LEGACY_SHARED_ACTION_LABEL)
+            self.assertEqual(b_label, LEGACY_SHARED_ACTION_LABEL)
+        else:
+            self.assertNotEqual(
+                a_label, b_label,
+                "chief's swap landed but both clicks still share a label",
+            )
+            self.assertEqual(a_label, notice.UIA_ACTION_LABEL)
+            self.assertEqual(b_label, notice.UIB_ACTION_LABEL)
+
     def test_the_two_buttons_reach_the_wire_with_different_bytes(self):
         # End to end, through the real dispatch, not through the composer:
         # what leaves the server for one click is not what leaves it for
@@ -457,8 +601,10 @@ class UiaNoticeWiringTests(unittest.TestCase):
         # sentence would pass every per-button test above and fail here.
         _a_state, a_actions, _a_out = self._click("both_a", UIA_REQUEST_FRAME)
         _b_state, b_actions, _b_out = self._click("both_b", UIB_REQUEST_FRAME)
-        a_pc = self._notice_actions(a_actions)[0][1]
-        b_pc = self._notice_actions(b_actions)[0][1]
+        a_pc = self._notice_actions(
+            a_actions, notice.BUTTON_CHARACTER_SELECT)[0][1]
+        b_pc = self._notice_actions(
+            b_actions, notice.BUTTON_EXIT_GAME)[0][1]
         self.assertNotEqual(a_pc, b_pc)
 
     def test_a_frame_that_is_not_a_logout_vital_is_not_observed_at_all(self):
@@ -475,7 +621,7 @@ class UiaNoticeWiringTests(unittest.TestCase):
             + legacy.u8tag(0x0B, 0)
         )
         _state, actions, out = self._click("not_logout", poll)
-        self.assertEqual(self._notice_actions(actions), [])
+        self.assertEqual(self._any_notice_action(actions), [])
         self.assertNotIn(notice.TOKEN_NOTICE_COMPOSED, out)
         self.assertNotIn(notice.TOKEN_UNCLASSIFIED, out)
 
@@ -494,8 +640,8 @@ class UiaNoticeWiringTests(unittest.TestCase):
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
             actions = state.dispatch(self.legacy.parse_outer(UIA_REQUEST_FRAME))
-        self.assertEqual(self._notice_actions(actions), [])
-        self.assertNotIn(NOTICE_COMPOSED_EVENT, state.events)
+        self.assertEqual(self._any_notice_action(actions), [])
+        self._assert_nothing_composed(state)
         self.assertIn("lane_a_uia_notice_no_selected_no_reply", state.events)
 
     def test_a_withdrawn_module_sends_nothing_and_says_so(self):
@@ -505,8 +651,8 @@ class UiaNoticeWiringTests(unittest.TestCase):
             state, actions, out = self._click("withdrawn", UIA_REQUEST_FRAME)
         finally:
             notice.production_allowed = original
-        self.assertEqual(self._notice_actions(actions), [])
-        self.assertNotIn(NOTICE_COMPOSED_EVENT, state.events)
+        self.assertEqual(self._any_notice_action(actions), [])
+        self._assert_nothing_composed(state)
         self.assertIn(notice.TOKEN_WITHDRAWN, out)
 
     def test_an_observer_that_raises_is_named_and_does_not_reach_the_thread(self):
@@ -523,7 +669,7 @@ class UiaNoticeWiringTests(unittest.TestCase):
             state, actions, _out = self._click("raises", UIA_REQUEST_FRAME)
         finally:
             notice.observe_parsed = original
-        self.assertEqual(self._notice_actions(actions), [])
+        self.assertEqual(self._any_notice_action(actions), [])
         self.assertIn(
             OBSERVE_FAILED_PREFIX + "RuntimeError", state.events,
         )
