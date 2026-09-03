@@ -982,9 +982,20 @@ class ContainmentTests(unittest.TestCase):
         # therefore never run for a player.
         #
         # runtime.py belongs to the chief, so this card does not fix it; it
-        # REFUSES TO LET IT BE SILENT.  It states today's measured answer, and
-        # the day the call site is corrected this test fails and the lane that
-        # owns the fact must come and say what changed.
+        # REFUSES TO LET IT BE SILENT.  It states today's measured answer.
+        #
+        # ~~and the day the call site is corrected this test fails and the
+        # lane that owns the fact must come and say what changed~~ STRUCK,
+        # round `42vxv6`: THAT WAS FALSE AND A pf-adversary PASS MEASURED IT.
+        # This card hardcodes both spellings and asks the RESOLVER; it never
+        # reads the call site at all, so correcting runtime.py:5888 leaves it
+        # green.  The card that actually watches that site, and goes red on
+        # the real fix, is
+        # test_the_gate_answers_what_it_answered_at_every_hand_spelled_site
+        # below.  Keeping this one is still worth it -- it is the direct
+        # statement of WHY the site's spelling is wrong, in one place a
+        # reader can see both forms side by side -- but it may not be cited
+        # as the thing standing guard over the fix.
         from pirateforce_foundation import lane_hooks
         as_called = lane_hooks.module_production_allowed(
             "lane_hooks.lane_b_mob_ai_tick")
@@ -1005,6 +1016,144 @@ class ContainmentTests(unittest.TestCase):
         # is observable by a player -- ATTACK_INTENT_DELIVERABLE is pinned
         # False by test_the_lane_is_not_reachable_from_production_dispatch,
         # and repeating it here would be a second copy, not a second guard.
+
+    # THE ANSWER THE GATE GIVES AT EVERY CALL SITE THAT SPELLS ITS OWN NAME.
+    # Measured 2026-09-03, round `42vxv6`.  Key is "<file>::<spelling>", value
+    # is what lane_hooks.module_production_allowed() returns for that spelling
+    # RIGHT NOW -- not whether the spelling looks well formed.
+    GATE_ANSWERS_AT_HAND_SPELLED_SITES = {
+        "runtime.py::lane_hooks.lane_b_mob_ai_tick": False,
+        "runtime.py::lane_gm_chat_command": True,
+    }
+
+    def test_the_gate_answers_what_it_answered_at_every_hand_spelled_site(self):
+        # ROUND `42vxv6`.  THE GENERAL SHAPE OF WHAT THE CARD ABOVE FOUND.
+        #
+        # The card above states one measured fact about one call site.  This
+        # one asks the question that fact is an instance of, across the tree:
+        # where a call site hands ``module_production_allowed()`` a STRING IT
+        # TYPED ITSELF, what does the gate answer that site today?
+        #
+        # It matters because of a property that function documents and means:
+        # "the closed answer is indistinguishable from the typo, on purpose".
+        # Fail-closed is the right default -- guessing on behalf of an
+        # owner-approved switch is worse -- but the price is that a misspelled
+        # name is a lane silently removed from the product, and nothing was
+        # watching for it.  This lane is paying that price now:
+        # `lane_hooks.lane_b_mob_ai_tick` at runtime.py:5888 is neither the
+        # bare stem nor the fully qualified name, so it is prefixed into
+        # `pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick`,
+        # a key that exists nowhere, and the gate has answered False there on
+        # every frame since that wiring landed.
+        #
+        # IT ASSERTS ON THE GATE'S ANSWER, NOT ON THE SHAPE OF THE STRING, and
+        # that is the whole design (pf-adversary D1/D3 of this round, both
+        # measured against an earlier draft that compared spellings):
+        #  * putting an ``f`` prefix on the string at runtime.py:5888 changes
+        #    no behaviour and leaves the tick just as dead.  The spelling
+        #    draft went RED on it and its own failure message then told the
+        #    reader to publish "fixed" into three artifacts.  This one is
+        #    GREEN, because the answer at that site did not move.
+        #  * breaking the resolver's prefixing -- which closes the live GM
+        #    chat kill switch at runtime.py:6911 along with everything else --
+        #    left the spelling draft GREEN, since every spelling was still
+        #    spelled correctly.  Here it is RED on the row for 6911.
+        #  * the day runtime.py:5888 is corrected, the key moves AND the
+        #    answer becomes True: red, twice over, and whoever corrected it
+        #    has to come and say so.
+        #
+        # WHAT IT DOES NOT CLAIM (pf-adversary D5).  Nothing here is about
+        # REACHABILITY.  A row is a place in the source where the gate is
+        # asked with a hand-typed name; a call under ``if False:`` would earn
+        # a row like any other, and no row is evidence that a frame ever
+        # reaches it.  ``test_dispatch_reachability_is_derived_not_declared``
+        # in this class walks from ``dispatch`` precisely so it can make that
+        # claim; this card deliberately does not.  Nor is the table a
+        # complete account of which lanes are live: a name read out of a
+        # registration (``composer.module``, ``responder.module``) cannot be
+        # misspelled and has no row here at all.
+        from pirateforce_foundation import lane_hooks
+        answers = {}
+        for path in sorted(SRC_ROOT.rglob("*.py")):
+            # A SIBLING'S BROKEN FILE IS NOT THIS LANE'S FAILURE, and this
+            # card parses EVERY file in the package rather than only the ones
+            # that mention this lane, so it needs the guard the sibling card
+            # in tests/test_mob_loot_scene_boundary_wiring.py already has: a
+            # file saved in cp874, or half-written, fails BY NAME instead of
+            # as a UnicodeDecodeError out of pathlib (pf-adversary D6).
+            relative = path.relative_to(SRC_ROOT).as_posix()
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (UnicodeDecodeError, SyntaxError, ValueError) as exc:
+                self.fail("%s cannot be read as Python source (%r): this card "
+                          "cannot answer for a file it cannot parse, and says "
+                          "so instead of failing somewhere else"
+                          % (relative, exc))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                callee = node.func
+                if isinstance(callee, ast.Attribute):
+                    called = callee.attr
+                elif isinstance(callee, ast.Name):
+                    called = callee.id
+                else:
+                    continue
+                if called != "module_production_allowed":
+                    continue
+                # POSITIONAL *OR* KEYWORD.  An earlier draft read node.args[0]
+                # only and skipped the call outright when args was empty, so
+                # ``module_production_allowed(module_name="...")`` -- the
+                # spelling the parameter's own name invites -- walked straight
+                # past it (pf-adversary D2, measured green on a planted typo).
+                spelled = None
+                if node.args:
+                    spelled = node.args[0]
+                for keyword in node.keywords:
+                    if keyword.arg == "module_name":
+                        spelled = keyword.value
+                literal = self._string_literal(spelled)
+                if literal is None:
+                    continue
+                answers["%s::%s" % (relative, literal)] = (
+                    lane_hooks.module_production_allowed(literal))
+        self.assertEqual(
+            answers, self.GATE_ANSWERS_AT_HAND_SPELLED_SITES,
+            "the gate's answers at hand-spelled call sites have moved. A row "
+            "that turned True means a lane that was being refused is now let "
+            "through -- if that is runtime.py::lane_b_mob_ai_tick, the aggro "
+            "TICK has come alive and this table, mob_aggro's prose and the "
+            "shipped pin scenarios/combat_aggro_001.json have to say so "
+            "together. A row that turned False means a lane is now being "
+            "refused where it was not: that is either an owner closing a "
+            "switch on purpose or a name that stopped resolving, and the two "
+            "are indistinguishable here BY DESIGN of the gate, so say which. "
+            "A row that vanished means a call site stopped spelling its name "
+            "literally and is no longer watched by anything. A NEW row is a "
+            "gate name nobody has written an answer for yet."
+        )
+
+    @staticmethod
+    def _string_literal(node) -> str | None:
+        """The string a call site typed, or None if it did not type one.
+
+        Unwraps an f-string with no interpolations in it, because ``f"x"`` and
+        ``"x"`` are the same bytes to every reader except an AST walk -- the
+        behaviour-neutral edit that took the first draft of the card above
+        apart (pf-adversary D1).  A genuinely computed name (an f-string with
+        a ``{}`` in it, a named constant, a variable) is NOT a hand-typed
+        spelling and is deliberately not answered for: this card would be
+        guessing, and guessing is the failure the gate itself exists to
+        prevent.
+        """
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.JoinedStr) and all(
+                isinstance(part, ast.Constant) and isinstance(part.value, str)
+                for part in node.values):
+            return "".join(part.value for part in node.values)
+        return None
+
 
     def test_the_import_scan_sees_the_forms_it_claims(self):
         # THE FIX FROM THE FIRST pf-adversary PASS HAD NO GUARD OF ITS OWN.
