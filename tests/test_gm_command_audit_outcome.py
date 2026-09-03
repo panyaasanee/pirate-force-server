@@ -32,6 +32,7 @@ way it used to.
 from __future__ import annotations
 
 import ast
+import contextlib
 import json
 import pathlib
 import struct
@@ -169,11 +170,27 @@ class _Case(unittest.TestCase):
         ]
 
     def open_the_warp_gate(self):
-        return mock.patch.object(
-            teleport_wire,
-            "FORCE_POS_VITAL_VERSION_CONFIRMED",
-            UNPROVEN_TEST_VERSION,
-        )
+        return self._force_pos_gates(UNPROVEN_TEST_VERSION)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _force_pos_gates(version):
+        """Both gates the same-scene ForcePos route now stands behind.
+
+        `COO-DECISION 20260903_1744` item 3 added a POLICY gate
+        (`warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED`, shipped
+        False after R306 measured this frame closing the client with
+        `ErrorData=28317`) in front of the version byte.  It is read FIRST,
+        so a test isolating the version gate -- open OR shut -- has to hold
+        the policy gate open, or it asserts on the wrong refusal and goes
+        green while its own branch is never reached.
+        """
+        with mock.patch.object(
+            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", version
+        ), mock.patch.object(
+            warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ):
+            yield
 
     def close_the_warp_gate(self):
         """The sibling of `open_the_warp_gate`, for the withheld side of the
@@ -181,9 +198,7 @@ class _Case(unittest.TestCase):
         the shipped constant to `0`, so the withheld state is no longer the
         default -- a test proving it has to force the gate shut itself.
         """
-        return mock.patch.object(
-            teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
-        )
+        return self._force_pos_gates(None)
 
 
 class TheTwoStatesAreDistinguishableTests(_Case):

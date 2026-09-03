@@ -649,6 +649,56 @@ WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
 # That was invisible everywhere except the ndjson `outcome` word.
 STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 
+# And a SIXTH, asked for by name in `COO-DECISION 20260903_1845` item 2
+# ("a new console token that says same-scene teleport sent"), serving
+# `PANYA-DECISION 1800`.
+#
+# WHY IT IS NOT SILENCE, which is what every other SENT command gets.  A sent
+# command normally says nothing here -- `route=action` plus the serve loop's
+# own `[G>] <label>` line is its record, and `_announce_console_outcome`
+# returns early on `sent` for exactly that reason.  This one shape is the
+# case where that record is ambiguous to the person who typed it: the label
+# it carries is `LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_TELEPORT_VITAL`,
+# whose own comment promises an attended tester it means "the GM crossed
+# scenes".  Since `PANYA-DECISION 1800` that same label also goes out for a
+# warp that crosses nothing, and a console that cannot tell the two apart
+# would make the label's promise false rather than merely incomplete.
+#
+# WHY IT IS NOT `STAGED_CONSOLE_TOKEN` WITH A NEW `next=` FIELD, the cheap
+# version this round rejected: that token's whole meaning is "no bytes were
+# sent and your NEXT login is what changed".  Both halves are now false for
+# this shape, and the owner's own report of the bug is that she read the
+# staged line as "nothing happened".  Reusing it would keep the sentence she
+# misread and change only the words after it.  `GM_CHAT_STAGED_NEXT_LOGIN`
+# must NOT appear for a marker-backed same-scene warp any more -- that is a
+# pass criterion of the attended ticket, not a nicety, and the test named
+# `test_the_staged_token_is_not_printed_for_a_same_scene_marker_warp` pins
+# it against the mutant that keeps the old routing.
+SAME_SCENE_TELEPORT_CONSOLE_TOKEN = "GM_CHAT_SAME_SCENE_TELEPORT_SENT"
+
+# The `basis=` field on that line, and it is a correction, not decoration
+# (pf-adversary, round `07kjfd`, D2, MEASURED on the real dispatcher).
+#
+# `_warp_action` decides "same scene" by comparing the typed scene id against
+# `session.foundation.selected.position.scene_id`.  `runtime.py`'s
+# `_gm_warp_resync_selected_scene` REWRITES that field to a cross-scene
+# warp's DESTINATION at queue time, with nothing from the client confirming
+# the arrival.  So a GM in scene 1 who types `/warp 5` and then, seeing
+# nothing happen, types `/warp 5` again gets this token on the second one --
+# and typing it again is exactly what the round exists to make work.
+#
+# The routing is still right (both shapes send the same frame to the same
+# pinned spawn, so the retry does what she wants), but the WORD "same scene"
+# is the server's belief about where she is, not a measured fact about where
+# she is.  Naming the basis on the line is what this lane can honestly do
+# from inside its own zone: the field that would fix it -- a last
+# CLIENT-CONFIRMED scene, distinct from the label the server wrote for
+# itself -- lives in `runtime.py`, which is chief's file.  Asked for in
+# `CORE-REQUEST-GM-051` (letter `pf_bridge/notes_to_chief/20260903_2001_
+# LANE-GM-CORE-REQUEST-CHIEF-051-052-*`), whose sibling `-052` covers the
+# move-authority grace window this same change made reachable.
+SAME_SCENE_BASIS_FIELD = "server_believed_scene"
+
 # The token that answers "did the sentence really leave the server?".
 #
 # pf-adversary (round `aa9ajr`) asked the one question this change had not
@@ -862,6 +912,15 @@ EVENT_WARP_WITHHELD_NO_VERSION = (
     "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_version_re129_open"
 )
 EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
+# COO-DECISION `20260903_1744` item 3: the same-scene ForcePos shape is shut
+# by POLICY after R306 measured it closing the client (`ErrorData=28317`).
+# Its own event name, not a reuse of `EVENT_WARP_WITHHELD_NO_VERSION`: a
+# replay tool reading the trail must be able to tell "RE-129's byte is
+# missing" (answered, and open again would be news) from "the shape this
+# byte sits in killed a client and COO shut the route".
+EVENT_WARP_WITHHELD_FORCE_POS_CLOSED = (
+    "gm_chat_action_warp_withheld_same_scene_force_pos_closed_r306"
+)
 # The warp went out but its destination could not be parked for the position
 # reader (a session that refuses attributes).  NOT a refusal -- the frame is
 # real -- so it is deliberately outside `EVENT_WARP_REFUSED_PREFIX`, whose
@@ -1114,6 +1173,15 @@ OUTCOME_SAY_WITHHELD_NO_VERSION = (
     f"{OUTCOME_WITHHELD_PREFIX}gm_global_message_vital_version"
 )
 OUTCOME_WARP_NO_POSITION = f"{OUTCOME_REFUSED_PREFIX}warp_no_current_position"
+# The audit word for COO `1744` item 3's closure.  `withheld_`, not
+# `refused_`: the command was well formed and came from an allowlisted GM,
+# and this route's own vocabulary reserves `refused_` for "we could not read
+# what you typed".  The gate name is spelled the way the RE tickets will --
+# an audit reader goes straight to the open question, same rule the two
+# `withheld_*_vital_version` words above keep.
+OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED = (
+    f"{OUTCOME_WITHHELD_PREFIX}same_scene_force_pos_frame_shape"
+)
 OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
     f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
 )
@@ -1244,6 +1312,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     ),
     OUTCOME_WARP_NO_POSITION: (
         "this connection has no current position to warp from"
+    ),
+    OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED: (
+        "R306 closed the client with ErrorData=28317 on this 45-byte"
+        " ForcePos; COO shut the same-scene coordinate warp until the frame"
+        " shape is diffed against a real capture -- bare /warp <n> still works"
     ),
     OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
         "the confirmed vital_version is not the codec's; composing"
@@ -1407,6 +1480,19 @@ class _Verdict:
     #     audit reader cannot tell such a pair from a command that really ran
     #     (LANE-GM's letter `20260902_0419`, question 1).
     is_notice: bool = False
+    # True when this handler composed the bare `/warp <n>` TeleportVital for
+    # the scene the connection is ALREADY IN (`PANYA-DECISION 1800`).  Read
+    # by `_announce_console_outcome` and by nothing else: it picks WHICH
+    # console token an attended tester greps, and it can never change which
+    # bytes go out -- the frame, the label and the audit outcome are
+    # identical to the cross-scene shape's, on purpose.
+    #
+    # A FIELD RATHER THAN A SECOND ACTION LABEL, because the label is read by
+    # `runtime.py`'s `_GM_WARP_LABELS` resync and by the `TELEPORT`-substring
+    # move-authority rule, and a fourth label would have had to be added to
+    # both by hand -- the exact drift `WARP_CROSS_SCENE_NO_COORDS_TELEPORT_
+    # ACTION_LABEL` already caused once (pf-adversary, round `zkqaq1`).
+    same_scene_teleport: bool = False
 
 
 def _note(session: object, event: str) -> None:
@@ -2240,21 +2326,41 @@ def _warp_action(
 ) -> _Verdict:
     """`/warp`'s four shapes -- see `_make_action`'s single write point.
 
-    THE ROUTING RULE, IN ONE SENTENCE, UPDATED BY COO-DECISION
-    2026-08-31T14:41+07:00 AND THEN BY GM-A (`R278`, this round): `warp
-    <scene_id> x y` inside the scene the connection is already in is the
-    ForcePos half (frozen shut by COO-DECISION 20260829_0041 until chief's
-    confirmation token compares against the commanded point); `warp
-    <scene_id> x y` naming a DIFFERENT scene is the live cross-scene
-    TeleportVital half (`_warp_teleport_action`, gated on
-    `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED`); the bare
-    `warp <scene_id>` form naming a DIFFERENT, MARKER-BACKED scene
-    (`warp_no_coords_live_target` not None) is NOW ALSO live -- a second
-    TeleportVital half, `_warp_teleport_action_no_coords`, aimed at the
-    destination's own pinned marker spawn instead of typed coordinates; and
-    every remaining bare-form case (same scene, or a markerless destination
-    such as 17/126/278/997) still stages the account's next login scene,
-    because neither live composer has a position to put in a frame there.
+    THE ROUTING RULE, IN ONE SENTENCE, AS THIS FUNCTION ACTUALLY ROUTES AT
+    HEAD (rewritten in round `07kjfd`; the paragraph it replaced is struck
+    below, because pf-adversary D11 measured it describing the PREVIOUS
+    round's behaviour on both halves -- and it is the paragraph a reviewer
+    reads first):
+      * `warp <n> x y` INSIDE the scene the connection is already in is the
+        ForcePos half, and it is CLOSED -- `warp_executor.
+        WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` ships False after R306
+        measured that 45-byte frame closing the client with
+        `ErrorData=28317` (COO-DECISION `20260903_1744` item 3).  It refuses
+        above the version read and above `_park_warp_target`.
+      * `warp <n> x y` naming a DIFFERENT scene is the live cross-scene
+        TeleportVital half (`_warp_teleport_action`, gated on
+        `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED`, True).
+      * BARE `warp <n>` into any MARKER-BACKED scene -- same scene or a
+        different one -- is live: `_warp_teleport_action_no_coords`, aimed at
+        that scene's own pinned marker spawn.  The same-scene case became
+        live by `PANYA-DECISION 20260903_1800`; it differs from the
+        cross-scene case only in which console token gets printed.
+      * What is LEFT staging the account's next login scene is exactly one
+        thing: a bare `warp <n>` into a MARKERLESS destination
+        (17/126/278/997, `n_MARKER == 0`, GT-182 nonclaim 4) -- same scene or
+        not, because no live composer has a spawn to put in a frame there.
+
+    ~~THE ROUTING RULE ... UPDATED BY COO-DECISION 2026-08-31T14:41+07:00
+    AND THEN BY GM-A (R278): `warp <scene_id> x y` inside the scene the
+    connection is already in is the ForcePos half (frozen shut by
+    COO-DECISION 20260829_0041 until chief's confirmation token compares
+    against the commanded point) ... and every remaining bare-form case
+    (same scene, or a markerless destination such as 17/126/278/997) still
+    stages the account's next login scene, because neither live composer has
+    a position to put in a frame there.~~ Both of those clauses went false
+    in round `07kjfd`: the ForcePos half is shut by a DIFFERENT gate than the
+    one named (that one is about a confirmation token; this one is about a
+    frame that killed a client), and "same scene" left the staging bucket.
 
     ~~EVERYTHING ELSE ... stages the account's next login scene instead of
     being refused outright.~~ That was true from round `gejldf` (which
@@ -2306,16 +2412,47 @@ def _warp_action(
 
     # GM-A: the bare (no-coordinates) cross-scene shape now ALSO fires live,
     # but only into a scene `warp_no_coords_live_target` names as
-    # marker-backed -- everything else (same scene with no coordinates, or
+    # marker-backed -- ~~everything else (same scene with no coordinates, or
     # a markerless destination such as 17/126/278/997, GT-182 nonclaim 4)
-    # falls through unchanged to the stage-only branch two lines down.
+    # falls through unchanged to the stage-only branch two lines down.~~
+    #
+    # STRUCK BY THE OWNER, 2026-09-03T17:58+07:00, live in the R307 attended
+    # round (`pf_bridge/notes_to_chief/20260903_1800_PANYA-DECISION-warp-to-
+    # the-scene-you-are-already-in-must-teleport-to-that-scenes-spawn-not-
+    # stage-next-login.md`, carried into this lane's order by `COO-DECISION
+    # 20260903_1845`).  "SAME scene with no coordinates" is no longer part of
+    # "everything else": `/warp 2` typed while standing in scene 2 now fires
+    # the SAME live 73-byte TeleportVital at scene 2's own pinned marker
+    # spawn that a cross-scene `/warp 2` fires.  What she measured before
+    # this change: the command staged her NEXT login and sent nothing, which
+    # mid-session reads as "nothing happened" -- and relogging costs the
+    # whole session while the logout buttons are still refused (UI-A/UI-B).
+    # Her workaround was `/warp 1` then `/warp 2`, i.e. paying for two live
+    # cross-scene teleports to get the one this branch now sends directly.
+    #
+    # THE SCENE-ID TEST IS GONE FROM THIS CONDITION, NOT INVERTED INTO A
+    # SECOND BRANCH.  Both shapes send byte-identical frames built by the
+    # same composer from the same registry entry -- a second branch would be
+    # two spellings of one behaviour, and the only real difference (which
+    # console token an attended tester greps) is carried by `same_scene`
+    # below, decided here, in the one function that knows the current scene.
+    #
+    # WHAT STILL FALLS THROUGH TO STAGING is now exactly one thing: a
+    # MARKERLESS destination (17/126/278/997, `n_MARKER == 0`, GT-182
+    # nonclaim 4) -- same scene or not.  `warp_no_coords_live_target` is
+    # still the one place that decides which scenes qualify, and this change
+    # does not touch it, so GT-141's pinned scene-278 answer is unchanged.
     if (
-        target_scene_id != position.scene_id
-        and not has_coordinates
+        not has_coordinates
         and warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED
         and warp_no_coords_live_target(target_scene_id) is not None
     ):
-        return _warp_teleport_action_no_coords(session, target_scene_id, legacy)
+        return _warp_teleport_action_no_coords(
+            session,
+            target_scene_id,
+            legacy,
+            same_scene=target_scene_id == position.scene_id,
+        )
 
     if target_scene_id != position.scene_id or not has_coordinates:
         return _stage_action(
@@ -2327,6 +2464,33 @@ def _warp_action(
             login_scene_config_path=login_scene_config_path,
             scene_registry=scene_registry,
         )
+
+    if not warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED:
+        # COO-DECISION `1744` item 3 / `1845` item 3, from R306's cross-lane
+        # finding 3: this frame closed the owner's client with
+        # `ErrorData=28317`.  Refused HERE, above the version read, so the
+        # console line names the R306 measurement rather than RE-129 -- the
+        # byte is not what is wrong, and an attended tester sent to the wrong
+        # ticket by a `why=` word is the whole reason this route prints one.
+        #
+        # ABOVE the composer and above `_park_warp_target`, so this refusal
+        # cannot leave a parked target behind for chief's confirmation token
+        # to compare a real step against (the hazard `_park_warp_target`'s own
+        # docstring names).  Nothing below this line runs.
+        #
+        # !! WHAT THIS SHADOWS, WRITTEN DOWN BECAUSE NOTHING ELSE RECORDS IT
+        # (pf-adversary, round `07kjfd`, D12).  With this gate shipped False
+        # and read FIRST, every line below is now unreachable on a real boot:
+        # `EVENT_WARP_WITHHELD_NO_VERSION`, `OUTCOME_WARP_WITHHELD_NO_VERSION`,
+        # `make_warp_force_pos_frame_with_target`, `WARP_ACTION_LABEL` and its
+        # entries in `_make_action`'s stale-target-clear tuple and in
+        # `runtime.py`'s `_GM_WARP_LABELS`.  Their tests all reach them
+        # through a patched flag, so they are green because they are never
+        # got to -- not because a boot proves them.  That is the honest state
+        # of RE-129's gate while COO's closure stands, and the round that
+        # reopens this gate inherits, not discovers, that fact.
+        _note(session, EVENT_WARP_WITHHELD_FORCE_POS_CLOSED)
+        return _Verdict(None, OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED)
 
     version = teleport_wire.FORCE_POS_VITAL_VERSION_CONFIRMED
     if version is None:
@@ -2443,8 +2607,25 @@ def _warp_teleport_action_no_coords(
     session: object,
     scene_id: int,
     legacy: object,
+    *,
+    same_scene: bool = False,
 ) -> _Verdict:
-    """GM-A: the cross-scene half of `/warp` WITHOUT typed coordinates.
+    """GM-A: the half of `/warp` WITHOUT typed coordinates.
+
+    ~~the cross-scene half~~ -- struck 2026-09-03 by `PANYA-DECISION 1800`
+    (see `_warp_action`'s own record of it): this function now serves the
+    same-scene bare `/warp <n>` too, and the two cases differ in exactly one
+    observable way, `same_scene`.
+
+    `same_scene` DECIDES A CONSOLE TOKEN AND NOTHING ELSE.  It is not read
+    by the frame builder, does not reach the wire, and cannot change which
+    bytes go out -- both shapes send the same 73-byte TeleportVital aimed at
+    `scene_id`'s own pinned marker spawn, which is the whole reason the
+    owner's decision could be served by widening one branch instead of
+    opening a second wire path.  It is passed in rather than re-derived here
+    because `_warp_action` already read the connection's current position
+    (it has to, to route at all) and a second read could disagree with the
+    first one across an intervening client update.
 
     Sibling of `_warp_teleport_action` above -- same `_Verdict` shape, same
     `_park_warp_target`/audit discipline, same "no new runtime.py call site"
@@ -2485,6 +2666,7 @@ def _warp_teleport_action_no_coords(
     return _Verdict(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),
         OUTCOME_COMPOSED,
+        same_scene_teleport=same_scene,
     )
 
 
@@ -3073,6 +3255,77 @@ def _print_staged_way_out(
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
 
 
+def _print_same_scene_teleport(
+    session: object,
+    token: str,
+    command: object,
+) -> None:
+    """Say that a bare `/warp <n>` moved the GM inside the scene she is in.
+
+    The one SENT command that also speaks here.  See
+    `SAME_SCENE_TELEPORT_CONSOLE_TOKEN` for why this shape is the exception
+    to "a sent command's record is `route=action` plus the serve loop's
+    label", and `_announce_console_outcome` for the one call site.
+
+    THE SCENE ID IS RE-DERIVED FROM THE COMMAND, exactly as
+    `_print_staged_way_out` re-derives its own, and renders `unknown` rather
+    than raising when the args cannot be read: a diagnostic may never alter
+    dispatch, and by the time this runs the frame is already on its way.
+
+    NO COORDINATES ARE PRINTED, deliberately.  The spawn point this warp
+    aimed at is already recorded in exactly one place -- the parked
+    `WarpTarget`, which is what chief's confirmation token
+    (CORE-REQUEST-GM-031) compares the next position report against.  A
+    second rendering of the same three floats on the console is a second
+    source of truth for the one fact this line is NOT evidence of.
+
+    NONCLAIM, and it is the reason the token ends in `SENT` rather than in
+    anything about arriving: this line says the frame left the server. It is
+    not evidence the client moved, that the marker spawn is walkable, or
+    that the scene re-rendered -- `RE-162`'s finding that no census follows a
+    mid-session TeleportVital is inherited by this shape unchanged, and the
+    owner's own decision (`1800` item 3) left the census question with
+    LANE-A/LANE-B.
+
+    ~~next='you were moved to this scene own spawn point now; nothing was
+    staged for the next login'~~ -- THE FIRST DRAFT OF THIS LINE SAID BOTH OF
+    THOSE AND BOTH WERE WRONG (pf-adversary, round `07kjfd`, D1, MEASURED).
+    "You were moved" is a claim about her SCREEN made from a wire fact, i.e.
+    the exact claim the paragraph above and this round's own `docs/GM_LANE.md`
+    NONCLAIM forbid -- printed on the one artifact an attended tester
+    actually greps, where it outranks three explanations she will never read.
+    "Nothing was staged for the next login" is a claim about ACCOUNT STATE
+    this printer never reads: measured end to end, `/warp 278` then `/warp 1`
+    left `gm_login_scene.json` still holding 278 while this line told her
+    nothing was staged, so she would relog into 278 having been told
+    otherwise.  What replaced them says only what this command did: a frame
+    left the server, this line is not the client's answer, and THIS COMMAND
+    wrote no next-login scene (which is true; an EARLIER `/warp` may still
+    have, and that is `GM_CHAT_STAGED_NEXT_LOGIN`'s line to answer for).
+    """
+    stream = sys.stderr
+    if stream is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return
+    try:
+        try:
+            scene_id = int(warp_command_scene_id(command))
+        except Exception:  # noqa: BLE001 - see the docstring
+            scene_id = "unknown"
+        print(
+            f"{SAME_SCENE_TELEPORT_CONSOLE_TOKEN} "
+            f"account='{console_safe(_one_line(token), stream)}' "
+            f"command=warp scene_id={scene_id} coordinates=none "
+            f"basis={SAME_SCENE_BASIS_FIELD} "
+            "next='a teleport frame for this scene own pinned spawn left the"
+            " server; this line does not say the client moved, and this"
+            " command wrote no next-login scene'",
+            file=stream,
+        )
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+
+
 def _trial_console_field() -> str:
     """`speed_wire.trial_console_field()`, wrapped so a printer never raises.
 
@@ -3497,6 +3750,17 @@ def _announce_console_outcome(
         # out, and `GT-193` step 9 grades exactly that. Printing it here
         # keeps the "ONE place the console is told" property intact.
         _print_notice_sent(session, token, getattr(command, "name", None))
+    if sent and verdict.same_scene_teleport:
+        # THE ONE SENT SHAPE THAT SPEAKS HERE (`PANYA-DECISION 1800`), and it
+        # is keyed on the caller's `sent`, not on the verdict's action, for
+        # the same reason every other branch below is: a frame the audit
+        # failure dropped is not sent, and this line must not claim a
+        # teleport for a command whose bytes were withheld one function up.
+        # Falling through to the `sent` return below would leave the tester
+        # with a label that says "cross-scene" for a warp that crossed
+        # nothing; falling into the no-bytes branches would be worse still.
+        _print_same_scene_teleport(session, token, command)
+        return
     if sent:
         return
     if verdict.audit_outcome in STAGED_OUTCOMES and audited:
