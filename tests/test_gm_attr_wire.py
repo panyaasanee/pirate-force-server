@@ -278,9 +278,14 @@ class MakeUpdateAttrFrameTests(unittest.TestCase):
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
     def test_frame_wraps_body_in_ac_attr_wrapper_and_runtime_vitals_envelope(self):
-        level_x = BY_NAME["level"][0]
-        pc, frame = make_update_attr_frame(self.legacy, 1, 0, {level_x: 9})
-        body, _bm, _am = encode_block(self.legacy, 1, 0, {level_x: 9})
+        # Now composed from a FULL block: `COO-DECISION 20260904_0345` item 1
+        # moved (b'')'s raise to this function, so the single-row block this
+        # test used to pass no longer produces a frame at all (that case is
+        # `TheFrameExitIsTheWallTests` below).  The envelope shape being
+        # pinned here is unchanged -- only the input that reaches it is.
+        values = _full_values()
+        pc, frame = make_update_attr_frame(self.legacy, 1, 0, values)
+        body, _bm, _am = encode_block(self.legacy, 1, 0, values)
         expected_payload = (
             self.legacy.u16tag(0x12, 1)
             + self.legacy.u16tag(0x12, AC_ATTR_ID)
@@ -294,8 +299,73 @@ class MakeUpdateAttrFrameTests(unittest.TestCase):
         self.assertEqual(frame, expected_frame)
 
     def test_pc_carries_the_update_attr_vital_id(self):
-        pc, _frame = make_update_attr_frame(self.legacy, 1, 0, {})
+        pc, _frame = make_update_attr_frame(self.legacy, 1, 0, _full_values())
         self.assertIn(struct.pack("<H", UPDATE_ATTR_VITAL_ID), pc)
+
+
+class TheFrameExitIsTheWallTests(unittest.TestCase):
+    """`COO-DECISION 20260904_0345` item 1: the (b'') raise belongs at the
+    function that returns a wire-ready `0x309A` frame, not at `encode_block`.
+
+    THIS IS THE MUTATION SET FOR THAT WALL.  The property being pinned is
+    NOT "one door refuses" -- `BuildNamedFieldUpdateCompletenessTests` below
+    already pins that, and this lane's own alarm `20260904_0309` measured
+    why it was not enough: a caller that never touches
+    `build_named_field_update` (which is what `speed_wire` was doing) went
+    straight past it.  What is pinned here is that NO caller can build a
+    partial frame, whatever route it takes.
+    """
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_mutant_a_block_missing_exactly_one_row_never_becomes_a_frame(self):
+        # Every row, one at a time: dropping any single row must cost the
+        # frame.  A mutant that restored the old behaviour for even one row
+        # (say, a `known=False` one someone judged harmless) turns this red.
+        for field in FIELDS:
+            values = _full_values()
+            del values[field[0]]
+            with self.assertRaises(
+                AttrWireError,
+                msg=f"x={field[0]} ({field[6]}) missing alone must cost the frame",
+            ) as caught:
+                make_update_attr_frame(self.legacy, 1, 0, values)
+            self.assertIn(str(field[0]), str(caught.exception))
+
+    def test_mutant_the_empty_block_is_refused_too(self):
+        with self.assertRaises(AttrWireError):
+            make_update_attr_frame(self.legacy, 1, 0, {})
+
+    def test_the_gt218_shape_itself_can_no_longer_be_built(self):
+        # THE SHAPE THAT KILLED A REAL CLIENT, named by the row it carried:
+        # x=7 alone is byte-for-byte what `/speed` shipped in GT-193/GT-218
+        # (HP 0/1, cash 0 in one frame).  `COO-DECISION 20260904_0345`
+        # item 1 says pinning that this can no longer be BUILT is worth more
+        # than pinning that it still can.
+        speed_x = BY_NAME["basic_f32_54"][0]
+        with self.assertRaises(AttrWireError):
+            make_update_attr_frame(self.legacy, 1, 0, {speed_x: 400.0})
+
+    def test_a_full_block_still_builds(self):
+        # The negative control: the wall refuses partial blocks, not all of
+        # them.  Without this, deleting the whole function body would pass
+        # every test above.
+        pc, frame = make_update_attr_frame(self.legacy, 1, 0, _full_values())
+        self.assertTrue(pc)
+        self.assertTrue(frame)
+
+    def test_encode_block_is_deliberately_still_sparse_capable(self):
+        # The other half of item 1, and the reason the raise did NOT go into
+        # `encode_block`: a body with no frame header cannot leave the
+        # server, and LANE-DB's `persistence_attr_compose` tests plus this
+        # lane's own shape measurement both compose sparse bodies on purpose.
+        # If a later round moves the raise down here, that peer lane's tests
+        # go red and this one says why it must not.
+        body, basic_mask, actor_mask = encode_block(self.legacy, 1, 0, {2: 5})
+        self.assertTrue(body)
+        self.assertEqual(basic_mask, BY_NAME["level"][2])
+        self.assertEqual(actor_mask, 0)
 
 
 class BuildNamedFieldUpdateCompletenessTests(unittest.TestCase):

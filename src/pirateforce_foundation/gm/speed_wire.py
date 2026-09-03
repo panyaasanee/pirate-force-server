@@ -158,35 +158,52 @@ def parse_speed_value(text: str) -> float:
 def compose_sparse_speed_update(
     legacy, identity_lo: int, identity_hi: int, value: float,
 ) -> tuple[bytes, bytes]:
-    """The ONE frame COO-ORDER 1641 approved: x=7 alone, no merge, no cache.
+    """~~The ONE frame COO-ORDER 1641 approved: x=7 alone, no merge, no
+    cache.~~  THIS FUNCTION NO LONGER PRODUCES A FRAME.  It refuses, by
+    name, every call -- `COO-DECISION 20260904_0345` item 2, answering this
+    lane's own alarm `20260904_0309`.
 
-    STILL A LIVE COMPOSER AFTER `COO-DECISION 20260904_0215` ("(b') IS NOW
-    (b'')") -- deliberately: that decision's guarantee is enforced at
-    `attr_wire.build_named_field_update`'s cache-completeness check, scoped
-    to THAT door, not inside the shared `attr_wire.encode_block` composer
-    this function calls through `make_update_attr_frame` -- see
-    `encode_block`'s own docstring for the measurement that found widening
-    IT would have broken this file's own `tests/test_gm_speed_shape_hold.py`
-    (pins GT-193's real attended-round frame byte-for-byte through this
-    exact sparse call shape) and a LANE-DB test outside this lane's write
-    zone.
+    ~~STILL A LIVE COMPOSER AFTER `COO-DECISION 20260904_0215`~~ -- struck,
+    not deleted (house rule: strike history, never erase it).  That reading
+    was true for one round and is now withdrawn at the source: COO chose
+    option (kh) of the alarm -- `PF_SPEED_TRIAL` goes UNDER (b''), it is not
+    a scoped risk held outside it -- and withdrew his own 2026-09-03 06:46
+    approval of the escape hatch, because that approval predates `RE-222`
+    (2026-09-03 21:49).
 
-    THIS FUNCTION'S OWN TWO STANDING LOCKS (`SHAPES_CLEARED_BY_A_REAL_
-    CLIENT`, `SPEED_LOGIN_READ_LANDED`, both below) hold by default, but
-    they are NOT the only door: `chat_command_action._speed_action` reads
-    `trial_admits(stored)` first and, when the owner has armed
-    `PF_SPEED_TRIAL=<value>` in her own process environment, both locks are
-    bypassed on purpose and this function composes and sends -- a real,
-    COO-approved, owner-only, single-session escape hatch for exactly the
-    GT-218 attended round, not a bug this docstring is hiding. pf-adversary
-    (this round) measured that (b'') does not cover this path: the sparse
-    shape this function still produces is byte-for-byte the shape that
-    killed a client in GT-218/GT-193. Whether that is an accepted, scoped
-    risk or something (b'') should also close is raised, not settled, in
-    `pf_bridge/notes_to_chief/20260904_0309_LANE-GM-ALARM-speed-trial-gate-
-    and-encode-block-not-covered-by-bdprime.md`.
+    WHY THERE IS NO "SAFE VALUE" LEFT TO SEND.  `RE-222` Q0 (SHA-pinned)
+    says the client applies `0x309A` as a full-object copy whose constructor
+    zeroes every field before decode.  The damage therefore does NOT depend
+    on the number in x=7 at all -- it is the 54 rows this frame did not
+    carry.  `GT-218` measured it on a real client in one frame: HP `0/1`,
+    cash `0`.  Picking a "safe" speed on a half block is picking which
+    number rides along with the zeroing, so this door closes rather than
+    narrows.
 
-    Raises `SpeedWireError` for a non-finite or non-numeric `value`.
+    WHAT REPLACES IT.  Nothing, yet, and that is deliberate: the full door
+    (`attr_wire.build_named_field_update`, seeded through
+    `attr_wire.live_full_block_values`) is the only shape allowed to carry
+    a speed change now, and it refuses today because chief's two read points
+    (`COO-DECISION 20260904_0216`) are not both on main.  So an owner who
+    arms `PF_SPEED_TRIAL` today gets a REFUSAL WITH ONE CONSOLE LINE AND
+    ZERO BYTES OUT -- `chat_command_action._speed_action` already routes a
+    raising composer to `_speed_denied` with its own audit word
+    (`speed_persist_compose_refused_SpeedWireError`), so this refusal is
+    never silent.  `GT-218` is not delayed BY this: it was already waiting
+    on chief's read points (see `NOW.md`).
+
+    DEFENCE IN DEPTH, NOT THE WALL.  The wall is
+    `attr_wire.make_update_attr_frame`, which since `COO-DECISION
+    20260904_0345` item 1 refuses any block short of `all_field_x()` -- this
+    function's `{7: value}` would raise there even if this refusal were
+    deleted.  The raise here is the earlier, better-named half of the same
+    answer; a reader who deletes one still hits the other.
+
+    Raises `SpeedWireError` unconditionally.  The value checks below still
+    run FIRST and keep their own words, so a caller passing rubbish is told
+    it passed rubbish rather than being told the door is shut -- the two
+    facts send an operator to two different places, the same split
+    `attr_wire.live_named_values` keeps between `absent` and `unsendable`.
     Everything else -- `identity_lo`/`identity_hi` types, the f32 encode
     itself -- is `attr_wire.encode_block`'s own contract; this function does
     not re-validate what that one already guards, the same separation
@@ -214,8 +231,14 @@ def compose_sparse_speed_update(
     fvalue = float(value)
     if not math.isfinite(fvalue):
         raise SpeedWireError(f"speed value must be finite, got {value!r}")
-    return attr_wire.make_update_attr_frame(
-        legacy, identity_lo, identity_hi, {SPEED_FIELD_X: fvalue}
+    raise SpeedWireError(
+        "sparse /speed frames are closed: a one-row 0x309A block zeroes the "
+        f"other {len(attr_wire.all_field_x()) - 1} rows on the client "
+        "(RE-222 Q0; GT-218 measured HP 0/1 and cash 0 in one frame), so no "
+        "value is safe on this shape -- COO-DECISION 20260904_0345 item 2. "
+        "A speed change now goes through attr_wire.build_named_field_update "
+        "on a full (b'') block, which needs chief's two read points "
+        "(COO-DECISION 20260904_0216) first"
     )
 
 
@@ -331,11 +354,17 @@ SPARSE_SHAPE_MEASURED_BY = "GT-193 attended round R303 2026-09-02"
 # BLOB, i.e. `AvatarAttr`, not this DBAttribute collection --
 # `pf_bridge/notes_to_chief/consumed/20260831_1810_CHIEF-REPLY-GM-044-
 # actor-wire-blob-is-AvatarAttr-not-ActorAttr-BasicAttr-does-not-match.md`),
-# so a safe full-object `/speed` send still needs either a live runtime-side
-# reader for the character's current named-field values (a
+# so a safe full-object `/speed` send still needs a live runtime-side
+# reader for the character's current named-field values.  ~~a
 # CORE-REQUEST-shaped ask this lane has not filed yet, because nothing has
-# asked this lane to build that door) or a separately-proved merge-capable
-# server-side operation neither this lane nor RE-222 has found evidence of.
+# asked this lane to build that door~~ -- struck 2026-09-04 round `tof9cw`
+# (`CHIEF-TO-LANE-GM 20260904_0305` calls this the fourth false sentence):
+# the ask WAS filed and answered.  `COO-DECISION 20260904_0047` item 1
+# ordered it, chief landed `lane_hooks.current_named_attr_values` in
+# `server#695` covering 4 of 26 rows, and `COO-DECISION 20260904_0216`
+# ordered the second (login-byte) point, which does not exist yet.  So the
+# blocker is no longer "nobody asked" -- it is 22 named rows and 29 login
+# bytes, counted in `attr_wire.live_named_values`' own refusal string.
 # Both locks below (`SPEED_LOGIN_READ_LANDED`, `SHAPES_CLEARED_BY_A_REAL_
 # CLIENT`) are UNCHANGED by this section -- nothing here is a green light.
 RE_222_STATIC_CONFIRMATION = (

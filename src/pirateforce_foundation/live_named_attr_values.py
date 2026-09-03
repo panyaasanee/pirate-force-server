@@ -58,8 +58,18 @@ never a zeroed wallet.  The day LANE-DB seeds one of those columns, this
 module starts answering that row with NO CHANGE HERE -- which is the point of
 reading through the column map rather than listing rows by hand.
 
-And five rows this module cannot answer at all, with the reason each:
+And ~~five~~ SIX rows this module cannot answer at all, with the reason each
+(the sixth, x=9, added by LANE-GM round ``tof9cw`` out of its own write zone
+and declared by letter -- see ``ROWS_WITH_NO_COLUMN_AT_ALL``):
 
+  * x=9 category_5C -- ``COO-DECISION 20260904_0215`` item 2 moved this row
+    into the set that must carry a real value, because
+    ``SELECTOR_NOTE_R301`` proves it selects WHICH HP pair the client reads
+    (x=3/4 or x=52/53).  No typed column addresses it and nothing in this
+    repository resolves the selector, so it is unreachable here today.
+    ``COO-DECISION 20260904_0216`` orders this read point to carry it;
+    until that lands it is Omitted, and the two rows it selects between
+    (x=52, 53 below) are Omitted for the same reason.
   * x=8 death_timer -- no column, no login emission.  ``player_wire.py``
     composes no dying countdown, and ``persistence_typed_attrs`` addresses
     no x=8.  Omitted.
@@ -127,7 +137,24 @@ READ_REFUSED_CONSOLE_TOKEN = "LIVE_ATTR_READ_REFUSED"
 #: deliberately absent from this tuple.  Pinned so a round that lands one
 #: sees this constant shrink rather than discovering the change in a console
 #: line.
-ROWS_WITH_NO_COLUMN_AT_ALL: tuple[int, ...] = (8, 11, 37, 52, 53)
+#: x=9 JOINED THIS LIST WITHOUT A MIGRATION, WHICH IS WHY IT IS ANNOTATED
+#: RATHER THAN JUST EDITED.  `COO-DECISION 20260904_0215` item 2 moved x=9
+#: (`category_5C`, the row `SELECTOR_NOTE_R301` proves selects which HP pair
+#: the client reads) into the set that must carry a REAL value, so
+#: `attr_wire.named_field_x()` -- which `named_rows_wanted()` returns
+#: verbatim -- now asks for it, and this server has no column for it either.
+#: The same decision's `COO-DECISION 20260904_0216` orders chief to add x=9
+#: to this read point; until that lands, x=9 is unreachable exactly like the
+#: other five and the count below moved 5 -> 6 with it.
+#: EDITED BY LANE-GM, OUT OF ITS OWN WRITE ZONE, IN ROUND `tof9cw` -- two
+#: numbers, no logic, declared by letter to chief and COO
+#: (`notes_to_chief/20260904_0442_LANE-GM-TO-CHIEF-*`).  The reason it was not
+#: left for chief: `attr_wire`'s x=9 flip and this constant are the same fact
+#: in two files, so a round that lands one without the other is a RED GATE,
+#: and server `#696` was already closed unmerged for exactly this
+#: (`SYNC-NOTICE 20260904_0346`).  Revert freely if chief prefers his own
+#: wording; nothing else here is touched.
+ROWS_WITH_NO_COLUMN_AT_ALL: tuple[int, ...] = (8, 9, 11, 37, 52, 53)
 
 
 def named_rows_wanted() -> tuple[int, ...]:
