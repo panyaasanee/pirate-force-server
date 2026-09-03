@@ -49,7 +49,9 @@ WHO MAY AMEND THE BASELINES IN THIS FILE (``AGENTS.md`` section 7, ``COO-DECISIO
 landed twenty minutes after this file was written and the cherry-pick that
 recovered it carried the code without the rule).
 
-    THIS FILE PINS EIGHT FACTS THAT LANE-B OWNS, not one: that
+    THIS FILE PINS ~~EIGHT~~ **TWELVE** FACTS THAT LANE-B OWNS, not one
+    (round ``umlyof`` added four and pf-adversary D7 caught the header still
+    saying eight; the four are named after the original eight): that
     ``mob_combat.remote_actors_preserving_the_ground_under_publication``
     exists; its signature (``legacy, entries, site`` positional, ``cell``
     and ``scene`` keyword-only); the three ``GROUND_ROWS_RACE_REASON_*``
@@ -57,15 +59,28 @@ recovered it carried the code without the rule).
     WINDOW_REPORTED``; ``mob_loot.ground_rows_live_here`` folding an int
     scene id; the ``another_scenes_cell`` reason; and
     ``mob_loot.DropLedgerCell(scene=...)`` with ``compose_under_publication``.
+    Added round ``umlyof``: ``caller_scene_fold``'s ``(key, refusal)`` return
+    shape; the sentinels ``GROUND_LIVENESS_SCENE_ID_AMBIGUOUS`` and
+    ``GROUND_LIVENESS_SCENE_ID_UNADDRESSED``; the reason word
+    ``caller_scene_id_shares_a_folder``; and
+    ``mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED``.
+    (``world_scene_folder.SCENE_IDS_SHARING_AN_ADDRESSED_FOLDER`` and
+    ``_FOLDER_BY_SCENE_ID`` are read too, but only for their SHAPE - see
+    ``test_a_folder_shared_by_two_addressed_ids_arms_nothing``, which derives
+    every expected value from the live registry for exactly this reason.)
 
     **LANE-B MAY AMEND EVERY ONE OF THEM WITHOUT ASKING THIS LANE**, in the
     same pull request that changes the thing being pinned.  They are pinned
     here because this lane's seam CALLS them and a silent change would be
     invisible until a click in a live scene - not to hold LANE-B still.
-    Measured cost if they are simply removed (pf-adversary, round
-    ``nyxlqs``): this file goes ``11 failed, 12 passed``, which is a LANE-A
-    file turning ``main`` red over a LANE-B decision.  So: amend them, do
-    not route around them.
+    ~~Measured cost if they are simply removed (pf-adversary, round
+    ``nyxlqs``): this file goes ``11 failed, 12 passed``~~ - STRUCK, round
+    ``umlyof`` (pf-adversary D7): ``11 + 12 = 23`` and this file has never
+    had 23 tests (19 before this round, 20 after), so the number cannot be
+    re-derived and a number nobody can check is the shape this project has
+    been burned by twice.  The COST is real and unchanged in kind: removing
+    any pinned fact turns a LANE-A file red over a LANE-B decision.  So:
+    amend them, do not route around them.
 
 WHY THE SCENE IS CARRIED ALL THE WAY DOWN (condition of the LANE-B letter,
 and of pf-adversary's D16/D7 in that round): a session holds ONE loot cell
@@ -78,10 +93,15 @@ bytes - instead of a number.
     passes ``scene_id`` straight through, which cannot gate anything~~ -
     STRUCK, round ``nyxlqs`` (pf-adversary D4): LANE-B FIXED THAT END in
     ``#615`` after round ``gx7xtp``'s letter reported it, so an int scene id
-    folds now and the letter's literal shape gates correctly.  The lane's
+    folds now and the letter's literal shape gates correctly.  ~~The lane's
     own resolve stays because the cell publishes FOLDER names and this lane
-    holds ids; what the test below now pins is that the two shapes AGREE.
-    See ``test_an_int_scene_id_is_resolved_to_a_folder_before_it_gates``.
+    holds ids~~ - STRUCK, round ``umlyof`` (pf-adversary D8): the resolve is
+    GONE.  The scene is carried down as an ``int`` SCENE ID, because the
+    ambiguity card that keeps one scene's floor out of another scene's frame
+    can only refuse an id, and a folder name is refused at this seam instead
+    of forwarded.  What the test below pins is that the id and the name
+    still fold to one scene at the reader that accepts both.
+    See ``test_an_int_scene_id_and_the_folder_name_fold_to_one_scene``.
 """
 from __future__ import annotations
 
@@ -151,8 +171,14 @@ class _Cell:
     def __init__(self, rows: int, scene: str) -> None:
         self._rows = rows
         self._scene = scene
+        #: How many times anything asked this cell for its publication.
+        #: "The cell is never touched by a scene the fold refuses" is an
+        #: invariant about a CALL, and a fake that only returns values can
+        #: never show that a call did not happen (round ``umlyof``).
+        self.reads = 0
 
     def publication(self) -> tuple:
+        self.reads += 1
         return (self._scene, _View(self._rows), 0)
 
 
@@ -336,6 +362,96 @@ class TheHoldLiftsTheDayTheLockHoldingComposerLands(unittest.TestCase):
                 self.assertIn("reason=", line)
                 self.assertIn(preserve.UNDER_PUBLICATION_COMPOSER, line)
 
+    def test_the_composer_is_handed_a_plain_int_not_the_callers_object(
+        self,
+    ) -> None:
+        """pf-adversary D15, closed rather than left as a suspicion.
+
+        This seam checks the scene and then hands it to readers that fold it
+        AGAIN.  An ``int`` subclass that does not answer the two folds the
+        same way would pass the check as one scene and arm the cell as
+        another.  Not reachable from the four responders, which pass wire
+        ints - which is exactly why it has to be pinned here rather than
+        trusted to stay unreachable.
+        """
+        class _TwoFacedId(int):
+            """Addressed scene 2 the first time it is asked, 14 after."""
+
+            def __new__(cls, value: int) -> "_TwoFacedId":
+                self = super().__new__(cls, value)
+                self.asked = 0
+                return self
+
+            def __int__(self) -> int:
+                self.asked += 1
+                return 2 if self.asked == 1 else 14
+
+        seen: dict = {}
+
+        def _spy(legacy, entries, site, *, cell, scene=None):
+            seen["scene"] = scene
+            return (b"pc", b"frame")
+
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        name = preserve.UNDER_PUBLICATION_COMPOSER
+        landed = getattr(mob_combat, name)
+        setattr(mob_combat, name, _spy)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                preserve.compose_answer(
+                    legacy, list(entries), _TwoFacedId(2), _Cell(3, "Bg0002"))
+        finally:
+            setattr(mob_combat, name, landed)
+        self.assertEqual(seen["scene"], 2)
+        self.assertIs(type(seen["scene"]), int)
+
+    def test_a_composer_that_raises_is_not_reported_as_a_missing_one(
+        self,
+    ) -> None:
+        """pf-adversary D4, MEASURED and closed here.
+
+        The hold-back line used to say ``<composer>_not_on_main`` for BOTH
+        of its causes, so a composer that HAD landed and then raised - the
+        exact case the ``except`` in ``compose_answer`` exists for - printed
+        a sentence that was false about ``main``, once per scene, for the
+        life of the process.  An operator grepping that line would go
+        looking for a missing deploy.
+        """
+        legacy = _legacy()
+        attr = legacy.make_remote_movement_attr(
+            0x2001, 1.0, 2.0, 3.0, 0.0, mask=0x03)
+        entries = [legacy.make_remote_actor_entry(
+            4, 0x2001, [(legacy.MOVEMENT_ATTR, attr)])]
+        plain = legacy.make_runtime_remote_actors(list(entries))
+
+        def _moved_signature(*_args, **_kwargs):
+            raise TypeError("this composer moved its signature")
+
+        name = preserve.UNDER_PUBLICATION_COMPOSER
+        landed = getattr(mob_combat, name)
+        preserve._HELD_BACK_REPORTED.clear()
+        buffer = io.StringIO()
+        setattr(mob_combat, name, _moved_signature)
+        try:
+            with contextlib.redirect_stdout(buffer):
+                got = preserve.compose_answer(
+                    legacy, list(entries), 2, _Cell(3, "Bg0002"))
+        finally:
+            setattr(mob_combat, name, landed)
+        # The frame is never lost to this: v141's own bytes, as on any
+        # other day the ground list cannot be armed.
+        self.assertEqual(got, plain)
+        out = buffer.getvalue()
+        self.assertIn(preserve.HELD_BACK_COMPOSER_RAISED, out)
+        self.assertNotIn(preserve.HELD_BACK_COMPOSER_ABSENT, out)
+        # And the composer really was there while that line was printed,
+        # which is what made the old wording false rather than merely vague.
+        self.assertIsNotNone(preserve.under_publication_composer())
+
     def test_the_armed_path_reaches_the_landed_composer(self) -> None:
         """A cell arriving TODAY is asked under its own publication.
 
@@ -439,13 +555,25 @@ class TheHoldLiftsTheDayTheLockHoldingComposerLands(unittest.TestCase):
         self.assertNotIn(mob_combat.GROUND_ROWS_RACE_WINDOW_OPEN_TOKEN, out)
         self.assertNotIn(preserve.CELL_HELD_BACK_TOKEN, out)
 
-    def test_the_composer_is_handed_the_folder_and_never_the_raw_id(
+    def test_the_composer_is_handed_the_scene_id_and_never_a_pre_fold(
         self,
     ) -> None:
-        """pf-adversary D5: mutating ``scene=folder`` to ``scene=scene_id``
-        in the armed path killed no test, because since ``#615`` both fold
-        to the same scene for an ADDRESSED id.  The line is the module's
-        headline correction, so something has to be able to remove it."""
+        """~~"The composer is handed the FOLDER and never the raw id"~~ -
+        STRUCK, round ``umlyof``, and the reversal is the round's headline.
+
+        pf-adversary D5 of round ``qa86im`` measured that ``scene=folder``
+        and ``scene=scene_id`` compose the same bytes for an ADDRESSED id
+        and pinned the folder so the line could not be removed silently.
+        LANE-B then named what the folder form COSTS (via chief,
+        ``20260903_0505`` item three): ``mob_loot.caller_scene_fold``
+        refuses an id whose folder is named by a second addressed id, and a
+        name arriving pre-folded no longer knows which id it came from - so
+        pre-folding here was the one caller that could arm scene 186's
+        frame with scene 17's floor.  The pin is kept, pointed the other
+        way: the ID must reach the fold.
+        ``test_a_folder_shared_by_two_addressed_ids_arms_nothing`` is what
+        makes the difference cost something rather than being a preference.
+        """
         seen: dict = {}
 
         def _spy(legacy, entries, site, *, cell, scene=None):
@@ -467,9 +595,15 @@ class TheHoldLiftsTheDayTheLockHoldingComposerLands(unittest.TestCase):
         finally:
             setattr(mob_combat, name, landed)
         self.assertEqual(got, (b"pc", b"frame"))
-        self.assertEqual(seen["scene"], "Bg0002")
-        self.assertIsInstance(seen["scene"], str)
-        self.assertNotEqual(seen["scene"], 2)
+        self.assertEqual(seen["scene"], 2)
+        self.assertIsInstance(seen["scene"], int)
+        self.assertNotIsInstance(seen["scene"], str)
+        # And it is still a scene the fold on the other side accepts, so
+        # handing the id over is not "let the composer sort it out": the
+        # gate that arms this frame reads the same count either way.
+        self.assertEqual(
+            mob_loot.caller_scene_fold(seen["scene"]),
+            (mob_loot.scene_key("Bg0002"), 0))
 
     def test_a_cell_that_cannot_host_costs_the_ordering_not_the_frame(
         self,
@@ -643,7 +777,7 @@ class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
                         self.legacy, list(entries), scene, None)
                 self.assertEqual(got, expected)
 
-    def test_an_int_scene_id_is_resolved_to_a_folder_before_it_gates(
+    def test_an_int_scene_id_and_the_folder_name_fold_to_one_scene(
         self,
     ) -> None:
         """THE DEFECT THIS FILE EXISTS FOR, and it is measured rather than
@@ -680,8 +814,8 @@ class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
             mob_loot.ground_liveness_reason(
                 mob_loot.ground_rows_live_here(cell, 2)),
             "")
-        # The lane's shape, unchanged: resolve the id to the folder the cell
-        # publishes, and pass THAT.
+        # The lane's shape since round ``umlyof``: hand the ID over and let
+        # the one fold turn it into the cell's own name.
         self.assertEqual(preserve.ground_rows_for_scene(cell, 2), 3)
         # And they still disagree about the one thing they must: another
         # scene's floor never arms this frame, from either shape.
@@ -707,14 +841,142 @@ class TheBytesAreUnchangedWhileNoCellIsWired(unittest.TestCase):
         """Fail-closed in the only safe direction: ``None`` reaching
         ``ground_rows_live_here`` means "keep whatever scene the cell is
         publishing", which is the cross-scene gating this is meant to
-        prevent.  An unresolvable id stops here instead."""
+        prevent.  An unresolvable id stops here instead.
+
+        ~~"every one of them is ``caller_scene_unreadable``"~~ - STRUCK,
+        round ``umlyof``: the fold that answers now is ``mob_loot.caller_
+        scene_fold``, which tells the four cases APART.  The property this
+        test buys is unchanged and is checked on every one of them: not
+        live, and THE CELL IS NEVER ASKED.  The names are checked too,
+        because "unaddressed id" and "not a scene id at all" are different
+        bugs at a call site and a flat answer made an operator guess.
+        """
         self.assertIsNone(
             world_scene_folder.scene_folder_for_scene_id(99999))
-        for bad in (99999, None, "1", 3.0, True):
+        expected = {
+            99999: mob_loot.GROUND_LIVENESS_SCENE_ID_UNADDRESSED,
+            None: mob_loot.GROUND_LIVENESS_BAD_SCENE,
+            3.0: mob_loot.GROUND_LIVENESS_BAD_SCENE,
+            True: mob_loot.GROUND_LIVENESS_BAD_SCENE,
+            # A FOLDER NAME IS NOT A SCENE ID AT THIS SEAM, and these two
+            # are why (pf-adversary D1 of this round, MEASURED, and D5 -
+            # the first draft asserted "the cell is never asked" for every
+            # case and then quietly skipped the assertion on the one case
+            # where it read the cell).  ``mob_loot.caller_scene_fold``
+            # applies the ambiguity card only on its ``int`` branch, so a
+            # name forwarded there walks past the card this round exists to
+            # reach; and the read itself is not free - a real cell retires
+            # expired rows while answering a call it is going to refuse.
+            "1": mob_loot.GROUND_LIVENESS_BAD_SCENE,
+            "bg0001": mob_loot.GROUND_LIVENESS_BAD_SCENE,
+            "Bg1001": mob_loot.GROUND_LIVENESS_BAD_SCENE,
+        }
+        for bad, want in expected.items():
             with self.subTest(scene_id=bad):
-                answer = preserve.ground_rows_for_scene(_Cell(9, "bg0001"), bad)
-                self.assertEqual(answer, mob_loot.GROUND_LIVENESS_BAD_SCENE)
+                cell = _Cell(9, "bg0001")
+                answer = preserve.ground_rows_for_scene(cell, bad)
+                self.assertEqual(answer, want)
                 self.assertFalse(mob_loot.ground_is_live(answer))
+                self.assertEqual(cell.reads, 0)
+        # ``"bg0001"`` is the name this cell IS publishing, which is what
+        # makes it the dangerous one: the fold on the other side would have
+        # answered it with a live count.  Measured here so the refusal above
+        # is known to cost something.
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(_Cell(9, "bg0001"), "bg0001"), 9)
+        # And the refusal value can never be mistaken for a waiver: handing
+        # it on to any reader refuses again, without a cell being read.
+        waived, why = preserve.scene_the_cell_may_be_asked_about("bg0001")
+        self.assertEqual(why, mob_loot.GROUND_LIVENESS_BAD_SCENE)
+        self.assertIsNotNone(waived)
+        onward = _Cell(9, "bg0001")
+        self.assertEqual(
+            mob_loot.ground_rows_live_here(onward, waived),
+            mob_loot.GROUND_LIVENESS_BAD_SCENE)
+        self.assertEqual(onward.reads, 0)
+
+    def test_a_folder_shared_by_two_addressed_ids_arms_nothing(self) -> None:
+        """THE HOLE THAT ROUND ``umlyof`` CLOSED, driven rather than argued.
+
+        ``world_scene_folder.SCENE_IDS_SHARING_AN_ADDRESSED_FOLDER`` names
+        scene 17 and scene 186, both ``Bg1001``; only 17 is addressed today,
+        which is why nothing is served wrongly right now.  This test
+        addresses 186 for the length of one call - the registry reader is
+        ``dict(_FOLDER_BY_SCENE_ID)`` per call, so the day is simulated
+        honestly and not mocked away - and demands that the frame is
+        v141's own and THE CELL IS NEVER READ.
+
+        The second half is what makes it a regression test rather than a
+        restatement: the PRE-FOLDED shape this round removed is run against
+        the same cell on the same day, and it ARMS.
+        """
+        pair = world_scene_folder.SCENE_IDS_SHARING_AN_ADDRESSED_FOLDER[0]
+        first, second, folder = pair
+        # DERIVED, NOT PINNED (pf-adversary D6): asserting the literal
+        # ``(17, 186, "Bg1001")`` here, or that 17 arms again afterwards,
+        # would turn THIS LANE'S file red on the day somebody edits
+        # ``world_scene_folder`` to address 186 - which is the day the whole
+        # test was written for, and the exact cross-lane pinning this file's
+        # own header forbids.  Only the SHAPE is asserted.
+        self.assertIsInstance(first, int)
+        self.assertIsInstance(second, int)
+        self.assertIsInstance(folder, str)
+        legacy = _legacy()
+        entries = self._entries()
+        plain = legacy.make_runtime_remote_actors(list(entries))
+        registry = world_scene_folder._FOLDER_BY_SCENE_ID
+        reported = set(mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED)
+        # Both ids addressed to the same folder, whatever the registry says
+        # today: the simulation must hold on the day one, both, or neither
+        # of them is already there.
+        world_scene_folder._FOLDER_BY_SCENE_ID = tuple(
+            (sid, name) for sid, name in registry
+            if sid not in (first, second)
+        ) + ((first, folder), (second, folder))
+        try:
+            for scene_id in (first, second):
+                with self.subTest(scene_id=scene_id):
+                    cell = _Cell(3, folder)
+                    answer = preserve.ground_rows_for_scene(cell, scene_id)
+                    self.assertEqual(
+                        answer,
+                        mob_loot.GROUND_LIVENESS_SCENE_ID_AMBIGUOUS)
+                    self.assertEqual(
+                        mob_loot.ground_liveness_reason(answer),
+                        "caller_scene_id_shares_a_folder")
+                    self.assertEqual(cell.reads, 0)
+                    armed = _Cell(3, folder)
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        got = preserve.compose_answer(
+                            legacy, list(entries), scene_id, armed)
+                    self.assertEqual(got, plain)
+                    self.assertEqual(armed.reads, 0)
+            # WHAT THE NAME FORM ANSWERS on that same day, which is what
+            # this file used to hand over and what any caller that folds
+            # before asking still hands over.  It is NOT a re-run of the
+            # deleted function (pf-adversary D12: a re-typed copy measures
+            # the copy) - it is the reader on the other side, asked the way
+            # a pre-folded caller asks it, and it comes back a COUNT: one
+            # scene's frame armed by another scene's floor.
+            pre_folded = _Cell(3, folder)
+            self.assertEqual(
+                mob_loot.ground_rows_live_here(pre_folded, folder), 3)
+            self.assertEqual(pre_folded.reads, 1)
+        finally:
+            world_scene_folder._FOLDER_BY_SCENE_ID = registry
+            mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.clear()
+            mob_combat._GROUND_ACTORS_LIVENESS_UNKNOWN_REPORTED.update(
+                reported)
+        # And the day is over: with the registry restored, this lane's gate
+        # answers whatever the LIVE registry allows for that id - derived
+        # from the same authority rather than pinned to today's answer, so
+        # this test cannot pass by leaving the gate shut for everyone and
+        # cannot go red when the registry changes.
+        _key, refusal_now = mob_loot.caller_scene_fold(first)
+        open_again = _Cell(3, folder)
+        self.assertEqual(
+            preserve.ground_rows_for_scene(open_again, first),
+            refusal_now if refusal_now else 3)
 
     def test_the_console_says_the_real_cause_not_a_guess(self) -> None:
         """``no_cell`` is a different fact from ``cell_refused`` and from

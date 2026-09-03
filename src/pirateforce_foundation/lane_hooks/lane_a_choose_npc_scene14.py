@@ -504,8 +504,11 @@ def respond(
         # where chief has not passed a cell yet.  The scene naming
         # and the fail-closed path live in one module for all four
         # responders - see ``lane_a_ground_preserve``, including why
-        # the letter's own ``scene_id`` argument had to be resolved
-        # to a scene FOLDER before it could gate anything.
+        # ~~the letter's own ``scene_id`` argument had to be resolved
+        # to a scene FOLDER before it could gate anything~~ - STRUCK,
+        # round ``umlyof``: the ID is what gates now, because the
+        # ambiguity card that keeps one scene's floor out of another
+        # scene's frame can only refuse an id.
         pc, frame = compose_answer(
             legacy, entries, scene_id, mob_loot_cell)
         # ``wounded=`` is the number that may be quoted as evidence that a

@@ -257,11 +257,15 @@ class GmLoginSceneOverridePositionResyncTests(unittest.TestCase):
         # 400.0, so on a fresh database "read the row" and "sent the constant"
         # are byte-identical, and a mutant that sends the constant left this
         # file 9/9 green; and (3) wrong about `session.py`, which attaches the
-        # value only `if resolved.came_from_the_row` -- FOUR of the five
-        # reasons leave it `None` (`came_from_the_row` is `reason == FROM_ROW`
-        # and `login_speed.REASONS` has five members, so only that one
-        # attaches; an earlier draft of this comment said three, which is the
-        # kind of number that gets copied forward once it is written down) --
+        # value only `if resolved.came_from_the_row` -- EVERY reason but
+        # `FROM_ROW` leaves it `None` (`came_from_the_row` is
+        # `reason == FROM_ROW`, so exactly one member of `login_speed.REASONS`
+        # attaches, whatever the size of that set; earlier drafts of this
+        # comment counted the members -- first three, then five -- and the
+        # count went stale twice, once when `ROW_SPEED_NOT_POSITIVE` was added
+        # and again when the `/speed` deferral gate of `COO-DECISION
+        # 20260903_0645` grew its own refusal tokens, which is why it no
+        # longer names a number) --
         # so a validator tightening or a reverted
         # DEFAULT would turn a GM-login-scene-override test red with no GM
         # code changed.  This is the same shape the docstring above says was
