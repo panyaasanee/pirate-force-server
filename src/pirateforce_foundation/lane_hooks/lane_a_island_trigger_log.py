@@ -76,6 +76,17 @@ TRIGGER_ID_TAG = 0x0F
 # Deliberately a closed set: an unknown tag stops the walk and the line says
 # UNPARSED, rather than the walker guessing a width and reading a trigger id
 # out of the middle of some other field.
+#
+# 0x12 is DELIBERATELY ABSENT even though `parse_outer` reads it as a u16
+# (outer id, vital count, nested id).  0x12 is the tag that starts another
+# VITAL, and a payload for one vital can be followed by a second one -- R307's
+# own frames are `vital_count = 2`, a TriggerVital then a position vital.
+# Teaching this walker to step over a 0x12 would let it walk out of the
+# trigger vital and find a 0x0F belonging to the NEXT vital, and report that
+# u16 as a trigger id.  A wrong island name on the console is worse than no
+# name: `UNPARSED` prints the hex and the next round works from bytes.  The
+# known shape puts the trigger id before any 0x12, so this costs nothing
+# today and refuses rather than guesses if the shape ever changes.
 _TAG_WIDTHS = {
     0x05: 1,
     0x08: 1,
