@@ -56,6 +56,42 @@ from pirateforce_foundation.gm import say_wire  # noqa: E402
 from pirateforce_foundation.gm import speed_wire  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 
+
+def composer_stand_in(legacy):
+    """`compose_sparse_speed_update` as it behaved before `COO-DECISION
+    20260904_0345` item 2 shut it, for the CONTROL tests in this file only.
+
+    Three tests here are controls: they exist so that "the notice path
+    refuses" cannot be satisfied by a `_speed_action` that refuses
+    everything.  A control needs a route that really runs, and `/speed` no
+    longer has one -- the sparse `0x309A` shape zeroes 54 rows on the client
+    (`RE-222` Q0, measured as `GT-218`), so the composer refuses every call
+    and `attr_wire.make_update_attr_frame` refuses the shape again below it.
+
+    This stand-in assembles the old envelope by hand from
+    `attr_wire.encode_block` (still sparse-capable on purpose).  It reaches
+    no socket and it does not weaken the wall: what ships is pinned by
+    `tests/test_gm_speed_wire.py`, `tests/test_gm_speed_shape_hold.py` and
+    `test_gm_speed_action.TheClosedDoorIsTheShippedDefaultTests`.
+    """
+
+    def _stand_in(_legacy, identity_lo, identity_hi, value):
+        body, _bm, _am = attr_wire.encode_block(
+            legacy, identity_lo, identity_hi,
+            {speed_wire.SPEED_FIELD_X: float(value)},
+        )
+        payload = (
+            legacy.u16tag(0x12, 1)
+            + legacy.u16tag(0x12, attr_wire.AC_ATTR_ID)
+            + legacy.u32tag(0x14, len(body))
+            + body
+        )
+        return legacy.make_runtime_vitals(
+            [(attr_wire.UPDATE_ATTR_VITAL_ID, 0, payload)]
+        )
+
+    return _stand_in
+
 # A run-copy-style DB name, never the canonical one: `_speed_db_is_canonical`
 # refuses on the canonical filename, and that refusal is one of the nine paths
 # below rather than the state every other test should start in.
@@ -436,8 +472,14 @@ class TheNineRefusalPathsTests(_Case):
         # composing at all, the assertion "exactly one _Verdict" would still
         # hold over a function that refuses everything.
         session = FakeSession()
-        action = self.act(session)
+        with mock.patch.object(
+            speed_wire,
+            "compose_sparse_speed_update",
+            composer_stand_in(self.legacy),
+        ):
+            action = self.act(session)
         self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+
 
 class TheNoticeIsNotTheCommandsFrameTests(_Case):
     """The two regressions LANE-GM measured before this change existed."""
@@ -474,8 +516,16 @@ class TheNoticeIsNotTheCommandsFrameTests(_Case):
 
     def test_a_command_that_really_runs_still_arms_it(self):
         # The other direction, so the fix above cannot be "never arm".
+        # `/speed`'s own wire door is shut (`COO-DECISION 20260904_0345`
+        # item 2), so the control composes through the stand-in -- see
+        # `composer_stand_in`.
         session = FakeSession()
-        action = self.act(session)
+        with mock.patch.object(
+            speed_wire,
+            "compose_sparse_speed_update",
+            composer_stand_in(self.legacy),
+        ):
+            action = self.act(session)
         self.assertIsNotNone(action)
         self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
         self.assertIsNotNone(
@@ -647,7 +697,11 @@ class TheConsoleSaysTheSentenceWentOutTests(_Case):
     def test_a_command_that_really_ran_prints_neither(self):
         session = FakeSession()
         stream = io.StringIO()
-        with contextlib.redirect_stderr(stream):
+        with contextlib.redirect_stderr(stream), mock.patch.object(
+            speed_wire,
+            "compose_sparse_speed_update",
+            composer_stand_in(self.legacy),
+        ):
             self.act(session)
         printed = stream.getvalue()
         self.assertNotIn(chat_command_action.NOTICE_CONSOLE_TOKEN, printed)
