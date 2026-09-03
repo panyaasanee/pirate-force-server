@@ -8742,6 +8742,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # only for modules lane_hooks._discover() imported, so the
             # governing counts are the lane_hooks ones above.
             #
+            # Those file:line citations are hand-typed, which is the shape
+            # AGENTS.md now forbids for a GUARD -- a comment is not a guard,
+            # but the same staleness applies, so do not trust them: re-derive.
+            # pf-adversary (round `mgm333`, D3) asked for this line and it is
+            # one command:
+            #   PYTHONPATH=src python3 -c "from pirateforce_foundation import \
+            #   lane_hooks as l; print(sorted((s, r.module.rsplit('.',1)[-1], \
+            #   l.module_production_allowed(r.module)) \
+            #   for s, r in l._SCENE_CHOOSE_NPC_RESPONDERS.items()))"
+            # At the commit that wrote this line that printed 13 scenes
+            # claimed AND allowed (2,3,4,5,6,7,8,9,10,11,14,126,130), with an
+            # EMPTY withheld list -- scene 1 is not in the map at all, because
+            # _discover() withdraws it (SKIPPED_NOT_PRODUCTION_ALLOWED) rather
+            # than registering it as disallowed.  Re-derived here, not copied
+            # from the review that asked for the line.
+            # So this branch is live for 13 NAMED scenes -- not for all of
+            # them -- and it still needs self.foundation.selected is not None
+            # and nested_id in (TARGET_VITAL, CHOOSE_NPC) on top of the flag.
+            #
             # !! pf-adversary (round `hd6tac`, MEASURED, not fixed here) --
             # TWO gaps a lane MUST read before flipping its own responder's
             # production_allowed, because skipping `super().dispatch(parsed)`
