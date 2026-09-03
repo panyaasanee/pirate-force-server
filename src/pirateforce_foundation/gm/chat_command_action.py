@@ -649,7 +649,8 @@ WITHHELD_CONSOLE_TOKEN = "GM_CHAT_NO_BYTES_SENT"
 # That was invisible everywhere except the ndjson `outcome` word.
 STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 
-# THE `next=` SENTENCE THIS TOKEN CARRIES, and it is two sentences since
+# THE `next=` SENTENCE THIS TOKEN CARRIES, and it is six sentences (three
+# blockers x two tails, joined by `staged_next_step`) since
 # `COO-DECISION 20260903_2050` item 2 ("the wording change is approved") --
 # the decision that
 # answered this lane's own letter `20260903_2005`.
@@ -679,46 +680,90 @@ STAGED_CONSOLE_TOKEN = "GM_CHAT_STAGED_NEXT_LOGIN"
 #     the logout buttons are still refused (UI-A/UI-B), that is the most
 #     expensive no-op the console can recommend.
 #
-# BOTH SENTENCES OPEN WITH THE SAME CLAUSE, on purpose: an attended tester
-# greps one string (`STAGED_NO_CONFIRMED_SPAWN_REASON`) to find every scene
-# the markerless rule still holds shut, and reads the tail to learn whether a
-# relog would move her.  Neither sentence claims the spawn point is unusable
-# -- only that nobody has confirmed one, which is the honest claim and the
-# one this lane's letter `2005` made.
+# EVERY SENTENCE ENDS ITS REASON IN THE SAME SIX WORDS, on purpose: an
+# attended tester greps `no teleport could be sent` to find every staged
+# shape at once, reads the clause in FRONT of it to learn which blocker to
+# act on, and the clause BEHIND it to learn whether a relog would move her.
+# No sentence claims a markerless spawn point is unusable -- only that
+# nobody has confirmed one, which is the honest claim and the one this
+# lane's letter `2005` made.
+# THE THREE BLOCKERS, one sentence each.  Every one of them ends in the same
+# six words (`no teleport could be sent`) so that ONE grep finds every staged
+# shape at once; the clause in front of those six words is what an operator
+# has to act on, and getting it wrong sends her to fix something that is not
+# broken.
+#
+# ~~"an attended tester greps STAGED_NO_CONFIRMED_SPAWN_REASON to find every
+# scene the markerless rule holds shut"~~ -- struck the moment there was more
+# than one reason (pf-adversary, round `spt6fv`, D7): that constant now finds
+# only ONE of the three.  The shared six words are the grep.
 STAGED_NO_CONFIRMED_SPAWN_REASON = (
     "this scene has no confirmed spawn point, so no teleport could be sent"
 )
-# THE SECOND REASON, and it exists because the first one is a LIE on a
-# reachable configuration -- caught while reviewing this round's own change,
-# before it was committed.
+# THE SECOND BLOCKER, and it is the one the FIRST DRAFT of this round got
+# wrong in both directions (pf-adversary, round `spt6fv`, D1, MEASURED on the
+# real dispatcher).
 #
-# The reason above is true for the scenes that reach this printer on the
-# SHIPPED default, and only those: `warp_no_coords_live_target` returns None
-# for 17/126/278/997 and the stage branch is the only place left for them to
-# go.  But `_warp_action` also falls through to staging when
-# `warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` is False, and
-# THAT path takes marker-backed scenes with it -- `/warp 2 100 200` from
-# scene 5 with the flag down stages scene 2, which has a pinned ARRIVAL
-# marker and a confirmed spawn.  The flag is not hypothetical: it ships True
-# but `TheStagedWarpTests::test_it_says_when_the_typed_coordinates_were_
-# dropped` turns it off to reach this very printer, and the whole point of
-# `COO-DECISION 20260830_2048` was that it can be turned off again for real.
-# A console that answered "this scene has no confirmed spawn point" there
-# would name the wrong blocker and send an operator hunting a marker that is
-# already in the registry.
+# That draft derived the reason from `warp_no_coords_live_target(scene)` --
+# "does this destination have a pinned arrival marker" -- and printed the
+# answer in the grammar of a different question: "why did THIS COMMAND send
+# nothing".  Those two come apart the moment coordinates are typed.  With
+# `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down, `/warp 997 100 200` from
+# scene 5 stages and printed "this scene has no confirmed spawn point" -- yet
+# the control on the same input with the flag UP sends a real 73-byte
+# TeleportVital, because a coordinates-bearing warp never needed the marker.
+# The operator would have gone hunting a spawn point for 997, pinned one, and
+# nothing would have changed: the flag was the blocker all along.
 #
-# So the reason is DERIVED from the same function the routing asked
-# (`warp_no_coords_live_target`), at the point that already asked it, rather
-# than assumed from which branch we landed on.
+# So the marker question is asked ONLY of the shape it governs (the bare
+# warp), and every coordinates-bearing stage names this reason instead.
 STAGED_LIVE_ROUTE_SHUT_REASON = (
     "the live teleport route for this scene is shut, so no teleport"
     " could be sent"
 )
+# THE THIRD BLOCKER, which exists because the registry read can fail and a
+# console must never guess (same finding, D3).  `_no_coords_live_target`
+# swallows the failure so that no disk error can take an accepted command off
+# the console, and this is what the line says when it does: not "there is no
+# marker" (unknown) and not "the route is shut" (also unknown), but the one
+# thing that IS known.
+STAGED_SPAWN_UNREADABLE_REASON = (
+    "this scene's spawn point could not be read, so no teleport"
+    " could be sent"
+)
+# The three of them, in the order `_staged_blocker` returns them, so a reader
+# can see at a glance that the shared six words really are shared.
+STAGED_BLOCKER_REASONS = (
+    STAGED_NO_CONFIRMED_SPAWN_REASON,
+    STAGED_LIVE_ROUTE_SHUT_REASON,
+    STAGED_SPAWN_UNREADABLE_REASON,
+)
+# The blocker names carried on `_Verdict`.  Names rather than the sentences
+# themselves: the verdict is dispatch state, and a rewording must never have
+# to touch the routing.
+STAGED_BLOCKER_NO_SPAWN = "no_confirmed_spawn"
+STAGED_BLOCKER_ROUTE_SHUT = "live_route_shut"
+STAGED_BLOCKER_SPAWN_UNREADABLE = "spawn_unreadable"
+_STAGED_BLOCKER_REASONS = {
+    STAGED_BLOCKER_NO_SPAWN: STAGED_NO_CONFIRMED_SPAWN_REASON,
+    STAGED_BLOCKER_ROUTE_SHUT: STAGED_LIVE_ROUTE_SHUT_REASON,
+    STAGED_BLOCKER_SPAWN_UNREADABLE: STAGED_SPAWN_UNREADABLE_REASON,
+}
 # The tail for a stage that DOES change where the next login lands.  The
-# relog fact survives the rewrite because it is true for this shape and it is
-# the only useful thing this command did -- what changed is that it no longer
-# arrives as a bare instruction with no reason in front of it.
-STAGED_TAIL_CROSS_SCENE = "the next login for this account will start in it"
+# relog fact survives the rewrite because it is the only useful thing this
+# command did -- what changed is that it no longer arrives as a bare
+# instruction with no reason in front of it.
+#
+# "IS STAGED TO START", not "will start" (pf-adversary, round `spt6fv`, D8).
+# `runtime.py`'s login path can still refuse the override against the boot
+# snapshot (`GM_LOGIN_SCENE_OVERRIDE_REFUSED ... source=boot_snapshot`) and
+# put her back on her own stored row.  The struck sentence made the stronger
+# promise too ("land there"), so this is not a regression being fixed -- it
+# is a promise this round declined to repeat now that it is rewriting the
+# words anyway.
+STAGED_TAIL_CROSS_SCENE = (
+    "the next login for this account is staged to start in it"
+)
 # The tail for a stage into the scene the GM is standing in.  It states the
 # no-op rather than recommending it.
 STAGED_TAIL_SAME_SCENE = (
@@ -726,24 +771,92 @@ STAGED_TAIL_SAME_SCENE = (
 )
 
 
-def staged_next_step(*, same_scene: bool, no_confirmed_spawn: bool) -> str:
+def _no_coords_live_target(
+    session: object,
+    scene_id: int,
+    has_coordinates: bool,
+) -> tuple[object | None, bool]:
+    """`warp_no_coords_live_target`, asked once per command and never raising.
+
+    Returns `(target, read_ok)`.  `read_ok` is False ONLY when the lookup
+    itself failed; a scene that simply has no marker returns `(None, True)`,
+    which is a different fact and a different console sentence.
+
+    ASKED ONLY FOR THE BARE SHAPE.  A coordinates-bearing warp is not routed
+    by this answer, so asking would be a disk read taken for a question
+    nobody has -- and taking it was defect D3.
+
+    FAIL-CLOSED, AND THE FAILURE IS SWALLOWED ON PURPOSE.  The caller uses
+    this to decide whether to send a live teleport; an unreadable registry is
+    not permission to send one, so `None` (stage instead) is the safe answer.
+    Swallowing it is what keeps an accepted command on the console: this
+    value feeds a console sentence as well as the routing, and the whole
+    point of this module is that an accepted command that sent nothing says
+    so.  The event name is kept so the failure is not silent to an operator
+    reading `session.events`.
+    """
+    if has_coordinates:
+        return None, True
+    try:
+        return warp_no_coords_live_target(scene_id), True
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _note(session, f"{EVENT_WARP_REFUSED_PREFIX}live_target_{type(error).__name__}")
+        return None, False
+
+
+def _staged_blocker(
+    *,
+    has_coordinates: bool,
+    live_target: object | None,
+    live_target_read: bool,
+) -> str:
+    """Which blocker actually held this command's frame.
+
+    THE QUESTION THIS ANSWERS is "why did THIS COMMAND send nothing", not
+    "what does this DESTINATION lack".  The first draft answered the second
+    and printed it as the first; see `STAGED_LIVE_ROUTE_SHUT_REASON` for the
+    measured input where they disagree.
+
+    A COORDINATES-BEARING WARP IS NEVER BLOCKED BY A MISSING MARKER.  Its
+    live branch (`_warp_teleport_action`) reads coordinates the GM typed and
+    never consults `warp_no_coords_live_target` at all, so the only thing
+    that can have sent it here is
+    `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` being down.  (The same-scene
+    coordinates shape does not reach staging at all -- it is refused above by
+    the ForcePos gate.)
+
+    FOR A BARE WARP both blockers can be true at once when the flag is down
+    AND the scene is markerless.  The marker wins because it is the durable
+    one: the flag is a kill switch that a decision can lift in an afternoon,
+    while `GT-182` nonclaim 4 has held the markerless scenes shut since it
+    was written, and it is the fact that would still be there tomorrow.
+    """
+    if not live_target_read:
+        return STAGED_BLOCKER_SPAWN_UNREADABLE
+    if has_coordinates:
+        return STAGED_BLOCKER_ROUTE_SHUT
+    if live_target is None:
+        return STAGED_BLOCKER_NO_SPAWN
+    return STAGED_BLOCKER_ROUTE_SHUT
+
+
+def staged_next_step(*, same_scene: bool, blocker: str) -> str:
     """The `next=` sentence: one reason, one tail, joined here and nowhere else.
 
-    FOUR SENTENCES FROM FOUR CONSTANTS rather than four constants, because
-    the two questions are independent -- WHY no frame went out, and whether a
-    relog would move her -- and writing them out would be four strings to
-    keep in agreement by hand, which `AGENTS.md` section 7 names as the thing to
+    SIX SENTENCES FROM FIVE CONSTANTS rather than six constants, because the
+    two questions are independent -- WHY no frame went out, and whether a
+    relog would move her -- and writing them out would be six strings to keep
+    in agreement by hand, which `AGENTS.md` section 7 names as the thing to
     derive instead ("one fact, one place").
 
-    Both reasons end in the same six words on purpose: an attended tester
-    greps `no teleport could be sent` to find every staged shape at once,
-    then reads the clause in front of it to learn which blocker she is
-    looking at and the clause behind it to learn whether relogging helps.
+    An unknown blocker name renders the missing-spawn reason rather than
+    raising: this builds a diagnostic, and a diagnostic may never alter
+    dispatch.  It is the reason that is true of every line this printer emits
+    on the shipped flags, so an impossible caller understates rather than
+    invents.
     """
-    reason = (
-        STAGED_NO_CONFIRMED_SPAWN_REASON
-        if no_confirmed_spawn
-        else STAGED_LIVE_ROUTE_SHUT_REASON
+    reason = _STAGED_BLOCKER_REASONS.get(
+        blocker, STAGED_NO_CONFIRMED_SPAWN_REASON
     )
     tail = STAGED_TAIL_SAME_SCENE if same_scene else STAGED_TAIL_CROSS_SCENE
     return f"{reason}; {tail}"
@@ -1604,21 +1717,37 @@ class _Verdict:
     # it ever reaches the staged branch, so one field serving both would be
     # read on a path where its own docstring's meaning is false.
     #
-    # DECIDED IN `_warp_action` AND CARRIED, never re-derived at print time.
-    # `runtime.py`'s `_gm_warp_resync_selected_scene` rewrites
+    # DECIDED IN `_warp_action` AND CARRIED, never re-derived at print time --
+    # but NOT for the reason this comment first gave (pf-adversary, round
+    # `spt6fv`, D6, MEASURED).
+    #
+    # ~~"`runtime.py`'s `_gm_warp_resync_selected_scene` rewrites
     # `selected.position.scene_id` to a warp's DESTINATION at queue time, so a
-    # printer that re-read the position would call every stage "same scene"
-    # once the resync had run.  This is the same reason `SAME_SCENE_BASIS_
-    # FIELD` exists one token up.
+    # printer that re-read the position would call every stage 'same scene'
+    # once the resync had run"~~ -- that hazard cannot occur on THIS path, and
+    # a mutant that re-derives the value at print time survives the whole
+    # suite, which is how it was caught.  The resync loop fires only for
+    # actions whose label is in `_GM_WARP_LABELS`, and a staged verdict
+    # returns `action=None`, so nothing can resync between `_warp_action`'s
+    # read and a print-time read WITHIN one command; and when an EARLIER live
+    # warp has already poisoned the field, `_warp_action`'s own read is
+    # poisoned identically -- which is not a reason to prefer one read over
+    # the other, it is `basis=` (D2, printed on the line since this round).
+    #
+    # The real reason is smaller and holds anyway: `_warp_action` is the one
+    # function that knows the current scene, it has already answered this,
+    # and a second answer to an answered question is a second thing to keep
+    # in agreement.  `SAME_SCENE_BASIS_FIELD` one token up carries the same
+    # struck rationale; it is left as written -- history is not deleted -- and
+    # is corrected by this note and by `docs/GM_LANE.md`.
     staged_same_scene: bool = False
-    # Why the STAGE happened, for the console only: True when
-    # `warp_no_coords_live_target` had no pinned arrival marker to aim a
-    # frame at (17/126/278/997, `n_MARKER == 0`), False when the scene HAS
-    # one and the live route was shut for some other reason.  Defaults True
-    # because that is the only shape that reaches the staged printer on the
-    # shipped flags; see `STAGED_LIVE_ROUTE_SHUT_REASON` for the
-    # configuration where the difference is a false blocker on the console.
-    staged_no_confirmed_spawn: bool = True
+    # WHICH BLOCKER held this command's frame, for the console only: one of
+    # the three `STAGED_BLOCKER_*` names, decided by `_staged_blocker` from
+    # what the routing already learned.  A NAME, not the sentence: the
+    # verdict is dispatch state, and rewording must never reach the routing.
+    # Defaults to the missing-spawn blocker because that is the only one that
+    # can hold a frame on the shipped flags.
+    staged_blocker: str = STAGED_BLOCKER_NO_SPAWN
 
 
 def _note(session: object, event: str) -> None:
@@ -2568,10 +2697,28 @@ def _warp_action(
     # nonclaim 4) -- same scene or not.  `warp_no_coords_live_target` is
     # still the one place that decides which scenes qualify, and this change
     # does not touch it, so GT-141's pinned scene-278 answer is unchanged.
+    #
+    # THE LOOKUP IS DONE ONCE, HERE, AND ITS ANSWER IS CARRIED (pf-adversary,
+    # round `spt6fv`, D3, MEASURED).  It used to be inlined in the condition
+    # below and asked a SECOND time in the stage call's argument list, which
+    # bought two defects for one fact: `world_scene_travel.destination`
+    # re-reads `scenarios/world_scene_registry_001.json` from disk on every
+    # call with no cache, so the console's copy of the question doubled the
+    # reads on the shipped path AND put an unguarded disk read on the
+    # coordinates-bearing path that never had one -- where an `OSError` (a
+    # class `warp_no_coords_live_target` does not catch) escaped `_warp_
+    # action` entirely and an ACCEPTED command vanished with no console line
+    # at all, in the module whose founding property is that it never does
+    # that.  `_no_coords_live_target` below cannot raise, so no reading of
+    # the registry can take a command down any more, and a read that fails
+    # falls CLOSED to staging with its own honest reason.
+    live_target, live_target_read = _no_coords_live_target(
+        session, target_scene_id, has_coordinates
+    )
     if (
         not has_coordinates
         and warp_executor.WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED
-        and warp_no_coords_live_target(target_scene_id) is not None
+        and live_target is not None
     ):
         return _warp_teleport_action_no_coords(
             session,
@@ -2595,14 +2742,16 @@ def _warp_action(
             # sentence and nothing else: a markerless `/warp` stages the same
             # entry either way.
             same_scene=target_scene_id == position.scene_id,
-            # ASKED OF THE SAME FUNCTION THE ROUTING ASKED, twenty lines up,
-            # and not inferred from the fact that we reached this branch:
-            # with `WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` down, a
-            # MARKER-BACKED scene lands here too, and telling its operator
-            # that it has no confirmed spawn point would name a blocker that
-            # is not the one holding the frame.
-            no_confirmed_spawn=(
-                warp_no_coords_live_target(target_scene_id) is None
+            # WHICH BLOCKER ACTUALLY HELD THIS COMMAND'S FRAME -- not "what
+            # does this destination lack", which is a different question and
+            # the one the first draft answered (pf-adversary, round `spt6fv`,
+            # D1, MEASURED).  `staged_blocker` reads the answer the routing
+            # above already got; see that helper for why a coordinates-
+            # bearing warp can never be blocked by a missing arrival marker.
+            blocker=_staged_blocker(
+                has_coordinates=has_coordinates,
+                live_target=live_target,
+                live_target_read=live_target_read,
             ),
         )
 
@@ -3346,7 +3495,7 @@ def _print_staged_way_out(
     outcome: str,
     *,
     same_scene: bool = False,
-    no_confirmed_spawn: bool = True,
+    blocker: str = STAGED_BLOCKER_NO_SPAWN,
 ) -> None:
     """Say that a cross-scene `/warp` was staged, and what the GM must do now.
 
@@ -3373,22 +3522,36 @@ def _print_staged_way_out(
     may never alter dispatch, and by the time this runs the entry is already
     on disk.
 
-    THE THIRD FIELD IS NOW BUILT BY `staged_next_step` from two independent
-    answers this printer is told rather than guesses (`COO-DECISION
-    20260903_2050` item 2): WHY no frame went out (`no_confirmed_spawn`) and
-    whether a relog would move her (`same_scene`).  The struck sentence gave
-    neither -- it led with an instruction, which is the whole of what the
-    owner's "nothing happened" report turned on.
+    THE `next=` FIELD IS BUILT BY `staged_next_step` from two independent
+    answers this printer is TOLD rather than guesses (`COO-DECISION
+    20260903_2050` item 2): which `blocker` held the frame, and whether a
+    relog would move her (`same_scene`).  The struck sentence gave neither --
+    it led with an instruction, and that is the whole of what the owner's
+    "nothing happened" report turned on.
 
-    BOTH ARE PASSED IN, never re-read here.  `same_scene` for the reason
-    `_Verdict.staged_same_scene` records (`runtime.py` rewrites the position
-    field this printer would have had to read); `no_confirmed_spawn` because
-    the answer belongs to `warp_no_coords_live_target`, which `_warp_action`
-    already asked -- see `STAGED_LIVE_ROUTE_SHUT_REASON` for the reachable
-    configuration where assuming it here prints a false blocker.
+    BOTH ARE PASSED IN, never re-derived here, because both belong to
+    `_warp_action`: it is the function that knows the current scene and the
+    one that already asked the registry.  Re-asking the registry here was
+    defect D3 (a second, unguarded disk read on the dispatch path), and
+    re-reading the position here would be a second answer to a question
+    already answered.
 
-    THE DEFAULTS ARE THE SHIPPED SHAPE, not neutral values: today every line
-    this printer emits on the shipped flags is a markerless destination, so a
+    A FOURTH FIELD, `basis=`, AND IT IS A CORRECTION (pf-adversary, round
+    `spt6fv`, D2, MEASURED).  `same_scene` is decided by comparing the typed
+    scene against `selected.position.scene_id`, which `runtime.py`'s
+    `_gm_warp_resync_selected_scene` rewrites to a cross-scene warp's
+    DESTINATION at queue time, with nothing from the client confirming the
+    arrival.  Measured end to end: a client really in scene 1, `/warp 997 100
+    200`, then `/warp 997` -- and this line said "you are standing in it
+    already", which was the server's belief and was false.
+    `GM_CHAT_SAME_SCENE_TELEPORT_SENT` has carried `basis=` for exactly this
+    since round `07kjfd`; this line makes the STRONGER claim and carried no
+    label at all.  It has one now, and the day chief's
+    `client_confirmed_scene` lands (CORE-REQUEST-GM-051 item 3) both lines
+    change basis together.
+
+    THE DEFAULTS ARE THE SHIPPED SHAPE, not neutral values: on the shipped
+    flags the missing marker is the only blocker that can hold a frame, so a
     call site that forgets an argument says what is true of the default build
     rather than inventing a blocker -- and `same_scene` defaults to the
     cross-scene tail so such a caller understates what it knows instead of
@@ -3408,13 +3571,12 @@ def _print_staged_way_out(
             if outcome == OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED
             else "none"
         )
-        next_step = staged_next_step(
-            same_scene=same_scene, no_confirmed_spawn=no_confirmed_spawn
-        )
+        next_step = staged_next_step(same_scene=same_scene, blocker=blocker)
         print(
             f"{STAGED_CONSOLE_TOKEN} "
             f"account='{console_safe(_one_line(token), stream)}' "
             f"command=warp scene_id={scene_id} coordinates={coordinates} "
+            f"basis={SAME_SCENE_BASIS_FIELD} "
             f"next='{next_step}'",
             file=stream,
         )
@@ -3937,7 +4099,7 @@ def _announce_console_outcome(
             command,
             verdict.audit_outcome,
             same_scene=verdict.staged_same_scene,
-            no_confirmed_spawn=verdict.staged_no_confirmed_spawn,
+            blocker=verdict.staged_blocker,
         )
         return
     if verdict.line_printed and audited:
@@ -3992,7 +4154,7 @@ def _stage_action(
     login_scene_config_path: str | None,
     scene_registry=None,
     same_scene: bool = False,
-    no_confirmed_spawn: bool = True,
+    blocker: str = STAGED_BLOCKER_NO_SPAWN,
 ) -> _Verdict:
     """The cross-scene half of `/warp`: write the next-login scene, send nothing.
 
@@ -4069,7 +4231,7 @@ def _stage_action(
         # before this point, and a refusal prints `GM_CHAT_WARP_REFUSED`,
         # which has its own vocabulary and never speaks of a relog.
         staged_same_scene=same_scene,
-        staged_no_confirmed_spawn=no_confirmed_spawn,
+        staged_blocker=blocker,
     )
 
 
