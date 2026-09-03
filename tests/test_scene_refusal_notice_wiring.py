@@ -576,14 +576,25 @@ class TheConsoleNamesTheLoginItRefusedTests(unittest.TestCase):
 
 
 class TheBracketCannotBeTruncatedTests(unittest.TestCase):
-    """pf-adversary D9: the leading bracket is capped at NAME_LIMIT.
+    """pf-adversary D9: the leading bracket is capped at ``REASON_LIMIT``.
 
-    ``GAME_TEST_QUEUE.md:6667`` and ``tests/test_lane_a_scene_census.py``
+    ``GAME_TEST_QUEUE.md:6678`` and ``tests/test_lane_a_scene_census.py``
     grep ``TOKEN [reason]`` as one contiguous string.  Every refusal reason
-    fits under the cap today; a longer one added later would silently
-    truncate the bracket and take both greps with it.  Derived from the
-    vocabulary, so the day someone adds a long reason this is red BEFORE
-    the greps go quiet.
+    fits under the cap today; a longer one added later would truncate the
+    bracket and take both greps with it.  Derived from the vocabulary, so
+    the day someone adds a long reason this is red BEFORE the greps go
+    quiet.
+
+    THE CAP THIS ASSERTS AGAINST CHANGED (COO-DECISION ``20260903_1746``
+    item 4, chief's report ``20260903_1605`` item 5).  It used to be
+    ``NAME_LIMIT`` -- a number sized for a character name, holding a
+    contract about refusal reasons.  It is now ``REASON_LIMIT``, a fixed
+    number of the reason's own.  THIS TEST IS THE WHOLE GUARD and it is
+    load-bearing, not decoration: a fixed cap cannot notice a vocabulary
+    that outgrows it, so this is what goes red first, before the greps go
+    quiet.  (An earlier draft of the round made the cap derive itself from
+    the vocabulary, which would have made this test unfalsifiable -- and
+    took the field's only bound away with it; see ``REASON_LIMIT``.)
     """
 
     def test_every_refusal_reason_fits_inside_the_cap(self):
@@ -594,12 +605,28 @@ class TheBracketCannotBeTruncatedTests(unittest.TestCase):
         longest = max(reasons, key=len)
         self.assertLessEqual(
             len(longest),
-            world_scene_refusal_notice.NAME_LIMIT,
+            world_scene_refusal_notice.REASON_LIMIT,
             f"refusal reason {longest!r} is longer than the composer's cap "
-            f"({world_scene_refusal_notice.NAME_LIMIT}); the leading "
+            f"({world_scene_refusal_notice.REASON_LIMIT}); the leading "
             "bracket would be truncated and every contiguous "
             "TOKEN-plus-bracket grep in the queue would go quiet",
         )
+
+    def test_the_cap_is_not_the_name_cap_wearing_another_name(self):
+        """The two numbers may be equal today; they may not be one number.
+
+        Sharing the constant is the defect chief reported: a reason was cut
+        by a cap nobody sized for reasons.  Reading ``NAME_LIMIT`` here
+        again would restore that coupling under a new spelling.
+        """
+        source = (
+            ROOT
+            / "src"
+            / "pirateforce_foundation"
+            / "world_scene_refusal_notice.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("_ascii_token(reason, REASON_LIMIT)", source)
+        self.assertNotIn("_ascii_token(reason, NAME_LIMIT)", source)
 
 
 if __name__ == "__main__":  # pragma: no cover - parity with the suite
