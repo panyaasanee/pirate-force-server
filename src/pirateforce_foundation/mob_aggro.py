@@ -71,9 +71,18 @@ a safeguard -- the damage lane reached this one through a HANDLE ARGUMENT, and
 no scan of ``src/`` can see an argument -- and ordered the module promoted in
 the same round as the death half.  So: ``production_allowed`` is True,
 ``mob_ai_control`` imports this module by name, and that import edge is the
-thing a scan can now see.  ``MOB_AGGRO_DISPATCH_REACHABLE`` stays False and is
-still honest: the last unbuilt step is one call in ``runtime.py``, which is
-the chief's file and not this lane's.  The decision loop is computable today,
+thing a scan can now see.  ~~``MOB_AGGRO_DISPATCH_REACHABLE`` stays False and
+is still honest: the last unbuilt step is one call in ``runtime.py``, which is
+the chief's file and not this lane's.~~ -- STRUCK, round `1tz15e`
+(2026-09-03): that call was BUILT, and this sentence outlived it.
+``runtime.py:4466`` calls ``mob_ai_control.damage_step`` inside
+``_dispatch_mob_combat``, which ``dispatch`` calls at ``runtime.py:10440``,
+and ``runtime.py:5217`` says in its own prose that no scenario flag gates it.
+``damage_step`` folds through ``mob_aggro.apply_damage_threat``.  The lane IS
+reachable from production dispatch; the constant now says so, and the test
+DERIVES it instead of pinning it, so the next time the answer changes the file
+cannot go on telling the old story.  What is still not built is OBSERVABILITY:
+no intent this lane decides reaches a client.  The decision loop is computable today,
 the attack delivery is still not (Door B), and wiring the deliverable intents
 (approach, leash return) to real frames is still a separate, owner-ruled step.
 
@@ -213,11 +222,59 @@ from typing import Optional, Tuple
 # edge instead of it arriving as a runtime argument.
 production_allowed = True
 MOB_AGGRO_MILESTONE = "MOB-AGGRO-001"
-# Still False, and deliberately: no dispatcher calls this lane yet, because the
-# call site is in runtime.py, which belongs to the chief.  What changed is the
-# line below it -- an importer inside src/ now exists.
-MOB_AGGRO_DISPATCH_REACHABLE = False
-MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True
+# ~~Still False, and deliberately: no dispatcher calls this lane yet, because
+# the call site is in runtime.py, which belongs to the chief.~~ -- STRUCK,
+# round `1tz15e` (2026-09-03), by measurement.  The call site exists:
+# runtime.py:4466 calls mob_ai_control.damage_step inside
+# _dispatch_mob_combat, which _dispatch_with_lanes calls at runtime.py:10440
+# and which dispatch reaches through it; damage_step folds through
+# mob_aggro.apply_damage_threat.  _dispatch_mob_combat's own docstring
+# (runtime.py:4309) says no scenario flag gates it; what does gate the fold is
+# self.mob_ai_register.is_tracked(...) at runtime.py:4464, a live per-monster
+# condition, not a switch.  docs/FUNCTIONAL_COVERAGE.json, row
+# mob_aggro_and_server_ai, has recorded since 2026-08-26 (R179) that
+# "'nothing dispatches the controller' is no longer true ... What changed is
+# reachability, not observability", and tests/test_mob_ai_control_dispatch.py
+# has proved the fold behaviourally since the same round.  So the FACT was
+# measured all along; what nobody tied to it was this constant, which went on
+# saying the opposite for eight days across two tests and one shipped pin.
+#
+# tests/test_mob_aggro.py now derives the answer from the AST of runtime.py -
+# a call, from a method dispatch reaches, into a function whose own body uses
+# this lane - and requires this constant to EQUAL what it found, in either
+# direction.  Measured both ways: flip this line alone and the test is red;
+# disconnect the lane in runtime.py and flip this line to match and the test
+# is green again.
+#
+# WHAT THIS LINE DOES NOT SAY, and the reason it needs a sibling nobody has
+# written yet: the damage FOLD is reached on every accepted hit, but the
+# DECISION TICK is not reached at all.  runtime.py:5887 gates the tick behind
+# lane_hooks.module_production_allowed("lane_hooks.lane_b_mob_ai_tick"), and
+# lane_hooks.__init__ prefixes a name that does not already start with its own
+# __name__, so that argument resolves to
+# "pirateforce_foundation.lane_hooks.lane_hooks.lane_b_mob_ai_tick" - a key
+# that exists nowhere - and the fail-closed lookup answers False on every
+# frame.  runtime.py is the chief's file; the finding is reported to him and
+# to the COO, and tests/test_mob_aggro.py pins today's measured answer so the
+# day it is corrected somebody has to come here and say so.
+MOB_AGGRO_DISPATCH_REACHABLE = True
+# What is still NOT true, and is a different claim entirely: nothing this lane
+# decides is observable by a player.  See ATTACK_INTENT_DELIVERABLE below.
+# ~~MOB_AGGRO_IMPORTED_BY_A_PRODUCTION_MODULE = True~~ -- STRUCK, round
+# `1tz15e` (2026-09-03), by COO-DECISION 2026-09-03T13:47+07:00, which took
+# this lane's own D4 lesson as a house rule: a bool that RESTATES a fact is
+# not a guard on it.  The sentence it asserted -- "a module inside src/ that
+# is itself production imports this one by name, so the edge is visible to a
+# static scan" -- is now DERIVED, in
+# tests/test_mob_aggro.py::test_the_lane_is_not_reachable_from_production_dispatch:
+# the importer set is walked out of the AST of every src/ module -- and as of
+# this round the walk also catches the CALL forms, __import__("...") and
+# importlib.import_module("..."), which are how an edge hides from a scan that
+# only reads Import nodes.  A pf-adversary pass proved that hole live: an
+# __import__ edge from mob_combat into this lane left the whole 8,691-test
+# suite green.  The flag is gone, not renamed: nothing outside those tests ever
+# read it (grep over the whole tree, tools/ and reports/ and STATUS.md
+# included, in the round that removed it: 0 live readers).
 MOB_AGGRO_IMPORTER = "mob_ai_control"
 
 # Door B (attack transport) is unproven -- round-98 draft, sections 2 and 8.

@@ -29,6 +29,8 @@ written down in the module, in MOB_COMBAT_NONCLAIMS, and here.
 
 import ast
 import builtins
+import importlib
+import importlib.util
 import json
 import sys
 import tempfile
@@ -1629,9 +1631,15 @@ class MobCombatTests(unittest.TestCase):
             any("threat NOT recorded" in line for line in describe_step(step)))
 
     def test_the_threat_handle_is_optional_and_that_is_the_wiring(self):
-        # D8.  Passing mob_aggro in makes a lane whose production_allowed is
-        # False reachable from dispatch through an argument no static scan can
-        # see.  The supported production wiring passes None.
+        # D8.  ~~Passing mob_aggro in makes a lane whose production_allowed
+        # is False reachable from dispatch through an argument no static scan
+        # can see.~~ -- STRUCK, round `1tz15e`: mob_aggro.production_allowed
+        # has been True since 2026-08-26, and dispatch reaches the lane today
+        # (tests/test_mob_aggro.py derives it).  What survives, and is the
+        # whole reason the argument stays None, is the SHAPE: an argument-borne
+        # edge is one no scan of src/ can see, and the COO ruled that the hole
+        # rather than the safeguard.  The supported production wiring passes
+        # None and folds threat through the import edge after the commit.
         ledger = open_ledger()
         step = strike(
             self.legacy, None, ledger, None, self.mob, PERFORMER,
@@ -1640,7 +1648,114 @@ class MobCombatTests(unittest.TestCase):
         self.assertEqual(len(step.frames), 2)
         self.assertIn("None", mob_combat.MOB_COMBAT_WIRING)
         self.assertIn("commit_step", mob_combat.MOB_COMBAT_WIRING)
-        self.assertTrue(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL)
+        # Round `1tz15e`: the assertion here used to be
+        # ``assertTrue(mob_combat.MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL)`` -- a
+        # bool restating the call three lines above it, which the call already
+        # proves.  The flag is struck; what replaces it is the half nothing
+        # checked: THE FOLD OWNER NAMED IN THIS MODULE IS RESOLVED.  Until this
+        # round MOB_COMBAT_THREAT_FOLD_OWNER could have named a function that
+        # does not exist and every test in the repository would still be green,
+        # while the production wiring it tells a reader to call would raise.
+        module_name, _, attribute = (
+            mob_combat.MOB_COMBAT_THREAT_FOLD_OWNER.partition("."))
+        self.assertTrue(attribute, "the fold owner must be module.attribute")
+        owner = importlib.import_module(
+            "pirateforce_foundation." + module_name)
+        fold = getattr(owner, attribute, None)
+        self.assertTrue(
+            callable(fold),
+            "MOB_COMBAT_THREAT_FOLD_OWNER names "
+            f"{mob_combat.MOB_COMBAT_THREAT_FOLD_OWNER}, which does not "
+            "resolve to a callable")
+        # And the edge stays one a STATIC scan can see.  Written first as
+        # ``assertIn("mob_aggro", owner.__dict__)`` / ``assertNotIn(...,
+        # mob_combat.__dict__)`` and rewritten in the same round: pf-adversary
+        # showed those two lines measure a RUNTIME NAMESPACE, not an import.
+        # A module-level ``mob_aggro = __import__(...)`` satisfies the first
+        # while being invisible to every scan, and renaming the binding
+        # (``_threat_lane = __import__(...)``) satisfies the second while the
+        # edge is live - measured, with the full suite green.  So the question
+        # is asked of the SOURCE, in the same words the aggro lane's own
+        # containment card asks it.
+        # Loaded by PATH, not by package name: tests/ is not a package here,
+        # and a card that copied this helper into a second file would be the
+        # very thing the house rule forbids (COO-DECISION 2026-09-03T08:46).
+        helper_spec = importlib.util.spec_from_file_location(
+            "pf_test_mob_aggro_helper",
+            Path(__file__).resolve().parent / "test_mob_aggro.py")
+        helper = importlib.util.module_from_spec(helper_spec)
+        helper_spec.loader.exec_module(helper)
+        module_imports_mob_aggro = helper.module_imports_mob_aggro
+        src_root = ROOT / "src" / "pirateforce_foundation"
+        self.assertTrue(
+            module_imports_mob_aggro(
+                (src_root / (module_name + ".py")).read_text(
+                    encoding="utf-8")),
+            f"{module_name} is named as the threat fold owner but does not "
+            "import mob_aggro where a scan can see it")
+        self.assertFalse(
+            module_imports_mob_aggro(
+                (src_root / "mob_combat.py").read_text(encoding="utf-8")),
+            "mob_combat imports mob_aggro: threat is arriving here again "
+            "instead of through the fold owner after the commit "
+            "(COO-DECISION 2026-08-26T04:02+07:00)")
+
+    def test_the_production_call_site_passes_no_threat_handle(self):
+        # D8, FROM THE FIRST pf-adversary PASS, FIXED AFTER THE SECOND SAID
+        # THE ZONE ARGUMENT DID NOT REACH IT.  Both cards that guarded the
+        # "the handle stays None" rule asked a SUBSTRING of MOB_COMBAT_WIRING,
+        # a paragraph of prose.  Measured: rewrite that paragraph to instruct
+        # runtime.py to pass a live threat lane and a threat row (the word
+        # "None" still present somewhere, the word "mob_aggro" absent),
+        # regenerate the scenario pin, and the argument-shaped edge
+        # COO-DECISION 2026-08-26T04:02+07:00 forbade is back with every test
+        # green.
+        #
+        # This asks the CALL SITE instead.  It is still a static check and is
+        # labelled as one: it proves what runtime.py's source passes at the
+        # named calls, not that no handle can ever arrive by another route.
+        # Reading the chief's file is what this lane already does in
+        # tests/test_mob_aggro.py; nothing in runtime.py is edited here.
+        runtime_tree = ast.parse(
+            (ROOT / "src" / "pirateforce_foundation" / "runtime.py").read_text(
+                encoding="utf-8"))
+        guarded = {"attack_from_observed_action", "strike"}
+        checked = 0
+        for node in ast.walk(runtime_tree):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = node.func
+            if not isinstance(callee, ast.Attribute):
+                continue
+            if callee.attr not in guarded:
+                continue
+            if not isinstance(callee.value, ast.Name):
+                continue
+            if callee.value.id != "mob_combat":
+                continue
+            checked += 1
+            # Positional 2 is the threat handle, positional 4 the threat row.
+            for position in (1, 3):
+                self.assertGreater(
+                    len(node.args), position,
+                    f"{callee.attr} is called with fewer than {position + 1} "
+                    "positional arguments: the wiring shape changed and this "
+                    "card can no longer read it")
+                argument = node.args[position]
+                self.assertTrue(
+                    isinstance(argument, ast.Constant)
+                    and argument.value is None,
+                    f"runtime.py line {node.lineno} passes a live value in "
+                    f"argument {position + 1} of {callee.attr}: threat is "
+                    "arriving through a handle no scan of src/ can see "
+                    "(COO-DECISION 2026-08-26T04:02+07:00), instead of "
+                    "through mob_ai_control after the combat commit")
+        self.assertEqual(
+            checked, 1,
+            "expected exactly one production entry into this module from "
+            f"runtime.py, found {checked} - a second one is a second place "
+            "the handle rule has to hold, and this card has not been told "
+            "about it")
 
     def test_a_ledger_row_from_another_roster_is_refused(self):
         # D16.  With a mismatched ceiling the announced number came from the

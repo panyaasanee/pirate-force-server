@@ -1089,7 +1089,23 @@ class DescribeAndPinTests(unittest.TestCase):
                          ("aggro_radius", "offensive"))
         self.assertEqual(len(pin["lane_b_assumptions"]), 4)
         self.assertIs(pin["attack_intent_deliverable"], False)
-        self.assertIs(pin["mob_aggro_dispatch_reachable"], False)
+        # ROUND `1tz15e`: was ``False``.  It was one of THREE copies of a bool
+        # that had been wrong since 2026-08-26 - runtime.py:4466 calls
+        # mob_ai_control.damage_step from _dispatch_mob_combat, which dispatch
+        # calls at runtime.py:10440.  The measurement now lives in
+        # tests/test_mob_aggro.py::test_dispatch_reachability_is_derived_not_declared,
+        # which walks runtime.py's AST; this line only checks that the PIN
+        # carries whatever the module says, which is this file's job.
+        # NO SECOND LITERAL HERE.  A draft of this round wrote
+        # ``assertIs(pin[...], True)`` underneath, which is a hand-typed copy
+        # of the answer and would have to be hand-edited the day it changes -
+        # the three-copies shape, re-created in the round that removed it.
+        # The measurement lives in
+        # tests/test_mob_aggro.py::test_dispatch_reachability_is_derived_not_declared;
+        # this line only checks that the PIN carries what the module says,
+        # which is this file's job.
+        self.assertIs(pin["mob_aggro_dispatch_reachable"],
+                      mob_aggro.MOB_AGGRO_DISPATCH_REACHABLE)
         self.assertIs(pin["mob_aggro_production_allowed"], True)
 
 

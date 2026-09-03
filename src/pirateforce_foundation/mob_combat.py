@@ -241,7 +241,25 @@ MOB_COMBAT_WIRING = (
 # all.  The v5 fold is a SEPARATE call after the combat commit -
 # mob_ai_control.damage_step - so the edge is an import a scan can see rather
 # than a handle it cannot.  See mob_ai_control.MOB_AI_CONTROL_WIRING.
-MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL = True
+# ~~MOB_COMBAT_THREAT_HANDLE_IS_OPTIONAL = True~~ -- STRUCK, round `1tz15e`
+# (2026-09-03), by COO-DECISION 2026-09-03T13:47+07:00.  The paragraph above
+# still says everything this flag said; what the flag added was a second copy
+# of the claim that a test could assert instead of asserting the behaviour.
+# The behaviour is proved where it lives:
+# tests/test_mob_combat.py::test_the_threat_handle_is_optional_and_that_is_the_wiring
+# actually drives a hit with None in that argument.  Nothing outside the tests
+# read the flag.
+#
+# The same test also RESOLVES the dotted name on the line below - import the
+# module, getattr the function, require it callable.  ~~so a fold owner that
+# does not exist can no longer be announced by a green suite~~ -- STRUCK IN
+# THE ROUND THAT WROTE IT: pf-adversary measured the claim and it was false.
+# Renaming damage_step already broke COLLECTION of tests/test_mob_ai_control.py
+# (module-level `from ... import damage_step`), and repointing this constant
+# already failed a literal pin in tests/test_mob_aggro.py.  What the resolution
+# adds is smaller and worth having anyway: the failure is named HERE, next to
+# the wiring paragraph a reader follows, instead of arriving as an ImportError
+# during collection of a different file.
 MOB_COMBAT_THREAT_FOLD_OWNER = "mob_ai_control.damage_step"
 
 # [UPDATE, round B_20260827_1734 (ebbhzt), 2026-08-27] appended to
