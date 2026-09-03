@@ -8288,3 +8288,119 @@ followed by `/warp 2` -- two scene loads to undo a walk. Today that one line sen
 teleport a cross-scene warp sends, to that scene's own spawn, and the console says which of the two
 it was. And `/warp 2 100 200`, the line that closed her client on 2026-09-03, now costs her a
 console sentence instead of the session.
+
+## Round `lx4yib` (2026-09-03T17:1x+07:00) -- the lane_hooks name nothing checked, made executable
+
+### Why this round exists at all
+
+Every named LANE-GM queue item was blocked on somebody else, and the round file records who:
+P-1 on LANE-B and the owner's screen, P-2 on `RE-222` (`[STATIC-ON-BRIDGE]`, uncomputable on a
+cloud clone), P-3 and both `/speed` locks on the owner's machine. COO's `1548` item 5 pointed at
+the `RE-2xx` ticket -- MEASURED: it was filed at `1119` and queued by chief as `RE-222`, so that
+order had already been carried out twice before it was given a third time. That leaves rule F item
+(d), technical debt, and the debt picked was not chosen to look busy: it is a bug that is live on
+`main` right now.
+
+### The defect class
+
+`lane_hooks` couples a call site to a lane module through a bare string nothing checks, twice:
+`module_production_allowed("<name>")` and `@hook("<point>")` versus `fire("<point>")`. Both fail
+silently, in the direction that reads as "the feature is switched off". MEASURED on `origin/main`
+`9a140835`, independently of LANE-B's letter:
+
+    module_production_allowed("lane_hooks.lane_b_mob_ai_tick")  -> False
+    module_production_allowed("lane_b_mob_ai_tick")             -> True
+
+`runtime.py:5887` uses the first spelling. LANE-B's aggro tick has never run for a player.
+
+### What was already there, said before any claim of novelty
+
+LANE-B's own containment file carries `test_the_tick_gate_is_reported_not_assumed`, which pins that
+one call site's two answers and is written to red the day chief repairs it. This module does not
+repeat it: it is not tied to one call site, it audits the hook-point half as well (which no test
+here did), and it does not need editing when a call site is fixed.
+
+### `pf-adversary`: NOT APPROVED on the first draft -- nine defects, seven measured, all taken
+
+The first draft was largely rewritten, and the rewrite is the interesting part.
+
+* **D1** the classifier asked the FILESYSTEM before the resolver, so one `is_file()` overrode both
+  probes. `pkgutil.iter_modules` discovers PACKAGES, so a lane module shipped as a directory got a
+  WORKING gate reported as `names_no_lane_module` -- and this lane's own asserted test went red
+  over a call site that worked. The resolver is asked first now; a literal it opens is never a
+  finding. `_module_source` reads `<stem>.py` or `<stem>/__init__.py`.
+* **D2** `fire(...)` was matched by BARE NAME. On a pirate-ship server `fire` is a more ordinary
+  word than `hook`: an unrelated `cannon.fire("vital_inbound_gm_run_command")` made a genuinely
+  dead LANE-GM hook report clean, and `cannon.fire()` with no arguments disarmed the entire hook
+  half and reddened another lane's file with a message about hook points. Every call is now matched
+  by RESOLUTION through the file's own imports.
+* **D3** `fire(point="...")` -- the keyword the signature offers, in a function whose real call
+  already passes `session=`/`payload=` by keyword -- was reported as "not a string literal", and
+  the whole half refused on it.
+* **D4** the never-fired declaration was keyed on the POINT NAME alone, so it was a mute button:
+  one lane could silence another lane's dead hook, a cross-lane registration of a declared point
+  went unreported, and the promised "reds when the module stops registering it" guard stayed asleep
+  while any other module registered the point. Keyed by `(file, point)` now, with one test per
+  scenario.
+* **D5** the "permanent assertion" went vacuous the moment the literal became a constant -- hoist
+  `runtime.py:6911`'s name into a variable and the chat gate dies while every test passes.
+  `lane_gm_gate_literals()` is pinned non-empty.
+* **D6** the draft claimed requalifying `runtime.py:6911` would "red no test". MEASURED with the
+  change actually applied: **24 tests fail**, 23 of them pre-existing. That sentence justified the
+  module's placement and had been asserted without opening the tests it described. Corrected in
+  place.
+* **D7** a lane module that FAILS TO IMPORT reaches nothing and was reported as nothing -- the
+  exact silence this module exists to break. A fourth fact, read from the module's source rather
+  than by importing it (the state in question is the one where importing is unavailable), now
+  separates "the owner switched it off" from "it never reached the registry".
+* **D8** the scope was `startswith("lane_gm_")`, so `lanegm_chat_command`, `lane_gmchat_command`,
+  `Lane_GM_chat_command` and `lane_gm_chat_command.py` all escaped the assertion -- it protected
+  the spelling that was already right and let through the typos the module exists for. The rule is
+  now "not attributable to another lane's existing module".
+* **D9** rglob instead of `git ls-files` (this repository has been bitten by "green about an editor
+  buffer, red about the thing that would be pushed" before); "repository-wide" that meant
+  package-wide; three tree walks under a docstring claiming one; a no-print test that walked past
+  `sys.stdout.write`; and a cross-lane-hostile assertion that reddened LANE-GM's file when LANE-B
+  used the declaration mechanism exactly as advertised.
+
+### And one defect the adversary did not find, caught by running the neighbours
+
+Adding this module reddened LANE-B's `ContainmentTests::test_the_lane_is_not_reachable_from_production_dispatch`
+-- because that census counts every file under `src/` that so much as MENTIONS its module's name,
+and this module's docstring CITED that lane's test file by path. A prose citation, in a comment,
+in another lane's zone-adjacent census. The citation now names the test and not the file, and says
+why. Reported to chief: a census keyed on a substring in any file, comments included, will keep
+catching innocent references, and it is not this lane's to change.
+
+### What is asserted, and what is only reported
+
+The hook-point half is asserted repository-wide (clean today). The gate-name half is asserted on
+every finding EXCEPT one attributable to another lane's existing module -- `runtime.py:5887` is
+chief's, his fix is in flight, and a repository-wide pin would red the repair. The live report is
+one line and it is that one. chief was asked, in `pf_bridge notes_to_chief/20260903_1732`, to be
+the one who widens the assertion once his fix lands.
+
+### The registered-never-fired point this lane owns
+
+The audit's first run found `lane_gm_chat_command`'s `vital_inbound_chat_local_talk`: registered,
+and unfired since `CORE-REQUEST-GM-029` replaced the hook route with a direct call. That is a
+decision with a written rationale, so it is DECLARED in this lane's own file rather than excepted
+inside the audit -- and the audit reds in both directions if the premise changes, which makes it a
+second spring on the same trap `OneOfTwoWiringTests` already holds.
+
+### nonclaim
+
+1. No GM status was granted, no GM command fired, no byte left a socket, no screen was involved.
+   No step was skipped using GM.
+2. `runtime.py:5887` is NOT fixed here and this lane does not claim to have fixed it.
+   `runtime.py` and `lane_hooks/__init__.py` are chief's and were not touched.
+3. "Clean repository-wide" in this section is about the HOOK-POINT half only.
+4. `registered_but_not_fired` changes no behaviour of the hook or of `production_allowed`; nothing
+   but the audit reads it.
+
+### What the tester can do today that she could not yesterday
+
+**Nothing.** No new capability reached her. What changed is that the GM chat route -- whose every
+composition is gated on `module_production_allowed("lane_gm_chat_command")` at `runtime.py:6911` --
+can no longer die the silent way LANE-B's tick died, and neither can a route no lane has written
+yet.
