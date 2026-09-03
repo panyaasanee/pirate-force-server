@@ -53,12 +53,62 @@ mirrors `teleport_wire`/`say_wire`'s pattern exactly), but (b) is NOT yet
 true as an outcome -- this module's own "open part" section above already
 says the first named-field send will still zero every currently-nonzero
 UNNAMED field, because there is no raw-block source to preserve them from
-today. Whether that gap is closed by path 1 (accept the risk) or path 2
+today. ~~Whether that gap is closed by path 1 (accept the risk) or path 2
 (name-only, possibly not viable) is still routed to the owner
 (`pf_bridge/notes_to_chief/20260831_2327_LANE-GM-TO-OWNER-attr-wire-path1-
-vs-path2-after-re172-negative.md`), per `COO-DECISION 20260831_1843`.
-Nothing below sends live until that answer lands, and (b) is not satisfied
-until it does.
+vs-path2-after-re172-negative.md`), per `COO-DECISION 20260831_1843`.~~
+
+## (b) IS NOW (b') -- `COO-DECISION 2026-09-04T00:46+07:00`
+
+Struck above, and this is the replacement, not a softening of it
+(`pf_bridge/notes_to_chief/20260904_0046_COO-DECISION-lane-gm-2348-
+confirmed-the-live-value-source-is-ordered-to-chief-and-unlock-b-is-
+revised-after-gt218.md`, item 3).  The old (b) -- "unnamed fields preserved
+lossless, never zeroed" -- was a condition NOBODY COULD EVER SATISFY from
+this repository: `CORE-REQUEST-GM-044` came back NEGATIVE on 2026-08-31
+(`characters.actor_wire` is a `CreateActorDataEx` BLOB, a different codec,
+not a DBAttribute collection), so there is no raw-block source to preserve
+unnamed fields FROM, and there never was one to wait for.  A gate whose
+condition cannot be met is not a gate, it is a shelf.
+
+  (b') EVERY `known=True` ROW CARRIES ITS REAL VALUE AT SEND TIME, read
+  from the live-value point `COO-DECISION 2026-09-04T00:47+07:00` ordered
+  chief to add: `lane_hooks.current_named_attr_values(character_id) ->
+  {x: value}`, covering every `known=True` row of `FIELDS`.  Rows with
+  `known=False` are NOT sent -- their mask bits stay unset, which is
+  byte-for-byte the shape the owner's own live probe ran for 266 commands
+  over 2h20m in one connection without a crash.  This lane did not choose
+  that shape; it is the one shape that has real evidence behind it.
+
+WHY THE RESIDUAL RISK IS NOW SOMEONE'S TO ACCEPT RATHER THAN NOBODY'S TO
+CLOSE.  Under the client's full-object-copy apply (`RE-222` Q0, SHA-pinned,
+`ActorAttr::full copy [0x00464F30,0x004652AC)` -- and its constructor zeroes
+HP/MP/cash BEFORE decode touches them), an unset mask bit is not "leave it
+alone", it is "make it zero".  So (b') trades a guarantee that cannot be
+built for one that can: the fields we KNOW keep their true values, and the
+fields we do not know take the same trip they demonstrably survived in the
+owner's hands.  COO's stated grounds for deciding it without the owner:
+it is reversible (a relog rebuilds the row from the DB -- `GT-218` proved
+exactly that, the client died in one frame and the row was intact) and it
+contradicts no standing owner order.  What remains open is closed ON A
+SCREEN, not here: an attended `GT` in which cash / HP-max / MP must be
+unchanged after ONE frame.
+
+PATH 1 AND PATH 2 ARE CLOSED BY THIS, and that is the point of writing it
+down: the owner's letter `20260831_2327` had been waiting on her since
+31 Aug.  Path 1 ("send sparse and accept the risk") is REFUTED, not chosen
+-- `GT-218` is what refutes it: `/speed 400`, a value the login path sends
+every day, killed the client in one frame (HP `0/1`, cash `0`) through a
+sparse send, so "accept the risk" was priced by measurement and the price
+was the session.  Path 2 (name-only) is what (b') is, with the live-value
+source that made it viable ordered into existence rather than assumed.
+
+STILL SHUT, AND (b') DOES NOT ON ITS OWN OPEN IT.  Nothing below sends
+live: chief's read point does not exist yet (see `seed_cache_from_live_
+values`, which refuses by name when it is missing), the version gate is
+unflipped for this module's named-field door, and `/speed`'s own two locks
+(`SPEED_LOGIN_READ_LANDED`, `SHAPES_CLEARED_BY_A_REAL_CLIENT`) are shut
+independently of everything in this file (`COO-DECISION 2147`, standing).
 
 ## The proven part
 
@@ -149,6 +199,7 @@ can invent a baseline it was not handed.
 from __future__ import annotations
 
 import struct
+import sys
 
 AC_ATTR_ID = 0x12AD
 UPDATE_ATTR_VITAL_ID = 0x309A
@@ -400,37 +451,82 @@ def parse_value(kind: str, text: str):
     raise AttrWireError(f"unknown field kind {kind!r}")
 
 
+_UNSIGNED_LIMITS = {"u8": 0xFF, "u16": 0xFFFF, "u32": 0xFFFFFFFF, "u64": 0xFFFFFFFFFFFFFFFF}
+
+
+def validate_field_value(field: tuple, value) -> None:
+    """Would `encode_field` accept this value for this row? Raise if not.
+
+    SPLIT OUT OF `encode_field`, WHICH NOW CALLS IT, so there is exactly ONE
+    answer to "is this value sendable" in this module.  The seeding path
+    (`seed_cache_from_live_values`) has to ask that question BEFORE anything
+    is cached, and a second copy of these bounds would be two answers to
+    keep in agreement -- the failure mode being a value the seeder blessed
+    and the encoder then refused mid-compose, i.e. a `RawBlockCache` holding
+    a baseline no send can ever use.
+
+    IT DOES NOT NEED `legacy`, deliberately: the bounds are properties of
+    the wire kinds in `FIELDS`, not of the loaded v141 module, so the seeder
+    can validate on a connection that has not loaded one.
+
+    The `u*`/`i32`/`wstr` messages are UNCHANGED from the ones `encode_field`
+    raised before the split.  `f32` and `blob` gained one each: both used to
+    let a bad value out as a bare `TypeError`/`ValueError` from `float()` or
+    `bytes()`, which is the one exception class this module's callers do not
+    catch by name.
+    """
+    kind, name = field[5], field[6]
+    limit = _UNSIGNED_LIMITS.get(kind)
+    if limit is not None:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise AttrWireError(f"{name}: {kind} out of range: {value!r}")
+        if not (0 <= value <= limit):
+            raise AttrWireError(f"{name}: {kind} out of range: {value!r}")
+        return
+    if kind == "i32":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise AttrWireError(f"{name}: i32 out of range: {value!r}")
+        if not (-(1 << 31) <= value < (1 << 31)):
+            raise AttrWireError(f"{name}: i32 out of range: {value!r}")
+        return
+    if kind == "f32":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise AttrWireError(f"{name}: f32 requires a real number, got {value!r}")
+        return
+    if kind == "wstr":
+        if not isinstance(value, str):
+            raise AttrWireError(f"{name}: wstr requires str, got {value!r}")
+        return
+    if kind == "blob":
+        if not isinstance(value, (bytes, bytearray)):
+            raise AttrWireError(f"{name}: blob requires bytes, got {value!r}")
+        return
+    raise AttrWireError(f"unknown field kind {kind!r}")  # pragma: no cover - FIELDS-shape guard
+
+
 def encode_field(legacy, field: tuple, value) -> bytes:
     """One tagged field, using the loaded `pf_login_game_server_v141`
     module's own tag helpers (`legacy_bridge.load_legacy`) -- this module
     does not re-derive `u8tag`/`u16tag`/`u32tag`/`qwordtag`, the same seam
-    `gm/state_wire.py`/`gm/bt_gm_probe.py` already use."""
+    `gm/state_wire.py`/`gm/bt_gm_probe.py` already use.
+
+    The range/type checks live in `validate_field_value` above, called here
+    first so this function and the seeding path can never disagree."""
+    validate_field_value(field, value)
     tag, kind = field[4], field[5]
     if kind == "u8":
-        if not (0 <= value <= 0xFF):
-            raise AttrWireError(f"{field[6]}: u8 out of range: {value!r}")
         return legacy.u8tag(tag, value)
     if kind == "u16":
-        if not (0 <= value <= 0xFFFF):
-            raise AttrWireError(f"{field[6]}: u16 out of range: {value!r}")
         return legacy.u16tag(tag, value)
     if kind == "u32":
-        if not (0 <= value <= 0xFFFFFFFF):
-            raise AttrWireError(f"{field[6]}: u32 out of range: {value!r}")
         return legacy.u32tag(tag, value)
     if kind == "i32":
-        if not (-(1 << 31) <= value < (1 << 31)):
-            raise AttrWireError(f"{field[6]}: i32 out of range: {value!r}")
         return bytes([tag]) + struct.pack("<i", value)
     if kind == "f32":
         return bytes([tag]) + struct.pack("<f", float(value))
     if kind == "u64":
-        if not (0 <= value <= 0xFFFFFFFFFFFFFFFF):
-            raise AttrWireError(f"{field[6]}: u64 out of range: {value!r}")
         return legacy.qwordtag(tag, value)
     if kind == "wstr":
-        if not isinstance(value, str):
-            raise AttrWireError(f"{field[6]}: wstr requires str, got {value!r}")
         body = value.encode("utf-16le")
         return bytes([tag]) + struct.pack("<I", len(body)) + body
     if kind == "blob":
@@ -556,6 +652,202 @@ class RawBlockCache:
         a second guess."""
         self._values = dict(values)
         self._captured = True
+
+
+# The name of chief's live-value read point, ordered by `COO-DECISION
+# 2026-09-04T00:47+07:00` and NOT YET BUILT.  Spelled once, here, so the day
+# it lands nothing in this lane has to be hunted for -- and so a test can
+# pin the name this lane is waiting on without importing a module that does
+# not exist.
+LIVE_VALUE_READ_POINT = "current_named_attr_values"
+
+# The two console lines the seeding path may print, both pure ASCII (the
+# bridge console is cp874).  A refusal is the SHIPPED outcome today -- chief's
+# read point does not exist -- so it gets a real line rather than silence:
+# "nothing happened" with no console line is the exact shape the owner
+# reported as a bug on `/warp`, and this lane does not get to repeat it.
+SEED_REFUSED_CONSOLE_TOKEN = "GM_ATTR_SEED_REFUSED"
+SEED_CAPTURED_CONSOLE_TOKEN = "GM_ATTR_SEED_CAPTURED"
+
+
+def named_field_x() -> tuple:
+    """Every `x` that (b') says must carry a real value on a send.
+
+    `known=True` MINUS `SENSITIVE_FIELDS`, and the subtraction is not
+    currently a no-op by luck: `SENSITIVE_FIELDS` holds x=30, which is
+    `known=False` today, so the two sets do not overlap yet.  They would the
+    moment an RE result renames x=30 -- and x=30's own row comment says it
+    must never be settable through this API "even once this field is renamed
+    True".  Doing the subtraction here means that rename cannot quietly turn
+    a sensitive blob into a required seed value.
+    """
+    return tuple(
+        field[0] for field in FIELDS if field[7] and field[0] not in SENSITIVE_FIELDS
+    )
+
+
+def live_named_values(character_id, *, hooks=None) -> dict:
+    """Read every named field's REAL current value, or raise saying why not.
+
+    THIS IS CONDITION (b') OF THE UNLOCK, in code (see the module docstring's
+    "(b) IS NOW (b')" section and `COO-DECISION 20260904_0046` item 3).  It
+    returns a dict covering EXACTLY `named_field_x()` -- no more, no fewer --
+    read from `lane_hooks.current_named_attr_values(character_id)`.
+
+    EVERY FAILURE IS A NAMED `AttrWireError`, never a partial dict.  Partial
+    is the one outcome that must be impossible here: `encode_block` sets a
+    mask bit for every key it is given and for no key it is not, and the
+    client's apply is a FULL-OBJECT COPY whose constructor zeroes HP, MP and
+    cash before decode touches them (`RE-222` Q0, SHA-pinned).  So a dict
+    missing `cash` does not send "cash unchanged", it sends "cash = 0" --
+    which is not a hypothetical: it is what the owner watched happen in one
+    frame during `GT-218` (HP `0/1`, cash `0`).  A missing row must therefore
+    cost a refusal, never a send.
+
+    THE HOOK IS RESOLVED LAZILY AND BY NAME.  `lane_hooks` modules import
+    this lane's modules, so an import at module scope would close a cycle;
+    and the attribute does not exist yet in any case, which is why the
+    "missing" branch is the shipped one.  `hooks` is injectable for tests --
+    the same seam every other module in this lane uses for a runtime object.
+    """
+    if hooks is None:
+        try:
+            from .. import lane_hooks as hooks  # noqa: PLC0415 - see docstring
+        except Exception as error:  # noqa: BLE001 - any import failure is a refusal
+            raise AttrWireError(
+                f"no_read_point: lane_hooks is unimportable "
+                f"({type(error).__name__})"
+            ) from None
+    read_point = getattr(hooks, LIVE_VALUE_READ_POINT, None)
+    if not callable(read_point):
+        raise AttrWireError(
+            f"no_read_point: lane_hooks.{LIVE_VALUE_READ_POINT} does not "
+            f"exist yet (ordered by COO-DECISION 20260904_0047)"
+        )
+    try:
+        values = read_point(character_id)
+    except Exception as error:  # noqa: BLE001 - a hook may never take dispatch down
+        raise AttrWireError(
+            f"read_point_raised_{type(error).__name__}"
+        ) from None
+    if not isinstance(values, dict):
+        raise AttrWireError(f"not_a_mapping: read point returned {type(values).__name__}")
+
+    wanted = named_field_x()
+    seeded = {}
+    missing = []
+    for x in wanted:
+        if x not in values:
+            missing.append(x)
+            continue
+        field = BY_X[x]
+        try:
+            validate_field_value(field, values[x])
+        except AttrWireError:
+            # A row that is present but unsendable is exactly as fatal as a
+            # row that is absent: both end in a mask bit this module cannot
+            # set with a true value.
+            missing.append(x)
+            continue
+        seeded[x] = values[x]
+    if missing:
+        raise AttrWireError(
+            "missing_named_rows: " + ",".join(str(x) for x in missing)
+        )
+    # EXTRA KEYS ARE DROPPED, NOT REFUSED, and dropping is the safe half:
+    # a key this module does not send cannot set a mask bit.  An extra key
+    # for a `known=False` row would set that row's bit with a value nobody
+    # has confirmed the meaning of, and one for x=30 would put
+    # `SENSITIVE_FIELDS` on the wire -- `seeded` is built from `wanted`
+    # alone, so neither can reach the cache by any input to this function.
+    return seeded
+
+
+def seed_cache_from_live_values(
+    cache: RawBlockCache,
+    character_id,
+    *,
+    hooks=None,
+    stream=None,
+) -> bool:
+    """Seed one connection's cache from the live values, or refuse out loud.
+
+    Returns True only when the cache now holds a real, complete named-field
+    baseline.  NEVER RAISES: this is the function a future dispatch path
+    calls before composing, and this module's founding property is that an
+    accepted command never vanishes without a console line.
+
+    TODAY IT ALWAYS RETURNS FALSE, and that is the point of shipping it now
+    rather than the day chief's read point lands: the refusal path is the one
+    that will run in production first, so it is the one that gets built,
+    tested and greppable first.  `COO-DECISION 20260904_0046` item 3's
+    instruction to this lane was exactly this -- "prepare the consumer; not
+    landed yet = stand still with a console line, no bytes out".
+
+    NO BYTES CAN LEAVE THROUGH HERE UNDER ANY OUTCOME.  This function seeds a
+    cache; it does not compose, and it does not send.  The two gates above it
+    are untouched: `build_named_field_update` still refuses every
+    `known=False` row and still raises for an unseeded cache, and
+    `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` still gates the one exception site
+    that may reach a socket.
+    """
+    if stream is None:
+        stream = sys.stderr
+    try:
+        values = live_named_values(character_id, hooks=hooks)
+    except AttrWireError as error:
+        _print_seed_line(stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, str(error))
+        return False
+    except Exception as error:  # noqa: BLE001 - see docstring: never raises
+        _print_seed_line(
+            stream,
+            SEED_REFUSED_CONSOLE_TOKEN,
+            character_id,
+            f"unexpected_{type(error).__name__}",
+        )
+        return False
+    try:
+        cache.capture_initial(values)
+    except Exception as error:  # noqa: BLE001 - a cache object may be anything
+        _print_seed_line(
+            stream,
+            SEED_REFUSED_CONSOLE_TOKEN,
+            character_id,
+            f"capture_failed_{type(error).__name__}",
+        )
+        return False
+    if not cache.is_captured():
+        # READ BACK AFTER WRITE, the house rule: a cache whose
+        # `capture_initial` silently did nothing would hand the next caller a
+        # baseline it does not have.
+        _print_seed_line(
+            stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, "capture_not_readable"
+        )
+        return False
+    _print_seed_line(
+        stream,
+        SEED_CAPTURED_CONSOLE_TOKEN,
+        character_id,
+        f"named_rows={len(values)}",
+    )
+    return True
+
+
+def _print_seed_line(stream, token: str, character_id, why: str) -> None:
+    """One ASCII console line, and never raise printing it."""
+    try:
+        safe = "".join(
+            ch if 32 <= ord(ch) < 127 else "?" for ch in str(why)
+        )
+        ident = "".join(
+            ch if 32 <= ord(ch) < 127 else "?" for ch in str(character_id)
+        )
+        print(
+            f"{token} character_id='{ident}' why='{safe}'",
+            file=stream,
+        )
+    except Exception:  # noqa: BLE001 - a diagnostic may never alter dispatch
+        pass
 
 
 def build_named_field_update(
