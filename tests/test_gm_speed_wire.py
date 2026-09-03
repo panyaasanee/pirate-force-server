@@ -101,32 +101,63 @@ class ParseSpeedValueTests(unittest.TestCase):
 
 
 class ComposeSparseSpeedUpdateTests(unittest.TestCase):
+    """THIS DOOR IS CLOSED (`COO-DECISION 20260904_0345` item 2).
+
+    ~~(b'') does not change this function's own composition~~ -- struck, not
+    deleted.  That was true for exactly one round and COO withdrew it: the
+    2026-09-03 06:46 approval of the `PF_SPEED_TRIAL` escape hatch predates
+    `RE-222` (21:49), and `RE-222` Q0 says the client's apply is a
+    full-object copy whose constructor zeroes every field first -- so the
+    damage never depended on the number in x=7, only on the 54 rows this
+    shape omits.  There is no safe value on a half block, so the function
+    refuses instead of choosing one.
+
+    WHAT THESE TESTS PIN NOW: the refusal is unconditional, it is a NAMED
+    `SpeedWireError` (so `chat_command_action._speed_action`'s existing
+    compose-refused branch routes it to a console line rather than a
+    silent drop), and the value checks still run FIRST so a caller passing
+    rubbish is told it passed rubbish.
+    """
+
     def setUp(self):
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
 
-    def test_composes_a_frame_carrying_only_the_x7_mask_bit(self):
-        pc, frame = compose_sparse_speed_update(self.legacy, 1, 0, 500.0)
-        expected_pc, expected_frame = attr_wire.make_update_attr_frame(
-            self.legacy, 1, 0, {SPEED_FIELD_X: 500.0}
-        )
-        self.assertEqual(pc, expected_pc)
-        self.assertEqual(frame, expected_frame)
+    def test_a_valid_value_no_longer_composes_anything(self):
+        with self.assertRaises(SpeedWireError) as caught:
+            compose_sparse_speed_update(self.legacy, 1, 0, 500.0)
+        self.assertIn("20260904_0345", str(caught.exception))
 
-    def test_basic_mask_is_exactly_the_x7_bit_and_no_other(self):
+    def test_the_refusal_covers_every_shape_that_used_to_send(self):
+        for value in (500.0, 400, 1.0, 12.5, 0.0, -3.5):
+            with self.subTest(value=value):
+                with self.assertRaises(SpeedWireError):
+                    compose_sparse_speed_update(self.legacy, 1, 0, value)
+
+    def test_the_identity_no_longer_matters_because_no_frame_is_built(self):
+        with self.assertRaises(SpeedWireError):
+            compose_sparse_speed_update(self.legacy, 0xAABBCCDD, 0x11223344, 1.0)
+
+    def test_the_frame_exit_would_refuse_this_shape_anyway(self):
+        # DEFENCE IN DEPTH, MEASURED RATHER THAN ASSERTED IN A COMMENT: even
+        # with this function's own refusal deleted, the shape it used to
+        # build cannot become a frame -- `COO-DECISION 20260904_0345` item 1
+        # put the wall at `make_update_attr_frame`.  A round that reopens
+        # this door by accident still cannot ship the GT-218 shape.
+        with self.assertRaises(attr_wire.AttrWireError):
+            attr_wire.make_update_attr_frame(
+                self.legacy, 1, 0, {SPEED_FIELD_X: 500.0}
+            )
+
+    def test_the_body_this_shape_used_to_carry_is_still_composable(self):
+        # `encode_block` stays sparse-capable on purpose (item 1): the shape
+        # is still MEASURABLE, which is how `test_gm_speed_shape_hold.py`
+        # keeps GT-193's byte-level history.  Only the header is refused.
         body, basic_mask, actor_mask = attr_wire.encode_block(
             self.legacy, 1, 0, {SPEED_FIELD_X: 500.0}
         )
+        self.assertTrue(body)
         self.assertEqual(basic_mask, attr_wire.BY_X[SPEED_FIELD_X][2])
         self.assertEqual(actor_mask, 0)
-        # Sanity: the sparse composer's own output embeds this exact body.
-        _pc, frame = compose_sparse_speed_update(self.legacy, 1, 0, 500.0)
-        self.assertIn(body, frame)
-
-    def test_carries_the_identity_given(self):
-        import struct
-
-        _pc, frame = compose_sparse_speed_update(self.legacy, 0xAABBCCDD, 0x11223344, 1.0)
-        self.assertIn(struct.pack("<II", 0xAABBCCDD, 0x11223344), frame)
 
     def test_rejects_nan(self):
         with self.assertRaises(SpeedWireError):
@@ -144,23 +175,13 @@ class ComposeSparseSpeedUpdateTests(unittest.TestCase):
         with self.assertRaises(SpeedWireError):
             compose_sparse_speed_update(self.legacy, 1, 0, "5.0")  # type: ignore[arg-type]
 
-    def test_accepts_int_value(self):
-        # A GM typing `/speed 400` parses to the string "400"; a caller may
-        # reasonably hand this function an int after its own conversion.
-        pc, frame = compose_sparse_speed_update(self.legacy, 1, 0, 400)
-        expected_pc, expected_frame = attr_wire.make_update_attr_frame(
-            self.legacy, 1, 0, {SPEED_FIELD_X: 400.0}
-        )
-        self.assertEqual(pc, expected_pc)
-        self.assertEqual(frame, expected_frame)
-
-    def test_does_not_mutate_any_raw_block_cache(self):
-        # Module docstring point 3: this door never reads or writes
-        # RawBlockCache. Nothing to assert against an object that is never
-        # constructed -- the real assertion is that the function signature
-        # has no cache parameter at all, exercised by every call above
-        # succeeding without one.
-        compose_sparse_speed_update(self.legacy, 1, 0, 12.5)
+    def test_a_bad_value_is_told_it_is_a_bad_value_not_that_the_door_is_shut(self):
+        # The two facts send an operator to two different places, so they
+        # keep two different words (the same split `live_named_values` keeps
+        # between `absent` and `unsendable`).
+        with self.assertRaises(SpeedWireError) as caught:
+            compose_sparse_speed_update(self.legacy, 1, 0, "5.0")  # type: ignore[arg-type]
+        self.assertNotIn("20260904_0345", str(caught.exception))
 
 
 if __name__ == "__main__":

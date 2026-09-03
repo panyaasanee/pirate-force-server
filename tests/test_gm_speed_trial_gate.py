@@ -426,21 +426,43 @@ class EverythingMalformedFailsClosedTests(_Case):
 
 
 class TheArmedValueGetsThroughBothLocksTests(_Case):
-    """The end-to-end half: an armed gate really does reach the composer."""
+    """~~The end-to-end half: an armed gate really does reach the composer.~~
 
-    def test_the_armed_value_produces_this_doors_own_action(self):
+    STRUCK BY `COO-DECISION 20260904_0345` ITEM 2, which WITHDREW COO's own
+    2026-09-03 06:46 approval of this gate: that approval predates `RE-222`
+    (21:49), and `RE-222` Q0 says the client's apply is a full-object copy
+    whose constructor zeroes every field first.  So the harm never depended
+    on the number the gate admits -- it is the 54 rows the sparse shape
+    omits, which is what `GT-218` measured (HP `0/1`, cash `0`, one frame).
+    There is no safe value to admit, so the composer below this gate is
+    shut.
+
+    WHAT THIS CLASS PINS NOW: the gate still does its own job exactly as
+    before -- it still parses one value, still admits only that value, still
+    bypasses rather than opens the two locks -- and the route now ends in a
+    REFUSAL WITH ONE CONSOLE LINE AND ZERO BYTES, which is the outcome COO
+    ordered in as many words.  The gate's parsing half is unchanged and its
+    own classes above still pin it; only the ending moved.
+    """
+
+    def test_the_armed_value_no_longer_produces_this_doors_own_action(self):
         session = self.session()
         with environment(ARMED):
             action = self.act(session)
         self.assertIsNotNone(
-            action, "the armed value produced no action at all"
+            action, "the armed value must still produce a REFUSAL, not silence"
         )
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertNotEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
 
-    def test_both_locks_are_still_shut_while_it_does(self):
+    def test_both_locks_are_still_shut_and_so_is_the_composer(self):
         # THE CLAIM COO `0646` MADE AND THIS TEST KEEPS: the gate BYPASSES the
         # locks for one value, it does not OPEN them.  A future round that
         # implemented the gate by flipping a constant instead turns this red.
+        # The third clause is new (`0345` item 2): the composer it bypasses
+        # into is shut too, so bypassing buys nothing.
         session = self.session()
         with environment(ARMED):
             action = self.act(session)
@@ -448,14 +470,27 @@ class TheArmedValueGetsThroughBothLocksTests(_Case):
             self.assertEqual(
                 speed_wire.SHAPES_CLEARED_BY_A_REAL_CLIENT, frozenset()
             )
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+            with self.assertRaises(speed_wire.SpeedWireError):
+                speed_wire.compose_sparse_speed_update(
+                    self.legacy, 1, 0, ARMED_F32
+                )
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
         self.assertTrue(speed_wire.send_deferred())
 
-    def test_the_event_trail_names_the_gate_that_let_it_out(self):
+    def test_the_event_trail_names_the_shut_composer_not_the_gate(self):
+        # ~~names the gate that let it out~~ -- nothing gets let out now.
+        # `EVENT_SPEED_TRIAL_ADMITTED` is noted BELOW the compose on purpose
+        # (see `_speed_action`'s own comment: a line saying `sending=` above a
+        # composer that then refused would be the console lying about bytes),
+        # so a refused compose never reaches it.  What the trail carries
+        # instead names the compose refusal by exception type, which is the
+        # word an operator greps.
         session = self.session()
         with environment(ARMED):
             self.act(session)
-        self.assertIn(
+        self.assertNotIn(
             chat_command_action.EVENT_SPEED_TRIAL_ADMITTED, session.events
         )
         self.assertNotIn(
@@ -464,6 +499,17 @@ class TheArmedValueGetsThroughBothLocksTests(_Case):
         self.assertNotIn(
             chat_command_action.EVENT_SPEED_WITHHELD_SHAPE_UNCLEARED,
             session.events,
+        )
+        self.assertTrue(
+            [
+                event
+                for event in session.events
+                if event.startswith(
+                    chat_command_action
+                    .EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX
+                )
+            ],
+            f"no compose-refused event in {session.events!r}",
         )
 
     def test_the_row_is_still_written_first(self):
@@ -480,19 +526,19 @@ class TheArmedValueGetsThroughBothLocksTests(_Case):
             store.stored[chat_command_action.SPEED_TYPED_COLUMN], ARMED_F32
         )
 
-    def test_the_console_says_which_value_the_door_opened_for(self):
-        # COO `0646` item 2, fourth bullet: readable without opening a source
-        # file.  The three facts an attended operator needs are the variable's
-        # NAME, the value it admits, and the value actually going out.
+    def test_the_console_says_the_door_shut_not_which_value_it_opened_for(self):
+        # ~~says which value the door opened for~~ -- struck.  COO `0345`
+        # item 2 asks for exactly "a refusal with ONE console line and no
+        # bytes out", and this is that line.  The `sending=` line is
+        # deliberately NOT printed as well: it lives below the compose, so a
+        # refused compose can never produce a console line that claims bytes
+        # went out.
         session = self.session()
         with environment(ARMED):
             _action, console = self.act_capturing_console(session)
-        line = self.one_line_starting(
-            console, chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
-        )
-        self.assertIn(f"env={speed_wire.SPEED_TRIAL_ENV}", line)
-        self.assertIn(f"trial_opens_for={ARMED_F32!r}", line)
-        self.assertIn(f"sending={ARMED_F32!r}", line)
+        self.assertNotIn(chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN, console)
+        line = self.one_line_starting(console, "GM_CHAT_NO_BYTES_SENT")
+        self.assertIn("SpeedWireError", line)
 
     def test_that_line_is_pure_ascii(self):
         # The bridge console is cp874; one non-ASCII byte costs the whole line
@@ -500,22 +546,19 @@ class TheArmedValueGetsThroughBothLocksTests(_Case):
         session = self.session()
         with environment(ARMED):
             _action, console = self.act_capturing_console(session)
-        line = self.one_line_starting(
-            console, chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
-        )
+        line = self.one_line_starting(console, "GM_CHAT_NO_BYTES_SENT")
         line.encode("ascii")
 
     def test_the_typed_spelling_never_reaches_the_console(self):
         # `/speed 4.5e2` is the same f32 as `450`, so the gate admits it -- and
-        # the console must report the NUMBER, never the GM's own text.
+        # the console must never echo the GM's own text, refusal or not.  The
+        # reason survives the door closing: the typed string is the one thing
+        # on this path this lane did not write.
         session = self.session()
         with environment(ARMED):
             _action, console = self.act_capturing_console(session, "/speed 4.5e2")
         self.assertNotIn("4.5e2", console)
-        line = self.one_line_starting(
-            console, chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
-        )
-        self.assertIn(f"sending={ARMED_F32!r}", line)
+        self.assertIn("GM_CHAT_NO_BYTES_SENT", console)
 
     def test_the_environments_raw_text_never_reaches_the_console(self):
         # An armed-but-malformed variable is the case where echoing would be
@@ -564,10 +607,17 @@ class EveryOtherValueStaysHeldTests(_Case):
         self.assertIn(f"trial_opens_for={speed_wire.TRIAL_MALFORMED}", line)
 
     def test_the_gate_is_re_read_every_command_not_cached_at_import(self):
+        # The two outcomes still DIFFER, which is what makes this a re-read
+        # test: armed reaches the composer and is refused there (an action
+        # carrying a refusal notice), unarmed never gets past the deferral
+        # (no action at all).  Only the first one's ending changed
+        # (`COO-DECISION 20260904_0345` item 2).
         session = self.session()
         with environment(ARMED):
             first = self.act(session)
-        self.assertEqual(first[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertEqual(
+            first[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
         second = self.act(self.session())
         self.assertIsNone(
             second,
@@ -597,15 +647,17 @@ class TheGateNeverRaisesIntoDispatchTests(_Case):
         ):
             with environment(ARMED):
                 action, console = self.act_capturing_console(session)
+        # ~~the word, not the frame~~ -- there is no frame on this route any
+        # more (`COO-DECISION 20260904_0345` item 2), so what this pins now is
+        # the half that still matters and is still the point: a raising
+        # DIAGNOSTIC never alters dispatch.  The route reaches the same
+        # refusal it reaches with a healthy console, and the refusal line is
+        # still printed.
         self.assertIsNotNone(action)
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
-        line = self.one_line_starting(
-            console, chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
         )
-        self.assertIn(
-            f"trial_opens_for={chat_command_action.SPEED_TRIAL_UNAVAILABLE}",
-            line,
-        )
+        self.assertIn("GM_CHAT_NO_BYTES_SENT", console)
 
     def test_unavailable_is_its_own_word_not_one_of_the_gates_two(self):
         self.assertNotIn(
@@ -613,16 +665,20 @@ class TheGateNeverRaisesIntoDispatchTests(_Case):
             (speed_wire.TRIAL_UNSET, speed_wire.TRIAL_MALFORMED),
         )
 
-    def test_a_console_that_cannot_be_written_still_lets_the_frame_out(self):
-        # A diagnostic may never alter dispatch, and the direction matters: the
-        # frame was admitted before the printer ran.  A printer that could veto
-        # a send would be a second, invisible gate.
+    def test_a_console_that_cannot_be_written_does_not_change_the_verdict(self):
+        # ~~still lets the frame out~~ -- no frame leaves this route now.  The
+        # property is unchanged and still worth pinning in the other
+        # direction: a printer that could veto would be a second, invisible
+        # gate, and a printer that could RESCUE would be one too.  With
+        # stderr unusable the route reaches the same refusal verdict.
         session = self.session()
         with mock.patch.object(chat_command_action.sys, "stderr", None):
             with environment(ARMED):
                 action = self.act(session)
         self.assertIsNotNone(action)
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
 
 
 class TheWordsAGraderGrepsAreLiteralsTests(_Case):
@@ -691,7 +747,14 @@ class TheKeyDoesNOTReopenTheLOGINDoorTests(_Case):
         session = self.session(store)
         with environment(ARMED):
             action = self.act(session)
-            self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+            # The wire door is shut (`0345` item 2) -- but the ROW still
+            # moves, which is exactly the trap chief named: this test's whole
+            # point is that a written row must not reach the login frame.
+            # Closing the wire door makes that MORE important, not less.
+            self.assertEqual(
+                action[0],
+                chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL,
+            )
             resolved = login_speed.resolve_for_character(
                 store, 1, fallback=CONSTANT
             )
@@ -806,14 +869,34 @@ class TheGateAdmitsTheROWNotTheTYPINGTests(_Case):
     def test_a_row_that_holds_the_armed_value_is_admitted(self):
         # Typed 451, row holds 450.0, gate armed at 450: the frame will carry
         # 450.0, which is what the owner armed, so it goes.
+        # ~~so it goes~~ -- it reaches the composer and is refused there
+        # (`0345` item 2).  The property this class exists for is UNCHANGED
+        # and still measured: which number the gate is compared against.  The
+        # armed row is admitted PAST the gate (it gets to the composer at
+        # all), where the row that holds something else is held BEFORE it --
+        # the two outcomes are still distinguishable, and the next test is
+        # the other half.
         store = self.diverging_store(ARMED_F32)
         session = self.session(store)
         with environment(ARMED):
             action = self.act(session, "/speed 451")
         self.assertIsNotNone(action)
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
-        self.assertIn(
-            chat_command_action.EVENT_SPEED_TRIAL_ADMITTED, session.events
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
+        self.assertNotIn(
+            chat_command_action.EVENT_SPEED_DEFERRED, session.events
+        )
+        self.assertTrue(
+            [
+                event
+                for event in session.events
+                if event.startswith(
+                    chat_command_action
+                    .EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX
+                )
+            ],
+            f"the armed row was held before the composer: {session.events!r}",
         )
 
     def test_a_row_that_holds_something_else_is_HELD_even_when_the_typing_matches(self):
@@ -835,14 +918,17 @@ class TheGateAdmitsTheROWNotTheTYPINGTests(_Case):
         self.assertNoTrialLine(console)
 
     def test_the_console_reports_the_row_not_the_typing(self):
+        # The `SPEED TRIAL OPEN` line is gone with the door (`0345` item 2 --
+        # it sat below the compose so it could never claim bytes that did not
+        # go out).  The half of this test that still has something to measure
+        # is the half that was always the risk: the GM's own typing must not
+        # reach the console on ANY outcome.
         store = self.diverging_store(ARMED_F32)
         session = self.session(store)
         with environment(ARMED):
             _action, console = self.act_capturing_console(session, "/speed 451")
-        line = self.one_line_starting(
-            console, chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN
-        )
-        self.assertIn(f"sending={ARMED_F32!r}", line)
+        self.assertNotIn(chat_command_action.SPEED_TRIAL_CONSOLE_TOKEN, console)
+        line = self.one_line_starting(console, "GM_CHAT_NO_BYTES_SENT")
         self.assertNotIn("451", line)
 
 

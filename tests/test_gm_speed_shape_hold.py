@@ -352,33 +352,68 @@ class TheShapeIsMeasuredNotHardcodedTests(_Case):
             action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
         )
 
-    def test_that_same_door_sends_once_its_own_shape_is_cleared(self):
-        # The control for the test above: `()` is not un-clearable, it is
-        # merely uncleared.  A round that measures it clears it by name.
+    def test_that_same_door_still_refuses_once_its_own_shape_is_cleared(self):
+        # ~~The control for the test above: `()` is not un-clearable~~ --
+        # rewritten by `COO-DECISION 20260904_0345` item 2.  Clearing the
+        # shape used to be the last gate; it no longer is.  The composer
+        # itself refuses now, so a round that clears this shape by name
+        # STILL sends nothing -- which is the whole point of closing the
+        # door rather than narrowing it.  What `()` being clearable still
+        # proves is that the clearance mechanism works; it just no longer
+        # ends in bytes.
         store = self.store()
         with self.deferral_lifted(), mock.patch.object(
             speed_wire, "declared_empty_sections", return_value=()
         ), self.cleared(()):
             action = self.act(self.session(store))
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
 
 
 class TheFrameGT193ShippedTests(_Case):
-    """A byte pin of the shape, so a change to it cannot happen quietly."""
+    """A byte pin of the shape, so a change to it cannot happen quietly.
+
+    THE SHAPE IS NOW HISTORY, NOT A PRODUCT (`COO-DECISION 20260904_0345`
+    item 1: "pinning that the shape which killed a client can no longer be
+    built is worth more than pinning that it still can").  No function in
+    this repository returns this frame any more -- so the tests below
+    RECONSTRUCT it from `attr_wire.encode_block`, which stays sparse-capable
+    on purpose, and assemble the envelope by hand exactly as
+    `make_update_attr_frame` did before the wall went in.
+
+    THAT IS DELIBERATE AND IT IS NOT A LOOPHOLE.  A hand-assembled envelope
+    inside a test file reaches no socket; what the wall forbids is a
+    PRODUCTION path returning one, and `TheShapeCanNoLongerBeBuiltTests`
+    below is the mutant that pins the wall itself.  Keeping the bytes
+    measurable is how this lane holds on to what an attended round with the
+    owner at the keyboard actually cost.
+    """
+
+    def _historical_frame(self):
+        """The exact pair GT-193 shipped, rebuilt from the body composer."""
+        body, _bm, _am = attr_wire.encode_block(
+            self.legacy, 1, 0, {speed_wire.SPEED_FIELD_X: GT193_TYPED_VALUE}
+        )
+        payload = (
+            self.legacy.u16tag(0x12, 1)
+            + self.legacy.u16tag(0x12, attr_wire.AC_ATTR_ID)
+            + self.legacy.u32tag(0x14, len(body))
+            + body
+        )
+        return self.legacy.make_runtime_vitals(
+            [(attr_wire.UPDATE_ATTR_VITAL_ID, 0, payload)]
+        )
 
     def test_it_is_still_the_seventy_four_byte_frame_the_tester_logged(self):
         # `[G>] LANE_GM_CHAT_SPEED_UPDATE_ATTR_VITAL (74 bytes)` in the R303
         # tally is the SECOND half of the composer's pair -- the one the
         # dispatcher counts -- and it is what this number pins.
-        _pc, frame = speed_wire.compose_sparse_speed_update(
-            self.legacy, 1, 0, GT193_TYPED_VALUE
-        )
+        _pc, frame = self._historical_frame()
         self.assertEqual(len(bytes(frame)), GT193_FRAME_LENGTH)
 
     def test_the_composed_frame_still_carries_the_measured_tail(self):
-        pc, _frame = speed_wire.compose_sparse_speed_update(
-            self.legacy, 1, 0, GT193_TYPED_VALUE
-        )
+        pc, _frame = self._historical_frame()
         raw = bytes(pc)
         at = raw.find(GT193_VALUE_BYTES)
         self.assertNotEqual(
@@ -526,21 +561,65 @@ class TheDeferralStandsAboveThisHoldTests(_Case):
 class TheControlTests(_Case):
     """If these fail, the tests above are proving nothing about the hold."""
 
-    def test_the_same_line_composes_once_the_shape_is_cleared(self):
+    def test_the_same_line_still_writes_the_row_once_the_shape_is_cleared(self):
+        # ~~composes~~ -- struck (`COO-DECISION 20260904_0345` item 2).  The
+        # DB write is UNCHANGED and that is the control worth keeping: COO
+        # `1847` ruled the row write continues, so a closed wire door must
+        # not have quietly taken the persistence with it.  The row is still
+        # written exactly once; only the frame is gone.
         store = self.store()
         with self.deferral_lifted(), self.cleared():
             action = self.act(self.session(store))
-        self.assertEqual(action[0], chat_command_action.SPEED_ACTION_LABEL)
+        self.assertEqual(
+            action[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
         self.assertEqual(len(store.calls), 1)
 
-    def test_clearing_the_shape_is_the_only_difference(self):
+    def test_clearing_the_shape_no_longer_changes_the_outcome(self):
+        # ~~clearing the shape is the only difference~~ -- struck.  It was
+        # the difference between a withheld frame and a sent one; now both
+        # ends are a refusal, because the composer below the shape gate is
+        # shut.  A mutant that reopens `compose_sparse_speed_update` turns
+        # this red, which is why it is asserted rather than deleted.
         held_store = self.store()
         with self.deferral_lifted():
             held = self.act(self.session(held_store))
         open_store = self.store()
         with self.deferral_lifted(), self.cleared():
             opened = self.act(self.session(open_store))
-        self.assertNotEqual(held[0], opened[0])
+        self.assertEqual(held[0], opened[0])
+        self.assertEqual(
+            opened[0], chat_command_action.SPEED_DENIED_NOTICE_ACTION_LABEL
+        )
+
+
+class TheShapeCanNoLongerBeBuiltTests(_Case):
+    """THE MUTANT `COO-DECISION 20260904_0345` ITEM 1 ORDERED, in this file.
+
+    The rest of this file measures the shape.  This class pins that the
+    shape cannot become a frame on any production path -- the one claim
+    that is worth more than the byte pins above it.
+    """
+
+    def test_the_speed_composer_refuses_the_gt193_value(self):
+        with self.assertRaises(speed_wire.SpeedWireError):
+            speed_wire.compose_sparse_speed_update(
+                self.legacy, 1, 0, GT193_TYPED_VALUE
+            )
+
+    def test_the_frame_exit_refuses_the_gt193_block_directly(self):
+        with self.assertRaises(attr_wire.AttrWireError):
+            attr_wire.make_update_attr_frame(
+                self.legacy, 1, 0, {speed_wire.SPEED_FIELD_X: GT193_TYPED_VALUE}
+            )
+
+    def test_the_body_is_still_measurable_which_is_why_the_pins_above_work(self):
+        body, basic_mask, actor_mask = attr_wire.encode_block(
+            self.legacy, 1, 0, {speed_wire.SPEED_FIELD_X: GT193_TYPED_VALUE}
+        )
+        self.assertIn(GT193_VALUE_BYTES, bytes(body))
+        self.assertNotEqual(basic_mask, 0)
+        self.assertEqual(actor_mask, 0)
 
 
 class TheShapeDoesNotDependOnIdentityOrValueTests(_Case):
