@@ -302,15 +302,15 @@ class FoundationTests(unittest.TestCase):
             versions = db.execute(
                 "SELECT version,checksum FROM schema_migrations ORDER BY version"
             ).fetchall()
-            # 10 = migrations/010_ground_drops.sql (LANE-DB, round 5d02mu).
-            # This pin moves with EVERY new migration file; see the letter
-            # 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-pins-
-            # outside-this-lane.md and chief's reply 20260901_1459, which
+            # 11 = migrations/011_character_skills.sql (LANE-DB, round
+            # 6796cv). This pin moves with EVERY new migration file; see the
+            # letter 20260901_1416_LANE-DB-REQUEST-chief-two-migration-count-
+            # pins-outside-this-lane.md and chief's reply 20260901_1459, which
             # allows this lane the one-line bump and queues the dynamic pin.
             # The dynamic pin chief proposed there is still not landed.
             self.assertEqual(
                 [int(row[0]) for row in versions],
-                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+                [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
             self.assertTrue(all(row[1] for row in versions))
             row = db.execute(
                 "SELECT name_key,create_fingerprint FROM characters WHERE id=1"
