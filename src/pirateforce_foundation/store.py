@@ -80,6 +80,36 @@ HEAL_LOCK_RETRY_BACKOFF_S = 0.01
 _LOCKED = "database is locked"
 
 
+#: The wire field `/speed` writes: BasicAttr+0x54, `x=7`, whose column name is
+#: resolved through `persistence_typed_attrs.column_for` rather than spelled
+#: here, so a rename of the column cannot leave this door writing a stale name.
+SPEED_WALK_FIELD_X = 7
+
+
+class _SpeedWriteRefused(Exception):
+    """Raised INSIDE `write_speed_by_identity`'s transaction so that
+    `connect()` rolls it back, and caught by that method, which reports the
+    refusal as `None`.  Private on purpose: it never crosses the boundary,
+    and a caller must not learn to catch it instead of checking for `None`.
+    """
+
+
+def _require_identity_part(value: object) -> int:
+    """One half of a wire identity pair, or `TypeError`/`ValueError`.
+
+    `bool` is refused before `int` is accepted: SQLite binds `True` as `1`,
+    so `identity_lo=True` would otherwise match, and write, the character
+    whose identity really is `1`.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(
+            f"identity part must be an int, got {type(value).__name__}"
+        )
+    if not 0 <= value <= 0xFFFFFFFF:
+        raise ValueError(f"identity part {value!r} is outside [0, 0xFFFFFFFF]")
+    return value
+
+
 class WriteLockTimeout(sqlite3.OperationalError):
     """A write lock could not be acquired inside the budget, said in full.
 
@@ -1650,6 +1680,201 @@ class SQLiteStore:
             lambda vitals, current: vitals.heal_to_full(
                 current.hp_current, current.hp_max),
         )
+
+    def write_speed_by_identity(
+        self, identity_lo: int, identity_hi: int, speed: float
+    ) -> "dict[int, float] | None":
+        """Store `speed` on the ACTIVE character carrying this wire identity
+        pair, and hand back `{x: value}` taken from the row READ BACK inside
+        the same transaction -- or `None`, which means NOTHING WAS WRITTEN.
+
+        LANE-DB owns this method (charter `COO-DECISION 20260901_1100`: a new
+        method here is allowed, changing an old one is not); no existing
+        method is touched by it.  It is the door LANE-GM asked for in
+        `pf_bridge/notes_to_chief/20260902_0017_LANE-GM-TO-LANE-DB-request-
+        speed-persistence-method.md`, built to that letter's shape, and the
+        answer this lane sent back in `20260903_0525` is the contract below.
+
+        WHY IT TAKES AN IDENTITY PAIR AND NOT A `character_id`.  The asking
+        lane holds `identity_lo`/`identity_hi` from `session.foundation.
+        selected` and no row id at all; making it reverse-engineer the
+        `characters` schema from `gm/` is how a second, private idea of this
+        table gets built.  The lookup is `deleted_at IS NULL`, which is
+        exactly the predicate `migrations/004`'s partial unique index
+        `characters_active_identity` is built on, so at most one row can
+        match; two matching rows are refused rather than picked between.
+
+        `None` IS THE ONLY FAILURE REPORT, AND IT IS AN HONEST ONE.  Every
+        refusal below raises INSIDE `connect()`'s block, so the transaction
+        is rolled back before this method returns: `None` therefore means the
+        row is exactly as it was, never "written, then something went wrong".
+        That is the property to test, and
+        `tests/test_store_speed_by_identity.py` tests it on every branch.
+        What earns `None`:
+
+        * an identity part that is not an `int`, is a `bool`, or is outside
+          `[0, 0xFFFFFFFF]`.  `bool` matters more than it looks and is
+          MEASURED: SQLite binds `True` as `1`, so an unguarded
+          `identity_lo=True` finds and writes the character whose identity
+          really is `1`, and the test builds that character.  The RANGE half
+          is belt-and-braces and is not evidence: a negative or oversized
+          part matches no row anyway (`2**128` never reaches SQLite at all),
+          so removing it leaves every test green.  It is written down as
+          structural, exactly as `_apply_hp_transition`'s own doubled
+          predicates are, and nobody should cite it as measured.
+
+        THE REST OF THE STRUCTURAL LIST, because an earlier draft declared
+        only one item and then claimed this door is tested "on every branch".
+        A `pf-adversary` pass (D4) measured seven more mutants that survive
+        the whole file, and hiding them is worse than owning them.  Still
+        unkillable today, and each is belt-and-braces behind something that
+        IS measured: `AND deleted_at IS NULL` in the UPDATE (the lookup's own
+        predicate plus the write lock already cover it); the `after is None`
+        branch (removing it turns into the same rolled-back `None` through
+        `TypeError`); `type(stored) is not float` inside the read-back guard;
+        `written != 1` narrowed to `written < 1`; composing before the commit
+        rather than after it.  Two more were killable and are now killed
+        rather than declared -- `LIMIT 2` / `len(rows) != 1` (see
+        `TwoActiveRowsAreRefusedTests`, which builds by hand the state
+        `migrations/004`'s partial unique index makes unconstructible through
+        this API) and the transaction's `BEGIN IMMEDIATE` itself (see
+        `TheReadAndTheWriteAreOneTransactionTests`).
+        * no active character with that pair (including one soft-deleted
+          between the caller reading it and this call).
+        * a value `persistence_typed_attrs.validate` refuses for this column
+          -- a bool, a non-number, `NaN`/`inf`, outside the f32 range, or a
+          nonzero value that underflows to exactly `0.0` on the wire.
+        * the write matching no row, or the read-back not being the number
+          just validated.
+        * a locked database, and a schema this database does not have.  Both
+          are indistinguishable from a refusal HERE, by design -- this door
+          may not raise across `gm/`'s boundary -- so a caller that needs the
+          REASON must use `write_typed_attributes`, which names it.
+
+        WHAT COMES BACK IS THE ROW'S NUMBER, AND IT IS A SOURCE RATHER THAN
+        A FORMALITY -- CORRECTED HERE, BECAUSE THIS DOCSTRING SAID THE
+        OPPOSITE AND WAS WRONG.  The read-back happens inside the same
+        transaction as the write (the shape `write_typed_attributes` adopted
+        after an adversary pass measured a commit-then-read returning another
+        writer's value as "the state after this write"), and `COO-DECISION
+        20260903_0447` point 2 made that a house rule rather than a
+        preference: a module claiming wire == DB must send the value it read
+        back, and "the write did not throw" is not evidence that a row
+        changed.  An earlier draft then reasoned that the mismatch check
+        below makes `stored` and `checked` "equal by construction", so
+        composing from either could not be told apart -- and declared that
+        undetectability MEASURED.  A `pf-adversary` pass (D1) refuted it with
+        one input: `-0.0`.  `validate` keeps the sign (`as_f32` does), SQLite
+        normalises it away on the way into a REAL column, and `-0.0 == 0.0`
+        is True -- so the guard passes while the two values differ, and they
+        differ in the sign BIT: `struct.pack("<f", 0.0)` is `00000000` and
+        `-0.0` is `00000080`, four different bytes on the wire.  Composing
+        from `checked` would send a number this database does not hold, which
+        is the exact wire-vs-DB split the house rule exists to forbid.
+        `NegativeZeroIsTheRowsZeroTests` pins it.
+
+        THE `written != 1` CHECK, AND THE WRONG REASON THIS DOCSTRING GAVE
+        FOR IT.  It used to say that a row already holding the value makes
+        the read-back agree while the UPDATE landed nowhere.  That is FALSE
+        about SQLite and the same pass measured it: `rowcount` counts rows
+        MATCHED, not rows whose bytes changed, so re-writing the same value
+        gives `1` and the door correctly reports a write.  What the check
+        really catches is an UPDATE that matched NO row -- a `BEFORE UPDATE
+        ... RAISE(IGNORE)` trigger is the reachable case, and it is what the
+        test uses.  Both directions are pinned all the same: `None` means
+        nothing was written, a dict means something was.
+
+        THE LOCK DISCIPLINE IS `write_typed_attributes`', NOT THE HEALING
+        DOOR'S, and the difference is deliberate.  `_begin_immediate_under_
+        contention` waits up to `HEAL_LOCK_TOTAL_WAIT_S` (120 s) for the
+        lock; this server is strictly serial (`pf_bridge/FINDINGS_R18_
+        SERVER_IS_STRICTLY_SERIAL.md`), so a chat command that stalls the
+        whole world for two minutes is worse than one that is refused and can
+        be typed again.  A plain `BEGIN IMMEDIATE` under `connect()`'s
+        `busy_timeout=5000` is what this door uses, and a lock it cannot get
+        inside that comes back as `None`.
+
+        NOTHING IS SENT BY THIS METHOD, and the returned dict is not a block.
+        It is keyed by the wire field index so the caller does not have to
+        map column names, but a caller that wants to SEND it must still go
+        through `persistence_attr_compose.compose_sparse_block` (or
+        `write_typed_attributes_and_compose_sparse`, which composes what it
+        writes).  `COO-DECISION 20260902_2147` stands over the send side:
+        neither `/speed` lock may be released until the attended round that
+        tries a safe value has happened and has a result.  This door does not
+        release either one -- it is a store method with no caller.
+        """
+        try:
+            # INSIDE the `try`, and that is a fix rather than a style: this
+            # module does not import `persistence_typed_attrs` at module
+            # level (the house pattern for the circular import), so the first
+            # call in a process really runs that module's body -- and
+            # `_build()` there RAISES `TypedAttrError` for a wire kind with
+            # no storage rule, an unsafe column name, or a duplicate one.
+            # With this line above the `try`, the first `/speed` of a session
+            # killed the caller's thread with the very drift this door
+            # promises to report as `None`.  Measured by a `pf-adversary`
+            # pass (D3), which also verified the one-line fix.
+            from . import persistence_typed_attrs as typed_attrs
+
+            column = typed_attrs.column_for(SPEED_WALK_FIELD_X)
+            checked = typed_attrs.validate(column, speed)
+            pair = (
+                _require_identity_part(identity_lo),
+                _require_identity_part(identity_hi),
+            )
+            with self.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                rows = db.execute(
+                    "SELECT id FROM characters "
+                    "WHERE identity_lo=? AND identity_hi=? AND deleted_at IS NULL "
+                    "LIMIT 2",
+                    pair,
+                ).fetchall()
+                if len(rows) != 1:
+                    raise _SpeedWriteRefused(
+                        f"identity {pair} matched {len(rows)} active characters"
+                    )
+                character_id = int(rows[0]["id"])
+                written = db.execute(
+                    f"UPDATE characters SET {column}=?,updated_at=? "
+                    "WHERE id=? AND deleted_at IS NULL",
+                    (checked, _now(), character_id),
+                ).rowcount
+                if written != 1:
+                    raise _SpeedWriteRefused(
+                        f"the write matched {written} rows, not 1"
+                    )
+                after = db.execute(
+                    f"SELECT {column} FROM characters WHERE id=?",
+                    (character_id,),
+                ).fetchone()
+                if after is None:
+                    raise _SpeedWriteRefused("the row was gone at read-back")
+                stored = after[column]
+                if type(stored) is not float or stored != checked:
+                    raise _SpeedWriteRefused(
+                        f"read back {stored!r}, wrote {checked!r}"
+                    )
+                # `typed_values_for_compose` and not `{SPEED_WALK_FIELD_X:
+                # stored}`: it re-validates on the way out and it derives the
+                # key from the column table.  Both halves are honest about
+                # their worth -- a `pf-adversary` pass (D9) showed the
+                # literal-keyed mutant survives every test here, and a column
+                # RENAME would not distinguish them either, since a rename
+                # changes the column name and never `x`.  What this call
+                # really buys is that the key and the value come from the
+                # same table as the write did; the earlier comment here
+                # claimed rename-safety it cannot deliver.
+                composed = typed_attrs.typed_values_for_compose({column: stored})
+            return composed
+        except Exception:
+            # Deliberately wide, and deliberately not `BaseException`.  The
+            # asking lane's letter asked for a door that never raises across
+            # its boundary, and a store method that raises into a chat
+            # command handler is how one bad `/speed` kills the listener
+            # thread.  `KeyboardInterrupt` and `SystemExit` are not caught.
+            return None
 
     @staticmethod
     def _character(r):
