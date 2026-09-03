@@ -66,9 +66,19 @@ TOKEN = "LANE_A_TRIGGER_VITAL"
 # call site must delete this line in the same commit.
 registered_but_not_fired = ("vital_inbound_trigger_vital",)
 
-# The trigger id rides in a tag 0x0F (u16 LE) field, per the R307 capture
-# shape `12 B2 1F 0B 01 0F <u16 trigger> 00 0B 04 2A x 2A y 2A z` (letter
-# notes_to_chief/20260903_1901, five frames, 69 bytes each).
+# The trigger id rides in a tag 0x0F (u16 LE) field.  PROVEN STATICALLY, not
+# inferred from the capture: pf_bridge/external/PF_SERIALIZER_FIELDS.tsv gives
+# the TriggerVital serializer at 0x006007C0 (span sha256 2f30bd87...791a12) as
+# six fields, W and R alike -- order 1 tag 0x0F +0x14 2 bytes ALWAYS, order 2
+# tag 0x0B, order 3 a subcall, orders 4/5/6 tag 0x2A -- so the trigger id is
+# the FIRST field, the tag set is closed at three tags for this message, and
+# no 0x12 can appear inside it.  Those are exactly the three things the walker
+# below relies on.  The R307 capture shape
+# `12 B2 1F 0B 01 0F <u16 trigger> 00 0B 04 2A x 2A y 2A z`
+# (notes_to_chief/20260903_1901, five frames, 69 bytes each) AGREES with that
+# row; it is the corroboration, not the source.  (pf-adversary D8: the first
+# draft cited only the capture, which is a client-observable correlation
+# standing in for grade A evidence that already existed.)
 TRIGGER_ID_TAG = 0x0F
 
 # Fixed-width tag sizes taken from the frozen encoders in
