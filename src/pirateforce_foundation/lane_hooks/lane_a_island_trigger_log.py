@@ -24,16 +24,15 @@ guessing an opcode -- which this lane is forbidden to do and which
 COO-DECISION 0343 item 4 explicitly excluded.  The day a capture shows the
 ids, the responder is a separate PR with its own evidence.
 
-IT IS NOT WIRED YET.  There is no `lane_hooks.fire("vital_inbound_trigger_
-vital", ...)` call site in `runtime.py` today; adding an insertion point is a
-chief-owned edit (lane_hooks/__init__.py's `hook()` docstring says so in as
-many words).  The one-line CORE-REQUEST rides in this round's PR body.  Until
-chief lands it this module registers and never fires -- the same harmless
-state `lane_gm_chat_command` is already in -- and the registration line
-`LANE_HOOK_REGISTERED ... vital_inbound_trigger_vital` on stderr at boot is
-how you tell it is loaded.  Registering ahead of the call site is deliberate:
-it means the attended capture round can happen the moment the one line lands,
-without a second lane round in between.
+IT IS WIRED.  `runtime.py`'s TriggerVital dispatch branch (`nested_id ==
+legacy.TRIGGER_VITAL`, next to the GM_RUN_GM_COMMAND_VITAL_ID branch it
+copies the shape of) calls `lane_hooks.fire("vital_inbound_trigger_vital",
+session=self, payload=bytes(parsed.nested_payload))` on every inbound
+TriggerVital frame -- CORE-REQUEST of `pf_bridge/notes_to_chief/
+20260904_0434` and `20260904_0437` (LANE-A), landed by LANE-E round zsctq7.
+The registration line `LANE_HOOK_REGISTERED ... vital_inbound_trigger_vital`
+on stderr at boot, plus a `LANE_A_TRIGGER_VITAL ...` line per frame once one
+arrives, is how you tell it is firing.
 
 WHAT A LINE MEANS, AND WHAT IT DOES NOT
 An `ISLAND` line means "the client fired trigger id N, and the client's own
@@ -56,15 +55,6 @@ production_allowed = True
 
 POINT = "vital_inbound_trigger_vital"
 TOKEN = "LANE_A_TRIGGER_VITAL"
-
-# gm/lane_gate_name_audit.py's dead-hook-point half: this module registers a
-# point nothing fires yet, ON PURPOSE (see the paragraph above), and this is
-# the house declaration that says so out loud instead of leaving the audit to
-# report a defect.  It is a declaration, not a mute button: the audit's
-# inverse guard goes RED the moment something DOES fire this point, so the
-# chief PR that adds the `lane_hooks.fire("vital_inbound_trigger_vital", ...)`
-# call site must delete this line in the same commit.
-registered_but_not_fired = ("vital_inbound_trigger_vital",)
 
 # The trigger id rides in a tag 0x0F (u16 LE) field.  PROVEN STATICALLY, not
 # inferred from the capture: pf_bridge/external/PF_SERIALIZER_FIELDS.tsv gives

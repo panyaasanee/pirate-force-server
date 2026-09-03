@@ -90,14 +90,18 @@ why not stdout) and once at each real firing on the production path
 the 0xAC52 point then fired on a vital every client sends, and the token
 landed inside a replay tool's --json stdout artifact).
 
-ROUND apk7ue, ACCURACY NOTE -- "once at each real firing" is now true of ONE
-of the two registered points. CORE-REQUEST-GM-029 replaced the 0xAC52 call
-site with a direct call into ``gm/chat_command_action.py``, so
+ROUND apk7ue, ACCURACY NOTE -- "once at each real firing" is not true of every
+registered point. CORE-REQUEST-GM-029 replaced the 0xAC52 call site with a
+direct call into ``gm/chat_command_action.py``, so
 ``vital_inbound_chat_local_talk`` is REGISTERED AND NEVER FIRED: its
 registration token still prints at import and no firing token can follow it.
-Only ``vital_inbound_gm_run_command`` (0x51E9) still fires. A WIRED-v2 grep
-that treats a registration token as evidence of emission would read this
-package as 2/2 when the measured answer is 1/2.
+UPDATED round zsctq7: ``vital_inbound_gm_run_command`` (0x51E9) and
+``vital_inbound_trigger_vital`` (0x1FB2, LANE-A's `lane_a_island_trigger_
+log.py`, CORE-REQUEST `pf_bridge/notes_to_chief/20260904_0434`/`0437`) both
+fire now. A WIRED-v2 grep that treats a registration token as evidence of
+emission would overcount ``vital_inbound_chat_local_talk`` regardless of how
+many other points are wired -- this note names which points are which, it is
+not a fixed count to keep in sync by hand.
 
 These tokens are DESIGNED to be grepped by a
 WIRED v2-style check and by a headless smoke test the same way this

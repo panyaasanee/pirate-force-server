@@ -8197,6 +8197,28 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     payload=bytes(parsed.nested_payload),
                 )
                 return []
+            if nested_id == legacy.TRIGGER_VITAL:
+                # CORE-REQUEST of `pf_bridge/notes_to_chief/20260904_0434`
+                # and `20260904_0437` (LANE-A), granted by round R332's own
+                # backlog line (this file's own convention: the requester
+                # writes the hook, the requester's letter asks for the one
+                # call site only chief may add).  Same shape as the
+                # GM_RUN_GM_COMMAND_VITAL_ID branch just above: count the
+                # frame, fire the report-only hook point, send nothing back.
+                # `lane_hooks/lane_a_island_trigger_log.py`'s own docstring
+                # is explicit that IT sends nothing either -- the point of
+                # this round is to learn whether the island trigger ids
+                # (153 Prison Exile, 154 Spice Paradise) ever appear on the
+                # wire, and answering a frame this server has not decoded
+                # would be guessing an opcode, which that lane is forbidden
+                # to do.
+                self.rx_frames += 1
+                lane_hooks.fire(
+                    "vital_inbound_trigger_vital",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
+                )
+                return []
             if nested_id == legacy.START_GAME_REQ:
                 self.rx_frames += 1
                 self.start_game_seen = True
