@@ -3958,14 +3958,27 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # inside the JSON artifact of
                     # tools/pf_runtimeres_death_headless_replay.py --json.
                     self.gm_warp_confirm_window_open = False
-                    print("GM_WARP_POSITION_CONFIRMED", file=sys.stderr)
-                    self.events.append("gm_warp_position_confirmed")
-                    # CORE-REQUEST-GM-030/031.  Strictly additive, and only
-                    # ever reached immediately after the token above -- never
-                    # instead of it, never gating it.  Whether the row that
-                    # was just confirmed is also the point the GM's own
-                    # /warp asked for, per gm.warp_target_record.
-                    self._gm_warp_note_position_target(candidate)
+                    # CORE-REQUEST-GM-051 (LANE-GM, pf-adversary round
+                    # 07kjfd finding D3).  Until this round, CONFIRMED meant
+                    # only "a durable write survived this frame" -- so a
+                    # same-scene warp whose target equals the row the GM was
+                    # already standing on (COO 1800's new /warp-no-coords
+                    # path) printed CONFIRMED on the player's own next
+                    # ordinary step, immediately followed by
+                    # GM_WARP_POSITION_TARGET_MISMATCH on the adjacent line:
+                    # two tokens that contradict each other about the same
+                    # write.  The target comparison now runs BEFORE the
+                    # token decides whether to print, not after, so a
+                    # measured mismatch withholds CONFIRMED instead of
+                    # printing it and taking it back one line later.  The
+                    # checkpoint() above is unconditional either way -- this
+                    # only changes which console token describes it.
+                    gm_warp_target_verdict = self._gm_warp_note_position_target(
+                        candidate,
+                    )
+                    if gm_warp_target_verdict != "mismatch":
+                        print("GM_WARP_POSITION_CONFIRMED", file=sys.stderr)
+                        self.events.append("gm_warp_position_confirmed")
             if verdict is not None:
                 # Only now.  A checkpoint that raised (a stale or stolen lease
                 # is the frozen path's own refusal) must not leave an event
@@ -3973,27 +3986,37 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # a baseline pointing where no row points.
                 self._move_authority_record_admitted(verdict, target, stamp)
 
-        def _gm_warp_note_position_target(self, candidate) -> None:
-            """CORE-REQUEST-GM-030/031: is the confirmed row the GM's target.
+        def _gm_warp_note_position_target(self, candidate) -> str:
+            """CORE-REQUEST-GM-030/031/051: is the confirmed row the GM's target.
 
-            Called ONLY from the branch above, immediately after
-            ``GM_WARP_POSITION_CONFIRMED`` printed and its own event fired --
-            never on any other path, and never able to change whether that
-            token fires.  Purely diagnostic: nothing here may raise, and
-            nothing here may be read by anything that decides whether a
-            position is written.
+            Called from the branch above, BEFORE ``GM_WARP_POSITION_CONFIRMED``
+            decides whether to print (CORE-REQUEST-GM-051 moved this ahead of
+            that token: the caller withholds CONFIRMED on a returned
+            ``"mismatch"``, the one verdict that would otherwise contradict
+            it on the very next line).  Still never gates the durable write
+            itself -- ``checkpoint()`` in the caller already ran -- and
+            nothing here may raise.
+
+            Returns ``"match"``, ``"mismatch"`` or ``"unknown"``.  The
+            printing and event trail this method already owned are
+            unchanged; only the caller's use of the return value is new.
 
             ``self.gm_warp_confirm_target`` is whatever
             ``_gm_warp_open_confirm_window`` parked for THIS confirm window
             (None if nothing was, or the parked record did not survive
             ``take_warp_target_with_reason``'s own checks -- see
-            ``self.gm_warp_confirm_target_reason`` for which).
+            ``self.gm_warp_confirm_target_reason`` for which).  A target of
+            None is reported as ``"unknown"``, not ``"mismatch"``: CONFIRMED
+            still prints on an unknown target exactly as it did before this
+            round -- CORE-REQUEST-GM-051 only asked for a MEASURED mismatch
+            to withhold the token, never for the character-mismatch or
+            compare-failed cases this same method already named.
             """
             target = self.gm_warp_confirm_target
             if target is None:
                 reason = self.gm_warp_confirm_target_reason or "unknown"
                 self.events.append(f"gm_warp_position_target_unknown_{reason}")
-                return
+                return "unknown"
             try:
                 matches = position_matches_target(target, candidate)
                 distance = distance_to_target(target, candidate)
@@ -4001,19 +4024,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.events.append(
                     "gm_warp_position_target_unknown_compare_failed"
                 )
-                return
+                return "unknown"
             if matches:
                 print("GM_WARP_POSITION_TARGET_MATCH", file=sys.stderr)
                 self.events.append("gm_warp_position_target_match")
-                return
+                return "match"
             if distance is not None:
                 print("GM_WARP_POSITION_TARGET_MISMATCH", file=sys.stderr)
                 self.events.append(
                     f"gm_warp_position_target_mismatch_{int(round(distance))}"
                 )
-                return
+                return "mismatch"
             reason = self._gm_warp_target_unknown_reason(target, candidate)
             self.events.append(f"gm_warp_position_target_unknown_{reason}")
+            return "unknown"
 
         @staticmethod
         def _gm_warp_target_unknown_reason(target, position) -> str:
@@ -4097,6 +4121,56 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 f"move_authority_hypothesis_{verdict.reason}_admitted"
             )
 
+        def _move_authority_zero_distance_gm_warp(self) -> bool:
+            """CORE-REQUEST-GM-052: is the just-queued GM warp a no-op move.
+
+            Reads ``gm_last_warp_target`` -- the record ``record_warp_target``
+            parked for THIS warp command, on the very same dispatch that
+            queued the TELEPORT-labelled action -- WITHOUT consuming it: the
+            confirm-window open/close pair (``_gm_warp_open_confirm_window``
+            / ``take_warp_target_with_reason``) still owns taking it, on the
+            warp's first TargetPos, one frame later.  ``self.foundation.
+            selected.position`` at this point in ``dispatch()`` is still the
+            PRE-warp row: ``_gm_warp_resync_selected_scene`` (which relabels
+            the in-memory scene) runs later, from ``_gm_warp_note_position_
+            pending``, after this method's caller.
+
+            True only when the target is known, in the SAME scene as the
+            current row (a real cross-scene warp always returns False here:
+            ``distance_to_target`` refuses to compare across scenes, which is
+            correct -- a scene change is never a zero-distance move) and
+            measures at or under ``WARP_TARGET_MATCH_TOLERANCE`` -- the same
+            tolerance CORE-REQUEST-GM-051's own comparison already trusts
+            for "did the row reach this exact target", via
+            ``position_matches_target`` rather than a hand-rolled ``<= 0.0``
+            (pf-adversary, this round: an earlier draft's strict zero check
+            passed every test only because every spawn point in today's
+            ``world_scene_travel`` registry already happens to be
+            float32-quantized -- an accident of how that data was captured,
+            not a guarantee this code enforced; a future scene without that
+            accident would round-trip its spawn to a target a fraction of a
+            unit off the live row and silently fall back to reopening grace,
+            reviving the exact D4 hole this ticket exists to close).
+            Anything not comparable (no record, wrong shape, a raising read)
+            returns False -- the pre-GM-052 behaviour (grace reopens) -- so
+            this only ever narrows the window, never widens it beyond what
+            shipped before this round.
+            """
+            try:
+                record = getattr(self, GM_WARP_TARGET_SESSION_ATTRIBUTE, None)
+            except Exception:  # noqa: BLE001 - a raising read costs this
+                # check, not the dispatch it runs inside; see docstring.
+                return False
+            if not isinstance(record, WarpTargetRecord):
+                return False
+            target = record.target
+            if not isinstance(target, WarpTarget):
+                return False
+            selected = self.foundation.selected
+            if selected is None:
+                return False
+            return position_matches_target(target, selected.position)
+
         def _move_authority_note_server_moves(self, actions) -> None:
             """Reopen the grace window when THE SERVER moved the player.
 
@@ -4109,9 +4183,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             the rest of the session.  The server knows when it did that: the
             action it queued carries TELEPORT in its label.  Grace is therefore
             tied to a server-initiated move and to nothing else.
+
+            CORE-REQUEST-GM-052 (LANE-GM, pf-adversary round 07kjfd D4).
+            PANYA-DECISION 20260903_1800's same-scene `/warp <n>` with no
+            coordinates queues a WARP_CROSS_SCENE_NO_COORDS_TELEPORT action
+            even when the destination is the scene the GM already stands in
+            -- a real TELEPORT-labelled action that moves nobody. The old
+            rule opened the grace window on the label alone, so a zero-
+            distance warp bought the same amnesty a real teleport does, and
+            pf-adversary measured an opt-in scenario write a report that
+            jumped 180,000 units straight into the durable row through it.
+            The window is now withheld for a warp this method can PROVE
+            commanded no displacement at all; every other TELEPORT-labelled
+            action -- cross-scene, or not provably zero-distance -- reopens
+            it exactly as before.
             """
             for action in actions or ():
                 if action and "TELEPORT" in action[0]:
+                    if self._move_authority_zero_distance_gm_warp():
+                        self.events.append(
+                            "move_authority_hypothesis_grace_not_reopened_"
+                            "zero_distance_warp"
+                        )
+                        return
                     self.move_authority_grace_remaining = (
                         move_authority_hypothesis_scenario.policy
                         .teleport_grace_reports
