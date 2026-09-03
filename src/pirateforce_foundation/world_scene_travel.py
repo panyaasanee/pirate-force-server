@@ -28,8 +28,22 @@ client's own ``CONSTDATA_TH__SCENE_NAME`` table:
     value at all (its ``n_MARKER`` is 0), under the cline reading it is
     ``0xFFFFFFFF``, and under the row-ordinal reading it is 252, not 278.
     ``GT-053`` refused a ``MAP_SCENE_LIST.n_ID`` join for exactly this reason.
-    What settles it is ``RE-077`` job T2 on the HIT path (open), or the
-    attended boot in ``GT-078``.  Until then ``sent_before`` is the module's
+    ~~What settles it is ``RE-077`` job T2 on the HIT path (open)~~ --
+    STRUCK, AND ITS ANSWER WAS ALREADY IN THIS LANE'S OWN PIN FILE (LANE-A,
+    round ``f6e5kd``, 2026-09-03; a first draft of this correction replaced
+    "open" with "unread by this lane", which pf-adversary refuted as a second
+    false status put where the first one was).  ``RE-077`` closed 2026-08-26
+    and its T2 section answers the HIT path: the lookup is a KEYED TREE ON
+    ``n_ID`` per ``PF_GAMEDATA_COLUMNS.tsv``, and for this destination the
+    data-row ordinal is 252 while the row keyed ``n_ID = 278`` gives
+    ``s_MODLE_ID = Bg1177``, ``n_SCENE_TYPE = 4``.
+    ``scenarios/world_scene_registry_001.json`` has been quoting exactly that
+    ("RE-077 traced the keyed-row hit path for n_ID 278 to s_MODLE_ID Bg1177
+    and the loader call") since the round that wrote the pin.
+    => THE ROW-ORDINAL READING IS OUT: the client keys on ``n_ID``, so 278 is
+    278.  The marker and cline readings are not settled here, and the attended
+    boot in ``GT-078`` is still what settles which value this SERVER may send.
+    ``sent_before`` remains the module's
     own answer to "has this client ever accepted such a value", and it says NO
     for 278.
 
@@ -53,12 +67,50 @@ crates, no hull, no water to fall into.
     ticket decides that.  This module pins what the file says and stops.
 
 WHAT THIS MODULE DELIBERATELY DOES NOT BUILD.  Moving a character who is
-ALREADY LIVE from one scene to another is not here.  Nobody in this project
+ALREADY LIVE from one scene to another is not here.  ~~Nobody in this project
 knows what the client needs, in what order, to survive that transition -
-``RE-077 SCENE-TRANSITION-SEQUENCE-001`` is open and unanswered.  Guessing a
-sequence and shipping it would produce a lane that "works" until it silently
-does not.  What is here is the half that rests on measured shape: which scene
-a player ENTERS, and where they stand when they get there.
+``RE-077 SCENE-TRANSITION-SEQUENCE-001`` is open and unanswered.~~  STRUCK,
+MEASURED FALSE (LANE-A, round ``f6e5kd``, 2026-09-03).  Read the replacement
+before citing this paragraph: the same claim was written in EIGHT other places
+across three files of this lane's own zone (this file, ``world_scene_entry``,
+``world_m2_return_leg``; all struck in the same round), while
+``world_scene_liveness`` and ``world_travel_gate`` cited the ticket correctly
+the whole time (so did ``columbus_quest_dispatch`` twice in the same file it
+also got wrong, and ``world_population_handoff``, whose paragraph records this
+lane MAKING and FIXING this identical mistake once already) - and reading the
+wrong half is what sent a COO decision (``20260903_1249``) after a ticket
+that had been closed since 2026-08-26.
+
+    ``RE-077`` WAS ANSWERED ON 2026-08-26 AND ARCHIVED ON 2026-08-27.  Result
+    letter ``pf_bridge/archive/notes_to_chief_2026-08-19_to_26/20260826_0120_
+    RE-077-RESULT-SCENE-TRANSITION-SEQUENCE-PINNED.md`` (the un-archived path
+    other files in this tree still cite is dead - it was copied forward, not
+    re-derived); header verbatim in
+    ``pf_bridge/archive/CLIENT_RE_QUEUE_ARCHIVE_20260827_closed.md``.  T0-T4
+    are PINNED with span + SHA-256: the client's forced order is
+    ``StateRunTime/Navigation -> TeleportVital -> cStateSwitchScene ->
+    SCENE_NAME lookup -> n_SCENE_TYPE == 8 ? StateNavigation : StateRunTime``,
+    and a scene id the shipped table does not have parks the client at status
+    ``+0x0C = 2`` with no fallback.  T5 (does the client drop its remote
+    actors across the transition) is closed as a BOUNDED NEGATIVE, and the
+    ticket's own words - the archive holds them in Thai, this is a rendering
+    and not a quotation - refuse both readings: this static evidence is not
+    enough to claim either side, and it must not be shortened into "remote
+    actors are preserved" or "remote actors are dropped".
+
+    WHAT IS STILL TRUE AFTER THE CORRECTION, AND IT IS THE PART THIS MODULE
+    ACTUALLY RESTS ON.  Knowing what the CLIENT requires is not knowing that
+    THIS SERVER can produce it: no character in this project has ever been
+    moved between scenes while live (``STATUS.md``: "Direct load is not travel
+    proof"), and T5's bounded negative means the census question BUILD-001
+    depends on - resend the population after the switch, or not - has no
+    answer to build on.  So this module still does not build the transition,
+    for a reason that survives the correction; what does NOT survive is
+    citing an answered ticket as the obstacle.
+
+Guessing a sequence and shipping it would produce a lane that "works" until
+it silently does not.  What is here is the half that rests on measured shape:
+which scene a player ENTERS, and where they stand when they get there.
 
 THE CROSS-BUILD-ORDER HAZARD.  BUILD-001 delivers 115 bg0001 placements built
 with ``SCENE_ID`` hardcoded to 1.  The moment a player can enter scene 278, a
@@ -71,8 +123,11 @@ home.  Use both - this one to decide, that one to make the decision binding.
 
 THE RETURN TICKET, WHICH IS PART OF THE DESIGN AND NOT A DETAIL.  Row 278
 carries ``n_SAVE = 0`` and ``n_MARKER = 0``: the client's own table marks this
-scene as not-saved and gives it no authored arrival point, and ``RE-077`` is
-open, so there is no in-game way out of it that anybody here can name.  A
+scene as not-saved and gives it no authored arrival point, ~~and ``RE-077`` is
+open~~ (STRUCK - ``RE-077`` closed 2026-08-26, see the correction above; what
+it answered is what the CLIENT requires for a switch, which is not a way home
+out of a scene whose table row authors no arrival point), so there is no
+in-game way out of it that anybody here can name.  A
 character whose persisted row is rewritten to 278 is therefore a character who
 cannot walk home, and CHARTER-02 rule 2 says a version that takes away what
 the last version could do is not a version, it is damage.  So this module
@@ -416,7 +471,10 @@ class SceneDestination:
         """Whether the client's own table gives this scene an arrival marker.
 
         Scene 278 has none, which is half of why a character sent there has no
-        way home (the other half is that RE-077 is open).  A caller that moves
+        way home (the other half is that ~~RE-077 is open~~ NO SERVER IN THIS
+        PROJECT HAS EVER MOVED A LIVE CHARACTER BETWEEN SCENES - RE-077 closed
+        2026-08-26 and is not the obstacle; see the module docstring).  A
+        caller that moves
         a character into a scene where this is False owes that character a
         return path - see ``home_return_position``.
         """
@@ -523,7 +581,8 @@ DEFAULT_LOGIN_ENTRY_ALLOWED = True
 # scene 17 is pinned ``login_entry_allowed: false`` precisely because a
 # character's own persisted row naming 17 is refused at the next login
 # (``world_scene_entry.resolve_entry``, ``REFUSED_NOT_ALLOWED_AT_LOGIN``) -
-# and scene 17 has no known way back in-game (``n_MARKER=0``, RE-077 open,
+# and scene 17 has no known way back in-game (``n_MARKER=0``, ~~RE-077 open~~
+# RE-077 closed 2026-08-26 without naming a way home - see the docstring,
 # ``return_ticket=REQUIRED`` on GT-106's own console line). Writing scene_id=17
 # today would not fix the wrong row, it would turn "wrong row" into "player
 # locked out of their character at next login". Refusing to persist at all
@@ -853,7 +912,10 @@ def home_return_position(registry: SceneRegistry | None = None) -> Position:
 
     This exists because of one measured pair of facts about the test stage:
     its table row carries ``n_MARKER = 0`` (no authored arrival point) and
-    ``n_SAVE = 0``, and no transition sequence is known (``RE-077``).  A
+    ``n_SAVE = 0``, and ~~no transition sequence is known (``RE-077``)~~ no
+    transition sequence has ever been PRODUCED by this server (``RE-077``,
+    closed 2026-08-26, pins what the client requires; nothing here has ever
+    sent it - see the module docstring's correction).  A
     character moved into such a scene has no in-game way back, and a build that
     takes away what the previous build could do is not a new version.  Whoever
     writes ``entry_position`` into a character row owns writing this one back.

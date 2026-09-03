@@ -22,8 +22,13 @@ WHAT IT DOES NOT CLAIM, AND THIS IS THE HALF A READER WILL WANT.
 
 1. IT DOES NOT SEND ANYTHING.  No frame, no write, no scheduling.  It composes
    a ``Position`` and a console line.  Sending a live character back across a
-   scene boundary needs the transition sequence ``RE-077`` still has open,
-   which is the same wall ``world_m2_sea_destination`` stops at.
+   scene boundary needs the transition sequence ~~``RE-077`` still has open~~
+   -- STRUCK (LANE-A, round ``f6e5kd``, 2026-09-03): ``RE-077`` PINNED that
+   sequence on 2026-08-26 and closed.  The wall is not a missing answer, it
+   is that no server in this project has ever SENT it (and T5, whether the
+   client drops its remote actors across the switch, is a bounded negative
+   that refuses both readings).  Same wall
+   ``world_m2_sea_destination`` stops at, same correction.
 2. IT DOES NOT CLAIM THE SEA IS A TRAP TODAY.  It is not: scene 17 carries
    ``persist_position_allowed = false`` in the registry (round ``jafskv``,
    from GT-106's own finding), so the durable row keeps saying Port Royal for
@@ -63,8 +68,11 @@ with a roster would build the whole roster per crossing for one console
 line."  Scene 17's outbound handoff is a 27-byte CLEAR - the cost is nothing.
 The home scene's INBOUND handoff is the full login census - the one this
 project measures in the hundreds of actors, not bytes - and there is no
-dispatch site that sends anyone home yet (``RE-077``'s in-game return trigger
-is still open, same wall this module's own header names).  Building that
+dispatch site that sends anyone home yet (~~``RE-077``'s in-game return
+trigger is still open~~ - STRUCK in the same round as the header above, which
+this sentence contradicted forty-six lines later: ``RE-077`` closed
+2026-08-26; what is missing is a dispatch site, which is a thing to BUILD and
+not an answer to wait for).  Building that
 roster on every OUTBOUND crossing, to describe a trip nobody can currently
 take back, would be exactly the cost mistake flagged next door, paid on a
 path that runs today instead of one that might run tomorrow.  So this reads

@@ -640,8 +640,11 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # THE POPULATION HANDOFF THE RETURN TRIP WOULD OWE, NAMED BUT NOT BUILT.
     # ``world_m2_return_leg``'s own docstring explains why this stays a
     # source/count REPORT rather than a composed frame: there is no dispatch
-    # site that sends anyone home yet (``RE-077``'s in-game return trigger is
-    # still open), so building the actual home-scene roster on every OUTBOUND
+    # site that sends anyone home yet (~~``RE-077``'s in-game return trigger
+    # is still open~~ - STRUCK, LANE-A round ``f6e5kd`` 2026-09-03: this file
+    # says "RE-077 - DONE, T0-T4 pinned" twice above, at its own lines 59 and
+    # 440, and then said "still open" here; closed 2026-08-26), so building
+    # the actual home-scene roster on every OUTBOUND
     # crossing, just to describe a trip nobody can currently take, would pay
     # the exact per-crossing cost the crossing-handoff module next door warns
     # against - on a path that runs today for a trip that does not.
