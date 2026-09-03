@@ -1220,6 +1220,59 @@ class SQLiteStore:
             ).fetchone()
         return {c: after[c] for c in columns if after[c] is not None}
 
+    def write_typed_attribute_if_unset(
+        self, character_id: int, column: str, value: int | float
+    ) -> int | float | None:
+        """Write ONE typed attribute column, but only while it is NULL.
+
+        New method (LANE-DB's charter, `COO-DECISION 20260901_1100`: new
+        methods here are allowed, changing an old one is not) added for the
+        class-id creation hookup (`lifecycle.persist_class_id_from_starting_
+        gear`, CORE-REQUEST `pf_bridge/notes_to_chief/20260904_0423`,
+        pf-adversary D2 on `#705`, granted by `COO-DECISION 20260904_0549`
+        item 1): `CharacterLifecycle.create` calls
+        `store.create_character` and then, once the row is committed,
+        writes the resolved class id -- but a re-sent `CreateActorDataEx`
+        (the SAME fingerprint retry path `create_character` already
+        tolerates) replays that call a second time, and unconditional
+        `write_typed_attributes` would silently revert a class id written
+        by ANY OTHER path in the meantime (LANE-DB's NULL-only backfill,
+        `COO-DECISION 20260904_0445`, is exactly such a path).
+
+        The guard is one `UPDATE ... WHERE column IS NULL` inside a single
+        `BEGIN IMMEDIATE` transaction, not a read then a write: two calls
+        would leave the exact TOCTOU window this method exists to close
+        (the row could gain a value between them).
+
+        Returns the value actually written, or ``None`` if the column
+        already held something else -- the row is untouched either way,
+        which is not an error: the resolved value did not change, only
+        who is allowed to still write it.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a
+        value this schema may not hold -- validated before any SQL runs,
+        same as `write_typed_attributes`.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+
+        checked = typed_attrs.validate_all({column: value})
+        (validated_column,) = checked
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            written = db.execute(
+                f"UPDATE characters SET {validated_column}=?,updated_at=? "
+                f"WHERE id=? AND deleted_at IS NULL AND {validated_column} IS NULL",
+                (checked[validated_column], _now(), character_id),
+            ).rowcount
+        return checked[validated_column] if written == 1 else None
+
     def write_typed_attributes_and_compose_sparse(
         self, character_id: int, values: dict[str, int | float]
     ) -> dict[int, object]:

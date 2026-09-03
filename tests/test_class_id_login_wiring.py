@@ -54,6 +54,9 @@ from pirateforce_foundation import session as session_module
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Character, Position
+from pirateforce_foundation.npc_hostile_hypothesis import (
+    NPC_HOSTILE_PLAYER_PAIR_FACTION,
+)
 from pirateforce_foundation.persistence_class_id import CLASS_PRESETS
 from pirateforce_foundation.session import FoundationSession
 from pirateforce_foundation.store import SQLiteStore
@@ -249,6 +252,32 @@ class CreateHookupTests(_StoreCase):
         self.assertEqual(first.id, second.id)
         self.assertEqual(self._stored_class_id(second.id), SNIPER_CLASS_ID)
 
+    def test_a_retry_does_not_revert_a_class_id_another_writer_corrected(self):
+        """pf-adversary D2 on `#705`, the case the idempotent-retry test above
+        cannot tell apart from an unconditional overwrite: BETWEEN the first
+        `create()` and a re-sent `CreateActorDataEx` for the same character,
+        something else (LANE-DB's backfill, a GM correction) writes a
+        DIFFERENT class id onto the row.  The retry resolves the SAME gear
+        to the SAME `SNIPER_CLASS_ID` it always would -- an unconditional
+        write would put that back and silently discard the correction; the
+        NULL-only guard leaves whoever wrote second, before the retry, in
+        place.
+        """
+        wire = _wire_wearing(
+            self.legacy, "snipe1", SNIPER_CHEST, SNIPER_LEGGINGS, SNIPER_RHAND,
+        )
+        account_id, _sid, _characters = self.lifecycle.login("snipe1")
+        first = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(self._stored_class_id(first.id), SNIPER_CLASS_ID)
+
+        corrected = SNIPER_CLASS_ID + 1000
+        self.store.write_typed_attributes(first.id, {"class_id": corrected})
+        self.assertEqual(self._stored_class_id(first.id), corrected)
+
+        second = self.lifecycle.create(account_id, "snipe1", wire)
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(self._stored_class_id(second.id), corrected)
+
 
 class TheHookupNeverBreaksCreationTests(_LegacyCase):
     """The row is already committed when this runs, so it may not raise.
@@ -260,15 +289,18 @@ class TheHookupNeverBreaksCreationTests(_LegacyCase):
     """
 
     class _Recorder:
-        def __init__(self, raises=None):
+        def __init__(self, raises=None, already_set=False):
             self.writes = []
             self.raises = raises
+            self.already_set = already_set
 
-        def write_typed_attributes(self, character_id, values):
+        def write_typed_attribute_if_unset(self, character_id, column, value):
             if self.raises is not None:
                 raise self.raises
-            self.writes.append((character_id, values))
-            return dict(values)
+            if self.already_set:
+                return None
+            self.writes.append((character_id, column, value))
+            return value
 
     def _character(self, avatar_wire):
         return Character(
@@ -309,23 +341,40 @@ class TheHookupNeverBreaksCreationTests(_LegacyCase):
         )
 
     def test_a_resolvable_body_does_reach_the_write(self):
-        """The positive control for the three refusals around it: without it,
+        """The positive control for the four refusals around it: without it,
         every test in this group would still pass on a hookup that resolves
         nothing at all."""
         store = self._Recorder()
         written, console = self._run(store, self._character(self._sniper_body()))
         self.assertEqual(written, SNIPER_CLASS_ID)
-        self.assertEqual(store.writes, [(7, {"class_id": SNIPER_CLASS_ID})])
+        self.assertEqual(
+            store.writes, [(7, "class_id", SNIPER_CLASS_ID)],
+        )
         self.assertIn(f"written class_id={SNIPER_CLASS_ID}", console)
 
     def test_a_refused_write_is_reported_not_raised(self):
         """A character soft-deleted between the INSERT and this write is the
-        real shape of this: `write_typed_attributes` raises `KeyError` for a
-        row it cannot see, and that must not become the creation's error."""
+        real shape of this: `write_typed_attribute_if_unset` raises
+        `KeyError` for a row it cannot see, and that must not become the
+        creation's error."""
         store = self._Recorder(raises=KeyError(7))
         written, console = self._run(store, self._character(self._sniper_body()))
         self.assertIsNone(written)
         self.assertIn("write_refused", console)
+
+    def test_a_column_another_writer_already_set_is_reported_not_reverted(self):
+        """pf-adversary D2 on `#705`: a re-sent `CreateActorDataEx` replays
+        this hookup on a row another writer (LANE-DB's backfill, `COO-
+        DECISION 20260904_0445`) may have already given a class id.  The
+        NULL-only guard reports that, rather than silently overwriting it or
+        raising -- the character still exists and still has a class, just
+        not the one this call resolved."""
+        store = self._Recorder(already_set=True)
+        written, console = self._run(store, self._character(self._sniper_body()))
+        self.assertIsNone(written)
+        self.assertEqual(store.writes, [])
+        self.assertIn("not_written", console)
+        self.assertIn("reason=already_set", console)
 
     def test_every_console_line_is_ascii(self):
         """The bridge console is cp874; a byte outside it kills the tool that
@@ -366,13 +415,44 @@ class LoginThreadTests(_StoreCase):
         into the login call only is a class the next recompose puts back to
         the constant -- green in a unit test, absent from the frame the
         client keeps.
+
+        `basic_faction=None` (the default this used to leave implicit,
+        pf-adversary D1 on `#705`) exercises `make_actor_attr_with_name_
+        and_class` only.  `runtime.py`'s own recompose that "runs on every
+        flagless production login" (CORE-REQUEST-017 point 1, ~line 9048)
+        passes `basic_faction=NPC_HOSTILE_PLAYER_PAIR_FACTION`, landing on
+        `make_actor_attr_with_name_class_and_faction` instead -- a SEPARATE
+        function that could drop `class_kwargs` while this test stayed
+        green.  Passing the same value here is what makes this the branch
+        that actually ships.
         """
         character = self._born_sniper()
         session = FoundationSession(self.lifecycle, self.projector, "snipe1")
         selected, (_pc, frame) = session.select_and_start(character.selector)
-        _pc2, recomposed = self.projector.start_game(selected)
+        _pc2, recomposed = self.projector.start_game(
+            selected, basic_faction=NPC_HOSTILE_PLAYER_PAIR_FACTION,
+        )
         self.assertIn(self._class_tag(SNIPER_CLASS_ID), recomposed)
-        self.assertEqual(len(recomposed), len(frame))
+        # Not assertEqual(len, len(frame)): `frame` is the flagless
+        # basic_faction=None login this same character produced above, and
+        # the faction branch is a fixed +5 bytes over it by design
+        # (make_actor_attr_with_name_class_and_faction's own docstring,
+        # NPC_HOSTILE_PLAYER_FACTION_WIRE_DELTA) -- asserting equal lengths
+        # here would be asserting the two branches are the SAME branch.
+        _pc3, faction_baseline = self.projector.start_game(
+            self._character_without_class(selected),
+            basic_faction=NPC_HOSTILE_PLAYER_PAIR_FACTION,
+        )
+        self.assertEqual(len(recomposed), len(faction_baseline))
+        self.assertNotIn(self._class_tag(SNIPER_CLASS_ID), faction_baseline)
+
+    def _character_without_class(self, character):
+        """`character`, but with `class_id` cleared -- the frame-length
+        control for the faction-branch assertion above: same everything
+        else, so a length difference can only be the class field."""
+        import dataclasses
+
+        return dataclasses.replace(character, class_id=None)
 
     def test_the_console_says_which_class_the_login_carries(self):
         character = self._born_sniper()
