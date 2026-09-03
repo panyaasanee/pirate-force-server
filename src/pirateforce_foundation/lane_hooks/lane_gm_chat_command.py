@@ -133,6 +133,23 @@ from ..gm.chat_command import handle_local_talk_chat
 # on until the owner turns it off.
 production_allowed = True
 
+# The registration below is DELIBERATELY never fired -- the whole "WHY IT IS
+# STILL HERE" section of this module's docstring is about that decision, and
+# `WHAT WOULD CHANGE THE DECISION` names its one exit condition.  Declaring
+# it here makes the decision machine-readable instead of prose:
+# `gm/lane_gate_name_audit.py` reports every registered-and-never-fired point
+# in the tree, and reads this name to tell an owner's decision from an
+# accident.
+#
+# IT IS NOT A MUTE BUTTON, and that is the point of declaring it rather than
+# hard-coding an exception inside the audit: the same audit reds if this
+# premise stops being true in EITHER direction -- a `fire()` for this point
+# coming back to runtime.py, or this module ceasing to register it.  The
+# first of those is exactly the double-wire hazard the docstring above
+# describes, so this declaration is a second spring on the same trap
+# (`tests/test_gm_chat_command_action.py::OneOfTwoWiringTests` is the first).
+registered_but_not_fired = ("vital_inbound_chat_local_talk",)
+
 
 @hook("vital_inbound_chat_local_talk")
 def _on_chat_local_talk(session: object, payload: bytes) -> None:
