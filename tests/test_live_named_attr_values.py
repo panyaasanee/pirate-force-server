@@ -171,6 +171,14 @@ class TheReadPointOnTheRealPackageTests(unittest.TestCase):
     """`lane_hooks.current_named_attr_values` itself."""
 
     def setUp(self):
+        # Restore BOTH globals.  pf-adversary (round dwvbpm second pass, N2)
+        # caught the first draft leaving `_LIVE_ATTR_NO_SOURCE_ANNOUNCED`
+        # True for every later test in the process -- a latent order
+        # dependence planted by the very test that proves the announcement.
+        self.addCleanup(
+            setattr, lane_hooks, "_LIVE_ATTR_NO_SOURCE_ANNOUNCED",
+            lane_hooks._LIVE_ATTR_NO_SOURCE_ANNOUNCED,
+        )
         self.addCleanup(
             lane_hooks.register_live_attr_values_source,
             lane_hooks._LIVE_ATTR_VALUES_SOURCE,
@@ -238,6 +246,48 @@ class TheReadPointOnTheRealPackageTests(unittest.TestCase):
         self.assertEqual(answer, {})
         self.assertIn("not a row number", said)
 
+    def test_a_digit_in_another_script_is_dropped_not_mapped_onto_a_row(self):
+        # pf-adversary N1, and this one SHIPPED for a commit.  `isdigit()` is
+        # True for superscripts, subscripts and every non-Latin digit script.
+        # `int("\u00b2")` RAISES out of a function whose docstring promises it
+        # never does; `int("\u0663")` (Arabic-Indic three) SUCCEEDS and lands a
+        # value on x=3, `hp_current` -- a value that is not this character's,
+        # reaching the dict, with no line printed.  Both were measured on
+        # `main` before this fix.
+        for key in ("\u00b2", "\u2082", "\u0663", "\u0660"):
+            with self.subTest(key=key):
+                self.assertTrue(key.isdigit(), "the trap is that this is True")
+                lane_hooks.register_live_attr_values_source(
+                    lambda cid, k=key: {k: 5}
+                )
+                captured, sys.stderr = sys.stderr, io.StringIO()
+                try:
+                    answer = lane_hooks.current_named_attr_values(7)
+                    said = sys.stderr.getvalue()
+                finally:
+                    sys.stderr = captured
+                self.assertEqual(answer, {})
+                self.assertIn("not a row number", said)
+
+    def test_the_announcement_re_arms_when_the_source_is_cleared(self):
+        # pf-adversary N2: the flag was set once and never reset, so a
+        # process that installed a source and later cleared it went back to
+        # answering nothing in silence -- the exact state the announcement
+        # exists to make audible, reached by the route that looks most like
+        # a bug.
+        lane_hooks.register_live_attr_values_source(lambda cid: {2: 1})
+        lane_hooks.register_live_attr_values_source(None)
+        captured, sys.stderr = sys.stderr, io.StringIO()
+        try:
+            lane_hooks.current_named_attr_values(7)
+            first = sys.stderr.getvalue()
+            lane_hooks.current_named_attr_values(7)
+            second = sys.stderr.getvalue()
+        finally:
+            sys.stderr = captured
+        self.assertIn("NO_SOURCE_REGISTERED", first)
+        self.assertEqual(second.count("NO_SOURCE_REGISTERED"), 1)
+
     def test_a_bool_key_is_dropped_because_true_is_one_in_python(self):
         lane_hooks.register_live_attr_values_source(lambda cid: {True: 5})
         captured, sys.stderr = sys.stderr, io.StringIO()
@@ -285,7 +335,6 @@ class TheReadPointOnTheRealPackageTests(unittest.TestCase):
         # `missing_named_rows` refusal upstairs.  The return value cannot
         # carry the difference; the console does, once, so a client cannot
         # drive an unbounded log with it.
-        lane_hooks._LIVE_ATTR_NO_SOURCE_ANNOUNCED = False
         lane_hooks.register_live_attr_values_source(None)
         captured, sys.stderr = sys.stderr, io.StringIO()
         try:
@@ -400,39 +449,73 @@ class WhatAttrWireDoesWithItTests(unittest.TestCase):
 
 
 class TheBootWiringTests(unittest.TestCase):
-    def test_app_installs_the_source_from_the_store_it_opens(self):
-        # PARSED, NOT GREPPED, and that is the repair of pf-adversary defect
-        # D3 (round `dwvbpm`): the first version of this test asserted two
+    def test_app_installs_the_source_unconditionally_in_the_boot_body(self):
+        # PARSED, NOT GREPPED, and the parse is SCOPED -- two repairs, one
+        # test.  pf-adversary D3 (first pass): the original asserted two
         # substrings were somewhere in app.py's TEXT, and stayed green when
-        # the whole call was replaced by a COMMENT containing both of them.
-        # A check that cannot tell wired from unwired is the "reports on a
-        # substring instead of acting on the wiring" shape this project has
-        # been bitten by before.  An AST walk sees code or it does not.
+        # the whole call became a COMMENT containing both.  pf-adversary N3
+        # (second pass): a bare `ast.walk` then stayed green for
+        # `if False: <the call>` and for the call inside a nested function
+        # nobody calls -- the same "reports on a token instead of the
+        # wiring" shape, moved one level up.
         #
-        # Still not a behaviour test -- booting app.py needs a socket and a
-        # v141 image -- but it now fails for the one thing it claims to
-        # guard: the call being gone.
+        # So the call must be a STATEMENT of a module-level function's own
+        # body, with no `if`/`while`/`for`/`try` between the two.  That is
+        # what "runs on every boot" looks like in a syntax tree.
+        #
+        # It is still not a behaviour test -- booting app.py needs a socket
+        # and a v141 image -- and the honest limit is written down rather
+        # than implied: it proves the call cannot be deleted, commented out,
+        # made conditional or nested, not that a live boot reached it.
         tree = ast.parse(
             (ROOT / "src" / "pirateforce_foundation" / "app.py").read_text(
                 encoding="utf-8"
             )
         )
-        installs = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if not isinstance(func, ast.Attribute):
-                continue
-            if func.attr != "register_live_attr_values_source":
-                continue
-            installs.append(node)
+
+        def installs_in(body):
+            """Direct statements of `body` that are the install call."""
+            found = []
+            for statement in body:
+                if not isinstance(statement, ast.Expr):
+                    continue
+                call = statement.value
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "register_live_attr_values_source"
+                ):
+                    found.append(call)
+            return found
+
+        unconditional = []
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                unconditional.extend(installs_in(node.body))
+        unconditional.extend(installs_in(tree.body))
+
+        every_call = [
+            n for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "register_live_attr_values_source"
+        ]
         self.assertEqual(
-            len(installs), 1,
-            "app.py must install the live-attr source exactly once as real "
-            "code (found %d call sites)" % len(installs),
+            len(every_call), 1,
+            "app.py must name the install exactly once (found %d)"
+            % len(every_call),
         )
-        argument = installs[0].args[0] if installs[0].args else None
+        self.assertEqual(
+            len(unconditional), 1,
+            "the install must be a plain statement of a module-level "
+            "function's body -- not nested, not under an `if`, not in a "
+            "helper nobody calls (found %d such, %d anywhere)"
+            % (len(unconditional), len(every_call)),
+        )
+
+        argument = unconditional[0].args[0] if unconditional[0].args else None
         self.assertIsInstance(
             argument, ast.Call,
             "the installed source must be built by a call, not a name or a "
@@ -563,6 +646,8 @@ class NothingIsInventedForARowWithAColumnTests(unittest.TestCase):
     def test_a_read_that_fails_says_so_instead_of_answering_silently(self):
         # pf-adversary D9: the first draft swallowed both reads with no line,
         # so a renamed store method looked exactly like an unseeded character.
+        live.reset_console_announcements()
+        self.addCleanup(live.reset_console_announcements)
         store = _StubStore(raises=OSError("no such column: level"))
         stream = io.StringIO()
         self.assertEqual(live.values_for(store, 7, stream=stream), {})
