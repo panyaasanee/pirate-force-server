@@ -55,7 +55,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from pf_preconditions import BRIDGE_SIBLING  # noqa: E402
+from pf_preconditions import (  # noqa: E402
+    BRIDGE_GM_INSTALL_BAT,
+    BRIDGE_SIBLING,
+)
 from pirateforce_foundation.gm import plugin_image_check as pic  # noqa: E402
 
 
@@ -1345,18 +1348,54 @@ def test_the_rules_line_is_printed_for_a_refusal_too(tmp_path: Path, capsys) -> 
 #     shape `tests/pf_preconditions.py` was written for: evidence that lives
 #     outside this repository, present on one machine and absent on the other.
 #
-# So the guard asks `BRIDGE_SIBLING` and reports ITS reason.  Absent -> one
+# So the guard asks a precondition and reports ITS reason.  Absent -> one
 # declared skip per test in that class, pinned in `docs/PYTEST_SKIP_PINS.json`
-# under `preconditions` (the count is `INSTALL_BAT_TESTS`, and three tests
-# below grade the two against each other), which the census expects to be ZERO
-# on any machine that has the sibling.
+# under `preconditions` (the count is `INSTALL_BAT_TESTS`, and
+# `test_the_module_constant_and_the_pin_say_the_same_number` below grades the
+# constant against the pin -- ONE test, not "three", which is what this line
+# claimed until round `0ymgul` re-counted it), which the census expects to be
+# ZERO on any machine that has the artifact.
 #
-# The key is `bridge_sibling` and not a narrower one for `install.bat` itself,
-# because a narrower key would need a new entry in `tests/pf_preconditions.py`
-# -- another lane's file -- and because the two answers must not be merged: a
-# checkout that HAS `../pf_bridge` and does not have the batch file is not a
-# machine short of evidence, it is a deleted `install.bat`, and that is the
-# regression `InstallBatContractTests` exists to catch.  It fails loudly below.
+# NARROWED 2026-09-03 (round `0ymgul`), STRUCK RATHER THAN DELETED.  The key
+# was `bridge_sibling` and this block used to say why it had to stay that
+# wide: ~~"The key is `bridge_sibling` and not a narrower one for
+# `install.bat` itself, because a narrower key would need a new entry in
+# `tests/pf_preconditions.py` -- another lane's file"~~.  Half of that
+# sentence was never an argument about breadth at all -- it was an argument
+# about WHO MAY EDIT `tests/pf_preconditions.py`, and chief closed it: the
+# narrow key `bridge_gm_install_bat` landed on `main` in `#652` (his letter
+# `20260903_1406`), verified from `origin/main` before this commit.  The
+# guard below now names it, and the pin moves in this same commit so the
+# half-way state -- a decorator naming a key the registry does not have, or a
+# pin naming a key nothing guards with -- never exists on any branch.
+#
+# WHAT DOES *NOT* CHANGE, and this is the half of the old sentence that still
+# stands: the two questions must not be merged.  A checkout that HAS
+# `../pf_bridge` and does not have the batch file is not a machine short of
+# evidence, it is a deleted `install.bat`, and that is a regression this
+# module must catch.  Under the wide key it was caught by this class going
+# 4-red.  Under the narrow key this class would SKIP there instead -- so the
+# loud failure does not disappear, it moves to `deleted_batch_tripwire()` and
+# `test_a_bridge_beside_this_clone_really_does_carry_install_bat`, which are
+# unguarded, run on every machine, and are now the ONLY thing standing in
+# that gap.
+#
+# WHICH WEAKENINGS ARE CAUGHT, MEASURED (pf-adversary, round `0ymgul`, D2 --
+# the first draft of this paragraph named the two doors that are locked and
+# left the open one unnamed):
+#   * GUARDING that test -> a 5th skip keyed `bridge_gm_install_bat` against a
+#     pin of 4 -> PIN DRIFT from the census tool.  Caught.
+#   * SOFTENING it to a `pytest.skip` -> pytest exits 0, but the skip carries
+#     no pin, so the census tool exits 1 with UNDECLARED SKIP.  Caught -- and
+#     the first draft's claim that this "would leave a deleted install.bat
+#     green on every machine" was simply WRONG about the pipeline.
+#   * AN EARLY `return`, or reading `BRIDGE_GM_INSTALL_BAT.present` where the
+#     SIBLING's presence is meant -> green everywhere, census PASS, whole
+#     suite 8768 passed.  NOT caught by any pin machinery, because
+#     `guarded_tests()` walks `ast.ClassDef` only and this lives at module
+#     level.  That is the door, and `deleted_batch_tripwire()` plus
+#     `test_the_deleted_batch_tripwire_fails_when_the_batch_is_gone` is the
+#     lock fitted to it: the raising branch executes on every machine.
 
 
 def _install_bat() -> Path | None:
@@ -1395,7 +1434,10 @@ def _missing_install_bat_message(sibling_present: bool) -> str:
     if sibling_present:
         where = (
             "../pf_bridge IS beside this repository and "
-            "patches/gm_plugin/install.bat is not in it"
+            "patches/gm_plugin/install.bat is not a readable file in it -- "
+            "either missing, or there under that name as a DIRECTORY, which "
+            "the precondition reads as present (it asks exists(), not "
+            "is_file()) so the class runs and lands here"
         )
     else:
         where = (
@@ -1723,7 +1765,7 @@ def test_every_rule_name_this_module_writes_down_is_a_console_rule() -> None:
         assert isinstance(verdict, str) and verdict, verdict
 
 
-@BRIDGE_SIBLING.skip_unless_present()
+@BRIDGE_GM_INSTALL_BAT.skip_unless_present()
 class InstallBatContractTests(unittest.TestCase):
     """The four tests that read the batch file, guarded as ONE site.
 
@@ -1747,6 +1789,14 @@ class InstallBatContractTests(unittest.TestCase):
     including a renamed console token that silently breaks the batch's
     `findstr`.  The Python side is graded by the unguarded tests further down;
     what belongs here is only what needs the FILE.
+
+    Round `0ymgul`: the guard is `BRIDGE_GM_INSTALL_BAT` (`install.bat`
+    itself), not `BRIDGE_SIBLING` (`../pf_bridge` exists).  On the gate that
+    changes nothing -- neither is there.  On a machine that has the sibling
+    with the batch DELETED it changes everything: this class now skips where
+    it used to go 4-red, so the loud failure for that case lives in
+    `deleted_batch_tripwire()` below, which is unguarded on purpose and whose
+    raising branch is executed on every machine by a test of its own.
     """
 
     def setUp(self) -> None:
@@ -1994,10 +2044,15 @@ class InstallBatContractTests(unittest.TestCase):
 # `tests/test_pytest_precondition_census.py` already re-derives the count AND
 # the test names for every pin straight from this file's AST, so a second copy
 # of that comparison here would only be a slower duplicate.  What it cannot do
-# is ask the MACHINE anything: it never touches `../pf_bridge`.  These two do
-# exactly that and nothing else.  Both run everywhere, need no artifact, and
+# is ask the MACHINE anything: it never touches `../pf_bridge`.  The tests
+# below do exactly that and nothing else.  ("These two" was the count when
+# this line was written; there are more now -- round `0ymgul` re-counted
+# rather than carried it.)  They all run everywhere, need no artifact, and
 # are deliberately outside `InstallBatContractTests` so the guarded count in
-# that class stays 3.
+# that class stays `INSTALL_BAT_TESTS` -- 4 since round `p7q74c` added the
+# fourth reader; the literal "3" written here was stale from round `kv2vjk`
+# and is corrected rather than carried, because the number is what the pin is
+# graded against.
 
 
 def _pin_entry() -> dict:
@@ -2007,11 +2062,11 @@ def _pin_entry() -> dict:
     module = "tests/" + Path(__file__).name
     matches = [
         entry for entry in pins["preconditions"]
-        if entry["key"] == "bridge_sibling"
+        if entry["key"] == "bridge_gm_install_bat"
         and entry["module"].replace("\\", "/") == module
     ]
     assert len(matches) == 1, (
-        "expected exactly one bridge_sibling pin for %s, found %d"
+        "expected exactly one bridge_gm_install_bat pin for %s, found %d"
         % (module, len(matches))
     )
     return matches[0]
@@ -2032,24 +2087,155 @@ def test_the_module_constant_and_the_pin_say_the_same_number():
     assert _pin_entry()["count"] == INSTALL_BAT_TESTS
 
 
+def deleted_batch_tripwire() -> None:
+    """Raise if `../pf_bridge` is here and the batch file is not.
+
+    THE WHOLE POINT OF SPLITTING THIS OUT.  Round `0ymgul` narrowed the class
+    guard from `bridge_sibling` to `bridge_gm_install_bat`, which is right for
+    a SKIP and which means the class no longer goes 4-red on a checkout that
+    HAS the sibling and does NOT have the batch -- it skips there.  The red
+    for that state moved into this function.
+
+    pf-adversary, round `0ymgul`, D1 measured what that move costs: the pin
+    machinery in `tests/test_pytest_precondition_census.py` re-derives guard
+    counts, guard keys and test names from source, but `guarded_tests()` walks
+    `ast.ClassDef` only, so a tripwire living in a module-level function is
+    INVISIBLE to it.  Swapping the branch condition below to
+    `BRIDGE_GM_INSTALL_BAT.present` -- a two-line "tidy-up" that reads as an
+    improvement, since `BRIDGE_SIBLING` guards nothing else in this repository
+    any more -- returns early in exactly the state this exists to catch, and
+    was measured green on all three machine states plus the census tool.
+
+    So the raising branch is a FUNCTION rather than an inline `assert`, and
+    `test_the_deleted_batch_tripwire_fails_when_the_batch_is_gone` below
+    monkeypatches this module's own names to reach the state no machine here
+    supplies.  That is the same remedy round `kv2vjk` D2 applied one level
+    down, in `test_a_missing_install_bat_raises_loudly_instead_of_skipping`.
+
+    IT TAKES NO ARGUMENTS ON PURPOSE.  A first draft of this fix passed
+    `(BRIDGE_SIBLING.present, _install_bat())` in from the caller, which left
+    the whole defect alive one line further out: the D1 mutant is a caller
+    that hands over `BRIDGE_GM_INSTALL_BAT.present` instead, and a function
+    graded only through its parameters cannot see that.  Reading both names
+    HERE means the mutant has to edit this body, which the test below grades
+    with a fake for each precondition.
+    """
+    if not BRIDGE_SIBLING.present:
+        return
+    if _install_bat() is not None:
+        return
+    raise AssertionError(
+        "../pf_bridge is beside this clone but "
+        "patches/gm_plugin/install.bat is missing from it -- since round "
+        "0ymgul InstallBatContractTests SKIPS in this state instead of "
+        "failing, so this function is the only thing that catches it"
+    )
+
+
 def test_a_bridge_beside_this_clone_really_does_carry_install_bat():
     """The premise the whole guard rests on, asked of THIS machine.
 
-    `bridge_sibling` answers "is `../pf_bridge` there", and the class above
-    treats that as "the batch file is readable".  Those are two different
-    questions, and the gap between them is where a false RUN lives: a checkout
-    that has the sibling and not the file would reach `_install_bat_text` and
-    die.  That is the intended outcome -- a deleted `install.bat` IS a
-    regression -- but it must be legible, so it is named here rather than
-    arriving as a stray AssertionError from a helper.
+    UNGUARDED ON PURPOSE, and since round `0ymgul` this is load-bearing.  The
+    class above used to be guarded by `bridge_sibling` ("is `../pf_bridge`
+    there"), so a checkout WITH the sibling and WITHOUT the batch went 4-red
+    inside it.  It is now guarded by `bridge_gm_install_bat`, which asks
+    whether the batch PATH EXISTS -- `Precondition.present` is `exists()`, not
+    `is_file()` and not readability (pf-adversary D5: an `install.bat` that is
+    a DIRECTORY reads present, the class RUNS, and five tests go red; that is
+    loud, which is fine, but it is not what the word "readable" would say).
+
+    Both keys are read here rather than one, because the whole point is that
+    they answer different questions and the difference is now the tripwire.
     """
     assert "[precondition:bridge_sibling]" in BRIDGE_SIBLING.reason
+    assert (
+        "[precondition:bridge_gm_install_bat]" in BRIDGE_GM_INSTALL_BAT.reason
+    )
+    assert BRIDGE_GM_INSTALL_BAT.present == (_install_bat() is not None)
     if not BRIDGE_SIBLING.present:
         assert _install_bat() is None
-        return
-    assert _install_bat() is not None, (
-        "../pf_bridge is beside this clone but "
-        "patches/gm_plugin/install.bat is missing from it"
+        assert not BRIDGE_GM_INSTALL_BAT.present
+    deleted_batch_tripwire()
+
+
+class _FakePresence:
+    """The one attribute `deleted_batch_tripwire` reads off a precondition."""
+
+    def __init__(self, present: bool) -> None:
+        self.present = present
+
+
+def _tripwire_under(monkeypatch, sibling: bool, key: bool, batch):
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "BRIDGE_SIBLING", _FakePresence(sibling))
+    monkeypatch.setattr(module, "BRIDGE_GM_INSTALL_BAT", _FakePresence(key))
+    monkeypatch.setattr(module, "_install_bat", lambda: batch)
+    return deleted_batch_tripwire
+
+
+def test_the_deleted_batch_tripwire_fails_when_the_batch_is_gone(monkeypatch):
+    """The branch no machine in this project reaches, executed anyway.
+
+    On the gate the sibling is absent; on the bridge and in every cloud clone
+    the batch is there.  So the one line the narrowing rests on had never run
+    anywhere -- the shape pf-adversary called out in round `kv2vjk` D2 and
+    again, one level up, in round `0ymgul` D1.
+
+    THE FIRST CASE IS THE ONE THAT MATTERS: sibling present, batch gone, and
+    the NARROW key reporting absent -- which is what that machine really looks
+    like.  A tripwire that read `BRIDGE_GM_INSTALL_BAT.present` (the D1
+    mutant, and the tidy-up a future round would reach for once `bridge_
+    sibling` guards nothing else here) returns early on those inputs and this
+    goes red.  So does deleting the raise, and so does inverting either
+    condition.
+    """
+    with pytest.raises(AssertionError) as raised:
+        _tripwire_under(monkeypatch, sibling=True, key=False, batch=None)()
+    message = str(raised.value)
+    assert "patches/gm_plugin/install.bat is missing from it" in message
+    assert "InstallBatContractTests SKIPS in this state" in message
+
+
+def test_the_deleted_batch_tripwire_is_silent_in_every_healthy_state(
+    monkeypatch,
+):
+    """An over-eager tripwire that reds the gate is a defect too."""
+    batch = Path("install.bat")
+    for sibling, key, found in (
+        (True, True, batch),      # the bridge and every cloud clone
+        (False, False, None),     # the Windows gate
+        (False, True, batch),     # incoherent, but must not raise
+    ):
+        _tripwire_under(monkeypatch, sibling, key, found)()
+
+
+def test_an_unguarded_module_level_test_still_calls_the_tripwire():
+    """The call site itself, re-derived from source on every machine.
+
+    `guarded_tests()` in `tests/test_pytest_precondition_census.py` walks
+    `ast.ClassDef` only, so nothing upstream can see a module-level tripwire
+    -- deleting its call, or putting a precondition decorator on the test that
+    makes it, would be invisible to every pin check.  This asks the AST
+    directly: some module-level `test_*` function with NO decorators must call
+    `deleted_batch_tripwire`.  Guard that caller and this goes red; delete the
+    call and this goes red.
+    """
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    callers = []
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not node.name.startswith("test") or node.decorator_list:
+            continue
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id == "deleted_batch_tripwire"):
+                callers.append(node.name)
+                break
+    assert callers, (
+        "no undecorated module-level test calls deleted_batch_tripwire() -- "
+        "a sibling checkout with install.bat deleted is now green everywhere"
     )
 
 

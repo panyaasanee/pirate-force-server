@@ -8021,9 +8021,34 @@ ask what else in that scene answers to that number, or whether the two halves of
 about what the number IS -- the answer lived in a comment in one module's docstring about one scene.
 Today `describe_scene(scene_id, legacy=...)` answers it for any scene in one greppable ASCII line,
 `GM_IDENTITY_CENSUS ... disagreeing=N ... unique_within_scene=yes|NO families_agree=yes|NO`, and
-scene 1 answers `families_agree=NO disagreeing=4` today. `CORE-REQUEST-GM-050` asks chief for the
+scene 1 answers `families_agree=NO disagreeing=4` today. ~~`CORE-REQUEST-GM-050` asks chief for the
 one call site in `runtime.py` that would print it at scene entry; until that lands she runs it
-herself.
+herself.~~
+
+> **STRUCK 2026-09-03 in round `0ymgul`, not deleted** (chief's letter `20260903_1406` point 2,
+> under `COO-DECISION 20260903_1349` point 4 and `20260903_1351`). `CORE-REQUEST-GM-050` is
+> **closed, and re-filing it is forbidden.** What happened, in order: chief landed the call site,
+> `#651` merged it at `c1660fd` (13:41+07:00), the COO ordered it withdrawn, and `#652` reverted
+> it on `main` at 14:35+07:00. The census module and its tests were never touched -- only the
+> call site in `runtime.py` and chief's own wiring tests. A source-derived guard in the server
+> (`tests/test_world_census_wiring.py:1426-1431`) makes it RED to name `identity_registry_census`
+> on a NON-COMMENT line of `runtime.py`.
+>
+> 🔴 **The guard is narrower than that sentence originally claimed here, and the difference is
+> written down rather than glossed** (pf-adversary, round `0ymgul`, D6, re-measured): comments are
+> exempt by design -- `runtime.py:10248` names the module in a comment today and the tree is green
+> -- and the guard reads `runtime.py` and no other file, so a one-line shim module in `gm/` that
+> re-exports `describe_scene`, called from the withdrawn call site, restores the console line with
+> the guard still passing (measured: `30 passed`). So the repository refuses ONE SPELLING IN ONE
+> FILE, not the idea. Re-wiring this is forbidden by the COO's order, not by the test suite; do
+> not read the guard as permission to stop reading the order.
+> The single condition that reopens it is written as a comment at the withdrawn call site:
+> `RE-2xx typed/live gate reachability` returning an identity that is **not** the index -- only
+> then does `unique_within_scene=NO` mean anything. On that day the whole wiring is re-appliable
+> from the revert commit in one round; nothing here needs rewriting.
+> Anyone holding a console capture from a build between `c1660fd` and the revert who saw a
+> `GM_IDENTITY_CENSUS` line: **that line was genuine**, not a stale build.
+> `describe_scene(...)` itself is untouched and still answers when run by hand.
 
 ---
 
