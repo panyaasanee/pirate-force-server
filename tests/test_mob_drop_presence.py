@@ -240,6 +240,65 @@ class TheGroundStaysTests(PresenceTestBase):
             sum(len(frame) for _pc, frame in step.frames),
             sum(len(frame) for _pc, frame in narrow))
 
+    def test_the_kill_generation_carries_the_bit_as_well_as_the_rows(self):
+        """Round j8qsxp: the bit on these bytes, which nothing else pinned.
+
+        ``test_a_second_kill_carries_the_first_kills_rows`` above proves the
+        CARRY (the ledger's rows are all in the generation).  What no test
+        read off the same bytes is the derived GROUND BIT, and both are
+        needed before this generation can be called the thing that puts a
+        floor back on a client: rows in a body whose ground pool is absent
+        would announce nothing.
+
+        WHY IT CAME UP.  The owner watched a dropped item reappear at the
+        moment a monster died (R306 / GT-216, 2026-09-03), and the result
+        letter attributed that to the DEATH frame's ground section.
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py::test_a_hit_that_
+        does_not_kill_leaves_the_floor_cleared_behind_it`` measures both
+        death frames carrying no ground section at all, and this generation
+        -- last in the same burst -- carrying it.  Right burst, wrong frame.
+
+        NOT A UNIQUENESS CLAIM, and an earlier name for this test said
+        "the only frame", which is false: ``mob_loot``'s scene-boundary
+        publisher (``enter_scene_frames``, wired at ``runtime.py:6288``)
+        composes the same shape with no kill involved, and
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py`` measures it
+        landing on a real crossing.  This test asserts one positive about
+        one generation and enumerates nothing.
+
+        The ~2 s ground heartbeat is a different body and not one of them:
+        it is present-with-count-0, which is a no-op under RE-082's
+        STATIC-ON-BRIDGE reading of the list consumer, so it can preserve a
+        floor and never repopulate one.  That reading is this lane's, not a
+        client observation -- ``mob_loot`` carries the same caveat where it
+        composes the body.
+        """
+        drops = self.kill()
+        step = sustain_a_kill(self.cell, self.legacy, drops)
+        self.assertEqual(step.state, STATE_SUSTAINED)
+        self.assertGreater(step.live, 0)
+        actions = mob_drop_presence.loot_actions(step)
+        self.assertEqual(len(actions), 1)
+        label, pc = actions[0][0], actions[0][1]
+        self.assertEqual(label, "MOB_LOOT_DROP")
+        offset = mob_loot.RUNTIME_RES_ACTORS_DERIVED_MASK_OFFSET
+        self.assertGreater(len(pc), offset + 1)
+        self.assertEqual(pc[offset], mob_loot.ELEMENT_MASK_TAG)
+        self.assertTrue(
+            pc[offset + 1] & mob_loot.RUNTIME_DERIVED_BIT_GROUND_LIST,
+            "the kill generation stopped carrying the ground pool -- then "
+            "nothing in this tree puts a drop back on a client's floor",
+        )
+        # And it is NOT the empty-but-present body the heartbeat sends: a
+        # generation that carried the bit with zero rows would be a no-op
+        # and would restore nothing, which is the distinction this test is
+        # here to hold.
+        self.assertNotEqual(
+            pc,
+            mob_loot.DROP_ENVELOPE_CONSTANT_PIN
+            + self.legacy.u16tag(mob_loot.ELEMENT_LIST_COUNT_TAG, 0),
+        )
+
     def test_a_kill_that_dropped_nothing_still_re_carries_the_ground(self):
         """Why the wiring ask deletes the ``if drops:`` guard as well.
 
