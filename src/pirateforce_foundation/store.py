@@ -80,6 +80,49 @@ HEAL_LOCK_RETRY_BACKOFF_S = 0.01
 _LOCKED = "database is locked"
 
 
+#: The DAMAGE door's OWN write-lock budget, in milliseconds, and it does NOT
+#: share `HEAL_LOCK_*` with the two healing doors above.  `COO-DECISION
+#: 20260903_1047` point 1 put `apply_hp_damage` behind
+#: `_begin_immediate_under_contention` for one round, which meant a hit could
+#: block for up to `HEAL_LOCK_TOTAL_WAIT_S` (120 s) -- a ceiling `FINDINGS_R18`
+#: measured this server cannot afford, since it is strictly serial, one client
+#: per listener: a hit that waits two minutes is a two-minute freeze of every
+#: other player, the same shape `GT-193` killed a live session with once
+#: already.  `COO-DECISION 20260903_1248` reversed that and gave this door its
+#: own short budget instead.
+#:
+#: !! 3000 IS A SAFETY CEILING, NOT A MEASURED RESULT, and the docstring on
+#: `_begin_immediate_for_damage` repeats this on purpose so a reader who only
+#: opens that method still sees it.  Nobody has run combat's own pusher
+#: against this number yet: `COO-DECISION 20260901_1142` wired LANE-B to call
+#: `apply_hp_damage` from the aggro tick, but that call is not landed as of
+#: this round, so nothing has ever waited on this budget under a real hit
+#: rate.  LANE-B reports the real wait it measures once it is wired
+#: (`COO-DECISION 20260903_1248` point 3); until then this number is a guess
+#: at "short enough that a stuck lock cannot freeze the server the way 120 s
+#: could", not a floor derived from combat's own timing.
+#:
+#: WHY THIS IS ALSO THE WHOLE BUDGET, AND NOT A PER-ATTEMPT CEILING UNDER A
+#: LONGER ONE.  `COO-DECISION 20260903_1248` says the damage door must not
+#: loop-retry `BEGIN IMMEDIATE` the way the healing doors do -- one attempt,
+#: with SQLite's own busy handler doing the waiting for up to this many
+#: milliseconds inside that ONE `sqlite3.Connection.execute("BEGIN
+#: IMMEDIATE")` call.  There is no Python-level retry loop, no backoff and no
+#: `HEAL_LOCK_RETRY_BACKOFF_S`-shaped sleep on this path at all -- see
+#: `_begin_immediate_for_damage`.
+DAMAGE_LOCK_BUSY_TIMEOUT_MS = 3000
+
+#: Printed to stdout, once, the one time this budget is spent and the write
+#: is refused -- so a hit that never lands is visible on the console instead
+#: of only living inside a caught exception a combat caller might swallow.
+#: `COO-DECISION 20260903_1248`: "หมดเวลาแล้ว ปฏิเสธการเขียนพร้อมบรรทัดคอนโซล
+#: ห้ามวนรีทราย ห้ามเงียบ" -- refuse the write WITH a console line, no retry
+#: loop, no silence.  Follows this file's own convention (`GROUND_VITALS_
+#: PRESERVE_REFUSED` in `action_ack.py`, the `*_TOKEN` prints in
+#: `mob_combat.py`) rather than inventing a new shape.
+DAMAGE_WRITE_LOCK_REFUSED_TOKEN = "DAMAGE_WRITE_LOCK_REFUSED"
+
+
 #: The wire field `/speed` writes: BasicAttr+0x54, `x=7`, whose column name is
 #: resolved through `persistence_typed_attrs.column_for` rather than spelled
 #: here, so a rename of the column cannot leave this door writing a stale name.
@@ -1437,13 +1480,13 @@ class SQLiteStore:
         fail without it, both in `tests/test_persistence_vitals.py`:
         `BeginImmediateHoldsTheWriteLockTests` (the lock is taken before the
         SELECT, measured through an outsider connection) and
-        `ContendedDamageWaitsInsteadOfStarvingTests` (a hit that loses the
-        race is not lost, measured through eight real threads).  Note that
-        the `BEGIN IMMEDIATE` this paragraph names is no longer spelled
-        inline here -- since `COO-DECISION 20260903_1047` point 1 it is
-        opened by `_begin_immediate_under_contention`, so "delete the line"
-        below means the call, and deleting it leaves a DEFERRED transaction
-        exactly as before.
+        `DamageDoorHasItsOwnShortBudgetTests` (a hit that loses the race
+        under a competitor SHORTER than the budget is not lost, measured
+        through real threads and a real competing connection).  Note that the
+        `BEGIN IMMEDIATE` this paragraph names is no longer spelled inline
+        here -- it is opened by `_begin_immediate_for_damage`, so "delete the
+        line" below means that call, and deleting it leaves a DEFERRED
+        transaction exactly as before.
 
         The `UPDATE` also carries `hp_current=?` for the value it read.  An
         earlier draft of this docstring said no test could be made to fail by
@@ -1467,29 +1510,38 @@ class SQLiteStore:
         points of damage.  Nothing is written when anything is refused.
 
         ALSO RAISES `store.WriteLockTimeout`, AND ALSO BLOCKS, SINCE
-        2026-09-03, and this paragraph is the notice.  `COO-DECISION
-        20260903_1047` point 1 put this method behind
-        `_begin_immediate_under_contention`, so a refused write lock is
-        waited out rather than raised at once.  What a caller must plan for:
+        2026-09-03, and this paragraph is the notice.  This method opens its
+        transaction through `_begin_immediate_for_damage`, so a refused write
+        lock is waited out, briefly, rather than raised at once.  What a
+        caller must plan for:
 
-        * this call can now BLOCK for up to `HEAL_LOCK_TOTAL_WAIT_S`
-          (120 s today) before it gives up, where it previously gave up at
-          `connect()`'s 5,000 ms;
+        * this call can BLOCK for up to `DAMAGE_LOCK_BUSY_TIMEOUT_MS`
+          (3000 ms today) before it gives up, where before
+          `COO-DECISION 20260903_1047` it gave up at `connect()`'s 5,000 ms;
+        * there is exactly ONE attempt, not a retry loop -- unlike the
+          healing doors below, a lock still held when the budget above is
+          spent raises immediately, it does not sleep and try `BEGIN
+          IMMEDIATE` again;
         * on giving up it raises `WriteLockTimeout`, which SUBCLASSES
           `sqlite3.OperationalError`, so an `except OperationalError` still
           catches it and the type is not a break -- the waiting is;
-        * `PRAGMA busy_timeout` is raised to `HEAL_LOCK_BUSY_TIMEOUT_MS`
-          (30 s) for the whole of this method's transaction, not only for
-          the `BEGIN`.
+        * giving up ALSO prints `DAMAGE_WRITE_LOCK_REFUSED_TOKEN` to stdout
+          first, so a lost hit is visible on the console even if a caller
+          catches and swallows the exception.
 
-        !! 120 s WAS CHOSEN FOR A DOOR THAT RUNS ONCE PER LOGIN, and this
-        method is meant to run many times per second once combat calls it.
-        `pf_bridge/FINDINGS_R18_SERVER_IS_STRICTLY_SERIAL.md` measured this
-        server as strictly serial, one client per listener, so a hit that
-        waits two minutes is a two-minute freeze.  Nobody has adjudicated a
-        budget for THIS door; the question is open and is on its way to COO
-        (LANE-DB round `r53lc8`).  A caller arriving before that is answered
-        should say so rather than assume 120 s was chosen for it.
+        !! `HEAL_LOCK_TOTAL_WAIT_S` (120 s) IS NOT THIS DOOR'S BUDGET, AND
+        NEVER WAS FOR MORE THAN ONE ROUND.  `COO-DECISION 20260903_1047`
+        point 1 briefly put this method behind the healing doors' shared
+        120 s / 30,000 ms budget; `pf_bridge/FINDINGS_R18_SERVER_IS_
+        STRICTLY_SERIAL.md` measured this server as strictly serial, one
+        client per listener, so a hit that waits two minutes is a two-minute
+        freeze of every other player -- the question of what THIS door's own
+        budget should be went to COO in LANE-DB round `r53lc8`, and
+        `COO-DECISION 20260903_1248` answered it: a separate, short,
+        non-looping budget, `DAMAGE_LOCK_BUSY_TIMEOUT_MS` above.  !! THAT
+        NUMBER IS A SAFETY CEILING, NOT A MEASURED RESULT -- see the
+        constant's own comment for why, and do not read "3000 ms" as
+        anything combat's real hit rate has been checked against yet.
 
         "INCONSISTENT" WIDENED on 2026-09-02 and this sentence is the notice.
         `COO-DECISION 20260902_0443` point 4 made a stored `level = 0` a
@@ -1507,31 +1559,31 @@ class SQLiteStore:
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
             # WAS `db.execute("BEGIN IMMEDIATE")` until `COO-DECISION
-            # 20260903_1047` point 1, which authorises this line.  The
-            # TRANSACTION is unchanged -- the helper still opens an IMMEDIATE
-            # one -- and a refused `BEGIN IMMEDIATE` is now waited out
-            # instead of raising `database is locked` at the caller.
+            # 20260903_1047` point 1 (which briefly routed this door through
+            # `_begin_immediate_under_contention`, the healing doors' shared
+            # helper), and IS `_begin_immediate_for_damage` since
+            # `COO-DECISION 20260903_1248`, which gave this door its own
+            # budget instead.  The TRANSACTION shape is unchanged either way
+            # -- it is still an IMMEDIATE one -- what changes is how a
+            # refused `BEGIN IMMEDIATE` is handled:
             #
-            # !! TWO THINGS DO CHANGE FOR THIS METHOD, and the first draft of
-            # this comment claimed "nothing else", which a `pf-adversary`
-            # pass measured false:
-            #   * `PRAGMA busy_timeout` goes 5,000 ms (what `connect()` sets)
-            #     to `HEAL_LOCK_BUSY_TIMEOUT_MS` = 30,000 ms, and the pragma
-            #     STAYS IN FORCE for this connection's SELECT, UPDATE and
-            #     COMMIT as well -- the helper's own comment says so.
-            #   * the worst case before this method raises goes from 5 s to
-            #     `HEAL_LOCK_TOTAL_WAIT_S` = 120 s, and the exception becomes
-            #     `WriteLockTimeout`.  Both are in the `Raises` paragraph
-            #     above, where a caller reads.
-            # `COO-DECISION 20260902_1646` is where the tolerance itself was
-            # ordered -- FOR THE HEALING TEST that closed another lane's pull
-            # request; it does not mention this method.  The reading that the
-            # order covered THE DOOR and reached only one half is COO's own,
-            # written later, in `20260903_1047` point 1 reason (1).  Cite
-            # 1047 for this line; 1646 only for the mechanism.
-            # Why the retry cannot double-apply a hit is argued once, in the
-            # helper.
-            self._begin_immediate_under_contention(db)
+            # !! THREE THINGS CHANGE FOR THIS METHOD, versus a bare
+            # `db.execute("BEGIN IMMEDIATE")`:
+            #   * `PRAGMA busy_timeout` goes to `DAMAGE_LOCK_BUSY_TIMEOUT_MS`
+            #     (3000 ms) for this one `BEGIN IMMEDIATE` call, in place of
+            #     `connect()`'s 5,000 ms -- SHORTER, on purpose, not longer;
+            #     see the constant's own comment for why 3000 and not 5000.
+            #   * a lock still refused after that budget raises
+            #     `WriteLockTimeout` instead of a bare
+            #     `sqlite3.OperationalError('database is locked')`.
+            #   * that same refusal ALSO prints `DAMAGE_WRITE_LOCK_REFUSED_
+            #     TOKEN` to stdout before it raises.
+            # All three are in the `Raises` paragraph above, where a caller
+            # reads.  There is deliberately NO Python-level retry loop here
+            # -- `COO-DECISION 20260903_1248` forbids one by name for this
+            # door -- so unlike the healing doors' helper, this call cannot
+            # sleep and try `BEGIN IMMEDIATE` a second time.
+            self._begin_immediate_for_damage(db, character_id)
             vitals.verify_schema(db)
             row = db.execute(
                 f"SELECT {','.join(columns)} FROM characters "
@@ -1592,12 +1644,20 @@ class SQLiteStore:
     def _begin_immediate_under_contention(db):
         """`BEGIN IMMEDIATE`, kept waiting instead of allowed to starve.
 
-        TWO CALLERS SINCE 2026-09-03, and the prose below still says
-        "healing" because that is the history: `COO-DECISION 20260903_1047`
-        point 1 ruled that `apply_hp_damage` -- the door the original order
-        was written about -- had been left on a bare `BEGIN IMMEDIATE` and
-        gets this same waiting.  Nothing here changed for it; read every
-        "heal" below as "the write this door makes".
+        ONE CALLER AGAIN AS OF `COO-DECISION 20260903_1248`, and the prose
+        below still says "healing" because that is what is true now, not
+        because it was never touched.  For one round (`COO-DECISION
+        20260903_1047` point 1, 2026-09-03) `apply_hp_damage` was ALSO put
+        behind this helper, sharing `HEAL_LOCK_TOTAL_WAIT_S` (120 s) and
+        `HEAL_LOCK_BUSY_TIMEOUT_MS` (30 s) with the two healing doors below.
+        `20260903_1248` reversed that: the damage door gets its own short,
+        non-looping budget instead (`DAMAGE_LOCK_BUSY_TIMEOUT_MS`, see
+        `_begin_immediate_for_damage`), because `FINDINGS_R18` measured this
+        server as strictly serial and a hit that waits up to 120 s is a
+        two-minute freeze of every other player, not a budget "nobody is
+        using yet".  `apply_hp_damage` calls `_begin_immediate_for_damage`
+        now, not this method -- read every "heal" below as exactly that
+        again, with no second door hiding behind the word.
 
         WHAT IT IS FOR.  `COO-DECISION 20260902_1646` -- and the measurement
         behind it in `pf_bridge/notes_to_chief/20260902_1642_LANE-B-TO-LANE-DB-*`
@@ -1661,13 +1721,16 @@ class SQLiteStore:
                         # DOOR MADE IT A LIE.  A `pf-adversary` pass ran the
                         # timeout through `apply_hp_damage` and read back
                         # "could not take the write lock for this
-                        # character's healing" over a LOST HIT -- the same
-                        # shape `apply_hp_damage`'s own docstring argues
-                        # against for `KeyError`: an operator reading a red
-                        # gate walks to the login-revive path for a defect
-                        # in the damage door.  "write" is what both callers
-                        # are actually doing, and it is the only word here
-                        # that is true of both.
+                        # character's healing" over a LOST HIT, briefly, while
+                        # `apply_hp_damage` shared this helper too (see the
+                        # method docstring above) -- the same shape this
+                        # method's own docstring argues against for
+                        # `KeyError`: an operator reading a red gate walks to
+                        # the login-revive path for a defect in a different
+                        # door.  "write" stays the word here even now that
+                        # this door is heal-only again, so the sentence does
+                        # not have to change back and forth with who is
+                        # calling.
                         "could not take the write lock for this character's "
                         "write after %d attempt(s) over %.0f ms (budget "
                         "%.0f ms, per-attempt busy_timeout at most %d ms): %s"
@@ -1677,6 +1740,68 @@ class SQLiteStore:
                     ) from error
                 window = HEAL_LOCK_RETRY_BACKOFF_S * (2 ** min(attempts, 5))
                 time.sleep(min(random.random() * window, remaining))
+
+    @staticmethod
+    def _begin_immediate_for_damage(db, character_id):
+        """`BEGIN IMMEDIATE` for `apply_hp_damage` ONLY, on a short budget
+        this door does not share with the healing doors, and with NO
+        Python-level retry loop -- `COO-DECISION 20260903_1248`, answering
+        the open question `apply_hp_damage`'s own docstring sent to COO in
+        LANE-DB round `r53lc8`.
+
+        ONE ATTEMPT, NOT A LOOP.  Unlike `_begin_immediate_under_contention`
+        above, this method does not catch a refused `BEGIN IMMEDIATE`, sleep,
+        and try again -- COO's decision says so by name ("ห้ามวนรีทราย", no
+        loop-retry).  The waiting a caller sees still happens, but it happens
+        INSIDE SQLite's own busy handler, for up to
+        `DAMAGE_LOCK_BUSY_TIMEOUT_MS` (3000 ms today), because that is what
+        `PRAGMA busy_timeout` does to a single `execute("BEGIN IMMEDIATE")`
+        call -- there is nothing here for a Python-level loop to add.  A
+        thread that is still locked out after that one call gives up.
+
+        !! `DAMAGE_LOCK_BUSY_TIMEOUT_MS` IS A SAFETY CEILING, NOT A MEASURED
+        RESULT -- repeated here, not only on the constant, because a reader
+        who lands on this method first should not have to go and find that
+        out.  See the constant's own comment for why and for what would
+        replace it.
+
+        ON REFUSAL: print `DAMAGE_WRITE_LOCK_REFUSED_TOKEN` to stdout, THEN
+        raise `WriteLockTimeout`.  Both, in that order, every time -- COO's
+        decision ("ปฏิเสธการเขียนพร้อมบรรทัดคอนโซล ... ห้ามเงียบ", refuse the
+        write WITH a console line, no silence) reads as a requirement on the
+        refusal itself, not only on whatever the caller does with the
+        exception; a caller that swallows `WriteLockTimeout` would otherwise
+        make a lost hit invisible end to end.  Nothing is written before this
+        raises: same as `_begin_immediate_under_contention`, a refused `BEGIN
+        IMMEDIATE` opens no transaction, so there is nothing to roll back.
+        """
+        try:
+            db.execute("PRAGMA busy_timeout=%d" % DAMAGE_LOCK_BUSY_TIMEOUT_MS)
+        except sqlite3.Error:
+            # Mirrors `_begin_immediate_under_contention`'s own bare except
+            # here -- both are `COO-DECISION 20260903_1248` point 4, the
+            # NEXT round's fix ("นับและพิมพ์บรรทัด ห้ามลดตัวเองลงเงียบ ๆ
+            # กลับไป 5,000 ms"), not this one.  Left unfixed on purpose, in
+            # the same shape, so one round fixes both call sites together
+            # instead of this one drifting ahead of the one it was copied
+            # from.
+            pass
+        started = time.monotonic()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as error:
+            if _LOCKED not in str(error):
+                raise
+            waited_ms = (time.monotonic() - started) * 1000.0
+            print("%s character=%s waited_ms=%.0f budget_ms=%d" % (
+                DAMAGE_WRITE_LOCK_REFUSED_TOKEN, character_id, waited_ms,
+                DAMAGE_LOCK_BUSY_TIMEOUT_MS))
+            raise WriteLockTimeout(
+                "could not take the write lock for this character's write "
+                "after 1 attempt over %.0f ms (budget %d ms, no retry loop "
+                "-- COO-DECISION 20260903_1248): %s"
+                % (waited_ms, DAMAGE_LOCK_BUSY_TIMEOUT_MS, error)
+            ) from error
 
     def _apply_hp_transition(self, character_id: int, plan):
         """The shared transactional body of the two HEALING doors below.
