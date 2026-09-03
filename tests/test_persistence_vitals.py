@@ -36,6 +36,7 @@ canonical database.
 """
 import ast
 import contextlib
+import io
 import re
 import sqlite3
 import sys
@@ -1886,6 +1887,62 @@ class DamageDoorHasItsOwnShortBudgetTests(unittest.TestCase):
         self.assertNotIn("_begin_immediate_under_contention", statements)
         self.assertNotIn("'BEGIN IMMEDIATE'", statements)
         self.assertNotIn('"BEGIN IMMEDIATE"', statements)
+
+    def test_a_pragma_a_connection_refuses_does_not_stop_a_hit_and_is_counted(
+            self):
+        """The damage door's own copy of `BeginImmediateHoldsTheHealLock
+        Tests.test_a_pragma_a_connection_refuses_does_not_stop_the_heal`
+        (`tests/test_persistence_vitals_heal.py`) -- a connection that
+        refuses `PRAGMA busy_timeout` still gets its one `BEGIN IMMEDIATE`
+        attempt, unchanged from before this test existed -- PLUS the half
+        `COO-DECISION 20260903_1248` point 4 added: that refusal is counted
+        (`PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT` goes up by exactly one, not
+        reset) and printed (the token, which door, and the milliseconds that
+        were asked for and refused), never a silent `pass`.  The heal door's
+        own copy of this same point-4 fix is measured in the sibling test
+        named above; this one exists because the two doors have separate
+        call sites in `store.py` and a fix to one cannot be assumed to have
+        reached the other -- `COO-DECISION 20260903_1248` itself was written
+        because a shared budget was assumed and was wrong.
+        """
+        class _PragmaRefusingConnection:
+            def __init__(self):
+                self.begins = 0
+                self.pragmas = []
+
+            def execute(self, sql, *args, **kwargs):
+                if sql.startswith("PRAGMA"):
+                    self.pragmas.append(sql)
+                    raise sqlite3.Error("no")
+                if sql.startswith("BEGIN IMMEDIATE"):
+                    self.begins += 1
+                    return self
+                raise AssertionError("unexpected statement: %r" % (sql,))
+
+        connection = _PragmaRefusingConnection()
+        before = store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            SQLiteStore._begin_immediate_for_damage(
+                connection, self.character.id)
+        self.assertEqual(
+            connection.begins, 1,
+            "a refused pragma must not stop the one BEGIN IMMEDIATE attempt")
+        self.assertEqual(
+            connection.pragmas,
+            ["PRAGMA busy_timeout=%d"
+             % store_module.DAMAGE_LOCK_BUSY_TIMEOUT_MS])
+        self.assertEqual(
+            store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_COUNT, before + 1,
+            "a refused pragma must be counted, not silently swallowed")
+
+        printed = buffer.getvalue()
+        self.assertIn(
+            store_module.PRAGMA_BUSY_TIMEOUT_REFUSED_TOKEN, printed)
+        self.assertIn("door=damage", printed)
+        self.assertIn(
+            "requested_ms=%d" % store_module.DAMAGE_LOCK_BUSY_TIMEOUT_MS,
+            printed)
 
 if __name__ == "__main__":
     unittest.main()
