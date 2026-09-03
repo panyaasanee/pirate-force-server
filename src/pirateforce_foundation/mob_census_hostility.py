@@ -30,8 +30,14 @@ alone and only appears when the two are compared, which is what
 :func:`census_backing_report` does.
 
 NONCLAIMS.  This does not decide whether a player SEES a red monster.
-``RE-067`` and ``RE-068`` both closed BOUNDED NEGATIVE on what drives an
-actor name's colour -- nobody has identified the mechanism -- and
+``RE-067`` and ``RE-068`` both closed ~~BOUNDED NEGATIVE~~ on what drives an
+actor name's colour -- ~~nobody has identified the mechanism~~ -- and
+[ROUND qzky4u: ka1-B's letter of 2026-09-01 22:00 identifies it, faction ->
+relation predicate -> FACTION comparator -> the CNetNPC name-style selector
+at 0x00443F50, reached from the actor updater 0x00444400 and NOT from
+``NameBoardNPC::update``, which is why four modules here recorded the search
+as finished; RELAYED, not measured here, and this module is unchanged --
+see ``field_mobs``'s block for the chain and the P-2 prohibitions] and
 ``GT-032``'s passing red-name result was measured on ``0x2001`` ("Navy
 Transfer"), which is not a member of any field-mob roster.  What this
 module claims is at the wire layer only: the bytes a census sends for a
