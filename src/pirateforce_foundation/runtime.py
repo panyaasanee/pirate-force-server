@@ -7446,18 +7446,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # docstring forbids reading the COUNT as a refusal
                         # reason; this reads the two known values apart,
                         # which is the same rule kept, not bent.
-                        if outcome.ground_after:
-                            reason = "superseded_by_pickup"
-                        elif outcome.ground_rows_left == 0:
-                            reason = "last_object_pickup"
-                        else:
-                            reason = "publication_refused"
-                        token = (
-                            f"mob_loot_boundary_{reason}_"
-                            f"{mob_loot.scene_key(standing)}_frames_"
-                            f"{superseded}"
-                        )
-                        self.events.append(token)
+                        #
+                        # ROUND xcmfr6 -- THE MERGE, AND THIS SITE IS THE
+                        # SIDE THAT MOVED.  Two spellings of these three
+                        # names lived on ``main``: this inline set and
+                        # ``mob_loot``'s composers, which were written to
+                        # match it byte for byte and had NO call site
+                        # ("NOTHING IN src/ CALLS IT YET", their own
+                        # docstrings).  COO-DECISION 2026-09-03T00:54+07:00
+                        # question 2 ruled ONE set, and the words this site
+                        # emits win -- so the module kept the words and this
+                        # site now asks it for them.  An operator grepping
+                        # GT-204's console sees the same four fields in the
+                        # same order as yesterday; what changes is that the
+                        # word can no longer drift on one side only.
+                        #
+                        # TWO READINGS DELIBERATELY GO THE COMPOSER'S WAY,
+                        # ruled 2026-09-03T05:08+07:00 (chief's letter
+                        # ``20260903_0508`` item 3, before either side had
+                        # a caller): a ``ground_after`` that is truthy with
+                        # no ``__len__`` counts as NOT published, and a
+                        # ``ground_rows_left`` that is not an exact int is
+                        # unreadable rather than zero.  Both land on
+                        # ``publication_refused``, which leaves the floor's
+                        # state OPEN instead of telling the operator the
+                        # floor is clear on a value nobody could read.  On
+                        # the tuple/int this dispatcher actually hands over
+                        # today the two rules agree on every value, so this
+                        # round changes no measured output.
+                        #
+                        # ``superseded`` IS CAPTURED ABOVE, BEFORE THE
+                        # STASH IS CLEARED, and that ordering is load
+                        # bearing: handing the composers the now-empty
+                        # ``mob_loot_boundary_frames_pending`` would print
+                        # ``frames=0`` on every clear.
+                        self.events.append(
+                            mob_loot.boundary_stash_dropped_event(
+                                standing, superseded,
+                                published_generations=outcome.ground_after,
+                                ground_rows_left=outcome.ground_rows_left))
                         # AND IT IS PRINTED, not only recorded.  Every other
                         # mob_loot_boundary_* token in this file goes to
                         # self.events alone, which reaches no console unless
@@ -7479,12 +7506,34 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # "nothing was composed", which is the one value
                         # that is not a count of rows (the sibling lane's
                         # docstring, kept verbatim in meaning).
+                        #
+                        # THE ``try`` STAYS EVEN THOUGH THE COMPOSER CANNOT
+                        # RAISE: what is being guarded here is ``print``
+                        # itself -- a closed or redirected stdout, or a
+                        # cp874 console with ``errors='strict'`` -- not the
+                        # composition, which now happens where a value that
+                        # cannot be read costs a field and not the line.
+                        #
+                        # THAT LAST PART IS INSURANCE, NOT A REPAIR, and
+                        # saying otherwise would oversell this round
+                        # (pf-adversary D9): at THIS call site
+                        # ``ground_rows_left`` is ``len(view.drops)`` or the
+                        # literal ``-1``, so no input reachable today can
+                        # take the old line down.  It pays the day RE-208
+                        # makes that field something other than a count.
+                        # And the promise stops where this branch began:
+                        # ``mob_loot.scene_key(standing)`` in the ``if``
+                        # above is still called unguarded -- unreachable
+                        # today (a static ASCII table), not impossible.
                         try:
-                            print("MOB_LOOT_BOUNDARY_STASH_CLEARED "
-                                  "reason=%s scene=%s frames=%d "
-                                  "rows_left=%d"
-                                  % (reason, mob_loot.scene_key(standing),
-                                     superseded, outcome.ground_rows_left))
+                            print(
+                                mob_loot
+                                .boundary_stash_cleared_console_line(
+                                    standing, superseded,
+                                    published_generations=(
+                                        outcome.ground_after),
+                                    ground_rows_left=(
+                                        outcome.ground_rows_left)))
                         except Exception:      # noqa: BLE001 - see above
                             pass
                 return out

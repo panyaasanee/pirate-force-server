@@ -1590,7 +1590,9 @@ def boundary_stash_reason(
     the console line are two RENDERINGS of it, so the inline site in
     ``runtime.py`` can adopt it without any operator seeing a different word
     than they saw yesterday (COO-DECISION 2026-09-03T00:54+07:00 question 2).
-    NOTHING IN ``src/`` CALLS IT YET.
+    ~~NOTHING IN ``src/`` CALLS IT YET.~~ ROUND xcmfr6 ADOPTED IT: the pickup
+    branch in ``runtime.py`` reaches this decision through the two composers
+    below and spells none of the three words itself.
 
       * anything published -> :data:`BOUNDARY_STASH_SUPERSEDED_REASON`
       * nothing published and no rows left (``0``) ->
@@ -1617,6 +1619,11 @@ def boundary_stash_reason(
     said ``last_object_pickup`` -- the one word pf-adversary D4 of round
     ``veby94`` exists to forbid -- about a floor nobody counted.
 
+    !! ROUND xcmfr6 CLOSED THE PARTING BELOW BY ADOPTION, and the paragraph
+    is kept because it is the RULING, not a description of a live fork: the
+    inline site no longer asks anything -- it calls this function -- so
+    "where they part" now reads as "the rule this side won with".
+
     !! WHERE THIS AND THE INLINE SITE STILL PART -- ~~AND IT IS OPEN ON
     PURPOSE~~ IS STRUCK: THE CHIEF RULED ON IT, 2026-09-03T05:08+07:00
     (his letter ``20260903_0508`` item 3, answering round ``li9nce``'s
@@ -1627,15 +1634,17 @@ def boundary_stash_reason(
     DIRECTION OF THE GUESS -- this line exists to tell an operator what is
     left on the floor, and ``if outcome.ground_after:`` answers "the floor
     is clear" for a value it merely could not READ, which is the quietest
-    lie this line is able to tell.  When he adopts this composer at the two
+    lie this line is able to tell.  ~~When he adopts this composer at the two
     inline sites (his own next round, his debt, item 2 of the same letter),
-    both sides become one rule by construction.
-    The mechanics, unchanged and still worth stating: the inline site asks
-    ``if outcome.ground_after:`` -- pure truth.  On the tuple that field
-    holds today the two agree on every value.  They part on a truthy object
-    with no ``__len__``: that reads as "no" here and as "yes" there.  Closing
-    RE-208 is what would make that field something other than a plain tuple,
-    and the ruling above is what that day now falls back on.
+    both sides become one rule by construction.~~ HE DID, ROUND xcmfr6:
+    BOTH SIDES ARE ONE RULE NOW, BY CONSTRUCTION.
+    The mechanics, kept because they say what the one rule chose: the inline
+    site ~~asks ``if outcome.ground_after:`` -- pure truth~~ HANDS THAT FIELD
+    TO :func:`_published_anything` INSTEAD.  On the tuple that field holds
+    today both readings agree on every value.  They part on a truthy object
+    with no ``__len__``: "no" here, and "yes" under the reading that was
+    retired.  Closing RE-208 is what would make that field something other
+    than a plain tuple, and this side's rule is what that day falls back on.
     """
     published = _published_anything(published_generations)
     rows_left = _rows_left_count(ground_rows_left)
@@ -1659,11 +1668,12 @@ def boundary_stash_cleared_console_line(
         ``MOB_LOOT_BOUNDARY_STASH_CLEARED reason=<r> scene=<s> frames=<n>
         rows_left=<n>``
 
-    NOTHING IN ``src/`` CALLS IT YET, and no round may report the console
-    hardened on the strength of this function.  It is here so that the day
-    the inline site adopts it, nothing an operator greps for changes -- the
-    reason word comes from :func:`boundary_stash_reason`, the same call that
-    names the event.
+    ~~NOTHING IN ``src/`` CALLS IT YET~~ -- ROUND xcmfr6 wired it at the
+    pickup branch, and the day it was written for is that round.  What still
+    stands is the second half: NO ROUND MAY REPORT THE CONSOLE HARDENED ON
+    THE STRENGTH OF THIS FUNCTION.  Nothing an operator greps for changed --
+    the reason word comes from :func:`boundary_stash_reason`, the same call
+    that names the event -- and no screen has been watched since.
 
     !! IT IS NOT A ONE-LINE SWAP AND THIS DOCSTRING WILL NOT PRETEND IT IS
     (pf-adversary D5).  The inline site clears

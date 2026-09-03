@@ -3105,11 +3105,17 @@ class TheDroppedBoundaryStashHasThreeNamesTests(unittest.TestCase):
 
     def test_the_console_line_survives_what_costs_the_inline_line_entirely(
             self):
-        """The inline site interpolates ``rows_left`` with ``%d`` inside a
-        ``try``: a value that is not a number costs the whole line, in
-        exactly the case an operator most needs to see one.  Here the line
-        still goes out, with ``-1`` for the count nobody could read, and it
-        stays ASCII because the bridge console is cp874 strict.
+        """What the RETIRED inline composition cost, and this one does not.
+
+        Until round ``xcmfr6`` the pickup branch interpolated ``rows_left``
+        with ``%d`` inside a ``try``, so a value that is not a number cost
+        the whole line in exactly the case an operator most needs to see
+        one.  That site now calls this composer (grep
+        ``boundary_stash_cleared_console_line`` in ``runtime.py``), so the
+        past tense above is the point of the test rather than a description
+        of live code: the line still goes out, with ``-1`` for the count
+        nobody could read, and it stays ASCII because the bridge console is
+        cp874 strict.
         """
         line = mob_loot.boundary_stash_cleared_console_line(
             object(), object(),
