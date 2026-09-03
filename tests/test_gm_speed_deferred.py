@@ -106,7 +106,7 @@ class FakeStore:
         self.undo_writes.append((character_id, dict(values)))
         self.stored.update(values)
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
         """The read-back goes through the REAL validator, and it has to.
 
         ~~`float(values[...])`~~ -- pf-adversary (round `gj77z5`, D2)
@@ -118,17 +118,17 @@ class FakeStore:
         typed" -- was asserted in prose and enforced by no assertion.
 
         `persistence_typed_attrs.validate` is what the real
-        `SQLiteStore.write_typed_attributes_and_compose_sparse` applies, and
-        it rounds to f32 on the way in: `400.1` stores and reads back as
-        `400.1000061035156`.  That divergence is the only thing that can tell
-        the two sources apart, so this double must produce it.
+        `SQLiteStore.write_speed_by_identity` applies, and it rounds to f32 on
+        the way in: `400.1` stores and reads back as `400.1000061035156`.
+        That divergence is the only thing that can tell the two sources
+        apart, so this double must produce it.
         """
-        self.calls.append((character_id, dict(values)))
-        self.stored.update(values)
+        self.calls.append((identity_lo, identity_hi, speed))
         column = chat_command_action.SPEED_TYPED_COLUMN
+        self.stored[column] = speed
         return {
             speed_wire.SPEED_FIELD_X: persistence_typed_attrs.validate(
-                column, values[column]
+                column, speed
             )
         }
 

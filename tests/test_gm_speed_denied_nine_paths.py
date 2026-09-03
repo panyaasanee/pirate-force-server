@@ -111,7 +111,11 @@ NOTICE_SPEAKER = ""
 #
 # ~~REFUSAL_PATHS~~ -- renamed, not just extended: GT-193's shape hold made it
 # TEN, and a tuple called `NINE` holding ten entries is the drift this file
-# exists to catch.  The first nine are still letter 0311's, unchanged and in
+# exists to catch.  ELEVEN since round `ntf90h`: swapping the write onto
+# `store.write_speed_by_identity` gave this route a refusal the composing door
+# could not express -- the store said no and the ROW IS UNTOUCHED -- and it is
+# a separate word from `refused_speed_persist_` on purpose, because that
+# prefix'"'"'s console sentence says the opposite.  The first nine are still letter 0311's, unchanged and in
 # its order; the tenth is this lane's own, added in round `et2ux4` after the
 # attended round measured what the held shape does to a real client.  It is
 # LAST in this tuple but fires FOURTH-AND-A-HALF in the source (between the
@@ -129,6 +133,7 @@ REFUSAL_PATHS = (
     "refused_speed_persist_readback_unusable",
     "refused_speed_persist_compose_",    # prefix: post-commit composer
     "withheld_sparse_shape_empty_section",   # GT-193's hold, this lane's own
+    "refused_speed_row_not_touched",     # the door refused; the row is intact
 )
 EXPECTED_PATH_COUNT = len(REFUSAL_PATHS)
 
@@ -258,18 +263,17 @@ class FakeStore:
     def write_typed_attributes(self, character_id, values):
         self.stored.update(values)
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
-        self.calls.append((character_id, dict(values)))
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
+        self.calls.append((identity_lo, identity_hi, speed))
         if self.raises is not None:
             raise self.raises
-        self.stored.update(values)
+        if getattr(self, "refuses", False):
+            # `None` == the row was NOT touched, so `stored` is left alone.
+            return None
+        self.stored[chat_command_action.SPEED_TYPED_COLUMN] = speed
         if self.readback is not None:
             return dict(self.readback)
-        return {
-            speed_wire.SPEED_FIELD_X: float(
-                values[chat_command_action.SPEED_TYPED_COLUMN]
-            )
-        }
+        return {speed_wire.SPEED_FIELD_X: float(speed)}
 
 
 class StoreWithoutPersistence:
@@ -467,6 +471,18 @@ class _Case(unittest.TestCase):
             speed_wire, "SHAPES_CLEARED_BY_A_REAL_CLIENT", frozenset()
         ):
             return self.act(self.session(store)), store
+
+    def path_11_row_not_touched(self):
+        """The eleventh path: LANE-DB'"'"'s door refused and rolled back.
+
+        `None` is that door'"'"'s only failure report, and its contract is that
+        every refusal raises INSIDE its transaction -- so unlike path 7 and
+        path 9, NOTHING was written here.  The double leaves `stored` alone
+        to match.
+        """
+        store = self.store()
+        store.refuses = True
+        return self.act(self.session(store)), store
 
     def drivers(self):
         """The path drivers, ordered by their own number rather than by name.
@@ -705,6 +721,23 @@ class TheNinePathsShipTheLineTests(_Case):
             1,
             "path 10 (shape hold) refused without writing the row; COO 1847 "
             "requires the write to continue and only the frame to stop",
+        )
+
+    def test_path_11_row_not_touched(self):
+        """The eleventh path belongs with paths 1-7: NOTHING may be written.
+
+        And unlike those seven it is the STORE'"'"'s refusal rather than this
+        module'"'"'s, which is exactly why the word is its own.
+        `store.write_speed_by_identity` raises inside its transaction on
+        every refusal, so a `None` back means the row is as it was -- the
+        door was called (the row is not written from here without asking)
+        and `stored` is untouched.
+        """
+        action, store = self.path_11_row_not_touched()
+        self.assertNoticeCarriesTheMeasuredLine(action, "path 11 (row intact)")
+        self.assertEqual(len(store.calls), 1, "the door was never asked")
+        self.assertEqual(
+            store.stored, {}, "the refusing door left a value in the row"
         )
 
 
@@ -1093,8 +1126,9 @@ class NoRefusalMayGoOutSilentTests(_Case):
 class WhatARefusalStillCostsTests(_Case):
     """Pinned because it is true, not because it is wanted.
 
-    Paths 8 and 9 run AFTER `write_typed_attributes_and_compose_sparse`
-    committed, and `_speed_undo` fires only when the AUDIT ROW cannot be
+    Paths 8 and 9 run AFTER `store.write_speed_by_identity` committed
+    (~~`write_typed_attributes_and_compose_sparse`~~ -- the door swapped in
+    round `ntf90h`; what these two paths cost did not), and `_speed_undo` fires only when the AUDIT ROW cannot be
     written -- so the screen says DENIED while the row holds the new value.
     This predates the notice; chief's own pf-adversary pass (round `aa9ajr`,
     D2) found it and reported it rather than changing it, and this lane

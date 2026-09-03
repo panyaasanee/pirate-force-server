@@ -970,6 +970,14 @@ EVENT_TYPO_REFUSED_NOTICE_FAILED_PREFIX = (
 EVENT_SPEED_NO_STORE = "gm_chat_action_speed_no_store"
 EVENT_SPEED_NO_CHARACTER_ID = "gm_chat_action_speed_no_character_id"
 EVENT_SPEED_PERSIST_REFUSED_PREFIX = "gm_chat_action_speed_persist_refused_"
+# THE STORE DOOR REFUSED AND THE ROW IS UNTOUCHED.  Its own name, deliberately
+# NOT a suffix under the prefix above: that prefix's console sentence says "do
+# NOT read this as 'nothing was stored'", which is the exact OPPOSITE of what
+# `store.write_speed_by_identity` returning `None` guarantees -- every refusal
+# inside that door raises within its transaction, so the row is rolled back
+# before it returns.  One word may not mean both durable states, for the same
+# reason `EVENT_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX` below has its own.
+EVENT_SPEED_ROW_NOT_TOUCHED = "gm_chat_action_speed_row_not_touched"
 # The read-back the store handed us was not a number this module can encode.
 # Distinct from the prefix above on purpose: nothing raised, the write
 # COMMITTED, and only the composed view of it is unusable.
@@ -1122,14 +1130,20 @@ OUTCOME_SPEED_NO_SELECTED_CHARACTER = (
 OUTCOME_SPEED_WITHHELD_SHAPE_UNCLEARED = (
     f"{OUTCOME_WITHHELD_PREFIX}sparse_shape_empty_section"
 )
-# The persistence half's four named refusals.  See the matching
-# `EVENT_SPEED_*` block above for why all four withhold the frame too.
+# The persistence half's five named refusals.  See the matching
+# `EVENT_SPEED_*` block above for why all five withhold the frame too.
 OUTCOME_SPEED_NO_STORE = f"{OUTCOME_REFUSED_PREFIX}speed_no_store"
 OUTCOME_SPEED_NO_CHARACTER_ID = f"{OUTCOME_REFUSED_PREFIX}speed_no_character_id"
 # `refused_speed_persist_<ExcType>` -- the store raised.  Same TYPE-name-only
 # discipline as `refused_speed_<ExcType>` above: a `TypedAttrError` message
 # can embed the GM's typed text, and audit rows carry no typed text.
 OUTCOME_SPEED_PERSIST_REFUSED_PREFIX = f"{OUTCOME_REFUSED_PREFIX}speed_persist_"
+# `refused_speed_row_not_touched` -- the store door refused and rolled back.
+# Spelled OUTSIDE the prefix above on purpose so `COMMITTED_ROW_BLOCKER_
+# PREFIXES` cannot match it: that table exists to warn a reader that a row
+# may already be committed, and this word means the opposite.  See the
+# matching EVENT above.
+OUTCOME_SPEED_ROW_NOT_TOUCHED = f"{OUTCOME_REFUSED_PREFIX}speed_row_not_touched"
 # Snake-cased on purpose so it can never collide with an `<ExcType>` suffix
 # above, which is always CamelCase.
 OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE = (
@@ -1245,6 +1259,11 @@ _NO_BYTES_BLOCKERS_SOURCE = {
     OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE: (
         "the value was committed but the store's composed read-back for x=7"
         " is not a number this lane may encode; no frame was sent"
+    ),
+    OUTCOME_SPEED_ROW_NOT_TOUCHED: (
+        "the store door refused and rolled its own transaction back, so the"
+        " character row still holds exactly what it held before this command"
+        " -- nothing was stored, and no frame was sent"
     ),
     WHY_AUDIT_ROW_NOT_WRITTEN: (
         "the outcome row could not be appended, so this command's audit"
@@ -3980,7 +3999,18 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     TO-LANE-GM-speed-sparse-live-on-main-but-speed-does-not-persist.md`
     named the consequence of not calling it: `GT-193` would have graded a
     frame, not a memory, and `/speed 400` would be gone by the next login.
-    This function now calls it FIRST and composes from its read-back:
+    ~~"This function now calls it FIRST and composes from its read-back"~~ --
+    the ORDER is unchanged and the read-back is still the source, but the
+    DOOR is not that one any more: this function calls
+    `store.write_speed_by_identity(identity_lo, identity_hi, value)`, the
+    method this lane asked LANE-DB for in `20260902_0017` and they handed
+    back in `20260903_0635`.  Read the DB FIRST block in the body for what
+    that swap buys (a refusal that means the row is UNTOUCHED, which the
+    composing door could not promise) and what it costs (one anonymous
+    `None` where there used to be an exception type name).  Everything in
+    the list below still holds, with the second bullet's "named by
+    `characters.id`" now reading "named by the identity pair the door looks
+    the row up from, off this connection's own selected character":
 
       * the ORDER is DB -> wire, and a store refusal means NO FRAME AT ALL
         ([ASSUMPTION OF LANE-GM, AWAITING COO] -- `pf_bridge/notes_to_chief/
@@ -4085,12 +4115,48 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
     # Everything from here to the compose below is the persistence half.
     # Read the `EVENT_SPEED_NO_STORE` comment block for the ordering
     # decision and the letter it is still waiting on.
+    #
+    # THE WRITE GOES THROUGH LANE-DB'S IDENTITY DOOR, AND THE REASON IS ONE
+    # SENTENCE THIS ROUTE COULD NOT SAY BEFORE.
+    # ~~`persist = store.write_typed_attributes_and_compose_sparse` ...
+    # `sparse = persist(character_id, {SPEED_TYPED_COLUMN: value})`~~ --
+    # STRUCK, not deleted: it was this route's write for four rounds and a
+    # reader of those audit rows needs to know when it stopped being one.
+    # That door COMPOSES AFTER IT COMMITS, so its raise can land on either
+    # side of a durable change -- which is why `_speed_undo` exists at all,
+    # and why the struck comment on it said, correctly, that "this branch
+    # refused" was not the same as "this branch changed nothing".
+    #
+    # `store.write_speed_by_identity(identity_lo, identity_hi, value)` is the
+    # door THIS LANE ASKED FOR (`pf_bridge/notes_to_chief/20260902_0017_LANE-
+    # GM-TO-LANE-DB-request-speed-persistence-method.md`), built by LANE-DB to
+    # that letter's shape and handed back in `20260903_0635_LANE-DB-TO-LANE-
+    # GM-the-speed-write-door-is-built.md`.  Its contract IS the property:
+    # every refusal raises INSIDE the transaction, so `None` means the row is
+    # exactly as it was, never "written, then something went wrong".
+    # `GT-193` step 6 is a diff of that row, and until now no refusal word on
+    # this route could tell a tester which side of the write it was on.
+    #
+    # WHAT THE SWAP COSTS, SAID PLAINLY RATHER THAN LEFT TO BE DISCOVERED.
+    # The old door named its failure by exception TYPE
+    # (`refused_speed_persist_TypedAttrError`).  This one collapses every
+    # refusal -- a value `validate` rejects, a schema this database does not
+    # have, a lock it could not take within `busy_timeout`, no single active
+    # row for the pair -- into one `None`, by design ("a caller that needs the
+    # REASON must use `write_typed_attributes`, which names it").  This lane
+    # takes the trade: for an attended tester the durable question outranks
+    # the diagnostic one, and the old word could not answer the durable one at
+    # all.  Nothing here reaches for the naming door as a second attempt: two
+    # writes for one command is how two ideas of "refused" get built.
     store = _speed_store(session)
-    persist = getattr(store, "write_typed_attributes_and_compose_sparse", None)
+    persist = getattr(store, "write_speed_by_identity", None)
     if not callable(persist):
         # A session shape with no store to write to is NOT "send the frame
         # anyway": that is precisely the screen-disagrees-with-the-row case
-        # this ordering exists to make impossible.
+        # this ordering exists to make impossible.  A store that predates
+        # LANE-DB's door earns the SAME refusal rather than falling back to
+        # the composing write -- a silent fallback would put the two
+        # meanings of "refused" back into one route.
         _note(session, EVENT_SPEED_NO_STORE)
         return _speed_denied(session, legacy, OUTCOME_SPEED_NO_STORE)
 
@@ -4100,18 +4166,26 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         return _speed_denied(session, legacy, OUTCOME_SPEED_NO_CHARACTER_ID)
 
     # Built BEFORE the write, because it has to remember what was there
-    # first.  Carried by every verdict from here down, including the
-    # refusals: `store.write_typed_attributes_and_compose_sparse`'s own
-    # docstring warns its compose gate can raise AFTER the write commits, so
-    # "this branch refused" is not the same as "this branch changed nothing".
+    # first.  Carried by the verdicts BELOW the write -- and NOT by the
+    # `row_not_touched` branch, which is the whole point of the swap.
+    #
+    # IT STILL NAMES THE ROW BY `character_id` WHILE THE WRITE NAMES IT BY
+    # THE IDENTITY PAIR, and that difference is stated rather than hidden:
+    # in production both come off the same `session.foundation.selected`
+    # row, and the door refuses outright unless the pair matches EXACTLY ONE
+    # active character, so a session that could make them disagree is one
+    # where the write never lands.  Narrowing the undo to the door's own
+    # lookup would need an API in LANE-DB's zone that does not exist, and
+    # this lane does not add one (same posture as this undo's docstring).
     undo = _speed_undo(store, character_id)
 
     try:
-        sparse = persist(character_id, {SPEED_TYPED_COLUMN: value})
-    except Exception as error:  # noqa: BLE001 - KeyError/TypedAttrError/...
-        # Deliberately does not say "nothing was stored" -- see `undo` above.
-        # It says the send was refused, which is the only half this lane can
-        # speak for, and the console sentence for this prefix says the rest.
+        sparse = persist(identity_lo, identity_hi, value)
+    except Exception as error:  # noqa: BLE001 - the door contracts NOT to
+        # raise across `gm/`'s boundary; this branch is what happens when
+        # something breaks that contract (a store double, a future edit).
+        # The state it leaves behind is unknown, so the undo IS carried here
+        # and the console sentence for this prefix still says the rest.
         _note(
             session,
             f"{EVENT_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
@@ -4122,6 +4196,16 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
             f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}{type(error).__name__}",
             undo,
         )
+
+    if sparse is None:
+        # THE ONE SENTENCE THE OLD DOOR COULD NOT SAY.  `None` is this door's
+        # only failure report and it is an honest one: the row is untouched.
+        # NO UNDO IS CARRIED, deliberately -- there is nothing to put back,
+        # and handing one over would let `_make_action` report a revert of a
+        # write that never happened, which is the same class of false audit
+        # line this whole persistence half was built to stop.
+        _note(session, EVENT_SPEED_ROW_NOT_TOUCHED)
+        return _speed_denied(session, legacy, OUTCOME_SPEED_ROW_NOT_TOUCHED)
 
     # ---- WIRE SECOND, FROM THE ROW, NOT FROM THE TYPED TEXT ----------
     # The composed value comes out of the store's own read-back rather than

@@ -1317,15 +1317,22 @@ class EventNameContractTests(_Case):
             "gm_chat_action_speed_runtime_trial_admitted"
         ),
         # The PERSISTENCE half of `/speed`, wired the round LANE-DB's
-        # `store.write_typed_attributes_and_compose_sparse` was live on
-        # `main`.  All four are NO-FRAME outcomes: DB first, wire second, a
-        # store refusal sends nothing.  See `_speed_action`'s own docstring
-        # for the ordering decision and the COO letter it waits on.
+        # ~~`store.write_typed_attributes_and_compose_sparse`~~ was live on
+        # `main` -- the door became `store.write_speed_by_identity` in round
+        # `ntf90h`, which is where the fifth name below comes from.  All FIVE
+        # are NO-FRAME outcomes: DB first, wire second, a store refusal sends
+        # nothing.  See `_speed_action`'s own docstring for the ordering
+        # decision and the COO letter it waits on.
         "EVENT_SPEED_NO_STORE": "gm_chat_action_speed_no_store",
         "EVENT_SPEED_NO_CHARACTER_ID": "gm_chat_action_speed_no_character_id",
         "EVENT_SPEED_PERSIST_REFUSED_PREFIX": (
             "gm_chat_action_speed_persist_refused_"
         ),
+        # The door refused and rolled back: the row is UNTOUCHED.  A separate
+        # name from the prefix above rather than a suffix under it, because
+        # that prefix's console sentence says "do NOT read this as 'nothing
+        # was stored'" and this one means exactly that.
+        "EVENT_SPEED_ROW_NOT_TOUCHED": "gm_chat_action_speed_row_not_touched",
         "EVENT_SPEED_PERSIST_READBACK_UNUSABLE": (
             "gm_chat_action_speed_persist_readback_unusable"
         ),

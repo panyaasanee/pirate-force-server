@@ -150,15 +150,15 @@ class FakeStore:
     #: is that it admits THE NUMBER THAT GOES ON THE WIRE, which is this one.
     readback = None
 
-    def write_typed_attributes_and_compose_sparse(self, character_id, values):
-        self.calls.append((character_id, dict(values)))
-        self.stored.update(values)
+    def write_speed_by_identity(self, identity_lo, identity_hi, speed):
+        self.calls.append((identity_lo, identity_hi, speed))
+        column = chat_command_action.SPEED_TYPED_COLUMN
+        self.stored[column] = speed
         if self.readback is not None:
             return {speed_wire.SPEED_FIELD_X: float(self.readback)}
-        column = chat_command_action.SPEED_TYPED_COLUMN
         return {
             speed_wire.SPEED_FIELD_X: persistence_typed_attrs.validate(
-                column, values[column]
+                column, speed
             )
         }
 
@@ -472,9 +472,12 @@ class TheArmedValueGetsThroughBothLocksTests(_Case):
         with environment(ARMED):
             self.act(session)
         self.assertEqual(len(store.calls), 1)
+        # `(identity_lo, identity_hi, speed)` since the door swap; the value
+        # is still the f32 the environment armed, and the row still moves
+        # before either lock is consulted.
+        self.assertEqual(store.calls[0][2], ARMED_F32)
         self.assertEqual(
-            store.calls[0][1][chat_command_action.SPEED_TYPED_COLUMN],
-            ARMED_F32,
+            store.stored[chat_command_action.SPEED_TYPED_COLUMN], ARMED_F32
         )
 
     def test_the_console_says_which_value_the_door_opened_for(self):
