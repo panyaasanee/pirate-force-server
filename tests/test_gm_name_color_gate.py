@@ -331,3 +331,215 @@ def test_no_fontstyleid_number_is_hardcoded_in_the_gate_module():
     ]
     assert not offenders, "FontStyleID-range literal in code: " + "; ".join(offenders)
 
+
+
+# --------------------------------------------------------------------------
+# (d) the refusal points FORWARD as well as backward -- and says what nothing
+#     is filed against
+#
+# Round `5ddsii` filed RE-211 (COO-DECISION 2026-09-03T10:46+07:00 item (b)).
+# Filing a ticket is the one thing that can hollow out a refusal without
+# touching a single one of its blockers: a reader sees "a ticket is open",
+# reads that as "this is nearly unblocked", and writes the colour code the
+# refusal exists to stop.
+#
+# pf-adversary, round `5ddsii`, on the first draft of this section: 12 of 13
+# mutants survived it.  What changed:
+#   S1/O4  a `route_out()` string method and an `open_questions` dataclass
+#          field are GONE.  No call site in either repository ever called
+#          them, its one number was unasserted and could exceed its own
+#          denominator (`bears_on=6/3`), and it mixed instance state with
+#          module state inside one line.  Deleting both removed five of his
+#          twelve survivors outright -- the same "no caller = no module" rule
+#          COO 1046 item (c) used the same day to reject another module.
+#   S6     the drift guard was only ever tested against CARDINALITY changes,
+#          so a length check was indistinguishable from a set check; a RENAME
+#          that keeps the count is now tested, and it is the case that used
+#          to escape as a bare KeyError past every caller the module's own
+#          docstring tells to catch NameColorGateError.
+#   S7     the question TEXT was completely unpinned -- rewriting a question
+#          into an ANSWER kept 126 tests green.
+#   S8-S12 the strip / empty-name branches of blocker_names() were unreached.
+#   O1     the letter asks THREE questions and only two were representable.
+#   O2     the hit-writer mapping is this lane's inference, not the letter's
+#          words, and shipped unlabelled.
+#   O3     a test named "..._are_the_ones_actually_filed" compared a constant
+#          against a retyped copy of itself -- exactly the D7 shape this lane
+#          already burned on.  Renamed to what it actually does.
+# --------------------------------------------------------------------------
+
+
+def test_filing_the_ticket_did_not_weaken_the_refusal_by_one_byte():
+    verdict = gate.p2_color_wiring_verdict()
+    assert verdict.allowed is False
+    assert len(verdict.blockers) == 3
+    assert "RE-195" in verdict.reason()
+    with pytest.raises(gate.NameColorGateError):
+        gate.P2ColorWiringVerdict(
+            allowed=True, blockers=gate.P2_COLOR_WIRING_BLOCKERS, evidence=()
+        )
+    # and the one-sided predicate is still one-sided: a nonpositive identity
+    # is UNMEASURED, ticket or no ticket.
+    with pytest.raises(gate.NameColorGateUnmeasured):
+        gate.is_measured_bypass_identity(-1)
+
+
+def test_nothing_here_reads_a_result_so_no_question_may_read_as_an_answer():
+    """S7.  A question rewritten into an answer is how "a ticket is filed"
+    becomes "P-2 is unblocked" without a single blocker being retired."""
+    values = tuple(gate.RE_211_QUESTION_FOR_BLOCKER.values())
+    assert values, "the map went empty"
+    for value in values:
+        if not value:
+            continue
+        assert value.startswith("RE-211 Q"), value
+        # long enough that a truncation mutant (`value[:6]`) cannot pass
+        assert len(value) > 80, value
+    # and the join site may not transform them on the way out: a `[:6]` in
+    # `open_questions()` truncated every question while this test, which read
+    # the map directly, stayed green (pf-adversary S7, second form).
+    for entry in gate.open_questions():
+        name, sep, question = entry.partition(" -> ")
+        assert sep, entry
+        assert question == gate.RE_211_QUESTION_FOR_BLOCKER[name], entry
+    haystack = " ".join(values) + " ".join(gate.RE_211_QUESTION_LABELS)
+    for forbidden in ("ANSWERED", "RESULT", "measured that", "confirmed that"):
+        assert forbidden not in haystack, (
+            f"{forbidden!r} in the question text: this module reads no result"
+        )
+
+
+def test_all_three_questions_the_letter_asks_are_named_here():
+    """O1.  Two of the three retire a blocker; the third prices the direction
+    and retires nothing.  A reader who greps this module must still see it."""
+    labels = gate.RE_211_QUESTION_LABELS
+    assert len(labels) == 3
+    assert [label[:2] for label in labels] == ["Q1", "Q2", "Q3"]
+    mapped_text = " ".join(gate.RE_211_QUESTION_FOR_BLOCKER.values())
+    assert "Q3" not in mapped_text, (
+        "Q3 prices the direction; claiming it retires a blocker is the "
+        "overclaim this test exists to stop"
+    )
+
+
+def test_the_inferred_mapping_is_labelled_as_this_lanes_inference():
+    """O2.  The letter never mentions the hit writer.  The link is this
+    lane's reasoning, and an unlabelled inference read as measurement is
+    exactly one unit of false progress."""
+    value = gate.RE_211_QUESTION_FOR_BLOCKER[
+        "hit_writer_needs_a_signed_negative_target"
+    ]
+    assert "[PROPOSED" in value, value
+    corroborated = gate.RE_211_QUESTION_FOR_BLOCKER["identity_scheme_is_positive"]
+    assert "[letter says so]" in corroborated, corroborated
+
+
+def test_the_ticket_constants_have_not_been_edited_silently():
+    """NOT a proof that anything was filed -- it cannot be one: the letter
+    lives in the OTHER repository and this one cannot re-derive it.  Same
+    shape and same limits as the provenance test above: the only defence
+    against transcription rot is that editing one shows up as a diff here
+    too.  Named for what it does, after pf-adversary (round `5ddsii`, O3)
+    found the earlier name claiming a fact the assertions do not establish.
+    """
+    assert gate.RE_211_TICKET_ID == "RE-211"
+    assert gate.RE_211_TICKET_LETTER == (
+        "notes_to_chief/20260903_1119_LANE-GM-RE-211-TICKET-"
+        "typed-and-live-gate-for-nonpositive-identity.md"
+    )
+
+
+def test_a_blocker_no_ticket_covers_is_counted_out_loud():
+    addressed = {q.partition(" -> ")[0] for q in gate.open_questions()}
+    unaddressed = set(gate.unaddressed_blockers())
+    # structural: every blocker is on exactly one side of the line.
+    assert addressed | unaddressed == set(gate.blocker_names())
+    assert not (addressed & unaddressed)
+    # S3: a superset passes a "each name appears" check, so pin the SET.
+    assert unaddressed == {"faction_is_a_fallback_operand_only"}
+    assert len(addressed) == 2
+    # deliberate retyped name, and the only one in this file: RE-211 asks
+    # about the identity split and what a nonpositive identity costs the
+    # client's registry.  It does NOT reopen RE-195's faction finding, and
+    # its own out-of-scope section says so.  A round that files against that
+    # route edits this line together with the map, in one reviewable diff.
+
+
+def test_the_question_map_cannot_drift_from_the_blockers_in_any_direction(
+    monkeypatch,
+):
+    real = gate.P2_COLOR_WIRING_BLOCKERS
+    # (a) a fourth blocker nobody decided the status of
+    monkeypatch.setattr(
+        gate,
+        "P2_COLOR_WIRING_BLOCKERS",
+        real + ("a_fourth_route: closed by something",),
+    )
+    with pytest.raises(gate.NameColorGateError):
+        gate.open_questions()
+    with pytest.raises(gate.NameColorGateError):
+        gate.unaddressed_blockers()
+    monkeypatch.undo()
+    # (b) a question aimed at a route that has already moved
+    monkeypatch.setitem(
+        gate.RE_211_QUESTION_FOR_BLOCKER, "a_route_that_left", "RE-211 Q9"
+    )
+    with pytest.raises(gate.NameColorGateError):
+        gate.open_questions()
+    monkeypatch.undo()
+    # (c) S6 -- a RENAME that keeps the count identical.  Without this case a
+    # length check is indistinguishable from a set check, and the real-world
+    # failure (rename the blocker, forget the map key) escapes as a bare
+    # KeyError past every caller told to catch NameColorGateError.
+    renamed = ("faction_is_a_fallback_operand: same prose",) + real[:2]
+    assert len(renamed) == len(real)
+    monkeypatch.setattr(gate, "P2_COLOR_WIRING_BLOCKERS", renamed)
+    with pytest.raises(gate.NameColorGateError):
+        gate.open_questions()
+    with pytest.raises(gate.NameColorGateError):
+        gate.unaddressed_blockers()
+    monkeypatch.undo()
+    # (d) S5 -- a name that is a PREFIX of a real one is still not that one.
+    monkeypatch.setattr(
+        gate,
+        "P2_COLOR_WIRING_BLOCKERS",
+        ("identity_scheme: prose",) + real[1:],
+    )
+    with pytest.raises(gate.NameColorGateError):
+        gate.open_questions()
+
+
+def test_blocker_names_are_derived_from_the_blockers_not_retyped(monkeypatch):
+    for broken in (
+        ("no_colon_here so no name",),          # no key at all
+        ("same_name: one", "same_name: two"),   # two blockers, one name
+        (": prose",),                           # S8-S12: empty name
+        (" padded : prose",),                   # S8-S12: unstripped name
+        ("a -> b: prose",),                     # section 4: name eats the sep
+    ):
+        monkeypatch.setattr(gate, "P2_COLOR_WIRING_BLOCKERS", broken)
+        with pytest.raises(gate.NameColorGateError):
+            gate.blocker_names()
+        monkeypatch.undo()
+
+
+def test_every_string_this_module_hands_out_survives_a_cp874_console():
+    """The bridge console is cp874 and these strings are free-form prose --
+    the one surface in this module where a stray dash or quote would land."""
+    for text in (
+        gate.open_questions()
+        + gate.RE_211_QUESTION_LABELS
+        + tuple(gate.RE_211_QUESTION_FOR_BLOCKER.values())
+        + (gate.RE_211_TICKET_ID, gate.RE_211_TICKET_LETTER)
+    ):
+        assert text.isascii(), text
+
+
+def test_the_deleted_route_out_stays_deleted():
+    """It had no caller in either repository, its only number was unasserted
+    and could exceed its own denominator, and it mixed instance state with
+    module state in one printed line (pf-adversary S1/S2/O4).  A round that
+    wants a human-facing line asks chief for a call site first, the way this
+    lane did for GM_IDENTITY_CENSUS in CORE-REQUEST-GM-050."""
+    assert not hasattr(gate.P2ColorWiringVerdict, "route_out")
+    assert "open_questions" not in gate.P2ColorWiringVerdict.__dataclass_fields__
