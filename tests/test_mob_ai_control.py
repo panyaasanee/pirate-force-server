@@ -1104,8 +1104,22 @@ class DescribeAndPinTests(unittest.TestCase):
         # tests/test_mob_aggro.py::test_dispatch_reachability_is_derived_not_declared;
         # this line only checks that the PIN carries what the module says,
         # which is this file's job.
-        self.assertIs(pin["mob_aggro_dispatch_reachable"],
-                      mob_aggro.MOB_AGGRO_DISPATCH_REACHABLE)
+        # ROUND `a7k5gy`: one key became two (COO-DECISION 2026-09-03T16:47
+        # item 1).  Same rule as above holds for both -- NO SECOND LITERAL
+        # HERE.  The fold half is derived in
+        # tests/test_mob_aggro.py::test_dispatch_reachability_is_derived_not_declared
+        # and the tick half in
+        # tests/test_mob_aggro.py::test_the_tick_gate_is_reported_not_assumed,
+        # which reads the argument out of runtime.py's AST and asks the real
+        # gate.  These two lines only check that the PIN carries what the
+        # module says, which is this file's job.
+        self.assertIs(pin["mob_aggro_damage_fold_reachable"],
+                      mob_aggro.MOB_AGGRO_DAMAGE_FOLD_REACHABLE)
+        self.assertIs(pin["mob_aggro_tick_reachable"],
+                      mob_aggro.MOB_AGGRO_TICK_REACHABLE)
+        # And the old key is GONE, not shadowed: a stale reader that still
+        # asks for it must fail loudly instead of getting a default.
+        self.assertNotIn("mob_aggro_dispatch_reachable", pin)
         self.assertIs(pin["mob_aggro_production_allowed"], True)
 
 

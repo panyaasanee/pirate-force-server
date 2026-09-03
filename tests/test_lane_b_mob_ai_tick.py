@@ -155,6 +155,71 @@ class WiringLineTests(unittest.TestCase):
         self.assertIn("identity_lo", line)
         self.assertIn("lane_b_mob_ai_tick.maybe_tick", line)
 
+    def test_the_wiring_line_orders_the_attribute_not_a_typed_key(self):
+        # ROUND `a7k5gy`, COO-DECISION 2026-09-03T16:47+07:00 item 3 -- THE
+        # ROOT CAUSE WAS IN THIS FILE, not in the chief's.  This wiring line
+        # ordered the gate call with a hand-typed
+        # 'lane_hooks.lane_b_mob_ai_tick', the chief pasted it verbatim into
+        # runtime.py:5887 as an order from this file is meant to be pasted, and
+        # lane_hooks.__init__ prefixed it into a key that exists nowhere.  The
+        # gate answered False on every frame for eight days and the only card
+        # watching was a substring search for "maybe_tick(", which stayed green
+        # because the CALL was there; the gate above it was not being read.
+        #
+        # THE GUARD, and why it is shaped like this: a literal in an order is
+        # wrong in a way no reader sees, because it is a string in prose and
+        # nobody diffs prose against a registry.  MODULE_NAME is the key
+        # _discover() actually registers, so it cannot drift from it.  This
+        # card therefore requires the ATTRIBUTE and forbids ANY quoted form of
+        # the module's name inside the gate order -- not just today's exact
+        # spelling, since the next hand-typed key would be a different wrong
+        # string, and a card that only knows the last mistake is a card against
+        # history.
+        line = lane_b_mob_ai_tick.LANE_B_MOB_AI_TICK_WIRING
+        opener = "module_production_allowed("
+        self.assertIn(opener, line)
+        # The ARGUMENT ONLY, not the whole order.  A first draft of this card
+        # forbade any quoted word starting "lane" anywhere in the string, and
+        # that is a false-accusation waiting to happen: this same order
+        # already quotes 'from .lane_hooks import lane_b_mob_ai_tick' as the
+        # import a future round must add, which is prose about a source line,
+        # not a key handed to a resolver.  What may not be a literal is the
+        # thing the GATE is asked, so that is what gets read.
+        argument = line.split(opener, 1)[1].split(")", 1)[0]
+        self.assertEqual(
+            argument, "lane_b_mob_ai_tick.MODULE_NAME",
+            "the wiring order must hand the gate this module's own "
+            "MODULE_NAME, so the argument cannot drift from the key "
+            "lane_hooks._discover() registered -- it currently orders "
+            "%r, and a hand-typed key there is the exact defect "
+            "COO-DECISION 20260903_1647 item 3 ordered removed" % (argument,))
+        # And the attribute it orders has to EXIST and be the registry key, or
+        # the order is a different kind of wrong: runtime.py would raise
+        # AttributeError instead of silently answering False.
+        self.assertEqual(
+            lane_b_mob_ai_tick.MODULE_NAME,
+            lane_b_mob_ai_tick.__name__,
+            "MODULE_NAME is not this module's own __name__, so it is not the "
+            "key lane_hooks registers it under")
+
+    def test_the_gate_answers_true_to_the_name_the_wiring_orders(self):
+        # The order above is only worth anything if the key it names actually
+        # opens the gate.  Asked with THIS module's MODULE_NAME -- the value
+        # the corrected call site will pass -- the real, fail-closed lookup
+        # must answer True.  Measured here rather than assumed, because the
+        # round that wrote the broken order also believed its string worked.
+        #
+        # NOT A CLAIM THAT THE TICK RUNS.  runtime.py still passes the old
+        # literal until the chief lands ticket 1648; what is False today, and
+        # by how the gate answers rather than by anyone's say-so, is pinned in
+        # mob_aggro.MOB_AGGRO_TICK_REACHABLE and derived from runtime.py's AST
+        # by tests/test_mob_aggro.py::test_the_tick_gate_is_reported_not_assumed.
+        # reachable is not observable either way (mob_aggro's own NONCLAIMS).
+        from pirateforce_foundation import lane_hooks
+        self.assertIs(
+            lane_hooks.module_production_allowed(
+                lane_b_mob_ai_tick.MODULE_NAME), True)
+
     def test_runtime_py_now_calls_maybe_tick_per_coo_decision_0145(self):
         # WAS test_nothing_in_runtime_py_calls_maybe_tick_yet (pinned
         # NotIn), until COO-DECISION 20260901_0145 ordered lane B to paste

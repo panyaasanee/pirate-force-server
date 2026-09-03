@@ -52,6 +52,12 @@ What this file proves, and where the proof stops:
     What is still true and still proved: stdlib-only imports, no import-time
     side effects, ASCII/cp874, and attack intent NOT deliverable - nothing
     this lane decides reaches a client.
+    ROUND `a7k5gy` (2026-09-03): the struck ``dispatch-reachable`` clause was
+    ONE WORD FOR TWO FACTS, and COO-DECISION 2026-09-03T16:47+07:00 item 1
+    split it.  ``MOB_AGGRO_DAMAGE_FOLD_REACHABLE`` (True) is the fold reached
+    on every accepted hit; ``MOB_AGGRO_TICK_REACHABLE`` (False today) is the
+    decision loop, gated shut at runtime.py:5887 by an argument that resolves
+    to a key that does not exist.  Both are derived, neither is pinned.
 
 NOT proven here: anything about a client, a wire, or a database.  The rules
 are OUR design (the original server is unrecoverable forever); the attack
@@ -70,6 +76,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import mob_aggro as ma  # noqa: E402
+from pirateforce_foundation.lane_hooks import (  # noqa: E402
+    lane_b_mob_ai_tick)
 
 MODULE_SOURCE_PATH = ROOT / "src" / "pirateforce_foundation" / "mob_aggro.py"
 SRC_ROOT = ROOT / "src" / "pirateforce_foundation"
@@ -203,6 +211,79 @@ def module_aliases(tree) -> dict:
             for alias in node.names:
                 aliases[alias.asname or alias.name] = alias.name
     return aliases
+
+
+def _calls_the_tick(nodes, aliases) -> bool:
+    """True when any statement in ``nodes`` calls this lane's tick entry."""
+    for statement in nodes:
+        for inner in ast.walk(statement):
+            if not isinstance(inner, ast.Call):
+                continue
+            callee = inner.func
+            if not isinstance(callee, ast.Attribute):
+                continue
+            if callee.attr != "maybe_tick":
+                continue
+            if not isinstance(callee.value, ast.Name):
+                continue
+            stem = aliases.get(callee.value.id, callee.value.id)
+            if stem.rsplit(".", 1)[-1] == "lane_b_mob_ai_tick":
+                return True
+    return False
+
+
+def tick_gate_argument(runtime_tree):
+    """The value runtime.py's tick gate really hands ``module_production_allowed``.
+
+    Round `a7k5gy`, COO-DECISION 2026-09-03T16:47+07:00 item 1: the tick bool
+    must be DERIVED from the real gate, calling it with the same argument the
+    call site uses, READ OUT OF THE AST rather than retyped here.  Retyping it
+    is precisely how the bug this card exists for survived: the string lived in
+    three files that all agreed with each other and none of which asked the
+    gate.
+
+    Returns ``(value, how)`` where ``how`` names the FORM found, so a failure
+    message can say whether the call site passes a literal or the module's own
+    ``MODULE_NAME``.  Raises ``AssertionError`` when the call site cannot be
+    found or is written in a form this card cannot resolve -- silence is the
+    one answer that must not be available, since a card that quietly finds
+    nothing is the same as no card.
+    """
+    aliases = module_aliases(runtime_tree)
+    for node in ast.walk(runtime_tree):
+        if not isinstance(node, ast.If) or not _calls_the_tick(node.body, aliases):
+            continue
+        for inner in ast.walk(node.test):
+            if not isinstance(inner, ast.Call):
+                continue
+            callee = inner.func
+            if not isinstance(callee, ast.Attribute):
+                continue
+            if callee.attr != "module_production_allowed":
+                continue
+            spelled = inner.args[0] if inner.args else None
+            for keyword in inner.keywords:
+                if keyword.arg == "module_name":
+                    spelled = keyword.value
+            if spelled is None:
+                continue
+            if isinstance(spelled, ast.Constant) and isinstance(
+                    spelled.value, str):
+                return spelled.value, "a hand-typed string literal"
+            if (isinstance(spelled, ast.Attribute)
+                    and isinstance(spelled.value, ast.Name)):
+                stem = aliases.get(spelled.value.id, spelled.value.id)
+                if stem.rsplit(".", 1)[-1] == "lane_b_mob_ai_tick":
+                    return (getattr(lane_b_mob_ai_tick, spelled.attr),
+                            "lane_b_mob_ai_tick.%s" % spelled.attr)
+            raise AssertionError(
+                "runtime.py gates the tick on an argument this card cannot "
+                "resolve (%s): teach it the new form, do not delete the card"
+                % ast.dump(spelled))
+    raise AssertionError(
+        "no if-branch in runtime.py both calls lane_b_mob_ai_tick.maybe_tick "
+        "and gates on module_production_allowed: either the wiring was "
+        "removed or it was rewritten in a shape this card cannot read")
 
 
 def profile(**overrides):
@@ -878,6 +959,9 @@ class ContainmentTests(unittest.TestCase):
 
     def test_dispatch_reachability_is_derived_not_declared(self):
         # ROUND `1tz15e`.  ``MOB_AGGRO_DISPATCH_REACHABLE`` was pinned False by
+        # (renamed ``MOB_AGGRO_DAMAGE_FOLD_REACHABLE`` in round `a7k5gy`, when
+        # COO-DECISION 2026-09-03T16:47+07:00 item 1 split the one word that
+        # was answering for two facts; this card owns the FOLD half only)
         # a bare assertIs here, by a second assertIs in
         # tests/test_mob_ai_control.py, and by a value published into
         # scenarios/combat_aggro_001.json - three copies of one bool, and the
@@ -964,10 +1048,11 @@ class ContainmentTests(unittest.TestCase):
         # measured that: deleting the call site AND flipping the constant, the
         # change this card's prose demands, still failed.
         self.assertIs(
-            ma.MOB_AGGRO_DISPATCH_REACHABLE, derived,
-            "MOB_AGGRO_DISPATCH_REACHABLE says "
-            f"{ma.MOB_AGGRO_DISPATCH_REACHABLE}, but walking runtime.py from "
-            f"dispatch reaches {into_the_lane} - one of the two has to change")
+            ma.MOB_AGGRO_DAMAGE_FOLD_REACHABLE, derived,
+            "MOB_AGGRO_DAMAGE_FOLD_REACHABLE says "
+            f"{ma.MOB_AGGRO_DAMAGE_FOLD_REACHABLE}, but walking runtime.py "
+            f"from dispatch reaches {into_the_lane} - one of the two has to "
+            "change")
 
     def test_the_tick_gate_is_reported_not_assumed(self):
         # A SECOND pf-adversary pass found this and it is bigger than anything
@@ -982,37 +1067,65 @@ class ContainmentTests(unittest.TestCase):
         # therefore never run for a player.
         #
         # runtime.py belongs to the chief, so this card does not fix it; it
-        # REFUSES TO LET IT BE SILENT.  It states today's measured answer.
+        # REFUSES TO LET IT BE SILENT.
         #
         # ~~and the day the call site is corrected this test fails and the
         # lane that owns the fact must come and say what changed~~ STRUCK,
         # round `42vxv6`: THAT WAS FALSE AND A pf-adversary PASS MEASURED IT.
-        # This card hardcodes both spellings and asks the RESOLVER; it never
-        # reads the call site at all, so correcting runtime.py:5888 leaves it
-        # green.  The card that actually watches that site, and goes red on
-        # the real fix, is
-        # test_the_gate_answers_what_it_answered_at_every_hand_spelled_site
-        # below.  Keeping this one is still worth it -- it is the direct
-        # statement of WHY the site's spelling is wrong, in one place a
-        # reader can see both forms side by side -- but it may not be cited
-        # as the thing standing guard over the fix.
+        # This card hardcoded both spellings and asked the RESOLVER; it never
+        # read the call site at all, so correcting runtime.py:5888 left it
+        # green.
+        # ~~and it may not be cited as the thing standing guard over the
+        # fix~~ -- THE STRIKE IS ITSELF STRUCK, round `a7k5gy`, because
+        # COO-DECISION 2026-09-03T16:47+07:00 item 1 refused the shape rather
+        # than the card: a bool pinned to a broken answer is not a measurement
+        # of it.  This card no longer hardcodes anything.  It READS the
+        # argument out of the AST of the real call site -- literal today,
+        # lane_b_mob_ai_tick.MODULE_NAME once the chief lands ticket 1648 --
+        # hands it to the REAL module_production_allowed, and requires the
+        # published constant to equal the answer.  So it now does go red by
+        # itself on the fix, on the true answer, and whoever lands it has to
+        # come to mob_aggro.py and say so.  Measured both ways this round.
+        #
+        # IT IS NOT A DUPLICATE of
+        # test_the_gate_answers_what_it_answered_at_every_hand_spelled_site.
+        # That card is a census: every hand-typed spelling in src/, and it
+        # goes red when a ROW moves - including rows this lane does not own.
+        # This one asks one question about one call site and ties the answer
+        # to the SHIPPED CONSTANT, which the census does not read at all.  The
+        # census would stay green if mob_aggro's bool drifted; this card would
+        # stay green if a sibling lane's spelling broke.  Neither covers the
+        # other.
         from pirateforce_foundation import lane_hooks
-        as_called = lane_hooks.module_production_allowed(
-            "lane_hooks.lane_b_mob_ai_tick")
-        as_qualified = lane_hooks.module_production_allowed(
-            "lane_b_mob_ai_tick")
+        runtime_tree = ast.parse(
+            (SRC_ROOT / "runtime.py").read_text(encoding="utf-8"))
+        argument, how = tick_gate_argument(runtime_tree)
+        derived = lane_hooks.module_production_allowed(argument)
+        # The control half: the module IS production_allowed under its own
+        # registered key, so a False above is the ARGUMENT failing to resolve,
+        # never the lane being switched off.  Without this line a lane that
+        # somebody had legitimately closed would read exactly like a typo --
+        # which is a property of the gate, stated in its own docstring, not an
+        # accident of this card.
         self.assertIs(
-            as_qualified, True,
+            lane_hooks.module_production_allowed(
+                lane_b_mob_ai_tick.MODULE_NAME), True,
             "the hook module itself is not production_allowed: this card is "
             "measuring the wrong thing")
+        # THE WHOLE CARD IS THIS ONE LINE, same shape as the fold card above:
+        # no opinion about which answer is right, only that the shipped
+        # constant is whatever the real gate answers the real call site.
         self.assertIs(
-            as_called, False,
-            "runtime.py:5887's argument now resolves - the aggro TICK has "
-            "become reachable, which is good news nobody has written down "
-            "yet; update this test, mob_aggro's prose and the shipped pin "
-            "scenarios/combat_aggro_001.json together")
-        # The separation the shipped bool does not make: the damage FOLD is
-        # reached (the card above), the TICK is not (this card), and neither
+            ma.MOB_AGGRO_TICK_REACHABLE, derived,
+            f"MOB_AGGRO_TICK_REACHABLE says {ma.MOB_AGGRO_TICK_REACHABLE}, "
+            f"but runtime.py's tick gate passes {how} and the real "
+            f"module_production_allowed answers {derived} to it - one of the "
+            "two has to change, and if the gate has just started resolving "
+            "that is good news nobody has written down yet: update "
+            "mob_aggro's constant and prose and re-run "
+            "tools/pf_write_mob_ai_pin.py")
+        # The separation the old single bool did not make: the damage FOLD is
+        # reached (the card above), the TICK is gated (this card), and neither
         # is observable by a player -- ATTACK_INTENT_DELIVERABLE is pinned
         # False by test_the_lane_is_not_reachable_from_production_dispatch,
         # and repeating it here would be a second copy, not a second guard.
