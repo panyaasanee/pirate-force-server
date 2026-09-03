@@ -8803,3 +8803,81 @@ tells her she is standing in a scene she never arrived in.
 Nothing. No account was given GM status, no GM command was fired, no byte left
 a socket, and no screen was involved. `/speed` is locked, `/warp` with
 coordinates is refused, and the attr-wire door composed nothing.
+
+### Round `3qh50k`, second half: what pf-adversary measured, and what it cost
+
+The result came back after the round's PR was already open (`server#690`), and
+it found four things that had to be fixed before that PR could be allowed to
+merge. All four are fixed on the same branch, so **none of them ever reached
+`main`** -- which is a better outcome than round `spt6fv`'s, where two defects
+lived on `main` for 28 minutes.
+
+**D1, MEASURED WITH A CONTROL -- the upgrade above was wrong in its mirror
+case, and wrong in the worst direction.** chief's letter describes a client
+that has confirmed a scene. It also says, in the same letter, that
+`scene_label_is_server_guess` LATCHES: from the moment a warp relabels the
+scene, it is True for the rest of the session unless a warp's coordinates
+confirm. Through that whole window `client_confirmed_scene` is frozen at
+wherever the client last spoke from -- evidence of nothing about now. The
+first draft spent it anyway. Measured: client really in scene 5 after an
+unconfirmed `/warp 5`, frozen field still 1, GM types `/warp 1` --
+`GM_CHAT_SAME_SCENE_TELEPORT_SENT ... basis=client_confirmed_scene`, an
+affirmative false claim wearing the *stronger* word, where `main` printed
+nothing at all. Fix: a known-stale label is not hedged or downgraded, it is
+**not used**; the answer reverts to exactly what shipped before chief's field
+existed, labelled `basis=server_believed_scene`. Same fix closes D3, where one
+STAGED line held two contradictory premises ("a relog would change nothing",
+printed by the branch that had just written a next-login scene).
+
+**D8, MEASURED -- `validate_field_value`'s "one answer" property was false for
+`f32`.** A type check alone blessed `1e40` for x=8 `death_timer` (the only
+`known=True` f32 row, therefore a required one) and `struct.pack` then raised
+`OverflowError` mid-compose -- verbatim the outcome that function's docstring
+promises is impossible, and `OverflowError` is not a `ValueError`, so
+`except AttrWireError` misses it. Fixed by asking `struct` itself, which is
+the only bound guaranteed to agree with the encoder because it *is* the
+encoder. `wstr` gained a length bound the same way.
+
+**D9, MEASURED -- "read back after write" read the flag, not the content.** A
+cache whose `capture_initial` stored one row returned True and printed
+`named_rows=26`; both halves compared the answer against the function's own
+input. Fixed to compare the key sets and print the cache's own count.
+
+**D10, and it changed the round's shape.** The completeness rule lived only in
+the seeding helper -- but `RawBlockCache.capture_initial` is public and
+unvalidated, and `COO-DECISION 20260904_0046` item 2 names **two** consumers of
+chief's read point: this lane's seeder and LANE-B's Door B, ordered to call the
+function the helper does not gate. A peer lane doing exactly what it was told,
+with a hook that omits `cash` for a NULL-cash row, would have composed 25 of 26
+bits and the client's full-object copy would have zeroed the 26th. The
+completeness question now lives on `build_named_field_update`, where every
+consumer must pass it.
+
+**Two claims in the first half of this entry were also struck rather than
+defended**, because half-evidence is the older scar: this helper has **no
+production call site**, so "the refusal path is the one that runs in production
+first" was [PROPOSED] dressed as fact; "no bytes can leave" rests on the door's
+own refusals and on the ABSENCE of a caller, not on
+`UPDATE_ATTR_VITAL_VERSION_CONFIRMED`, which this module's own text says does
+not gate this path; and the "byte-for-byte the shape the owner's probe ran"
+sentence is unsourced -- no artifact records which mask bits that probe set,
+and the same "unset unknown bits" property held for the `GT-218` send that
+killed the client. That wording came from COO's letter, and putting it into
+source would have made a future round read it as settled.
+
+**And the honest cost of the D1 fix, stated because the upside was already
+stated:** on a session whose label is a server guess, a repeated `/warp <n>`
+prints no same-scene token at all where `main` printed one with
+`basis=server_believed_scene` -- because `_announce_console_outcome` gates the
+line's EXISTENCE on `same_scene`, not just its wording. That was true of the
+first draft too and is not new here; it is written down now because the
+"what a tester can do today" paragraph above sold only the gain.
+
+**Still open, and it is COO's to answer, not this lane's:** (b') guarantees the
+named rows and says nothing about x=9 `category_5C`, the `known=False` u16 that
+`SELECTOR_NOTE_R301` proves in-repo is the selector deciding WHICH HP pair the
+client reads. Zeroing it can move the HUD from x=3/x=4 to x=52/x=53, and for a
+character outside a category-8 context the honest alternate pair is plausibly
+`0/0` -- `GT-218`'s symptom arriving through the door (b') was revised to open.
+Raised in `20260904_0155_LANE-GM-ALARM-*`; nothing sends today, so nothing is
+at risk yet.

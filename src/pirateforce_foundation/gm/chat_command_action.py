@@ -979,26 +979,69 @@ def same_scene_with_basis(session: object, target_scene_id, position) -> tuple:
     `basis=server_believed_scene` knows the word "same scene" is the
     server's belief, exactly as it was before this field existed.
 
+    THERE ARE THREE STATES AND THIS RETURNS TWO WORDS, WHICH IS WHY THE
+    STALE ONE IS REFUSED OUTRIGHT (pf-adversary, round `3qh50k`, D1,
+    MEASURED with a control, and it is the reason this function is not the
+    two-line version it was in this round's first draft).  A client can be
+    confirmed-here, confirmed-elsewhere, or its last report can be KNOWN
+    STALE -- and chief's own letter says the third state latches: from the
+    moment `_gm_warp_resync_selected_scene` relabels the scene, his
+    `scene_label_is_server_guess` is True and STAYS True for the rest of the
+    session unless a warp's coordinates confirm.  Through that whole window
+    `client_confirmed_scene` is frozen at wherever the client last spoke
+    from, which is evidence of nothing about where she is standing now.
+
+    The first draft spent it as evidence anyway, and the measurement is
+    ugly: client really in scene 5 after an unconfirmed `/warp 5`, frozen
+    field still 1, GM types `/warp 1` -- and the console printed
+    `GM_CHAT_SAME_SCENE_TELEPORT_SENT ... basis=client_confirmed_scene`,
+    an affirmative false claim stamped with the STRONGER word, where `main`
+    had correctly printed nothing at all.  The mirror case
+    (`/warp <destination>`) was the one chief's letter described and the one
+    this round tested; the return warp is where the new basis is wrong.  It
+    also let one STAGED line hold two contradictory premises at once (D3):
+    "a relog would change nothing" printed by the branch that had just
+    WRITTEN a next-login scene, because the two halves no longer came from
+    one comparison.
+
+    So a known-stale label is not upgraded, downgraded or hedged -- it is
+    NOT USED.  On `scene_label_is_server_guess` this answers exactly what it
+    answered before chief's field existed, and says `basis=
+    server_believed_scene`, which is a true statement about a weak fact
+    rather than a strong-sounding statement about a stale one.
+
     IT FALLS BACK ON ANYTHING IT CANNOT READ, never raises and never guesses.
-    A session object without the attribute (every replay tool and most
-    tests), a value that is not an int, a `position` whose `scene_id` cannot
-    be read -- all land on the same conservative answer.  This function runs
-    on the dispatch path of an ACCEPTED command; a diagnostic may never
-    alter dispatch, and `same_scene` picks a console sentence only.
+    A session object without either attribute (every replay tool and most
+    tests), a value that is not an int, an attribute whose property raises,
+    a `position` whose `scene_id` cannot be read -- all land on the same
+    conservative answer.  The reads are INSIDE the `try` (D4): the first
+    draft left the `getattr` outside it, so a session whose attribute was a
+    raising property escaped this function, in the one module whose founding
+    property is that an accepted command never vanishes without a line.
+    This runs on the dispatch path of an ACCEPTED command; a diagnostic may
+    never alter dispatch, and `same_scene` picks a console sentence only.
     """
     try:
         target = int(target_scene_id)
-    except (OverflowError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - see the paragraph above; nothing escapes
         return False, SAME_SCENE_BASIS_FIELD
-    confirmed = getattr(session, "client_confirmed_scene", None)
-    if isinstance(confirmed, bool):
-        # `bool` is an `int` subclass and would compare equal to scene 1.
-        confirmed = None
-    if isinstance(confirmed, int):
-        return target == confirmed, CLIENT_CONFIRMED_SCENE_BASIS_FIELD
+    # TWO SEPARATE `try`s, NOT ONE, and the split is the fix's second half:
+    # an unreadable CLIENT field must cost only the upgrade, never the
+    # answer.  Folding both reads into one guard made a raising property on
+    # chief's field collapse the whole function to "not same scene", which
+    # silently deletes a console line that the pre-chief code printed
+    # correctly -- trading one over-claim for one disappearance.
+    try:
+        if not getattr(session, "scene_label_is_server_guess", False):
+            confirmed = getattr(session, "client_confirmed_scene", None)
+            # `bool` is an `int` subclass and would compare equal to scene 1.
+            if isinstance(confirmed, int) and not isinstance(confirmed, bool):
+                return target == confirmed, CLIENT_CONFIRMED_SCENE_BASIS_FIELD
+    except Exception:  # noqa: BLE001 - fall through to the pre-chief answer
+        pass
     try:
         believed = int(getattr(position, "scene_id"))
-    except (AttributeError, OverflowError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - no position, no comparison, no claim
         return False, SAME_SCENE_BASIS_FIELD
     return target == believed, SAME_SCENE_BASIS_FIELD
 
