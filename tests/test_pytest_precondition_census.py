@@ -210,6 +210,34 @@ class RegistryTests(unittest.TestCase):
                 self.assertEqual(pre.key_of(precondition.reason), key)
                 self.assertIn(pre.TOKEN_PREFIX, precondition.reason)
 
+    def test_the_gm_installer_key_names_the_batch_and_not_the_sibling(self):
+        """LANE-GM's decorator and pin will name this key by hand (letter
+        20260903_0303, ordered onto chief by COO-DECISION 20260903_0445), so
+        the key string and the path it resolves are an interface between two
+        repositories, not an implementation detail.
+
+        Red in both directions, which is the only version worth having: the
+        key going away raises here, and the path drifting off the installer --
+        to ../pf_bridge itself, or to the plug-in source next to it -- fails
+        the shape checks below.  The last assertion is the one that separates
+        this key from BRIDGE_SIBLING: presence must answer for the BATCH FILE,
+        so a checkout that has the sibling but not the installer must read as
+        ABSENT.  It is computed against the live filesystem rather than
+        asserted as a constant, because a machine without the sibling (the
+        Windows gate) and a machine with it (the bridge, this clone) must both
+        run this test at full strength.
+        """
+        precondition = pre.REGISTRY["bridge_gm_install_bat"]
+        self.assertEqual(len(precondition.paths), 1, precondition.paths)
+        path = precondition.paths[0]
+        self.assertEqual(path.name, "install.bat")
+        self.assertEqual(path.parent.name, "gm_plugin")
+        self.assertEqual(path.parent.parent.name, "patches")
+        self.assertEqual(path.parent.parent.parent, pre.SIBLING / "pf_bridge")
+        self.assertEqual(precondition.present, path.exists())
+        self.assertEqual(
+            precondition.missing, () if path.exists() else (path,))
+
     def test_a_reason_without_a_token_has_no_key(self):
         self.assertIsNone(pre.key_of("runtime.py now carries the branch"))
         self.assertIsNone(pre.key_of("[precondition without a bracket"))

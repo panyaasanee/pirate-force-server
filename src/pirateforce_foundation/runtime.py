@@ -10240,86 +10240,81 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         # went out" and "the header says 115".  ASCII only --
                         # the bridge console is cp874.
                         print(world_population.census_console_line(generation))
-                        # CORE-REQUEST-GM-050 (LANE-GM 20260903_1025), chief's
-                        # half: one line, one point.  It answers "does this
-                        # scene hand the same identity to two actors" at the
-                        # moment the scene is composed, so an attended tester
-                        # who watches a hit land on the wrong body can read
-                        # the answer off the console they are already
-                        # watching instead of mining the table by hand.  It
-                        # sends no bytes and writes nothing.  Anchored to the
-                        # scene census print above, as the lane asked, and it
-                        # reads the scene id the census itself was built for
-                        # (this branch is home-scene only -- see the not-home
-                        # skip above), never a second opinion about which
-                        # scene this is.
+                        # WITHDRAWN HERE ON PURPOSE.  A ROUND THAT WANTS
+                        # THIS LINE BACK MUST READ THIS BLOCK FIRST.
                         #
-                        # THESE ARE TABLE-LAYER NUMBERS, NOT THE WIRE.
-                        # ``census=`` counts the identity table's rows for
-                        # this scene BEFORE assembly; the WORLD_CENSUS line
-                        # printed immediately above carries what actually
-                        # went out (measured R319: census=115 against
-                        # wire=108 -- seven table identities have no
-                        # shippable body and are dropped).  Two adjacent
-                        # lines, both with the word "census", two different
-                        # numbers.  AGENTS.md (COO-DECISION 20260903_0846)
-                        # demotes a pre-assembly counter to a READING AID
-                        # that may never stand as evidence on its own, and
-                        # that is what this line is.  Anyone reading
-                        # roster_absent_from_census=0 as "every roster mob
-                        # shipped" is reading the table, not the frame.
+                        # R319 wired a second console line at this exact point
+                        # for CORE-REQUEST-GM-050: it called
+                        # gm.identity_registry_census.describe_scene() and
+                        # printed the GM_IDENTITY_CENSUS verdict for the scene
+                        # being composed.  It reached main (f29bc82, merged in
+                        # c1660fd on 2026-09-03 at 13:41+07:00) and was
+                        # reverted by R320.  A console capture taken from a
+                        # build between those two commits can legitimately
+                        # carry GM_IDENTITY_CENSUS lines; that is not a build
+                        # that predates the feature and not a defect.
                         #
-                        # The import is local, not at module top: the census
-                        # module raises IdentityCensusError AT IMPORT on a
-                        # duplicate scene id, deliberately and loudly, and a
-                        # read-only diagnostic must not be able to stop the
-                        # login server from starting (pf-adversary R319, D8).
-                        # Down here the same raise costs one console line and
-                        # nothing else.
+                        # COO-DECISION 20260903_1349 (point 4) and
+                        # 20260903_1351 ordered the withdrawal.  The module
+                        # itself and LANE-GM's tests for it stay on main
+                        # untouched; only this call and its wiring test went.
                         #
-                        # Wrapped for the same reason the density line below
-                        # is: this runs PAST the builder's net, after
-                        # world_census_sent is latched, and an unreadable
-                        # diagnostic must never cost the daemon GAME-listener
-                        # thread (v141:7440 has no except).
+                        # THE REASON IS NOT THAT THE VERDICT IS WRONG.  It is
+                        # that on today's tree no value this line can print
+                        # changes what an attended tester does, and a standing
+                        # token nobody can act on is read as a fault
+                        # (COO-DECISION 20260902_1844: a token the tester
+                        # cannot see is not a token).  Four measured reasons,
+                        # and the first one is the only one the re-wire
+                        # trigger below clears:
                         #
-                        # The lane asked for silence on failure.  It gets a
-                        # NAMED REFUSAL instead, and the reason is a standing
-                        # ruling, not a preference: self.events reaches no
-                        # console unless the process was started with
-                        # --export-events, which the attended tester does not
-                        # use, and COO-DECISION 20260902_1844 states that a
-                        # token the tester cannot see is not a token.  Silence
-                        # here is byte-identical to "this build predates the
-                        # feature".  What the lane actually feared -- half a
-                        # verdict read as a verdict -- is avoided by the
-                        # refusal carrying NO verdict fields at all.
-                        try:
-                            from .gm import (
-                                identity_registry_census as _identity_census,
-                            )
-                            print(
-                                _identity_census.describe_scene(
-                                    world_population.SCENE_ID,
-                                    legacy=legacy,
-                                )
-                            )
-                        except Exception as error:
-                            self.events.append(
-                                "gm_identity_census_console_line_failed_"
-                                f"{type(error).__name__}"
-                            )
-                            try:
-                                print(
-                                    "GM_IDENTITY_CENSUS_UNAVAILABLE scene=%d "
-                                    "reason=%s"
-                                    % (
-                                        world_population.SCENE_ID,
-                                        type(error).__name__,
-                                    )
-                                )
-                            except Exception:
-                                pass
+                        #   1. unique_within_scene cannot print NO.  Within
+                        #      one scene an identity collision IS a placement
+                        #      index collision -- every family composes
+                        #      identity as the index plus one constant -- and
+                        #      the per-family import guards already refuse
+                        #      duplicate indices.  See the module's own
+                        #      IDENTITY_IS_A_PURE_FUNCTION_OF_THE_INDEX.
+                        #   2. families_agree=NO on scene 1 is PERMANENT and
+                        #      is pinned as CORRECT by LANE-GM's own test.  It
+                        #      is driven by the disagreeing bucket -- the
+                        #      roster and the census naming two different
+                        #      CONSTDATA templates (97 and 916) for four
+                        #      placements -- which is not the identity
+                        #      question at all, and which
+                        #      world_population.apply_identity_override
+                        #      already settles before any byte ships.  DO NOT
+                        #      read reason 1 as the cause of this line; they
+                        #      are different mechanisms.
+                        #   3. this branch is home-scene only (see the
+                        #      not-home skip above), while the incident that
+                        #      created the module -- a hit landing on the
+                        #      wrong body across scenes -- is cross-scene, and
+                        #      census.cross_scene_ambiguities() has no caller
+                        #      anywhere in src/.
+                        #   4. census= is a TABLE-layer count taken BEFORE
+                        #      assembly, printed one line under a WORLD_CENSUS
+                        #      line that reports the wire (measured R319:
+                        #      census=115 against wire=108).  COO-DECISION
+                        #      20260903_0846 demotes a pre-assembly counter to
+                        #      a reading aid that may never stand as evidence
+                        #      on its own.
+                        #
+                        # RE-WIRE ONLY AFTER the LANE-GM RE ticket for
+                        # typed/live gate reachability returns an identity
+                        # that is NOT derived from the placement index
+                        # (COO-DECISION 20260903_1351).  That clears reason 1
+                        # and nothing else: a round that re-wires on that day
+                        # still owes an answer to reasons 3 and 4, or it
+                        # re-creates a scene-1-only line that cannot answer
+                        # the question the module was built for.
+                        #
+                        # The whole wiring is the R320 revert commit -- git
+                        # show it and re-apply; do not rewrite it from
+                        # scratch.  tests/test_world_census_wiring.py holds a
+                        # guard that fails if this file references the census
+                        # module again, and its failure message repeats this
+                        # condition.
                         try:
                             # This reads scenarios/world_scene_density_001.json
                             # from disk on every call with no caching, so a
