@@ -290,15 +290,20 @@ class WorldGround:
             if not floor:
                 self._floors.pop(fold, None)
             taken = self._taken.setdefault(fold, collections.OrderedDict())
-            # A DEADLINE, NOT A PERMANENT RECORD (pf-adversary D2).  Keys are
-            # minted from ``DROP_KEY_BASE`` by every fresh ledger, so a taken
-            # NUMBER comes back constantly; a memory that never forgot refused
-            # every later row carrying that number for the life of the
-            # process, which is R307's unclickable ghost rebuilt by the guard
-            # meant to stop duplication.  What this memory has to outlive is
-            # only the copies of THIS row that other cells may still hold, and
-            # every such copy carries at most one full lifetime.
-            taken[drop_key] = now + 2.0 * self._lifetime
+            # THE ROW, NOT THE NUMBER, AND A DEADLINE ON TOP (pf-adversary D2
+            # of pass 1, then MEASURED AGAIN by the full suite: 42 tests went
+            # red because a record keyed by the NUMBER refuses a different
+            # object that merely reuses it).  Keys are minted from
+            # ``DROP_KEY_BASE`` by every fresh ledger, so one number names
+            # many objects over a process's life.  What the guard has to
+            # recognise is THE SAME OBJECT standing in two cells -- which is
+            # exactly what identity answers, because a seeded cell is handed
+            # the very row this floor holds (:meth:`standing` returns the
+            # stored objects) and the killer's cell holds the one it minted
+            # and handed here.  The deadline bounds it further: what it must
+            # outlive is only the copies other cells may still hold, and every
+            # such copy carries at most one full lifetime.
+            taken[drop_key] = (row, now + 2.0 * self._lifetime)
             while len(taken) > TAKEN_KEY_MEMORY:
                 taken.popitem(last=False)
             return row
@@ -315,7 +320,9 @@ class WorldGround:
             return False
         fold = row.scene_key
         with self._lock:
-            self._taken.get(fold, {}).pop(row.drop_key, None)
+            held = self._taken.get(fold, {}).get(row.drop_key)
+            if held is not None and held[0] is row:
+                self._taken[fold].pop(row.drop_key, None)
             now = float(self._clock())
             floor = self._floors.setdefault(fold, collections.OrderedDict())
             if row.drop_key in floor:
@@ -325,31 +332,35 @@ class WorldGround:
                 floor.popitem(last=False)
             return True
 
-    def was_taken(self, scene: Any, drop_key: Any) -> bool:
-        """Did a claim take this key off this floor, recently?  Bounded twice.
+    def taken_row(self, scene: Any, drop_key: Any) -> Any:
+        """The ROW a claim took off this floor under this key, or None.
 
         Bounded by count (``TAKEN_KEY_MEMORY``) and by TIME: an entry lives
         two drop lifetimes, which outlasts every copy of that row any cell can
-        still be holding and nothing more.  Answers False for a key that
-        merely EXPIRED and False for a key this floor never held -- both
-        deliberate, because this is the evidence half of a refusal and a guard
-        that answered "maybe" by returning True refuses clicks on rows nobody
-        ever took (pf-adversary D2 measured exactly that).
+        still be holding and nothing more.  Answers None for a key that merely
+        EXPIRED and None for a key this floor never held -- both deliberate,
+        because this is the evidence half of a refusal, and a guard that
+        answered "maybe" refuses clicks on rows nobody ever took.
+
+        Returning the ROW rather than a boolean is what lets the caller ask
+        the only question that is actually about duplication: is the object in
+        MY cell the object somebody else already carried away?
         """
         if type(drop_key) is not int:
-            return False
+            return None
         try:
             fold = mob_loot.scene_key(scene)
         except Exception:                                   # noqa: BLE001
-            return False
+            return None
         with self._lock:
             taken = self._taken.get(fold)
             if not taken or drop_key not in taken:
-                return False
-            if float(self._clock()) >= taken[drop_key]:
+                return None
+            row, deadline = taken[drop_key]
+            if float(self._clock()) >= deadline:
                 taken.pop(drop_key, None)
-                return False
-            return True
+                return None
+            return row
 
     def clear(self) -> None:
         """Forget every floor.  For a test fixture and for nothing else."""
@@ -496,10 +507,19 @@ def claim_for_pickup(
     if row is not None:
         return ClaimOutcome(row.scene_key, row)
     try:
-        if floor.was_taken(scene, drop_key):
+        gone = floor.taken_row(scene, drop_key)
+        if gone is not None and any(
+                held is gone for held in cell.ledger.drops):
+            # IDENTITY, NOT EQUALITY, AND NOT THE KEY.  The object standing in
+            # this cell is the object another claimant carried away: a seeded
+            # cell is handed the floor's own row and the killer's cell handed
+            # that row to the floor, so the two sessions really do hold ONE
+            # python object.  A different drop that merely reuses the number
+            # -- which every fresh ledger produces, since keys are minted per
+            # session from ``DROP_KEY_BASE`` -- is a different object and is
+            # not refused here.
             return ClaimOutcome(
-                mob_loot.scene_key(scene), None, True,
-                REFUSE_TAKEN_BY_ANOTHER_SESSION)
+                gone.scene_key, None, True, REFUSE_TAKEN_BY_ANOTHER_SESSION)
     except Exception:                                   # noqa: BLE001
         return ClaimOutcome("", None, False, REFUSE_CELL_RAISED)
     return ClaimOutcome("", None, False, "")

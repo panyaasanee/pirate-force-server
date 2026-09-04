@@ -108,7 +108,7 @@ class TheWorldFloorTests(unittest.TestCase):
         """Otherwise a click on a key this floor never held would poison the
         number for every later row that carries it."""
         self.assertIsNone(self.world.claim("bg0002", 0x00100000))
-        self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
+        self.assertIsNone(self.world.taken_row("bg0002", 0x00100000))
 
     def test_a_row_that_is_not_a_typed_drop_is_refused_not_stored(self):
         new, already, refused = self.world.remember(("not a drop",))
@@ -295,9 +295,12 @@ class TheClaimIsTheAuthorityTests(unittest.TestCase):
         self.world = ground.WorldGround(
             lifetime_seconds=120.0, clock=self.clock)
         self.world.remember((a_drop(),))
+        # BOTH cells are seeded from the floor, which is what makes them hold
+        # ONE object -- the production shape: the killer handed this very row
+        # to the floor and a second login is handed the same one back.
         self.killer = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
-        self.killer.admit_standing_rows((a_drop(),))     # stands in for the mint
         self.seeded = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
+        ground.seed_cell(self.killer, "bg0002", world=self.world)
         ground.seed_cell(self.seeded, "bg0002", world=self.world)
 
     def test_both_cells_really_do_hold_the_one_row(self):
@@ -349,17 +352,32 @@ class TheClaimIsTheAuthorityTests(unittest.TestCase):
         the NUMBER comes back; a memory that never forgot refused every later
         row carrying it for the life of the process."""
         ground.claim_for_pickup(self.seeded, 0x00100000, world=self.world)
-        self.assertTrue(self.world.was_taken("bg0002", 0x00100000))
+        self.assertIsNotNone(self.world.taken_row("bg0002", 0x00100000))
         self.clock.advance(2 * 120.0 + 1.0)
-        self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
+        self.assertIsNone(self.world.taken_row("bg0002", 0x00100000))
         later = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
         self.assertFalse(ground.claim_for_pickup(
             later, 0x00100000, world=self.world).refused)
 
+    def test_a_DIFFERENT_row_that_reuses_the_number_is_never_refused(self):
+        """The 42 red tests of this round's third full-suite run, in one case.
+
+        One number names many objects over a process's life, because every
+        fresh ledger mints from ``DROP_KEY_BASE``.  What may be refused is the
+        object somebody carried away, never the number they carried it under.
+        """
+        ground.claim_for_pickup(self.seeded, 0x00100000, world=self.world)
+        other = mob_loot.DropLedgerCell(
+            ledger=mob_loot.DropLedger((a_drop(),), 1, 0x00100001),
+            clock=self.clock, scene="bg0002")
+        outcome = ground.claim_for_pickup(other, 0x00100000, world=self.world)
+        self.assertFalse(outcome.refused)
+        self.assertFalse(outcome.claimed)
+
     def test_a_row_that_only_expired_was_never_taken(self):
         self.clock.advance(121.0)
         self.assertEqual(self.world.standing("bg0002"), ())
-        self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
+        self.assertIsNone(self.world.taken_row("bg0002", 0x00100000))
 
     def test_the_claim_never_raises_on_junk(self):
         self.assertFalse(ground.claim_for_pickup(
@@ -376,8 +394,8 @@ class TheClaimIsTheAuthorityTests(unittest.TestCase):
         cell = mob_loot.DropLedgerCell(scene="bg0002")
         for row in rows:
             world.claim("bg0002", row.drop_key)
-        self.assertFalse(world.was_taken("bg0002", 0x00100000))
-        self.assertTrue(world.was_taken(
+        self.assertIsNone(world.taken_row("bg0002", 0x00100000))
+        self.assertIsNotNone(world.taken_row(
             "bg0002", 0x00100000 + ground.TAKEN_KEY_MEMORY + 4))
         del cell
 
