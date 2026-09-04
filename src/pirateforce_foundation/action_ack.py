@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 import struct
 
+from . import pose_trial
 from .mob_loot import (
     MobLootContractError,
     preserve_ground_in_runtime_res_vitals,
@@ -74,7 +75,7 @@ def parse_scene006_ea7d(legacy, parsed, policy: SceneActionAck):
 
 
 def make_scene007_action_ack(legacy, fields, performer_identity: int,
-                             refusals=None):
+                             refusals=None, *, environ=None):
     """Build one ActionVital; only performer differs from the audited request.
 
     ``refusals``: optional list the caller may pass to learn that the ground
@@ -83,15 +84,35 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
     collects -- the events list, the DB and --export-events all look
     identical on both paths -- and "the absence of a console line" is not
     evidence.  pf-adversary raised this as D6 this round.
+
+    ``environ``: the mapping the ``ATTACK-POSE-ONE-FIELD-AB-001`` trial gate
+    reads instead of the process environment.  For tests only; the runtime
+    call site does not pass it, and with it absent the gate reads
+    ``os.environ`` exactly as an attended boot does.  "Only performer
+    differs" above stays literally true on every unarmed boot: see
+    ``pose_trial.selector_for_reply``, which returns the request's own
+    ``+0x30`` and no console line while ``PF_POSE_TRIAL`` is unset.
     """
     # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
     if not 0 < performer_identity <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("selected performer identity is outside uint64")
+    # ATTACK-POSE-ONE-FIELD-AB-001 (COO-DECISION 20260904_2141).  The ONE
+    # field the trial may move, and it moves nowhere unless an owner armed
+    # PF_POSE_TRIAL in this process.  The token prints before the frame is
+    # composed on purpose: the composer below can refuse (see the comment on
+    # the fallback), and an attended log that showed the selector only on the
+    # replies that composed cleanly would be reporting a different run than
+    # the one that happened.
+    action_selector, pose_line = pose_trial.selector_for_reply(
+        fields["action_u32_30"], environ,
+    )
+    if pose_line is not None:
+        print(pose_line)
     payload = (
         legacy.qwordtag(0x32, performer_identity)
         + legacy.qwordtag(0x32, fields["field_qword_20"])
         + legacy.qwordtag(0x32, fields["field_qword_28"])
-        + legacy.u32tag(0x14, fields["action_u32_30"])
+        + legacy.u32tag(0x14, action_selector)
         + legacy.u32tag(0x19, fields["field_u32_34"])
         + legacy.f32tag(fields["heading_f32_38"])
         + legacy.f32tag(fields["x_f32_3c"])
