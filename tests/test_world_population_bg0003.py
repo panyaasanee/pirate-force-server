@@ -222,9 +222,22 @@ class Bg0003Census(unittest.TestCase):
                 if any("world_population_bg0003" in name for name in names):
                     importers.append(path.name)
                     break
+        # ROUND am1fw8 (LANE-B), the same "third importer argued for in a
+        # round of its own" that round jqeo2m added to scene 5's file:
+        # ``mob_scene_recompose.py`` imports this module to build scene 3's
+        # MID-SESSION recompose census.  The arrival census is lane A's; the
+        # recompose of that same census after a hit or a kill is lane B's,
+        # and lane B composes it by CALLING this builder rather than by
+        # writing a second one -- the relationship it already has with
+        # ``world_population_bg0002``, ``_bg0005`` and ``_bg0015``.  Scene 3
+        # gained a combat roster in that round, which is exactly the
+        # condition ``mob_scene_recompose``'s written acknowledgement for
+        # scene 3 named.  ``runtime.py`` still does not import this module,
+        # which is the fact this test protects.
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

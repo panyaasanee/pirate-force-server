@@ -142,9 +142,15 @@ class MinedRowTests(unittest.TestCase):
         # ``mob_ai_control.open_register(field_mobs.roster_for_scene_id(5))``
         # raised ``ai_row_missing: placement 59 points at AI_COMBAT 201``
         # before ``tools/pf_mine_mob_ai_rows.py``'s union was widened.
+        # ROUND am1fw8: ``field_mobs.BG0003_SCENE`` joins the walk on the
+        # same terms.  Scene 3 is REGISTERED in the same commit that mines
+        # it, so its twelve rows are rows a player can reach and belong on
+        # the derived side; the refusal was reproduced first here too
+        # (``placement 27 points at AI_COMBAT 140``).
         derived = sorted(
             (mob.placement_index, mob.ai_wander, mob.ai_combat)
-            for scene in (None, field_mobs.BG0002_SCENE, field_mobs.BG0005_SCENE)
+            for scene in (None, field_mobs.BG0002_SCENE,
+                          field_mobs.BG0003_SCENE, field_mobs.BG0005_SCENE)
             for mob in (field_mobs.load_roster() if scene is None
                         else field_mobs.load_roster(scene=scene))
         )
