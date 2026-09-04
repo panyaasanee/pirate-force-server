@@ -1143,6 +1143,32 @@ class ListCharacterIdsMissingClassIdTests(unittest.TestCase):
         self.assertEqual(after["class_id"], 2)
         self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
 
+    def test_a_database_missing_the_class_id_column_reports_empty_not_a_crash(self):
+        """`KA1A-R314-RESULTS` (`pf_bridge/notes_to_chief/
+        20260905_0233_...boot-crash-class-id-backfill.md`): a boot path that
+        skips `store.migrate_with_backup()` (a read-only
+        `--scene-load-scenario` boot) can reach this method against a
+        database that never ran migration 006, where `class_id` is not a
+        column at all yet.  Before this guard, the bare
+        `WHERE class_id IS NULL` clause raised
+        `sqlite3.OperationalError: no such column: class_id` and took the
+        whole boot down.  A column that does not exist has nothing this
+        method could truthfully call "missing its class_id" -- reporting
+        zero rows here is not a guess, it is the only true answer available
+        before the migration that adds the column has run.
+        """
+        character = self._make("nocolumn")
+        with self.store.connect() as db:
+            db.execute("ALTER TABLE characters DROP COLUMN class_id")
+        self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
+        # Every other typed column this store already understands is
+        # untouched by the guard -- it is scoped to `class_id` alone.
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=?", (character.id,),
+            ).fetchone()
+        self.assertIsNotNone(row)
+
 
 class TheGateStillRefusesTests(unittest.TestCase):
     """Built columns are not composed blocks, and this file says so."""
