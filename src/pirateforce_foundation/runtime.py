@@ -10,6 +10,7 @@ import time
 from . import columbus_quest_dispatch
 from . import diag_multi_object_wiring
 from . import field_mobs
+from . import m2_survey_trial
 from . import mob_ai_control
 from . import mob_census_hostility
 from . import mob_census_wire_count
@@ -28,6 +29,7 @@ from . import world_density
 from . import world_face_frame
 from . import world_logout_button_notice
 from . import world_m2_crossing_handoff
+from . import world_m2_provisioning_trial
 from . import world_population
 from . import world_population_bg0002
 from . import world_population_handoff
@@ -1278,6 +1280,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.second_password_bypass_sent = False
                 self.second_password_bypass_keepalive_started = False
                 self.second_password_bypass_last_sent_at = None
+                # M2 provisioning trial (CORE-REQUEST of LANE-A
+                # pf_bridge/notes_to_chief/20260904_1806, ordered by
+                # COO-DECISION 20260904_1845 item 1).  The scene this session
+                # last ATTEMPTED the trial in -- attempted, not sent, so a
+                # shut boot prints its one line per arrival instead of one per
+                # runtime poll.  Cleared when the session leaves that scene,
+                # so re-entering the sea re-arms it exactly once more.
+                self.m2_survey_trial_scene_attempted = None
                 # WORLD-CENSUS-001 observability.  ``world_census_actor_count``
                 # is the number that actually went onto the wire this session,
                 # not the number that was asked for.
@@ -11502,8 +11512,112 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             boundary_ground_actions = self._mob_loot_boundary_flush(
                 ground_loot_actions + nameprop_actions,
             )
+            # CORE-REQUEST (LANE-A, pf_bridge/notes_to_chief/20260904_1806
+            # item 2), ordered by COO-DECISION 20260904_1845 item 1: the M2
+            # provisioning trial's two `NavigationEx_AddSurveyDataVtial`
+            # records, sent once per arrival in the sea scene, behind an
+            # attended-only flag.  The composer is LANE-A's
+            # (`world_m2_provisioning_trial`, on main since #753); the two
+            # numbers it refuses to default and the flag that admits any of
+            # this are `m2_survey_trial`'s, which carries the whole evidence
+            # note for both.
+            #
+            # WHY HERE, AND WHY THIS CONDITION.  The runtime poll after a
+            # teleport is the same "once per arrival, on the outbound path"
+            # boundary the arrival census uses (see the census block above);
+            # reusing it means the trial cannot fire before the client is in
+            # the scene, and cannot fire twice for one arrival.  LAST in the
+            # sum on purpose: nothing else in this dispatch depends on it,
+            # and every frame the player is already owed keeps its place.
+            #
+            # WHAT THIS DELIBERATELY DOES NOT DO.  It does not send
+            # `NavigationEx_EnterInstanceVital` -- that is the CLIENT's
+            # confirm frame (RE-227, COO-DECISION 20260904_1845 item 4), and
+            # a server that sent it would be answering its own question.  It
+            # does not check the player's level.  It correlates nothing: a
+            # later capture must be matched on the record's own survey_id
+            # (2/3, what is on the wire), never on the dock-table trigger_id
+            # (153/154) this label carries -- LANE-A's own warning, and the
+            # reason the label names the DESTINATION rather than the record.
+            m2_survey_actions = []
+            m2_survey_scene = (
+                self.foundation.selected.position.scene_id
+                if self.foundation.selected is not None
+                else None
+            )
+            if (
+                self.m2_survey_trial_scene_attempted is not None
+                and m2_survey_scene != self.m2_survey_trial_scene_attempted
+            ):
+                self.m2_survey_trial_scene_attempted = None
+            if (
+                self.foundation.selected is not None
+                and self.teleport_sent
+                and self.runtime_ack_sent
+                and parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
+                and m2_survey_scene == m2_survey_trial.M2_SEA_SCENE_ID
+                and self.m2_survey_trial_scene_attempted is None
+            ):
+                self.m2_survey_trial_scene_attempted = m2_survey_scene
+                trial_state = m2_survey_trial.trial_opening()
+                if trial_state != m2_survey_trial.TRIAL_OPEN:
+                    print(m2_survey_trial.console_line(
+                        trial_state, m2_survey_scene,
+                    ))
+                    self.events.append(
+                        f"m2_survey_trial_not_this_boot_{trial_state}"
+                    )
+                else:
+                    try:
+                        trial_records = (
+                            world_m2_provisioning_trial.encode_trial_records(
+                                legacy,
+                                msg_id=m2_survey_trial
+                                .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL,
+                                vital_version=m2_survey_trial
+                                .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL,
+                            )
+                        )
+                    except Exception as error:  # noqa: BLE001 - a trial that
+                        # cannot compose must cost this player nothing: the
+                        # refusal is named on the console and the dispatch
+                        # goes out without it, same shape every other lane
+                        # hook in this file uses.
+                        trial_records = ()
+                        print(m2_survey_trial.refusal_line(
+                            m2_survey_scene, type(error).__name__,
+                        ))
+                        self.events.append(
+                            "m2_survey_trial_refused_"
+                            f"{type(error).__name__}"
+                        )
+                    if trial_records:
+                        m2_survey_actions = [
+                            (
+                                f"M2_SURVEY_TRIAL_DEST{destination_id}",
+                                pc, frame, 0.0,
+                            )
+                            for destination_id, pc, frame in trial_records
+                        ]
+                        print(m2_survey_trial.console_line(
+                            m2_survey_trial.TRIAL_OPEN, m2_survey_scene,
+                            len(m2_survey_actions),
+                        ))
+                        self.events.append(
+                            f"m2_survey_trial_sent_{len(m2_survey_actions)}"
+                        )
+                    elif trial_state == m2_survey_trial.TRIAL_OPEN:
+                        # Armed, composed nothing.  Reachable for one reason
+                        # only -- the plan has no destinations, i.e. LANE-A's
+                        # MEASURED_XYZ is empty -- and it must not read as
+                        # "the flag was off".
+                        print(m2_survey_trial.refusal_line(
+                            m2_survey_scene, "no_records",
+                        ))
+                        self.events.append("m2_survey_trial_refused_no_records")
             return (actions + arena_actions + ground_loot_actions
                     + nameprop_actions + census_actions
                     + boundary_ground_actions + mob_combat_actions
-                    + columbus_quest_actions + uia_notice_actions)
+                    + columbus_quest_actions + uia_notice_actions
+                    + m2_survey_actions)
     return PersistentGameSessionState

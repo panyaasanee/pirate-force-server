@@ -97,12 +97,26 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         # as the sibling guard in test_navigationex_survey_record.py
         # (pf-adversary, this round: a basename-only exclusion is evaded by
         # any same-named file anywhere else in the tree).
+        # WIDENED ONCE, ON THE RECORD, round `t7bsfx`/R342 (chief/LANE-E):
+        # COO-DECISION 20260904_1845 item 1 ordered the runtime.py call site
+        # built, answering the CORE-REQUEST this guard's own message calls
+        # "still open".  So runtime.py may now name this module -- and ONLY
+        # behind the attended-only flag: `tests/test_m2_survey_trial.py`
+        # (`RuntimeCallSiteTests`) parses runtime.py and fails if the call to
+        # `encode_trial_records` is not in the same function as the
+        # `m2_survey_trial.trial_opening()` that admits it, or if it appears
+        # more than once.  The guard below did not become weaker by two
+        # paths; it moved next door, from "nobody may call this" to "one
+        # named caller, gated".
         excluded = {
             "src/pirateforce_foundation/world_m2_provisioning_trial.py",
             "tests/test_world_m2_provisioning_trial.py",
             # Names this module in its own exclusion-widening comment,
             # not an import -- see that guard's docstring note.
             "tests/test_navigationex_survey_record.py",
+            # The one send path, gated -- see the note above.
+            "src/pirateforce_foundation/runtime.py",
+            "tests/test_m2_survey_trial.py",
         }
         hits = []
         for path in ROOT.rglob("*.py"):
