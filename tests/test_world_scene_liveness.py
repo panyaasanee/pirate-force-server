@@ -380,6 +380,39 @@ class CrossCheckTests(unittest.TestCase):
         self.assertEqual(self.ledger.refused_by_cross_check, 1)
         self.assertEqual(self.ledger.settle_lines_seen, 1)
 
+    def test_a_seeded_scene_does_not_get_a_free_pass_from_the_cross_check(self):
+        """pf-adversary, round `f03s5f`, D5.
+
+        Widening the seed list from two ids to seven (COO-DECISION
+        20260905_0251) meant five more scenes had a fact before any line
+        arrived -- and `observe_console_line` used to return early on ANY
+        existing fact.  Driven with a settle line 100,000 units from scene
+        3's pinned spawn, the old code accepted it, left
+        `refused_by_cross_check` at 0 and made `from_this_process`
+        unreachable for every widened id.  A seeded fact now falls through
+        to the same arithmetic every other line faces.
+        """
+        seeded = 3
+        self.assertIn(seeded, world_scene_travel.MEASURED_SCENE_IDS)
+        self.assertFalse(self.ledger.fact(seeded).from_this_process)
+        line = _settle_line(seeded, 99999.0, 99999.0, 0.0)
+        self.assertIsNone(self.ledger.observe_console_line(line))
+        self.assertEqual(self.ledger.refused_by_cross_check, 1)
+        # The seed itself survives -- refusing a bad line must not erase an
+        # inherited fact that was never in question.
+        self.assertTrue(self.ledger.knows(seeded))
+        self.assertFalse(self.ledger.fact(seeded).from_this_process)
+
+    def test_a_good_line_upgrades_a_seeded_scene_to_something_this_boot_saw(self):
+        seeded = 3
+        spawn = self.registry[seeded].spawn
+        line = _settle_line(seeded, spawn[0] + 40.0, spawn[1] - 12.0, spawn[2])
+        self.assertEqual(self.ledger.observe_console_line(line), seeded)
+        fact = self.ledger.fact(seeded)
+        self.assertTrue(fact.from_this_process)
+        self.assertTrue(fact.cross_checked)
+        self.assertEqual(self.ledger.refused_by_cross_check, 0)
+
     def test_with_no_registry_the_fact_is_kept_but_marked_unchecked(self):
         ledger = SceneLivenessLedger.empty()
         home = self.registry[HOME].spawn

@@ -177,17 +177,27 @@ class R313CaptureParityTests(unittest.TestCase):
     asked for: does this encoder's output match the actual bytes the server
     sent and the client rejected with `ErrorData=50351`?
 
-    R313's own prose calls the frame "70 B"; the hex it pastes is 60 bytes.
-    pf-adversary (this round) caught a first draft here that called that a
-    prose slip -- WRONG.  `encode_add_survey_data_outer` returns a
-    `(pc, frame)` pair, same as every other frozen composer in this
-    project: `pc` is the pre-compression content (60 bytes here) and
-    `frame` is `frame_pc(pc)` -- `current/pf_login_game_server_v141.py`'s
-    `MAGIC + varint(len(compressed)) + snappy_raw_literal(pc)` wrapper.
-    Computed directly below: `len(frame) == 70`.  Both numbers in R313's
-    letter are correct; they name two different layers of the same send,
-    and this class pins both rather than picking one and calling the other
-    wrong.
+    🔴 WHAT THIS CLASS IS NOT.  The commit R313 booted and this one differ
+    by no executable line of `navigationex_survey_record.py` (docstrings
+    only), so the "capture" below is this encoder's own output.  Comparing
+    them is a NO-DRIFT PIN -- it cannot fail unless someone edits the
+    encoder, and it is NOT evidence that the encoder is right.  The client
+    rejected these exact bytes.  ~~an earlier version of this docstring
+    concluded "so the rejection is not an encoder mismatch"~~ IS STRUCK
+    (pf-adversary, round `f03s5f`, D2).
+
+    ON THE TWO SIZES.  `encode_add_survey_data_outer` returns `(pc, frame)`:
+    `pc` is the pre-compression content (60 bytes here) and `frame` is
+    `frame_pc(pc)` -- v141's `MAGIC + varint(len(compressed)) +
+    snappy_raw_literal(pc)` wrapper, a fixed 10-byte header, so
+    `len(frame) == 70` is arithmetic on `len(pc) == 60` and carries no
+    independent information about R313.  ~~"Both numbers in R313's letter
+    are correct; they name two different layers"~~ IS STRUCK (pf-adversary
+    D3): the letter labels the 60-byte hex block itself "70 B" and never
+    names two layers.  The pc/frame reading is THIS round's reconstruction
+    of how a 60-byte paste could be captioned 70, and it is plausible, not
+    established -- a transcription that dropped bytes on the way into the
+    letter would look identical from here and is not excluded.
     """
 
     # `SURVEY2_DOCK153_INITIAL`, console line 4168, R313 (2026-09-05T02:0x).
@@ -197,7 +207,7 @@ class R313CaptureParityTests(unittest.TestCase):
         "2A 00 00 3A 43 32 00 00 00 00 00 00 00 00 12 00 00 0B 00"
     )
 
-    def test_the_pasted_hex_is_the_60_byte_pc_not_the_70_byte_frame(self):
+    def test_the_pasted_hex_is_60_bytes_whatever_the_letter_captions_it(self):
         raw = bytes.fromhex(self._R313_DOCK153_INITIAL_HEX.replace(" ", ""))
         self.assertEqual(len(raw), 60)
 
@@ -220,27 +230,33 @@ class R313CaptureParityTests(unittest.TestCase):
             "and the client rejected with ErrorData=50351 -- if this ever "
             "goes red, the encoder changed, not the finding below",
         )
-        # The letter's other number: the actual compressed wire frame this
-        # same call would have gone out as is 70 bytes, matching R313's
-        # prose exactly. Pinned so nobody re-reads "70 B" as a second slip.
+        # The compressed frame this same call goes out as is 70 bytes.
+        # Derived, not independent: frame_pc adds a fixed 10-byte header,
+        # so this restates len(pc) == 60.  Kept only so the wrapper cannot
+        # change size unnoticed.
         self.assertEqual(len(frame), 70)
 
-    def test_therefore_the_50351_rejection_is_not_an_encoder_vs_re227_mismatch(self):
-        # The point of the two tests above: this encoder already implements
-        # RE-227's pinned layout tag-for-tag (see the module docstring and
-        # `EncodeSurveyRecordTests` above), and it reproduces exactly what
-        # R313 sent. So whatever the client's real reader disagrees with is
-        # NOT visible to a comparison against RE-227's own findings -- it
-        # must live in one of the four fields RE-227 itself called
-        # UNMEASURED (`unmeasured_0x14`, `unmeasured_0x16`,
-        # `unmeasured_0x28`, `unmeasured_0x30`), in `vital_version`, or in a
+    def test_the_four_fields_this_module_calls_unmeasured_are_exactly_these(self):
+        # A FIELD-NAME PIN, and nothing more.  ~~an earlier name for this
+        # test ("therefore the 50351 rejection is not an encoder vs RE-227
+        # mismatch") claimed a conclusion its body cannot reach~~ IS STRUCK
+        # (pf-adversary, round `f03s5f`, D4): the assertion below is green
+        # for any encoder bug and any client behaviour whatsoever.  What it
+        # does buy: the set of fields RE-227 itself called UNMEASURED
+        # (`unmeasured_0x14`, `unmeasured_0x16`, `unmeasured_0x28`,
+        # `unmeasured_0x30`) cannot silently grow or shrink.  Those four,
+        # plus `vital_version`, plus the outer `0x0B` field the serializer
+        # table carries (see the module docstring), are where the client's
+        # disagreement can live -- and in a
         # field RE-227's static pass never reached at all.  Resolving which
         # needs either the RE runner's own machine (this environment has no
         # copy of the shipped client image -- deliberately NOT spelled with
         # its filename here: the Windows gate drops any tests/ module that
         # contains that literal from its selection, and spelling it out in
-        # this comment is exactly what turned #785 red, see the class
-        # docstring) or another attended trial that varies one field at a
+        # this comment is exactly what turned #785 red -- gate log for
+        # 7caacd7, and the round file
+        # pf_bridge/rounds/A_20260905_0422_f03s5f_*) or another attended
+        # trial that varies one field at a
         # time -- this test only closes off the one explanation that WAS
         # checkable from committed artifacts.
         self.assertEqual(
@@ -304,6 +320,65 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
             "navigationex_survey_record must not be imported by any send "
             f"path (world_m2_provisioning_trial.py excepted); found: {hits}",
         )
+
+
+class OuterLeadingByteTests(unittest.TestCase):
+    """The field `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` carries for
+    this class's OUTER serializer, and R313's frame did not (round
+    `f03s5f`, pf-adversary D1).
+
+    The table (lines 6377-6388, same span `[0x00733570,0x00733614)` and same
+    SHA RE-227 cites) records a `0x0B`-tagged field of length 1 at
+    `STACK@0x00733570+0x18`, gate `ALWAYS`, on the read side and the write
+    side both.  Its VALUE is measured nowhere, so the composer refuses to
+    pick one: `None` (the default) keeps the exact bytes R313 sent, and a
+    caller who wants to try a value has to write it down.
+    """
+
+    _FIELDS = survey.SurveyRecordFields(survey_id=2, x=-5613.8, y=4162.5, z=186.0)
+
+    def test_default_is_byte_identical_to_what_r313_sent(self):
+        with_default, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+        )
+        explicit_none, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+            outer_leading_byte=None,
+        )
+        captured = bytes.fromhex(
+            R313CaptureParityTests._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        self.assertEqual(with_default, captured)
+        self.assertEqual(explicit_none, captured)
+
+    def test_a_value_inserts_one_0b_field_before_the_record_and_nothing_else(self):
+        base, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+        )
+        for value in (0, 1):
+            with self.subTest(value=value):
+                got, frame = survey.encode_add_survey_data_outer(
+                    legacy, msg_id=0xC4AF, vital_version=0,
+                    fields=self._FIELDS, outer_leading_byte=value,
+                )
+                # Exactly two bytes longer, and the two extra bytes are the
+                # 0x0B tag and the value, sitting after the vital header
+                # (which ends at offset 20, pinned by the reader-order test
+                # below) and before the record's own kind byte.
+                self.assertEqual(len(got), len(base) + 2)
+                self.assertEqual(got[:20], base[:20])
+                self.assertEqual(got[20:22], bytes([0x0B, value]))
+                self.assertEqual(got[22:], base[20:])
+                self.assertEqual(len(frame), len(legacy.frame_pc(got)))
+
+    def test_the_record_is_still_the_re227_record_unchanged(self):
+        got, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+            outer_leading_byte=1,
+        )
+        record = survey.encode_survey_record(legacy, self._FIELDS)
+        self.assertIn(record, got)
+        self.assertEqual(len(record), survey.RECORD_LEN)
 
 
 class ErrorDataIsAMessageIdTests(unittest.TestCase):
@@ -378,6 +453,24 @@ class ErrorDataIsAMessageIdTests(unittest.TestCase):
         self.assertEqual(
             "SOMETHING_ELSE",
             survey.read_failure_layer(legacy, 0x1FB2))
+
+    def test_the_dialog_number_itself_is_a_transcription_not_a_recompute(self):
+        """The honest limit of the test above (pf-adversary D11).
+
+        50351 reaches this repository as text in R313's letter, read off a
+        screenshot the gate's forbidden-path guard can never let in.  If the
+        observer or the letter mistyped it, the equality test still passes,
+        because the transcription is being compared to the id it was
+        recognised as.  What that test rules out is a DIFFERENT number being
+        the class id; it cannot rule out a mistyped dialog.  Pinned here so
+        the limit travels with the claim.
+        """
+        self.assertEqual(
+            survey.R313_SURVEY_DIALOG_ERRORDATA, 50351,
+            "the number as R313's letter transcribes it -- change this only "
+            "with a new attended observation, never to make another test "
+            "pass",
+        )
 
     def test_the_composer_still_refuses_to_default_the_id(self):
         """Naming the id does not mean this module now picks it.  The

@@ -469,8 +469,20 @@ class SceneLivenessLedger:
         scene_id = _scene_id_field(line)
         if scene_id is None:
             return None
-        if scene_id in self._facts:
+        existing = self._facts.get(scene_id)
+        if existing is not None and existing.from_this_process:
             return scene_id
+        # A SEEDED fact does NOT excuse a settle line from the cross-check.
+        # Before 2026-09-05 the seed list was two ids, and returning early on
+        # any existing fact was harmless enough that nobody measured it.
+        # Widening the seed to seven (COO-DECISION 20260905_0251) made it
+        # matter: pf-adversary this round drove a settle line for scene 3 at
+        # (99999, 99999, 0) -- 100,000 units from its pinned spawn -- and the
+        # early return accepted it, left `refused_by_cross_check` at 0, and
+        # made `from_this_process` unreachable for every widened id.  So an
+        # inherited fact now falls through: the arithmetic still has to pass,
+        # and a line that passes UPGRADES the seed to something this boot saw
+        # instead of being swallowed by it.
         checked = _cross_check(self._registry, scene_id, _settled_at(line))
         if checked is False:
             self._refused_by_cross_check += 1

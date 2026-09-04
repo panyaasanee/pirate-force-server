@@ -42,12 +42,45 @@ nested-record serializer span `[0x0072e590,0x0072e691)` SHA
     `32` qword @ `+0x28`         -- UNMEASURED.
     `12` u16   @ `+0x30`         -- UNMEASURED.
 
-THE OUTER ENVELOPE IS NOT RE-227's TO GIVE.  RE-227 pinned the outer
-serializer only as an address span and a hash
-(`[0x00733570,0x00733614)`), with no per-field breakdown -- unlike the
-nested record, which it gave field-by-field.  Guessing that shape from the
-span alone would be exactly the "guessing an opcode" this project's lanes
-are forbidden to do.  What IS already proven and already used by this same
+THE OUTER SERIALIZER OF THIS CLASS: WHAT RE-227 GAVE, AND WHAT WAS ON
+DISK ALL ALONG.  ~~"RE-227 pinned the outer serializer only as an address
+span and a hash, with no per-field breakdown, so guessing that shape would
+be guessing an opcode"~~ IS HALF STRUCK in round `f03s5f`.  RE-227 itself
+gave only the span `[0x00733570,0x00733614)` and its SHA -- that part
+stands -- but RE-227's own mandatory-search block cites "ผลเดิม
+RE-086/087/090" in `pf_bridge/external/`, and TWO tracked artifacts there
+carry this class's outer fields, at the same span and the same SHA:
+
+    `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` lines 6377-6388 -- six
+    R rows and six W rows.  Among them, in BOTH directions and gated
+    `ALWAYS`: a `0x0B`-tagged field of length 1 at
+    `STACK@0x00733570+0x18`.  The others are calls the table itself marks
+    unresolved (an indirect slot `DEREF(DEREF(DEREF(OBJ+0x14))+0x10)`, a
+    direct call `0x0072EC50`, and two refcount atomics that are not wire
+    fields at all).
+
+    `pf_bridge/archive/notes_to_chief_2026-08/20260827_0115_RE-086-RESULT-
+    *.md` -- RE-086's prose says the same thing: the outer serializer
+    "sends a presence byte then calls the nested object's vtable slot
+    +0x10", 63 instructions, gap/error 0/0, same SHA.
+
+THIS ROUND FOUND THAT BY BEING TOLD, NOT BY LOOKING.  pf-adversary
+surfaced it after this round had already written an RE ticket asking for
+a field list that was committed to this project's own repository.  The
+round read RE-227 and did not follow RE-227's own citation.  That is the
+mandatory-search rule failing on the consumer side, and it is recorded
+here rather than quietly fixed, because the same shortcut is available to
+every lane every round.
+
+The consequence for the frame is measurable and is the reason
+`outer_leading_byte` exists on the composer below: every byte R313 sent
+went out with NO `0B` between the envelope's `0B <vital_version>` and the
+record's own `0B 01` first field.  If that measured, ALWAYS-gated outer
+byte is what the client reads first, the reader consumes the record's
+kind byte as the outer field and then meets `12` where it wants `0B` --
+it stops inside this class, which is exactly the dialog R313 got.  That
+is a HYPOTHESIS, not a finding: the field's existence is measured, the
+mis-read is inference, and no value for the byte is measured anywhere.  What IS already proven and already used by this same
 codebase for the same *kind* of frame -- one nested vital record pushed as
 the sole element of a client's VitalData collection -- is
 `current/pf_login_game_server_v141.py`'s own `make_runtime_vitals`, the
@@ -71,31 +104,31 @@ R313 (2026-09-05, attended, `pf_bridge/notes_to_chief/20260905_0212_KA1A-
 R313-RESULTS-*`) SENT THIS FOR REAL AND THE CLIENT REJECTED IT.  The client
 named the class itself in the error dialog -- "NavigationEx_AddSurveyDataVtial
 ErrorData=50351" -- which proves the msg_id is right (RE-227 never had a
-numeric id to cite; this is now the closest thing to one) and, per the same
-error's own wording, that the record's CONTENT, not the envelope, is what it
-could not read.  `tests/test_navigationex_survey_record.py`'s
-`R313CaptureParityTests` pins the captured bytes and proves this encoder
-reproduces them exactly (both the 60-byte `pc` and the 70-byte compressed
-`frame` R313's letter names) -- so the rejection is NOT an encoder-vs-RE-227
-mismatch; it must live in one of the four fields this module already labels
-UNMEASURED, in `vital_version`, or somewhere RE-227's static pass never
-reached.  ROUND `f03s5f` NARROWED THAT LAST CLAUSE TO AN ADDRESS.  50351 is
-not an error code: it is `0xC4AF`, this class's own id (see
-`R313_SURVEY_DIALOG_ERRORDATA` below and `read_failure_layer`), by the same
-rule this repository already spells out for 28317 = `0x6E9D` = the outer
-envelope's id.  So the dialog says the outer collection parsed, the client
-dispatched to THIS class, and this class's own reader stopped -- and the
-one part of this class RE-227 never read field-by-field is its OUTER
-serializer `[0x00733570,0x00733614)`, given as a span and a hash only,
-while the nested record got a field list.  This round's RE ticket
-(`pf_bridge/notes_to_chief/20260905_0430_LANE-A-RE-TICKET-*`) asks for that
-span, field by field: whether the class reads a record COUNT (or any header)
-before the first record is exactly the kind of fault that produces this
-dialog while every field the record does carry is byte-correct.  Nothing
-here guesses that shape -- the composer is unchanged until the RE answer
-lands.  Closing it further needs either the RE runner's machine (this
-environment has no `GameClient.local.bin`) or another attended trial
-varying one field at a time -- not another read of this module.
+numeric id to cite) and that the reader reached this class before it
+stopped.  50351 is not an error code: it is `0xC4AF`, this class's own id
+(see `R313_SURVEY_DIALOG_ERRORDATA` below and `read_failure_layer`), by the
+same rule this repository already spells out for 28317 = `0x6E9D` = the
+outer envelope's id.  So the outer collection parsed, the client dispatched
+to THIS class, and this class's own reader stopped.  An id names a PLACE,
+not a cause: it does not say which field, and it does not distinguish the
+record's content from this class's own outer shape.
+
+🔴 WHAT `R313CaptureParityTests` CAN AND CANNOT SHOW.  It pins that this
+encoder reproduces R313's captured bytes exactly.  That is a no-drift pin
+and nothing more: `git diff` between the commit R313 booted and this one
+touches no executable line of this module, so the "capture" IS this
+encoder's own output, and comparing them cannot fail unless someone edits
+the encoder.  ~~"so the rejection is NOT an encoder-vs-RE-227 mismatch"~~
+IS STRUCK (pf-adversary, round `f03s5f`, D2): the bytes the client rejected
+ARE this encoder's output, so parity with them is evidence that the encoder
+is the rejected thing, not that it is exonerated.  The only check that this
+encoder implements RE-227's list is `_hand_built_record` in the test file --
+a second construction from the same author's same reading of the same
+letter.  Two layers agreeing is consistency, not proof, and if RE-227's
+layout was read wrong BOTH go green together.  `pf_bridge/NOW.md` (03:47
+entry) already absorbed the struck claim as "ตัวผิดอาจไม่ใช่ layout"; this
+round's letter to COO asks for that line to be corrected rather than
+leaving a green test suite steering the next attended round.
 ~~"As of this round GT-233's queue head still reads READY ... this round's
 letter ASKS for BLOCKED-ON-LAYOUT"~~ IS STRUCK: chief made that edit in
 round `s5uz94` (R347, 2026-09-05T03:3x+07:00) and `GAME_TEST_QUEUE.md`'s
@@ -260,6 +293,7 @@ def encode_survey_record(legacy, fields: SurveyRecordFields) -> bytes:
 
 def encode_add_survey_data_outer(
     legacy, msg_id: int, vital_version: int, fields: SurveyRecordFields,
+    outer_leading_byte: int | None = None,
 ) -> tuple[bytes, bytes]:
     """The full outbound frame: `legacy.make_runtime_vitals` (the frozen,
     already-proven VitalData-collection envelope, WITH the trailing
@@ -270,12 +304,39 @@ def encode_add_survey_data_outer(
     this project.  ``msg_id`` has no default -- see the module docstring
     for why the numeric wire id is not committed as a fact here.
 
+    ``outer_leading_byte`` IS THE ONE FIELD R313's FRAME DID NOT CARRY.
+    ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`` (tracked; lines
+    6377-6388, span/SHA identical to the one RE-227 cites for this class's
+    OUTER serializer) records, for `NavigationEx_AddSurveyDataVtial`, a
+    ``0x0B``-tagged field of length 1 at ``STACK@0x00733570+0x18`` with
+    ``gate_condition ALWAYS`` -- on the write side AND on the read side,
+    at two different file offsets.  Everything R313 sent went out with no
+    such byte between the envelope's ``0B <vital_version>`` and the
+    record's own ``0B 01``.
+
+    Left ``None``, this function emits exactly the bytes R313 sent, so
+    nothing on the wire changes by upgrading to this signature.  Given an
+    int, it emits ``0B <value>`` after the vital header and before the
+    record -- the position the table's own offsets put it in.
+
+    WHAT IS MEASURED AND WHAT IS NOT.  The field's existence, tag, length
+    and ALWAYS gate are measured (that table, that SHA).  Its VALUE is not:
+    the table names no constant, and no capture of an original-server
+    AddSurveyData exists in this project.  So this composer refuses to
+    pick one -- `None` keeps today's bytes, and a caller who wants to try
+    a value has to write it down and own it, the same way the pose trial
+    cycles a list of ids rather than defaulting to a guess.  An attended
+    round is what decides between 0 and 1; this function only makes both
+    reachable without editing code at the client's side of the round.
+
     ~~CALLED FROM NO SEND PATH~~ IS STRUCK (2026-09-04, PR #760): GT-228
     measured the XYZ that COO-DECISION 20260904_0747 item 3(b) made the
     condition, and chief added the runtime.py call site it named, behind
     the attended-only flag.  It is still called from exactly one place.
     """
     record = encode_survey_record(legacy, fields)
+    if outer_leading_byte is not None:
+        record = legacy.u8tag(0x0B, outer_leading_byte) + record
     # PLURAL, not `make_runtime_vital`.  Chief, round `t7bsfx`/R342, after
     # pf-adversary D1 measured the difference on this very frame: the two
     # composers agree byte-for-byte except that the plural one appends the
