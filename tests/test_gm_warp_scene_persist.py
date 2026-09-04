@@ -273,6 +273,78 @@ class RealDatabaseTests(unittest.TestCase):
             warp_scene_persist.persist_warp_scene(session, _target(126, x=3050.0))
         self.assertNotIn("GM_WARP_SCENE_PERSISTED", stream.getvalue())
 
+    # ---- COO 1646 item 2: a failed write must be readable off the console,
+    # not just off `session.events` ---------------------------------------
+
+    def test_the_refused_destination_prints_the_failed_token_with_its_reason(self):
+        """`COO-DECISION 20260904_1646` item 2, answering `1620`.
+
+        A tester who only reads the console must be able to tell "wrote" from
+        "wrote-failed-silently" apart -- `GT-172` F-3 cannot be closed off a
+        trail entry nobody watching the screen ever sees.
+        """
+        session = self._session("persist16")
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, _target(126, x=3050.0),
+            )
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE)
+        self.assertIn(
+            f"GM_WARP_SCENE_PERSIST_FAILED scene=126 reason={outcome}",
+            stream.getvalue(),
+        )
+
+    def test_a_same_scene_no_op_write_prints_the_failed_token_too(self):
+        session = self._session("persist17")
+        stored = self._row(session)
+        session.foundation.checkpoint = lambda _position: None
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, WarpTarget(stored.scene_id, 26414.0, 20998.0, 186.0),
+            )
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROW_NOT_TOUCHED)
+        self.assertNotIn("GM_WARP_SCENE_PERSISTED ", stream.getvalue())
+        self.assertIn(
+            f"GM_WARP_SCENE_PERSIST_FAILED scene={stored.scene_id} reason={outcome}",
+            stream.getvalue(),
+        )
+
+    def test_a_raising_write_door_prints_the_failed_token_type_name_only(self):
+        session = self._session("persist18")
+
+        def raising(_position):
+            raise PermissionError("stale or non-owning character session 5678")
+
+        session.foundation.checkpoint = raising
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, _target(DESTINATION_SCENE),
+            )
+        self.assertIn(
+            f"GM_WARP_SCENE_PERSIST_FAILED scene={DESTINATION_SCENE} "
+            f"reason={outcome}",
+            stream.getvalue(),
+        )
+        self.assertNotIn("5678", stream.getvalue())
+
+    def test_a_broken_stderr_on_a_failed_write_costs_the_line_not_the_call(self):
+        class _Closed:
+            def write(self, _text):
+                raise ValueError("I/O operation on closed file")
+
+            def flush(self):
+                raise ValueError("I/O operation on closed file")
+
+        session = self._session("persist19")
+        with redirect_stderr(_Closed()):
+            outcome = warp_scene_persist.persist_warp_scene(
+                session, _target(126, x=3050.0),
+            )
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE)
+
     # ---- D5: the read-back compares the whole row ---------------------
 
     def test_a_same_scene_warp_that_writes_nothing_is_not_reported_persisted(self):
@@ -404,6 +476,17 @@ class SessionShapesThatCannotWriteTests(unittest.TestCase):
             warp_scene_persist.OUTCOME_NO_SESSION_DOOR,
         )
 
+    def test_a_session_with_no_write_door_prints_the_failed_token(self):
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(
+                _Session(object()), _target(2),
+            )
+        self.assertIn(
+            f"GM_WARP_SCENE_PERSIST_FAILED scene=2 reason={outcome}",
+            stream.getvalue(),
+        )
+
     def test_no_selected_character_is_named_not_raised(self):
         class _NoCharacter:
             selected = None
@@ -435,6 +518,13 @@ class SessionShapesThatCannotWriteTests(unittest.TestCase):
             warp_scene_persist.persist_warp_scene(_Session(object()), None),
             warp_scene_persist.OUTCOME_NOT_A_TARGET,
         )
+
+    def test_a_target_this_module_did_not_get_prints_no_token_at_all(self):
+        """There is no scene id to name -- this call was never a real warp."""
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_scene_persist.persist_warp_scene(_Session(object()), None)
+        self.assertEqual(stream.getvalue(), "")
 
 
 class LoginWouldAcceptTests(unittest.TestCase):
