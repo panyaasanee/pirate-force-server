@@ -53,7 +53,9 @@ class ScopeTests(unittest.TestCase):
         cache.capture_initial({})
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         with self.assertRaises(attr_wire.AttrWireError):
-            attr_wire.build_named_field_update(legacy, cache, 1, 0, 7, 5.0)
+            attr_wire.build_named_field_update(
+                legacy, cache, 1, 0, 7, 5.0, character_id=7,
+            )
 
     def test_shared_vital_version_confirmed_reads_attr_wire_live(self):
         self.assertIs(

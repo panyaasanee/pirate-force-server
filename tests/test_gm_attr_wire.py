@@ -437,13 +437,19 @@ class BuildNamedFieldUpdateCompletenessTests(unittest.TestCase):
             with self.assertRaises(
                 AttrWireError, msg=f"x={x} ({BY_X[x][6]}) missing alone should refuse"
             ):
-                build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+                build_named_field_update(
+                    self.legacy, cache, 1, 0, level_x, 5,
+                    character_id=7, hooks=_Hooks(),
+                )
 
     def test_a_fully_seeded_cache_composes(self):
         cache = RawBlockCache()
         cache.capture_initial(_full_values())
         level_x = BY_NAME["level"][0]
-        pc, frame = build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+        pc, frame = build_named_field_update(
+            self.legacy, cache, 1, 0, level_x, 5,
+            character_id=7, hooks=_Hooks(),
+        )
         self.assertGreater(len(pc), 0)
         self.assertGreater(len(frame), 0)
 
@@ -495,9 +501,13 @@ class RawBlockCacheTests(unittest.TestCase):
         # unchanged by the completeness requirement.
         cache.capture_initial(_full_values())
         legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
-        build_named_field_update(legacy, cache, 1, 0, level_x, 5)
+        build_named_field_update(
+            legacy, cache, 1, 0, level_x, 5, character_id=7, hooks=_Hooks(),
+        )
         self.assertEqual(cache.current_values().get(level_x), 5)
-        build_named_field_update(legacy, cache, 1, 0, hp_x, 80)
+        build_named_field_update(
+            legacy, cache, 1, 0, hp_x, 80, character_id=7, hooks=_Hooks(),
+        )
         # level must still be 5, not dropped, after the hp-only command
         self.assertEqual(cache.current_values().get(level_x), 5)
         self.assertEqual(cache.current_values().get(hp_x), 80)
@@ -511,19 +521,25 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         cache = RawBlockCache()
         level_x = BY_NAME["level"][0]
         with self.assertRaises(AttrWireError):
-            build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+            build_named_field_update(
+                self.legacy, cache, 1, 0, level_x, 5, character_id=7,
+            )
 
     def test_refuses_unknown_x(self):
         cache = RawBlockCache()
         cache.capture_initial({})
         with self.assertRaises(AttrWireError):
-            build_named_field_update(self.legacy, cache, 1, 0, 9999, 1)
+            build_named_field_update(
+                self.legacy, cache, 1, 0, 9999, 1, character_id=7,
+            )
 
     def test_refuses_sensitive_field_even_when_captured(self):
         cache = RawBlockCache()
         cache.capture_initial({})
         with self.assertRaises(AttrWireError):
-            build_named_field_update(self.legacy, cache, 1, 0, 30, b"\x00")
+            build_named_field_update(
+                self.legacy, cache, 1, 0, 30, b"\x00", character_id=7,
+            )
 
     def test_refuses_every_field_marked_known_false(self):
         cache = RawBlockCache()
@@ -533,13 +549,17 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         for x in unknown_xs:
             field = BY_X[x]
             with self.assertRaises(AttrWireError, msg=f"x={x} ({field[6]}) should be refused"):
-                build_named_field_update(self.legacy, cache, 1, 0, x, 0)
+                build_named_field_update(
+                    self.legacy, cache, 1, 0, x, 0, character_id=7,
+                )
 
     def test_succeeds_for_a_known_field_and_returns_pc_and_frame(self):
         cache = RawBlockCache()
         cache.capture_initial(_full_values())
         level_x = BY_NAME["level"][0]
-        pc, frame = build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+        pc, frame = build_named_field_update(
+            self.legacy, cache, 1, 0, level_x, 5, character_id=7, hooks=_Hooks(),
+        )
         self.assertIsInstance(pc, bytes)
         self.assertIsInstance(frame, bytes)
         self.assertGreater(len(pc), 0)
@@ -550,7 +570,9 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         seeded = _full_values()
         cache.capture_initial(seeded)
         level_x = BY_NAME["level"][0]
-        build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
+        build_named_field_update(
+            self.legacy, cache, 1, 0, level_x, 5, character_id=7, hooks=_Hooks(),
+        )
         # The merged block is the seed with ONE row overridden -- the whole
         # point of (b''): a send carries every FIELDS row, not just the
         # typed one, so nothing the client reads gets zeroed by omission.
@@ -568,6 +590,12 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         ride this door: setting it would widen the mask.  The next test pins
         that refusal, so the narrowing is stated in both directions rather
         than only being tested where it still passes.
+
+        Narrowed again round `zq18m1` (`COO-DECISION 20260904_1046`,
+        pf-adversary D2): `SELECTOR_ROW_X` (x=9) is excluded even though it
+        is `known=True` and in the login set -- this door refuses it by
+        name now.  `test_d2_the_selector_row_is_refused_by_this_door_by_name`
+        pins that refusal; see `build_named_field_update`'s own docstring.
         """
         # `known=False` rows (x=7, x=10) stay refused by this door even
         # though the login shape carries them: this API is where a caller
@@ -575,8 +603,12 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         # cannot name.  Their door is `login_mask.build_login_shaped_frame`'s
         # `overrides`, which `COO-DECISION 20260904_0545` item 2 names for
         # x=7 by hand ("x=7 = the value the command is setting").
-        rows = [x for x in login_mask.login_field_x(self.legacy) if BY_X[x][7]]
+        rows = [
+            x for x in login_mask.login_field_x(self.legacy)
+            if BY_X[x][7] and x != SELECTOR_ROW_X
+        ]
         self.assertIn(BY_NAME["cash"][0], rows)
+        self.assertNotIn(SELECTOR_ROW_X, rows)
         for x in rows:
             field = BY_X[x]
             cache = RawBlockCache()
@@ -585,7 +617,9 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
                 "u8": 1, "u16": 2, "u32": 3, "i32": -1, "f32": 1.5,
                 "u64": 4, "wstr": "x", "blob": b"\x00",
             }[field[5]]
-            pc, frame = build_named_field_update(self.legacy, cache, 1, 0, x, sample)
+            pc, frame = build_named_field_update(
+                self.legacy, cache, 1, 0, x, sample, character_id=7, hooks=_Hooks(),
+            )
             self.assertGreater(len(pc), 0, msg=f"x={x} ({field[6]})")
             self.assertGreater(len(frame), 0, msg=f"x={x} ({field[6]})")
 
@@ -603,10 +637,77 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         with self.assertRaises(AttrWireError) as caught:
             build_named_field_update(
                 self.legacy, cache, 1, 0, BY_NAME["mp_current"][0], 5,
+                character_id=7,
             )
         self.assertIn("not in the login set", str(caught.exception))
         # And nothing was sent or cached on the way to that refusal.
         self.assertEqual(set(cache.current_values()), set(_full_values()))
+
+    def test_the_selector_row_is_never_a_callers_chosen_value(self):
+        # pf-adversary round `y6j1mn`, D2 [MEASURED].  x=9 is `known=True`
+        # and IS in the login set -- neither of the two checks above would
+        # catch a caller naming it -- so it is refused by name, same posture
+        # `login_mask.build_login_shaped_frame` already takes for its own
+        # `overrides` (see that refusal's own comment): the selector's value
+        # is derived from the session, never a literal handed in through any
+        # door in this lane.  This is UNCHANGED by round `zq18m1`
+        # (`COO-DECISION 20260904_1149`); what changed is the OTHER test
+        # right below this one.
+        selector_x = SELECTOR_ROW_X
+        self.assertTrue(BY_X[selector_x][7], "selector row must be known=True")
+        self.assertIn(selector_x, login_mask.login_field_x(self.legacy))
+        cache = RawBlockCache()
+        seeded = _full_values()
+        cache.capture_initial(seeded)
+        for value in (5, 8, seeded[selector_x]):
+            with self.assertRaises(AttrWireError) as caught:
+                build_named_field_update(
+                    self.legacy, cache, 1, 0, selector_x, value, character_id=7,
+                )
+            self.assertIn("no caller chooses it through any door", str(caught.exception))
+        # And nothing was sent or cached on the way to any of those refusals.
+        self.assertEqual(cache.current_values(), seeded)
+
+    def test_d2_a_stale_cached_selector_is_caught_at_the_wall_even_setting_an_unrelated_field(self):
+        # THE ACTUAL CLOSURE of pf-adversary round `y6j1mn` D2 [MEASURED]
+        # (`COO-DECISION 20260904_1149` item 1, round `zq18m1`).  D2's own
+        # repro did not name x=9 at all: a cache seeded at login scene 3, a
+        # live current-scene hook then answering 5 (the player moved), and a
+        # call through this door setting an UNRELATED field (`level`) still
+        # composed a real frame carrying the stale 3 on the selector.  This
+        # pins that the wall now catches exactly that shape, and that the
+        # cache is left untouched by the refusal.
+        seeded = _full_values()
+        stale_scene = seeded[SELECTOR_ROW_X]
+        live_scene = stale_scene + 1
+        cache = RawBlockCache()
+        cache.capture_initial(seeded)
+        level_x = BY_NAME["level"][0]
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(
+                self.legacy, cache, 1, 0, level_x, 5,
+                character_id=7, hooks=_Hooks(scene=live_scene),
+            )
+        self.assertIn("selector_would_change_at_the_wall", str(caught.exception))
+        self.assertIn(str(stale_scene), str(caught.exception))
+        self.assertIn(str(live_scene), str(caught.exception))
+        # And the cache was not merged/record_sent on the way to the refusal.
+        self.assertEqual(cache.current_values(), seeded)
+
+    def test_d2_a_current_cached_selector_still_composes(self):
+        # The fix must not close the door for the ORDINARY case: a cache
+        # whose selector row already matches the live current scene must
+        # still compose, through the same wall, for any other field.
+        seeded = _full_values()
+        cache = RawBlockCache()
+        cache.capture_initial(seeded)
+        level_x = BY_NAME["level"][0]
+        pc, frame = build_named_field_update(
+            self.legacy, cache, 1, 0, level_x, 5,
+            character_id=7, hooks=_Hooks(scene=seeded[SELECTOR_ROW_X]),
+        )
+        self.assertTrue(pc)
+        self.assertTrue(frame)
 
 
 class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
@@ -631,7 +732,9 @@ class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
         cache.capture_initial({x: full[x] for x in plain_rows})
         faction_x = BY_NAME["basic_faction"][0]
         with self.assertRaises(AttrWireError) as caught:
-            build_named_field_update(self.legacy, cache, 1, 0, faction_x, 1)
+            build_named_field_update(
+                self.legacy, cache, 1, 0, faction_x, 1, character_id=7,
+            )
         self.assertIn("is not in the shape this connection's cache holds",
                       str(caught.exception))
         # and the cache is untouched, so the next frame is still plain
@@ -647,6 +750,7 @@ class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
         cache.capture_initial({x: full[x] for x in plain_rows})
         pc, frame = build_named_field_update(
             self.legacy, cache, 1, 0, BY_NAME["level"][0], 9,
+            character_id=7, hooks=_Hooks(scene=full[SELECTOR_ROW_X]),
         )
         self.assertTrue(frame)
         self.assertEqual(set(cache.current_values()), set(plain_rows))
@@ -711,7 +815,9 @@ class VersionGateTests(unittest.TestCase):
         # Still composes freely regardless of the gate value -- this door was
         # never gated on it, and still is not.  (The cache is seeded in full
         # because of (b''), which is a different gate; see D10.)
-        pc, frame = build_named_field_update(legacy, cache, 1, 0, level_x, 5)
+        pc, frame = build_named_field_update(
+            legacy, cache, 1, 0, level_x, 5, character_id=7, hooks=_Hooks(),
+        )
         self.assertGreater(len(pc), 0)
         self.assertGreater(len(frame), 0)
 
@@ -1037,10 +1143,13 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
             cache, 7, hooks=_Hooks(_complete_values()), stream=io.StringIO()
         )
         with self.assertRaises(AttrWireError):
-            build_named_field_update(legacy, cache, 1, 0, unknown_x, 1)
+            build_named_field_update(
+                legacy, cache, 1, 0, unknown_x, 1, character_id=7,
+            )
         with self.assertRaises(AttrWireError):
             build_named_field_update(
-                legacy, RawBlockCache(), 1, 0, BY_NAME["level"][0], 5
+                legacy, RawBlockCache(), 1, 0, BY_NAME["level"][0], 5,
+                character_id=7,
             )
 
 
@@ -1203,18 +1312,43 @@ class SelectorRowIsTheCurrentSceneTests(unittest.TestCase):
             combined[SELECTOR_ROW_X], _login_values()[SELECTOR_ROW_X],
         )
 
-    def test_D2_the_named_field_door_is_NOT_behind_either_fence(self):
-        # pf-adversary round `y6j1mn`, D2, MEASURED -- pinned as a KNOWN
-        # HOLE, not as a property anyone wants.  `build_named_field_update`
-        # composes from the cache and never calls `live_full_block_values`,
-        # so a cache seeded at the login scene keeps composing frames with
-        # that scene on the selector after the session has moved, silently.
-        # The card exists so the hole cannot be forgotten: when the next
-        # round moves the fences to `make_update_attr_frame`, this goes red.
+    def test_D2_the_named_field_door_now_re_verifies_at_the_wall(self):
+        # ~~test_D2_the_named_field_door_is_NOT_behind_either_fence~~ --
+        # RENAMED TWICE now (not the hole it pinned, the closure of it).
+        # Round `zq18m1` first closed it with a blanket refusal of
+        # `SELECTOR_ROW_X` as a caller-chosen value (`COO-DECISION
+        # 20260904_1046`); the SAME round, later, `COO-DECISION
+        # 20260904_1149` item 1 ordered the real fence instead: this door
+        # now threads `character_id`/`hooks` into `make_update_attr_frame`,
+        # which independently re-verifies whatever `SELECTOR_ROW_X` value is
+        # ABOUT TO SHIP against `live_current_scene`, regardless of which
+        # field the caller actually named. The MUTANT `0846` demanded
+        # (option (a): ship the value already in the cache/login byte
+        # instead of the live current scene) now goes red when exercised
+        # THROUGH THIS DOOR -- not only through `live_full_block_values`
+        # directly, which `test_MUTANT_x9_carrying_the_old_login_scene_is_
+        # red` already pinned. See `BuildNamedFieldUpdateTests
+        # .test_d2_a_stale_cached_selector_is_caught_at_the_wall_even_
+        # setting_an_unrelated_field` for the exact repro pf-adversary
+        # measured, replayed through this door.
         import inspect
         source = inspect.getsource(build_named_field_update)
-        self.assertNotIn("live_full_block_values", source)
-        self.assertNotIn("live_current_scene", source)
+        self.assertIn("character_id", source)
+        cache = RawBlockCache()
+        seeded = _full_values()
+        cache.capture_initial(seeded)
+        stale_scene = seeded[SELECTOR_ROW_X]
+        live_scene = stale_scene + 1
+        level_x = BY_NAME["level"][0]
+        # THE MUTANT, LIVE: cache holds the stale scene, the live hook
+        # answers a different one, and the door is asked to change a field
+        # that is NOT the selector.
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(
+                self.legacy, cache, 1, 0, level_x, 5,
+                character_id=7, hooks=_Hooks(scene=live_scene),
+            )
+        self.assertIn("selector_would_change_at_the_wall", str(caught.exception))
 
     def test_D3_the_selector_row_is_never_an_override_a_caller_picks(self):
         # pf-adversary round `y6j1mn`, D3, MEASURED: `overrides` is applied
@@ -1450,7 +1584,8 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
         self.assertTrue(cache.is_captured())
         with self.assertRaises(AttrWireError) as caught:
             build_named_field_update(
-                self.legacy, cache, 1, 0, BY_NAME["hp_current"][0], 80
+                self.legacy, cache, 1, 0, BY_NAME["hp_current"][0], 80,
+                character_id=7,
             )
         self.assertIn("(b''", str(caught.exception))
         self.assertIn(str(BY_NAME["cash"][0]), str(caught.exception))
@@ -1465,7 +1600,8 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
         cache.capture_initial(values)
         with self.assertRaises(AttrWireError):
             build_named_field_update(
-                self.legacy, cache, 1, 0, BY_NAME["level"][0], 5
+                self.legacy, cache, 1, 0, BY_NAME["level"][0], 5,
+                character_id=7,
             )
 
     def test_d13_absent_and_unsendable_rows_are_reported_apart(self):
