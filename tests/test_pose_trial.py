@@ -62,15 +62,60 @@ class GateReadingTests(unittest.TestCase):
     def test_anything_the_owner_did_not_mean_to_type_is_malformed(self):
         # `1_0`, `0b1` and `0o7` are here because `int(text, 0)` would have
         # accepted all three: a selector nobody chose is exactly what costs
-        # an attended round.  The unicode digit is here because `str.isdigit`
-        # alone says yes to it and `int()` would then return 2.
+        # an attended round.  U+0662 ARABIC-INDIC DIGIT TWO is in because
+        # `str.isdigit()` says yes to it and `int()` would then return 2 --
+        # written as an escape, not as a raw byte, because a non-ASCII byte
+        # in this file renders through the cp874 console when a subtest fails
+        # (pf-adversary D9).  The input is the point; the hazard is not.
         for text in ("fast", "-1", "280.0", "1e2", "1_0", "0b1", "0o7", "0x",
-                     "0xzz", "4294967296", "٢", "280 290", "auto2"):
+                     "0xzz", "4294967296", "\u0662", "280 290", "auto2"):
             with self.subTest(text=text):
                 self.assertEqual(
                     pose_trial.trial_opening({"PF_POSE_TRIAL": text}),
                     (pose_trial.TRIAL_MALFORMED, None),
                 )
+
+    def test_a_digit_string_too_long_for_int_is_refused_not_raised(self):
+        """CPython >= 3.11 raises past 4300 digits; this runs in dispatch.
+
+        pf-adversary drove 4400 nines through the real dispatch path and
+        watched the ValueError leave `state.dispatch()` (D1) -- interlock X07
+        exactly, because the frozen `game_listener` has no except handlers.
+        """
+        for length in (11, 4300, 4400):
+            text = "9" * length
+            with self.subTest(length=length):
+                self.assertEqual(
+                    pose_trial.trial_opening({"PF_POSE_TRIAL": text}),
+                    (pose_trial.TRIAL_MALFORMED, None),
+                )
+        # The hex branch has no digit limit of its own, but check it too:
+        # `int(body, 16)` on a long body must not become a new way in.
+        self.assertEqual(
+            pose_trial.trial_opening({"PF_POSE_TRIAL": "0x" + "f" * 4400}),
+            (pose_trial.TRIAL_MALFORMED, None),
+        )
+
+    def test_ten_digits_still_covers_every_u32(self):
+        # The length cap must not refuse anything an operator can mean.
+        self.assertEqual(len(str(pose_trial.U32_MAX)), 10)
+        self.assertEqual(
+            pose_trial.trial_opening({"PF_POSE_TRIAL": "0000000280"}),
+            (pose_trial.TRIAL_ARMED, 280),
+        )
+
+    def test_the_sweep_order_cannot_drift_from_the_crosswalk(self):
+        # The six ids live in ONE literal (the crosswalk); the sweep is a
+        # tuple of equip types resolved through it.  pf-adversary measured
+        # that no test here can catch a mistyped ROW (D3) -- the tables are
+        # not in this repository -- so this pins the one thing that is
+        # checkable: the two structures cannot disagree.
+        self.assertEqual(
+            pose_trial.TICKET_SWEEP_ORDER, (280, 284, 288, 282, 290, 286))
+        self.assertEqual(
+            sorted(pose_trial.TICKET_SWEEP_EQUIP_TYPES),
+            sorted(pose_trial.ATTACK_BEHAVIOR_BY_EQUIP_TYPE),
+        )
 
     def test_auto_is_refused_while_no_equip_type_has_a_provenance(self):
         # RE-110 nonclaim 5 and COO 2141 point 2: `auto` may not guess.
@@ -122,27 +167,28 @@ class GateReadingTests(unittest.TestCase):
                 state, value = pose_trial.trial_opening({"PF_POSE_TRIAL": raw})
                 self.assertIsNone(value)
                 self.assertIn(
-                    state, (pose_trial.TRIAL_MALFORMED, pose_trial.TRIAL_UNSET),
+                    state,
+                    (pose_trial.TRIAL_MALFORMED, pose_trial.TRIAL_UNSET),
                 )
 
     def test_the_console_token_names_the_arm_by_what_was_actually_sent(self):
         self.assertEqual(
             pose_trial.console_token(ECHO, ECHO, pose_trial.TRIAL_ARMED),
-            "POSE_TRIAL sent=+0x30=60029 control",
+            "POSE_TRIAL sent=+0x30=60029 control echo=60029",
         )
         self.assertEqual(
             pose_trial.console_token(280, ECHO, pose_trial.TRIAL_ARMED),
-            "POSE_TRIAL sent=+0x30=280 mutant",
+            "POSE_TRIAL sent=+0x30=280 mutant echo=60029",
         )
         self.assertEqual(
             pose_trial.console_token(ECHO, ECHO, pose_trial.TRIAL_MALFORMED),
-            "POSE_TRIAL_REFUSED malformed sent=+0x30=60029 control",
+            "POSE_TRIAL_REFUSED malformed sent=+0x30=60029 control echo=60029",
         )
         self.assertEqual(
             pose_trial.console_token(
                 ECHO, ECHO, pose_trial.TRIAL_NO_PROVENANCE),
             "POSE_TRIAL_REFUSED auto_no_equip_type_provenance "
-            "sent=+0x30=60029 control",
+            "sent=+0x30=60029 control echo=60029",
         )
 
     def test_a_refused_arming_ships_the_requests_own_selector(self):
@@ -157,6 +203,53 @@ class GateReadingTests(unittest.TestCase):
         self.assertEqual(
             pose_trial.selector_for_reply(ECHO, {}), (ECHO, None),
         )
+
+    def test_an_armed_boot_says_so_at_boot_and_an_unarmed_one_says_nothing(
+            self):
+        """pf-adversary D4: silence must mean unarmed, and nothing else.
+
+        The reply token fires at most once per process and only after four
+        preconditions hold, so an operator who arms the variable and boots
+        without the ack scenario would otherwise see a console identical to
+        an unarmed boot.
+        """
+        self.assertIsNone(pose_trial.boot_banner({}))
+        self.assertIsNone(pose_trial.boot_banner({"PF_POSE_TRIAL": " "}))
+        self.assertEqual(
+            pose_trial.boot_banner({"PF_POSE_TRIAL": "280"}),
+            "POSE_TRIAL_BOOT armed=280",
+        )
+        self.assertEqual(
+            pose_trial.boot_banner({"PF_POSE_TRIAL": "auto"}),
+            "POSE_TRIAL_BOOT refused=auto_no_equip_type_provenance",
+        )
+        self.assertEqual(
+            pose_trial.boot_banner({"PF_POSE_TRIAL": "fast"}),
+            "POSE_TRIAL_BOOT refused=malformed",
+        )
+        for text in ("280", "auto", "fast"):
+            self.assertTrue(
+                pose_trial.boot_banner({"PF_POSE_TRIAL": text}).isascii())
+
+    def test_the_import_time_announcer_never_raises(self):
+        # It runs on every boot, including one whose stdout is already gone.
+        import io as _io
+
+        broken = _io.StringIO()
+        broken.close()
+        saved = pose_trial.os.environ.get(pose_trial.POSE_TRIAL_ENV)
+        try:
+            pose_trial.os.environ[pose_trial.POSE_TRIAL_ENV] = "280"
+            with contextlib.redirect_stdout(broken):
+                pose_trial._announce_at_import()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                pose_trial._announce_at_import()
+            self.assertEqual(out.getvalue(), "POSE_TRIAL_BOOT armed=280\n")
+        finally:
+            pose_trial.os.environ.pop(pose_trial.POSE_TRIAL_ENV, None)
+            if saved is not None:
+                pose_trial.os.environ[pose_trial.POSE_TRIAL_ENV] = saved
 
     def test_every_console_line_is_ascii(self):
         # The bridge console is cp874; a non-ASCII byte here raises
@@ -207,7 +300,8 @@ class ComposedFrameTests(unittest.TestCase):
         self.assertEqual(control_pc, pc)
         self.assertEqual(control_frame, frame)
         self.assertEqual(
-            control_printed, "POSE_TRIAL sent=+0x30=60029 control\n")
+            control_printed,
+            "POSE_TRIAL sent=+0x30=60029 control echo=60029\n")
 
     def test_a_refused_arming_composes_the_unarmed_bytes(self):
         baseline, _, _ = self.compose({})
@@ -244,14 +338,19 @@ class ComposedFrameTests(unittest.TestCase):
                     baseline,
                 )
                 self.assertEqual(
-                    printed, "POSE_TRIAL sent=+0x30=%d mutant\n" % value)
+                    printed,
+                    "POSE_TRIAL sent=+0x30=%d mutant echo=60029\n" % value)
 
     def test_the_byte_identity_pin_can_actually_fail(self):
         """Mutate this lane's own gate; the pin above must go red.
 
-        Without this, `test_an_unarmed_boot_is_byte_and_line_identical` would
-        also pass on a build where the gate was accidentally unreachable --
-        it would be pinning nothing.
+        pf-adversary was precise about what this does and does not earn
+        (D13): removing the gate call outright already turns eleven tests
+        red, so this is not the only thing standing between the suite and an
+        unreachable gate.  What it catches that the byte pin alone would not
+        is a gate that computes and prints a selector the composer then
+        ignores -- and it keeps the byte pin honest by showing, in the same
+        file, what a red one looks like.
         """
         baseline, _, _ = self.compose({})
         original = pose_trial.trial_opening
@@ -261,7 +360,8 @@ class ComposedFrameTests(unittest.TestCase):
             )
             pc, _, printed = self.compose({})
             self.assertNotEqual(pc, baseline)
-            self.assertEqual(printed, "POSE_TRIAL sent=+0x30=280 mutant\n")
+            self.assertEqual(
+                printed, "POSE_TRIAL sent=+0x30=280 mutant echo=60029\n")
         finally:
             pose_trial.trial_opening = original
         self.assertEqual(self.compose({})[0], baseline)
@@ -361,7 +461,8 @@ class DispatchTests(unittest.TestCase):
         mutant, mutant_printed = self.dispatch({"PF_POSE_TRIAL": "280"})
         self.assertNotEqual(mutant, baseline)
         self.assertEqual(len(mutant), len(baseline))
-        self.assertIn("POSE_TRIAL sent=+0x30=280 mutant", mutant_printed)
+        self.assertIn(
+            "POSE_TRIAL sent=+0x30=280 mutant echo=60029", mutant_printed)
         self.assertEqual(
             hashlib.sha256(self.dispatch({})[0]).hexdigest(),
             hashlib.sha256(baseline).hexdigest(),
@@ -369,7 +470,9 @@ class DispatchTests(unittest.TestCase):
         control, control_printed = self.dispatch(
             {"PF_POSE_TRIAL": str(ECHO)})
         self.assertEqual(control, baseline)
-        self.assertIn("POSE_TRIAL sent=+0x30=60029 control", control_printed)
+        self.assertIn(
+            "POSE_TRIAL sent=+0x30=60029 control echo=60029",
+            control_printed)
 
 
 if __name__ == "__main__":
