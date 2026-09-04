@@ -49,7 +49,7 @@ world's books that no client was ever told about is worse than the bug this
 file closes: the player watches a monster they never killed refuse every
 hit.
 
-WHAT THIS BOOK IS AUTHORITATIVE OVER  [LANE-B ASSUMPTION - AWAITING COO].
+WHAT THIS BOOK IS AUTHORITATIVE OVER  [COO 2049: advisory until Door B].
 pf-adversary asked the sharp version of the question below and it deserves a
 straight answer rather than an implied one: ``WorldGround`` grew an atomic
 ``claim`` the moment two sessions could see one floor, and this book has no
@@ -60,10 +60,19 @@ and it is ADVISORY everywhere else -- it does not gate a strike, a roll or a
 drop.  Making it authoritative over the KILL would change what a second
 player standing in the scene sees happen in front of them (a monster that
 stops answering their attacks mid-fight), which is a game-design ruling and
-not a lane's call.  The letter asking for that ruling is
+not a lane's call.  ``COO-DECISION 20260904_2049`` (answering
 ``pf_bridge/notes_to_chief/20260904_2005_LANE-B-ASK-COO-what-is-the-
-worlds-grave-book-authoritative-over.md``; until it is
-answered this file does the smaller, strictly-not-worse thing.
+worlds-grave-book-authoritative-over.md``) settled it: (a) advisory stands
+for now -- unchanged from the paragraph above; (b) authoritative-over-the-kill
+is the destination, queued behind Door B (M4 item 1) landing, because what a
+second player sees has to ride the same frame Door B sends.  When that round
+comes, the spec is already decided and does not need re-litigating: the
+second killer sees the monster become a corpse in the SAME frame a relog
+shows one in; their strike is refused by name (``mob_already_dead_in_the_
+world``); there is no second drop; and the door is one atomic
+``claim_the_kill(scene, identity)``, the same shape as
+:meth:`mob_ground_persistence.WorldGround.claim`.  Until that round, this
+file does the smaller, strictly-not-worse thing below.
 
 WHAT THIS FILE DOES NOT MAKE TRUE, AND IT IS THE SAME GAP THE GROUND HAS.
 Two players standing in one scene each hold their own ``DeathRegister``, and
@@ -790,15 +799,25 @@ def seed_the_session_state(
             print(describe_seeded(outcome))
         return (seeded, ledger)
     applied = 0
+    # `mutated` is a LOCAL, never the `ledger` parameter: `seed_register`
+    # above never reassigns `register` either, for the same reason -- a
+    # `with_balance` that raises on the SECOND OR LATER admitted row must
+    # roll back to the ledger the caller handed in, not to a ledger already
+    # carrying the earlier rows' mutations (pf-adversary, this round: a
+    # reassigned `ledger` made the `except` branch's own "the caller gets
+    # back exactly what it handed in" claim false, and fed a partially-
+    # zeroed ledger straight into `mob_death.repopulation_entries`, which is
+    # the exact crash this function exists to prevent).
     try:
-        carried = set(ledger.identities())
+        mutated = ledger
+        carried = set(mutated.identities())
         for record in outcome.admitted:
             if record.actor_identity not in carried:
                 continue
-            standing = ledger.balance_of(record.actor_identity)
+            standing = mutated.balance_of(record.actor_identity)
             if standing.current_hp == mob_death.HP_WHEN_DEAD:
                 continue
-            ledger = ledger.with_balance(mob_combat.MobBalance(
+            mutated = mutated.with_balance(mob_combat.MobBalance(
                 record.actor_identity, standing.max_hp,
                 mob_death.HP_WHEN_DEAD))
             applied += 1
@@ -817,7 +836,7 @@ def seed_the_session_state(
         return (register, ledger)
     if announce and _worth_saying(outcome):
         print("%s ledger_zeroed=%d" % (describe_seeded(outcome), applied))
-    return (seeded, ledger)
+    return (seeded, mutated)
 
 
 #: The pasteable call site, kept next to the function it names so that the

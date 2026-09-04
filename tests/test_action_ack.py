@@ -1,4 +1,4 @@
-import copy, hashlib, json, math, sys, tempfile, unittest
+import copy, hashlib, json, math, os, sys, tempfile, unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/"src"))
 from pirateforce_foundation.legacy_bridge import LegacyProjector,load_legacy
@@ -11,6 +11,13 @@ from pirateforce_foundation.store import SQLiteStore
 
 class ActionAckTests(unittest.TestCase):
  def setUp(self):
+  # ATTACK-POSE-ONE-FIELD-AB-001 arms the ActionVital +0x30 selector from the
+  # PROCESS environment, so a shell that still has PF_POSE_TRIAL set would
+  # turn this file's frozen differential-performer pin red with a diff that
+  # says nothing about a trial (pf-adversary D8).  These tests are about the
+  # production composition; the trial has its own file.
+  self._pose_trial_env=os.environ.pop("PF_POSE_TRIAL",None)
+  self.addCleanup(self._restore_pose_trial_env)
   self.tmp=tempfile.TemporaryDirectory(); self.db=Path(self.tmp.name)/"a.sqlite3"
   self.store=SQLiteStore(self.db,ROOT/"migrations"); self.store.migrate()
   self.v=load_legacy(ROOT/"current/pf_login_game_server_v141.py"); self.projector=LegacyProjector(self.v)
@@ -22,6 +29,8 @@ class ActionAckTests(unittest.TestCase):
   self.character,_=seed.create("Arena01",actor)
   self.path=ROOT/"scenarios/port_royal_fighting_fish_soldier_hp3857_player_faction1_ea7d_ack.json"
   self.scenario=load_scene_load_scenario(self.path)
+ def _restore_pose_trial_env(self):
+  if self._pose_trial_env is not None: os.environ["PF_POSE_TRIAL"]=self._pose_trial_env
  def tearDown(self): self.tmp.cleanup()
  def request(self, action=0xEA7D,target=0x203D,performer=0,qword3=0,u32=0,heading=1.25,x=2.5,y=3.5,z=4.5,u8=0,scene=1,last=0,count=2,extra=b''):
   body=(self.v.qwordtag(0x32,performer)+self.v.qwordtag(0x32,target)+self.v.qwordtag(0x32,qword3)

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 import struct
 
+from . import pose_trial
 from .mob_loot import (
     MobLootContractError,
     preserve_ground_in_runtime_res_vitals,
@@ -73,8 +74,27 @@ def parse_scene006_ea7d(legacy, parsed, policy: SceneActionAck):
     return fields
 
 
+def _say(line):
+    """Print one trial line, and never raise into ``state.dispatch()``.
+
+    ``print`` to a closed stdout raises ``ValueError`` and to a broken pipe
+    ``BrokenPipeError`` -- both measured by pf-adversary (D10) -- and the
+    frozen ``game_listener`` above this call has no except handlers
+    (interlock X07), so either one would kill the thread over a log line.
+    The pre-existing ``GROUND_VITALS_PRESERVE_REFUSED`` print has the same
+    exposure and is left exactly as it was: widening it is a separate change
+    with its own argument, not something to smuggle in here.
+    """
+    if line is None:
+        return
+    try:
+        print(line)
+    except Exception:  # noqa: BLE001 - a log line never kills the listener
+        pass
+
+
 def make_scene007_action_ack(legacy, fields, performer_identity: int,
-                             refusals=None):
+                             refusals=None, *, environ=None):
     """Build one ActionVital; only performer differs from the audited request.
 
     ``refusals``: optional list the caller may pass to learn that the ground
@@ -83,15 +103,33 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
     collects -- the events list, the DB and --export-events all look
     identical on both paths -- and "the absence of a console line" is not
     evidence.  pf-adversary raised this as D6 this round.
+
+    ``environ``: the mapping the ``ATTACK-POSE-ONE-FIELD-AB-001`` trial gate
+    reads instead of the process environment.  For tests only; the runtime
+    call site does not pass it, and with it absent the gate reads
+    ``os.environ`` exactly as an attended boot does.  "Only performer
+    differs" above stays literally true on every unarmed boot: see
+    ``pose_trial.selector_for_reply``, which returns the request's own
+    ``+0x30`` and no console line while ``PF_POSE_TRIAL`` is unset.
     """
     # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
     if not 0 < performer_identity <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("selected performer identity is outside uint64")
+    # ATTACK-POSE-ONE-FIELD-AB-001 (COO-DECISION 20260904_2141).  The ONE
+    # field the trial may move, and it moves nowhere unless an owner armed
+    # PF_POSE_TRIAL in this process.  The line is computed here and PRINTED
+    # AT THE EXITS below, after a frame exists: an earlier version printed
+    # here, and pf-adversary pointed out (D5) that the composer below can
+    # propagate anything that is not MobLootContractError, which would leave
+    # the attended log claiming a selector for a frame that was never sent.
+    action_selector, pose_line = pose_trial.selector_for_reply(
+        fields["action_u32_30"], environ,
+    )
     payload = (
         legacy.qwordtag(0x32, performer_identity)
         + legacy.qwordtag(0x32, fields["field_qword_20"])
         + legacy.qwordtag(0x32, fields["field_qword_28"])
-        + legacy.u32tag(0x14, fields["action_u32_30"])
+        + legacy.u32tag(0x14, action_selector)
         + legacy.u32tag(0x19, fields["field_u32_34"])
         + legacy.f32tag(fields["heading_f32_38"])
         + legacy.f32tag(fields["x_f32_3c"])
@@ -130,11 +168,13 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
     # lane_hooks/__init__.py:180, persistence_canon_gate.py:229).  The reason
     # name is not lost: it rides the event below, which --export-events keeps.
     try:
-        return preserve_ground_in_runtime_res_vitals(legacy, vitals)
+        composed = preserve_ground_in_runtime_res_vitals(legacy, vitals)
     except MobLootContractError as exc:
         print("GROUND_VITALS_PRESERVE_REFUSED " + type(exc).__name__)
         if refusals is not None:
             # args[0] is this lane's own reason NAME (mob_loot.py:1082), an
             # ASCII constant -- safe to carry, unlike the message.
             refusals.append(str(exc.args[0]) if exc.args else "UNNAMED")
-        return legacy.make_runtime_vitals(vitals)
+        composed = legacy.make_runtime_vitals(vitals)
+    _say(pose_line)
+    return composed
