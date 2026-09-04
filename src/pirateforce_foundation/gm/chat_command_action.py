@@ -370,6 +370,7 @@ from .warp_scene_persist import (
     rollback_warp_scene,
     row_before_warp,
 )
+from . import warp_send_watch
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -1322,6 +1323,24 @@ EVENT_WARP_SCENE_PERSIST_PREFIX = "gm_chat_action_warp_scene_persist_"
 # word buried at the end of a long name (pf-adversary round `741zlx`,
 # finding 1: the whole defect was two states that looked alike).
 EVENT_WARP_SCENE_ROLLBACK_PREFIX = "gm_chat_action_warp_scene_rollback_"
+# `CORE-REQUEST-GM-057`'s own park (`gm/warp_send_watch.py`): the persisted
+# row's frame could not be recorded as owed a send (a session that refuses
+# attributes).  Same "not a refusal, the frame is real" reasoning as
+# `EVENT_WARP_TARGET_NOT_RECORDED` above, and deliberately silent on
+# success for the identical reason chief's own confirmation-token appendix
+# gave for that sibling: a park succeeding is not itself an observable
+# event, only its later confirm/rollback is.
+EVENT_WARP_SEND_WATCH_NOT_PARKED = "gm_chat_action_warp_send_watch_not_parked"
+# The withheld warp's OWN park could not be dropped once `verdict.undo` had
+# already reverted the row synchronously (a session that swallows the
+# write).  Named separately from `EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED`:
+# that one is chief's position-confirmation record, this one is the
+# send-failure safety net, and pf-adversary has already found this lane
+# folding two different "could not clear" facts into one word once
+# (`OUTCOME_ROW_NOT_TOUCHED`, `warp_scene_persist.py`'s own comment).
+EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED = (
+    "gm_chat_action_warp_send_watch_stale_park_not_cleared"
+)
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 # The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
 # the scene_id that was staged, so an attended run can grep one line and read
@@ -2602,6 +2621,25 @@ def _make_action(
             ):
                 if not clear_warp_target(session):
                     _note(session, EVENT_OUTCOME_STALE_TARGET_NOT_CLEARED)
+                if action[0] == WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL:
+                    # `CORE-REQUEST-GM-057`'s own park.  ONLY this label's
+                    # compose call can have made one (`_persist_warp_scene`'s
+                    # only caller, three lines above `undo` in this
+                    # function's own branch) -- the other two warp labels
+                    # never call `_persist_warp_scene` at all.  `verdict.undo`
+                    # has ALREADY reverted the row synchronously by the time
+                    # this line runs, and `action` is about to become `None`
+                    # on this same branch, so the frame that would have
+                    # confirmed or failed the park is never going to be
+                    # queued.  Leaving the park would let a LATER, unrelated
+                    # send failure on this connection trigger a second,
+                    # spurious rollback attempt against whatever the row
+                    # holds by then.
+                    if not warp_send_watch.clear_warp_send_watch(session):
+                        _note(
+                            session,
+                            EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED,
+                        )
             # TWO NAMES, because two different things reach this line now.
             # A refusal NOTICE dropped here is not "a composed command frame
             # was withheld" -- that phrase is documented and asserted
@@ -3338,6 +3376,17 @@ def _warp_teleport_action_no_coords(
     # destination scene with zero bytes on the wire and the next login landed
     # somewhere the client had never been sent.
     _outcome, undo = _persist_warp_scene(session, target)
+    # `CORE-REQUEST-GM-057`.  The row just moved durably; until this
+    # connection's socket layer confirms `frame` reached the wire (or fails
+    # to -- see `gm/warp_send_watch.py`'s own docstring for why that side
+    # does not need these exact bytes back), the row and the client's real
+    # scene can disagree the same way `1430`'s own bug did before this
+    # module existed.  Parked ONLY on `OUTCOME_PERSISTED`: every other
+    # outcome already means nothing durable changed, so there is nothing
+    # this connection is owed a send confirmation for.
+    if _outcome == WARP_SCENE_OUTCOME_PERSISTED:
+        if not warp_send_watch.park_warp_send(session, frame):
+            _note(session, EVENT_WARP_SEND_WATCH_NOT_PARKED)
 
     return _Verdict(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),
