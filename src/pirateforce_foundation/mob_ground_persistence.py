@@ -190,8 +190,8 @@ class WorldGround:
         # cap is defined in terms of.
         self._floors: dict = {}
         # scene key -> the keys somebody has PICKED UP in this process, newest
-        # last, bounded.  THE DUPLICATION GUARD, and it is the price of the
-        # whole feature: once two sessions can be seeded from one floor, two
+        # last, bounded.  THE DUPLICATION GUARD, and it is what a shared floor
+        # costs: once two sessions can be seeded from one floor, two
         # cells can hold one key, and each cell's own pickup transaction would
         # hand out its own copy of the item with nothing raised anywhere.  A
         # floor that merely FORGOT the row could not answer that, because
@@ -450,7 +450,7 @@ def another_session_already_took(
     red saying so).  A row this cell rolled itself cannot be standing in
     another cell; only a readmitted one can.
 
-    THIS IS THE PRICE OF SEEDING.  Two logins standing in one scene are seeded
+    THIS IS WHAT SEEDING COSTS.  Two logins standing in one scene are seeded
     from one floor, so one row can sit in two cells, and each cell's own
     pickup transaction is authority over its own ledger alone: without this,
     the second click mints a second item out of one drop.
