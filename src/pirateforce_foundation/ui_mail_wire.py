@@ -6,7 +6,7 @@ shape only.
 See ``ui_social_wire.py``'s module docstring for the shared tag legend,
 the "why no wire offsets" explanation, and ``ui_party_wire.py``'s
 docstring for why fields are named positionally rather than by guessed
-meaning (``CORE-REQUEST 1120`` nonclaim②: `CALL_UNCLASSIFIED` for every
+meaning (``CORE-REQUEST 1120`` nonclaim (2): `CALL_UNCLASSIFIED` for every
 class in this batch -- ``Community_SendMailVital`` has five wstring
 fields in a row and it would be easy to guess "recipient/subject/body"
 etc., but nothing in the registry or any capture proves which is which,

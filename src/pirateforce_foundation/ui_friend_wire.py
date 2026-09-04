@@ -5,7 +5,7 @@ shape only.
 See ``ui_social_wire.py``'s module docstring for the shared tag legend,
 the "why no wire offsets" explanation, and ``ui_party_wire.py``'s
 docstring for why fields are named positionally rather than by guessed
-meaning (``CORE-REQUEST 1120`` nonclaim②: `CALL_UNCLASSIFIED` for every
+meaning (``CORE-REQUEST 1120`` nonclaim (2): `CALL_UNCLASSIFIED` for every
 class in this batch). Field shapes are copied field-for-field from
 ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``.
 """

@@ -10,7 +10,7 @@ trade-vitals-*.md``'s own scope line: "เปิด branch รับเฟรม
 frame ที่วางเปล่า ... ไม่ใช่การทำ business logic เต็ม". This module supplies
 the "รับเฟรม" (decode) half and the raw field-shape encode half only; it
 does not compose an ack/error response of its own, because no class in
-this batch has a proven ack/error shape (``CORE-REQUEST 1120`` nonclaim②:
+this batch has a proven ack/error shape (``CORE-REQUEST 1120`` nonclaim (2):
 caller/verb semantics -- what any of these fields MEAN, or what the server
 should say back -- are `CALL_UNCLASSIFIED` for all eight classes, and this
 file does not guess one).
