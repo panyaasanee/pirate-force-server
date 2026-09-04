@@ -532,7 +532,18 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             "_friend_mail_party_trade_dispatch_ids",
             "columbus_quest3021_conversation_sent",
             "columbus_quest3021_dispatch_attempted",
+            # f-string prefixes: `f"columbus_quest3021_dispatch_refused_
+            # {reason}"` / the 3205 sibling, appended to `self.events` only
+            # inside `except columbus_quest_dispatch.ColumbusDispatchRefused`
+            # (runtime.py:6156-6160, :6457). The guard extracts the static
+            # text before `{reason}`, trailing underscore included. This is
+            # the refusal telemetry, the direct sibling of loot_roll.py's
+            # already-allowed `refusal_quest_not_implemented`: it fires only
+            # when the dispatch was REFUSED, so it cannot be evidence of
+            # quest state being implemented.
+            "columbus_quest3021_dispatch_refused_",
             "columbus_quest3205_dispatch_attempted",
+            "columbus_quest3205_dispatch_refused_",
             "columbus_quest_actions",
             "columbus_quest_dispatch",
             "dispatch_columbus_quest3021",
