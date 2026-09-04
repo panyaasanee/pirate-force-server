@@ -1264,6 +1264,16 @@ REFUSE_ROW_IS_STILL_ON_THE_GROUND = "row_is_still_on_the_ground"
 #: and the ghost label would then have NO publisher left that owes it
 #: anything.  The debt survives instead, for the next nonempty generation.
 REFUSE_NOTHING_WAS_PUBLISHED = "nothing_was_published"
+#: ROUND 59iqwi, the READMISSION half of "a drop belongs to the world, not to
+#: the session that made it" (COO-DECISION 2026-09-03T10:48+07:00, measured as
+#: broken by KA1A's R309: a relogin walked back into scene 2 and the crystal
+#: was gone).  A caller handed :meth:`DropLedgerCell.admit_standing_rows` a row
+#: belonging to a scene this cell was DECLARED into by name.  Refused rather
+#: than admitted for the same reason :data:`REFUSE_KILL_IN_ANOTHER_SCENE`
+#: refuses a kill: a readmission that moved the cell's scene would publish one
+#: scene's floor into another one's frame, which is the leak way 1 exists to
+#: close, arriving through the door built to repair it.
+REFUSE_ROW_IS_ANOTHER_SCENES = "row_is_another_scenes"
 
 MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_TYPE_NOT_TYPED_RECORD,
@@ -1308,6 +1318,7 @@ MOB_LOOT_REFUSAL_REASONS = (
     REFUSE_KILL_IN_ANOTHER_SCENE,
     REFUSE_ROW_IS_STILL_ON_THE_GROUND,
     REFUSE_NOTHING_WAS_PUBLISHED,
+    REFUSE_ROW_IS_ANOTHER_SCENES,
 )
 
 
@@ -2693,6 +2704,80 @@ def take_drop(ledger_now: DropLedger, drop_key: int) -> tuple:
     )
 
 
+def admit_standing_drops(ledger_now: DropLedger, drops: Any) -> DropLedger:
+    """Put rows that are ALREADY on the world's ground into a ledger VALUE.
+
+    ROUND 59iqwi.  THE DIFFERENCE FROM :func:`commit_drops` IS THE WHOLE
+    REASON THIS EXISTS, and it is not "the same fold without the bookkeeping":
+
+      * ``commit_drops`` folds in a kill -- rows that came into existence just
+        now, whose keys this ledger's own issuer minted, and whose monster
+        must never be looted twice (``looted``, ``kill_token``).
+      * this folds in rows that EXIST ALREADY and were minted by a DIFFERENT
+        ledger: the session that killed the monster, which has since gone
+        away.  There is no kill here, no roll, no token, and nothing may be
+        written to ``looted`` -- a readmission is not evidence that this
+        ledger has looted anything, and writing a token it did not earn would
+        refuse a REAL kill of a respawned monster later
+        (``REFUSE_MOB_ALREADY_LOOTED``, arriving at a player who has done
+        nothing wrong).
+
+    ``issued_through`` IS RAISED PAST EVERY KEY ADMITTED, which is the field
+    that makes this safe to call on a fresh session.  A new ledger issues from
+    ``DROP_KEY_BASE``; the world's rows were issued from the same block by a
+    ledger that is gone, so without this line the next kill of the new session
+    mints a key that is already lying on the floor under a different item --
+    the collision ``store.commit_ground_drop``'s ``UNIQUE`` refuses loudly and
+    a client, which has no such constraint, would simply draw the wrong thing.
+    This is the ledger half of what ``COO-DECISION 20260903_1844`` calls the
+    server-wide ``drop_key``: keys are never reused, ACROSS SESSIONS and not
+    only within one.
+
+    A key this ledger already carries is a NO-OP, not a refusal: the readmit
+    path is called at scene entry, and entering a scene twice must not fail.
+    A key BELOW ``issued_through`` that this ledger does not carry IS admitted
+    -- that is the ordinary case (the world's row was issued before this
+    session's ledger existed), and it is exactly what ``commit_drops`` refuses
+    for a kill, for the reason its own message gives.  Only rows the caller
+    has proven are still standing may come through here; deciding that is
+    :mod:`mob_ground_persistence`'s job, not this fold's.
+    """
+    if type(ledger_now) is not DropLedger:
+        raise MobLootContractError(
+            REFUSE_TYPE_NOT_TYPED_RECORD, "ledger must be a typed DropLedger")
+    incoming = tuple(drops)
+    for drop in incoming:
+        if type(drop) is not GroundDrop:
+            raise MobLootContractError(
+                REFUSE_TYPE_NOT_TYPED_RECORD,
+                "every readmitted row must be a typed GroundDrop")
+    scenes = {drop.scene_key for drop in incoming}
+    if len(scenes) > 1:
+        raise MobLootContractError(
+            REFUSE_COMMIT_SPANS_TWO_SCENES,
+            "one readmission is one scene's floor, got %r" % (sorted(scenes),))
+    held = {drop.drop_key for drop in ledger_now.drops}
+    fresh = tuple(drop for drop in incoming if drop.drop_key not in held)
+    if not fresh:
+        return ledger_now
+    seen = set()
+    for drop in fresh:
+        if drop.drop_key in seen:
+            raise MobLootContractError(
+                REFUSE_DUPLICATE_KEY_IN_GENERATION,
+                "drop key 0x%X appears twice in one readmission"
+                % drop.drop_key)
+        seen.add(drop.drop_key)
+    merged = tuple(sorted(
+        ledger_now.drops + fresh, key=lambda row: row.drop_key))
+    issued = ledger_now.issued_through
+    for drop in fresh:
+        if drop.drop_key + 1 > issued:
+            issued = drop.drop_key + 1
+    return DropLedger(
+        merged, ledger_now.generation + 1, issued, ledger_now.looted)
+
+
 #: ROUND 4e9r7g.  What replaced the clear-the-ground reconcile, named so a
 #: reader who lands on that function first is told where to go instead.
 SCENE_TRANSITION_RECONCILE_SUPERSEDED_BY = (
@@ -3150,6 +3235,103 @@ class DropLedgerCell:
             self._ledger, taken = take_drop(self._ledger, drop_key)
             self._deadlines.pop(drop_key, None)
             return taken
+
+    def admit_standing_rows(self, drops: Any) -> tuple:
+        """Take the world's standing rows into THIS cell.  Returns the admitted.
+
+        ROUND 59iqwi, and the player-visible sentence is one line: kill a
+        monster, log out, log back in, and the drop is still lying where it
+        fell.  KA1A measured the opposite in R309 (`pf_bridge/notes_to_chief/
+        20260904_1430`): the crystal was gone from an unrestarted server,
+        because the ground lived only in the cell of the session that had
+        ended.  ``COO-DECISION 2026-09-03T10:48+07:00`` had already ruled that
+        a dropped object belongs to the WORLD, per scene; this method is the
+        door that ruling needs on the cell side, and
+        :mod:`mob_ground_persistence` is the world it reads from.
+
+        WHAT THIS DOES NOT DO, and each of the three is a rule this lane is
+        already held to:
+
+          * it does not REMOVE anything (``COO-DECISION 2026-09-01T02:53``),
+            so a cell that already holds a key keeps its own row and the
+            world's copy of that key is a no-op;
+          * it does not publish, compose or send -- the caller decides when
+            the client is told, exactly as ``loot_a_kill`` leaves that to
+            ``mob_drop_presence.sustain_a_kill``;
+          * it does not DECLARE the scene.  A cell declared into scene A
+            refuses a row from scene B by name
+            (:data:`REFUSE_ROW_IS_ANOTHER_SCENES`) instead of following the
+            row, and an undeclared cell INFERS the scene from the rows the
+            same way a kill infers it -- a readmission at a scene boundary is
+            as much a statement of "the player is here" as a kill is.
+
+        Rows admitted here get a FULL lifetime from now, not the remainder of
+        the one they were dropped under.  That is a real behaviour choice and
+        not a rounding: the alternative is a row that appears on the floor of
+        a player who just logged in and vanishes two seconds later, which
+        reads as the same bug this method repairs.  What bounds them is that
+        the world only ever hands over rows it still counts as standing --
+        see :meth:`WorldGround.standing`, which sweeps on the same lifetime
+        before answering.
+        """
+        incoming = tuple(drops)
+        for drop in incoming:
+            if type(drop) is not GroundDrop:
+                raise MobLootContractError(
+                    REFUSE_TYPE_NOT_TYPED_RECORD,
+                    "every readmitted row must be a typed GroundDrop")
+        if not incoming:
+            return ()
+        with self._lock:
+            now = self._read_now_locked()
+            self._sweep_locked(now)
+            if self._scene_declared:
+                declared = scene_key(self._scene)
+                for drop in incoming:
+                    if drop.scene_key != declared:
+                        raise MobLootContractError(
+                            REFUSE_ROW_IS_ANOTHER_SCENES,
+                            "this cell was DECLARED into scene %s and row "
+                            "0x%X is standing in scene %s; a readmission "
+                            "never moves a declared cell"
+                            % (self._scene, drop.drop_key, drop.scene))
+            held = {
+                drop.drop_key: drop.scene_key for drop in self._ledger.drops}
+            fresh = []
+            for drop in incoming:
+                if drop.drop_key not in held:
+                    fresh.append(drop)
+                    continue
+                if held[drop.drop_key] != drop.scene_key:
+                    # A KEY THIS CELL HOLDS FOR A DIFFERENT SCENE IS NOT THIS
+                    # ROW (pf-adversary D10, round 59iqwi, MEASURED: the
+                    # ledger is deliberately cross-scene, so a player who
+                    # minted key K in scene A and then walked into scene B was
+                    # silently never shown B's row K -- no refusal, no line,
+                    # no loss anybody could see).  Two different objects
+                    # cannot share a key in one ledger, so this is refused by
+                    # name; what makes it stop happening is a server-wide
+                    # issuer, which is the other half of `COO-DECISION
+                    # 2026-09-03T18:44+07:00` and is not built.
+                    raise MobLootContractError(
+                        REFUSE_DUPLICATE_LEDGER_KEY,
+                        "drop key 0x%X is already on this cell's ground in "
+                        "scene %s and the world offers it in scene %s; two "
+                        "objects cannot share a key in one ledger"
+                        % (drop.drop_key, held[drop.drop_key], drop.scene_key))
+            fresh = tuple(fresh)
+            if not fresh:
+                return ()
+            self._ledger = admit_standing_drops(self._ledger, fresh)
+            if not self._scene_declared:
+                # INFERRED, never declared -- the same standing a kill's scene
+                # has, and for the same reason: nothing here came from a
+                # boundary that said so.
+                self._scene = fresh[0].scene
+            deadline = now + self._lifetime
+            for drop in fresh:
+                self._deadlines[drop.drop_key] = deadline
+            return fresh
 
     def prune_previous_kills(self) -> tuple:
         """Remove every row older than the newest kill's block.  NO ARGUMENT.

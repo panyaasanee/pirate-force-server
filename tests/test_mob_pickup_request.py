@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pf_preconditions import BRIDGE_SERIALIZER_TABLE  # noqa: E402
 
 from pirateforce_foundation import (  # noqa: E402
+    mob_ground_persistence,
     mob_loot,
     mob_pickup,
     mob_pickup_persist,
@@ -3684,6 +3685,75 @@ class TheBatchedClickReachesTheRow(unittest.TestCase):
         self.assertNotIn(
             mob_pickup_request.MOB_PICKUP_REQUEST_DECODED_TOKEN, console)
         self.assertIn("vital_walk_refused_unknown_vital_id", state.events)
+
+
+class TheWorldClaimBranchRunsTests(TheWiringHarness):
+    """The dispatch branch that ASKS THE WORLD, executed.  Round 59iqwi.
+
+    pf-adversary D6 of that round deleted both world call sites from this
+    dispatch and the whole suite stayed green: every test of them called the
+    module functions directly, which measures a report and not the branch.
+    These drive the real dispatch, and they fail if either line is removed.
+
+    EACH TEST INSTALLS ITS OWN WORLD and puts a fresh one back afterwards
+    (pf-adversary D11: the process-global floor is filled by every other test
+    that runs a kill, and a test that read another test's rows would be
+    ordering-dependent in the direction that hides a defect).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.world = mob_ground_persistence.WorldGround()
+        mob_ground_persistence.install_world_ground(self.world)
+        self.addCleanup(
+            mob_ground_persistence.install_world_ground,
+            mob_ground_persistence.WorldGround())
+
+    def test_a_row_another_session_claimed_is_refused_by_its_own_name(self):
+        row = a_drop()
+        self.world.remember((row,))
+        # Somebody else's click got there first: the world hands the row over
+        # once, and this session's cell is still holding its own copy.
+        self.assertIsNotNone(self.world.claim(SCENE, row.drop_key))
+        namespace = self._namespace(ground_cell=a_ground_cell(row))
+        outcome, printed = self._run(namespace)
+        self.assertFalse(outcome.handled)
+        self.assertEqual(
+            outcome.reason,
+            mob_ground_persistence.REFUSE_TAKEN_BY_ANOTHER_SESSION)
+        self.assertIn(
+            mob_ground_persistence.REFUSE_TAKEN_BY_ANOTHER_SESSION, printed)
+
+    def test_an_ordinary_pickup_takes_the_row_off_the_worlds_floor(self):
+        row = a_drop()
+        self.world.remember((row,))
+        namespace = self._namespace(ground_cell=a_ground_cell(row))
+        outcome, _printed = self._run(namespace)
+        self.assertTrue(outcome.handled)
+        self.assertEqual(
+            self.world.standing(SCENE), (),
+            "a pickup that succeeded must leave the world floor too, or the "
+            "next seeded session is handed a row that is already in a bag")
+
+    def test_a_row_the_world_never_held_is_picked_up_exactly_as_before(self):
+        """Every pre-existing path: the world has no opinion, the cell rules."""
+        namespace = self._namespace()
+        outcome, _printed = self._run(namespace)
+        self.assertTrue(outcome.handled)
+
+    def test_a_refused_transaction_leaves_the_row_on_the_worlds_floor(self):
+        """The claim is taken BEFORE the transaction, so a refusal afterwards
+        must put it back -- the object is still lying in front of the player."""
+        row = a_drop()
+        self.world.remember((row,))
+        # A cell whose ledger does not carry the row: the transaction refuses
+        # ``drop_not_in_ledger`` after the claim has already been taken.
+        namespace = self._namespace(ground_cell=a_ground_cell())
+        outcome, _printed = self._run(namespace)
+        self.assertFalse(outcome.handled)
+        self.assertEqual(
+            [standing.drop_key for standing in self.world.standing(SCENE)],
+            [row.drop_key])
 
 
 if __name__ == "__main__":
