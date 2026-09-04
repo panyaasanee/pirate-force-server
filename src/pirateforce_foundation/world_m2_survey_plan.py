@@ -318,11 +318,12 @@ class ConfirmResolution(NamedTuple):
     """What a confirm frame's echoed u16 is, as far as THIS BUILD can say.
 
     ``issued`` is True only when the value equals the handle of a record this
-    build could actually provision -- which needs measured XYZ.  With
-    ``MEASURED_XYZ`` empty it is False for every possible u16, and that is a
-    result, not a gap: a confirm frame arriving today carries a handle this
-    server never issued, which would refute the provisioning hypothesis
-    rather than confirm it.
+    build could actually provision -- which needs measured XYZ.  Since
+    GT-228 (PASS, R308), ``MEASURED_XYZ`` carries both M2 destinations, so
+    ``issued`` is True for the two real handles (see ``handle_for_trigger_id``
+    for trigger ids 153/154) and still False for every other u16 -- a
+    destination with no measured XYZ would still refuse, but there is none
+    left today.
     """
 
     handle: int
@@ -453,7 +454,9 @@ def planned_records() -> tuple[PlannedRecord, ...]:
     """Every record this build could provision right now.
 
     Fail-closed on data, not on a flag: a destination appears here only when
-    ``MEASURED_XYZ`` carries a triple for it, so today this returns ``()``.
+    ``MEASURED_XYZ`` carries a triple for it.  Since GT-228 (PASS, R308) both
+    M2 destinations have one, so today this returns 2 records; a destination
+    with no measured XYZ would still be skipped.
     """
     planned: list[PlannedRecord] = []
     for trigger_id in PLANNED_TRIGGER_IDS:
@@ -482,7 +485,8 @@ def planned_records() -> tuple[PlannedRecord, ...]:
 
 
 def provisionable_count() -> int:
-    """How many records this build could provision.  0 until GT-228 reports."""
+    """How many records this build could provision.  2 since GT-228 (PASS,
+    R308) filled ``MEASURED_XYZ`` for both M2 destinations; 0 before that."""
     return len(planned_records())
 
 
