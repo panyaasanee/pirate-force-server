@@ -154,9 +154,10 @@ def _m2_observed_override_line(wire_trigger_id: int, dock_trigger_id: int) -> st
     row = islands.destination_for_trigger_id(dock_trigger_id)
     name = islands.console_safe(row.name) if row is not None else "?"
     scene = row.scene_name_tip_id if row is not None else "?"
+    min_level = row.min_level if row is not None else "?"
     return (
         f"id={wire_trigger_id} name={name} {islands.CLASS_ISLAND}"
-        f" scene={scene} wire=OBSERVED_GT228_R308"
+        f" scene={scene} min_level={min_level} wire=OBSERVED_GT228_R308"
     )
 
 

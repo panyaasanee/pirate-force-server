@@ -66,7 +66,19 @@ from .navigationex_survey_record import (
 
 class TrialSurveyRecord(NamedTuple):
     """One provisioning-trial record: which destination, and the wire
-    fields `navigationex_survey_record` needs to encode it."""
+    fields `navigationex_survey_record` needs to encode it.
+
+    ``trigger_id`` is the DOCK-TABLE id (153 Prison Exile / 154 Spice
+    Paradise) -- this lane's usual namespace, matching
+    `world_m2_survey_plan.PlannedRecord.trigger_id`.  It is NOT the id a
+    later `TriggerVital` capture will carry on the wire: that is
+    `fields.survey_id` (2/3, GT-228's observed contact ids -- see
+    `lane_hooks/lane_a_island_trigger_log.py`'s "GT-228 OBSERVED OVERRIDE").
+    A future runtime.py call site correlating a sent record against an
+    inbound capture must match on `fields.survey_id`, not on this field --
+    matching 153/154 against a wire frame that only ever carries 2/3 will
+    silently never match anything.
+    """
 
     trigger_id: int
     fields: SurveyRecordFields

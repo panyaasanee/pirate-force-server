@@ -169,20 +169,26 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         # .py`), so it and its test file join the exclusion below -- the
         # first widening of this guard since it was written, and the reason
         # is on the record rather than a silent loosening.
+        # Excluded by RELATIVE PATH, not basename (pf-adversary, this round):
+        # a basename-only exclusion is evaded by any file anywhere in the
+        # tree -- a duplicate, a scratch copy under tools/ -- that happens to
+        # share one of these names, even one that opens a real socket.
+        excluded = {
+            "src/pirateforce_foundation/navigationex_survey_record.py",
+            "tests/test_navigationex_survey_record.py",
+            "src/pirateforce_foundation/world_m2_provisioning_trial.py",
+            "tests/test_world_m2_provisioning_trial.py",
+        }
         hits = []
         for path in ROOT.rglob("*.py"):
             if ".git" in path.parts:
                 continue
-            if path.name in (
-                "navigationex_survey_record.py",
-                "test_navigationex_survey_record.py",
-                "world_m2_provisioning_trial.py",
-                "test_world_m2_provisioning_trial.py",
-            ):
+            rel = str(path.relative_to(ROOT))
+            if rel.replace("\\", "/") in excluded:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             if "navigationex_survey_record" in text:
-                hits.append(str(path.relative_to(ROOT)))
+                hits.append(rel)
         self.assertEqual(
             hits, [],
             "navigationex_survey_record must not be imported by any send "

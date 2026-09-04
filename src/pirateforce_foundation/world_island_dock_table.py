@@ -180,6 +180,17 @@ class DestinationRow(NamedTuple):
     """One travel-destination trigger row, as the client's tables describe it.
 
     ``trigger_id``          the id that appears in a 0x1FB2 frame's 0x0F tag.
+                            🔴 FALSIFIED for M2's own two targets by GT-228
+                            (R308, PASS, 2026-09-04T13:22+07:00): real
+                            captures show Prison Exile Island contact firing
+                            id 2 and Spice Paradise Island contact firing
+                            id 3 -- 5/5 contacts, never 153 or 154.  See
+                            ``lane_hooks/lane_a_island_trigger_log.py``'s
+                            "GT-228 OBSERVED OVERRIDE" for the accepted-
+                            hypothesis handling of that gap.  Left open for
+                            lane C: whether this field means anything at all
+                            on THIS wire, or names a different field
+                            entirely.
     ``name``                ``s_Trigger_NAME``, stripped.  ASCII for every row
                             in this table; the module never assumes that of
                             names outside it (see ``console_safe``).

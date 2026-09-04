@@ -93,21 +93,27 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         # `sendall` itself, and CORE-REQUEST is still open for the runtime.py
         # call site (see this module's own docstring) -- so nothing else in
         # the repository may reach it yet either.
+        # Excluded by RELATIVE PATH, not basename -- same fix, same reason,
+        # as the sibling guard in test_navigationex_survey_record.py
+        # (pf-adversary, this round: a basename-only exclusion is evaded by
+        # any same-named file anywhere else in the tree).
+        excluded = {
+            "src/pirateforce_foundation/world_m2_provisioning_trial.py",
+            "tests/test_world_m2_provisioning_trial.py",
+            # Names this module in its own exclusion-widening comment,
+            # not an import -- see that guard's docstring note.
+            "tests/test_navigationex_survey_record.py",
+        }
         hits = []
         for path in ROOT.rglob("*.py"):
             if ".git" in path.parts:
                 continue
-            if path.name in (
-                "world_m2_provisioning_trial.py",
-                "test_world_m2_provisioning_trial.py",
-                # Names this module in its own exclusion-widening comment,
-                # not an import -- see that guard's docstring note.
-                "test_navigationex_survey_record.py",
-            ):
+            rel = str(path.relative_to(ROOT))
+            if rel.replace("\\", "/") in excluded:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             if "world_m2_provisioning_trial" in text:
-                hits.append(str(path.relative_to(ROOT)))
+                hits.append(rel)
         self.assertEqual(
             hits, [],
             f"world_m2_provisioning_trial must not be imported yet; found: {hits}",
