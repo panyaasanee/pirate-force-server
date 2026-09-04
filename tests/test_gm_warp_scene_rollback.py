@@ -232,11 +232,16 @@ class RealDatabaseTests(unittest.TestCase):
         session = self._session("rollback02")
         stream = io.StringIO()
         with redirect_stderr(stream):
-            outcome, undo = chat_command_action._persist_warp_scene(
+            outcome, undo, previous = chat_command_action._persist_warp_scene(
                 session, _target(REFUSED_SCENE),
             )
         self.assertEqual(outcome, warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE)
         self.assertIsNone(undo)
+        # Round `ff30oi` widened this return to `(outcome, undo, previous)`.
+        # A refused write captured nothing to go back to, so the third
+        # element must be `None` for the same reason `undo` is -- and
+        # `park_warp_send` is never reached on this branch at all.
+        self.assertIsNone(previous)
         self.assertEqual(self._row(session).scene_id, 1)
 
     def test_the_in_memory_row_is_left_alone_by_the_rollback_too(self):
@@ -246,7 +251,7 @@ class RealDatabaseTests(unittest.TestCase):
         before_selected = session.foundation.selected
         stream = io.StringIO()
         with redirect_stderr(stream):
-            _outcome, undo = chat_command_action._persist_warp_scene(
+            _outcome, undo, _previous = chat_command_action._persist_warp_scene(
                 session, _target(DESTINATION_SCENE),
             )
             self.assertTrue(undo())
@@ -715,6 +720,43 @@ class SendFailureHookupTests(RealDatabaseTests):
             f"{warp_scene_persist.ROLLBACK_FAIL_CONSOLE_TOKEN} "
             f"scene=1 reason={outcome}",
             stream.getvalue(),
+        )
+
+
+class PersistReturnArityTests(unittest.TestCase):
+    """pf-adversary D-D: nothing pinned how wide this return is.
+
+    Widening `_persist_warp_scene` from 2 to 3 elements in round `ff30oi`
+    broke four tests in this file that the diff had not touched, and only a
+    full-suite run said so.  The annotation is a bare `tuple`, so a fourth
+    element next round repeats it exactly.  This pins the arity at the one
+    place both the production call site and every test unpack it.
+    """
+
+    def test_the_persister_returns_exactly_three_elements(self):
+        import ast
+        import inspect
+        import textwrap
+
+        source = inspect.getsource(chat_command_action._persist_warp_scene)
+        tree = ast.parse(textwrap.dedent(source))
+        widths = {
+            len(node.value.elts)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Tuple)
+        }
+        self.assertEqual(widths, {3})
+
+    def test_the_one_production_call_site_unpacks_three(self):
+        import inspect
+
+        source = inspect.getsource(
+            chat_command_action._warp_teleport_action_no_coords
+        )
+        self.assertIn(
+            "_outcome, undo, previous_row = _persist_warp_scene(session, target)",
+            source,
         )
 
 

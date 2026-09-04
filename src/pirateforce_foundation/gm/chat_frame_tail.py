@@ -21,14 +21,38 @@ letter ``20260902_1800``), which is the same fact that cost 42 of 46 pickup
 clicks and produced ``vital_walk.py``.  This module is that fact applied to the
 one door this lane owns.
 
-!! WHAT IS *NOT* CLAIMED HERE, and it is the honest half of the round.  NO
+~~!! WHAT IS *NOT* CLAIMED HERE, and it is the honest half of the round.  NO
 CAPTURED CHAT FRAME CARRYING A SECOND VITAL EXISTS.  All three chat captures
 this project holds (GT-006/GT-009) carry exactly one vital, and this module
 has never seen a real multi-vital chat frame.  What is measured is (a) that
 the client bundles up to five vitals into one frame on OTHER traffic, and
 (b) that if it ever does it on a chat frame, today's route refuses the
 command and says the wrong thing about why.  This is hardening plus a named
-diagnostic, not the repair of an observed failure -- do not read it as one.
+diagnostic, not the repair of an observed failure -- do not read it as one.~~
+
+RETIRED BY MEASUREMENT, round `ff30oi`.  The nonclaim above is struck rather
+than deleted because it was true when written and the history of what this
+house believed is not editable.  Attended round R313 (pf_bridge letter
+``20260905_0212_KA1A-R313-RESULTS-...``, section 3) captured the frame it
+said did not exist: 02:01:58, frame #8, 171 B, vital ``0xAC52`` carrying the
+chat text ``/warp 126`` IMMEDIATELY FOLLOWED BY vital ``0x0F01``
+(``UserSetting_UpdateServerSettingVital``) in the same frame.  The GM typed
+the command, the console printed
+``LANE_GM_CHAT_TAIL reason=tail_unknown_vital_id tail_vitals=0 ids=none
+chat_bytes=none payload_bytes=151``, and NOTHING HAPPENED -- no
+``GM_CHAT_STAGED``, no row written, no message to the player.  The letter's
+own note says the client emits ``UserSetting_UpdateServerSettingVital`` every
+time a UI window opens or closes, so this is not a rare shape: it is what a
+GM command typed within a few seconds of opening any window looks like.
+That is why the ``tail_unknown_vital_id`` branch below no longer discards the
+chat body -- see ``TAIL_UNDECLARED_BODY``.
+
+WHAT IS STILL NOT CLAIMED.  The tail is still not consumed, forwarded or
+acted on by anything (see the cost paragraph below); ``vital_count`` on the
+console line is still ``unavailable`` because ``runtime.py`` does not pass
+it to this lane; and nothing here is evidence about what ``0x0F01``'s body
+means -- only that its five-byte nested header reads, which is all the
+boundary argument needs.
 
 WHY THE BOUNDARY IS NOT GUESSED.  The chat body is self-delimiting: two
 ``tag 0x48 + u32 LE byte length`` wstring headers, whose lengths account for
@@ -84,6 +108,7 @@ from typing import Any
 
 from ..vital_walk import MAX_VITALS_PER_FRAME, body_length_table
 from .chat_command import (
+    CHAT_LOCAL_TALK_VITAL_ID,
     MAX_CHAT_PAYLOAD_LENGTH,
     MIN_CHAT_PAYLOAD_LENGTH,
     WSTRING_HEADER_LENGTH,
@@ -97,9 +122,53 @@ from .chat_command import (
 # different questions apart inside one token.
 CHAT_TAIL_TOKEN = "LANE_GM_CHAT_TAIL"
 
-# The two outcomes that are not refusals.
+# The outcomes that are not refusals.
 NO_TAIL = "no_tail"
 TAIL_WALKED = "tail_walked"
+
+#: R313's outcome, and the one this round adds.  The boundary is proved --
+#: the strict decoder accepted the prefix and accounted for every byte of it
+#: -- and the tail begins with a WELL-FORMED nested-vital header (`u16(tag
+#: 0x12)` id, `u8(tag 0x0B)` version) whose id this house declares no body
+#: length for.  The chat command runs on the isolated body; the tail is NOT
+#: consumed, exactly as under `TAIL_WALKED`.
+#:
+#: WHY THIS IS NOT A GUESSED BOUNDARY, which is the objection to answer.
+#: There is only ever ONE candidate boundary: `_chat_body_boundary` derives
+#: it from the two length fields at the FRONT of the payload and from
+#: nothing else, and `decode_local_talk_payload` -- the strict decoder,
+#: unchanged -- must then accept those exact bytes with none left over.  The
+#: tail walk never contributed to FINDING the boundary; it only corroborated
+#: it, and on R313's frame corroboration is impossible in principle: 0x0F01's
+#: body is not a declared fixed length, so no future table row makes that
+#: walk close.  Refusing there did not keep a bad boundary out, it threw a
+#: proved one away.
+#:
+#: WHAT IT STILL REFUSES.  A tail whose first five bytes are not a nested
+#: header (wrong tag, short) is `TAIL_TRUNCATED` and the caller keeps main's
+#: behaviour, exactly as before.  So the frame must still LOOK like "chat
+#: body, then a nested vital" in both halves; only the length of that
+#: vital's body is allowed to be unknown.
+#:
+#: NO NEW AUTHORITY: identity is still decided in `handle_local_talk_chat`
+#: against `gm_accounts`, below this, and a client that can reach a command
+#: this way could already reach it by sending the chat body alone.
+TAIL_UNDECLARED_BODY = "tail_undeclared_body"
+
+#: A SECOND CHAT VITAL sat in the tail, and this one is named apart from
+#: `TAIL_UNDECLARED_BODY` because the cost is different (pf-adversary D-F,
+#: round `ff30oi`).  `0xAC52` has no declared body length and can never have
+#: one -- its body is two length-prefixed strings -- so a frame carrying two
+#: chat lines lands on the undeclared-body path, the FIRST line runs, and the
+#: second is dropped.  Before this round both were dropped and the GM got a
+#: refusal; now one runs and the other vanishes, which is a worse silence if
+#: nothing says so.  This reason says so, on the console line and on
+#: `session.events`.
+#:
+#: The repair R313's own section 3 asked for -- "make the chat reader walk
+#: EVERY nested vital" -- is not this round's, and is not claimed: this names
+#: the loss rather than ending it.
+TAIL_SECOND_CHAT_DROPPED = "tail_second_chat_dropped"
 
 # Refusal names.  Every one of them means "the caller keeps what it had".
 # `PAYLOAD_NOT_BYTES` is DEAD ON THE WIRE PATH and named here so no coverage
@@ -111,6 +180,12 @@ PAYLOAD_NOT_BYTES = "payload_not_bytes"
 PAYLOAD_TOO_LARGE_TO_SPLIT = "payload_too_large_to_split"
 CHAT_PREFIX_UNREADABLE = "chat_prefix_unreadable"
 CHAT_PREFIX_DECODER_REFUSED = "chat_prefix_decoder_refused"
+#: RETIRED AS AN OUTCOME BY R313, kept as a name so the console lines this
+#: server has already printed stay readable and so nothing silently reuses
+#: the string.  No code path returns it any more; `TAIL_UNDECLARED_BODY`
+#: replaces it.  `RetiredReasonTests` pins that it is unreachable, because a
+#: constant nobody returns is otherwise indistinguishable from one nobody
+#: noticed had stopped firing.
 TAIL_UNKNOWN_VITAL_ID = "tail_unknown_vital_id"
 TAIL_TRUNCATED = "tail_truncated"
 TAIL_TOO_MANY_VITALS = "tail_too_many_vitals"
@@ -163,8 +238,16 @@ class ChatTailSplit:
 
     @property
     def split(self) -> bool:
-        """True only when a tail was proved and the body is shorter."""
-        return self.reason == TAIL_WALKED
+        """True only when a tail was proved and the body is shorter.
+
+        Both non-refusal tail outcomes count: under `TAIL_WALKED` every tail
+        vital closed, under `TAIL_UNDECLARED_BODY` the first tail header read
+        and its body length is undeclared.  In both, `body` is the isolated
+        chat body and it is shorter than the payload.
+        """
+        return self.reason in (
+            TAIL_WALKED, TAIL_UNDECLARED_BODY, TAIL_SECOND_CHAT_DROPPED,
+        )
 
 
 def split_local_talk_payload(payload: Any, legacy: Any) -> ChatTailSplit:
@@ -245,10 +328,20 @@ def _walk_tail(body: bytes, tail: bytes, legacy: Any) -> ChatTailSplit:
             return ChatTailSplit(None, (), TAIL_TRUNCATED)
         length = table.get(vital_id)
         if length is None:
-            # The fail-closed line, kept identical in spirit to
-            # `vital_walk._walk_fields`: an id with no declared length ends
-            # the walk and the frame keeps main's behaviour.
-            return ChatTailSplit(None, (), TAIL_UNKNOWN_VITAL_ID)
+            # R313's line.  The header read (both tags, both widths), so the
+            # tail IS a nested vital; this house just declares no body length
+            # for its id.  The walk ends here -- nothing past this id is
+            # inspected and nothing is consumed -- but the BODY stands,
+            # because the boundary was never the walk's to prove.  The id is
+            # reported so the console line names what needs a declared
+            # length, which is the whole of what a reader can do about it.
+            ids.append(vital_id)
+            reason = (
+                TAIL_SECOND_CHAT_DROPPED
+                if vital_id == CHAT_LOCAL_TALK_VITAL_ID
+                else TAIL_UNDECLARED_BODY
+            )
+            return ChatTailSplit(body, tuple(ids), reason)
         if cursor.remain() < length:
             return ChatTailSplit(None, (), TAIL_TRUNCATED)
         cursor.p += length

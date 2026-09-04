@@ -2123,6 +2123,33 @@ def _isolated_chat_payload(
         _note(session, f"{EVENT_CHAT_TAIL_PREFIX}walked_{len(split.tail_ids)}")
         _print_chat_tail_once(session, split, len(payload))
         return split.body
+    if split.reason == chat_frame_tail.TAIL_SECOND_CHAT_DROPPED:
+        # pf-adversary D-F: the first chat line runs and the second is lost.
+        # It gets its own event because it is the one shape where accepting
+        # the body COSTS something -- everywhere else the tail was never
+        # going to be read by anybody.
+        _note(
+            session,
+            f"{EVENT_CHAT_TAIL_PREFIX}second_chat_dropped_{len(split.tail_ids)}",
+        )
+        _print_chat_tail_once(session, split, len(payload))
+        return split.body
+    if split.reason == chat_frame_tail.TAIL_UNDECLARED_BODY:
+        # R313's frame, and the reason this branch exists rather than
+        # folding into the one above: the two outcomes must stay countable
+        # apart on `session.events`.  `walked_n` means every tail vital
+        # closed; this one means the walk stopped at an id with no declared
+        # body length and the command ran anyway on a boundary the strict
+        # decoder had already proved.  A round that reads them as one number
+        # cannot tell "the client sent a shape we fully understand" from
+        # "the client sent a shape we understand the front of", and R313 is
+        # the second.
+        _note(
+            session,
+            f"{EVENT_CHAT_TAIL_PREFIX}undeclared_body_{len(split.tail_ids)}",
+        )
+        _print_chat_tail_once(session, split, len(payload))
+        return split.body
     if split.reason not in chat_frame_tail.QUIET_REASONS:
         _note(session, f"{EVENT_CHAT_TAIL_PREFIX}{split.reason}")
         _print_chat_tail_once(session, split, len(payload))
@@ -3149,8 +3176,14 @@ def _park_warp_target(session: object, target) -> bool:
     return record_warp_target(session, target, current_character_id(session))
 
 
-def _persist_warp_scene(session: object, target: object) -> str:
+def _persist_warp_scene(session: object, target: object) -> tuple:
     """Make the destination scene durable NOW, and name what happened.
+
+    Returns `(outcome, undo, previous_row)`.  The annotation said `str` and
+    had said so since the undo was added a round earlier -- corrected here
+    rather than left, since this round adds a third element to the same
+    tuple and a wrong annotation over a widened return is worse than a wrong
+    annotation over a stable one.
 
     `PANYA-DECISION 20260904_1430`, routed here by `COO-DECISION 20260904_1452`
     item 2: a live warp must write `character_positions` in the same breath as
@@ -3202,14 +3235,20 @@ def _persist_warp_scene(session: object, target: object) -> str:
     if outcome != WARP_SCENE_OUTCOME_PERSISTED or previous is None:
         # Nothing durable changed (or nothing was captured to change back to),
         # so there is nothing to undo and nothing to claim.
-        return outcome, None
+        return outcome, None, None
 
     def _undo() -> bool:
         result = rollback_warp_scene(session, previous)
         _note(session, f"{EVENT_WARP_SCENE_ROLLBACK_PREFIX}{result}")
         return result == WARP_SCENE_OUTCOME_ROLLED_BACK
 
-    return outcome, _undo
+    # THE THIRD RETURN VALUE, added round `ff30oi`: `previous` is the row the
+    # SEND-failure undo needs too, and it is only correct here.  Read later
+    # from `session.foundation.selected.position` it is the last position the
+    # CLIENT reported, which a warp does not update -- so after a second warp
+    # on the same connection it names a scene two warps back.  Handing it to
+    # `park_warp_send` is cheaper than making the observer guess.
+    return outcome, _undo, previous
 
 
 def _warp_teleport_action(
@@ -3375,7 +3414,7 @@ def _warp_teleport_action_no_coords(
     # field stayed `None` here, so a withheld `/warp 2` left the row in the
     # destination scene with zero bytes on the wire and the next login landed
     # somewhere the client had never been sent.
-    _outcome, undo = _persist_warp_scene(session, target)
+    _outcome, undo, previous_row = _persist_warp_scene(session, target)
     # `CORE-REQUEST-GM-057`.  The row just moved durably; until this
     # connection's socket layer confirms `frame` reached the wire (or fails
     # to -- see `gm/warp_send_watch.py`'s own docstring for why that side
@@ -3385,7 +3424,7 @@ def _warp_teleport_action_no_coords(
     # outcome already means nothing durable changed, so there is nothing
     # this connection is owed a send confirmation for.
     if _outcome == WARP_SCENE_OUTCOME_PERSISTED:
-        if not warp_send_watch.park_warp_send(session, frame):
+        if not warp_send_watch.park_warp_send(session, frame, previous_row):
             _note(session, EVENT_WARP_SEND_WATCH_NOT_PARKED)
 
     return _Verdict(
