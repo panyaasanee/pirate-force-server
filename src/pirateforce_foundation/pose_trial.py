@@ -48,8 +48,12 @@ narrow and must stay narrow: nothing here alters production ActionVital.  With
 ``PF_POSE_TRIAL`` unset the composed bytes and the console are identical to
 main, the alteration exists only inside one attended process an owner armed
 by hand, and ``COO-DECISION 20260904_2141`` is the decision to run that one
-attended experiment.  If the stop rule is meant to bind the attended arm too,
-that is COO's call to make and this module comes straight back out.
+attended experiment.  ``COO-DECISION 20260904_2346`` point 2 has since ruled
+on the question this paragraph used to leave open: BIND001's stop rule guards
+production ``ActionVital``, this module alters none of it (unarmed output is
+byte-identical, pinned by test), the arm is opt-in per process and attended
+only, and Panya's 21:15 live order is the standing authorization to run it --
+so the module stays and is not withdrawn.
 
 WHY AN ENVIRONMENT VARIABLE AND NOT AN ``--pose-trial`` COMMAND-LINE FLAG.
 The ticket names the flag ``--pose-trial <behavior_id|auto>``; argument
