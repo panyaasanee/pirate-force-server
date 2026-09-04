@@ -1269,6 +1269,25 @@ class ValidatorIsOneAnswerTests(unittest.TestCase):
         with self.assertRaises(AttrWireError):
             validate_field_value(level_field, True)
 
+    def test_a_lone_surrogate_string_is_never_blessed(self):
+        # MEASURED (chief's letter `20260904_0305` item 2): a length check alone
+        # let `"Anne\ud800"` through `validate_field_value` for x=1 `name`,
+        # then `encode_field`'s `value.encode("utf-16le")` raised
+        # `UnicodeEncodeError` mid-compose. Unlike the f32/`OverflowError`
+        # finding above, `UnicodeEncodeError` IS a `ValueError` subclass and
+        # `runtime.py` has no `encode_field` call site yet (pf-adversary
+        # round `ycqzuz` corrected the first draft's overclaim here) -- the
+        # real gap this closes is the two LOCAL `except AttrWireError`
+        # catches in `live_named_values`/`live_login_bytes`, which would
+        # otherwise have blessed this value into a seeded `RawBlockCache`.
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        name_field = BY_NAME["name"]
+        bad = "Anne\ud800"
+        with self.assertRaises(AttrWireError):
+            validate_field_value(name_field, bad)
+        with self.assertRaises(AttrWireError):
+            encode_field(legacy, name_field, bad)
+
 
 if __name__ == "__main__":
     unittest.main()

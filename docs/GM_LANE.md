@@ -8958,3 +8958,80 @@ action.py` (registered the new event name in its completeness table).
 - ไม่อ้างว่า pf-adversary ตรวจแล้วผ่าน -- เครื่องมือไม่มีให้เรียกในเซสชันนี้ ทำ manual self-review แทน
 - ไม่แตะ `runtime.py` / `app.py` / `pf_login_game_server_v141.py` / canonical DB / `scenarios/world_*.json`
   / `scenarios/combat_*.json` / `live_named_attr_values.py` (นอกเขต ส่งจดหมายแทน)
+
+## Round `ycqzuz` (2026-09-04T08:51+07:00) -- `validate_field_value` closes its second "two answers" gap, wstr this time
+
+Backlog item 4 from round `4fxkam`'s own file: chief's letter `20260904_0305`
+(round `dwvbpm`/R330b, MEASURED) found the same shape of defect the f32 fix
+(round `3qh50k`, D8) closed, one kind later. `validate_field_value`'s
+docstring promises "exactly ONE answer to 'is this value sendable'" so the
+seeding path and `encode_field` can never disagree; measured live:
+`validate_field_value(BY_X[1], "Anne\ud800")` passed for x=1 `name`, and
+`encode_field`'s `value.encode("utf-16le")` then raised `UnicodeEncodeError`
+mid-compose -- the exact "cache holding a baseline no send can ever use"
+outcome the docstring forbids. Deferred twice already (round `tof9cw`'s
+file, then round `4fxkam`'s), this round does not defer a third time.
+
+### The fix: same probe pattern as f32's `struct.pack`
+
+Added `value.encode("utf-16le")` inside the `wstr` branch of
+`validate_field_value`, catching `UnicodeEncodeError` and re-raising as a
+field-named `AttrWireError`, byte-for-byte the same call `encode_field`
+makes when it actually composes the field -- so the two can never drift
+apart, same reasoning as the f32 probe asking `struct.pack` directly rather
+than typing out a duplicate bound.
+
+### pf-adversary (round `ycqzuz`, ordered at round start, returned before push)
+
+Reviewed the diff in an isolated worktree, never the live checkout. Verified:
+probe matches the encoder exactly (line-for-line, same codec call); no
+false positive on astral characters (`\U0001F600`), Thai, or CJK text, only
+*unpaired* surrogates fail; the extra `.encode()` call costs ~376 ns
+(negligible, not a hot path, same tradeoff the f32 fix already accepted);
+no analogous unfixed gap in `u*`/`i32`/`blob`; the new test genuinely kills
+a reverted fix (commented out the `try/except`, confirmed the test goes
+red, restored it, confirmed green); no file outside `gm/`/`tests/test_gm_*.py`
+touched.
+
+**One real finding, not in the code but in the round's own reasoning**: the
+first draft's docstring and test comment both claimed `UnicodeEncodeError`
+"is not a `ValueError` either" and "slips ... `except ValueError, RuntimeError`
+in `runtime.py`", framing it as the same shape as f32's `OverflowError` gap.
+Measured (`issubclass(UnicodeEncodeError, ValueError) is True`) that claim
+is wrong: unlike `OverflowError`, `UnicodeEncodeError` **is** a `ValueError`
+subclass, and `runtime.py` has no call site for `encode_field`/`encode_block`
+at all yet (`grep` came back empty) -- so no existing `except ValueError`
+net was ever bypassed, and the `runtime.py` half of the claim describes a
+hypothetical future integration, not a live gap. The real justification is
+narrower: this module's own seeding functions (`live_named_values` /
+`live_login_bytes`) catch only `AttrWireError` locally, and without this
+check a lone surrogate could slip past `validate_field_value` and be
+blessed into a seeded `RawBlockCache`. Fixed in the same round, before
+push: the docstring, the `wstr` branch comment, and the test comment all
+now name the real gap instead of the overclaimed one.
+
+**เขต GM ทั้งหมด**: `gm/attr_wire.py` (`validate_field_value`'s `wstr`
+branch + its docstring), `tests/test_gm_attr_wire.py`
+(`ValidatorIsOneAnswerTests.test_a_lone_surrogate_string_is_never_blessed`,
+new).
+
+### ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้
+
+ไม่มี -- รอบนี้ไม่แตะเส้นทางที่ผู้เทสไปถึงได้ วันนี้และเมื่อวานเหมือนกันบนจอ
+รอบนี้ปิดช่องโหว่ภายในของ `validate_field_value` เอง (x=1 `name` ยังไม่มี
+จุดเรียกจาก `runtime.py` และ sqlite ปฏิเสธ lone surrogate ในคอลัมน์ชื่ออยู่แล้ว
+วันนี้) เพื่อไม่ให้ `RawBlockCache` ถูก seed ด้วยค่าที่ `encode_field` จะปฏิเสธ
+ถ้าประตูนี้เปิดใช้งานจริงในอนาคต
+
+### nonclaim
+
+- ไม่ได้ใช้ GM ข้ามขั้นอะไรในรอบนี้ -- ไม่บูตเซิร์ฟเวอร์/เกม ไม่มีไบต์ `0x309A`
+  ออกจากประตูใดที่ไม่เคยออกอยู่แล้ว (ไม่มีจุดเรียก `encode_field`/`encode_block`
+  ใน `runtime.py` เลยวันนี้ -- แก้ที่ชั้นในของโมดูลเท่านั้น)
+- ไม่อ้างว่า `/speed`/(b'')/M2/M3/M4/P-2/P-3 ขยับ -- ทั้งหมดยังบล็อกภายนอกเหมือนเดิม
+- ไม่อ้างว่า `UnicodeEncodeError` เคยหลุดตาข่ายของ `runtime.py` จริง -- **ไม่เคย**
+  เพราะยังไม่มีจุดเรียกให้หลุด และมันเป็น `ValueError` subclass อยู่แล้ว
+  (ร่างแรกของรอบนี้เขียนผิด pf-adversary จับได้ แก้แล้วก่อน push)
+- ไม่แตะ `runtime.py` / `app.py` / `pf_login_game_server_v141.py` / canonical DB /
+  `scenarios/world_*.json` / `scenarios/combat_*.json` / `live_named_attr_values.py`
+- ประวัติเดิมขีดฆ่า ไม่ลบ
