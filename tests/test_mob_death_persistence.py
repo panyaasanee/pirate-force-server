@@ -10,7 +10,7 @@ the deaths lived in the ended session's `mob_death.DeathRegister`, and
 The wire layer of that half is here -- the world's grave book, the write seam
 inside `commit_death`, and the read seam a new session's register is built
 through.  The client-observable layer is `GT-223` re-run, which needs the one
-call site only chief may add (`mob_death_persistence.seed_the_session_register`
+call site only chief may add (`mob_death_persistence.seed_the_session_state`
 in `_sync_combat_scene_state`) and is therefore NOT claimed by this file.
 What IS claimed: after a committed kill, a register built from nothing and
 seeded from the world says that identity is dead, `live_roster` leaves it out,
@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import mob_combat                         # noqa: E402
 from pirateforce_foundation import mob_death                          # noqa: E402
 from pirateforce_foundation import mob_death_persistence as graves    # noqa: E402
 from pirateforce_foundation import field_mobs                         # noqa: E402
@@ -67,8 +68,27 @@ DIAG_OBJECT = 0x4329
 WITHDRAWN = 0x201F
 
 
-def a_record(identity=SOLDIER, scene=BG2, killer=KILLER,
-             max_hp=SOLDIER_MAX_HP):
+def roster_ceiling(identity, scene):
+    """The ceiling that scene's mined table actually gives this identity.
+
+    Every record in this file carries it, because the roster gate refuses a
+    row whose ceiling disagrees with the roster's -- `repopulation_entries`
+    refuses on that field too, so a test that made one up would be testing a
+    row production cannot produce.
+    """
+    for mob in field_mobs.load_roster(scene):
+        if mob.actor_identity == identity:
+            return mob.max_hp
+    raise AssertionError(
+        "0x%X is not a row of %s" % (identity, scene))
+
+
+def a_record(identity=SOLDIER, scene=BG2, killer=KILLER, max_hp=None):
+    if max_hp is None:
+        try:
+            max_hp = roster_ceiling(identity, scene)
+        except (AssertionError, Exception):             # noqa: BLE001
+            max_hp = SOLDIER_MAX_HP
     return mob_death.DeathRecord(identity, killer, max_hp, scene)
 
 
@@ -107,10 +127,9 @@ class TheGraveBookTests(unittest.TestCase):
     def test_a_second_burial_of_one_identity_is_already_not_an_overwrite(self):
         self.world.bury(a_record())
         self.assertEqual(
-            self.world.bury(a_record(max_hp=1, killer=0x999)), (False, ""))
+            self.world.bury(a_record(killer=0x999)), (False, ""))
         held = self.world.buried_in(BG2)[0]
-        self.assertEqual((held.max_hp, held.killer_identity),
-                         (SOLDIER_MAX_HP, KILLER))
+        self.assertEqual(held.killer_identity, KILLER)
 
     def test_a_scene_only_answers_for_its_own_graves(self):
         self.world.bury(a_record(scene=BG2))
@@ -248,6 +267,14 @@ class SeedingASessionRegisterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.world = graves.WorldDeaths()
         self.empty = mob_death.DeathRegister()
+        # pf-adversary: without this, `test_an_empty_scene_still_prints...`
+        # passed only because its name sorts before its siblings'.  A
+        # process-global latch needs clearing in EVERY class that reads it,
+        # not only in the one written for it.
+        graves.forget_announced_scenes()
+
+    def tearDown(self) -> None:
+        graves.forget_announced_scenes()
 
     def test_an_empty_world_hands_the_caller_its_own_register_back(self):
         outcome = graves.seed_register(self.empty, BG2, world=self.world)
@@ -310,8 +337,8 @@ class SeedingASessionRegisterTests(unittest.TestCase):
         graves.remember_death(a_record(), world=self.world, announce=False)
         seeded = graves.seed_register(
             self.empty, BG2, world=self.world).register
-        self.assertEqual(
-            seeded.record_of(SOLDIER, BG2).max_hp, SOLDIER_MAX_HP)
+        self.assertEqual(seeded.record_of(SOLDIER, BG2).max_hp,
+                         roster_ceiling(SOLDIER, BG2))
 
     def test_something_that_is_not_a_register_is_refused_and_handed_back(self):
         outcome = graves.seed_register(object(), BG2, world=self.world)
@@ -451,11 +478,12 @@ class WhatARelogNowSeesTests(unittest.TestCase):
         # The letter to chief quotes this constant; a rename that did not
         # update it would send chief a call site that does not exist.
         self.assertIn(
-            "seed_the_session_register", graves.DEATH_SEED_WIRING)
+            "seed_the_session_state", graves.DEATH_SEED_WIRING)
+        self.assertIn("mob_combat_ledger", graves.DEATH_SEED_WIRING)
         self.assertIn("_sync_combat_scene_state", graves.DEATH_SEED_WIRING)
         self.assertIn("mob_death_persistence", graves.DEATH_SEED_WIRING)
         graves.DEATH_SEED_WIRING.encode("ascii")
-        self.assertTrue(hasattr(graves, "seed_the_session_register"))
+        self.assertTrue(hasattr(graves, "seed_the_session_state"))
 
 
 class TheRosterGateTests(unittest.TestCase):
@@ -528,9 +556,15 @@ class TheRosterGateTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             mob_death.commit_death(
                 register, a_step(record, register), world=self.world)
-        seeded = graves.seed_register(
-            mob_death.DeathRegister(), BG2, world=self.world).register
-        entries = mob_death.repopulation_entries(legacy, roster, seeded)
+        # `ledger=` on purpose: every production call site passes one, and
+        # the REFUSE_LEDGER_DISAGREES_WITH_REGISTER arm -- the one that
+        # actually fires after a seed -- is unreachable without it.
+        ledger = mob_combat.open_ledger(roster, scene=BG2)
+        with contextlib.redirect_stdout(io.StringIO()):
+            seeded, ledger = graves.seed_the_session_state(
+                mob_death.DeathRegister(), ledger, BG2, world=self.world)
+        entries = mob_death.repopulation_entries(
+            legacy, roster, seeded, ledger=ledger)
         self.assertEqual(len(entries), len(roster))
 
 
@@ -600,6 +634,220 @@ class TheConsoleDoesNotRepeatItselfTests(unittest.TestCase):
         _r, line = quiet(graves.seed_the_session_register,
                          object(), BG2, world=self.world)
         self.assertIn(graves.WORLD_SEED_REFUSED_TOKEN, line)
+
+
+class TheLedgerMovesWithTheRegisterTests(unittest.TestCase):
+    """`seed_the_session_state` -- and the crash it exists to prevent.
+
+    pf-adversary MEASURED this round's own first answer taking the listener
+    thread down.  Seeding the register OUTSIDE the scene-change branch put
+    graves in the register while the boot ledger -- whose only rehydrate loop
+    lives INSIDE that branch -- stayed at full HP.  `repopulation_entries`
+    refuses when the two disagree, and the arrival census reaches that
+    refusal from an `else:` clause its own `try` does not cover.
+    """
+
+    def setUp(self) -> None:
+        self.world = graves.install_world_deaths(graves.WorldDeaths())
+        graves.forget_announced_scenes()
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        self.roster = field_mobs.load_roster(BG1)
+        self.victim = self.roster[0]
+
+    def tearDown(self) -> None:
+        graves.install_world_deaths(graves.WorldDeaths())
+        graves.forget_announced_scenes()
+
+    def _kill_in_a_first_session(self):
+        register = mob_death.DeathRegister()
+        record = mob_death.DeathRecord(
+            self.victim.actor_identity, KILLER, self.victim.max_hp,
+            self.victim.scene)
+        with contextlib.redirect_stdout(io.StringIO()):
+            mob_death.commit_death(register, a_step(record, register))
+
+    def test_the_boot_scene_census_composes_after_a_relogin(self):
+        # THE MEASURED CRASH, pinned.  bg0001 is the scene the process boots
+        # on, so the branch that would re-open its roster never runs: this is
+        # the exact path where a register-only seed raised.
+        self._kill_in_a_first_session()
+        ledger = mob_combat.open_ledger(self.roster, scene=BG1)
+        register = mob_death.DeathRegister()
+        with contextlib.redirect_stdout(io.StringIO()):
+            register, ledger = graves.seed_the_session_state(
+                register, ledger, BG1)
+        self.assertTrue(register.is_dead(self.victim.actor_identity, BG1))
+        self.assertEqual(
+            ledger.balance_of(self.victim.actor_identity).current_hp, 0)
+        # The call that raised before this function existed.
+        entries = mob_death.repopulation_entries(
+            self.legacy, self.roster, register, ledger=ledger)
+        self.assertEqual(len(entries), len(self.roster))
+
+    def test_the_ledger_keeps_the_ceiling_and_only_the_dead_row_moves(self):
+        self._kill_in_a_first_session()
+        ledger = mob_combat.open_ledger(self.roster, scene=BG1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            _register, seeded = graves.seed_the_session_state(
+                mob_death.DeathRegister(), ledger, BG1)
+        self.assertEqual(
+            seeded.balance_of(self.victim.actor_identity).max_hp,
+            self.victim.max_hp)
+        for other in self.roster[1:]:
+            self.assertEqual(
+                seeded.balance_of(other.actor_identity).current_hp,
+                other.max_hp)
+
+    def test_a_ledger_open_on_another_scene_comes_back_untouched(self):
+        # The scene-change order: the branch re-opens the ledger a moment
+        # later and rehydrates it from the register this call just seeded.
+        self._kill_in_a_first_session()
+        elsewhere = mob_combat.open_ledger(
+            field_mobs.load_roster(BG2), scene=BG2)
+        with contextlib.redirect_stdout(io.StringIO()):
+            register, ledger = graves.seed_the_session_state(
+                mob_death.DeathRegister(), elsewhere, BG1)
+        self.assertIs(ledger, elsewhere)
+        self.assertTrue(register.is_dead(self.victim.actor_identity, BG1))
+
+    def test_no_ledger_means_no_seed_either_because_it_is_both_or_neither(self):
+        self._kill_in_a_first_session()
+        before = mob_death.DeathRegister()
+        (register, ledger), line = quiet(
+            graves.seed_the_session_state, before, None, BG1)
+        self.assertIsNone(ledger)
+        self.assertIs(register, before)
+        self.assertIn(graves.REFUSE_NOT_A_LEDGER, line)
+
+    def test_a_ledger_that_refuses_costs_the_register_its_seed_too(self):
+        # BOTH HALVES OR NEITHER: a register holding graves the ledger does
+        # not is the crash, so the safe degradation is yesterday's behaviour.
+        class Angry(mob_combat.CombatLedger):
+            def identities(self):
+                raise RuntimeError("no")
+
+        self._kill_in_a_first_session()
+        before = mob_death.DeathRegister()
+        angry = Angry(
+            mob_combat.open_ledger(self.roster, scene=BG1).balances)
+        (register, ledger), line = quiet(
+            graves.seed_the_session_state, before, angry, BG1)
+        self.assertIs(register, before)
+        self.assertIs(ledger, angry)
+        self.assertIn(graves.WORLD_SEED_REFUSED_TOKEN, line)
+        self.assertIn(graves.REFUSE_LEDGER_REFUSED_THE_ROW, line)
+
+    def test_a_repeat_changes_nothing_and_says_nothing(self):
+        self._kill_in_a_first_session()
+        ledger = mob_combat.open_ledger(self.roster, scene=BG1)
+        with contextlib.redirect_stdout(io.StringIO()):
+            register, ledger = graves.seed_the_session_state(
+                mob_death.DeathRegister(), ledger, BG1)
+        (again, ledger_again), line = quiet(
+            graves.seed_the_session_state, register, ledger, BG1)
+        self.assertIs(again, register)
+        self.assertIs(ledger_again, ledger)
+        self.assertEqual(line, "")
+
+    def test_the_console_says_how_many_ledger_rows_it_zeroed(self):
+        self._kill_in_a_first_session()
+        ledger = mob_combat.open_ledger(self.roster, scene=BG1)
+        _pair, line = quiet(
+            graves.seed_the_session_state, mob_death.DeathRegister(), ledger,
+            BG1)
+        self.assertIn(graves.WORLD_SEEDED_TOKEN, line)
+        self.assertIn("ledger_zeroed=1", line)
+
+
+class TheDoorsThatMustNotFailOpenTests(unittest.TestCase):
+    """pf-adversary, second pass: refusals that were silent fallbacks."""
+
+    def setUp(self) -> None:
+        self.world = graves.install_world_deaths(graves.WorldDeaths())
+        graves.forget_roster_cache()
+
+    def tearDown(self) -> None:
+        graves.install_world_deaths(graves.WorldDeaths())
+        graves.forget_roster_cache()
+
+    def test_a_world_that_is_not_a_grave_book_is_refused_not_ignored(self):
+        # The worst shape a door can have: a caller asking for isolation,
+        # mistyping the argument, and silently getting the process-global
+        # book it was opting out of, under a line that says it worked.
+        outcome, line = quiet(
+            graves.remember_death, a_record(), world=object())
+        self.assertFalse(outcome.buried)
+        self.assertEqual(outcome.reason, graves.REFUSE_NOT_A_GRAVE_BOOK)
+        self.assertIn(graves.WORLD_REMEMBER_REFUSED_TOKEN, line)
+        self.assertFalse(self.world.is_buried(BG2, SOLDIER))
+
+    def test_a_seed_with_a_bogus_world_is_refused_not_ignored(self):
+        outcome = graves.seed_register(
+            mob_death.DeathRegister(), BG2, world=object())
+        self.assertEqual(outcome.reason, graves.REFUSE_NOT_A_GRAVE_BOOK)
+
+    def test_a_ceiling_the_roster_does_not_carry_is_refused_by_name(self):
+        # `repopulation_entries` refuses on the ceiling as well as on the
+        # identity, so a gate that checked only the identity could still
+        # empty a town for the life of the process.
+        real = roster_ceiling(SOLDIER, BG2)
+        self.assertEqual(
+            self.world.bury(a_record(max_hp=real + 1)),
+            (False, graves.REFUSE_CEILING_IS_NOT_THE_ROSTERS))
+        self.assertEqual(self.world.bury(a_record(max_hp=real)), (True, ""))
+
+    def test_a_roster_that_raises_once_is_not_refused_forever(self):
+        real = field_mobs.load_roster
+        calls = []
+
+        def angry(scene, *args, **kwargs):
+            calls.append(scene)
+            if len(calls) == 1:
+                raise RuntimeError("transient")
+            return real(scene, *args, **kwargs)
+
+        # Built BEFORE the patch: `a_record` reads the roster for its own
+        # ceiling, and it would otherwise eat the one transient raise.
+        record = a_record()
+        field_mobs.load_roster = angry
+        try:
+            first = self.world.bury(record)
+            second = self.world.bury(record)
+        finally:
+            field_mobs.load_roster = real
+        self.assertEqual(first, (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
+        self.assertEqual(second, (True, ""))
+
+    def test_the_roster_cache_has_a_clearing_seam(self):
+        self.world.bury(a_record())
+        graves.forget_roster_cache()
+        self.assertEqual(self.world.bury(a_record(identity=BG2_ROWS[0])),
+                         (True, ""))
+
+    def test_installing_something_that_is_not_a_book_raises(self):
+        with self.assertRaises(TypeError):
+            graves.install_world_deaths(object())
+
+    def test_a_broken_persistence_door_is_named_on_the_console(self):
+        # "the module is broken" and "chief has not wired the seam yet" must
+        # not have the same signature, because that signature is silence and
+        # the write half's whole evidence is a console line.
+        register = mob_death.DeathRegister()
+        record = a_record()
+        step = a_step(record, register)
+        real = graves.remember_death
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("the door is gone")
+
+        graves.remember_death = broken
+        try:
+            after, line = quiet(mob_death.commit_death, register, step)
+        finally:
+            graves.remember_death = real
+        self.assertTrue(after.is_dead(SOLDIER, BG2))
+        self.assertIn("MOB_DEATH_WORLD_REMEMBER_REFUSED", line)
+        self.assertIn("persistence_door_raised", line)
 
 
 class TheLaneGateTests(unittest.TestCase):

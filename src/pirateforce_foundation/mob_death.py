@@ -2387,8 +2387,22 @@ def commit_death(
 
         mob_death_persistence.remember_death(
             step.record, world=world, announce=announce)
-    except Exception:                                   # noqa: BLE001
-        pass
+    except Exception as error:                          # noqa: BLE001
+        # NAMED, NOT SWALLOWED, and pf-adversary had to point out that the
+        # first version of this block printed NOTHING here.  That matters
+        # more than an ordinary silent except: the evidence that the write
+        # half works AT ALL is the presence of a
+        # MOB_DEATH_WORLD_REMEMBERED line, so "the persistence module is
+        # broken" and "chief has not wired the seam yet" would have had the
+        # same signature -- an empty console -- and an attended round would
+        # have graded one as the other.
+        if announce:
+            try:
+                print("MOB_DEATH_WORLD_REMEMBER_REFUSED scene=%r "
+                      "reason=persistence_door_raised:%r"
+                      % (getattr(step.record, "scene", ""), error))
+            except Exception:                           # noqa: BLE001
+                pass
     return step.register
 
 
