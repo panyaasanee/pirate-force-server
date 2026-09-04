@@ -1602,6 +1602,13 @@ class EventNameContractTests(_Case):
         # back" and "the row was written" must not be two events a reader
         # tells apart by a word buried at the end of a long name.
         "EVENT_WARP_SCENE_ROLLBACK_PREFIX": "gm_chat_action_warp_scene_rollback_",
+        # `CORE-REQUEST-GM-057`'s own park (`gm/warp_send_watch.py`).
+        "EVENT_WARP_SEND_WATCH_NOT_PARKED": (
+            "gm_chat_action_warp_send_watch_not_parked"
+        ),
+        "EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED": (
+            "gm_chat_action_warp_send_watch_stale_park_not_cleared"
+        ),
         "EVENT_UNEXPECTED_PREFIX": "gm_chat_action_unexpected_",
         "EVENT_WARP_WITHHELD_NO_VERSION": (
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"

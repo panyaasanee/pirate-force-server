@@ -9922,3 +9922,72 @@ import `warp_scene_persist` (มีจาก `.gm` ห้าโมดูล ไ�
 ความบริสุทธิ์ของการปฏิเสธ (8 รูปอินพุต ไม่มี half-install) · เกต `isinstance` ถูกต้อง ·
 probe ไม่ปฏิเสธของที่บูตได้จริง (`login_teleport_fields:923` เรียก `destination(HOME, ...)` อยู่แล้ว) ·
 มิวแทนต์ 7 ตัว ตาย 6 · ไม่รั่วจากไฟล์เทสนี้ · ไม่มีผู้ใช้ global นี้ที่อื่นใน repo
+
+## รอบ `8u0j50` (2026-09-05T03:0x+07:00) — `gm/warp_send_watch.py`: cell ต่อคอนเนกชันที่ทำให้ GM-057 มีชีวิตทันทีที่เสียบ
+
+**backlog ของรอบ `hv8ets` ข้อแรก**: "งานฝั่งเราที่ไม่ต้องรอ chief" — เขียนได้และเทสได้ครบ
+โดยไม่มีจุดเสียบ `connection.py` (chief ยังไม่ตอบ `CORE-REQUEST-GM-057`) รอบนี้ทำข้อนั้น
+
+**ของใหม่**: `gm/warp_send_watch.py` — cell ต่อคอนเนกชัน (attribute บน session, รูปเดียวกับ
+`warp_target_record.SESSION_ATTRIBUTE`) park `(label, frame_bytes)` ตอน `_persist_warp_scene`
+คืน `OUTCOME_PERSISTED` จริง · สองทางออก:
+
+- `on_game_frame_sent(session, frame_bytes)` — เคลียร์ **เฉพาะเมื่อไบต์ตรงกับที่ park ไว้เป๊ะ**
+  ไม่ใช่ "ส่งอะไรก็ได้สำเร็จ" เพราะ send loop เรียก observer หลังทุกเฟรม ไม่ใช่แค่ของ warp
+- `on_game_frame_send_failed(session, frame_bytes, error)` — เรียก
+  `rollback_warp_scene_on_send_failure` **โดยไม่เทียบไบต์เลย** ถ้า cell ยังไม่ว่าง เหตุผลคือ
+  ประโยคของ `CORE-REQUEST-GM-057` เอง: v141 `break` ทิ้งลิสต์ action ทั้งก้อนตั้งแต่เฟรมแรกที่พัง
+  ⇒ ถ้าเฟรมที่พังเป็นเฟรมอื่นที่เข้าคิวก่อน warp ของเราเอง เฟรม warp จะไม่มีวันถูกส่งเลย และ
+  ไม่มีทางที่ไบต์ของมันจะมาถึงฟังก์ชันนี้ — ข้อเท็จจริงเดียวที่ยืนยันได้คือ "cell ไม่ว่างตอนส่งพัง"
+  ซึ่งพอแล้วสำหรับสรุปว่าแถวยังไม่ยืนยัน
+
+**เดินสายในเขตตัวเองสองจุด** (`chat_command_action.py`, ไม่ใช่ของ chief):
+
+1. `_warp_teleport_action_no_coords` — เรียก `park_warp_send` ทันทีหลัง `_persist_warp_scene`
+   คืน `persisted` (ก่อนหน้านั้นไม่มีอะไรให้ยืนยัน)
+2. `_make_action`'s withhold branch — เมื่อ `verdict.undo` เพิ่งย้อนแถวสำเร็จแบบ synchronous
+   (audit row เขียนไม่ได้) เคลียร์ cell ของ warp เดียวกันทันที เพราะเฟรมที่จะยืนยัน/ทำให้ล้มเหลว
+   จะไม่ถูกคิวเลย (`action = None` บรรทัดเดียวกัน) — ไม่งั้น send ที่พังภายหลังโดยคำสั่งอื่นบน
+   คอนเนกชันเดียวกันจะไป rollback แถวที่ย้อนไปแล้วซ้ำอีกที (spurious) · เคลียร์เฉพาะ label
+   `WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL` เท่านั้น เหมือนกติกาเดิมของ
+   `clear_warp_target` ("เฉพาะคำสั่งที่ park มันเอง")
+
+**เทส** — สองชั้น รูปเดียวกับ `warp_target_record`/`warp_scene_rollback`:
+`ParkAndClearUnitTests`/`OnGameFrameSentTests`/`OnGameFrameSendFailedTests` (fake session, 20 เทส) +
+`RealDatabaseTests` (store จริง, router จริง, เฟรมที่ compose จริง — 9 เทส) รวมยืนยันแถวจริง
+ย้อนกลับจริงในสถานการณ์ที่ `CORE-REQUEST-GM-057` ตั้งชื่อไว้ (เฟรม**อื่น**พังก่อนเฟรม warp เอง)
+
+### pf-adversary รอบนี้ (ADVERSARY_MANUAL — ไม่มี Agent tool ในสภาพแวดล้อมนี้)
+
+ใช้เช็คลิสต์ `.claude/agents/pf-adversary.md` มือ เพราะไม่มี Agent tool ให้เรียกจากที่นี่
+(รูปเดียวกับ `741zlx`/R342's `ADVERSARY_MANUAL #745`):
+
+- **ข้อ 12 (โทเคนยิงตาม drift ไม่ใช่ตามเป้า) — MANDATORY**: `OUTCOME_CLEARED_OWN_FRAME` ยิงเมื่อ
+  ไบต์ตรงกับที่ park **เป๊ะ** เท่านั้น ไม่ใช่ "มีอะไรส่งสำเร็จ" ⇒ ผ่าน ตรวจแล้วว่าออกแบบกันไว้แต่แรก
+  ไม่ใช่ผลพลอยได้ · ฝั่งล้มเหลวจงใจ**ไม่**เทียบไบต์ (เหตุผลอยู่ในเทส
+  `test_a_different_frames_failure_still_rolls_back_the_parked_warp`) — นี่ไม่ใช่ช่องโหว่แบบข้อ 12
+  เพราะ "cell ไม่ว่าง" เป็นข้อเท็จจริงเกี่ยวกับเป้าหมายจริง (มีแถวที่ยังไม่ยืนยัน) ไม่ใช่ noise
+- **ข้อ 2 (เขียวเพราะยังไปไม่ถึง)**: ตรวจว่า branch ที่ล้มเหลวไม่ตรงไบต์จริงถูกเทสยิงถึงหรือไม่ —
+  `test_an_earlier_unrelated_frames_failure_still_rolls_back_the_parked_warp` ยิงผ่านแถว SQLite
+  จริงและอ่านกลับ ไม่ใช่แค่เช็ค return value
+- **ข้อ 7 (cp874/paths)**: ไฟล์ใหม่ไม่มี `print`/console call เลย (มอบให้ `rollback_warp_scene_on_
+  send_failure` ที่มี `_console`/stderr-guard ของมันเองอยู่แล้ว) ⇒ ไม่เพิ่มความเสี่ยง cp874 ใหม่
+- **cp874 tripwire ของไฟล์**: `gm/warp_send_watch.py` ใหม่ทั้งไฟล์ นับไบต์ >127 = **0**
+  (`tests/test_gm_source_is_cp874_safe.py` ยืนยัน) · `chat_command_action.py` ที่แก้ นับไบต์ >127
+  ก่อน/หลัง = 123/123 เท่ากันเป๊ะ ไม่เพิ่มบรรทัดไทยใหม่
+- **ข้อ 4 (ไฟล์มีบนเครื่องแต่ git ไม่เห็น)**: `git add` ก่อนรันชุด — `test_gm_tests_collect_
+  without_posix.py::test_every_lane_gm_test_file_is_tracked_by_git` เคยจับพลาดแบบนี้มาก่อน
+  (เจอครั้งแรกตอนพัฒนา ก่อน `git add`) แก้แล้วก่อน push
+- **คำถามที่ยังไม่มีคำตอบ (ตามฟอร์แมต "จบด้วยคำถามที่ยังไม่ตอบ")**: ถ้า GM ยิง `/warp` สองครั้งรัว ๆ
+  ไปฉากเดียวกัน (เฟรมไบต์เหมือนกันเป๊ะ) ก่อนคำสั่งแรกจะยืนยัน/ล้มเหลว — park ตัวที่สองแทนที่ตัวแรก
+  (เจตนา ตามเหตุผลเดียวกับ `record_warp_target`) แต่ไม่มีเทสยิงสถานการณ์นี้ตรง ๆ ในรอบนี้
+  เพราะเฟรมทั้งสองครั้งจะยืนยันแถวเดียวกันอยู่แล้ว (ปลายทางเดิม) ความเสี่ยงจึงต่ำ แต่ยังไม่วัด
+
+### nonclaim ของรอบนี้
+
+ไม่มีอะไรผ่านจอ · ไม่มีบัญชีใดได้/เสียสถานะ GM · ไม่มีขั้นตอนใดถูกข้ามด้วย GM ·
+**`on_game_frame_sent`/`on_game_frame_send_failed` ยังไม่ถูกเรียกจากที่ไหนนอกไฟล์เทสนี้กับจุด
+park ของ `chat_command_action.py` เอง** — ยังรอบรรทัดเดียวของ chief ที่ `connection.py`
+(`CORE-REQUEST-GM-057`) จึงจะมีการเรียกจริงจากซ็อกเก็ต · หน้าต่าง D8 ข้อ 2 ยังเปิดอยู่จนกว่าบรรทัด
+นั้นจะลง main · ไม่ได้แตะ `runtime.py`/`app.py`/`pf_login_game_server_v141.py`/canonical DB/
+เขตสาย A/เขตสาย B
