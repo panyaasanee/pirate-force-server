@@ -43,6 +43,15 @@ from .lane_hooks import lane_b_mob_ai_tick
 from .gm.accounts import is_gm_account
 from .gm import chat_command_action
 from .gm.dispatch import GM_RUN_GM_COMMAND_VITAL_ID
+from .ui_friend_wire import (
+    COMMUNITY_REMOVE_FRIEND_VITAL_ID, COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
+)
+from .ui_mail_wire import (
+    COMMUNITY_DELETE_MAIL_VITAL_ID, COMMUNITY_GET_MAIL_CONTENT_VITAL_ID,
+    COMMUNITY_SEND_MAIL_VITAL_ID,
+)
+from .ui_party_wire import PARTY_CMD_VITAL_ID, PARTY_INVITE_VITAL_ID
+from .ui_trade_wire import TRADE_INVITE_VITAL_ID
 from .gm import state_wire
 from .gm.state_wire import make_gm_update_state_frame
 from .gm import login_scene_admission
@@ -335,6 +344,74 @@ CLIENT_CONFIRMED_SCENE_FIELD = "client_confirmed_scene"
 # makes the window pop (RE-227 nonclaim 6, COO-DECISION 20260904_0747).
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID = 0xC723
 NAVIGATIONEX_ENTER_INSTANCE_VITAL_NAME = "NavigationEx_EnterInstanceVital"
+
+
+# CORE-REQUEST of pf_bridge/notes_to_chief/20260904_1120 (LANE-UI, round
+# p7m2wq).  Eight friend/mail/party/trade vitals whose opcode AND every field
+# resolve to PROVEN evidence (pirate-force-server/docs/PF_VITAL_NAMES.json,
+# tools/pf_vital_name_thunk_static.py section [3] tier PROVEN,
+# registration-thunk byte-match -- the same evidence class the
+# NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID block above cites, not a lesser one).
+# Each id is also independently recomputed by
+# tests/test_lane_ui_friend_mail_party_trade_dispatch_wiring.py against the
+# v141 protocol_name_id hash, same control as the NavigationEx test above.
+#
+# NOT CLAIMED: that any of these frames has ever been observed on real wire
+# (PF_FIELD_VALIDATION.tsv: NOT_OBSERVED for all eight), and not that this
+# server understands what any of them DO -- caller/verb semantics are
+# CALL_UNCLASSIFIED (letter 1120 nonclaim (2)).  These eight branches only
+# count the frame and fire a report-only lane_hooks point, same shape as
+# TRIGGER_VITAL and NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID above: nothing is
+# decoded, nothing is answered.  LANE-UI owns the hook modules; this call
+# site is the one edit only chief may make (lane_hooks/__init__.py docstring
+# 144-146).
+#
+# The ids are IMPORTED (see the top-of-file import block), not re-declared
+# as literals: LANE-UI's own ui_party_wire.py/ui_friend_wire.py/
+# ui_mail_wire.py/ui_trade_wire.py (pure encode/decode modules, already on
+# main before this round) define these same eight constants, under these
+# same names, for the same letter 1120.  pf-adversary (this round) found
+# the first draft of this file re-declared them as its own literals -- two
+# sources of truth for the same eight numbers, in sync today only because a
+# human copied them right, with nothing to catch the day one of the two
+# copies is corrected and the other is not.  Importing closes that gap the
+# same way this file already imports GM_RUN_GM_COMMAND_VITAL_ID from
+# .gm.dispatch instead of re-declaring it.
+
+# Names, for the opcode-hash self-check test only (the wire modules above
+# have no use for the class name string itself, so it is not theirs to own).
+PARTY_INVITE_VITAL_NAME = "PartyInviteVital"
+PARTY_CMD_VITAL_NAME = "PartyCmdVital"
+COMMUNITY_REQUEST_BE_FRIEND_VITAL_NAME = "Community_RequestBeFriendVital"
+COMMUNITY_REMOVE_FRIEND_VITAL_NAME = "Community_RemoveFriendVital"
+COMMUNITY_SEND_MAIL_VITAL_NAME = "Community_SendMailVital"
+COMMUNITY_GET_MAIL_CONTENT_VITAL_NAME = "Community_GetMailContentVital"
+COMMUNITY_DELETE_MAIL_VITAL_NAME = "Community_DeleteMailVital"
+TRADE_INVITE_VITAL_NAME = "TradeInviteVital"
+
+# (opcode, hook point name) pairs, one dispatch branch per class below.
+_FRIEND_MAIL_PARTY_TRADE_DISPATCH = (
+    (PARTY_INVITE_VITAL_ID, "vital_inbound_party_invite_vital"),
+    (PARTY_CMD_VITAL_ID, "vital_inbound_party_cmd_vital"),
+    (
+        COMMUNITY_REQUEST_BE_FRIEND_VITAL_ID,
+        "vital_inbound_community_request_be_friend_vital",
+    ),
+    (
+        COMMUNITY_REMOVE_FRIEND_VITAL_ID,
+        "vital_inbound_community_remove_friend_vital",
+    ),
+    (COMMUNITY_SEND_MAIL_VITAL_ID, "vital_inbound_community_send_mail_vital"),
+    (
+        COMMUNITY_GET_MAIL_CONTENT_VITAL_ID,
+        "vital_inbound_community_get_mail_content_vital",
+    ),
+    (
+        COMMUNITY_DELETE_MAIL_VITAL_ID,
+        "vital_inbound_community_delete_mail_vital",
+    ),
+    (TRADE_INVITE_VITAL_ID, "vital_inbound_trade_invite_vital"),
+)
 
 
 def _recompose_event_suffix(record):
@@ -8322,6 +8399,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.rx_frames += 1
                 lane_hooks.fire(
                     "vital_inbound_navigationex_enter_instance_vital",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
+                )
+                return []
+            for _fmpt_id, _fmpt_point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH:
+                if nested_id != _fmpt_id:
+                    continue
+                # CORE-REQUEST of pf_bridge/notes_to_chief/20260904_1120
+                # (LANE-UI).  Same shape as TRIGGER_VITAL and
+                # NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID above: count the
+                # frame, fire the report-only hook point, send nothing back.
+                self.rx_frames += 1
+                lane_hooks.fire(
+                    _fmpt_point,
                     session=self,
                     payload=bytes(parsed.nested_payload),
                 )
