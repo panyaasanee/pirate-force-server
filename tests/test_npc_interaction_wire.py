@@ -382,23 +382,27 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         # behaviour, and the test below proves that for every hit in the
         # file rather than taking this comment's word for it.
         "world_bg3001_identity.py": {"trade"},
-        # ADDED round md7pjz (LANE-UI, COO-DECISION 20260904_1244 item 3).
-        # ui_social_wire.py/ui_party_wire.py/ui_trade_wire.py name
-        # `TradeInviteVital` -- a proven wire class from
-        # `PF_SERIALIZER_FIELDS.tsv`/`PF_VITAL_NAMES.json` (NAMES-FOLD-002,
-        # tier PROVEN) -- because that IS the class's real name, not a
-        # guess. These modules are pure encode/decode of that class's
-        # proven field shape only: no cart, price, inventory, or trade
-        # outcome logic exists anywhere in them (every nonclaim in
-        # ui_trade_wire.py says so explicitly), and none of the three
-        # files is wired into runtime.py or vital_walk.py at all yet.
-        # `TradeCmdVital` -- the class that would actually execute a
-        # trade -- is explicitly named as OUT of scope in
-        # ui_trade_wire.py's own module docstring and has no module here.
-        "ui_social_wire.py": {"trade"},
-        "ui_party_wire.py": {"trade"},
-        "ui_trade_wire.py": {"trade"},
     }
+    # REVISED round md7pjz-recovery (LANE-UI): an earlier round (COO-DECISION
+    # 20260904_1244 item 3) added file-level ALLOWED_HITS entries for
+    # ui_social_wire.py/ui_party_wire.py/ui_trade_wire.py, arguing the "trade"
+    # hits were the proven wire class name `TradeInviteVital`. A fresh
+    # pf-adversary pass (run because the original round's adversary result
+    # never came back before the session ended) found that argument does not
+    # hold: `\btrade\b` never matches "TradeInviteVital" at all (no word
+    # boundary between "trade" and "invite" -- it is one identifier), so the
+    # regex was never catching the class name in the first place. The actual
+    # hits were free prose in module docstrings/comments, and a demonstration
+    # in an isolated worktree showed the resulting file-level exemption is
+    # blind to real trade-settlement-shaped code added anywhere else in the
+    # same three files under cover of the word "trade" -- unlike the other
+    # two exemptions above, which are proven narrow by a companion test
+    # (data-row structure), nothing here checked that the hits stayed inside
+    # a comment. Fixed at the source instead of writing a third companion
+    # test: the three files' docstrings no longer use the bare word "trade"
+    # (they cite the class name `TradeInviteVital` or say "exchange"
+    # instead), so no exemption is needed and the guard is back to full
+    # strength on all three files.
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
     #     (82, 833, 'M070_000_002_N', 'Brin', 'Gold Shop', 105),

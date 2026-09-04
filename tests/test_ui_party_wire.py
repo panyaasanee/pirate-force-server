@@ -48,6 +48,25 @@ class PartyInviteWireTests(unittest.TestCase):
     def test_empty_buffer_fails_closed(self):
         self.assertIsNone(party.decode_party_invite_payload(b""))
 
+    def test_malformed_wstring_field_fails_closed_not_raises(self):
+        # pf-adversary (round md7pjz-recovery): the module's fail-closed
+        # contract promised every decode_* returns None on malformed input,
+        # but an unpaired UTF-16 surrogate inside the field3 wstring used to
+        # escape as a raw UnicodeDecodeError instead -- reproduced here at
+        # the payload-decode level (not just the raw wire.read_untagged_
+        # wstring level covered in test_ui_social_wire.py) since this is the
+        # entry point a future dispatch caller would actually use.
+        payload = bytearray(
+            party.encode_party_invite_payload(
+                party.PartyInviteFields(1, 2, "x")
+            )
+        )
+        # field3's untagged-wstring payload is the last 2 bytes (length=1
+        # char "x", encoded as 2 bytes of UTF-16LE) -- overwrite with a lone
+        # high surrogate, an even-length, in-bounds, still-invalid payload.
+        payload[-2:] = bytes([0x00, 0xD8])
+        self.assertIsNone(party.decode_party_invite_payload(bytes(payload)))
+
 
 class PartyCmdWireTests(unittest.TestCase):
     def test_round_trip(self):
