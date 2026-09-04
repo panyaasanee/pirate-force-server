@@ -61,6 +61,7 @@ from . import mob_death
 from . import mob_ledger_admission
 from . import world_population
 from . import world_population_bg0002
+from . import world_population_bg0003
 from . import world_population_bg0005
 from . import world_population_bg0015
 
@@ -164,6 +165,7 @@ class SceneComposer:
 # a place where scene behaviour is smuggled in.
 COMPOSER_DELEGATED = "delegated_to_diag_multi_object_wiring"
 COMPOSER_BG0002 = "bg0002_population_plus_roster_override"
+COMPOSER_BG0003 = "bg0003_population_plus_roster_override"
 COMPOSER_BG0005 = "bg0005_population_plus_roster_override"
 COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 
@@ -178,8 +180,12 @@ COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
 # ``heals=False`` behaviour by omission").  Naming the set once is how this
 # round declines to be that prediction: both readers now read THIS tuple, so
 # a fifth scene is one entry, not two that can drift apart.
+# ROUND am1fw8 added :data:`COMPOSER_BG0003` here, and that one entry is
+# the whole edit round jqeo2m promised it would be: the ``heals``
+# condition and :func:`_compose`'s guard both read this tuple, so
+# neither had to be touched and neither could be left behind.
 NON_DELEGATED_COMPOSER_KINDS = (
-    COMPOSER_BG0002, COMPOSER_BG0005, COMPOSER_BG0015,
+    COMPOSER_BG0002, COMPOSER_BG0003, COMPOSER_BG0005, COMPOSER_BG0015,
 )
 
 _COMPOSERS = {
@@ -188,6 +194,9 @@ _COMPOSERS = {
     ),
     world_population_bg0002.SCENE2_N_ID: SceneComposer(
         world_population_bg0002.SCENE2_N_ID, "Bg0002", COMPOSER_BG0002,
+    ),
+    world_population_bg0003.SCENE_N_ID: SceneComposer(
+        world_population_bg0003.SCENE_N_ID, "Bg0003", COMPOSER_BG0003,
     ),
     world_population_bg0005.SCENE_N_ID: SceneComposer(
         world_population_bg0005.SCENE_N_ID, "bg0005", COMPOSER_BG0005,
@@ -223,6 +232,16 @@ def _build_bg0002(legacy, anchor, actor_count, *, scene_id):
 _build_bg0002.serves_scene_id = world_population_bg0002.SCENE2_N_ID
 
 
+def _build_bg0003(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0003.build_bg0003_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0003.COUNT_SOURCE_CALLER,
+    )
+
+
+_build_bg0003.serves_scene_id = world_population_bg0003.SCENE_N_ID
+
+
 def _build_bg0005(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0005.build_bg0005_population(
         legacy, anchor, actor_count, scene_id=scene_id,
@@ -245,6 +264,7 @@ _build_bg0015.serves_scene_id = world_population_bg0015.SCENE_N_ID
 
 _POPULATION_BUILDERS = {
     COMPOSER_BG0002: _build_bg0002,
+    COMPOSER_BG0003: _build_bg0003,
     COMPOSER_BG0005: _build_bg0005,
     COMPOSER_BG0015: _build_bg0015,
 }
@@ -470,15 +490,19 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # census -- they still reach no combat roster and no strike, because
     # none exists for this scene in field_mobs, the same fact the scene
     # 5/6/8 entries record.
-    3: (
-        "Bg0003 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened this round); "
-        "field_mobs names no scene 3 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer IS live (scene 3's "
-        "login_entry_allowed is true), so a player can reach the arrival "
-        "census; there is simply nothing in field_mobs for it to recompose "
-        "against yet."
-    ),
+    #
+    # ~~3: "Bg0003 -- lane A's arrival census composes it ... there is simply
+    # nothing in field_mobs for it to recompose against yet."~~ STRUCK ROUND
+    # am1fw8 (LANE-B), on the same terms scene 5's entry was struck in round
+    # jqeo2m and scene 14's in round n4pv7k: scene 3 now has BOTH a roster
+    # (``field_mobs.roster_for_scene_id(3)``, twelve rows out of
+    # ``field_mob_tables_bg0003``) and a recompose composer
+    # (:data:`COMPOSER_BG0003` and its entry in
+    # :data:`_POPULATION_BUILDERS`), so it no longer belongs in a dict of
+    # scenes that are missing one.  The acknowledgement's own promise --
+    # "this lane WILL compose it; what it cannot do is compose a map with no
+    # monsters in it" -- is discharged here, in the same PR that puts the
+    # monsters in the map.
     # ADDED ROUND 78zayw (LANE-A), same shape as the scene 3/5/6/8 entries
     # above: scene 7 entered ``world_scene_travel.CENSUS_SOURCES`` this
     # round (built, wired AND opened in one round, same compressed pass

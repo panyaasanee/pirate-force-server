@@ -179,8 +179,11 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # its roster and its composer together, on the same terms scene 14
         # did here.  This file's subject is scene 14 and none of its own
         # answers moved; only the table it reads grew a row.
+        # ROUND am1fw8: ~~(1, 2, 5, 14)~~ -> (1, 2, 3, 5, 14), scene 3 on
+        # the same terms again.  This file's subject is still scene 14 and
+        # none of its own answers moved.
         status = gates.recompose_status()
-        self.assertEqual(status["composer_scene_ids"], (1, 2, 5, 14))
+        self.assertEqual(status["composer_scene_ids"], (1, 2, 3, 5, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -281,10 +284,21 @@ class Bg0015MeasurementTests(unittest.TestCase):
             (row["actor_identity"], row["scene_a"], row["scene_b"])
             for row in gates.live_cross_scene_collisions_today()
         }
+        # ROUND am1fw8: scene 3's twelve placements brought four more at
+        # once.  The walk they trigger is recorded in
+        # ``tests/test_field_mobs.py``'s collision card and MEASURED in
+        # ``tests/test_field_mob_tables_bg0003.py``; this list is the LIVE
+        # half of the same fact -- every scene here is registered and
+        # reachable, so a pair appearing here is a pair a player can stand
+        # in front of.
         self.assertEqual(got, {
-            (0x2058, "Bg0002", "Bg0015"),
+            (0x201C, "Bg0003", "Bg0015"),
+            (0x201E, "Bg0003", "Bg0015"),
+            (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
+            (0x2058, "Bg0002", "Bg0015"),
         })
 
     def test_the_one_collision_registration_would_create(self) -> None:
@@ -354,8 +368,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # field_mobs.py's own registration, never this module.  The
         # assertion this test exists for (reloading gates.py changes
         # nothing) is the one above and is untouched.
+        # ROUND am1fw8: gains "Bg0003", by the same mechanism again --
+        # field_mobs.py's own registration, never this module.  The
+        # assertion this test exists for (reloading gates.py changes
+        # nothing) is the one above and is still untouched.
         self.assertEqual(
-            set(before), {"bg0001", "Bg0002", "bg0005", "Bg0015"})
+            set(before),
+            {"bg0001", "Bg0002", "Bg0003", "bg0005", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):

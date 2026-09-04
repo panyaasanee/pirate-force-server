@@ -175,13 +175,29 @@ class Bg0003TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_for_this_scene_now_exists(
         self,
     ) -> None:
-        hits = list(
-            (ROOT / "src" / "pirateforce_foundation").glob(
-                "field_mob_tables_bg0003*"))
-        self.assertEqual(hits, [])
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet,
+        asserting the glob was empty.~~
+
+        FIRED AS DESIGNED AND FLIPPED, ROUND am1fw8 (LANE-B): this was a
+        tripwire lane A left for exactly the day lane B shipped scene 3's
+        combat roster, and that day is this commit
+        (``field_mob_tables_bg0003.py``, twelve placements, registered in
+        ``field_mobs._SCENE_TABLE_MODULES``).  It is flipped rather than
+        deleted, because the fact worth keeping is not "there is no roster"
+        -- it is "lane A's table and lane B's roster are two readings of one
+        scene", and the cross-check that they AGREE is
+        ``tests/test_field_mob_tables_bg0003.py``'s
+        ``test_every_shipped_row_agrees_with_lane_as_independently_mined_crosswalk``.
+        """
+        hits = sorted(
+            path.name
+            for path in (ROOT / "src" / "pirateforce_foundation").glob(
+                "field_mob_tables_bg0003*")
+        )
+        self.assertEqual(hits, ["field_mob_tables_bg0003.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

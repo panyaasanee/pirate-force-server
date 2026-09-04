@@ -529,22 +529,42 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
-    def test_this_lane_has_armed_two_scenes_behind_that_shut_seam(
+    def test_this_lane_announces_three_lane_composed_scenes_now(
             self) -> None:
-        """Named, so nobody arms a third without seeing the count move."""
+        """Named, so nobody arms a fourth without seeing the count move.
+
+        ~~``test_this_lane_has_armed_two_scenes_behind_that_shut_seam``,
+        pinning ``(5, 14)``.~~  MOVED TO THREE AND RENAMED, ROUND am1fw8:
+        scene 3's roster and composer land this round, so the round that
+        armed the third scene came here and said which, exactly as this card
+        was built to force.  The name changed too, because the fact it names
+        changed underneath it between round `9vec2s` and this one: the seam
+        is OPEN.  These are no longer scenes armed behind a shut seam -- they
+        are the scenes a lane-composed arrival now ANNOUNCES a real roster
+        for, and scene 3 joined that set the moment ``field_mobs
+        .roster_for_scene_id(3)`` stopped returning ``()``.  Measured, not
+        inferred, in ``tests/test_field_mob_tables_bg0003.py``'s
+        ``test_the_lane_composed_arrival_now_announces_all_twelve``.
+
+        The set is still written as a tuple and not a count for the same
+        reason as before: a scene LEAVING it has to be as visible as one
+        joining.
+        """
         armed_behind_the_seam = tuple(
             scene_id for scene_id in sorted(mob_scene_recompose.composer_scene_ids())
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (5, 14),
-            "a scene joined or left the set this lane has armed behind the "
-            "lane-composed membership seam.  Scenes 1 and 2 have their own "
-            "dedicated arrival branches in runtime.py and announce real "
-            "membership; every other scene arrives lane-composed and cannot "
-            "be fought in yet.  Adding one is not wrong -- shipping it as "
-            "'the player can now fight here' is, and round jqeo2m did "
-            "exactly that.",
+            armed_behind_the_seam, (3, 5, 14),
+            "a scene joined or left the set of lane-composed scenes this "
+            "lane ships a roster for.  Scenes 1 and 2 have their own "
+            "dedicated arrival branches in runtime.py; every other scene "
+            "arrives lane-composed, and since chief's round `9vec2s` such "
+            "an arrival announces the roster the composer hands it -- so a "
+            "scene joining this tuple is a scene whose monsters become "
+            "TARGETABLE.  Adding one is not wrong; shipping it as 'the "
+            "player can now fight here' without saying what else is shut "
+            "(a death ruling, a drop table) is.",
         )
 
 

@@ -193,6 +193,7 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0005
 from . import field_mob_tables_bg0015
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
@@ -511,10 +512,19 @@ def assert_single_scene_tables(table_modules: Any) -> None:
 _SCENE_TABLE_MODULES = {
     field_mob_tables.SCENE: field_mob_tables,
     field_mob_tables_bg0002.SCENE: field_mob_tables_bg0002,
+    field_mob_tables_bg0003.SCENE: field_mob_tables_bg0003,
     field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
+# ROUND am1fw8.  Scene 3 (the jungle map behind Port Royal's second gate),
+# the second scene to arrive with its census already live -- lane A's
+# ``world_population_bg0003`` has been composing arrivals for it, so this
+# roster is again the only missing half.  TWELVE placements over seven
+# templates, the largest roster this lane has shipped for a field scene, and
+# the four hostility predicates agree on all twelve (12/12/12/12) rather
+# than needing the reading the generator warns about.
+BG0003_SCENE = field_mob_tables_bg0003.SCENE
 # ROUND jqeo2m.  Scene 5 (Evil Port), the first scene whose ARRIVAL census
 # was already live when its roster arrived: lane A opened
 # ``login_entry_allowed`` for it in round l03cgh, so unlike scenes 2 and 14

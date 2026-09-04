@@ -352,8 +352,14 @@ class WithinOneSceneTests(unittest.TestCase):
         # identities of scene 5, so none of them is silently dropped by
         # ``apply_identity_override`` -- which is the containment this test
         # exists for.  This number only tracks how many scenes were checked.
+        # ROUND am1fw8: ~~4~~ -> 5.  Scene 3 (Bg0003) joined on the same
+        # terms scenes 14 and 5 did, and the per-scene subTest above is
+        # again what proved it: all twelve of its roster identities are
+        # census identities of scene 3, so none is silently dropped by
+        # ``apply_identity_override``.  This number only tracks how many
+        # scenes were checked.
         self.assertEqual(
-            4, checked, "only scenes 1, 2, 5 and 14 ship rosters today")
+            5, checked, "only scenes 1, 2, 3, 5 and 14 ship rosters today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
         # The routing itself, driven directly.  Shipped data cannot reach

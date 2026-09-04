@@ -602,8 +602,21 @@ def compose_player_hit_frame(
         # GT-218 family `COO-DECISION 20260904_0847` closed).
         values = dict(values)
         values[hp_x] = hp_after
+        # ROUND am1fw8, ACCEPTING LANE-GM's offer of 2026-09-04T12:26+07:00:
+        # `make_update_attr_frame` grew an optional third selector fence and
+        # their letter is explicit that this door is already safe without it
+        # ("a no-op if you turn it on, not a bug fix") -- the x=9 value in
+        # `values` came out of `live_full_block_values` above, which ran the
+        # real fence at source.  It is taken anyway, because "safe" here is a
+        # property of THIS composition path and not of the argument: the one
+        # row this door rewrites between the two calls is hp_current, and
+        # nothing structural stops a later edit from rewriting more.  A wall
+        # that re-derives the selector from the SAME `character_id` and the
+        # SAME hooks this door already composed from cannot disagree with the
+        # source today, and is the thing that notices on the day it can.
         pc, frame = attr_wire.make_update_attr_frame(
-            legacy, identity_lo, identity_hi, values)
+            legacy, identity_lo, identity_hi, values,
+            character_id=character_id, hooks=_same_live_hooks)
     except MobAiPlayerDamageError as exc:
         # A renamed or demoted vital row.  Named, not raised: LANE-GM moving
         # their own table may not take a walking player's dispatch down.
