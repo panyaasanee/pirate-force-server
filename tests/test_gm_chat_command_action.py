@@ -1482,6 +1482,8 @@ class EventNameContractTests(_Case):
         "EVENT_WARP_NO_POSITION": "gm_chat_action_warp_no_current_position",
         "EVENT_WARP_REFUSED_PREFIX": "gm_chat_action_warp_refused_",
         "EVENT_WARP_TARGET_NOT_RECORDED": "gm_chat_action_warp_target_not_recorded",
+        # PANYA-DECISION 20260904_1430 / COO-DECISION 20260904_1452.
+        "EVENT_WARP_SCENE_PERSIST_PREFIX": "gm_chat_action_warp_scene_persist_",
         "EVENT_UNEXPECTED_PREFIX": "gm_chat_action_unexpected_",
         "EVENT_WARP_WITHHELD_NO_VERSION": (
             "gm_chat_action_warp_withheld_no_confirmed_force_pos_vital_"
