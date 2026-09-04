@@ -232,11 +232,16 @@ class RealDatabaseTests(unittest.TestCase):
         session = self._session("rollback02")
         stream = io.StringIO()
         with redirect_stderr(stream):
-            outcome, undo = chat_command_action._persist_warp_scene(
+            outcome, undo, previous = chat_command_action._persist_warp_scene(
                 session, _target(REFUSED_SCENE),
             )
         self.assertEqual(outcome, warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE)
         self.assertIsNone(undo)
+        # Round `ff30oi` widened this return to `(outcome, undo, previous)`.
+        # A refused write captured nothing to go back to, so the third
+        # element must be `None` for the same reason `undo` is -- and
+        # `park_warp_send` is never reached on this branch at all.
+        self.assertIsNone(previous)
         self.assertEqual(self._row(session).scene_id, 1)
 
     def test_the_in_memory_row_is_left_alone_by_the_rollback_too(self):
@@ -246,7 +251,7 @@ class RealDatabaseTests(unittest.TestCase):
         before_selected = session.foundation.selected
         stream = io.StringIO()
         with redirect_stderr(stream):
-            _outcome, undo = chat_command_action._persist_warp_scene(
+            _outcome, undo, _previous = chat_command_action._persist_warp_scene(
                 session, _target(DESTINATION_SCENE),
             )
             self.assertTrue(undo())

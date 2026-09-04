@@ -8,13 +8,21 @@ bytes, and `chat_command.decode_local_talk_payload` refuses the whole command
 with "trailing bytes after wstring#2".  `gm/chat_frame_tail.py` finds the
 boundary -- or refuses, by name, and leaves main's behaviour untouched.
 
-THE HONEST FRAME, repeated here because a test file is where a claim gets
+~~THE HONEST FRAME, repeated here because a test file is where a claim gets
 believed: NO CAPTURED CHAT FRAME CARRYING A SECOND VITAL EXISTS.  Every case
 below builds its multi-vital frames by hand.  What is measured is that this
 client bundles up to five vitals into one frame on other traffic (R303,
 `vital_walk.py`'s docstring), and that today's route would refuse a GM
 command inside such a frame while blaming a codec.  Nothing here is evidence
-that the client has ever done it.
+that the client has ever done it.~~
+
+STRUCK BY R313, round `ff30oi`.  One now exists, and
+`R313CapturedFrameTests` at the foot of this file is built from its bytes:
+attended round R313 captured `0xAC52` (`/warp 126`) followed by `0x0F01`
+(`UserSetting_UpdateServerSettingVital`) in one 171-byte frame, and the
+command was thrown away.  Every OTHER case in this file is still hand-built
+and still says so.  The paragraph above is struck rather than deleted
+because it was true when written.
 
 THE PROPERTY EVERY CASE IS SERVING: a frame that works on main today must go
 down exactly the path it goes down today, and a frame this module cannot
@@ -280,13 +288,44 @@ class RefusedTailTests(_Case):
         self.assertEqual(split.tail_ids, ())
         self.assertFalse(split.split)
 
-    def test_an_id_with_no_declared_body_length_stops_the_walk(self):
+    def test_an_id_with_no_declared_body_length_no_longer_costs_the_command(self):
+        """The behaviour R313 changed, pinned as a behaviour and not a name.
+
+        Before round `ff30oi` this returned `TAIL_UNKNOWN_VITAL_ID` with
+        `body=None` and the GM's command was thrown away.  R313 measured a
+        real client doing exactly this (see the module docstring), so the
+        walk now stops at the undeclared id and KEEPS the boundary the
+        strict decoder already proved.
+        """
         unknown = 0x4321
         self.assertNotIn(unknown, self.table)
         split = self.split(
             make_chat_payload("/warp 2 100 200") + nested_vital(unknown, b"\x00" * 8)
         )
-        self.assertRefused(split, chat_frame_tail.TAIL_UNKNOWN_VITAL_ID)
+        self.assertEqual(split.reason, chat_frame_tail.TAIL_UNDECLARED_BODY)
+        self.assertTrue(split.split)
+        self.assertEqual(split.tail_ids, (unknown,))
+        self.assertEqual(
+            chat_command.decode_local_talk_payload(split.body),
+            ("", "/warp 2 100 200"),
+        )
+
+    def test_a_tail_that_is_not_even_a_nested_header_is_still_refused(self):
+        """The half that did NOT get looser, and the reason the change is safe.
+
+        `TAIL_UNDECLARED_BODY` requires both nested-header tags to read.
+        Trailing bytes that are not a nested header at all still refuse, so
+        the frame must still look like "chat body, then a vital" in both
+        halves -- only that vital's body LENGTH may be unknown.
+        """
+        for label, tail in (
+            ("wrong id tag", b"\x13\x21\x43\x0B\x00" + b"\x00" * 8),
+            ("wrong version tag", b"\x12\x21\x43\x0C\x00" + b"\x00" * 8),
+            ("short header", b"\x12\x21\x43"),
+        ):
+            with self.subTest(label):
+                split = self.split(make_chat_payload("/warp 2 100 200") + tail)
+                self.assertRefused(split, chat_frame_tail.TAIL_TRUNCATED)
 
     def test_a_body_shorter_than_its_declared_length_is_refused(self):
         vital_id = self.legacy.TARGET_POS_VITAL
@@ -359,21 +398,31 @@ class RefusedTailTests(_Case):
     def test_a_payload_that_is_not_bytes_is_named_not_crashed(self):
         self.assertRefused(self.split("/warp 2"), chat_frame_tail.PAYLOAD_NOT_BYTES)
 
-    def test_a_known_vital_followed_by_an_unknown_one_still_stops_the_walk(self):
-        """The only shape that tells fail-closed apart from salvage.
+    def test_a_known_vital_followed_by_an_unknown_one_reports_both_ids(self):
+        """The shape pf-adversary's D4 was written about, re-asked.
 
-        pf-adversary (D4) turned the unknown-id return into
-        `if length is None and ids: return TAIL_WALKED` -- a partial-walk
-        salvage that hands the route a body whose frame end was never
-        established -- and every test passed, because the sibling case above
-        puts the unknown vital FIRST, where `ids` is still empty.
+        D4 caught a partial-walk SALVAGE (`if length is None and ids: return
+        TAIL_WALKED`) that reported the outcome as a closed walk while the
+        frame end had never been established.  Round `ff30oi` makes the
+        partial walk deliberate, and the answer to D4 is that it is no longer
+        MISREPORTED: the reason name says `undeclared_body`, not `walked`,
+        and `tail_ids` carries the id the walk stopped at as well as the ones
+        that closed.  A caller can tell the two apart; that was D4's ask.
         """
+        unknown = 0x4321
         split = self.split(
             make_chat_payload("/warp 2 100 200")
             + self.target_pos_vital()
-            + nested_vital(0x4321, b"\x00" * 8)
+            + nested_vital(unknown, b"\x00" * 8)
         )
-        self.assertRefused(split, chat_frame_tail.TAIL_UNKNOWN_VITAL_ID)
+        self.assertEqual(split.reason, chat_frame_tail.TAIL_UNDECLARED_BODY)
+        self.assertEqual(
+            split.tail_ids, (self.legacy.TARGET_POS_VITAL, unknown)
+        )
+        self.assertEqual(
+            chat_command.decode_local_talk_payload(split.body),
+            ("", "/warp 2 100 200"),
+        )
 
     def test_a_declared_length_that_overshoots_the_tail_is_refused(self):
         """A declared body that runs off the end of the tail.
@@ -468,17 +517,38 @@ class TheRouteTests(_Case):
             session.events,
         )
 
-    def test_an_unwalkable_tail_is_refused_and_says_which_half_failed(self):
+    def test_an_undeclared_tail_id_now_yields_an_action_on_its_own_event(self):
+        """R313's frame shape at the ROUTE, not just at the splitter.
+
+        The command has to come out the other end as an action, and the
+        event has to be countably different from `walked_n` -- the two say
+        different things about how much of the frame this house understood.
+        """
         session = FakeSession()
         payload = make_chat_payload("/warp 2 100 200") + nested_vital(
             0x4321, b"\x00" * 8
         )
         with self.open_the_version_gate():
             action = self.act(session, payload)
+        self.assertIsNotNone(action)
+        self.assertIn(
+            f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}undeclared_body_1",
+            session.events,
+        )
+        self.assertNotIn(
+            f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}walked_1",
+            session.events,
+        )
+
+    def test_a_tail_that_is_not_a_nested_header_still_refuses_at_the_route(self):
+        session = FakeSession()
+        payload = make_chat_payload("/warp 2 100 200") + b"\x13\x21\x43\x0B\x00"
+        with self.open_the_version_gate():
+            action = self.act(session, payload)
         self.assertIsNone(action)
         self.assertIn(
             f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}"
-            f"{chat_frame_tail.TAIL_UNKNOWN_VITAL_ID}",
+            f"{chat_frame_tail.TAIL_TRUNCATED}",
             session.events,
         )
 
@@ -573,7 +643,11 @@ class TheRouteTests(_Case):
         module blaming itself for the client's bytes.
         """
         session = FakeSession()
-        payload = make_chat_payload("/warp 2") + nested_vital(0x4321, b"\x00" * 8)
+        # A tail whose first byte is not the nested-id tag: still a refusal
+        # after round `ff30oi` moved the undeclared-body case out of this
+        # class.  The property under test is unchanged -- a REFUSAL hands
+        # back the caller's own object.
+        payload = make_chat_payload("/warp 2") + b"\x13\x21\x43\x0B\x00"
         stream = io.StringIO()
         with contextlib.redirect_stderr(stream):
             handed_back = chat_command_action._isolated_chat_payload(
@@ -593,9 +667,7 @@ class TheRouteTests(_Case):
 
     def test_an_unwalkable_tail_keeps_the_codec_refusal_and_names_no_bug(self):
         session = FakeSession()
-        payload = make_chat_payload("/warp 2 100 200") + nested_vital(
-            0x4321, b"\x00" * 8
-        )
+        payload = make_chat_payload("/warp 2 100 200") + b"\x13\x21\x43\x0B\x00"
         with self.open_the_version_gate():
             self.act(session, payload)
         self.assertTrue(
@@ -801,8 +873,9 @@ class ConsoleLineTests(_Case):
 
     def test_a_refusal_line_says_none_where_there_is_no_body(self):
         split = self.split(
-            make_chat_payload("/warp 2") + nested_vital(0x4321, b"\x00" * 8)
+            make_chat_payload("/warp 2") + b"\x13\x21\x43\x0B\x00"
         )
+        self.assertIsNone(split.body)
         line = chat_frame_tail.tail_console_line(split, 40)
         self.assertRegex(line, self.LINE_PATTERN)
         self.assertIn("chat_bytes=none", line)
@@ -852,6 +925,173 @@ class QuietReasonTests(_Case):
             self.act(session, bytes(payload))
         self.assertNotIn(chat_frame_tail.CHAT_TAIL_TOKEN, stream.getvalue())
         self.assertEqual(self.tail_events(session), [])
+
+
+class R313CapturedFrameTests(_Case):
+    """The frame the module docstring used to say did not exist.
+
+    SOURCE, so nobody has to take this file's word for the bytes:
+    `pf_bridge/notes_to_chief/20260905_0212_KA1A-R313-RESULTS-gt233-stop-
+    client-names-addsurveydata-so-0xC4AF-is-right-but-errordata-50351-record-
+    layout-plus-gm-chat-2vital-bug.md`, section 3, "hex #8".  Attended round
+    R313, 2026-09-05 02:01:58 +07, Panya driving the real client: one 171-byte
+    frame declaring TWO vitals -- `0xAC52` carrying the chat text `/warp 126`,
+    then `0x0F01` (`UserSetting_UpdateServerSettingVital`).  The console
+    printed `LANE_GM_CHAT_TAIL reason=tail_unknown_vital_id tail_vitals=0
+    ids=none chat_bytes=none payload_bytes=151` and the command was dropped.
+
+    WHAT THIS CLASS PINS AND WHAT IT DOES NOT.  It reconstructs the payload
+    v141 hands this lane -- `nested_payload`, i.e. every byte after the FIRST
+    nested vital's five-byte header -- from the letter's own hex, and pins
+    that the splitter now isolates the chat body and the route now produces
+    an action.  It does NOT re-derive the client's framing, does not claim
+    anything about what `0x0F01`'s body means, and is not evidence that the
+    warp itself works on screen: only an attended boot can say that, and this
+    lane's `nonclaim` line says so in the round file.
+
+    The `payload_bytes=151` in the captured console line is the arithmetic
+    check that the reconstruction below is the right slice: if it does not
+    come to 151, these bytes are not what the server saw.
+    """
+
+    #: `12 6F 6E` ... `0B 02` (vital_count 2) ... `12 52 AC 0B 00` is the
+    #: envelope plus the first nested header; `nested_payload` starts at the
+    #: `48` that follows.  Transcribed from the letter's hex #8, with its
+    #: `00`-run shorthand (`32 00x8`, `2A ...`) expanded.
+    #: `bytes.fromhex` ignores ASCII whitespace, so the runs the letter wrote
+    #: as `32 00x8` are expanded here in full rather than reconstructed with
+    #: arithmetic -- a transcription is only checkable if it is literal.
+    CHAT_BODY = bytes.fromhex(
+        "48 00 00 00 00 "                       # wstring#1: speaker, empty
+        "48 12 00 00 00 "                       # wstring#2: 0x12 = 18 bytes
+        "2F 00 77 00 61 00 72 00 70 00 "        # "/warp"
+        "20 00 31 00 32 00 36 00"               # " 126"
+    )
+    TAIL = bytes.fromhex(
+        "12 01 0F "                             # nested id 0x0F01
+        "0B 00 "                                # nested version 0
+        "0B 01 0B FF "
+        "32 00 00 00 00 00 00 00 00 "
+        "26 FF FF FF FF "
+        "0B 19 0B 00 0B 00 05 01 "
+        "32 00 00 00 00 00 00 00 00 "
+        "26 01 00 00 00 "
+        "0B 0C 0B 0C 0B 0C 0B 03 08 01 "
+        "2A E3 64 30 3F 2A 5E AE 5E 3F "
+        "0B 02 0B 04 0B 00 "
+        "32 6F 00 00 00 00 00 00 00 "
+        "0B 04 0B 01 "
+        "32 6E 00 00 00 00 00 00 00 "
+        "08 02 2A E3 64 30 3F 2A FF 04 53 3F 0B 00 "
+        "08 03 2A E3 64 30 3F 2A A0 5B 47 3F 0B 00 "
+        "0B 00"
+    )
+
+    def payload(self) -> bytes:
+        return self.CHAT_BODY + self.TAIL
+
+    def test_the_reconstructed_payload_is_the_length_the_console_reported(self):
+        self.assertEqual(len(self.payload()), 151)
+        self.assertEqual(len(self.CHAT_BODY), 28)
+
+    def test_the_captured_frame_no_longer_loses_the_command(self):
+        split = self.split(self.payload())
+        self.assertEqual(split.reason, chat_frame_tail.TAIL_UNDECLARED_BODY)
+        self.assertEqual(split.body, self.CHAT_BODY)
+        self.assertEqual(split.tail_ids, (0x0F01,))
+        self.assertEqual(
+            chat_command.decode_local_talk_payload(split.body), ("", "/warp 126")
+        )
+
+    def test_user_setting_still_has_no_declared_body_length(self):
+        """The precondition, so this test cannot go green for a new reason.
+
+        If LANE-E ever declares a body length for `0x0F01`, this frame walks
+        closed and the case above becomes `TAIL_WALKED` -- still correct, but
+        no longer the case R313 measured.  Fail loudly then rather than
+        quietly testing something else.
+        """
+        self.assertNotIn(0x0F01, self.table)
+
+    def test_the_console_line_names_the_id_that_needs_a_declared_length(self):
+        split = self.split(self.payload())
+        line = chat_frame_tail.tail_console_line(split, len(self.payload()))
+        self.assertIn("reason=tail_undeclared_body", line)
+        self.assertIn("ids=0x0F01", line)
+        self.assertIn("tail_vitals=1", line)
+        self.assertIn("chat_bytes=28", line)
+        self.assertIn("payload_bytes=151", line)
+
+    def test_the_captured_frame_reaches_the_route_and_is_executed(self):
+        """What R313 was owed: the command RUNS.
+
+        `/warp 126` to a scene with no confirmed spawn point composes no
+        frame -- it stages the next login -- so the assertion is NOT "an
+        action came back" (it is legitimately `None` for this command).  It
+        is that the route logged the command and staged scene 126, which is
+        the outcome that never happened at 02:01:58 and did happen when the
+        GM retyped it at 02:04:34 in a single-vital frame.
+        """
+        session = FakeSession()
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream), self.open_the_version_gate():
+            self.act(session, self.payload())
+        self.assertIn(
+            f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}undeclared_body_1",
+            session.events,
+        )
+        console = stream.getvalue()
+        self.assertIn("LANE_GM_CHAT_ACTION warp", console)
+        self.assertIn("scene_id=126", console)
+        commands = [record.get("command") for record in self.log_records()]
+        self.assertIn("warp", commands)
+
+    def test_a_non_gm_sending_the_captured_frame_still_gets_nothing(self):
+        """The identity property, re-asked on the real bytes.
+
+        The frame that now works for a GM must still be inert for everyone
+        else -- pf-adversary's D1 held for the hand-built frames and has to
+        hold for this one.
+        """
+        session = FakeSession(token=self.PLAYER_ACCOUNT)
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream), self.open_the_version_gate():
+            action = self.act(session, self.payload())
+        self.assertIsNone(action)
+        self.assertEqual(self.tail_events(session), [])
+        self.assertNotIn(chat_frame_tail.CHAT_TAIL_TOKEN, stream.getvalue())
+        self.assertEqual(self.log_records(), [])
+
+
+class RetiredReasonTests(_Case):
+    """`TAIL_UNKNOWN_VITAL_ID` is kept as a name and returned by nothing.
+
+    A constant nobody returns is otherwise indistinguishable from one nobody
+    noticed had stopped firing, and this house does not delete history -- the
+    string stays readable so the console lines already printed by R313 and
+    earlier still mean what they meant.
+    """
+
+    def test_the_retired_reason_is_still_exported(self):
+        self.assertEqual(
+            chat_frame_tail.TAIL_UNKNOWN_VITAL_ID, "tail_unknown_vital_id"
+        )
+
+    def test_no_code_path_returns_the_retired_reason(self):
+        source = (
+            Path(chat_frame_tail.__file__).read_text(encoding="utf-8").splitlines()
+        )
+        returns = [
+            line
+            for line in source
+            if "return ChatTailSplit" in line and "TAIL_UNKNOWN_VITAL_ID" in line
+        ]
+        self.assertEqual(returns, [])
+
+    def test_the_retired_reason_is_not_quiet_either(self):
+        self.assertNotIn(
+            chat_frame_tail.TAIL_UNKNOWN_VITAL_ID, chat_frame_tail.QUIET_REASONS
+        )
 
 
 if __name__ == "__main__":

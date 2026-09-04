@@ -91,6 +91,7 @@ from dataclasses import dataclass
 
 from .warp_scene_persist import (
     SEND_FAILURE_WARP_ACTION_LABEL,
+    rollback_warp_scene,
     rollback_warp_scene_on_send_failure,
 )
 
@@ -134,13 +135,23 @@ class ParkedWarpSend:
     makes uses the same constant (`SEND_FAILURE_WARP_ACTION_LABEL`), because
     `park_warp_send` does not take a label argument at all (see its own
     docstring for why that is deliberate, not an omission).
+
+    `previous_position` is THE ROW TO PUT BACK, captured by the call site
+    before its own durable write, and it is why round `ff30oi` widened this
+    record.  It defaults to `None` so a park made without one still gets the
+    older delegate path; see `on_game_frame_send_failed`.
     """
 
     label: str
     frame_bytes: bytes
+    previous_position: object = None
 
 
-def park_warp_send(session: object, frame_bytes: object) -> bool:
+def park_warp_send(
+    session: object,
+    frame_bytes: object,
+    previous_position: object = None,
+) -> bool:
     """Remember `frame_bytes` as the persisted warp still owed a send.
 
     Called from `chat_command_action._warp_teleport_action_no_coords`,
@@ -156,7 +167,21 @@ def park_warp_send(session: object, frame_bytes: object) -> bool:
     never confirm anything the row still cares about, and holding onto them
     would only delay noticing the frame that matters now.
 
-    ONE ARGUMENT, NOT TWO.  This module never parks any label other than
+    `previous_position` IS THE ROW THE UNDO MUST RESTORE, and passing it is
+    what round `ff30oi` added.  Measured on this tree before it was added
+    (`tests/test_gm_warp_send_watch.py::DoubleWarpTests`): with `/warp 2`
+    confirmed sent and `/warp 3` then failing to send, the undo read
+    `session.foundation.selected.position` and put the row back to scene 1 --
+    the scene the client had already been sent OUT of, and one neither warp
+    named.  `selected` is "the last position the CLIENT reported", which a
+    warp deliberately does not update, so after a SECOND warp it is two
+    warps stale rather than one.  The call site holds the right row
+    (`_persist_warp_scene`'s own `previous`), so it hands it over rather
+    than making the undo re-derive it from a field that cannot tell one
+    warp from two.
+
+    NO LABEL ARGUMENT, WHICH IS A DIFFERENT QUESTION.  This module never
+    parks any label other than
     `SEND_FAILURE_WARP_ACTION_LABEL` -- there is exactly one call site, and
     it is this lane's own -- so taking a caller-supplied label would only
     add a way for a future call site to park the wrong constant by typo,
@@ -175,7 +200,9 @@ def park_warp_send(session: object, frame_bytes: object) -> bool:
         frame_bytes = bytes(frame_bytes)
     except Exception:  # noqa: BLE001 - see docstring; nothing escapes this
         return False
-    record = ParkedWarpSend(SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes)
+    record = ParkedWarpSend(
+        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, previous_position,
+    )
     try:
         setattr(session, SESSION_ATTRIBUTE, record)
     except Exception:  # noqa: BLE001
@@ -294,11 +321,25 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     unconfirmed", and that alone already means the client cannot have
     received the warp.
 
-    Delegates the actual undo, and its outcome word, to `warp_scene_persist.
+    WHICH ROW IT PUTS BACK, and the correction round `ff30oi` made.  When
+    the park carries a `previous_position` -- every park this lane's own call
+    site makes, since that round -- the undo goes to `warp_scene_persist.
+    rollback_warp_scene` with THAT row.  It is the row the call site captured
+    with `row_before_warp` immediately before its own durable write, so it
+    names the scene this ONE warp moved the character out of.
+
+    ~~Delegates the actual undo, and its outcome word, to `warp_scene_persist.
     rollback_warp_scene_on_send_failure` -- always with the one label this
     module ever parks under, never `frame_bytes` or `error` (that function
     reads the row to revert from `session.foundation.selected` itself; see
-    its own docstring for why that is safe).  The park is cleared
+    its own docstring for why that is safe).~~  STRUCK, and kept as the
+    fallback for a park with no `previous_position` (a caller outside this
+    lane, or a record built by hand): that delegate re-derives the row from
+    `session.foundation.selected.position`, which is the last position the
+    CLIENT reported.  A warp does not update it, so after TWO warps it is two
+    warps stale and the undo overshoots -- measured, with `/warp 2` confirmed
+    sent and `/warp 3` failing, putting the row back to scene 1.  See
+    `DoubleWarpTests` in this module's test file.  The park is cleared
     afterwards UNCONDITIONALLY, whether the undo itself reports success or
     a named failure: either way the story this cell was tracking is over,
     and leaving it parked would only make the NEXT unrelated failure on
@@ -311,9 +352,12 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     record = _parked_record(session)
     if record is None:
         return OUTCOME_NOTHING_PARKED
-    outcome = rollback_warp_scene_on_send_failure(
-        session, SEND_FAILURE_WARP_ACTION_LABEL,
-    )
+    if record.previous_position is None:
+        outcome = rollback_warp_scene_on_send_failure(
+            session, SEND_FAILURE_WARP_ACTION_LABEL,
+        )
+    else:
+        outcome = rollback_warp_scene(session, record.previous_position)
     clear_warp_send_watch(session)
     _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome
