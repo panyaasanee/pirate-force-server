@@ -483,25 +483,10 @@ def sustain_a_kill(
     # for the next session.  One bounded console line, always, because "the
     # floor was told" and "this seam never ran" are the two states an attended
     # round has to be able to tell apart by grep (G-OBS).
-    #
-    # AND THAT GREP NOW HAS A SCENE ON EVERY LINE, round pcsjfr.  A kill that
-    # rolled nothing hands over an empty generation, no row is left to name a
-    # scene, and the line used to read ``scene=''`` -- measured at four of
-    # Bg0003's twelve shipped rows, so an operator filtering the console for
-    # the scene under test lost a third of the very discriminator this line
-    # exists to be.  The cell's own scene is passed as the LABEL for exactly
-    # that case; it never overrides a row (see remember_generation), and it is
-    # read in its own try because this call must not become a second way for
-    # the world half to cost the player their drop.
-    try:
-        scene_label = cell.current_scene
-    except Exception:                              # noqa: BLE001 - label only
-        scene_label = None
     _say_world_line(
         mob_ground_persistence.describe_remembered(
             mob_ground_persistence.remember_generation(
-                drops, world=world, store=store,
-                scene_when_no_row_names_one=scene_label)))
+                drops, world=world, store=store)))
 
     # ONE snapshot, then everything is derived from it.  Reading ``cell.ledger``
     # twice is not the same as reading it once: the property sweeps expired
@@ -1204,10 +1189,8 @@ def reannounce_ground_after_a_surviving_blow(
 
     CADENCE, MEASURED RATHER THAN ASSERTED: TWO console lines per composing
     call, not one -- this function's own, plus the
-    ``MOB_GROUND_WORLD_REMEMBERED ... new=0 ... keys=none`` line
-    ``sustain_a_kill`` prints unconditionally (~~``scene=''``~~ is struck in
-    round pcsjfr: the cell's scene is now the label on a generation no row can
-    speak for).  That second line is the
+    ``MOB_GROUND_WORLD_REMEMBERED ... scene='' new=0 ... keys=none`` line
+    ``sustain_a_kill`` prints unconditionally.  That second line is the
     discriminator an attended round greps to tell "the floor was told" from
     "this seam never ran", so a wired version of this call would bury it
     once per blow.  Named here because a cadence claim in a docstring is

@@ -437,21 +437,8 @@ def install_world_ground(world: Any) -> WorldGround:
         return _WORLD
 
 
-def _label_scene(value: Any) -> str:
-    """A console LABEL, never a source of truth.  ``""`` for anything else.
-
-    Deliberately narrow -- a non-empty ``str`` and nothing else.  The value
-    can only ever reach :attr:`RememberOutcome.scene`, which nothing in this
-    project composes bytes from (:func:`describe_remembered` prints it and
-    tests read it), so the one hazard worth closing here is a caller handing
-    over an object whose ``repr`` lands in a console line an operator greps.
-    """
-    return value if type(value) is str and value else ""
-
-
 def remember_generation(
     drops: Any, *, world: Any = None, store: Any = None,
-    scene_when_no_row_names_one: Any = None,
 ) -> RememberOutcome:
     """A kill's rows enter the world.  NEVER RAISES.
 
@@ -466,39 +453,20 @@ def remember_generation(
     the in-memory floor is what a relogin reads, and it is filled either way.
     When a store IS handed in, the same rows are offered to the durable door
     as well -- see :func:`persist_generation`.
-
-    ``scene_when_no_row_names_one`` IS A LABEL, AND THE ARGUMENT NAME SAYS SO.
-    ROUND pcsjfr, and it is a MEASUREMENT rather than a tidy-up: walking all
-    twelve shipped Bg0003 rows through ``strike`` -> ``kill`` ->
-    ``loot_a_kill`` -> ``sustain_a_kill`` printed
-    ``MOB_GROUND_WORLD_REMEMBERED scene='' new=0 ... keys=none`` for the four
-    kills that rolled nothing.  The caller prints that line UNCONDITIONALLY on
-    purpose -- "the floor was told" and "this seam never ran" are the two
-    states an attended round tells apart by grep -- and a third of the grep's
-    own output named no scene, so an operator filtering a console for the
-    scene under test could not see it.
-
-    IT NEVER OVERRIDES A ROW.  A row names its own scene and that answer wins
-    whenever there is a row; this argument is consulted only where nothing
-    else can answer (an empty generation, a refusal raised before the rows
-    were read, a generation of rows that are not ``GroundDrop``).  It is not a
-    second source of truth for the field that decides which publication a row
-    rides in -- it never reaches a row at all.
     """
-    label = _label_scene(scene_when_no_row_names_one)
     try:
         rows = tuple(drops)
     except Exception:                                   # noqa: BLE001
-        return RememberOutcome(label, reason=REFUSE_ROW_IS_NOT_A_DROP)
+        return RememberOutcome("", reason=REFUSE_ROW_IS_NOT_A_DROP)
     if not rows:
-        return RememberOutcome(label)
+        return RememberOutcome("")
     try:
         floor = world if isinstance(world, WorldGround) else world_ground()
         new, already, refused = floor.remember(rows)
     except Exception as error:                          # noqa: BLE001
-        return RememberOutcome(label, reason="%s:%r" % (
+        return RememberOutcome("", reason="%s:%r" % (
             REFUSE_CELL_RAISED, error))
-    scene = label
+    scene = ""
     for row in rows:
         if type(row) is mob_loot.GroundDrop:
             scene = row.scene

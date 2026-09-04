@@ -763,6 +763,12 @@ class FieldMobTests(unittest.TestCase):
         # importers and separately pins that no dispatch file has picked either
         # module up.  When the chief wires the one line, this goes red and the
         # letter has to be rewritten - which is exactly the intent it had.
+        # WIDENED AGAIN by SCENE-DOOR-WALK-001 (lane B, 2026-09-05, round
+        # pcsjfr): scene_door_walk.py loads a scene's roster and reads each
+        # row's own placement/template/identity to walk the three doors of
+        # M4/M5.  It dispatches nothing -- runtime.py does not import it, and
+        # the module carries the one line a call site would add as a string
+        # rather than as a request.
         source = (ROOT / "src/pirateforce_foundation").glob("*.py")
         importers = sorted(
             path.name for path in source
@@ -911,6 +917,7 @@ class FieldMobTests(unittest.TestCase):
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
              "player_hostile_pairing.py", "runtime.py",
+             "scene_door_walk.py",
              "world_census_level.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (

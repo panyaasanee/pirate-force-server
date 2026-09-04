@@ -9,22 +9,33 @@ that condition: it was answered by reading three modules and believing the
 join.  ``scene_door_walk`` walks it instead, and this file is what holds the
 walk to the roster the server actually ships.
 
-WHAT THE WALK MEASURED WHEN THIS FILE WAS WRITTEN (2026-09-05T04:5x+07:00,
+WHAT THE WALK MEASURED WHEN THIS FILE WAS WRITTEN (2026-09-05T05:2x+07:00,
 the numbers below are the assertions, not a transcript)::
 
-    SCENE_DOORS scene='Bg0002' rows=12 target=12 kill=12 drop=12 every_door=yes
-    SCENE_DOORS scene='Bg0003' rows=12 target=12 kill=12 drop=12 every_door=yes
-    SCENE_DOORS scene='Bg0015' rows=12 target=12 kill=11 drop=11 every_door=no
-    SCENE_DOORS scene='bg0001' rows=4  target=4  kill=4  drop=0  every_door=no
-    SCENE_DOORS scene='bg0005' rows=6  target=6  kill=6  drop=6  every_door=yes
+    scene='Bg0002' rows=12 refused_by_owner=8 ai=open target=12 kill=12 drop=12 yes
+    scene='Bg0003' rows=12 refused_by_owner=0 ai=open target=12 kill=12 drop=12 yes
+    scene='Bg0015' rows=12 refused_by_owner=0 ai=open target=12 kill=11 drop=11 no
+    scene='bg0001' rows=4  refused_by_owner=0 ai=open target=4  kill=4  drop=0  no
+    scene='bg0005' rows=6  refused_by_owner=0 ai=open target=6  kill=6  drop=6  yes
+
+``refused_by_owner`` IS PART OF THE CLAIM AND NOT DECORATION (pf-adversary
+D2).  The verdict is a fraction over the rows ``load_roster`` hands a
+session, and the owner can shrink the denominator: Bg0002 ships 20
+placements and the roster hands over 12.  The two scenes this round reports
+as finished, Bg0003 and bg0005, each refuse ZERO -- which is the sentence
+the letter actually needs and the one a bare "every_door=yes" cannot make.
 
 THE TWO NEGATIVES ARE PINNED AS HARD AS THE POSITIVES, because each is a
 different fact and a file that only pinned the wins would let either turn
 into a silent yes:
 
-  * ``bg0001``'s four rows are template 916, the Training Iron Man.  It names
-    no drop set the shipped tables carry, so it is KILLABLE AND DROPS
-    NOTHING -- which is what a training dummy is, not a hole.
+  * ``bg0001``'s four rows are template 916, the Training Iron Man.  Its MOBS
+    row names NO drop set at all (``drops_normal``, ``drops_equipment`` and
+    ``drops_specially`` are each 0), so it is KILLABLE AND DROPS NOTHING --
+    which is what a training dummy is, not a hole.  ~~It names no drop set
+    the shipped tables carry~~ IS STRUCK, pf-adversary D7: that is a
+    DIFFERENT state, it would come back as a refusal rather than an empty
+    sweep, and this file asserted the absence of refusals in the same breath.
   * ``Bg0015`` placement 87 (template 924, Carlos, identity 0x2058) is
     TARGETABLE AND CANNOT DIE.  ``COO-RULING-20260901-1046`` covers six of
     that scene's seven templates and holds Carlos back on purpose, so
@@ -96,7 +107,11 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         self.assertEqual(scene_three.killable, 12)
         self.assertEqual(scene_three.dropping, 12)
         self.assertEqual(scene_three.rows_short_of_every_door, ())
+        self.assertTrue(scene_three.ai_register)
         self.assertTrue(scene_three.every_door_open)
+        # AND THE DENOMINATOR IS WHOLE.  The verdict would be worth nothing
+        # if the failing rows had simply not been shipped (pf-adversary D2).
+        self.assertEqual(scene_three.owner_refused, ())
 
     def test_at_least_one_armed_scene_is_finished_and_it_is_named(self):
         """The condition itself, plus the two scenes that meet it today.
@@ -113,6 +128,10 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         self.assertIn(SCENE_THREE, finished)
         self.assertIn("bg0005", finished)
         self.assertLessEqual(set(finished), set(self.walked))
+        # Neither of the two this round reports on owes its verdict to a row
+        # the owner refused to ship.
+        for scene in (SCENE_THREE, "bg0005"):
+            self.assertEqual(self.walked[scene].owner_refused, (), scene)
 
     def test_scene_fourteen_is_short_by_carlos_alone(self):
         scene14 = self.walked["Bg0015"]
@@ -136,10 +155,11 @@ class WalkTheShippedRosterTests(unittest.TestCase):
     def test_the_training_dummies_die_and_drop_nothing_and_that_is_the_row(self):
         """bg0001's four rows: killable, dropping nothing, by their own table.
 
-        A drop door that reads closed for a reason that is NOT "the roll came
-        up empty" -- the sweep is 32 fixed seeds and every one of them
-        produced nothing, which is what a template naming no shipped drop set
-        looks like from the outside.
+        THE REASON IS READ OFF THE ROW, not inferred from the empty sweep
+        (pf-adversary D7): ``drop_sets`` is how many of the three tables this
+        template's own MOBS entry names, and for 916 it is zero.  A row that
+        named a set and rolled nothing 32 times would look identical in the
+        booleans and is a different fact.
         """
         town = self.walked["bg0001"]
         self.assertEqual(town.rows_walked, 4)
@@ -148,7 +168,11 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         self.assertEqual(town.dropping, 0)
         for row in town.rows:
             self.assertEqual(row.template_id, TRAINING_IRON_MAN)
+            self.assertEqual(row.drop_sets, 0)
             self.assertEqual(row.seeds_that_dropped, 0)
+            # The sweep ran to the end and found nothing, which is a
+            # different answer from a sweep that stopped early.
+            self.assertEqual(row.seeds_walked, len(scene_door_walk.DROP_SEEDS))
             self.assertEqual(row.refusals, ())
 
     def test_a_row_that_drops_names_how_many_seeds_did(self):
@@ -160,9 +184,17 @@ class WalkTheShippedRosterTests(unittest.TestCase):
         """
         for scene, one in self.walked.items():
             for row in one.rows:
+                where = "%s placement %d" % (scene, row.placement_index)
                 self.assertEqual(
-                    row.drop, row.seeds_that_dropped > 0,
-                    "%s placement %d" % (scene, row.placement_index))
+                    row.drop, row.seeds_that_dropped > 0, where)
+                # A PARTIAL SWEEP IS VISIBLE (pf-adversary D11): a refusal
+                # stops it, so a count between 1 and N-1 must carry one.
+                self.assertLessEqual(
+                    row.seeds_that_dropped, row.seeds_walked, where)
+                if 0 < row.seeds_walked < len(scene_door_walk.DROP_SEEDS):
+                    self.assertTrue(row.refusals, where)
+                if not row.kill:
+                    self.assertEqual(row.seeds_walked, 0, where)
 
 
 class TheWalkTouchesNothingItDoesNotOwnTests(unittest.TestCase):
@@ -173,19 +205,50 @@ class TheWalkTouchesNothingItDoesNotOwnTests(unittest.TestCase):
         cls.legacy = load_legacy(V141)
 
     def test_the_world_floor_is_not_seeded_by_walking(self):
-        """The walk kills twelve monsters; the world's floor stays as it was.
+        """The walk kills twelve monsters and never tells the world's floor.
 
-        ``mob_drop_presence.sustain_a_kill`` is the function that writes the
-        process-wide ``WorldGround``, and the walk does not call it.  Measured
-        rather than asserted from the source, because "does not call" is
-        exactly the kind of claim a later edit breaks silently.
+        ~~a before/after count of ``world_ground().standing()``~~ IS STRUCK,
+        pf-adversary D1 of this round, which put the mutant through it: a
+        walk that DID call ``remember_generation`` passed the counting
+        version of this test, for two reasons that both had to be understood
+        before the guard could be rebuilt.  (a) ``unittest`` sorts methods,
+        so a sibling in this class had already walked this scene and the
+        "before" count was the seeded one; (b) every walk builds a fresh
+        cell, so every walk mints the SAME drop keys, and ``WorldGround``
+        dedups by key -- the second seeding is ``already_standing`` and the
+        count does not move.  A guard whose failure mode is "the mutant
+        seeded it twice" is not a guard.
+
+        So the doors are watched instead of the floor: both functions that
+        can reach the world are replaced for the duration of the walk and
+        must not be called at all.  A count is checked too, but as the
+        second line of defence rather than the first.
         """
         from pirateforce_foundation import mob_ground_persistence
+        from pirateforce_foundation import mob_drop_presence
+
+        called: list = []
+
+        def spy(name, original):
+            def watched(*args, **kwargs):
+                called.append(name)
+                return original(*args, **kwargs)
+            return watched
+
+        for module, name in (
+                (mob_ground_persistence, "remember_generation"),
+                (mob_ground_persistence, "persist_generation"),
+                (mob_drop_presence, "sustain_a_kill"),
+        ):
+            original = getattr(module, name)
+            setattr(module, name, spy(name, original))
+            self.addCleanup(setattr, module, name, original)
 
         floor = mob_ground_persistence.world_ground()
         before = len(floor.standing(SCENE_THREE))
         walked = scene_door_walk.walk_scene(self.legacy, SCENE_THREE)
         self.assertTrue(walked.every_door_open)
+        self.assertEqual(called, [])
         self.assertEqual(len(floor.standing(SCENE_THREE)), before)
 
     def test_the_death_register_of_a_walk_does_not_escape_it(self):
@@ -198,7 +261,12 @@ class TheWalkTouchesNothingItDoesNotOwnTests(unittest.TestCase):
         """
         first = scene_door_walk.walk_scene(self.legacy, SCENE_THREE)
         second = scene_door_walk.walk_scene(self.legacy, SCENE_THREE)
-        self.assertEqual(first.killable, second.killable)
+        # THE ABSOLUTE NUMBER FIRST (pf-adversary D10): comparing two runs to
+        # each other passes when a leaked register has already been drained by
+        # an earlier test in the file, because both runs then read 0.  What a
+        # leak cannot survive is the scene's own count on BOTH runs.
+        self.assertEqual(first.killable, 12)
+        self.assertEqual(second.killable, 12)
         self.assertEqual(first.rows_short_of_every_door,
                          second.rows_short_of_every_door)
 
@@ -234,16 +302,64 @@ class TheWalkRefusesRatherThanRaisesTests(unittest.TestCase):
                 walked.reason,
                 scene_door_walk.REFUSE_LEGACY_NOT_A_SERIALIZER, repr(junk))
 
+    def test_a_row_the_walk_cannot_describe_does_not_unwind_the_walk(self):
+        """"NEVER RAISES" covers the record too (pf-adversary D6).
+
+        The three fields read off the mob used to sit outside every ``try``,
+        so a row whose ``placement_index`` was ``None`` raised a ``TypeError``
+        straight out of ``walk_scene`` -- out of the one entry point whose
+        docstring promises a console line may call it.
+        """
+        class NoPlacement:
+            placement_index = None
+            template_id = 1
+            actor_identity = 0x2001
+            scene = SCENE_THREE
+            drops_normal = drops_equipment = drops_specially = 0
+
+        row = scene_door_walk._walk_row(self.legacy, NoPlacement(), True)
+        self.assertEqual(row.placement_index, -1)
+        self.assertFalse(row.every_door_open)
+        self.assertTrue(row.refusals)
+
+    def test_a_scene_name_cannot_break_the_line_it_is_printed_on(self):
+        """A caller-supplied name is truncated and escaped (pf-adversary D5).
+
+        Measured on the real console encoding of the bridge: an ordinary
+        non-breaking hyphen pasted out of a document used to make the
+        report's own ``print`` raise, and a long name made the "bounded"
+        line 5,000 characters long.
+        """
+        for junk in ("Bg\u2011" + "x" * 5000, "\u4e1c\u4eac", "Caf\u00e9",
+                     "B" * 400):
+            line = scene_door_walk.describe_scene_doors(
+                scene_door_walk.walk_scene(self.legacy, junk))
+            line.encode("ascii")
+            line.encode("cp874")
+            self.assertLess(len(line), 200, len(line))
+            self.assertTrue(
+                line.startswith(scene_door_walk.SCENE_DOORS_REFUSED_TOKEN))
+
     def test_a_refused_walk_is_never_reported_as_every_door_open(self):
         for reason in ("", scene_door_walk.REFUSE_ROSTER_UNREADABLE):
             walked = scene_door_walk.SceneDoors(SCENE_THREE, (), reason)
             self.assertFalse(walked.every_door_open)
 
     def test_the_console_line_is_bounded_ascii_on_every_live_scene(self):
+        """And NOT ONE OF THEM IS A STAND-DOWN LINE (pf-adversary D5).
+
+        The first draft asked only ``startswith(SCENE_DOORS_TOKEN)``, which a
+        run where every scene refused would also have satisfied -- the
+        refusal token was a prefix of the good one.  It is not any more, and
+        this test says which of the two it expects.
+        """
         for line in scene_door_walk.describe_live_scene_doors(self.legacy):
             line.encode("ascii")
+            line.encode("cp874")
             self.assertLess(len(line), 300, line)
             self.assertTrue(line.startswith(scene_door_walk.SCENE_DOORS_TOKEN))
+            self.assertNotIn(
+                scene_door_walk.SCENE_DOORS_REFUSED_TOKEN, line)
 
     def test_the_summary_line_names_the_finished_scenes(self):
         lines = scene_door_walk.describe_live_scene_doors(self.legacy)

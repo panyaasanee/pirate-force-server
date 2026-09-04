@@ -1236,12 +1236,20 @@ class ContainmentTests(unittest.TestCase):
         # dispatch if Bg0015 is ever registered. It is a measurement, not a
         # third dispatcher: it mutates no register, composes no frame, and
         # runtime.py does not import it (that module's own test pins that).
+        # WIDENED round pcsjfr, and it is the SAME case as the line above
+        # rather than a new kind: scene_door_walk.py calls open_register once
+        # per scene for exactly the reason the Bg0015 gate module calls it --
+        # a live dispatch reaches it BEFORE mob_combat.strike, so a door walk
+        # that started at strike would be reporting on a path a swing cannot
+        # take (pf-adversary D8 of that round measured the walk starting one
+        # call too low).  It discards the register it opens, mutates nothing,
+        # composes no frame, and runtime.py does not import it.
         self.assertEqual(
             sorted(set(importers)),
             ["mob_ai_scheduler.py", "mob_combat_bg0015_gates.py",
-             "runtime.py"],
-            "exactly runtime.py, mob_ai_scheduler.py and the Bg0015 gate "
-            "measurement module should import this lane")
+             "runtime.py", "scene_door_walk.py"],
+            "exactly runtime.py, mob_ai_scheduler.py and the two measurement "
+            "modules should import this lane")
         app_body = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
         self.assertNotIn("mob_ai_control", app_body,
                          "runtime.py owns this wiring, not app.py")
