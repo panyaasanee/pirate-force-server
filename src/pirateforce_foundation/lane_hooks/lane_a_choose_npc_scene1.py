@@ -417,19 +417,29 @@ def _conversation_extra(
     site before any lane can compose them honestly.  Named here rather
     than half-covered.
     """
+    # THE TWO NAMES BELOW READ ODDLY ON PURPOSE.  The frozen module's own
+    # constants are `V112_SHOP_TRIGGER_INDEX` and `V129_QUEST_ACTOR_INDEX`
+    # (string literals, still spelled exactly that way one line down), but
+    # the local that HOLDS each one may not repeat the word: chief's
+    # quest/shop code-name guard goes recursive over the subpackages by
+    # 2026-09-05 03:21 (`pf_bridge/notes_to_chief/20260904_2016`, addressed
+    # to this lane), and its rule is rename-the-symbol, not
+    # exempt-the-file.  `vendor_trigger_idx`/`mission_actor_idx` are this
+    # lane's names for somebody else's frozen rows; nothing about which row
+    # is meant has changed, and neither has any string a ticket greps.
     monster_idx = _frozen_index(legacy, "V112_MONSTER_INDEX")
-    shop_idx = _frozen_index(legacy, "V112_SHOP_TRIGGER_INDEX")
-    quest_idx = _frozen_index(legacy, "V129_QUEST_ACTOR_INDEX")
-    if None in (monster_idx, shop_idx, quest_idx):
+    vendor_trigger_idx = _frozen_index(legacy, "V112_SHOP_TRIGGER_INDEX")
+    mission_actor_idx = _frozen_index(legacy, "V129_QUEST_ACTOR_INDEX")
+    if None in (monster_idx, vendor_trigger_idx, mission_actor_idx):
         # FAIL CLOSED, and in the direction that composes LESS: without
         # the frozen module's own numbers this cannot tell an ordinary
         # townsperson from the shop trigger, and composing a talk trigger
         # for the shop trigger would be an action the frozen path never
         # sent for that click.
         return (), "no_extra_frozen_indices_unreadable"
-    if selected_idx == quest_idx:
+    if selected_idx == mission_actor_idx:
         return (), "no_extra_quest_actor_needs_session_latch"
-    if selected_idx == shop_idx:
+    if selected_idx == vendor_trigger_idx:
         return (), "no_extra_shop_trigger_needs_session_latch"
     if selected_idx == monster_idx:
         return (), "no_extra_monster_frozen_path_sends_none"
