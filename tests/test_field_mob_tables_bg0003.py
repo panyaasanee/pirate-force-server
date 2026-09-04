@@ -8,26 +8,26 @@ can stand in this map today; what they could not do until this commit is
 swing at anything in it, because ``field_mobs.scene_for_scene_id(3)``
 returned ``None``.
 
-WHAT THIS ROUND DOES NOT CLAIM, said here rather than in a PR body nobody
-re-reads.  A player STILL cannot damage a monster in scene 3, and this file
-measures both halves of why:
+WHAT A PLAYER SEES, AND WHAT THEY STILL DO NOT.  Twelve monsters in scene 3
+become TARGETABLE with this commit, and that is not a claim about a roster
+existing -- it is a consequence of chief's round `9vec2s` (PR #734), which
+landed while this round was running and answered CORE-REQUEST
+``20260904_1134``: a lane-composed arrival now announces
+``SceneCensusResult.actor_identities``, and lane A fills that field from
+``field_mobs.roster_for_scene_id``, the reader this commit changes the answer
+of.  ``Bg0003IsTargetableButNotKillableTests`` measures it end to end
+through lane A's own composer helper and the real membership builder.
 
-* ``test_the_lane_composed_membership_seam_is_still_shut_for_this_scene``
-  -- scene 3 arrives through ``runtime.py``'s lane-composed census branch,
-  which stamps an EMPTY announced membership on purpose, and the RE-157 gate
-  refuses every unannounced target.  Opening that seam is CORE-REQUEST
-  ``20260904_1134``, addressed to chief, still open at this commit; scene 3
-  is now the THIRD scene armed behind it (``tests/
-  test_field_mob_tables_bg0005.py``'s ``LaneComposedScenesAreNotFightableYet
-  Test`` carries the set, and this round moved it from ``(5, 14)`` to
-  ``(3, 5, 14)`` rather than quietly widening it).
+WHAT IS STILL SHUT, measured here rather than left to a PR body nobody
+re-reads:
+
 * ``test_no_scene_three_row_has_a_death_ruling_yet_and_that_refuses`` -- no
-  COO letter sanctions killing anything in this scene, so even past an open
-  seam every scene-3 target refuses with
-  ``target_outside_the_sanctioned_scope``.  The letter asking for one goes
-  out this round (``20260904_1345_LANE-B-ASK-COO-...``); this card is what
-  turns red when it is granted, which is how the grant cannot land without
-  the roster it names being checked against the rows actually shipped.
+  COO letter sanctions killing anything in this scene, so all twelve refuse
+  with ``target_outside_the_sanctioned_scope``.  A player can now swing and
+  see nothing die.  The letter asking for the ruling goes out this round.
+* ``test_loot_is_the_third_shut_door_and_it_refuses_by_name`` -- scene 3's
+  ``DROPS_NORMAL`` set 2701002 was never mined into ``field_drop_tables``,
+  so even past a ruling, a kill here drops nothing.
 
 THE COLLISION MEASUREMENT.  Scene 3's twelve placements bring FOUR new
 cross-scene ``actor_identity`` collisions at once (0x201C and 0x201E against
@@ -39,8 +39,10 @@ inherited -- death in ``Bg0003CannotBeKilledYetTests`` (scene 5's kill
 permission refusing scene 3's identical 0x2046), ledger and loot in
 ``Bg0003CollisionWalkTests`` (a foreign ledger that really does cover one of
 the twelve is still refused; a scene-3 kill cannot reach the loot leg at
-all).  The strike leg is unreachable by construction while the membership
-seam is shut, which is itself measured below.
+all).  The strike leg is the one the open seam makes reachable, and it is
+scene-scoped at the membership itself: the same membership refuses 0x2046
+under scene 5's id, measured in
+``test_the_lane_composed_arrival_now_announces_all_twelve``.
 """
 
 from __future__ import annotations
@@ -67,6 +69,8 @@ from pirateforce_foundation import mob_ai_control  # noqa: E402
 from pirateforce_foundation import mob_combat  # noqa: E402
 from pirateforce_foundation import mob_ledger_admission  # noqa: E402
 from pirateforce_foundation import mob_loot  # noqa: E402
+from pirateforce_foundation import mob_combat_membership  # noqa: E402
+from pirateforce_foundation.lane_hooks import lane_a_scene_census  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
 from pirateforce_foundation import world_bg0003_identity  # noqa: E402
@@ -486,37 +490,83 @@ class Bg0003RecomposeRegistrationTests(unittest.TestCase):
         self.assertEqual(builder.serves_scene_id, EXPECTED_SCENE_ID)
 
 
-class Bg0003NotFightableYetTests(unittest.TestCase):
-    """The two shut doors between this roster and a player hitting it."""
+class Bg0003IsTargetableButNotKillableTests(unittest.TestCase):
+    """~~Bg0003NotFightableYetTests: the two shut doors between this roster
+    and a player hitting it.~~
 
-    def test_the_lane_composed_membership_seam_is_still_shut_for_this_scene(
+    REWRITTEN MID-ROUND am1fw8, on a measurement, because one of the two
+    doors opened while this round was running.  Chief's round `9vec2s`
+    (PR #734) answered CORE-REQUEST ``20260904_1134``: the lane-composed
+    arrival branch in ``runtime.py`` no longer stamps an empty announced
+    membership -- it reads ``SceneCensusResult.actor_identities``, which
+    ``lane_a_scene_census`` fills from ``field_mobs.roster_for_scene_id``.
+    That reader is scene-agnostic, so registering scene 3's roster in this
+    commit is also what makes scene 3's twelve monsters ANNOUNCED, and the
+    RE-157 gate that refuses unannounced targets now admits every one of
+    them.
+
+    The card is kept and re-pointed rather than deleted: what it exists to
+    hold is the honest distance between "a roster exists" and "a player can
+    fight here", and that distance is still real -- it is now ONE door, not
+    two.  Nothing in scene 3 can die (no COO letter sanctions it) and
+    nothing can drop (its drop sets are unmined), both measured above.
+    """
+
+    def test_the_lane_composed_arrival_now_announces_all_twelve(
             self) -> None:
-        """Scene 3 is armed BEHIND the seam, not past it.
+        """The whole reason this round changes anything for a player.
 
-        The runtime sentence this pins is the same one scene 5's card pins;
-        it is re-asserted here so scene 3's own file fails on the day the
-        seam opens, rather than leaving the whole finding hanging off
-        another scene's test file.
+        Driven through lane A's own composer helper and the real membership
+        builder, so this is the identity list an arrival in scene 3 would
+        actually announce -- not a re-derivation of the roster under another
+        name.
+        """
+        identities, note = lane_a_scene_census._field_mob_identities(
+            EXPECTED_SCENE_ID)
+        roster = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
+        self.assertEqual(
+            tuple(sorted(identities)),
+            tuple(sorted(mob.actor_identity for mob in roster)),
+        )
+        self.assertEqual(len(identities), EXPECTED_HOSTILE_COUNT)
+        self.assertIsNone(note)
+        membership = mob_combat_membership.build_membership(
+            EXPECTED_SCENE_ID, identities, 1)
+        for mob in roster:
+            with self.subTest(identity=hex(mob.actor_identity)):
+                self.assertTrue(mob_combat_membership.admits(
+                    membership, scene_id=EXPECTED_SCENE_ID,
+                    actor_identity=mob.actor_identity, generation=1))
+        # An identity this scene does not ship is still refused, so the
+        # announcement is a roster and not an open door.
+        self.assertFalse(mob_combat_membership.admits(
+            membership, scene_id=EXPECTED_SCENE_ID,
+            actor_identity=0x2099, generation=1))
+        # And the announcement is scene-scoped: the same membership does not
+        # admit its own identities under another scene's id, which is what
+        # keeps the four new cross-scene collisions harmless here too.
+        self.assertFalse(mob_combat_membership.admits(
+            membership, scene_id=5,
+            actor_identity=0x2046, generation=1))
+
+    def test_the_runtime_branch_still_says_it_announces_a_real_roster(
+            self) -> None:
+        """Scene 3's own file fails if that call site reverts.
+
+        The same sentence scene 5's card pins, re-asserted here: the seam
+        this scene's monsters became targetable through is one call site,
+        and a revert of it would silently make all twelve unhittable again.
         """
         raw = (SRC / "pirateforce_foundation" / "runtime.py").read_text(
             encoding="utf-8")
         runtime_src = " ".join(raw.replace("#", " ").split())
         self.assertIn(
-            "no lane scene a player can stand in and fight in exists yet",
+            "SO A LANE-COMPOSED ARRIVAL CAN NOW ANNOUNCE A REAL ROSTER",
             runtime_src,
-            "the lane-composed arrival branch's own justification has "
-            "changed.  If the seam was opened, scene 3 is one of the "
-            "scenes that just became fightable -- say so with a "
-            "measurement, and update this card and scene 5's together",
-        )
-        self.assertIn(
-            EXPECTED_SCENE_ID,
-            tuple(
-                scene_id
-                for scene_id in sorted(
-                    mob_scene_recompose.composer_scene_ids())
-                if scene_id not in (1, 2)
-            ),
+            "the lane-composed arrival branch no longer says it announces "
+            "a real roster.  If it reverted to an empty membership, scene "
+            "3's twelve monsters are unhittable again and this round's "
+            "only player-visible change is gone",
         )
 
 
