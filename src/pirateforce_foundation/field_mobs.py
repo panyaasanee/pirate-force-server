@@ -572,8 +572,11 @@ def live_scenes() -> tuple[str, ...]:
     """The scenes :func:`load_roster` will actually load, in a stable order.
 
     ROUND j0u64p.  ``_SCENE_TABLE_MODULES`` has always been the one place that
-    decides which scenes are LIVE (as opposed to mined-but-dormant, which
-    ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` covers), and a caller that
+    decides which scenes are LIVE ~~(as opposed to mined-but-dormant, which
+    ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` covers)~~ -- STRUCK round
+    jqeo2m: that parenthesis described a state that ended when Bg0015 was
+    registered, and the reporting tuple is DERIVED from this same registry
+    now, so it covers no dormant scene at all.  A caller that
     needs to walk every shipped roster had no way to ask without reaching into
     a private name.  ``mob_death.describe_widening_coverage`` is the first
     such caller: it reports which shipped monsters an owner letter authorises
@@ -785,11 +788,14 @@ def scene_for_scene_id(scene_id: int) -> str | None:
 
     * lane A's registry does not address that scene id at all (255 of the
       client's 271 scene rows today) -- nothing vetted, so nothing shipped;
-    * it addresses it, but this lane ships no table for that folder (a town,
-      or Bg0015, which is mined-but-dormant: it is in
+    * it addresses it, but this lane ships no table for that folder -- a
+      town, or any scene whose roster has not been mined yet (scenes 3, 4,
+      6..11 today).  ~~or Bg0015, which is mined-but-dormant: it is in
       ``_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING`` and deliberately NOT in
-      ``_SCENE_TABLE_MODULES``, so a scene id resolving to it must stay
-      empty until someone makes it live on purpose);
+      ``_SCENE_TABLE_MODULES``~~ -- STRUCK round jqeo2m, BOTH HALVES FALSE
+      at HEAD: Bg0015 has been in ``_SCENE_TABLE_MODULES`` since
+      COO-DECISION 20260903_1942 item 2, and the reporting tuple is derived
+      from that registry rather than being a separate list;
     * ``scene_id`` is not an id this process could have got off the wire.
 
     ONE SPELLING, NOT TWO.  The match against ``_SCENE_TABLE_MODULES`` is
@@ -1140,25 +1146,42 @@ def overlapping_identities(other_indices: Any) -> tuple[int, ...]:
 
 
 # The scene table modules this function compares by default: every scene
-# load_roster can actually load (``_SCENE_TABLE_MODULES``).  Deliberately
-# NOT the third scene's own mined table (Bg0015) here: COO-DECISION
-# 2026-08-26T12:46+07:00 requires that module to stay unimported anywhere
-# under this package until lane A's second travel gate and its
-# geometry/reachability check pass -- this project's own test suite carries
-# a dedicated guard for exactly that (walks this package's AST and a
-# literal-string sweep of every file under it; deliberately not named more
-# literally in THIS file, since the sweep is text-based and would flag its
-# own name being spelled out here).  A module-level import of that table
-# here would trip that guard even though this function only ever READS a
-# module's rows, never wires one to a live path.  A caller OUTSIDE this
-# package (this module's own tests among them) can still pass that third
-# scene's module explicitly as one more entry in ``table_modules`` -- this
-# function's own logic is scene-count-agnostic and does not care where a
-# module comes from, only that it has a ``SCENE`` string and a
-# ``HOSTILE_PLACEMENTS`` list.
-_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING = (
-    field_mob_tables,
-    field_mob_tables_bg0002,
+# load_roster can actually load (``_SCENE_TABLE_MODULES``).
+#
+# ~~Deliberately NOT the third scene's own mined table (Bg0015) here:
+# COO-DECISION 2026-08-26T12:46+07:00 requires that module to stay
+# unimported anywhere under this package until lane A's second travel gate
+# and its geometry/reachability check pass ... A caller OUTSIDE this package
+# can still pass that third scene's module explicitly.~~
+#
+# STRUCK ROUND jqeo2m, and the sentence above it was a LIE AT HEAD, not
+# merely out of date.  That gate was lifted by COO-DECISION 20260903_1942
+# item 2, which registered Bg0015 in ``_SCENE_TABLE_MODULES`` -- this file
+# imports that module at the top today.  So the literal tuple below said
+# "every scene load_roster can load" and named TWO of the four, and
+# pf-adversary measured what that cost this round:
+#
+#     describe_cross_scene_identity_collisions()
+#       -> FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0
+#     ... over the four registered scenes, the true answer is THREE:
+#         0x203C  Bg0002 p59 'Fighting Fish soldier' / bg0005 p59 'Red Devil'
+#         0x2047  Bg0015 p70 'Horror butcher Lasa'   / bg0005 p70 'Hard Blade Eagle'
+#         0x2058  Bg0002 p87 'Fighting Fish soldier' / Bg0015 p87 'Carlos'
+#
+# An instrument whose whole purpose is "the collision set is a computed fact
+# any round can reproduce, not a number copied from a previous round's
+# letter" was answering zero while the count tripled, and a green test
+# pinned the zero.  Round jqeo2m registered the fourth scene and so created
+# two of the three; it is the round that had the strongest reason to look.
+#
+# DERIVED from ``_SCENE_TABLE_MODULES`` now, not re-typed, so the default
+# cannot fall behind the registry again: the next scene registered is
+# reported on by the commit that registers it.  A caller may still pass
+# ``table_modules`` explicitly (a mined-but-unregistered scene, a
+# hypothetical pairing); the function's own logic is scene-count-agnostic
+# and only wants a ``SCENE`` string and a ``HOSTILE_PLACEMENTS`` list.
+_KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING = tuple(
+    _SCENE_TABLE_MODULES[scene] for scene in sorted(_SCENE_TABLE_MODULES)
 )
 
 

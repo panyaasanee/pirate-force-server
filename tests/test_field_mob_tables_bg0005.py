@@ -315,6 +315,154 @@ class Bg0005RecomposeRegistrationTests(unittest.TestCase):
             kinds=("k",), builders={"k": None},
         )
 
+    def test_a_kind_wired_to_another_scenes_builder_is_refused(self) -> None:
+        """THE MUTANT THAT SURVIVED, and the reason the assertion grew a
+        second half.
+
+        pf-adversary, this round: changing one entry to
+        ``COMPOSER_BG0005: _build_bg0015`` passed the coverage check (the key
+        SETS still matched), passed the ENTIRE suite unchanged, and made
+        every scene-5 recompose return ``refused_Bg0015CensusError`` -- which
+        the call site answers with the one-entry census RE-092 proved erases
+        every other actor from the client's registry, silently.  The comment
+        shipped beside the dispatch claimed it "cannot pick the wrong builder
+        at all"; it could.
+
+        Reproduced here as the mutation itself, against the REAL builders and
+        the REAL composer registry, rather than a hand-built pair -- a
+        misroute test that cannot see the real table is not a guard on it.
+        """
+        real = mob_scene_recompose._POPULATION_BUILDERS
+        mutant = dict(real)
+        mutant[mob_scene_recompose.COMPOSER_BG0005] = real[
+            mob_scene_recompose.COMPOSER_BG0015]
+        with self.assertRaises(
+                mob_scene_recompose.SceneRecomposeError) as caught:
+            mob_scene_recompose.assert_every_non_delegated_kind_has_a_builder(
+                builders=mutant)
+        message = str(caught.exception)
+        self.assertIn("wrong scene", message)
+        self.assertIn(mob_scene_recompose.COMPOSER_BG0005, message)
+        # Every real builder serves the scene its own composer registered
+        # for -- asserted positively too, so this card cannot pass merely
+        # because the function raises.
+        mob_scene_recompose.assert_every_non_delegated_kind_has_a_builder()
+        for composer in mob_scene_recompose._COMPOSERS.values():
+            builder = real.get(composer.kind)
+            if builder is None:
+                continue
+            self.assertEqual(builder.serves_scene_id, composer.scene_id)
+
+
+class Bg0005RecomposeActuallyComposesTest(unittest.TestCase):
+    """THE GAP THE MUTANT CAME THROUGH: nothing called this scene's composer.
+
+    pf-adversary, this round: the tests above inspect registry dicts, and
+    the designated drift pin in ``tests/test_mob_scene_recompose.py`` asserts
+    only that scene 5 appears in ``composer_scene_ids()``.  A composer that
+    is registered and REFUSES satisfies every one of those and still ships
+    the one-entry world-wipe frame at the call site.  So this card runs the
+    real thing.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from pirateforce_foundation import mob_combat
+        from pirateforce_foundation import world_population_bg0005
+        from pirateforce_foundation.legacy_bridge import load_legacy
+
+        cls.legacy = load_legacy(ROOT / "current" / "pf_login_game_server_v141.py")
+        cls.anchor = mob_scene_recompose.census_anchor(
+            EXPECTED_SCENE_ID, (10.0, 20.0, 30.0),
+            world_population_bg0005.DEFAULT_ACTOR_COUNT,
+        )
+        cls.ledger = mob_combat.open_ledger_for_scene_id(EXPECTED_SCENE_ID)
+
+    def test_scene_five_recomposes_a_full_census_rather_than_refusing(
+            self) -> None:
+        record = mob_scene_recompose.recompose_frames(
+            self.legacy, self.anchor, mob_death.DeathRegister(),
+            ledger=self.ledger,
+        )
+        self.assertEqual(
+            record.state, mob_scene_recompose.STATE_COMPOSED,
+            "a refused recompose is what the caller answers with the "
+            "one-entry census RE-092 proved erases every other actor: "
+            "state=%r detail=%r" % (record.state, getattr(record, "detail", None)),
+        )
+        self.assertTrue(record.composed)
+        self.assertTrue(record.frame)
+        self.assertEqual(record.scene, EXPECTED_SCENE)
+        # The ledger this scene's own helper opens covers this scene's own
+        # roster, so nothing is healed at ceiling behind a declined ledger.
+        self.assertFalse(record.heals)
+        self.assertEqual(
+            record.ledger_covered, len(field_mobs.roster_for_scene_id(
+                EXPECTED_SCENE_ID)))
+
+
+class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
+    """THE SEAM THIS ROUND WALKED INTO, pinned so the next round cannot.
+
+    pf-adversary measured that a player in scene 5 still cannot damage
+    anything: scene 5 arrives through ``runtime.py``'s LANE-COMPOSED census
+    branch, which stamps an EMPTY announced membership on purpose, and the
+    RE-157 gate refuses every unannounced target before cadence and before
+    the ledger.  Registering a roster is what makes ``target_is_field_mob``
+    true and therefore what lets that gate fire at all.
+
+    That block says the fix is "a ``SceneCensusResult`` field, not this call
+    site's to add -- lane_hooks is not in this round's scope", and its own
+    justification is "no lane scene a player can stand in and fight in
+    exists yet".  Two such scenes exist now (14 and 5), so the justification
+    is spent.  Neither lane owns the seam, which is how two rounds shipped
+    green while the outcome that matters never happened once.
+
+    This card is the answer to "what fails the NEXT scene registration while
+    the seam is shut": it holds the runtime's own two sentences to the
+    source, so the round that opens the seam -- or the round that arms a
+    third scene behind it -- has to come here and say which.
+    """
+
+    def test_the_lane_composed_arrival_still_stamps_an_empty_membership(
+            self) -> None:
+        # Whitespace- and comment-marker-normalised, because the sentence
+        # this pins is wrapped across three comment lines in the source and
+        # a raw substring search would break on a re-wrap that changed
+        # nothing.  (NOW.md: a PR that moves a string a test greps for must
+        # fix the grep in the same round -- so the grep is made hard to
+        # break by re-wrapping in the first place.)
+        raw = (SRC / "pirateforce_foundation" / "runtime.py").read_text(
+            encoding="utf-8")
+        runtime_src = " ".join(raw.replace("#", " ").split())
+        self.assertIn(
+            "no lane scene a player can stand in and fight in exists yet",
+            runtime_src,
+            "the lane-composed arrival branch's own justification has "
+            "changed.  If the seam was opened, this test is what should "
+            "have been updated with it -- read the new wording and pin the "
+            "new fact; if a lane scene became fightable, say so with a "
+            "measurement, not by deleting this card.",
+        )
+
+    def test_this_lane_has_armed_two_scenes_behind_that_shut_seam(
+            self) -> None:
+        """Named, so nobody arms a third without seeing the count move."""
+        armed_behind_the_seam = tuple(
+            scene_id for scene_id in sorted(mob_scene_recompose.composer_scene_ids())
+            if scene_id not in (1, 2)
+        )
+        self.assertEqual(
+            armed_behind_the_seam, (5, 14),
+            "a scene joined or left the set this lane has armed behind the "
+            "lane-composed membership seam.  Scenes 1 and 2 have their own "
+            "dedicated arrival branches in runtime.py and announce real "
+            "membership; every other scene arrives lane-composed and cannot "
+            "be fought in yet.  Adding one is not wrong -- shipping it as "
+            "'the player can now fight here' is, and round jqeo2m did "
+            "exactly that.",
+        )
+
 
 @BRIDGE_GAMEDATA.skip_unless_present()
 class Bg0005RegenerateTests(unittest.TestCase):

@@ -207,11 +207,20 @@ _COMPOSERS = {
 # already follows, and for the same reason: a second spelling is a second
 # thing to drift.  ``count_source`` is CALLER, not FULL_ROSTER, for every
 # scene; see :func:`_compose` for why.
+# Each wrapper carries the scene id its module refuses anywhere else, read
+# OFF that module.  ``serves_scene_id`` is not decoration: it is the only
+# thing that makes "this kind is wired to its own scene's builder" a
+# checkable statement rather than a property of how the table below happens
+# to be typed today -- see
+# :func:`assert_every_non_delegated_kind_has_a_builder`.
 def _build_bg0002(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0002.build_bg0002_population(
         legacy, anchor, actor_count, scene_id=scene_id,
         count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
     )
+
+
+_build_bg0002.serves_scene_id = world_population_bg0002.SCENE2_N_ID
 
 
 def _build_bg0005(legacy, anchor, actor_count, *, scene_id):
@@ -221,11 +230,17 @@ def _build_bg0005(legacy, anchor, actor_count, *, scene_id):
     )
 
 
+_build_bg0005.serves_scene_id = world_population_bg0005.SCENE_N_ID
+
+
 def _build_bg0015(legacy, anchor, actor_count, *, scene_id):
     return world_population_bg0015.build_bg0015_population(
         legacy, anchor, actor_count, scene_id=scene_id,
         count_source=world_population_bg0015.COUNT_SOURCE_CALLER,
     )
+
+
+_build_bg0015.serves_scene_id = world_population_bg0015.SCENE_N_ID
 
 
 _POPULATION_BUILDERS = {
@@ -236,9 +251,10 @@ _POPULATION_BUILDERS = {
 
 
 def assert_every_non_delegated_kind_has_a_builder(
-    kinds: Any = None, builders: Any = None,
+    kinds: Any = None, builders: Any = None, composers: Any = None,
 ) -> None:
-    """Refuse a build table that does not cover every non-delegated kind.
+    """Refuse a build table that does not cover every non-delegated kind
+    WITH THAT KIND'S OWN SCENE'S BUILDER.
 
     ROUND jqeo2m.  :func:`_compose` looks its builder up in
     :data:`_POPULATION_BUILDERS` AFTER a guard that has already admitted
@@ -250,18 +266,52 @@ def assert_every_non_delegated_kind_has_a_builder(
     composition can ever reach, which means a scene someone believes is
     composable and is not.
 
-    Called at import time on this module's own pair, and exposed so a test
-    can hand it a broken pair rather than having to break the real one.
+    ~~That coverage check is what makes the kind-keyed dispatch unable to
+    pick the wrong builder.~~ **WITHDRAWN THE ROUND IT WAS WRITTEN**,
+    pf-adversary, measured: the coverage half compares KEY SETS ONLY, so
+    ``COMPOSER_BG0005: _build_bg0015`` passed it, passed the ENTIRE suite
+    unchanged (9494 passed, identical to clean), and turned every scene-5
+    recompose into ``refused_Bg0015CensusError`` -- which the call site
+    answers with the one-entry frame RE-092 proved erases the map, silently.
+    A wrong builder is the failure this dispatch exists to make impossible
+    and the assertion did not look at it.
+
+    So the second half: every kind must be wired to a builder whose
+    ``serves_scene_id`` equals the scene id the composer registered for that
+    kind actually composes.  A builder pointing at another scene's module
+    now fails at IMPORT time, before any session exists.
+
+    Called at import time on this module's own tables, and exposed so a test
+    can hand it broken ones rather than having to break the real ones.
     """
     admitted = frozenset(
         NON_DELEGATED_COMPOSER_KINDS if kinds is None else kinds)
-    have = frozenset(
-        _POPULATION_BUILDERS if builders is None else builders)
+    table = _POPULATION_BUILDERS if builders is None else builders
+    have = frozenset(table)
     if admitted != have:
         raise SceneRecomposeError(
             "non-delegated composer kinds and population builders disagree: "
             "admitted with no builder %s, builder with no admission %s"
             % (sorted(admitted - have), sorted(have - admitted))
+        )
+    registry = _COMPOSERS if composers is None else composers
+    misrouted = []
+    for composer in registry.values():
+        if composer.kind not in table:
+            continue
+        builder = table[composer.kind]
+        serves = getattr(builder, "serves_scene_id", None)
+        if serves != composer.scene_id:
+            misrouted.append(
+                "%r (scene %r) is wired to a builder serving scene %r"
+                % (composer.kind, composer.scene_id, serves)
+            )
+    if misrouted:
+        raise SceneRecomposeError(
+            "population builder(s) wired to the wrong scene: %s -- a "
+            "recompose composed from another scene's builder refuses, and a "
+            "refused recompose ships the one-entry census RE-092 proved "
+            "erases every other actor" % misrouted
         )
 
 
@@ -1295,6 +1345,14 @@ def _compose(
     # :func:`assert_every_non_delegated_kind_has_a_builder` (run at import
     # time, below the table) is what makes "cannot" a checked statement
     # rather than a description of today's table.
+    #
+    # ~~That sentence was true of the assertion as first written.~~ IT WAS
+    # NOT, and pf-adversary proved it in this same round by mutating one
+    # entry to another scene's builder and watching the whole suite stay
+    # green.  The assertion compares key sets AND, since that finding, each
+    # builder's own ``serves_scene_id`` against the scene its composer
+    # registered for -- read the function's docstring before trusting the
+    # sentence above it.
     builder = _POPULATION_BUILDERS[composer.kind]
     generation = builder(
         legacy, anchor.anchor, anchor.actor_count,

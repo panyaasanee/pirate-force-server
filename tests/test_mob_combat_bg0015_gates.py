@@ -269,8 +269,23 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- collisions (unchanged, reviewed sound) ----------------------
 
-    def test_there_are_no_live_cross_scene_collisions_today(self) -> None:
-        self.assertEqual(gates.live_cross_scene_collisions_today(), ())
+    def test_the_live_cross_scene_collisions_today(self) -> None:
+        """~~test_there_are_no_live_cross_scene_collisions_today~~
+
+        ROUND jqeo2m: the ``()`` this asserted was an artefact of the
+        reporting default having fallen behind ``_SCENE_TABLE_MODULES``, not
+        a fact about the world -- Bg0015's own registration had already made
+        the first one true.  Named pairs now, so the next one says which.
+        """
+        got = {
+            (row["actor_identity"], row["scene_a"], row["scene_b"])
+            for row in gates.live_cross_scene_collisions_today()
+        }
+        self.assertEqual(got, {
+            (0x2058, "Bg0002", "Bg0015"),
+            (0x203C, "Bg0002", "bg0005"),
+            (0x2047, "Bg0015", "bg0005"),
+        })
 
     def test_the_one_collision_registration_would_create(self) -> None:
         self.assertEqual(gates.bg0002_bg0015_identity_collisions(), (0x2058,))
