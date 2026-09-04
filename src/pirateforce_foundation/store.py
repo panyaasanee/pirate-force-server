@@ -1335,8 +1335,33 @@ class SQLiteStore:
         nobody is fixing.  Ordered by id so a boot log naming failures reads
         in a stable, reproducible sequence rather than in whatever order
         SQLite happens to walk the table.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET
+        (`KA1A-R314-RESULTS`, `pf_bridge/notes_to_chief/
+        20260905_0233_...boot-crash-class-id-backfill.md`): `app.py`'s only
+        call site for the module that loops over this method's result sits
+        AFTER an `if/else` that does not call `migrate_with_backup()` on
+        every boot path (a read-only `--scene-load-scenario` boot in
+        particular) -- on a database that predates migration 006, the bare
+        `class_id IS NULL` clause below raised
+        `sqlite3.OperationalError: no such column: class_id` and took the
+        whole boot down with it.  `app.py` is chief's write zone, not this
+        lane's, so the fix lives here instead of at that call site: a
+        database missing the column has nothing this method could truthfully
+        call "missing its `class_id`" -- the column itself does not exist
+        yet -- so this reports zero rows rather than crashing.  A boot path
+        that DOES call `migrate_with_backup()` adds the column before this
+        method ever runs, so this guard never fires for it and today's
+        behaviour for every already-migrated database is unchanged byte for
+        byte.
         """
         with self.connect() as db:
+            columns = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            if "class_id" not in columns:
+                return ()
             rows = db.execute(
                 "SELECT id FROM characters "
                 "WHERE class_id IS NULL AND deleted_at IS NULL "
