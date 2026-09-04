@@ -702,6 +702,25 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         },
         # An imported module name.
         "world_m2_columbus_trigger_readiness.py": {"columbus_quest_dispatch"},
+        # Same shape, same reason: an imported module name, not quest
+        # behavior (chief round zwxuuk, answering
+        # pf_bridge/notes_to_chief/20260904_2229_LANE-A-TO-CHIEF-one-line-
+        # answer-columbus-quest-dispatch-exemption.md). Reads one integer,
+        # COLUMBUS_PLACEMENT_INDEX, off the module in
+        # _scenes_where_columbus_collides; renaming the import would only
+        # hide the bind, not remove it, since the module it points at is not
+        # this lane's to rename.
+        "lane_hooks/lane_a_choose_npc_roster_scenes.py": {"columbus_quest_dispatch"},
+        # Table pins named after the client's own table, CONSTDATA_TH__ITEM_QUEST
+        # (chief round zwxuuk, answering pf_bridge/notes_to_chief/20260904_2230_
+        # LANE-GM-TO-CHIEF-item-catalog-two-symbols-are-table-pins-exemption-
+        # please.md). QUEST_ITEM_COUNT is a row count for the "quest" item
+        # category (one of three the client ships: misc/consumable/quest), not
+        # a quest count or quest state; SOURCE_SHA256_QUEST is a drift pin for
+        # that category's source TSV, paired with SOURCE_SHA256_MISC /
+        # SOURCE_SHA256_CONSUMABLE which the guard does not flag only because
+        # those category names don't collide with the guarded word.
+        "gm/item_catalog.py": {"quest_item_count", "source_sha256_quest"},
         # Mined QUESTDATA_TH__QUEST row 3021 columns, read into a report
         # string (`console_line`) and an internal consistency check
         # (`_self_check`).  Neither decides a destination; the module's own
