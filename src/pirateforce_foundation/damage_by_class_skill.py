@@ -35,6 +35,20 @@ calls `resolve_skill_damage` in production, and by extension nothing calls
 `resolve_class_skill_damage` either.  This module only narrows what such a
 caller would be allowed to do once one exists -- it does not create the
 caller.
+
+[UPDATE, round `8p7jon`, per `COO-DECISION 20260905_0346` direction
+"basic attack 8 ตัว"]: `attack_skill_ids_for_class(class_id)` answers "which
+of THIS class's 4 starting-kit ids does this lane currently classify as an
+attack" -- today that is always `(99,)` for all 5 classes (see
+`damage_by_skill.py`'s docstring for why the other 7 starting-kit ids across
+the catalog are refused rather than guessed), but the function composes that
+answer from `class_catalog.starting_skill_ids` and
+`damage_by_skill.is_classified_attack_skill` at call time -- it holds no
+per-class or per-skill constant of its own, so the day RE-232's successor
+ticket classifies a second id, this function's answer changes with it
+without an edit here.  Same zero-production-caller posture as everything
+else in this file: nothing in `mob_combat.py` reads a skill id yet, so
+nothing calls this either.
 """
 from __future__ import annotations
 
@@ -47,6 +61,7 @@ __all__ = [
     "DamageByClassSkillError",
     "is_skill_granted_to_class",
     "resolve_class_skill_damage",
+    "attack_skill_ids_for_class",
 ]
 
 
@@ -105,3 +120,23 @@ def resolve_class_skill_damage(
         return damage_by_skill.resolve_skill_damage(skill_id, attacker, defender)
     except DamageBySkillError as exc:
         raise DamageByClassSkillError(str(exc)) from exc
+
+
+def attack_skill_ids_for_class(class_id: int) -> tuple[int, ...]:
+    """The subset of `class_id`'s 4 starting-kit skill ids
+    (`class_catalog.starting_skill_ids`) that `damage_by_skill.
+    is_classified_attack_skill` classifies as an attack, in the class's own
+    `s_SKILL_1..4` table order.
+
+    Holds no table of its own -- every id it returns comes from
+    `class_catalog` and every classification decision comes from
+    `damage_by_skill`, so this is strictly a filter over two already-pinned
+    answers, not a third roster.  Raises `KeyError` for a `class_id`
+    `class_catalog` does not carry, same refusal as `class_catalog.
+    starting_skill_ids` itself.
+    """
+    return tuple(
+        skill_id
+        for skill_id in class_catalog.starting_skill_ids(class_id)
+        if damage_by_skill.is_classified_attack_skill(skill_id)
+    )
