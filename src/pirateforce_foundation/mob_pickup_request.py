@@ -209,6 +209,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from . import mob_ground_persistence
 from . import mob_pickup
 from . import mob_pickup_persist
 
@@ -1515,6 +1516,19 @@ def dispatch_inbound_pickup_request(
         return _refused_after_read(read, "session_has_no_bag_cell", echo)
     if drop_ledger_cell is None:
         return _refused_after_read(read, "session_has_no_ground_cell", echo)
+    # THE WORLD DECIDES THE TAKE FIRST, round 59iqwi (pf-adversary D1, which
+    # measured one drop becoming two items before this shape existed).  A row
+    # that fell in this scene belongs to the world, so two logins standing
+    # here can hold one row and each cell is authority over its own ledger
+    # alone.  The claim is atomic and exactly one caller wins it; a caller
+    # that loses is refused BY ITS OWN NAME, and a row the world has no
+    # opinion about (never on its floor, or swept off it) is NOT refused --
+    # the cell's own rules answer, exactly as they did before this round.
+    claim = mob_ground_persistence.claim_for_pickup(
+        drop_ledger_cell, read.fields.object_ref_u32)
+    if claim.refused:
+        return _refused_after_read(
+            read, claim.reason, echo, legacy, drop_ledger_cell)
     try:
         result = mob_pickup_persist.pickup_and_persist(
             store, sid, character_id, bag_cell, drop_ledger_cell, legacy,
@@ -1528,12 +1542,29 @@ def dispatch_inbound_pickup_request(
         # client kept drawing a label nothing would ever answer for.  The
         # cell is passed so the refusal can carry what the SWEEP owes -- the
         # scene's remaining ground, which removes the ghost by omission.
+        # THE CLAIM GOES BACK, round 59iqwi: the world handed this row over a
+        # few lines up and the transaction then refused, so the object is
+        # still lying in front of the player and the floor must not be short
+        # one.  Returning it also clears the taken record, so the next click
+        # -- this player's or anybody's -- can claim it again.
+        mob_ground_persistence.return_claim(claim)
         return _refused_after_read(
             read, str(exc.args[0]), echo, legacy, drop_ledger_cell)
     rows_left, ground_after = _ground_after_the_take(
         legacy, drop_ledger_cell, result, echo)
     delta = _the_delta_that_matches_the_floor(
         result.outcome, ground_after, read.fields.object_ref_u32, echo)
+    # THE DURABLE DOOR LEARNS THE ROW IS GONE, round 59iqwi.  The world's own
+    # floor gave the row up at the claim above; what is left is the table, and
+    # only once the take and its removal publication have both happened
+    # (`COO-DECISION 2026-09-01T02:53+07:00` -- a row is removed when a
+    # publisher has said so).  THE ROW COMES FROM THE TRANSACTION, never from
+    # ``read.fields`` (pf-adversary D9, and round veby94's D7 one file over:
+    # what the stranger asked for is not what was taken).  It cannot refuse a
+    # click: the pickup has already succeeded by this line, the call never
+    # raises, and its answer is not read.
+    mob_ground_persistence.note_taken_in_the_durable_door(
+        getattr(result.outcome, "drop", None), store=store)
     return PickupRequestOutcome(
         True, ACCEPTED, read, result, delta, ground_after, rows_left)
 

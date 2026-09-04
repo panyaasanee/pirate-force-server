@@ -188,6 +188,7 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0005
 from . import field_mobs
 from . import mob_combat
@@ -471,6 +472,36 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "widen-death-scope-bg0005-six-templates": frozenset(
         {148, 150, 144, 146, 523, 525}
     ),
+    # COO-DECISION 2026-09-04T14:50+07:00 (notes_to_chief/20260904_1450_
+    # COO-DECISION-lane-b-widen-death-scope-bg0003-seven-templates-approved-
+    # stop-new-scenes-until-one-scene-has-every-door.md), answering
+    # LANE-B-ASK-COO 2026-09-04T14:32+07:00 (notes_to_chief/20260904_1432_
+    # LANE-B-ASK-COO-scene-3-twelve-rows-need-a-death-ruling.md): approves
+    # killing all SEVEN templates behind Bg0003's twelve hostile placements
+    # -- 60 Jungle Big Tiger, 61 Toxic Vine, 62 Ancient Civilization Alert
+    # Weapon, 65 Ward Apes, 194 Jet cat thieves No.2, 515 Jet cat thieves
+    # No.1, 907 Sediment Wolf.  THE PINNED NAME IS THIS LETTER'S OWN, which
+    # that letter's item 1 requires in the same words ("do not copy the name
+    # from 1148/1350"): a ruling that borrowed another letter's name would
+    # let a reader who greps the name land on a decision that never mentions
+    # scene 3.
+    # The set is exactly ``field_mob_tables_bg0003.HOSTILE_PLACEMENTS``'s
+    # distinct template ids, re-derived from the mined roster in
+    # ``tests/test_field_mob_tables_bg0003.py`` rather than hand-copied a
+    # second time -- the discipline every other entry in this dict is held
+    # to, and the reason the twelve rows and the seven ids cannot drift
+    # apart silently.
+    # NOT APPROVED BEYOND THESE SEVEN, and scene 4 is explicitly OUT: the
+    # same letter's item 3 stops this lane opening new scenes until one
+    # armed scene has every door (kill AND drop).
+    # NOT A GT UNLOCK: NOW.md still forbids an attended monster-hit queue
+    # entry for scene 3 until P-2 (monster name colour) closes -- item 5 of
+    # the same letter.  This entry lets a kill on these seven templates
+    # travel under a letter; it opens nothing in ``GAME_TEST_QUEUE.md``.
+    "COO-DECISION 2026-09-04T14:50+07:00 "
+    "widen-death-scope-bg0003-seven-templates": frozenset(
+        {60, 61, 62, 65, 194, 515, 907}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -558,6 +589,14 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # already guards against.
     "COO-DECISION 2026-09-04T11:48+07:00 "
     "widen-death-scope-bg0005-six-templates": field_mob_tables_bg0005.SCENE,
+    # Tied to Bg0003, and this scene is the one where the tie is MEASURED to
+    # matter rather than merely prudent: placement 69 exists in both scene 3
+    # and scene 5 and both compute wire identity 0x2046, so a ruling keyed by
+    # anything the two share would let scene 5's letter kill scene 3's
+    # Sediment Wolf (tests/test_field_mob_tables_bg0003.py walks exactly that
+    # pair).  Each scene's own letter, on its own scene, or no kill.
+    "COO-DECISION 2026-09-04T14:50+07:00 "
+    "widen-death-scope-bg0003-seven-templates": field_mob_tables_bg0003.SCENE,
 }
 
 

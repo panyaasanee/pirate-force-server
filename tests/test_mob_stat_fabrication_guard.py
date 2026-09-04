@@ -141,6 +141,13 @@ LANE_B_MODULES = (
     # same commit as the module -- three rounds have now recorded that this
     # tuple is what makes a new module part of the sweep at all.
     "mob_drop_presence.py",
+    # ROUND 59iqwi: the world's own floor -- which rows are standing in which
+    # scene, for the whole process, so a relogin walks back into the drop it
+    # left (KA1A R309 measured the opposite).  No player stat of any kind: it
+    # holds ``mob_loot.GroundDrop`` rows built elsewhere and never computes a
+    # number of its own.  Listed in the same commit as the module, the same
+    # reason every other entry on this tuple gives.
+    "mob_ground_persistence.py",
     "mob_loot.py",
     "mob_pickup.py",
     # ROUND uq2lxw: the pickup path's write half, joined to store.py's

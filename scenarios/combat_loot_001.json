@@ -110,7 +110,8 @@
     "no_scene_to_publish",
     "kill_in_another_scene",
     "row_is_still_on_the_ground",
-    "nothing_was_published"
+    "nothing_was_published",
+    "row_is_another_scenes"
   ],
   "scenario": null,
   "schema": 1,
