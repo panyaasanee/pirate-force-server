@@ -513,15 +513,22 @@ class TheDurableDoorTests(unittest.TestCase):
         outcome = ground.persist_generation(object(), (a_drop(),))
         self.assertEqual(outcome.reason, ground.REFUSE_WRITE_DOOR_IS_ABSENT)
 
-    def test_the_restore_half_stands_down_until_the_taken_marker_exists(self):
-        """Measured, not assumed: today's store cannot say what is STILL down.
+    def test_the_restore_half_stands_down_when_the_taken_marker_is_absent(self):
+        """A store without the two named methods refuses by name.
 
-        A restore built on `list_ground_drops_for_scene` alone would put every
-        item a player has already picked up back on the floor at every boot.
+        Deliberately a bare `object()`, not `self.store`: `store.py` grew
+        `mark_ground_drop_taken`/`list_ground_drops_still_on_the_ground`
+        (`pf_bridge/notes_to_chief/20260904_1935_LANE-DB-REPLY-...`), so
+        pinning this on the real `SQLiteStore` would flip the day LANE-DB's
+        change reaches `main` -- exactly the coupling
+        `test_a_store_without_the_door_is_named_too` above already avoids
+        for the write half. The closed-door path stays real and covered
+        either way.
         """
-        self.assertFalse(ground.restore_door_is_open(self.store))
+        stub = object()
+        self.assertFalse(ground.restore_door_is_open(stub))
         self.assertEqual(
-            ground.restore_scene_ground(self.store, "bg0002"),
+            ground.restore_scene_ground(stub, "bg0002"),
             ground.REFUSE_TAKEN_DOOR_IS_ABSENT)
 
     def test_the_restore_half_works_the_day_the_marker_lands(self):
