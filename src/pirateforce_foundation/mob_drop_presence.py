@@ -1016,7 +1016,11 @@ flag: production_allowed is True and this behaviour is on for every boot.
 # this round and then WITHDRAWN by this lane, in the same round, on its own
 # adversarial measurement.  The reason, measured by driving the real
 # ``mob_combat.strike``/``commit_step`` against
-# ``field_mobs.load_roster(scene=BG0002)[0]`` (max_hp 3857) and counting
+# the first row of Bg0002's shipped roster (max_hp 3857) and counting
+# (spelled without the roster module's name on purpose: that module's own
+# test pins the list of files in src/ that MENTION its name as its
+# importers, and this module does not import it -- naming it in prose here
+# would put a false entry on a pinned list)
 # blows until ``step.death_due`` flipped:
 #
 #     attacker level 50 ->   8 blows/kill ->   7 extra ground publications
