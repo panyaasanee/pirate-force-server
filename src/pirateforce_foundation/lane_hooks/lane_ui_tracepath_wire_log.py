@@ -13,7 +13,7 @@ ACCURACY NOTE", for the precedent this module follows exactly
 (``vital_inbound_chat_local_talk`` is the same shape: registered, never
 fired, until its own owning lane's dispatch branch adds one line). That one
 line is CORE-REQUEST'd to chief in
-``notes_to_chief/20260905_0317_LANE-UI-CORE-REQUEST-fire-trace-path-req-observer.md``,
+``notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-fire-trace-path-req-observer.md``,
 same round this file was written. Until that lands, this module changes
 zero behavior on ``main`` -- it exists so the call, once added, has
 something ready to fire into, the same reasoning
@@ -29,7 +29,7 @@ bonus this round did for ``GT-246``'s frame. Once the one dispatch-table
 line lands, that same click prints every field of this class -- including
 field 1, the discriminator the ticket is testing -- directly to the
 server's own console in real time, the same live-decode convenience this
-project's other seven ``CORE-REQUEST 1120`` classes already have. This
+project's other eight ``CORE-REQUEST 1120`` classes already have. This
 module is the half of that convenience LANE-UI can build without chief
 today; the CORE-REQUEST above is the other half.
 

@@ -7,7 +7,7 @@ registration to LANE-UI without a further CORE-REQUEST round). The fifth,
 ``lane_ui_tracepath_wire_log.py`` (round `wkrfl6`), registers a NINTH
 point, ``vital_inbound_trace_path_req_vital`` -- but unlike the first
 eight, nothing in ``runtime.py`` calls ``lane_hooks.fire()`` for it yet
-(CORE-REQUEST pending, ``notes_to_chief/20260905_0317_LANE-UI-CORE-REQUEST-
+(CORE-REQUEST pending, ``notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-
 *.md``; see that module's own docstring for the precedent this follows).
 Every test below calls each hook function DIRECTLY, the same way for all
 nine cases, so this distinction does not change what is tested here (a

@@ -24,7 +24,7 @@ only). This module is the payload SHAPE only -- it composes and parses the
 eight fields without claiming any of them, leaving ``trace_path.py``'s own
 scope (and its own owner) untouched. It does not send a byte anywhere:
 nothing in ``runtime.py`` imports this module (see ``notes_to_chief/
-20260905_0317_LANE-UI-CORE-REQUEST-*.md`` for the one dispatch-table row
+20260905_0347_LANE-UI-CORE-REQUEST-*.md`` for the one dispatch-table row
 that would change that, mirroring ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH``'s
 own shape in ``runtime.py``).
 
@@ -81,7 +81,7 @@ _TAG_FIELD8_U8 = 0x08
 
 @dataclass(frozen=True)
 class TracePathReqFields:
-    """Wire order: seven u16-with-tag-0x0F fields (fields 1/2/4/5/6/7) and
+    """Wire order: six u16-with-tag-0x0F fields (fields 1/2/4/5/6/7) and
     one u32-with-tag-0x14 (field 3) sandwiched between them, then one
     u8-with-tag-0x08 (field 8) -- exactly ``PF_SERIALIZER_FIELDS.tsv``'s own
     field order, ``+0x14`` through ``+0x24``. Field 1 is the field this
