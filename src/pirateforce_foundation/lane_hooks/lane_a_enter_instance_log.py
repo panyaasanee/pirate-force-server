@@ -186,9 +186,14 @@ def console_line(payload: bytes) -> str:
     # annotation from `world_m2_survey_plan` stays inside that limit on
     # purpose: it says whether the value is a handle THIS BUILD issued and
     # how many records this build could provision at all, never what the
-    # client thinks the number means.  With no measured island XYZ that
+    # client thinks the number means.  ~~With no measured island XYZ that
     # reads `issued=no provisioned=0`, which is the line that tells a
-    # grader a captain report popped WITHOUT a record from this server.
+    # grader a captain report popped WITHOUT a record from this server.~~
+    # CORRECTED (pf-adversary second pass, this round): GT-228 measured both,
+    # so it reads `provisioned=2`, and no fragment here can tell a grader
+    # anything about a record leaving this server -- only `sent=` below can,
+    # and today it says `unwired`.  See this module's docstring section on
+    # the refutation reading.
     return (
         f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
         f" {_arrival_annotation()}"

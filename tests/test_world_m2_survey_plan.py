@@ -398,9 +398,16 @@ class TrialSurveyIdResolutionTests(unittest.TestCase):
         # item 1 chose the value and rules the Trigger_TIP names a different
         # namespace until proven otherwise -- but it must be VISIBLE, because
         # it is precisely why the trial reading carries `confidence=low`.
+        # BRANCHED ON THE BASE, like the older guard it is about: the
+        # docstring's rollback (`SURVEY_HANDLE_BASE = 0`) puts the handles IN
+        # the low range on purpose, and a test written to make a gap visible
+        # must not be the thing that forbids the documented repair
+        # (pf-adversary, second pass this round -- it measured this test going
+        # red under the rollback).
         for record in plan.planned_records():
             with self.subTest(trigger_id=record.trigger_id):
-                self.assertNotIn(record.handle, range(0, 512))
+                if plan.SURVEY_HANDLE_BASE:
+                    self.assertNotIn(record.handle, range(0, 512))
                 self.assertIn(plan.trial_survey_id(record), range(0, 512))
                 self.assertEqual(
                     plan.confirm_resolution(plan.trial_survey_id(record)).confidence,

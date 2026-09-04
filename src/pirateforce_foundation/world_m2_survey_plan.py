@@ -642,9 +642,15 @@ def console_annotation(handle: int) -> str:
     written -- its STOP rule forbids pressing confirm, so no
     EnterInstanceVital is sent and this line cannot appear there at all.  It
     is what the FIRST confirm frame this server ever receives will say, from
-    whatever run produces one.  `provisioned=0` beside such a line means the
+    whatever run produces one.  ~~`provisioned=0` beside such a line means the
     captain report popped without a record from us, which refutes RE-227's
-    provisioning hypothesis rather than supporting it.
+    provisioning hypothesis rather than supporting it.~~ -- CORRECTED (round
+    `16uvmp`, pf-adversary second pass): nothing on this fragment is about a
+    frame leaving this process, so nothing on it can refute a hypothesis about
+    what the client does with our record.  The refutation reading needs the
+    hook's `sent=` fragment naming a count of records actually sent; beside
+    `sent=unwired` an `issued=no` says only that a client sent a u16 we do not
+    recognise, on a build that sent nothing for it to echo.
 
     A LOW-CONFIDENCE MATCH SAYS SO IN THE LINE, and this is the fragment an
     attended grader must not over-read: `issued=yes match=trial
