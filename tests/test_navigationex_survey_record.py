@@ -171,6 +171,104 @@ class EncodeAddSurveyDataOuterTests(unittest.TestCase):
         self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
 
 
+class R313CaptureParityTests(unittest.TestCase):
+    """The static-parser comparison COO-DECISION 20260905_0251 / the R313
+    letter (`pf_bridge/notes_to_chief/20260905_0212_KA1A-R313-RESULTS-*`)
+    asked for: does this encoder's output match the actual bytes the server
+    sent and the client rejected with `ErrorData=50351`?
+
+    🔴 WHAT THIS CLASS IS NOT.  The commit R313 booted and this one differ
+    by no executable line of `navigationex_survey_record.py` (docstrings
+    only), so the "capture" below is this encoder's own output.  Comparing
+    them is a NO-DRIFT PIN -- it cannot fail unless someone edits the
+    encoder, and it is NOT evidence that the encoder is right.  The client
+    rejected these exact bytes.  ~~an earlier version of this docstring
+    concluded "so the rejection is not an encoder mismatch"~~ IS STRUCK
+    (pf-adversary, round `f03s5f`, D2).
+
+    ON THE TWO SIZES.  `encode_add_survey_data_outer` returns `(pc, frame)`:
+    `pc` is the pre-compression content (60 bytes here) and `frame` is
+    `frame_pc(pc)` -- v141's `MAGIC + varint(len(compressed)) +
+    snappy_raw_literal(pc)` wrapper, a fixed 10-byte header, so
+    `len(frame) == 70` is arithmetic on `len(pc) == 60` and carries no
+    independent information about R313.  ~~"Both numbers in R313's letter
+    are correct; they name two different layers"~~ IS STRUCK (pf-adversary
+    D3): the letter labels the 60-byte hex block itself "70 B" and never
+    names two layers.  The pc/frame reading is THIS round's reconstruction
+    of how a 60-byte paste could be captioned 70, and it is plausible, not
+    established -- a transcription that dropped bytes on the way into the
+    letter would look identical from here and is not excluded.
+    """
+
+    # `SURVEY2_DOCK153_INITIAL`, console line 4168, R313 (2026-09-05T02:0x).
+    _R313_DOCK153_INITIAL_HEX = (
+        "12 9D 6E 14 00 00 00 00 08 04 0B 02 12 01 00 12 AF C4 0B 00 "
+        "0B 01 12 02 00 12 00 00 12 00 00 2A 66 6E AF C5 2A 00 14 82 45 "
+        "2A 00 00 3A 43 32 00 00 00 00 00 00 00 00 12 00 00 0B 00"
+    )
+
+    def test_the_pasted_hex_is_60_bytes_whatever_the_letter_captions_it(self):
+        raw = bytes.fromhex(self._R313_DOCK153_INITIAL_HEX.replace(" ", ""))
+        self.assertEqual(len(raw), 60)
+
+    def test_the_encoder_reproduces_the_r313_capture_byte_for_byte(self):
+        # Field values read off the same letter's own decode line, not
+        # re-guessed: msg_id 0xC4AF, vital_version 0, survey_id 2 (DOCK153),
+        # XYZ (-5613.8, 4162.5, 186.0), every unmeasured field 0.
+        fields = survey.SurveyRecordFields(
+            survey_id=2, x=-5613.8, y=4162.5, z=186.0,
+        )
+        pc, frame = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=fields,
+        )
+        captured = bytes.fromhex(
+            self._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        self.assertEqual(
+            pc, captured,
+            "this encoder no longer reproduces the exact bytes R313 sent "
+            "and the client rejected with ErrorData=50351 -- if this ever "
+            "goes red, the encoder changed, not the finding below",
+        )
+        # The compressed frame this same call goes out as is 70 bytes.
+        # Derived, not independent: frame_pc adds a fixed 10-byte header,
+        # so this restates len(pc) == 60.  Kept only so the wrapper cannot
+        # change size unnoticed.
+        self.assertEqual(len(frame), 70)
+
+    def test_the_four_fields_this_module_calls_unmeasured_are_exactly_these(self):
+        # A FIELD-NAME PIN, and nothing more.  ~~an earlier name for this
+        # test ("therefore the 50351 rejection is not an encoder vs RE-227
+        # mismatch") claimed a conclusion its body cannot reach~~ IS STRUCK
+        # (pf-adversary, round `f03s5f`, D4): the assertion below is green
+        # for any encoder bug and any client behaviour whatsoever.  What it
+        # does buy: the set of fields RE-227 itself called UNMEASURED
+        # (`unmeasured_0x14`, `unmeasured_0x16`, `unmeasured_0x28`,
+        # `unmeasured_0x30`) cannot silently grow or shrink.  Those four,
+        # plus `vital_version`, plus the outer `0x0B` field the serializer
+        # table carries (see the module docstring), are where the client's
+        # disagreement can live -- and in a
+        # field RE-227's static pass never reached at all.  Resolving which
+        # needs either the RE runner's own machine (this environment has no
+        # copy of the shipped client image -- deliberately NOT spelled with
+        # its filename here: the Windows gate drops any tests/ module that
+        # contains that literal from its selection, and spelling it out in
+        # this comment is exactly what turned #785 red -- gate log for
+        # 7caacd7, and the round file
+        # pf_bridge/rounds/A_20260905_0422_f03s5f_*) or another attended
+        # trial that varies one field at a
+        # time -- this test only closes off the one explanation that WAS
+        # checkable from committed artifacts.
+        self.assertEqual(
+            {"unmeasured_0x14", "unmeasured_0x16", "unmeasured_0x28",
+             "unmeasured_0x30"},
+            {
+                name for name in survey.SurveyRecordFields._fields
+                if name.startswith("unmeasured_")
+            },
+        )
+
+
 class NotWiredToAnySendPathTests(unittest.TestCase):
     def test_no_python_file_anywhere_in_this_repository_imports_this_module(self):
         # A grep guard, not a claim about intent: proves the nonclaim in
@@ -222,6 +320,168 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
             "navigationex_survey_record must not be imported by any send "
             f"path (world_m2_provisioning_trial.py excepted); found: {hits}",
         )
+
+
+class OuterLeadingByteTests(unittest.TestCase):
+    """The field `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` carries for
+    this class's OUTER serializer, and R313's frame did not (round
+    `f03s5f`, pf-adversary D1).
+
+    The table (lines 6377-6388, same span `[0x00733570,0x00733614)` and same
+    SHA RE-227 cites) records a `0x0B`-tagged field of length 1 at
+    `STACK@0x00733570+0x18`, gate `ALWAYS`, on the read side and the write
+    side both.  Its VALUE is measured nowhere, so the composer refuses to
+    pick one: `None` (the default) keeps the exact bytes R313 sent, and a
+    caller who wants to try a value has to write it down.
+    """
+
+    _FIELDS = survey.SurveyRecordFields(survey_id=2, x=-5613.8, y=4162.5, z=186.0)
+
+    def test_default_is_byte_identical_to_what_r313_sent(self):
+        with_default, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+        )
+        explicit_none, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+            outer_leading_byte=None,
+        )
+        captured = bytes.fromhex(
+            R313CaptureParityTests._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        self.assertEqual(with_default, captured)
+        self.assertEqual(explicit_none, captured)
+
+    def test_a_value_inserts_one_0b_field_before_the_record_and_nothing_else(self):
+        base, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+        )
+        for value in (0, 1):
+            with self.subTest(value=value):
+                got, frame = survey.encode_add_survey_data_outer(
+                    legacy, msg_id=0xC4AF, vital_version=0,
+                    fields=self._FIELDS, outer_leading_byte=value,
+                )
+                # Exactly two bytes longer, and the two extra bytes are the
+                # 0x0B tag and the value, sitting after the vital header
+                # (which ends at offset 20, pinned by the reader-order test
+                # below) and before the record's own kind byte.
+                self.assertEqual(len(got), len(base) + 2)
+                self.assertEqual(got[:20], base[:20])
+                self.assertEqual(got[20:22], bytes([0x0B, value]))
+                self.assertEqual(got[22:], base[20:])
+                self.assertEqual(len(frame), len(legacy.frame_pc(got)))
+
+    def test_the_record_is_still_the_re227_record_unchanged(self):
+        got, _ = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
+            outer_leading_byte=1,
+        )
+        record = survey.encode_survey_record(legacy, self._FIELDS)
+        self.assertIn(record, got)
+        self.assertEqual(len(record), survey.RECORD_LEN)
+
+
+class ErrorDataIsAMessageIdTests(unittest.TestCase):
+    """R313's dialog number is an id, not an error code (round `f03s5f`).
+
+    The rule is this repository's own, already written down for the other
+    number every wire module here has paid for: "28317 = 0x6E9D =
+    GSCN_RunTimeProtocolRes, the class id itself"
+    (`delete_actor_hypothesis.py:32`, `mob_loot.py:159`).  Nobody had
+    applied it to 50351.  These tests do the arithmetic once, in a place
+    that goes red if either id ever moves, so the next attended round can
+    read a dialog number off the screen and know WHERE the client's reader
+    stopped without re-deriving anything.
+    """
+
+    def test_the_r313_dialog_number_is_this_vitals_own_id(self):
+        self.assertEqual(
+            survey.R313_SURVEY_DIALOG_ERRORDATA,
+            survey.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID,
+            "50351 is 0xC4AF -- if this is ever not true, the whole "
+            "'ErrorData names the object whose read failed' reading of "
+            "R313 has to be re-argued from scratch",
+        )
+
+    def test_the_precedent_number_is_the_outer_envelopes_own_id(self):
+        # Read from the frozen module, not retyped: the point is the
+        # identity, and a hand-copied 0x6E9D would prove only that this
+        # test can type.
+        self.assertEqual(28317, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+
+    def test_the_capture_itself_carries_both_ids_in_reader_order(self):
+        """Both numbers are literally in the bytes R313 sent, in the order
+        the client's reader meets them: the envelope's id first, then the
+        vital's.  Parsed out of the captured frame rather than asserted, so
+        this cannot pass on a coincidence of two constants.
+        """
+        pc = bytes.fromhex(
+            R313CaptureParityTests._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        # `make_runtime_vitals` writes, in order:
+        #   [0]      0x12          [1:3]   outer id
+        #   [3]      0x14          [4:8]   u32 0
+        #   [8:10]   08 04         [10:12] 0B 02
+        #   [12]     0x12          [13:15] record count
+        #   [15]     0x12          [16:18] msg id
+        #   [18]     0x0B          [19]    vital version
+        #   [20:]    the record, then the trailing 0B 00 change mask
+        self.assertEqual(pc[0], 0x12)
+        outer_id = struct.unpack_from("<H", pc, 1)[0]
+        self.assertEqual(outer_id, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+        self.assertEqual(struct.unpack_from("<H", pc, 13)[0], 1,
+                         "the collection carries exactly one record")
+        vital_id = struct.unpack_from("<H", pc, 16)[0]
+        self.assertEqual(
+            vital_id, survey.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID)
+        self.assertEqual(pc[18:20], bytes([0x0B, 0]),
+                         "vital_version 0, as R313's console line reports")
+        self.assertEqual(pc[20], 0x0B,
+                         "and the record starts right after it")
+
+    def test_read_failure_layer_names_the_layer_not_the_cause(self):
+        self.assertEqual(
+            "OUTER_ENVELOPE",
+            survey.read_failure_layer(legacy, 28317))
+        self.assertEqual(
+            "THIS_VITAL",
+            survey.read_failure_layer(legacy, 50351))
+        # A number this module has no name for must NOT come back as one of
+        # the two named layers -- an id it cannot place is some other
+        # class's, and saying "outer envelope" there would send an attended
+        # round after the wrong frame.
+        self.assertEqual(
+            "SOMETHING_ELSE",
+            survey.read_failure_layer(legacy, 0x1FB2))
+
+    def test_the_dialog_number_itself_is_a_transcription_not_a_recompute(self):
+        """The honest limit of the test above (pf-adversary D11).
+
+        50351 reaches this repository as text in R313's letter, read off a
+        screenshot the gate's forbidden-path guard can never let in.  If the
+        observer or the letter mistyped it, the equality test still passes,
+        because the transcription is being compared to the id it was
+        recognised as.  What that test rules out is a DIFFERENT number being
+        the class id; it cannot rule out a mistyped dialog.  Pinned here so
+        the limit travels with the claim.
+        """
+        self.assertEqual(
+            survey.R313_SURVEY_DIALOG_ERRORDATA, 50351,
+            "the number as R313's letter transcribes it -- change this only "
+            "with a new attended observation, never to make another test "
+            "pass",
+        )
+
+    def test_the_composer_still_refuses_to_default_the_id(self):
+        """Naming the id does not mean this module now picks it.  The
+        constant exists so the number has its evidence attached; the
+        caller still supplies it (`m2_survey_trial.py` is where the trial's
+        two numbers live, and that file is chief's).
+        """
+        import inspect
+
+        sig = inspect.signature(survey.encode_add_survey_data_outer)
+        self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
 
 
 if __name__ == "__main__":

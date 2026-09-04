@@ -51,15 +51,18 @@ its names, levels and HP intact.
     borrowed, what is still open, and which test goes red.  Do not
     "tidy" this paragraph by dropping the qualification.
 
-    WHAT THIS DOES NOT CLAIM.  This is WIRE/DB evidence only.  Nobody has
-    yet clicked an NPC on scene 3 -- or on any of the nine -- with a real
-    client and reported what rendered; scene 14's own equivalent step is
-    still waiting on ``GT-134``, and this file does not shortcut that
-    ticket for another scene.  What is measured is that the click now
-    produces a composed, byte-checked answer frame where it produced
-    nothing at all, and that the bodies in it are the same bodies the
-    arrival census sent.  Whether the client draws it is ``GT-210`` for
-    scene 3 and ``GT-212`` for the nine, not a claim made here.
+    WHAT THIS DOES CLAIM NOW, UPDATED 2026-09-05 (COO-DECISION 20260905_0251,
+    LANE-A).  Both tickets this paragraph used to point at as still open have
+    since closed PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00
+    (``GAME_TEST_QUEUE.md``, chief round ``pk14rf``/R326): ``GT-210`` for
+    scene 3 and ``GT-212`` for the nine.  A real client has clicked an NPC on
+    scene 3 and on the nine and drawn the composed roster this module
+    builds.  Scene 14's own equivalent step, ``GT-134``
+    (``BG0015-FIRST-EYES-001``), has likewise closed PASS.  What was WIRE/DB
+    evidence only when this paragraph was first written is now backed by a
+    screen layer for every scene this file answers for; the composed,
+    byte-checked answer frame this module builds is the same frame the
+    client was observed to draw.
 
 WHY A TABLE AND NOT ONE FILE PER SCENE.  Every one of
 ``world_bg0003_identity`` ... ``world_bg4001_identity`` exposes
