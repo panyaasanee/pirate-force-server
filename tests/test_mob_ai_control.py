@@ -45,7 +45,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_ai_tables, field_mob_tables, field_mob_tables_bg0002,
-    field_mob_tables_bg0015, field_mobs, mob_aggro, mob_ai_control, mob_death,
+    field_mobs, mob_aggro, mob_ai_control, mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
@@ -142,17 +142,23 @@ class MinedRowTests(unittest.TestCase):
         # ``mob_ai_control.open_register(field_mobs.roster_for_scene_id(5))``
         # raised ``ai_row_missing: placement 59 points at AI_COMBAT 201``
         # before ``tools/pf_mine_mob_ai_rows.py``'s union was widened.
-        # ROUND am1fw8: ``field_mobs.BG0003_SCENE`` joins the walk on the
-        # same terms.  Scene 3 is REGISTERED in the same commit that mines
-        # it, so its twelve rows are rows a player can reach and belong on
-        # the derived side; the refusal was reproduced first here too
-        # (``placement 27 points at AI_COMBAT 140``).
+        # ROUND am1fw8: ~~a hand-typed tuple of scene names, one entry per
+        # round that registered a scene.~~  The derived side now walks
+        # ``field_mobs.live_scenes()``, for a defect pf-adversary measured
+        # this round: the tuple had fallen a scene behind the registry, and
+        # the test stayed GREEN while it did.  Bg0015 was registered rounds
+        # ago, the tuple never named it, so all twelve of its links were
+        # still being counted as EXTRAS -- the test passed by describing a
+        # world that had not existed for several rounds.  Reading the
+        # registry means scene 3 needed no entry here at all, and scene 4 or
+        # 6 will need none either.  (Scene 3's own AI links did have to be
+        # mined in this same commit: ``open_register`` raised
+        # ``ai_row_missing: placement 27 points at AI_COMBAT 140`` before
+        # ``tools/pf_mine_mob_ai_rows.py``'s union was widened.)
         derived = sorted(
             (mob.placement_index, mob.ai_wander, mob.ai_combat)
-            for scene in (None, field_mobs.BG0002_SCENE,
-                          field_mobs.BG0003_SCENE, field_mobs.BG0005_SCENE)
-            for mob in (field_mobs.load_roster() if scene is None
-                        else field_mobs.load_roster(scene=scene))
+            for scene in field_mobs.live_scenes()
+            for mob in field_mobs.load_roster(scene=scene)
         )
         # ROUND wmomy7: ~~equal~~ a superset by exactly the owner-refused
         # placements.  The links table is mined over every placement the
@@ -162,24 +168,18 @@ class MinedRowTests(unittest.TestCase):
         # asserted by name rather than the equality being dropped, so an
         # unexplained divergence still fails this test.
         #
-        # ROUND n8kq4r: the mined union widened to cover
-        # ``field_mob_tables_bg0015`` too (see ``tools/pf_mine_mob_ai_rows.py``
-        # -- registering Bg0015 was raising ``MobAiControlError:
-        # ai_row_missing`` on the first swing because the mined table never
-        # asked the bridge tables for the rows it needs).  Bg0015 is NOT in
-        # ``field_mobs._SCENE_TABLE_MODULES`` (that gate is untouched by this
-        # round), so ``field_mobs.load_roster`` still never returns a Bg0015
-        # row -- every one of its twelve placements shows up here as an
-        # EXTRA link, derived off the roster module directly rather than
-        # hand-typed, same as the owner-refused five above.
-        bg0015_links = sorted(
-            (row[0], row[9], row[10])
-            for row in field_mob_tables_bg0015.SHIPPED_PLACEMENTS
-        )
+        # ~~ROUND n8kq4r: ... Bg0015 is NOT in
+        # ``field_mobs._SCENE_TABLE_MODULES`` (that gate is untouched by
+        # this round), so ... every one of its twelve placements shows up
+        # here as an EXTRA link.~~  STRUCK ROUND am1fw8: that sentence
+        # stopped being true the round Bg0015 was registered, and nothing
+        # noticed because this test read a hand-typed tuple instead of the
+        # registry.  Bg0015's links are now on the DERIVED side with every
+        # other live scene, so the only extras left are the five the owner
+        # refused -- which is what this assertion was always meant to say.
         table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
         expected_extra = sorted(
-            [(index, 11, 332) for index in (92, 93, 94, 95, 96)]
-            + bg0015_links
+            (index, 11, 332) for index in (92, 93, 94, 95, 96)
         )
         self.assertEqual(sorted(set(table) - set(derived)), expected_extra)
         self.assertEqual(sorted(set(derived) - set(table)), [])

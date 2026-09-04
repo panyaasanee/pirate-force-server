@@ -34,10 +34,13 @@ cross-scene ``actor_identity`` collisions at once (0x201C and 0x201E against
 Bg0015, 0x203B against Bg0002, 0x2046 against bg0005) -- more than doubling
 the three this project had.  ``tests/test_field_mobs.py``'s collision card
 demands a fresh walk of strike/ledger/rehydration/death/loot whenever one
-appears; the walk's reading half is recorded there, and its MEASUREMENT half
-is ``test_scene_fives_kill_permission_does_not_reach_scene_threes_0x2046``
-here: two real monsters, two scenes, one wire identity, and the ruling that
-covers one of them refusing the other.
+appears; the walk was redone this round and MEASURED here rather than
+inherited -- death in ``Bg0003CannotBeKilledYetTests`` (scene 5's kill
+permission refusing scene 3's identical 0x2046), ledger and loot in
+``Bg0003CollisionWalkTests`` (a foreign ledger that really does cover one of
+the twelve is still refused; a scene-3 kill cannot reach the loot leg at
+all).  The strike leg is unreachable by construction while the membership
+seam is shut, which is itself measured below.
 """
 
 from __future__ import annotations
@@ -58,8 +61,12 @@ from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 
 from pirateforce_foundation import field_mob_tables_bg0003  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0005  # noqa: E402
+from pirateforce_foundation import field_drop_tables  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_ai_control  # noqa: E402
+from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_ledger_admission  # noqa: E402
+from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
 from pirateforce_foundation import world_bg0003_identity  # noqa: E402
@@ -233,6 +240,10 @@ class Bg0003ShapeTests(unittest.TestCase):
         wearing another map's names.
         """
         sets = field_mob_tables_bg0003.SET_NUMBER_FOR_PLACEMENT
+        theirs_by_placement = {
+            placement.placement_index: placement
+            for placement in world_bg0003_identity.shippable_placements()
+        }
         disagreements = []
         for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
             set_number = sets[mob.placement_index]
@@ -243,13 +254,40 @@ class Bg0003ShapeTests(unittest.TestCase):
                     "UNRESOLVED in lane A's table"
                     % (mob.placement_index, set_number, mob.template_id))
                 continue
-            if (theirs.mobs_n_id, theirs.name) != (
-                    mob.template_id, mob.display_name):
+            placement = theirs_by_placement.get(mob.placement_index)
+            if placement is None:
                 disagreements.append(
-                    "placement %d (Mob-Set %d): lane B says %d %r, lane A "
-                    "says %d %r" % (
-                        mob.placement_index, set_number, mob.template_id,
-                        mob.display_name, theirs.mobs_n_id, theirs.name))
+                    "placement %d is shipped here and is not a shippable "
+                    "placement in lane A's table at all"
+                    % (mob.placement_index,))
+                continue
+            # EVERY COLUMN BOTH TABLES CARRY, not just the identity pair.
+            # ROUND am1fw8, closing what pf-adversary measured this round:
+            # with only (n_id, name) compared, mutating ``max_hp`` or an
+            # ``x`` in the generated module SURVIVED the whole suite,
+            # because the one check that would catch it -- the byte-for-byte
+            # regeneration -- needs the bridge clone and is SKIPPED on the
+            # gate.  Both values reach a player (``mob_death`` writes
+            # ``max_hp`` into the actor entry and ``x``/``y``/``z`` into the
+            # recompose frame), so they are compared here, where no bridge
+            # is needed.  ``speed_walk`` and the three drop-set columns are
+            # NOT compared: lane A's table does not carry them, so this
+            # round leaves them named as bridge-only rather than pretending
+            # a second source exists.
+            mine_row = (
+                mob.template_id, mob.display_name, mob.visual_preset,
+                mob.level, mob.rank, mob.max_hp, mob.x, mob.y, mob.z,
+            )
+            their_row = (
+                theirs.mobs_n_id, theirs.name, theirs.outfit,
+                theirs.level, theirs.rank, theirs.max_hp,
+                placement.x, placement.y, placement.z,
+            )
+            if mine_row != their_row:
+                disagreements.append(
+                    "placement %d (Mob-Set %d): lane B says %r, lane A says "
+                    "%r" % (mob.placement_index, set_number, mine_row,
+                            their_row))
         self.assertEqual(
             disagreements, [],
             "the two independently mined readings of CLINE type 3 disagree; "
@@ -334,6 +372,84 @@ class Bg0003CannotBeKilledYetTests(unittest.TestCase):
                 self.assertNotEqual(mine.template_id, theirs.template_id)
                 self.assertNotEqual(mine.display_name, theirs.display_name)
                 self.assertNotEqual(mine.scene, theirs.scene)
+
+
+class Bg0003CollisionWalkTests(unittest.TestCase):
+    """The rest of the walk ``tests/test_field_mobs.py``'s collision card
+    demands whenever a new pair appears -- ledger and loot, measured here
+    rather than read.  (Death is the class above; the strike leg cannot be
+    reached at all while the membership seam is shut, which is its own
+    measurement and is in ``Bg0003NotFightableYetTests``.)
+    """
+
+    def test_a_scene_five_ledger_is_refused_for_scene_three_despite_0x2046(
+            self) -> None:
+        """The collision buys ONE covered identity, and that is not enough.
+
+        This is the sharpest thing the four new pairs made testable: scene
+        5's ledger really does answer for one of scene 3's twelve
+        identities, because 0x2046 is both scenes' placement 69.  If
+        admission were coverage-counting without a scene term, a partially
+        covering foreign ledger is exactly the shape that would slip
+        through.  It does not: the record says ``other_scene``, coverage
+        1/12, ``admitted`` False, and the ledger handed back is ``None``
+        (compose without consulting HP), never scene 5's balances.
+        """
+        roster_three = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
+        foreign = mob_combat.open_ledger(field_mobs.roster_for_scene_id(5))
+        record = mob_ledger_admission.admit_ledger(
+            EXPECTED_SCENE_ID, foreign, roster=roster_three)
+        self.assertEqual(record["scene"], EXPECTED_SCENE)
+        self.assertEqual(record["ledger_scene"], "bg0005")
+        self.assertEqual(record["roster_count"], EXPECTED_HOSTILE_COUNT)
+        self.assertEqual(record["covered_count"], 1)
+        self.assertIn(0x2046, {mob.actor_identity for mob in roster_three})
+        self.assertEqual(record["state"], "other_scene")
+        self.assertFalse(record["admitted"])
+        self.assertIsNone(record["ledger"])
+        # And this scene's OWN ledger is admitted, so the refusal above is
+        # about the scene tag and not about scene 3 being unusable.
+        own = mob_combat.open_ledger(roster_three)
+        self.assertEqual(own.scene, EXPECTED_SCENE)
+        self.assertIs(
+            mob_ledger_admission.ledger_for_scene(
+                EXPECTED_SCENE_ID, own, roster=roster_three),
+            own,
+        )
+
+    def test_loot_is_the_third_shut_door_and_it_refuses_by_name(
+            self) -> None:
+        """Scene 3's drop sets were never mined -- named, not discovered.
+
+        ``field_drop_tables`` carries bg0001 and Bg0002 only, and all twelve
+        of scene 3's rows point at ``DROPS_NORMAL`` set 2701002, which is
+        not in it.  So the loot leg of the collision walk cannot be reached
+        by a scene-3 kill at all: it refuses with ``unknown_drop_set``
+        BEFORE any key is issued, which is why no scene-3 drop can land in
+        another scene's cell.  That is a real answer for the walk and a
+        THIRD shut door for this scene at the same time (after the
+        membership seam and the missing death ruling); it is pinned here so
+        the day a ruling and an open seam arrive, this test is what says
+        loot still has to be mined -- rather than a player killing something
+        and getting nothing with no explanation.
+        """
+        import random
+
+        refusals = set()
+        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
+            with self.assertRaises(mob_loot.MobLootContractError) as caught:
+                mob_loot.roll_drops(mob, random.Random(1))
+            refusals.add(caught.exception.args[0])
+        self.assertEqual(refusals, {"unknown_drop_set"})
+        self.assertNotIn(
+            EXPECTED_SCENE.lower(),
+            {scene.lower() for scene in field_drop_tables.SCENES},
+        )
+        # The scene key a drop WOULD be filed under is this scene's own, so
+        # the collision cannot put a scene-3 drop in scene 5's list once the
+        # tables are mined.
+        self.assertNotEqual(
+            mob_loot.scene_key(EXPECTED_SCENE), mob_loot.scene_key("bg0005"))
 
 
 class Bg0003RecomposeRegistrationTests(unittest.TestCase):

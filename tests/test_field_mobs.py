@@ -1035,8 +1035,12 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         to the cell's current scene.  The half of the walk that is a
         MEASUREMENT rather than a reading is in
         ``tests/test_field_mob_tables_bg0003.py``: scene 5's kill permission
-        does not reach scene 3's identical 0x2046, measured on the real rows
-        of both scenes.  Every colliding pair also resolves a DIFFERENT
+        does not reach scene 3's identical 0x2046, and scene 5's LEDGER --
+        which really does cover that one identity out of scene 3's twelve,
+        the exact shape a coverage-counting admission would let through --
+        is refused as ``other_scene`` rather than admitted, both measured on
+        the real rows of both scenes.  The loot leg refuses earlier still
+        (scene 3's drop sets are unmined), which is recorded there too.  Every colliding pair also resolves a DIFFERENT
         template (907/150, 62/350, 61/348, 34/907), so no pair is two
         spellings of one monster."""
         got = {
