@@ -297,11 +297,23 @@ from typing import Any, Callable
 # (`COLUMBUS_PLACEMENT_INDEX`, in `_scenes_where_columbus_collides`) -- it
 # decides no quest state, exactly like `world_m2_columbus_trigger_
 # readiness.py`, which chief's exemption table already allows for this same
-# name.  Requested as a per-symbol exemption in the same round
+# name.  ~~Requested as a per-symbol exemption in the same round
 # (`notes_to_chief/20260904_2229_LANE-A-TO-CHIEF-one-line-answer-
 # columbus-quest-dispatch-exemption.md`), and pinned
 # meanwhile by `tests/test_lane_a_modules_are_guard_clean.py` so no SECOND
-# such name can arrive unread behind it.
+# such name can arrive unread behind it.~~
+# GRANTED by chief in round `zwxuuk`/R345, on main as `c055dbc`:
+# `QuestAndShopStateGuardTests.ALLOWED_SYMBOLS` now carries
+# `"lane_hooks/lane_a_choose_npc_roster_scenes.py": {"columbus_quest_
+# dispatch"}`.  `tests/test_lane_a_modules_are_guard_clean.py` still pins
+# this file so no SECOND such name arrives unread behind it, and now also
+# reads the grant back out of HIS table rather than asserting its absence.
+# WARNING: the grant is keyed with the `lane_hooks/` prefix while his
+# `_offenders_in` looks entries up by `path.name`, so the flip to a
+# recursive glob (due 2026-09-05 03:21) would not find it -- measured in
+# round `qqqtqp` and asked of him in `notes_to_chief/20260905_0129_LANE-A-
+# TO-CHIEF-exemption-key-with-subpackage-prefix-is-never-consulted.md`.
+# His file, his fix; nothing here changes either way.
 from .. import columbus_quest_dispatch
 from .. import lane_hooks
 from .. import world_census_level
