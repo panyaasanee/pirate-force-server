@@ -638,11 +638,28 @@ def validate_field_value(field: tuple, value) -> None:
     the wire kinds in `FIELDS`, not of the loaded v141 module, so the seeder
     can validate on a connection that has not loaded one.
 
-    The `u*`/`i32`/`wstr` messages are UNCHANGED from the ones `encode_field`
-    raised before the split.  `f32` and `blob` gained one each: both used to
-    let a bad value out as a bare `TypeError`/`ValueError` from `float()` or
-    `bytes()`, which is the one exception class this module's callers do not
-    catch by name.
+    The `u*`/`i32` messages are UNCHANGED from the ones `encode_field` raised
+    before the split.  ~~`wstr` is UNCHANGED too~~ -- struck 2026-09-04,
+    chief's letter `20260904_0305` item 2 (MEASURED): it gained an encodability
+    check the same round `f32` did, for the same reason (see the `wstr`
+    branch below).  `f32` and `blob` gained one each at the split; `wstr`
+    gained its second check one round later: all three used to let a bad
+    value out as a bare `TypeError`/`OverflowError`/`UnicodeEncodeError`
+    from `float()`, `bytes()`, or `str.encode()`.  ~~and `UnicodeEncodeError`
+    is the one exception class this module's callers do not catch by name
+    either -- same shape as `f32`'s `OverflowError` gap~~ -- struck
+    2026-09-04, pf-adversary round `ycqzuz` (MEASURED, `issubclass(
+    UnicodeEncodeError, ValueError) is True`): unlike `OverflowError`,
+    `UnicodeEncodeError` **is** a `ValueError`, and `runtime.py` has no
+    call site for `encode_field`/`encode_block` yet, so no existing
+    `except ValueError` net was ever bypassed by it.  The real reason this
+    check exists: this module's OWN seeding functions
+    (`live_named_values`/`live_login_bytes`) catch only
+    `AttrWireError` locally, and without this check a lone surrogate could
+    slip past `validate_field_value` and be blessed into `seeded[x]` --
+    the "cache holding a baseline no send can ever use" outcome this
+    docstring's second paragraph forbids.  A narrower, more precise claim
+    than the one originally written here.
     """
     kind, name = field[5], field[6]
     limit = _UNSIGNED_LIMITS.get(kind)
@@ -692,6 +709,35 @@ def validate_field_value(field: tuple, value) -> None:
             raise AttrWireError(
                 f"{name}: wstr too long: {len(value)} > {WSTR_MAX_CHARS}"
             )
+        # THE SAME SHAPE AS THE f32 FIX ABOVE, NARROWER CLAIM (chief's
+        # letter `20260904_0305`; pf-adversary round `ycqzuz` corrected the
+        # first draft of this comment): a length check alone still blessed
+        # `"Anne\ud800"` for x=1 `name` -- `encode_field`'s
+        # `value.encode("utf-16le")` then raised `UnicodeEncodeError`
+        # mid-compose.  UNLIKE `OverflowError` above, `UnicodeEncodeError`
+        # **is** a `ValueError` subclass (`issubclass(UnicodeEncodeError,
+        # ValueError) is True`), and `runtime.py` has no call site for
+        # `encode_field`/`encode_block` at all yet -- so this is NOT an
+        # uncaught-exception escape at the runtime.py layer, and no
+        # existing `except ValueError` net was ever bypassed by it.  What
+        # it WAS bypassing: the two LOCAL `except AttrWireError` catches in
+        # `live_named_values`/`live_login_bytes` below, which is exactly
+        # how a lone surrogate could have been silently blessed into
+        # `seeded[x]` -- a `RawBlockCache` holding a value `encode_field`
+        # will refuse, the one outcome this function's own docstring
+        # forbids.  Asking the actual codec is the only bound guaranteed to
+        # agree with the encoder, same reasoning as f32's `struct.pack`
+        # probe.  Not reachable today (sqlite refuses a lone surrogate in
+        # the `name` column before this ever runs), but x=1 just became
+        # the first row `lane_hooks.current_named_attr_values` can feed
+        # with an external string, so the surface is wider than when this
+        # function's docstring was written.
+        try:
+            value.encode("utf-16le")
+        except UnicodeEncodeError as error:
+            raise AttrWireError(
+                f"{name}: wstr not encodable as utf-16le: {value!r} ({error})"
+            ) from None
         return
     if kind == "blob":
         if not isinstance(value, (bytes, bytearray)):
