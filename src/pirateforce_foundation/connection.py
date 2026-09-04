@@ -116,6 +116,70 @@ class AcceptedGameSocket:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._raw_socket, name)
 
+    def sendall(self, data, *args, **kwargs):
+        """Offer the send outcome to a state that wants it.  NEVER changes it."""
+        # CORE-REQUEST-GM-057 (LANE-GM round hv8ets, 2026-09-05T01:21+07:00):
+        # v141's send loop (v141:7755 `c.sendall(out_frame)`) calls straight
+        # through here via __getattr__ today. This override is the only hook
+        # a lane gets on the local sendall() call's own outcome, without
+        # touching v141.  `on_game_frame_sent` means only "the raw socket's
+        # sendall() returned without raising" -- bytes accepted into the
+        # local kernel send buffer, NOT confirmation the peer received them;
+        # a half-open TCP connection can still fail later, on a subsequent
+        # call.  `on_game_frame_send_failed` fires for ANY exception this
+        # sendall() raises, not only the network-failure family v141's own
+        # send loop distinguishes (`ConnectionResetError`,
+        # `ConnectionAbortedError`, `BrokenPipeError`, `OSError`) -- a caller
+        # bug (wrong argument type, a malformed double in a test harness)
+        # reaches the observer exactly the same way a real disconnect does.
+        # A consumer that needs "the peer connection is gone" rather than
+        # "this sendall() call raised" must narrow the error type itself.
+        # This override must never swallow the exception -- v141's own catch
+        # above is what decides to break, and a facade that ate the error
+        # would make v141 believe the frame went out and keep sending the
+        # next one.
+        try:
+            result = self._raw_socket.sendall(data, *args, **kwargs)
+        except BaseException as error:
+            self._offer_send_outcome("on_game_frame_send_failed", data, error)
+            raise
+        self._offer_send_outcome("on_game_frame_sent", data, None)
+        return result
+
+    def _offer_send_outcome(self, hook_name, data, error):
+        observer = getattr(self.state, hook_name, None)
+        if observer is None:
+            return
+        try:
+            observer(data) if error is None else observer(data, error)
+        except BaseException as observer_error:   # noqa: BLE001
+            # The report itself must never raise.  Measured by pf-adversary
+            # this round: with the owner's cp874 console, an observer error
+            # whose repr carries any character cp874 cannot encode (CJK,
+            # emoji, an accented path in a FileNotFoundError) made this very
+            # print raise UnicodeEncodeError -- AFTER the frame had already
+            # reached the wire.  UnicodeEncodeError is a ValueError, so it is
+            # outside the (ConnectionResetError, ConnectionAbortedError,
+            # BrokenPipeError, OSError) family v141's send site catches
+            # (current/pf_login_game_server_v141.py:7756); it would unwind
+            # game_listener, whose accept loop catches only socket.timeout
+            # and whose per-connection block is try/finally -- the GAME
+            # listener thread ends and no further connection is accepted
+            # until restart.  Two guards, because either alone is not enough:
+            # backslashreplace makes the text encodable on any console, and
+            # the bare except covers a stderr that is closed or detached.
+            try:
+                safe = repr(observer_error).encode(
+                    "ascii", "backslashreplace",
+                ).decode("ascii")
+                print(
+                    "[FOUNDATION!] GAME send observer %s failed: %s"
+                    % (hook_name, safe),
+                    file=sys.stderr,
+                )
+            except BaseException:   # noqa: BLE001, S110
+                pass
+
     def __enter__(self) -> "AcceptedGameSocket":
         self._raw_socket.__enter__()
         return self
