@@ -241,11 +241,16 @@ class TheBuilderLaneBPlugsInTests(unittest.TestCase):
 
     def _hooks_for(self, shape):
         rows = login_mask.field_x_for_masks(*shape)
-        named_rows, login_rows = attr_wire.split_sources(rows)
+        named_rows, login_rows, scene_rows = attr_wire.split_sources(rows)
         full = _values_for(self.legacy, rows, 1, faction=(11 in rows))
+        # `scene_rows` (x=9, D1 round `zjbjys`) is no longer a login-byte
+        # VALUE row, but the login hook must still answer for it: the
+        # selector fence compares the current scene against the byte login
+        # sent, and `_Hooks.current_session_scene_id` defaults to that same
+        # byte so these tests stay about the mask shapes they are named for.
         return _Hooks(
             named={x: full[x] for x in named_rows},
-            login={x: full[x] for x in login_rows},
+            login={x: full[x] for x in tuple(login_rows) + tuple(scene_rows)},
             masks=shape,
         ), full
 
@@ -318,25 +323,35 @@ class TheBuilderLaneBPlugsInTests(unittest.TestCase):
         # for x=11, which the store has no column for at all, so a plain
         # connection was refused with `absent=11` -- a shelf, not a gate.
         hooks, _full = self._hooks_for(PINNED_PLAIN_MASKS)
-        named_rows, login_rows = attr_wire.split_sources(
+        named_rows, login_rows, scene_rows = attr_wire.split_sources(
             login_mask.field_x_for_masks(*PINNED_PLAIN_MASKS)
         )
         self.assertNotIn(11, named_rows)
         self.assertNotIn(11, login_rows)
+        self.assertNotIn(11, scene_rows)
 
     def test_the_sources_asked_for_are_exactly_the_login_set(self):
-        named_rows, login_rows = attr_wire.login_scoped_sources(self.legacy)
+        named_rows, login_rows, scene_rows = attr_wire.login_scoped_sources(
+            self.legacy
+        )
         self.assertEqual(
-            tuple(sorted(set(named_rows) | set(login_rows))),
+            tuple(sorted(set(named_rows) | set(login_rows) | set(scene_rows))),
             login_mask.login_field_x(self.legacy),
         )
-        # x=9, x=10 and x=11 carry the value LOGIN sent this session, never a
-        # typed column (`COO-DECISION 0545` item 2; pf-adversary D3 for why
-        # x=9 in particular must not come from a column -- it selects which
-        # pair of rows the client reads HP from).
-        self.assertEqual(login_rows, (7, 9, 10, 11))
+        # x=10 and x=11 carry the value LOGIN sent this session, never a
+        # typed column (`COO-DECISION 0545` item 2).  x=9 left this group
+        # round `zjbjys` for the third one (D1, `COO-DECISION 20260904_1149`
+        # item 1): it selects which pair of rows the client reads HP from
+        # (pf-adversary D3), so its VALUE is the session's current scene and
+        # its login byte is only what the fence compares against.
+        self.assertEqual(login_rows, (7, 10, 11))
+        self.assertEqual(scene_rows, (attr_wire.SELECTOR_ROW_X,))
         self.assertEqual(set(named_rows), {1, 2, 3, 4, 13, 24})
+        # The three groups partition the login set: no row is asked of two
+        # sources, and none is asked of none.
         self.assertEqual(set(named_rows) & set(login_rows), set())
+        self.assertEqual(set(named_rows) & set(scene_rows), set())
+        self.assertEqual(set(login_rows) & set(scene_rows), set())
 
 
 class TheConnectionMaskReadPointIsNamedAndMissingTests(unittest.TestCase):
