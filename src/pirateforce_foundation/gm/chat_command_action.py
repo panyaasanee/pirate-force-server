@@ -2123,6 +2123,17 @@ def _isolated_chat_payload(
         _note(session, f"{EVENT_CHAT_TAIL_PREFIX}walked_{len(split.tail_ids)}")
         _print_chat_tail_once(session, split, len(payload))
         return split.body
+    if split.reason == chat_frame_tail.TAIL_SECOND_CHAT_DROPPED:
+        # pf-adversary D-F: the first chat line runs and the second is lost.
+        # It gets its own event because it is the one shape where accepting
+        # the body COSTS something -- everywhere else the tail was never
+        # going to be read by anybody.
+        _note(
+            session,
+            f"{EVENT_CHAT_TAIL_PREFIX}second_chat_dropped_{len(split.tail_ids)}",
+        )
+        _print_chat_tail_once(session, split, len(payload))
+        return split.body
     if split.reason == chat_frame_tail.TAIL_UNDECLARED_BODY:
         # R313's frame, and the reason this branch exists rather than
         # folding into the one above: the two outcomes must stay countable

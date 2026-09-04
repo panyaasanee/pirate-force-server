@@ -89,6 +89,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..model import Position
 from .warp_scene_persist import (
     SEND_FAILURE_WARP_ACTION_LABEL,
     rollback_warp_scene,
@@ -168,7 +169,13 @@ def park_warp_send(
     would only delay noticing the frame that matters now.
 
     `previous_position` IS THE ROW THE UNDO MUST RESTORE, and passing it is
-    what round `ff30oi` added.  Measured on this tree before it was added
+    what round `ff30oi` added.  NOT every park carries one, and the docstring
+    that said it did was wrong (pf-adversary D-G): `_persist_warp_scene`
+    returns `previous=None` whenever `row_before_warp` finds no row, and the
+    call site still parks, because it branches on the write's outcome.  The
+    reachable shape is a character with no `character_positions` row yet --
+    its first-ever warp CREATES the row, so there is nothing to go back to.
+    Those parks take the older delegate path in `on_game_frame_send_failed`.  Measured on this tree before it was added
     (`tests/test_gm_warp_send_watch.py::DoubleWarpTests`): with `/warp 2`
     confirmed sent and `/warp 3` then failing to send, the undo read
     `session.foundation.selected.position` and put the row back to scene 1 --
@@ -200,8 +207,29 @@ def park_warp_send(
         frame_bytes = bytes(frame_bytes)
     except Exception:  # noqa: BLE001 - see docstring; nothing escapes this
         return False
+    # THE OLDEST UNCONFIRMED ROW WINS, and it is the whole of pf-adversary's
+    # D-A (round `ff30oi`, MEASURED).  A park that is still here has NOT been
+    # confirmed sent -- `on_game_frame_sent` clears it the moment its own
+    # bytes go out -- so the warp it belongs to may never have reached the
+    # client either.  Taking the NEW `previous_position` on a replacement
+    # would name the scene that warp wrote, and the undo would then move the
+    # row FORWARD into a scene the client was never sent to: with `/warp 2`
+    # and `/warp 3` both composed before either frame left the socket, the
+    # first draft of this round left the row at 2 while the client sat in 1.
+    # That is the bricking shape `rollback_warp_scene` exists to refuse, and
+    # it was a REGRESSION -- the delegate this round replaced got it right.
+    #
+    # So a replacement keeps the row captured before the FIRST unconfirmed
+    # warp.  One cell still tracks one frame (that is what the bytes are
+    # for), but the row it would restore is the one that unwinds the whole
+    # unconfirmed run, which is the only row that is correct however many
+    # of those frames actually made it out.
+    carried = previous_position
+    standing = _parked_record(session)
+    if standing is not None and standing.previous_position is not None:
+        carried = standing.previous_position
     record = ParkedWarpSend(
-        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, previous_position,
+        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, carried,
     )
     try:
         setattr(session, SESSION_ATTRIBUTE, record)
@@ -322,11 +350,13 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     received the warp.
 
     WHICH ROW IT PUTS BACK, and the correction round `ff30oi` made.  When
-    the park carries a `previous_position` -- every park this lane's own call
-    site makes, since that round -- the undo goes to `warp_scene_persist.
-    rollback_warp_scene` with THAT row.  It is the row the call site captured
-    with `row_before_warp` immediately before its own durable write, so it
-    names the scene this ONE warp moved the character out of.
+    the park carries a usable `previous_position`, the undo goes to
+    `warp_scene_persist.rollback_warp_scene` with THAT row: the row the call
+    site captured with `row_before_warp` immediately before the FIRST
+    unconfirmed warp's durable write (see `park_warp_send` on why a
+    replacement carries the oldest one forward rather than its own).  It
+    therefore unwinds the whole unconfirmed run, which is the only answer
+    that is right however many of those frames actually reached the wire.
 
     ~~Delegates the actual undo, and its outcome word, to `warp_scene_persist.
     rollback_warp_scene_on_send_failure` -- always with the one label this
@@ -352,12 +382,25 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     record = _parked_record(session)
     if record is None:
         return OUTCOME_NOTHING_PARKED
-    if record.previous_position is None:
+    # THE GATE IS "A ROW I CAN ACT ON", NOT "NOT NONE" -- pf-adversary's D-B
+    # (MEASURED).  `rollback_warp_scene` answers
+    # `OUTCOME_NOTHING_TO_ROLL_BACK` for anything that is not a `Position`,
+    # so an `is None` test would send a wrong-TYPED row down the new path and
+    # get no rollback AND no fallback: the net disarms itself silently on the
+    # one shape it was widened for.  The label is checked here for the same
+    # reason `rollback_warp_scene_on_send_failure` checks it -- that
+    # discipline must not go dead just because the row now travels with the
+    # park.
+    usable = (
+        record.label == SEND_FAILURE_WARP_ACTION_LABEL
+        and isinstance(record.previous_position, Position)
+    )
+    if usable:
+        outcome = rollback_warp_scene(session, record.previous_position)
+    else:
         outcome = rollback_warp_scene_on_send_failure(
             session, SEND_FAILURE_WARP_ACTION_LABEL,
         )
-    else:
-        outcome = rollback_warp_scene(session, record.previous_position)
     clear_warp_send_watch(session)
     _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome

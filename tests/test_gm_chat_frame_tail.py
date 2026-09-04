@@ -311,21 +311,52 @@ class RefusedTailTests(_Case):
         )
 
     def test_a_tail_that_is_not_even_a_nested_header_is_still_refused(self):
-        """The half that did NOT get looser, and the reason the change is safe.
+        """The half that did NOT get looser -- and EXACTLY how wide it is.
 
-        `TAIL_UNDECLARED_BODY` requires both nested-header tags to read.
-        Trailing bytes that are not a nested header at all still refuse, so
-        the frame must still look like "chat body, then a vital" in both
-        halves -- only that vital's body LENGTH may be unknown.
+        `TAIL_UNDECLARED_BODY` requires both nested-header TAGS to read, and
+        that is the whole of it: `legacy.Cursor` validates `tail[0] == 0x12`
+        and `tail[3] == 0x0B` and nothing else, so the id and every byte
+        after the header are free (pf-adversary D-E, MEASURED -- the sibling
+        case below pins that).  The corroboration this costs is real and is
+        stated in the module docstring; what keeps the change safe is not the
+        tail at all, it is that the boundary has ONE candidate and the strict
+        decoder must accept those exact bytes.
         """
         for label, tail in (
             ("wrong id tag", b"\x13\x21\x43\x0B\x00" + b"\x00" * 8),
             ("wrong version tag", b"\x12\x21\x43\x0C\x00" + b"\x00" * 8),
             ("short header", b"\x12\x21\x43"),
+            ("one stray byte", b"\x00"),
+            ("header missing its version byte", b"\x12\x21\x43\x0B"),
         ):
             with self.subTest(label):
                 split = self.split(make_chat_payload("/warp 2 100 200") + tail)
                 self.assertRefused(split, chat_frame_tail.TAIL_TRUNCATED)
+
+    def test_the_two_tag_bytes_are_ALL_that_constrains_an_undeclared_tail(self):
+        """pf-adversary D-E, pinned so no reader over-reads the guard above.
+
+        Any id, any version value, any number of trailing bytes: once the two
+        tags read, an undeclared tail is accepted and the command runs.  This
+        is not a hole in who may command (identity is decided below this) --
+        it is the honest width of the check, recorded so a future round does
+        not cite the tail as evidence about the frame.
+        """
+        body = make_chat_payload("/warp 2")
+        for label, tail in (
+            ("arbitrary id and junk byte", b"\x12\x34\x12\x0B\x77"),
+            ("plus a kilobyte of nothing", b"\x12\x34\x12\x0B\x77" + bytes(1024)),
+            ("high version value", b"\x12\x34\x12\x0B\xFF"),
+        ):
+            with self.subTest(label):
+                split = self.split(body + tail)
+                self.assertEqual(
+                    split.reason, chat_frame_tail.TAIL_UNDECLARED_BODY,
+                )
+                self.assertEqual(
+                    chat_command.decode_local_talk_payload(split.body),
+                    ("", "/warp 2"),
+                )
 
     def test_a_body_shorter_than_its_declared_length_is_refused(self):
         vital_id = self.legacy.TARGET_POS_VITAL
@@ -1063,6 +1094,75 @@ class R313CapturedFrameTests(_Case):
         self.assertEqual(self.log_records(), [])
 
 
+class SecondChatVitalTests(_Case):
+    """pf-adversary D-F: two chat lines in one frame, one of them lost.
+
+    `0xAC52` has no declared body length and can never have one, so a frame
+    carrying two chat vitals reaches the undeclared-body path.  The first
+    line runs; the second is dropped.  That is worse SILENCE than before the
+    round (when both were dropped and the GM got a refusal), so it gets its
+    own reason name, its own event and its own console line.
+
+    NOT CLAIMED: that this fixes it.  Ending the loss is "make the chat
+    reader walk every nested vital", which R313 section 3 asked for and this
+    round did not do.
+    """
+
+    def two_chat_lines(self):
+        first = make_chat_payload("/warp 2")
+        second = make_chat_payload("/speed 9999")
+        return first + nested_vital(
+            chat_command.CHAT_LOCAL_TALK_VITAL_ID, b"",
+        ) + second, first
+
+    def test_the_second_chat_line_is_named_not_silently_swallowed(self):
+        payload, first = self.two_chat_lines()
+        split = self.split(payload)
+        self.assertEqual(
+            split.reason, chat_frame_tail.TAIL_SECOND_CHAT_DROPPED,
+        )
+        self.assertEqual(split.body, first)
+        self.assertEqual(
+            split.tail_ids, (chat_command.CHAT_LOCAL_TALK_VITAL_ID,),
+        )
+        self.assertTrue(split.split)
+
+    def test_the_first_line_is_the_one_that_runs(self):
+        payload, _first = self.two_chat_lines()
+        session = FakeSession()
+        with self.open_the_version_gate():
+            self.act(session, payload)
+        self.assertIn(
+            f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}"
+            f"second_chat_dropped_1",
+            session.events,
+        )
+        self.assertNotIn(
+            f"{chat_command_action.EVENT_CHAT_TAIL_PREFIX}undeclared_body_1",
+            session.events,
+        )
+        # The route writes more than one row per command (accept, outcome),
+        # so the property is the SET: `warp` ran, `speed` never did.
+        commands = {record.get("command") for record in self.log_records()}
+        self.assertEqual(commands, {"warp"})
+
+    def test_the_console_line_names_the_chat_id(self):
+        payload, _first = self.two_chat_lines()
+        line = chat_frame_tail.tail_console_line(
+            self.split(payload), len(payload),
+        )
+        self.assertIn("reason=tail_second_chat_dropped", line)
+        self.assertIn(
+            "ids=0x%04X" % chat_command.CHAT_LOCAL_TALK_VITAL_ID, line
+        )
+
+    def test_an_ordinary_undeclared_tail_does_not_borrow_this_name(self):
+        split = self.split(
+            make_chat_payload("/warp 2") + nested_vital(0x4321, b"\x00" * 8)
+        )
+        self.assertEqual(split.reason, chat_frame_tail.TAIL_UNDECLARED_BODY)
+
+
 class RetiredReasonTests(_Case):
     """`TAIL_UNKNOWN_VITAL_ID` is kept as a name and returned by nothing.
 
@@ -1077,16 +1177,46 @@ class RetiredReasonTests(_Case):
             chat_frame_tail.TAIL_UNKNOWN_VITAL_ID, "tail_unknown_vital_id"
         )
 
-    def test_no_code_path_returns_the_retired_reason(self):
-        source = (
-            Path(chat_frame_tail.__file__).read_text(encoding="utf-8").splitlines()
+    def test_the_walker_does_not_carry_the_retired_string_at_all(self):
+        """~~A source grep for `return ChatTailSplit` + the constant~~ --
+        STRUCK, pf-adversary D-C (round `ff30oi`, MEASURED): both substrings
+        had to land on ONE PHYSICAL LINE, so binding the reason to a local
+        and wrapping the call over three lines returned the retired reason
+        for real while this class stayed green -- the pin its own docstring
+        claims to be was decorative.
+
+        The check is on the compiled function's constants instead.  A
+        `return`, a local, a wrapped call and any spelling in between all
+        have to put the string in `co_consts`; a comment or a docstring
+        mention cannot reach it.
+        """
+        walker = chat_frame_tail._walk_tail
+        self.assertNotIn(
+            chat_frame_tail.TAIL_UNKNOWN_VITAL_ID, walker.__code__.co_consts,
         )
-        returns = [
-            line
-            for line in source
-            if "return ChatTailSplit" in line and "TAIL_UNKNOWN_VITAL_ID" in line
-        ]
-        self.assertEqual(returns, [])
+
+    def test_no_shape_this_file_exercises_can_produce_the_retired_reason(self):
+        """And the same claim asked behaviourally, over every tail shape."""
+        bodies = (make_chat_payload("/warp 2"), make_chat_payload(""))
+        tails = (
+            b"",
+            self.target_pos_vital(),
+            self.target_pos_vital() + self.on_land_vital(),
+            nested_vital(0x4321, b"\x00" * 8),
+            self.target_pos_vital() + nested_vital(0x4321, b"\x00" * 8),
+            b"\x13\x21\x43\x0B\x00",
+            b"\x12\x21\x43\x0C\x00",
+            b"\x12\x21\x43",
+            b"\x00",
+            self.target_pos_vital() + b"\x00",
+        )
+        for body in bodies:
+            for tail in tails:
+                with self.subTest(body=len(body), tail=tail[:5]):
+                    self.assertNotEqual(
+                        self.split(body + tail).reason,
+                        chat_frame_tail.TAIL_UNKNOWN_VITAL_ID,
+                    )
 
     def test_the_retired_reason_is_not_quiet_either(self):
         self.assertNotIn(

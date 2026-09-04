@@ -704,6 +704,139 @@ class DoubleWarpTests(RealDatabaseTests):
             getattr(session, warp_send_watch.SESSION_ATTRIBUTE, None)
         )
 
+    def test_a_failure_with_BOTH_warps_unconfirmed_unwinds_the_whole_run(self):
+        """pf-adversary D-A, MEASURED -- the regression the first draft had.
+
+        `/warp 2` and `/warp 3` both composed before EITHER frame left the
+        socket, then the socket dies.  Neither frame reached the client, so
+        the row must go all the way back to scene 1.
+
+        The first draft of this round took the SECOND park's own
+        `previous_position` (scene 2) and left the row there -- moving it
+        FORWARD into a scene the client had never been sent to, then clearing
+        the park so warp 2's own failure could never correct it.  That was
+        strictly worse than the delegate it replaced, which got this case
+        right.  A park that is still in the cell has not been confirmed sent,
+        so a replacement carries the OLDEST unconfirmed row forward.
+        """
+        session = self._session("double06")
+        route = self._gm_route(session)
+        route(f"/warp {DESTINATION_SCENE}")
+        second = route("/warp 3")
+        # Neither frame has been reported sent: nothing called
+        # `on_game_frame_sent`, so the cell is still holding the run.
+        self.assertEqual(self._row(session).scene_id, 3)
+
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, bytes(second[2]), OSError("connection reset"),
+            )
+
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, 1)
+
+    def test_three_unconfirmed_warps_still_unwind_to_the_first_row(self):
+        """The same rule at depth, so the carry-forward cannot be a one-off."""
+        session = self._session("double07")
+        route = self._gm_route(session)
+        route(f"/warp {DESTINATION_SCENE}")
+        route("/warp 3")
+        third = route("/warp 5")
+        self.assertEqual(self._row(session).scene_id, 5)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_send_watch.on_game_frame_send_failed(
+                session, bytes(third[2]), OSError("reset"),
+            )
+        self.assertEqual(self._row(session).scene_id, 1)
+
+    def test_a_confirmed_warp_lets_the_next_one_start_a_fresh_run(self):
+        """The other half: a CLEARED cell must not carry anything forward.
+
+        Without this the carry-forward would never expire and every later
+        warp on the connection would unwind to the character's first scene.
+        """
+        session = self._session("double08")
+        route = self._gm_route(session)
+        first = route(f"/warp {DESTINATION_SCENE}")
+        warp_send_watch.on_game_frame_sent(session, bytes(first[2]))
+        second = route("/warp 3")
+        record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertEqual(record.previous_position.scene_id, DESTINATION_SCENE)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_send_watch.on_game_frame_send_failed(
+                session, bytes(second[2]), OSError("reset"),
+            )
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
+    def test_a_wrongly_typed_parked_row_falls_back_instead_of_disarming(self):
+        """pf-adversary D-B, MEASURED.
+
+        `rollback_warp_scene` answers `nothing_to_roll_back` for anything
+        that is not a `Position`.  Gating the new path on `is not None` sent
+        such a row down it and produced NO rollback and NO fallback -- the
+        net silently disarmed on a hand-built park, which is the one shape
+        the fallback exists for.
+        """
+        session = self._session("double09")
+        warp_send_watch.park_warp_send(session, b"not-a-real-frame", 5)
+        with mock.patch.object(
+            warp_send_watch, "rollback_warp_scene_on_send_failure",
+            return_value=warp_scene_persist.OUTCOME_ROLLED_BACK,
+        ) as delegate:
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, b"other", OSError("reset"),
+            )
+        delegate.assert_called_once()
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+
+    def test_a_park_under_a_foreign_label_falls_back_too(self):
+        """The label check must not go dead just because the row travels.
+
+        `rollback_warp_scene_on_send_failure` narrows its blast radius to one
+        label by design; the new path has to hold the same line.
+        """
+        session = self._session("double10")
+        row = self._row(session)
+        object.__setattr__(
+            session,
+            warp_send_watch.SESSION_ATTRIBUTE,
+            warp_send_watch.ParkedWarpSend("SOME_OTHER_LABEL", b"f", row),
+        )
+        with mock.patch.object(
+            warp_send_watch, "rollback_warp_scene",
+        ) as direct, mock.patch.object(
+            warp_send_watch, "rollback_warp_scene_on_send_failure",
+            return_value=warp_scene_persist.OUTCOME_NOT_A_WARP,
+        ) as delegate:
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, b"f", OSError("reset"),
+            )
+        direct.assert_not_called()
+        delegate.assert_called_once()
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_NOT_A_WARP)
+
+    def test_a_first_ever_warp_parks_no_row_and_takes_the_delegate(self):
+        """pf-adversary D-G: the fallback's one PRODUCTION-reachable shape.
+
+        A character with no `character_positions` row yet has nothing for
+        `row_before_warp` to capture, so its first warp parks
+        `previous_position=None` while still reporting `PERSISTED`.  The only
+        other test of the fallback hand-builds its park; this one comes
+        through the real route.
+        """
+        session = self._session("double11")
+        route = self._gm_route(session)
+        with mock.patch.object(
+            chat_command_action, "row_before_warp", return_value=None,
+        ):
+            route(f"/warp {DESTINATION_SCENE}")
+        record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertIsNotNone(record)
+        self.assertIsNone(record.previous_position)
+
     def test_a_park_with_no_previous_row_still_uses_the_older_delegate(self):
         """The fallback, so the widened record cannot silently drop a caller.
 

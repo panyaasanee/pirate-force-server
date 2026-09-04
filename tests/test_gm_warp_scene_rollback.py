@@ -723,5 +723,42 @@ class SendFailureHookupTests(RealDatabaseTests):
         )
 
 
+class PersistReturnArityTests(unittest.TestCase):
+    """pf-adversary D-D: nothing pinned how wide this return is.
+
+    Widening `_persist_warp_scene` from 2 to 3 elements in round `ff30oi`
+    broke four tests in this file that the diff had not touched, and only a
+    full-suite run said so.  The annotation is a bare `tuple`, so a fourth
+    element next round repeats it exactly.  This pins the arity at the one
+    place both the production call site and every test unpack it.
+    """
+
+    def test_the_persister_returns_exactly_three_elements(self):
+        import ast
+        import inspect
+        import textwrap
+
+        source = inspect.getsource(chat_command_action._persist_warp_scene)
+        tree = ast.parse(textwrap.dedent(source))
+        widths = {
+            len(node.value.elts)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Tuple)
+        }
+        self.assertEqual(widths, {3})
+
+    def test_the_one_production_call_site_unpacks_three(self):
+        import inspect
+
+        source = inspect.getsource(
+            chat_command_action._warp_teleport_action_no_coords
+        )
+        self.assertIn(
+            "_outcome, undo, previous_row = _persist_warp_scene(session, target)",
+            source,
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

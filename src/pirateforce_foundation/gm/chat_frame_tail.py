@@ -108,6 +108,7 @@ from typing import Any
 
 from ..vital_walk import MAX_VITALS_PER_FRAME, body_length_table
 from .chat_command import (
+    CHAT_LOCAL_TALK_VITAL_ID,
     MAX_CHAT_PAYLOAD_LENGTH,
     MIN_CHAT_PAYLOAD_LENGTH,
     WSTRING_HEADER_LENGTH,
@@ -153,6 +154,21 @@ TAIL_WALKED = "tail_walked"
 #: against `gm_accounts`, below this, and a client that can reach a command
 #: this way could already reach it by sending the chat body alone.
 TAIL_UNDECLARED_BODY = "tail_undeclared_body"
+
+#: A SECOND CHAT VITAL sat in the tail, and this one is named apart from
+#: `TAIL_UNDECLARED_BODY` because the cost is different (pf-adversary D-F,
+#: round `ff30oi`).  `0xAC52` has no declared body length and can never have
+#: one -- its body is two length-prefixed strings -- so a frame carrying two
+#: chat lines lands on the undeclared-body path, the FIRST line runs, and the
+#: second is dropped.  Before this round both were dropped and the GM got a
+#: refusal; now one runs and the other vanishes, which is a worse silence if
+#: nothing says so.  This reason says so, on the console line and on
+#: `session.events`.
+#:
+#: The repair R313's own section 3 asked for -- "make the chat reader walk
+#: EVERY nested vital" -- is not this round's, and is not claimed: this names
+#: the loss rather than ending it.
+TAIL_SECOND_CHAT_DROPPED = "tail_second_chat_dropped"
 
 # Refusal names.  Every one of them means "the caller keeps what it had".
 # `PAYLOAD_NOT_BYTES` is DEAD ON THE WIRE PATH and named here so no coverage
@@ -229,7 +245,9 @@ class ChatTailSplit:
         and its body length is undeclared.  In both, `body` is the isolated
         chat body and it is shorter than the payload.
         """
-        return self.reason in (TAIL_WALKED, TAIL_UNDECLARED_BODY)
+        return self.reason in (
+            TAIL_WALKED, TAIL_UNDECLARED_BODY, TAIL_SECOND_CHAT_DROPPED,
+        )
 
 
 def split_local_talk_payload(payload: Any, legacy: Any) -> ChatTailSplit:
@@ -318,7 +336,12 @@ def _walk_tail(body: bytes, tail: bytes, legacy: Any) -> ChatTailSplit:
             # reported so the console line names what needs a declared
             # length, which is the whole of what a reader can do about it.
             ids.append(vital_id)
-            return ChatTailSplit(body, tuple(ids), TAIL_UNDECLARED_BODY)
+            reason = (
+                TAIL_SECOND_CHAT_DROPPED
+                if vital_id == CHAT_LOCAL_TALK_VITAL_ID
+                else TAIL_UNDECLARED_BODY
+            )
+            return ChatTailSplit(body, tuple(ids), reason)
         if cursor.remain() < length:
             return ChatTailSplit(None, (), TAIL_TRUNCATED)
         cursor.p += length
