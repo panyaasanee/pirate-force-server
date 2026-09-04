@@ -126,15 +126,27 @@ class TheProvisioningAnnotationTests(unittest.TestCase):
     """
 
     def test_a_decoded_line_says_this_build_can_provision_nothing(self):
-        line = hooklog.console_line(_body(0x1234))
-        self.assertIn("issued=no", line)
-        self.assertIn("provisioned=0", line)
+        # GT-228 (R308, PASS) has since left both real M2 targets measured
+        # by default, so the "provisions nothing" shape is reproduced here
+        # by forcing the plan empty rather than assumed for free.
+        from pirateforce_foundation import world_m2_survey_plan as plan
+
+        saved = dict(plan.MEASURED_XYZ)
+        try:
+            plan.MEASURED_XYZ.clear()
+            line = hooklog.console_line(_body(0x1234))
+            self.assertIn("issued=no", line)
+            self.assertIn("provisioned=0", line)
+        finally:
+            plan.MEASURED_XYZ.clear()
+            plan.MEASURED_XYZ.update(saved)
 
     def test_the_annotation_tracks_the_plan_rather_than_being_a_constant(self):
         from pirateforce_foundation import world_m2_survey_plan as plan
 
         saved = dict(plan.MEASURED_XYZ)
         try:
+            plan.MEASURED_XYZ.clear()
             plan.MEASURED_XYZ[153] = (0.0, 0.0, 0.0)
             mine = plan.handle_for_trigger_id(153)
             line = hooklog.console_line(_body(mine))
@@ -146,7 +158,9 @@ class TheProvisioningAnnotationTests(unittest.TestCase):
         finally:
             plan.MEASURED_XYZ.clear()
             plan.MEASURED_XYZ.update(saved)
-        self.assertIn("provisioned=0", hooklog.console_line(_body(0x1234)))
+        self.assertIn(
+            "provisioned=2", hooklog.console_line(_body(0x1234))
+        )
 
     def test_an_unparsed_line_carries_no_annotation_at_all(self):
         # There is no opaque to annotate, and the UNPARSED shape is what
@@ -291,8 +305,10 @@ class TheArrivalFragment(unittest.TestCase):
         line = hooklog.console_line(_body(0x1234))
         self.assertIn("arrival_plan=2/2", line)
         # Beside the plan's pair, not instead of it: the two halves of M2
-        # have to be readable apart on one line.
-        self.assertIn("issued=no provisioned=0", line)
+        # have to be readable apart on one line.  GT-228 (R308, PASS) has
+        # since left both real targets measured, so provisioned=2 by
+        # default; 0x1234 is still not a handle either one was given.
+        self.assertIn("issued=no provisioned=2", line)
 
     def test_it_tracks_the_arrival_module_rather_than_being_a_constant(self):
         import types
@@ -330,7 +346,9 @@ class TheArrivalFragment(unittest.TestCase):
             sys.modules[name] = saved_module
             package.world_m2_arrival = saved_attr
         self.assertIn("arrival_plan=err", line)
-        self.assertIn("issued=no provisioned=0", line)
+        # GT-228 (R308, PASS) has since left both real targets measured, so
+        # provisioned=2 by default (see the fragment test's own note above).
+        self.assertIn("issued=no provisioned=2", line)
         self.assertIn("opaque=0x1234", line)
         self.assertIn("no_responder bytes_out=0", line)
 
