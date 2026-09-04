@@ -56,10 +56,16 @@ it is firing.
 WHAT A LINE MEANS, AND WHAT IT DOES NOT.  An `opaque=0x....` line means "a
 frame with this nested id arrived and its five bytes matched the shape
 RE-227 pinned".  It does NOT mean the value is an island id, a scene id, or
-anything else with meaning yet, and it does NOT mean the confirm sequence
-that produced it has been seen live on a real client (RE-227's own
-reachability proof for this branch is synthetic; see the dispatch-wiring
-test's own docstring).  `UNPARSED` means the payload did not match the fixed
+anything else with meaning yet.  The `issued=` / `provisioned=` pair beside
+it comes from `world_m2_survey_plan` and is about THIS SERVER, not about the
+client: `provisioned=0` means this build could not have provisioned a single
+proximity record (no island XYZ has been measured yet), so an `issued=no`
+next to it says the captain report that produced this confirm popped without
+anything from us -- which is the one reading of this line that would refute
+RE-227's provisioning hypothesis instead of supporting it.  It does NOT mean
+the confirm sequence that produced it has been seen live on a real client
+(RE-227's own reachability proof for this branch is synthetic; see the
+dispatch-wiring test's own docstring).  `UNPARSED` means the payload did not match the fixed
 shape -- wrong length, wrong leading tag, or a wrong trailer -- and the raw
 hex is printed so the next round works from bytes rather than from this
 module's opinion of them.
@@ -69,6 +75,7 @@ from __future__ import annotations
 import sys
 
 from . import hook
+from .. import world_m2_survey_plan as plan
 
 
 production_allowed = True
@@ -128,8 +135,29 @@ def console_line(payload: bytes) -> str:
             " no_responder bytes_out=0"
         )
     # Raw number only -- RE-227 nonclaim 3 forbids naming this an island,
-    # scene, or Trigger-TIP id; chief 09:10 restates the same limit.
-    return f"{TOKEN} opaque=0x{opaque:04x} no_responder bytes_out=0"
+    # scene, or Trigger-TIP id; chief 09:10 restates the same limit.  The
+    # annotation from `world_m2_survey_plan` stays inside that limit on
+    # purpose: it says whether the value is a handle THIS BUILD issued and
+    # how many records this build could provision at all, never what the
+    # client thinks the number means.  With no measured island XYZ that
+    # reads `issued=no provisioned=0`, which is the line that tells a
+    # grader a captain report popped WITHOUT a record from this server.
+    return (
+        f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
+        " no_responder bytes_out=0"
+    )
+
+
+def _annotation(opaque: int) -> str:
+    """`world_m2_survey_plan.console_annotation`, but this function's caller
+    is a console line whose whole contract is "never raises".  A plan that
+    somehow raises must cost the annotation, not the evidence line -- and it
+    must say so out loud rather than vanish, hence `issued=err`.
+    """
+    try:
+        return plan.console_annotation(opaque)
+    except Exception:
+        return "issued=err provisioned=err"
 
 
 # The point name is spelled as a STRING LITERAL here, not as ``POINT``, for
