@@ -49,7 +49,7 @@ world's books that no client was ever told about is worse than the bug this
 file closes: the player watches a monster they never killed refuse every
 hit.
 
-WHAT THIS BOOK IS AUTHORITATIVE OVER  [LANE-B ASSUMPTION - AWAITING COO].
+WHAT THIS BOOK IS AUTHORITATIVE OVER  [COO 2049: advisory until Door B].
 pf-adversary asked the sharp version of the question below and it deserves a
 straight answer rather than an implied one: ``WorldGround`` grew an atomic
 ``claim`` the moment two sessions could see one floor, and this book has no
@@ -60,10 +60,19 @@ and it is ADVISORY everywhere else -- it does not gate a strike, a roll or a
 drop.  Making it authoritative over the KILL would change what a second
 player standing in the scene sees happen in front of them (a monster that
 stops answering their attacks mid-fight), which is a game-design ruling and
-not a lane's call.  The letter asking for that ruling is
+not a lane's call.  ``COO-DECISION 20260904_2049`` (answering
 ``pf_bridge/notes_to_chief/20260904_2005_LANE-B-ASK-COO-what-is-the-
-worlds-grave-book-authoritative-over.md``; until it is
-answered this file does the smaller, strictly-not-worse thing.
+worlds-grave-book-authoritative-over.md``) settled it: (a) advisory stands
+for now -- unchanged from the paragraph above; (b) authoritative-over-the-kill
+is the destination, queued behind Door B (M4 item 1) landing, because what a
+second player sees has to ride the same frame Door B sends.  When that round
+comes, the spec is already decided and does not need re-litigating: the
+second killer sees the monster become a corpse in the SAME frame a relog
+shows one in; their strike is refused by name (``mob_already_dead_in_the_
+world``); there is no second drop; and the door is one atomic
+``claim_the_kill(scene, identity)``, the same shape as
+:meth:`mob_ground_persistence.WorldGround.claim`.  Until that round, this
+file does the smaller, strictly-not-worse thing below.
 
 WHAT THIS FILE DOES NOT MAKE TRUE, AND IT IS THE SAME GAP THE GROUND HAS.
 Two players standing in one scene each hold their own ``DeathRegister``, and
