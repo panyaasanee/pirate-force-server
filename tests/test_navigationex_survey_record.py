@@ -236,9 +236,13 @@ class R313CaptureParityTests(unittest.TestCase):
         # `unmeasured_0x28`, `unmeasured_0x30`), in `vital_version`, or in a
         # field RE-227's static pass never reached at all.  Resolving which
         # needs either the RE runner's own machine (this environment has no
-        # `GameClient.local.bin`) or another attended trial that varies one
-        # field at a time -- this test only closes off the one explanation
-        # that WAS checkable from committed artifacts.
+        # copy of the shipped client image -- deliberately NOT spelled with
+        # its filename here: the Windows gate drops any tests/ module that
+        # contains that literal from its selection, and spelling it out in
+        # this comment is exactly what turned #785 red, see the class
+        # docstring) or another attended trial that varies one field at a
+        # time -- this test only closes off the one explanation that WAS
+        # checkable from committed artifacts.
         self.assertEqual(
             {"unmeasured_0x14", "unmeasured_0x16", "unmeasured_0x28",
              "unmeasured_0x30"},
