@@ -49,6 +49,19 @@ class _WithMeasuredXYZ:
         return False
 
 
+class _WithOnlyMeasuredXYZ(_WithMeasuredXYZ):
+    """Like `_WithMeasuredXYZ`, but empties the dict first instead of adding
+    to it.  Needed for tests that must see a single row (or none at all) in
+    isolation now that GT-228 has left both real M2 targets measured by
+    default -- `_WithMeasuredXYZ` alone can no longer produce that."""
+
+    def __enter__(self):
+        self._saved = dict(plan.MEASURED_XYZ)
+        plan.MEASURED_XYZ.clear()
+        plan.MEASURED_XYZ.update(self._rows)
+        return plan
+
+
 class _WithAnchors:
     """Context manager replacing the identity module's island rows.
 
@@ -105,27 +118,32 @@ class TheConstantsOtherThingsRestOnTests(unittest.TestCase):
 
 
 class FailClosedOnMeasurementTests(unittest.TestCase):
-    def test_no_xyz_is_measured_yet(self):
-        # The state of M2 in one assertion.  When GT-228 lands and this test
-        # fails, the fix is to delete it and keep the ones below.
-        self.assertEqual(plan.MEASURED_XYZ, {})
+    # `test_no_xyz_is_measured_yet` lived here until GT-228 (R308, PASS,
+    # 2026-09-04) reported and this file's own docstring did exactly what it
+    # promised: "the fix is to delete it and keep the ones below."
 
-    def test_nothing_is_provisionable_and_every_target_says_why(self):
-        self.assertEqual(plan.planned_records(), ())
-        self.assertEqual(plan.provisionable_count(), 0)
+    def test_gt_228_measured_both_targets_and_nothing_is_blocked_any_more(self):
+        records = {r.trigger_id: r for r in plan.planned_records()}
+        self.assertEqual(set(records), {153, 154})
         self.assertEqual(
-            plan.blocked_rows(),
-            tuple(
-                (trigger_id, plan.BLOCKED_XYZ_UNMEASURED)
-                for trigger_id in plan.PLANNED_TRIGGER_IDS
-            ),
+            (records[153].x, records[153].y, records[153].z),
+            plan.MEASURED_XYZ[153],
         )
+        self.assertEqual(
+            (records[154].x, records[154].y, records[154].z),
+            plan.MEASURED_XYZ[154],
+        )
+        self.assertEqual(plan.provisionable_count(), 2)
+        self.assertEqual(plan.blocked_rows(), ())
 
     def test_the_accessor_answers_from_the_table_not_from_none(self):
-        self.assertIsNone(plan.xyz_for_trigger_id(153))
-        with _WithMeasuredXYZ({153: (1.5, -2.5, 3.5)}):
-            self.assertEqual(plan.xyz_for_trigger_id(153), (1.5, -2.5, 3.5))
-            self.assertIsNone(plan.xyz_for_trigger_id(154))
+        # 155 (Slave Market Island) is a real dock row GT-228 did not
+        # measure -- only M2's own two targets, 153/154, are in
+        # `MEASURED_XYZ` by default.
+        self.assertIsNone(plan.xyz_for_trigger_id(155))
+        with _WithOnlyMeasuredXYZ({155: (1.5, -2.5, 3.5)}):
+            self.assertEqual(plan.xyz_for_trigger_id(155), (1.5, -2.5, 3.5))
+            self.assertIsNone(plan.xyz_for_trigger_id(153))
 
     def test_planned_and_blocked_partition_the_planned_ids(self):
         # Not a restatement of the two above: this is the invariant that
@@ -140,7 +158,7 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
                     self.assertEqual(planned & blocked, set())
 
     def test_one_measured_row_turns_the_plan_on_by_data_alone(self):
-        with _WithMeasuredXYZ({153: (100.5, -20.25, 3.0)}):
+        with _WithOnlyMeasuredXYZ({153: (100.5, -20.25, 3.0)}):
             records = plan.planned_records()
             self.assertEqual(len(records), 1)
             record = records[0]
@@ -148,9 +166,10 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
             self.assertEqual((record.x, record.y, record.z), (100.5, -20.25, 3.0))
             self.assertEqual(record.frame_scene_id, plan.XYZ_FRAME_SCENE_ID)
             self.assertEqual(plan.provisionable_count(), 1)
-        # ...and off again once the injection is gone, i.e. the plan reads
-        # the dict rather than a snapshot taken at import time.
-        self.assertEqual(plan.provisionable_count(), 0)
+        # ...and back to GT-228's own two real records once the injection is
+        # gone, i.e. the plan reads the dict rather than a snapshot taken at
+        # import time.
+        self.assertEqual(plan.provisionable_count(), 2)
 
     def test_a_measured_row_carries_the_dock_tables_own_status_not_a_guess(self):
         with _WithMeasuredXYZ({153: (0.0, 0.0, 0.0), 154: (1.0, 1.0, 1.0)}):
@@ -238,23 +257,30 @@ class HandleAllocationTests(unittest.TestCase):
 
 class ConfirmResolutionTests(unittest.TestCase):
     def test_no_value_is_issued_by_a_build_that_can_provision_nothing(self):
-        for handle in (0x0000, 153, plan.handle_for_trigger_id(153), 0xFFFF):
-            with self.subTest(handle=handle):
-                resolution = plan.confirm_resolution(handle)
-                self.assertFalse(resolution.issued)
-                self.assertIsNone(resolution.trigger_id)
-                self.assertIsNone(resolution.scene_name_tip_id)
-                self.assertIsNone(resolution.wire_scene_id_status)
+        # Forced empty: GT-228 has since left 153/154 measured by default,
+        # so this reproduces the pre-GT-228 all-refuse shape deliberately
+        # rather than by accident of import order.
+        with _WithOnlyMeasuredXYZ({}):
+            for handle in (0x0000, 153, plan.handle_for_trigger_id(153), 0xFFFF):
+                with self.subTest(handle=handle):
+                    resolution = plan.confirm_resolution(handle)
+                    self.assertFalse(resolution.issued)
+                    self.assertIsNone(resolution.trigger_id)
+                    self.assertIsNone(resolution.scene_name_tip_id)
+                    self.assertIsNone(resolution.wire_scene_id_status)
 
     def test_allocation_is_not_issuance(self):
         # The distinction the module is built around: a handle can be
         # allocated to a destination and still not be one we ever issued.
-        handle = plan.handle_for_trigger_id(153)
-        self.assertEqual(plan.trigger_id_for_handle(handle), 153)
+        # 155 (Slave Market Island) is a real dock row and gets a real
+        # handle, but GT-228 did not measure it -- only M2's own two
+        # targets, 153/154, are in `MEASURED_XYZ` by default.
+        handle = plan.handle_for_trigger_id(155)
+        self.assertEqual(plan.trigger_id_for_handle(handle), 155)
         self.assertFalse(plan.confirm_resolution(handle).issued)
 
     def test_a_provisioned_handle_resolves_and_its_neighbour_does_not(self):
-        with _WithMeasuredXYZ({153: (0.0, 0.0, 0.0)}):
+        with _WithOnlyMeasuredXYZ({153: (0.0, 0.0, 0.0)}):
             mine = plan.handle_for_trigger_id(153)
             resolution = plan.confirm_resolution(mine)
             self.assertTrue(resolution.issued)
@@ -266,10 +292,21 @@ class ConfirmResolutionTests(unittest.TestCase):
                 plan.confirm_resolution(plan.handle_for_trigger_id(154)).issued
             )
 
+    def test_todays_default_build_issues_both_real_handles(self):
+        # GT-228 landed as data-only, so this is the DEFAULT state now --
+        # no injection, unlike every other test in this class.
+        for trigger_id in (153, 154):
+            resolution = plan.confirm_resolution(plan.handle_for_trigger_id(trigger_id))
+            self.assertTrue(resolution.issued, trigger_id)
+            self.assertEqual(resolution.trigger_id, trigger_id)
+
 
 class ConsoleAnnotationTests(unittest.TestCase):
-    def test_todays_annotation_is_the_negative_result_spelled_out(self):
-        self.assertEqual(plan.console_annotation(0x1234), "issued=no provisioned=0")
+    def test_todays_annotation_reflects_gt_228s_two_real_records(self):
+        # 0x1234 is not a handle either destination was ever given, so it
+        # stays "no" even though the build now provisions 2 records by
+        # default (GT-228, R308, PASS).
+        self.assertEqual(plan.console_annotation(0x1234), "issued=no provisioned=2")
 
     def test_the_annotation_never_names_what_the_value_means_to_the_client(self):
         # RE-227 nonclaim 3 and chief 09:10, enforced where the string is
@@ -286,7 +323,7 @@ class ConsoleAnnotationTests(unittest.TestCase):
                     self.assertNotIn("spice", text)
 
     def test_the_annotation_moves_when_the_plan_does(self):
-        with _WithMeasuredXYZ({153: (0.0, 0.0, 0.0)}):
+        with _WithOnlyMeasuredXYZ({153: (0.0, 0.0, 0.0)}):
             self.assertEqual(
                 plan.console_annotation(plan.handle_for_trigger_id(153)),
                 "issued=yes provisioned=1",
