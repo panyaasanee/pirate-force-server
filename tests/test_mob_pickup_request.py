@@ -3741,6 +3741,103 @@ class TheWorldClaimBranchRunsTests(TheWiringHarness):
         outcome, _printed = self._run(namespace)
         self.assertTrue(outcome.handled)
 
+    def test_the_durable_marker_is_called_with_the_transactions_own_row(self):
+        """pf-adversary pass 2, N4/N5: both mutants survived the whole suite.
+
+        Deleting the marker call, or reading the drop off the wrong attribute
+        (``getattr`` then yields None and the call returns False in silence),
+        left 9,859 tests green -- on the one call that keeps a restored floor
+        from handing back items somebody already picked up.
+        """
+        marked = []
+
+        class StoreWithTheMarker:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def mark_ground_drop_taken(self, scene, drop_key):
+                marked.append((scene, drop_key))
+
+        row = a_drop()
+        self.world.remember((row,))
+        namespace = self._namespace(ground_cell=a_ground_cell(row))
+        namespace["store"] = StoreWithTheMarker(self.store)
+        outcome, _printed = self._run(namespace)
+        self.assertTrue(outcome.handled)
+        self.assertEqual(marked, [(row.scene_key, row.drop_key)])
+
+    def test_a_take_that_failed_after_the_bag_took_it_keeps_the_row_off(self):
+        """pf-adversary pass 2, D2.  The item is in the player's bag; putting
+        the row back would mint a second one for the next session."""
+        class HostileStore:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+            def commit_acquired_backpack_item(self, *args, **kwargs):
+                raise RuntimeError("disk full")
+
+        row = a_drop()
+        self.world.remember((row,))
+        namespace = self._namespace(ground_cell=a_ground_cell(row))
+        namespace["store"] = HostileStore(self.store)
+        outcome, _printed = self._run(namespace)
+        self.assertFalse(outcome.handled)
+        self.assertIn("write_failed_after_the_take", outcome.reason)
+        self.assertEqual(
+            self.world.standing(SCENE), (),
+            "the object is in the bag; re-flooring it is a second item")
+
+    def test_an_unexpected_escape_gives_the_row_back_before_it_leaves(self):
+        """pf-adversary pass 2, D3.  The exception still escapes -- what must
+        not escape with it is a destroyed world row the owner can never
+        click again."""
+        row = a_drop()
+        self.world.remember((row,))
+        namespace = self._namespace(ground_cell=a_ground_cell(row))
+
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("anything outside the two caught families")
+
+        original = mob_pickup_persist.pickup_and_persist
+        mob_pickup_persist.pickup_and_persist = boom
+        try:
+            with self.assertRaises(RuntimeError):
+                self._run(namespace)
+        finally:
+            mob_pickup_persist.pickup_and_persist = original
+        self.assertEqual(
+            [standing.drop_key for standing in self.world.standing(SCENE)],
+            [row.drop_key])
+        self.assertIsNone(self.world.taken_row(SCENE, row.drop_key))
+
+    def test_a_refused_click_cannot_renew_the_rows_world_life(self):
+        """pf-adversary pass 2, D4: every refused click used to re-floor the
+        row at now + lifetime, so an out-of-range clicker kept one object
+        standing for as long as they cared to click."""
+        clock = [1000.0]
+        world = mob_ground_persistence.WorldGround(
+            lifetime_seconds=120.0, clock=lambda: clock[0])
+        mob_ground_persistence.install_world_ground(world)
+        row = a_drop()
+        world.remember((row,))
+        # ONE namespace, three clicks: a second _namespace() would claim a
+        # second bag cell for the same character, which that cell refuses by
+        # design (bag_already_claimed).
+        namespace = self._namespace(ground_cell=a_ground_cell())
+        for _click in range(3):
+            clock[0] += 30.0
+            self._run(namespace)
+        clock[0] += 35.0
+        self.assertEqual(
+            world.standing(SCENE), (),
+            "the row's own 120 s must still bound it, refusals or not")
+
     def test_a_refused_transaction_leaves_the_row_on_the_worlds_floor(self):
         """The claim is taken BEFORE the transaction, so a refusal afterwards
         must put it back -- the object is still lying in front of the player."""

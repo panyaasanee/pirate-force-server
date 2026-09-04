@@ -1535,21 +1535,53 @@ def dispatch_inbound_pickup_request(
             identity, x, y, z, read.fields.object_ref_u32,
             read.fields.opaque_u8, echo=echo)
     except (mob_pickup.MobPickupContractError,
-            mob_pickup_persist.MobPickupPersistError) as exc:
+            mob_pickup_persist.MobPickupPersistError) as exc_named:
+        exc = exc_named
         # THE REFUSAL THAT R307 MEASURED ARRIVES HERE.  A click on a row the
         # sweep already retired refuses ``drop_already_taken`` out of the
         # transaction, and until this round that was the end of it: the
         # client kept drawing a label nothing would ever answer for.  The
         # cell is passed so the refusal can carry what the SWEEP owes -- the
         # scene's remaining ground, which removes the ghost by omission.
-        # THE CLAIM GOES BACK, round 59iqwi: the world handed this row over a
-        # few lines up and the transaction then refused, so the object is
-        # still lying in front of the player and the floor must not be short
-        # one.  Returning it also clears the taken record, so the next click
-        # -- this player's or anybody's -- can claim it again.
-        mob_ground_persistence.return_claim(claim)
+        # THE CLAIM GOES BACK -- BUT ONLY IF THE TAKE DID NOT HAPPEN.
+        # pf-adversary pass 2, D2, MEASURED with a store that raises on
+        # ``commit_acquired_backpack_item``: the bag cell has already put
+        # the item in the session's bag BEFORE ``persist_pickup`` runs, so a
+        # refusal named ``write_failed_after_the_take`` describes a player who
+        # is holding the object.  Re-flooring it there hands the next session
+        # a second copy -- the duplication this whole claim layer exists to
+        # end, arriving through the repair path.
+        #
+        # THE AMBIGUOUS NAME IS TREATED AS POST-TAKE ON PURPOSE:
+        # ``cell_is_another_characters`` is raised in the precheck AND again
+        # after the take, and the two are indistinguishable from here.  The
+        # two mistakes are not symmetric -- keeping a row off the floor costs
+        # one object nobody can pick up, re-flooring a taken one mints an
+        # item -- so the tie goes to the cheaper failure.
+        reason = str(exc.args[0])
+        # The persist lane appends its own detail after a colon (``write_
+        # failed_after_the_take: MOB_PICKUP_ROW_LOST ...``), the same split
+        # ``runtime.py`` already takes to compose its event name.  Comparing
+        # the whole string would silently never match, which is the direction
+        # that mints an item.
+        if reason.split(":")[0] not in POST_TAKE_REFUSALS:
+            mob_ground_persistence.return_claim(claim)
         return _refused_after_read(
-            read, str(exc.args[0]), echo, legacy, drop_ledger_cell)
+            read, reason, echo, legacy, drop_ledger_cell)
+    except Exception:                            # noqa: BLE001 - see below
+        # ANY OTHER ESCAPE GIVES THE ROW BACK BEFORE IT LEAVES (pf-adversary
+        # pass 2, D3, MEASURED with a transaction raising ``RuntimeError``).
+        # This function does not promise to swallow an unknown exception --
+        # it never did, and turning one into a silent refusal would hide a
+        # bug this lane needs to see -- but before this round an escape cost
+        # a frame and touched nothing shared.  With a claim held it destroys
+        # a world row AND records it taken, and the guard then refuses the
+        # owner's own clicks (their cell still holds that very object) for
+        # the row's whole remaining life: R307's unclickable ghost, rebuilt
+        # by the guard meant to stop duplication.  The row goes back and the
+        # exception carries on unchanged.
+        mob_ground_persistence.return_claim(claim)
+        raise
     rows_left, ground_after = _ground_after_the_take(
         legacy, drop_ledger_cell, result, echo)
     delta = _the_delta_that_matches_the_floor(
@@ -1796,6 +1828,23 @@ EXPIRY_PUBLICATION_REASONS = (
     "drop_already_taken",
     "drop_expired",
     "drop_not_in_ledger",
+    # ROUND 59iqwi (pf-adversary pass 2, D8).  The world-claim refusal belongs
+    # on this list for exactly the reason the other three are on it: it fires
+    # when another session carried the object away, which is precisely when
+    # THIS player's cell still holds the row and their client is still drawing
+    # its label.  Without the publication the loser keeps a ghost that refuses
+    # every click until their own sweep retires it -- the R307 shape, arriving
+    # through a refusal invented this round.
+    mob_ground_persistence.REFUSE_TAKEN_BY_ANOTHER_SESSION,
+)
+
+#: The refusals that mean THE TAKE ALREADY HAPPENED, so a claimed row must not
+#: go back on the world's floor (pf-adversary pass 2, D2).  Named from the
+#: sibling lane's own constants rather than typed out, so a rename there is a
+#: NameError here instead of a silent duplication path.
+POST_TAKE_REFUSALS = (
+    mob_pickup_persist.REFUSE_WRITE_FAILED_AFTER_THE_TAKE,
+    mob_pickup_persist.REFUSE_CELL_IS_ANOTHER_CHARACTERS,
 )
 
 
