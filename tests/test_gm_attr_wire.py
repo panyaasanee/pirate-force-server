@@ -1165,18 +1165,66 @@ class SelectorRowIsTheCurrentSceneTests(unittest.TestCase):
 
     # -- fence (b): x=9 is the CURRENT scene, or there is no frame ---------
 
-    def test_the_block_carries_the_current_scene_not_the_login_byte(self):
-        # The whole point of option (b), stated as an equality a reader can
-        # check: the login byte for x=9 is `_login_values()[9]`, and what
-        # comes out is the scene the hook answered.  They are equal here on
-        # purpose (the change fence would refuse otherwise); what this test
-        # pins is the SOURCE, so it reads the value back from the hook.
+    def test_the_only_x9_that_can_ship_today_is_the_login_byte(self):
+        # ~~test_the_block_carries_the_current_scene_not_the_login_byte~~ --
+        # RENAMED, not deleted, by pf-adversary round `y6j1mn` (D1,
+        # MEASURED).  The old name said "not the login byte" while its
+        # assertion said "the login byte", which is this house's scar for a
+        # card whose name and check disagree.  What the code actually does:
+        # `_refuse_selector_change` raises unless the current scene EQUALS
+        # the login byte, so the assignment that follows is a
+        # self-assignment and the login byte is the only value that can
+        # reach a frame.  This card pins that TRUTH, so the day the lane
+        # re-routes x=9 to its own source (which is what `COO-DECISION
+        # 20260904_0846` item 1 actually asks for), this card goes red and
+        # has to be rewritten deliberately rather than drifting.
         combined = live_full_block_values(
             7, hooks=self._hooks(), legacy=self.legacy,
         )
         self.assertEqual(
             combined[SELECTOR_ROW_X], _login_values()[SELECTOR_ROW_X],
         )
+
+    def test_D2_the_named_field_door_is_NOT_behind_either_fence(self):
+        # pf-adversary round `y6j1mn`, D2, MEASURED -- pinned as a KNOWN
+        # HOLE, not as a property anyone wants.  `build_named_field_update`
+        # composes from the cache and never calls `live_full_block_values`,
+        # so a cache seeded at the login scene keeps composing frames with
+        # that scene on the selector after the session has moved, silently.
+        # The card exists so the hole cannot be forgotten: when the next
+        # round moves the fences to `make_update_attr_frame`, this goes red.
+        import inspect
+        source = inspect.getsource(build_named_field_update)
+        self.assertNotIn("live_full_block_values", source)
+        self.assertNotIn("live_current_scene", source)
+
+    def test_D3_the_selector_row_is_never_an_override_a_caller_picks(self):
+        # pf-adversary round `y6j1mn`, D3, MEASURED: `overrides` is applied
+        # AFTER the fences run, and x=9 is in the login set, so before this
+        # refusal `overrides={9: 5}` composed a real 129-byte frame.
+        hooks = self._hooks()
+        with self.assertRaises(login_mask.LoginMaskError) as caught:
+            login_mask.build_login_shaped_frame(
+                self.legacy, 7, 1, 0, {SELECTOR_ROW_X: 5}, hooks=hooks,
+                shape=login_mask.admitted_masks(self.legacy)[0],
+            )
+        self.assertIn(f"x={SELECTOR_ROW_X}", str(caught.exception))
+
+    def test_D7_a_non_int_identity_still_raises_the_named_error(self):
+        # pf-adversary round `y6j1mn`, D7, MEASURED: the console label used
+        # to be an f-string built at the call site, outside the print
+        # helper's guard, so a str identity raised a bare ValueError that no
+        # `except AttrWireError` handler catches.  A diagnostic may never
+        # change the exception a door raises.
+        values = dict(_complete_values())
+        values.update(_login_values())
+        values = {x: values[x] for x in login_mask.login_field_x(self.legacy)}
+        values[SELECTOR_ROW_X] = SELECTOR_COMPARED_VALUE
+        for identity in ("0x11", None):
+            with self.subTest(identity_lo=identity):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(AttrWireError):
+                        make_update_attr_frame(self.legacy, identity, 0x22, values)
 
     def test_MUTANT_x9_carrying_the_old_login_scene_is_red(self):
         # `COO-DECISION 20260904_0846` item 1, mutant (a): the player has

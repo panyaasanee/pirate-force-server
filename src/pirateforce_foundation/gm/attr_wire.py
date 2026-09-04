@@ -964,14 +964,37 @@ def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: d
     # server cannot evaluate that.  Both fences exist because neither is
     # sufficient: this one covers a caller the other cannot see, the other
     # covers values this one cannot name.
+    # WHAT THIS FENCE COSTS AND WHAT IT DOES NOT COVER (pf-adversary round
+    # `y6j1mn`, D4, MEASURED), because `0846` demanded the value by hand and
+    # this lane owes the sentence rather than the silence:
+    #   * NAMED FALSE POSITIVE: scene 8 is a real scene -- `scene_catalog`
+    #     says `is_known_scene_id(8)` is True and names it `Silver Harbour`.
+    #     A player standing there is refused this door permanently, for a
+    #     reason this repository cannot evidence.
+    #   * NAMED FALSE NEGATIVE: every other scene whose `0x430E10` result is
+    #     8 sails straight past, which is the hazard the fence is named for.
+    # So this is a check on an INPUT, not coverage of the condition, and
+    # `SELECTOR_NOTE_R301` already struck out one draft for reasoning about
+    # scene 8 as if the mapping were known.  It is kept because `0846` named
+    # it by hand; the second clause is dead (D5, see `_refuse_selector_
+    # change`), so in practice it is `values.get(9) == 8` alone.
     if (
         values.get(SELECTOR_ROW_X) == SELECTOR_COMPARED_VALUE
         and not ALT_HP_PAIR_ROWS <= set(values)
     ):
+        # `(identity_lo, identity_hi)` RAW, NOT PRE-FORMATTED (pf-adversary
+        # round `y6j1mn`, D7, MEASURED): the first draft built the label with
+        # an f-string `{identity_lo:#010x}` at THIS call site, outside
+        # `_print_seed_line`'s try/except -- so a caller passing a str or
+        # None identity got a bare `ValueError`/`TypeError` instead of the
+        # named `AttrWireError` below, and every `except AttrWireError`
+        # handler in this lane missed it.  A diagnostic may never change the
+        # exception a door raises.  It also printed `character_id='identity=
+        # ...'`, which is not a character id.
         _print_seed_line(
             sys.stderr,
             SELECTOR_STANDDOWN_CONSOLE_TOKEN,
-            f"identity={identity_lo:#010x}/{identity_hi:#010x}",
+            (identity_lo, identity_hi),
             f"x9_is_{SELECTOR_COMPARED_VALUE}_without_alt_hp_pair",
         )
         raise AttrWireError(
@@ -1080,11 +1103,30 @@ SEED_CAPTURED_CONSOLE_TOKEN = "GM_ATTR_SEED_CAPTURED"
 # and NOT BUILT YET under any name.  `0846` names the source exactly:
 # "chief's session, the same read point `/warp` uses" -- and `/warp` does
 # not use a read point at all today, it takes `current_scene_id` as a plain
-# parameter (`gm/warp_executor.execute_warp`), supplied by a dispatch caller
-# in chief's zone.  So this constant is this lane's PROPOSED name for the
-# hook that has to exist, spelled once here for the same reason the other
-# two are: a test can pin the name this lane waits on without importing a
-# module that does not exist.  `CORE-REQUEST-GM-054` asks chief for it.
+# parameter of `warp_executor.make_warp_force_pos_frame_with_target`,
+# supplied by THIS LANE's own `chat_command_action.py` from
+# `_current_position(session)`.
+#
+# ~~`gm/warp_executor.execute_warp`~~ -- struck: pf-adversary round
+# `y6j1mn` (D6, MEASURED) grepped the whole repository and that function
+# does not exist under that name anywhere.  It was typed from memory into
+# this comment and into `CORE-REQUEST-GM-054`, which is the house's scar
+# for citing a symbol nobody re-derived.
+#
+# WHICH FIELD THE HOOK MUST READ, which `0846`'s wording does not settle
+# and this lane's OWN file already answers (`gm/chat_command_action.py`,
+# the provenance block at `same_scene_with_basis`): `session.foundation.
+# selected.position.scene_id` is the SERVER'S BELIEF, rewritten to a
+# cross-scene warp's DESTINATION at queue time with nothing from the client
+# confirming arrival.  Chief landed a strictly better pair in R328 --
+# `session.client_confirmed_scene`, guarded by
+# `session.scene_label_is_server_guess`.  A hook wired to the weaker field
+# would put a GUESSED scene id on the row this module calls the HP-pair
+# selector.  `CORE-REQUEST-GM-054` asks for the guarded pair by name.
+#
+# Spelled once here for the same reason the other two constants are: a test
+# can pin the name this lane waits on without importing a module that does
+# not exist.
 CURRENT_SCENE_READ_POINT = "current_session_scene_id"
 
 # The selector row itself, and the alternate HP pair it can select.
@@ -1457,10 +1499,15 @@ def _refuse_selector_change(current_scene: int, login_scene, rows) -> None:
     if current_scene == login_scene:
         return
     if ALT_HP_PAIR_ROWS <= set(rows):
-        # Unreachable through any login shape this server composes today;
-        # written as a condition rather than an assertion because the day a
-        # login composer DOES carry x=52/x=53, the flip stops mattering and
-        # this fence should stop biting on its own, not need a code change.
+        # NEVER EXECUTED, AND CANNOT BE (pf-adversary round `y6j1mn`, D5,
+        # MEASURED: instrumented and taken 0 times across three suites).
+        # x=52/x=53 are in neither admitted login shape, and
+        # `make_update_attr_frame` refuses any key set that is not one of
+        # those two -- so this branch is dead in production as well as in
+        # test, and the fence reduces to its first clause.  Labelled rather
+        # than deleted so the next reader does not mistake it for a tested
+        # path: it is intent for the day a login composer carries the pair,
+        # not coverage of anything today.
         return
     raise AttrWireError(
         "selector_would_change: x=9 (the HP-pair selector, "
@@ -1586,19 +1633,40 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
         "live_full_block_values internal invariant broken: the two sources "
         "must partition the login set exactly"
     )
-    # -- x=9 IS THE SESSION'S SCENE NOW, NOT LOGIN'S -----------------------
-    # `COO-DECISION 20260904_0846` item 1, option (b).  This is the one
-    # place in this lane that has BOTH a `character_id` and a `hooks`
-    # object AND composes a whole (b'') block, so it is the one place the
-    # two fences can be applied to every door at once: `build_named_field_
-    # update` and `login_mask.build_login_shaped_frame` (the builder LANE-B
-    # wired Door B into) are both callers of this function.
+    # -- THE SELECTOR FENCE (`COO-DECISION 20260904_0846` item 1) ----------
+    # READ THIS BEFORE BUILDING ON IT.  pf-adversary round `y6j1mn` measured
+    # what this block actually does, and it is NARROWER than the decision
+    # asked for.  Written out rather than fixed in the same breath because
+    # the honest fix is a re-routing this round did not have the lock left
+    # to do; `LANE-GM 20260904_1055` carries the findings and the next
+    # round of this lane takes them as its first work item.
     #
-    # THE LOGIN BYTE IS STILL FETCHED, AND IS NOT WHAT IS SENT.  x=9 stays
-    # in `LOGIN_SOURCED_ROWS` on purpose: its login value is the only value
-    # this house has measured a real client surviving, so it is the thing
-    # the change fence compares against.  What leaves here is the CURRENT
-    # scene; the login byte never reaches a frame again.
+    # ~~What leaves here is the CURRENT scene; the login byte never reaches
+    # a frame again.~~ -- STRUCK, D1 [MEASURED]: `_refuse_selector_change`
+    # raises unless `current_scene == login_scene`, so the assignment below
+    # is only ever reached when the two are ALREADY equal.  It is a
+    # self-assignment.  The byte that ships is the login byte, every time.
+    # Deleting the assignment keeps 296 tests green (measured).  So this
+    # block is not option (b); it is option (a) PLUS A REFUSAL for the
+    # players option (b) would have made a difference to.  The re-routing
+    # that makes it option (b) for real: x=9 becomes its own source group in
+    # `split_sources`, built from `live_current_scene` and never fetched
+    # from the login hook at all.
+    #
+    # ~~`build_named_field_update` and `login_mask.build_login_shaped_frame`
+    # are both callers of this function~~ -- STRUCK, D2 [MEASURED]:
+    # `build_named_field_update` composes from `RawBlockCache` and does NOT
+    # call this function, so NEITHER fence is on it.  Measured end to end: a
+    # cache seeded at login scene 3, a current-scene hook then answering 5,
+    # and that door composed a 129-byte 0x309A frame carrying 3 on the
+    # selector, with no console line -- which is verbatim the mutant `0846`
+    # item 1 named.  The fences belong at `make_update_attr_frame`, the one
+    # wall every composer passes, with the login x=9 handed in; that is the
+    # same reasoning `0345` used to move the (b'') raise there, and this
+    # round did not follow it.
+    #
+    # The login byte is still fetched, and IS what ships (see D1).  x=9
+    # stays in `LOGIN_SOURCED_ROWS` for that reason.
     if SELECTOR_ROW_X in combined:
         try:
             current_scene = live_current_scene(character_id, hooks=hooks)

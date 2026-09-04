@@ -513,6 +513,22 @@ def build_login_shaped_frame(
             "the frame's mask, which COO-DECISION 20260904_0545 item 2 requires "
             "to equal the login mask exactly"
         )
+    # THE SELECTOR ROW IS NEVER A CALLER'S TO CHOOSE (pf-adversary round
+    # `y6j1mn`, D3, MEASURED).  `overrides` is applied AFTER
+    # `live_full_block_values` has run the selector fences, and x=9 IS in the
+    # login set, so the `bad` check above lets it through: measured, a caller
+    # passing `overrides={9: 5}` composed a 129-byte frame carrying 5 on the
+    # HP-pair selector while the current-scene hook answered 3 and both
+    # fences had already passed on the pre-override value.  x=9's value comes
+    # from the session or the frame does not exist; there is no door in this
+    # lane through which a caller picks it.
+    if attr_wire.SELECTOR_ROW_X in overrides:
+        raise LoginMaskError(
+            f"overrides name x={attr_wire.SELECTOR_ROW_X}, the HP-pair "
+            "selector (attr_wire.SELECTOR_NOTE_R301): its value is the "
+            "session's current scene or there is no frame (COO-DECISION "
+            "20260904_0846 item 1) -- no caller chooses it through any door"
+        )
     sensitive = sorted(set(overrides) & attr_wire.SENSITIVE_FIELDS)
     if sensitive:
         raise LoginMaskError(
