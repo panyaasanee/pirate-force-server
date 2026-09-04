@@ -539,4 +539,14 @@ def build_login_shaped_frame(
         character_id, hooks=hooks, legacy=legacy, rows=login_rows,
     )
     values.update(overrides)
-    return attr_wire.make_update_attr_frame(legacy, identity_lo, identity_hi, values)
+    # `character_id`/`hooks` threaded through round `zq18m1` (`COO-DECISION
+    # 20260904_1149` item 1): `values[SELECTOR_ROW_X]` is already truthful
+    # here (it came straight from `live_full_block_values`, which just ran
+    # the real change fence), so the wall's third fence is a no-op on this
+    # path today -- passed anyway so every composer this lane owns meets
+    # the same wall the same way, not because this call site is unsafe
+    # without it.
+    return attr_wire.make_update_attr_frame(
+        legacy, identity_lo, identity_hi, values,
+        character_id=character_id, hooks=hooks,
+    )
