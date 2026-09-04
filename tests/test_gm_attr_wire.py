@@ -15,6 +15,7 @@ module does not claim to have answered.
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import struct
 import sys
@@ -29,6 +30,7 @@ from pirateforce_foundation.gm import login_mask
 from pirateforce_foundation.gm.attr_wire import LOGIN_SOURCED_ROWS
 from pirateforce_foundation.gm.attr_wire import (
     AC_ATTR_ID,
+    ALT_HP_PAIR_ROWS,
     BY_NAME,
     BY_X,
     DB_ATTRIBUTE_IDENTITY_BIT,
@@ -37,11 +39,15 @@ from pirateforce_foundation.gm.attr_wire import (
     LOGIN_BYTES_READ_POINT,
     SEED_CAPTURED_CONSOLE_TOKEN,
     SEED_REFUSED_CONSOLE_TOKEN,
+    SELECTOR_COMPARED_VALUE,
+    SELECTOR_ROW_X,
+    SELECTOR_STANDDOWN_CONSOLE_TOKEN,
     SENSITIVE_FIELDS,
     UPDATE_ATTR_VITAL_ID,
     UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
     AttrWireError,
     RawBlockCache,
+    _refuse_selector_change,
     all_field_x,
     build_named_field_update,
     encode_block,
@@ -710,18 +716,41 @@ class VersionGateTests(unittest.TestCase):
         self.assertGreater(len(frame), 0)
 
 
-class _Hooks:
-    """A stand-in for the `lane_hooks` package, with or without either read
-    point (b'') needs: `COO-DECISION 20260904_0047`'s named-value point and
-    `COO-DECISION 20260904_0216`'s login-byte point."""
+#: "answer with whatever byte login sent for x=9" -- a sentinel rather than
+#: a literal, because a typed copy of `_login_values()`'s integer would go
+#: stale the day that helper changes and every test in this file would
+#: quietly become a selector stand-down instead of what it says it tests.
+_SCENE_IS_THE_LOGIN_BYTE = object()
 
-    def __init__(self, values=None, raises=None, login_values=None, login_raises=None):
+
+class _Hooks:
+    """A stand-in for the `lane_hooks` package, with or without any of the
+    three read points (b'') needs: `COO-DECISION 20260904_0047`'s
+    named-value point, `COO-DECISION 20260904_0216`'s login-byte point, and
+    `COO-DECISION 20260904_0846`'s current-scene point."""
+
+    def __init__(
+        self,
+        values=None,
+        raises=None,
+        login_values=None,
+        login_raises=None,
+        scene=_SCENE_IS_THE_LOGIN_BYTE,
+        scene_raises=None,
+    ):
         self._values = values
         self._raises = raises
         self._login_values = login_values
         # Defaults to `raises` so a caller testing "the whole world is
         # broken" does not have to say so twice.
         self._login_raises = raises if login_raises is None else login_raises
+        # `scene` DEFAULTS TO THE VALUE `_login_values()` PUTS ON x=9, not
+        # to an arbitrary number: `COO-DECISION 20260904_0846` item 1's
+        # change fence refuses a scene that differs from the login byte, so
+        # a default that differed would turn every unrelated test in this
+        # file into a selector stand-down and hide what it was testing.
+        self._scene = scene
+        self._scene_raises = scene_raises
 
     def current_named_attr_values(self, character_id):
         if self._raises is not None:
@@ -732,6 +761,13 @@ class _Hooks:
         if self._login_raises is not None:
             raise self._login_raises
         return self._login_values
+
+    def current_session_scene_id(self, character_id):
+        if self._scene_raises is not None:
+            raise self._scene_raises
+        if self._scene is _SCENE_IS_THE_LOGIN_BYTE:
+            return _login_values()[SELECTOR_ROW_X]
+        return self._scene
 
 
 class _NoReadPointHooks:
@@ -1111,6 +1147,210 @@ class LiveFullBlockValuesTests(unittest.TestCase):
         # names the property in one place a reader does not have to derive.
         self.assertEqual(set(named_field_x()) & set(unnamed_field_x()), set())
         self.assertEqual(set(named_field_x()) | set(unnamed_field_x()), set(all_field_x()))
+
+
+class SelectorRowIsTheCurrentSceneTests(unittest.TestCase):
+    """`COO-DECISION 20260904_0846` item 1 -- option (b) and its two fences.
+
+    The decision names two mutants by hand and asks for both to go red:
+    x=9 carrying the OLD (login) scene, and x=9 == 8 with no x=52/x=53.
+    Both are here, plus the refusals that hold the door shut today.
+    """
+
+    def setUp(self):
+        self.legacy = _shared_legacy()
+
+    def _hooks(self, **kwargs):
+        return _Hooks(_complete_values(), login_values=_login_values(), **kwargs)
+
+    # -- fence (b): x=9 is the CURRENT scene, or there is no frame ---------
+
+    def test_the_only_x9_that_can_ship_today_is_the_login_byte(self):
+        # ~~test_the_block_carries_the_current_scene_not_the_login_byte~~ --
+        # RENAMED, not deleted, by pf-adversary round `y6j1mn` (D1,
+        # MEASURED).  The old name said "not the login byte" while its
+        # assertion said "the login byte", which is this house's scar for a
+        # card whose name and check disagree.  What the code actually does:
+        # `_refuse_selector_change` raises unless the current scene EQUALS
+        # the login byte, so the assignment that follows is a
+        # self-assignment and the login byte is the only value that can
+        # reach a frame.  This card pins that TRUTH, so the day the lane
+        # re-routes x=9 to its own source (which is what `COO-DECISION
+        # 20260904_0846` item 1 actually asks for), this card goes red and
+        # has to be rewritten deliberately rather than drifting.
+        combined = live_full_block_values(
+            7, hooks=self._hooks(), legacy=self.legacy,
+        )
+        self.assertEqual(
+            combined[SELECTOR_ROW_X], _login_values()[SELECTOR_ROW_X],
+        )
+
+    def test_D2_the_named_field_door_is_NOT_behind_either_fence(self):
+        # pf-adversary round `y6j1mn`, D2, MEASURED -- pinned as a KNOWN
+        # HOLE, not as a property anyone wants.  `build_named_field_update`
+        # composes from the cache and never calls `live_full_block_values`,
+        # so a cache seeded at the login scene keeps composing frames with
+        # that scene on the selector after the session has moved, silently.
+        # The card exists so the hole cannot be forgotten: when the next
+        # round moves the fences to `make_update_attr_frame`, this goes red.
+        import inspect
+        source = inspect.getsource(build_named_field_update)
+        self.assertNotIn("live_full_block_values", source)
+        self.assertNotIn("live_current_scene", source)
+
+    def test_D3_the_selector_row_is_never_an_override_a_caller_picks(self):
+        # pf-adversary round `y6j1mn`, D3, MEASURED: `overrides` is applied
+        # AFTER the fences run, and x=9 is in the login set, so before this
+        # refusal `overrides={9: 5}` composed a real 129-byte frame.
+        hooks = self._hooks()
+        with self.assertRaises(login_mask.LoginMaskError) as caught:
+            login_mask.build_login_shaped_frame(
+                self.legacy, 7, 1, 0, {SELECTOR_ROW_X: 5}, hooks=hooks,
+                shape=login_mask.admitted_masks(self.legacy)[0],
+            )
+        self.assertIn(f"x={SELECTOR_ROW_X}", str(caught.exception))
+
+    def test_D7_a_non_int_identity_still_raises_the_named_error(self):
+        # pf-adversary round `y6j1mn`, D7, MEASURED: the console label used
+        # to be an f-string built at the call site, outside the print
+        # helper's guard, so a str identity raised a bare ValueError that no
+        # `except AttrWireError` handler catches.  A diagnostic may never
+        # change the exception a door raises.
+        values = dict(_complete_values())
+        values.update(_login_values())
+        values = {x: values[x] for x in login_mask.login_field_x(self.legacy)}
+        values[SELECTOR_ROW_X] = SELECTOR_COMPARED_VALUE
+        for identity in ("0x11", None):
+            with self.subTest(identity_lo=identity):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(AttrWireError):
+                        make_update_attr_frame(self.legacy, identity, 0x22, values)
+
+    def test_MUTANT_x9_carrying_the_old_login_scene_is_red(self):
+        # `COO-DECISION 20260904_0846` item 1, mutant (a): the player has
+        # walked into scene 14, the login byte still says scene 1.  A frame
+        # built from the login byte would carry a scene the session left --
+        # exactly what option (a) would have allowed and (b) forbids.
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(
+                7, hooks=self._hooks(scene=14), legacy=self.legacy,
+            )
+        self.assertIn("selector_would_change", str(caught.exception))
+
+    def test_no_current_scene_read_point_refuses_and_never_falls_back(self):
+        # THE SHIPPED WORLD.  The refusal must name the missing point, and
+        # must NOT be a quiet fallback to the login byte -- that fallback is
+        # option (a), which `0846` rejected outright.
+        class _NoScene:
+            current_named_attr_values = staticmethod(
+                lambda character_id: _complete_values())
+            current_login_attr_bytes = staticmethod(
+                lambda character_id: _login_values())
+
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(7, hooks=_NoScene(), legacy=self.legacy)
+        self.assertIn("no_current_scene_read_point", str(caught.exception))
+
+    def test_the_scene_hook_raising_is_a_refusal_not_a_traceback(self):
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(
+                7,
+                hooks=self._hooks(scene_raises=RuntimeError("boom")),
+                legacy=self.legacy,
+            )
+        self.assertIn("current_scene_read_point_raised_RuntimeError",
+                      str(caught.exception))
+
+    def test_a_scene_that_is_not_a_u16_is_refused(self):
+        for bad in (True, -1, 0x10000, "1", 1.0, None):
+            with self.subTest(scene=bad):
+                with self.assertRaises(AttrWireError) as caught:
+                    live_full_block_values(
+                        7, hooks=self._hooks(scene=bad), legacy=self.legacy,
+                    )
+                # `True` must be refused as a non-int even though Python
+                # says `isinstance(True, int)` -- it would otherwise ship as
+                # scene 1 and look correct.
+                self.assertIn("current_scene_not_a_u16", str(caught.exception))
+
+    def test_the_standdown_prints_one_ascii_console_line(self):
+        # `0846` item 1 asks for a console line with the stand-down.  The
+        # bridge console is cp874, so it must be pure ASCII.
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            with self.assertRaises(AttrWireError):
+                live_full_block_values(
+                    7, hooks=self._hooks(scene=14), legacy=self.legacy,
+                )
+        printed = stream.getvalue()
+        self.assertIn(SELECTOR_STANDDOWN_CONSOLE_TOKEN, printed)
+        self.assertEqual(printed, printed.encode("ascii", "replace").decode())
+
+    # -- fence (2): the value `0846` names by hand, at the wall ------------
+
+    def test_MUTANT_x9_equals_8_without_the_alt_hp_pair_is_red(self):
+        # `COO-DECISION 20260904_0846` item 1, mutant (b).  This one is at
+        # `make_update_attr_frame`, so it catches a caller that hand-built
+        # its dict and never went near `live_full_block_values`.
+        values = dict(_complete_values())
+        values.update(_login_values())
+        values = {x: values[x] for x in login_mask.login_field_x(self.legacy)}
+        values[SELECTOR_ROW_X] = SELECTOR_COMPARED_VALUE
+        self.assertFalse(ALT_HP_PAIR_ROWS <= set(values))
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            with self.assertRaises(AttrWireError) as caught:
+                make_update_attr_frame(self.legacy, 1, 0, values)
+        self.assertIn("selector_row_x9_is_8", str(caught.exception))
+        self.assertIn(SELECTOR_STANDDOWN_CONSOLE_TOKEN, stream.getvalue())
+
+    def test_the_same_shape_with_any_other_scene_value_still_composes(self):
+        # The fence must be the VALUE, not the row: a frame that carries
+        # x=9 at all is not refused, or Door B and `/speed` would be shut by
+        # a fence that was supposed to be narrow.
+        values = dict(_complete_values())
+        values.update(_login_values())
+        values = {x: values[x] for x in login_mask.login_field_x(self.legacy)}
+        values[SELECTOR_ROW_X] = SELECTOR_COMPARED_VALUE + 1
+        pc, frame = make_update_attr_frame(self.legacy, 1, 0, values)
+        self.assertGreater(len(frame), 0)
+
+    def test_the_two_fences_are_not_the_same_fence(self):
+        # A reader (or a future round) merging them would lose exactly one
+        # of the two cases, so the difference is pinned: the wall fence
+        # cannot see a login byte, and the source fence cannot see a
+        # hand-built dict.  8 == 8 passes the CHANGE fence (nothing
+        # changed) and is still refused at the wall.
+        self.assertEqual(
+            _refuse_selector_change(
+                SELECTOR_COMPARED_VALUE, SELECTOR_COMPARED_VALUE, {9: 8}),
+            None,
+        )
+        values = dict(_complete_values())
+        values.update(_login_values())
+        values = {x: values[x] for x in login_mask.login_field_x(self.legacy)}
+        values[SELECTOR_ROW_X] = SELECTOR_COMPARED_VALUE
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(AttrWireError):
+                make_update_attr_frame(self.legacy, 1, 0, values)
+
+    def test_the_alt_hp_pair_being_present_lifts_both_fences(self):
+        # Not reachable through a login shape today; written as a condition
+        # so the fences stop biting on their own the day a login composer
+        # carries x=52/x=53, rather than needing a code change then.
+        self.assertEqual(
+            _refuse_selector_change(14, 1, {9: 1, 52: 0, 53: 0}), None,
+        )
+
+    def test_the_compared_value_is_documented_as_not_the_flip_condition(self):
+        # The one overclaim this round could have shipped: writing
+        # `x9 == 8` and calling it the selector condition. `SELECTOR_NOTE_
+        # R301` says the compare is on `0x430E10(x9)`. If a future edit
+        # deletes that caveat, this goes red.
+        source = (
+            ROOT / "src/pirateforce_foundation/gm/attr_wire.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("THE COMPARE IS ON `0x430E10(x9)`", source)
 
 
 class AdversaryFindingsRound3qh50kTests(unittest.TestCase):

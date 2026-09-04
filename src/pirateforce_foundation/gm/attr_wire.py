@@ -921,6 +921,17 @@ def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: d
     row rebound to a different bit, say.  The mask is the thing the client
     reads, so the mask is the thing this wall compares.
 
+    IT IS ALSO WHERE THE STRUCTURAL HALF OF THE SELECTOR FENCE LIVES
+    (`COO-DECISION 20260904_0846` item 1, added round `y6j1mn`).  The half
+    that carries the weight is in `live_full_block_values` -- it compares
+    the x=9 about to be sent against the value login sent this connection,
+    which is the only comparison this server can make without decoding
+    `0x430E10`.  That one needs a `character_id`, which this function does
+    not have, so what stands here is the narrow, value-named half: x=9 == 8
+    with no x=52/x=53 is refused outright.  Neither fence is sufficient
+    alone; see `SELECTOR_COMPARED_VALUE` for why "x9 == 8" is NOT the flip
+    condition and must never be read as one.
+
     Still not gated on `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` -- same
     separation `state_wire.make_gm_update_state_frame` keeps from its own
     caller-side gate.  That gate answers "may this vital be sent at all";
@@ -942,6 +953,57 @@ def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: d
             "(COO-DECISION 20260904_0545 item 1/2: (b'') is the set production "
             "login itself sets bits for); an unset mask bit is a ZERO on the "
             "client, not 'unchanged' (RE-222 Q0, the mechanism GT-218 measured)"
+        )
+    # -- THE SECOND FENCE, STRUCTURAL (`COO-DECISION 20260904_0846` item 1)
+    # This one needs nothing but `values`, so it is here, at the wall, where
+    # a caller that hand-built a dict and never went near
+    # `live_full_block_values` still meets it.  It is NARROWER than the
+    # change fence that function carries -- it can only catch the one value
+    # `0846` names by hand -- and it is not a substitute for it: see
+    # `SELECTOR_COMPARED_VALUE`, the compare is on `0x430E10(x9)` and this
+    # server cannot evaluate that.  Both fences exist because neither is
+    # sufficient: this one covers a caller the other cannot see, the other
+    # covers values this one cannot name.
+    # WHAT THIS FENCE COSTS AND WHAT IT DOES NOT COVER (pf-adversary round
+    # `y6j1mn`, D4, MEASURED), because `0846` demanded the value by hand and
+    # this lane owes the sentence rather than the silence:
+    #   * NAMED FALSE POSITIVE: scene 8 is a real scene -- `scene_catalog`
+    #     says `is_known_scene_id(8)` is True and names it `Silver Harbour`.
+    #     A player standing there is refused this door permanently, for a
+    #     reason this repository cannot evidence.
+    #   * NAMED FALSE NEGATIVE: every other scene whose `0x430E10` result is
+    #     8 sails straight past, which is the hazard the fence is named for.
+    # So this is a check on an INPUT, not coverage of the condition, and
+    # `SELECTOR_NOTE_R301` already struck out one draft for reasoning about
+    # scene 8 as if the mapping were known.  It is kept because `0846` named
+    # it by hand; the second clause is dead (D5, see `_refuse_selector_
+    # change`), so in practice it is `values.get(9) == 8` alone.
+    if (
+        values.get(SELECTOR_ROW_X) == SELECTOR_COMPARED_VALUE
+        and not ALT_HP_PAIR_ROWS <= set(values)
+    ):
+        # `(identity_lo, identity_hi)` RAW, NOT PRE-FORMATTED (pf-adversary
+        # round `y6j1mn`, D7, MEASURED): the first draft built the label with
+        # an f-string `{identity_lo:#010x}` at THIS call site, outside
+        # `_print_seed_line`'s try/except -- so a caller passing a str or
+        # None identity got a bare `ValueError`/`TypeError` instead of the
+        # named `AttrWireError` below, and every `except AttrWireError`
+        # handler in this lane missed it.  A diagnostic may never change the
+        # exception a door raises.  It also printed `character_id='identity=
+        # ...'`, which is not a character id.
+        _print_seed_line(
+            sys.stderr,
+            SELECTOR_STANDDOWN_CONSOLE_TOKEN,
+            (identity_lo, identity_hi),
+            f"x9_is_{SELECTOR_COMPARED_VALUE}_without_alt_hp_pair",
+        )
+        raise AttrWireError(
+            f"selector_row_x9_is_{SELECTOR_COMPARED_VALUE}: this frame would "
+            f"put {SELECTOR_COMPARED_VALUE} on the HP-pair selector while "
+            "x=52/x=53 carry no mask bit, so if the client's 0x430E10 maps it "
+            "to the alternate pair it reads HP 0/0 (SELECTOR_NOTE_R301; "
+            "GT-218's symptom) -- COO-DECISION 20260904_0846 item 1 names "
+            "this value as a stand-down by hand"
         )
     body, basic_mask, actor_mask = encode_block(legacy, identity_lo, identity_hi, values)
     login_mask.refuse_unless_login_shaped(legacy, basic_mask, actor_mask)
@@ -1035,6 +1097,57 @@ LOGIN_BYTES_READ_POINT = "current_login_attr_bytes"
 # reported as a bug on `/warp`, and this lane does not get to repeat it.
 SEED_REFUSED_CONSOLE_TOKEN = "GM_ATTR_SEED_REFUSED"
 SEED_CAPTURED_CONSOLE_TOKEN = "GM_ATTR_SEED_CAPTURED"
+
+# The name of chief's THIRD read point -- "which scene is this session
+# standing in RIGHT NOW", ordered by `COO-DECISION 20260904_0846` item 1,
+# and NOT BUILT YET under any name.  `0846` names the source exactly:
+# "chief's session, the same read point `/warp` uses" -- and `/warp` does
+# not use a read point at all today, it takes `current_scene_id` as a plain
+# parameter of `warp_executor.make_warp_force_pos_frame_with_target`,
+# supplied by THIS LANE's own `chat_command_action.py` from
+# `_current_position(session)`.
+#
+# ~~`gm/warp_executor.execute_warp`~~ -- struck: pf-adversary round
+# `y6j1mn` (D6, MEASURED) grepped the whole repository and that function
+# does not exist under that name anywhere.  It was typed from memory into
+# this comment and into `CORE-REQUEST-GM-054`, which is the house's scar
+# for citing a symbol nobody re-derived.
+#
+# WHICH FIELD THE HOOK MUST READ, which `0846`'s wording does not settle
+# and this lane's OWN file already answers (`gm/chat_command_action.py`,
+# the provenance block at `same_scene_with_basis`): `session.foundation.
+# selected.position.scene_id` is the SERVER'S BELIEF, rewritten to a
+# cross-scene warp's DESTINATION at queue time with nothing from the client
+# confirming arrival.  Chief landed a strictly better pair in R328 --
+# `session.client_confirmed_scene`, guarded by
+# `session.scene_label_is_server_guess`.  A hook wired to the weaker field
+# would put a GUESSED scene id on the row this module calls the HP-pair
+# selector.  `CORE-REQUEST-GM-054` asks for the guarded pair by name.
+#
+# Spelled once here for the same reason the other two constants are: a test
+# can pin the name this lane waits on without importing a module that does
+# not exist.
+CURRENT_SCENE_READ_POINT = "current_session_scene_id"
+
+# The selector row itself, and the alternate HP pair it can select.
+# Spelled as names rather than literals so the two fences below read as what
+# they are; the numbers are `FIELDS` rows 9, 52 and 53 (`SELECTOR_NOTE_R301`).
+SELECTOR_ROW_X = 9
+ALT_HP_PAIR_ROWS = frozenset({52, 53})
+
+# The value `SELECTOR_NOTE_R301` records the client comparing against --
+# and the one honest sentence about it: THE COMPARE IS ON `0x430E10(x9)`,
+# NOT ON x9.  8 is what the RESULT of an undecoded function is compared
+# with, so "x9 == 8" is NOT the flip condition; it is one input this house
+# has no reason to believe is safe and a value `COO-DECISION 20260904_0846`
+# item 1 names by hand as a mutant that must go red.  The fence that
+# actually carries the weight is `_refuse_selector_change` (below), which
+# does not need to decode `0x430E10` at all.  Anyone tempted to read this
+# constant as "the flip condition": it is not, and the two fences are
+# deliberately separate so that stays visible.
+SELECTOR_COMPARED_VALUE = 8
+
+SELECTOR_STANDDOWN_CONSOLE_TOKEN = "GM_ATTR_SELECTOR_STANDDOWN"
 
 
 def named_field_x() -> tuple:
@@ -1288,6 +1401,125 @@ def live_login_bytes(character_id, *, hooks=None, wanted=None) -> dict:
     return seeded
 
 
+def live_current_scene(character_id, *, hooks=None) -> int:
+    """The scene this session is standing in RIGHT NOW, or a named refusal.
+
+    THE THIRD SOURCE (`COO-DECISION 20260904_0846` item 1, which chose
+    option (b) over option (a)): x=9 must carry the session's scene AT SEND
+    TIME, not the value login happened to write months of walking ago.
+    Unreadable is a REFUSAL, never a fallback to the login byte -- that
+    fallback is precisely option (a), which `0846` rejected.
+
+    Resolved lazily and by name for the same three reasons the other two
+    read points are (`live_named_values`): no import of a module that may
+    not exist, a hook may never take dispatch down, and a test can inject.
+
+    NOT BUILT YET ON A REAL BOOT.  `lane_hooks` has no
+    `current_session_scene_id`, so today this refuses on every real boot
+    exactly like `live_login_bytes` does, and every door above it stands
+    down.  That is the shipped outcome and it is the correct one: `0846`
+    says in as many words "if the current-scene read point has no name yet,
+    raise at the door first and name the hook you want in the round file".
+    `CORE-REQUEST-GM-054` is that name.
+    """
+    if hooks is None:
+        try:
+            from .. import lane_hooks as hooks  # noqa: PLC0415 - see live_named_values
+        except Exception as error:  # noqa: BLE001 - any import failure is a refusal
+            raise AttrWireError(
+                f"no_current_scene_read_point: lane_hooks is unimportable "
+                f"({type(error).__name__})"
+            ) from None
+    read_point = getattr(hooks, CURRENT_SCENE_READ_POINT, None)
+    if not callable(read_point):
+        raise AttrWireError(
+            f"no_current_scene_read_point: lane_hooks."
+            f"{CURRENT_SCENE_READ_POINT} does not exist yet (ordered by "
+            "COO-DECISION 20260904_0846 item 1, asked for by "
+            "CORE-REQUEST-GM-054) -- x=9 may not fall back to the login "
+            "byte, which is the option that decision rejected"
+        )
+    try:
+        scene = read_point(character_id)
+    except Exception as error:  # noqa: BLE001 - a hook may never take dispatch down
+        raise AttrWireError(
+            f"current_scene_read_point_raised_{type(error).__name__}"
+        ) from None
+    # `bool` is an `int` in Python and `True` would sail through a plain
+    # isinstance check as scene 1.  A scene id is a u16 because that is the
+    # width `FIELDS` row 9 encodes (`tag 0x12`), and a value that does not
+    # fit is a source bug, not a frame to send.
+    if type(scene) is not int or not (0 <= scene <= 0xFFFF):
+        raise AttrWireError(
+            f"current_scene_not_a_u16: the current-scene read point returned "
+            f"{scene!r} ({type(scene).__name__}); x=9 encodes as a u16"
+        )
+    return scene
+
+
+def _refuse_selector_change(current_scene: int, login_scene, rows) -> None:
+    """The fence `COO-DECISION 20260904_0846` item 1 adds, in the shape that
+    can actually be evaluated on this side of the wire.
+
+    THE PROBLEM IT SOLVES.  x=9 selects which HP pair the client reads
+    (`SELECTOR_NOTE_R301`, [PROVEN in-repo]): the client passes x=9 to
+    `0x430E10` and compares the RESULT with 8; if it matches, HP comes from
+    x=52/x=53 instead of the usual pair.  x=52/x=53 are NOT in any login
+    shape this server composes, so under (b'') their mask bits are unset and
+    an unset bit is a ZERO on the client (`RE-222` Q0).  A frame that flips
+    the selector therefore hands the client HP `0/0` -- `GT-218`'s symptom
+    arriving through the gate built to stop it.
+
+    WHY IT IS NOT WRITTEN AS `0x430E10(x9) == 8`.  `0x430E10` IS NOT
+    DECODED.  This server cannot evaluate the condition for any input, so a
+    fence written as the condition would be a fence written as a guess.
+    What this house CAN say without decoding anything: the client has
+    already survived the selector value LOGIN sent this connection -- every
+    day, on every login, measured (`LANE-GM 20260904_0505`).  So a frame
+    that repeats that value cannot flip anything, whatever `0x430E10` does
+    with it, and a frame that CHANGES it is a frame nobody can vouch for.
+    The fence is that comparison, and it needs no image at all.
+
+    The honest cost, stated rather than hidden: this refuses the legitimate
+    case too -- a player who walked into another scene has a current scene
+    that differs from the login byte, and this door will stand down for them
+    until x=52/x=53 can ride along (which (b'') forbids: they are not in the
+    login mask) or until `0x430E10` is decoded and the condition can be
+    evaluated for real.  That is a narrower door than `0846` had to grant,
+    and it is deliberate: `0846` item 2 accepted the price of (b'') for 18
+    named rows, and this is the same price for one more.  The RE that lifts
+    it is the `RE-222` follow-up `0846` names ("frame property or actor
+    property"), not a guess made here.
+
+    `login_scene` is `None` when the login byte for x=9 was not available
+    for this compose -- which is a refusal too, for the same reason: with no
+    value the client is known to have survived, there is nothing to compare
+    against.
+    """
+    if current_scene == login_scene:
+        return
+    if ALT_HP_PAIR_ROWS <= set(rows):
+        # NEVER EXECUTED, AND CANNOT BE (pf-adversary round `y6j1mn`, D5,
+        # MEASURED: instrumented and taken 0 times across three suites).
+        # x=52/x=53 are in neither admitted login shape, and
+        # `make_update_attr_frame` refuses any key set that is not one of
+        # those two -- so this branch is dead in production as well as in
+        # test, and the fence reduces to its first clause.  Labelled rather
+        # than deleted so the next reader does not mistake it for a tested
+        # path: it is intent for the day a login composer carries the pair,
+        # not coverage of anything today.
+        return
+    raise AttrWireError(
+        "selector_would_change: x=9 (the HP-pair selector, "
+        f"SELECTOR_NOTE_R301) would go from {login_scene!r} (the value login "
+        f"sent this connection, which the client is measured to survive) to "
+        f"{current_scene!r}, and x=52/x=53 are not in this connection's login "
+        "set, so if the change selects the alternate pair the client reads "
+        "HP 0/0 -- 0x430E10 is not decoded, so this server cannot prove it "
+        "does not (COO-DECISION 20260904_0846 item 1)"
+    )
+
+
 #: Rows whose value must be THE ONE LOGIN SENT THIS CONNECTION, never a
 #: typed column and never a constant -- `COO-DECISION 20260904_0545` item 2
 #: names them by hand: "x=9 and x=10 from the session, the value login sent;
@@ -1311,8 +1543,14 @@ def live_login_bytes(character_id, *, hooks=None, wanted=None) -> dict:
 #: with the live scene flip the selector, and the alternate pair it selects
 #: (x=52/x=53) is NOT in the login set -- so the client would read HP from
 #: two bits nothing set, i.e. `0/0` on the HUD.  That is `GT-218`'s symptom
-#: arriving through the gate built to stop it.  The residual risk is written
-#: up in `pf_bridge/notes_to_chief/20260904_0752_LANE-GM-ASK-COO-*`.
+#: arriving through the gate built to stop it.  ~~The residual risk is
+#: written up in `pf_bridge/notes_to_chief/20260904_0752_LANE-GM-ASK-COO-*`~~
+#: -- ANSWERED 2026-09-04 by `COO-DECISION 20260904_0846` item 1, which
+#: chose option (b): x=9 must be the session's CURRENT scene at send time.
+#: So x=9's membership here is now about the COMPARISON, not about the byte
+#: that ships: `live_full_block_values` still fetches the login byte through
+#: this routing, hands it to `_refuse_selector_change`, and then REPLACES it
+#: with the current scene.  The login byte no longer reaches a frame.
 LOGIN_SOURCED_ROWS = frozenset({9, 10, 11})
 
 
@@ -1368,6 +1606,15 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     back to a set nobody measured.  It is keyword-optional only so that the
     out-of-zone callers in `tests/test_live_named_attr_values.py` keep
     getting the refusal they assert on rather than a `TypeError`.
+
+    THIRD SOURCE, ADDED ROUND `y6j1mn` (`COO-DECISION 20260904_0846` item
+    1): when the requested rows include x=9, the block that leaves here
+    carries the session's CURRENT scene on it, read from
+    `CURRENT_SCENE_READ_POINT`, and the login byte for that row survives
+    only as the thing `_refuse_selector_change` compares against.  Both the
+    unreadable-scene refusal and the fence refusal are `AttrWireError` --
+    the same all-or-nothing contract as the other two sources, so a caller
+    that already handles "the block could not be built" needs no new branch.
     """
     if rows is None and legacy is None:
         raise AttrWireError(
@@ -1386,6 +1633,55 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
         "live_full_block_values internal invariant broken: the two sources "
         "must partition the login set exactly"
     )
+    # -- THE SELECTOR FENCE (`COO-DECISION 20260904_0846` item 1) ----------
+    # READ THIS BEFORE BUILDING ON IT.  pf-adversary round `y6j1mn` measured
+    # what this block actually does, and it is NARROWER than the decision
+    # asked for.  Written out rather than fixed in the same breath because
+    # the honest fix is a re-routing this round did not have the lock left
+    # to do; `LANE-GM 20260904_1055` carries the findings and the next
+    # round of this lane takes them as its first work item.
+    #
+    # ~~What leaves here is the CURRENT scene; the login byte never reaches
+    # a frame again.~~ -- STRUCK, D1 [MEASURED]: `_refuse_selector_change`
+    # raises unless `current_scene == login_scene`, so the assignment below
+    # is only ever reached when the two are ALREADY equal.  It is a
+    # self-assignment.  The byte that ships is the login byte, every time.
+    # Deleting the assignment keeps 296 tests green (measured).  So this
+    # block is not option (b); it is option (a) PLUS A REFUSAL for the
+    # players option (b) would have made a difference to.  The re-routing
+    # that makes it option (b) for real: x=9 becomes its own source group in
+    # `split_sources`, built from `live_current_scene` and never fetched
+    # from the login hook at all.
+    #
+    # ~~`build_named_field_update` and `login_mask.build_login_shaped_frame`
+    # are both callers of this function~~ -- STRUCK, D2 [MEASURED]:
+    # `build_named_field_update` composes from `RawBlockCache` and does NOT
+    # call this function, so NEITHER fence is on it.  Measured end to end: a
+    # cache seeded at login scene 3, a current-scene hook then answering 5,
+    # and that door composed a 129-byte 0x309A frame carrying 3 on the
+    # selector, with no console line -- which is verbatim the mutant `0846`
+    # item 1 named.  The fences belong at `make_update_attr_frame`, the one
+    # wall every composer passes, with the login x=9 handed in; that is the
+    # same reasoning `0345` used to move the (b'') raise there, and this
+    # round did not follow it.
+    #
+    # The login byte is still fetched, and IS what ships (see D1).  x=9
+    # stays in `LOGIN_SOURCED_ROWS` for that reason.
+    if SELECTOR_ROW_X in combined:
+        try:
+            current_scene = live_current_scene(character_id, hooks=hooks)
+            _refuse_selector_change(
+                current_scene, combined[SELECTOR_ROW_X], combined
+            )
+        except AttrWireError as error:
+            _print_seed_line(
+                sys.stderr,
+                SELECTOR_STANDDOWN_CONSOLE_TOKEN,
+                character_id,
+                str(error),
+            )
+            raise
+        combined[SELECTOR_ROW_X] = current_scene
     return combined
 
 

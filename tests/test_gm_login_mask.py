@@ -436,16 +436,28 @@ class _NoHooks:
 
 
 class _Hooks:
-    def __init__(self, named=None, login=None, masks=None):
+    def __init__(self, named=None, login=None, masks=None, scene=None):
         self._named = named or {}
         self._login = login or {}
         self._masks = masks
+        # `COO-DECISION 20260904_0846` item 1: x=9 now comes from the
+        # session's CURRENT scene, and a scene that differs from the login
+        # byte is a stand-down.  Defaulting to the login byte for x=9 keeps
+        # every test in this file testing what its name says instead of
+        # turning into a selector refusal; the selector fences themselves
+        # are pinned in `tests/test_gm_attr_wire.py`, where they live.
+        self._scene = scene
 
     def current_named_attr_values(self, character_id):
         return dict(self._named)
 
     def current_login_attr_bytes(self, character_id):
         return dict(self._login)
+
+    def current_session_scene_id(self, character_id):
+        if self._scene is not None:
+            return self._scene
+        return self._login[attr_wire.SELECTOR_ROW_X]
 
     def current_login_attr_masks(self, character_id):
         if self._masks is None:

@@ -918,7 +918,8 @@ class HitFrameDoorBTests(unittest.TestCase):
             else:
                 setattr(self.attr_wire, name, previous)
 
-    def _compose(self, hp_after=90, hook=None, cache=-1, login_hook=None):
+    def _compose(self, hp_after=90, hook=None, cache=-1, login_hook=None,
+                 scene_hook=None):
         """Run the door, capturing stdout, and return `(result, console)`.
 
         `login_hook` is NEW 2026-09-04 (`COO-DECISION 20260904_0847`): the
@@ -934,6 +935,21 @@ class HitFrameDoorBTests(unittest.TestCase):
             setattr(module, self.door.LIVE_ATTR_VALUES_HOOK_ATTR, hook)
         if login_hook is not None:
             setattr(module, self.attr_wire.LOGIN_BYTES_READ_POINT, login_hook)
+        # `scene_hook` is NEW 2026-09-04 (`COO-DECISION 20260904_0846` item
+        # 1, landed out of zone by LANE-GM round `y6j1mn` and declared by
+        # letter): x=9 now carries the session's CURRENT scene, read through
+        # `attr_wire.CURRENT_SCENE_READ_POINT`, and a scene that DIFFERS
+        # from the login byte for x=9 is a deliberate stand-down.  So the
+        # default here is derived from `login_hook`'s own answer rather than
+        # typed: a card that wants to test the selector fence passes
+        # `scene_hook` explicitly, and every other card keeps testing what
+        # its name says instead of turning into a selector refusal.
+        if scene_hook is None and login_hook is not None:
+            def scene_hook(character_id, _login=login_hook):
+                return _login(character_id).get(
+                    self.attr_wire.SELECTOR_ROW_X)
+        if scene_hook is not None:
+            setattr(module, self.attr_wire.CURRENT_SCENE_READ_POINT, scene_hook)
         if cache == -1:
             cache = self.attr_wire.RawBlockCache()
         buffer = io.StringIO()
