@@ -79,6 +79,33 @@ scenario loads through an exact allowlist, and with no scenario handed in the
 dispatch branch does not exist: nothing in default mode composes one byte of
 this.  ``database_write`` is ``none`` -- learned skills have no table, and
 this lane deliberately does not open one.
+
+[UPDATE, round fv5xnu's finding + COO-DECISION 20260904_2154]: GT-116
+(closed PASS 2026-08-28) proved the skill window (K) OPENS for a class_id=1
+level=1 character with 0 entries -- but no ticket ever asked whether the
+window's CONTENT tracks anything this lane sends.  The five steps above
+answer "does the client accept/render ANYTHING" with arbitrary,
+tellable-apart probe values (1000001, 0xFFFFFFFF, ...) deliberately chosen
+to NOT be real game data.  The sixth step added by this update,
+``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``, exists to ask the narrower,
+content-shaped question the letter approved: sent to the SAME class_id=1/
+level=1 character GT-116 already proved opens the window, does it populate
+with the 4 starting-kit skill ids ``class_catalog.starting_skill_ids(1)``
+names for that class (111, 40000, 99, 110 -- VIP Strive Jump, Gladiator
+Basic Training, Normal Attack, Strive Jump -- per ``skill_catalog.py``)?
+
+  * The record member semantics are STILL not known (see the NONCLAIMS
+    above -- this update does not resolve them).  Each of this step's four
+    records carries the SAME real skill id in all three wire positions
+    (``record_u32_0 == record_u16_4 == record_u32_8 == skill_id``)
+    precisely BECAUSE the position that means "skill id", if any, is
+    unproven: this way an attended tester does not need to guess which
+    field the client reads before judging the on-screen result.
+  * This step does not claim class_id=1's starting kit is the only thing
+    worth trying, does not claim the trailing byte matters here (0, matching
+    the other steps' TRAIL0 half -- no TRAIL1 companion is sent for this
+    step because its purpose is content, not isolating the trailing byte),
+    and does not claim anything about a class other than 1.
 """
 
 from __future__ import annotations
@@ -88,6 +115,8 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+
+from .class_catalog import starting_skill_ids as _class_starting_skill_ids
 
 
 LEARN_SKILL_RESULT_CHECKPOINT = "LEARN-SKILL-RESULT-001"
@@ -195,12 +224,30 @@ LEARN_SKILL_RESULT_RECORD_MAX = LearnSkillResultRecord(
 )
 LEARN_SKILL_RESULT_RECORD_B = LearnSkillResultRecord(0x12345678, 0x1234, 0x60606060)
 
-# Five frames per accepted trigger: the count=0 edge with trailing 0, then
+# The class_id GT-116 already proved opens the skill window at level 1, and
+# the class's own 4 starting-kit skill ids (class_catalog.starting_skill_ids
+# order: s_SKILL_1..4) -- real game data, not tellable-apart probe values.
+# See the module docstring's [UPDATE, round fv5xnu's finding] paragraph.
+LEARN_SKILL_RESULT_REAL_SKILL_CLASS_ID = 1
+LEARN_SKILL_RESULT_REAL_SKILL_IDS: tuple[int, ...] = _class_starting_skill_ids(
+    LEARN_SKILL_RESULT_REAL_SKILL_CLASS_ID
+)
+# Each record repeats its skill id in all three wire positions -- the
+# position that means "skill id", if any, is unproven, so this removes the
+# need to guess which field the client reads.
+LEARN_SKILL_RESULT_STEP_REAL_SKILL_ID_RECORDS: tuple[LearnSkillResultRecord, ...] = tuple(
+    LearnSkillResultRecord(skill_id, skill_id, skill_id)
+    for skill_id in LEARN_SKILL_RESULT_REAL_SKILL_IDS
+)
+
+# Six frames per accepted trigger: the count=0 edge with trailing 0, then
 # count=1 with trailing 0, then the SAME count=1 body with only the trailing
 # byte moved to 1 (isolating the one unexplained byte), then the count=3
 # multi-record body with varied values under trailing 0 and again under
-# trailing 1.  Both trailing values appear -- on the count=1 and count=3
-# bodies -- because the byte's meaning is unknown.
+# trailing 1 (both trailing values appear -- on the count=1 and count=3
+# bodies -- because the byte's meaning is unknown), then the count=4 body
+# of real class_id=1 starting-kit skill ids under trailing 0 (content
+# question, not trailing-byte isolation -- see the module docstring).
 LEARN_SKILL_RESULT_STEPS = (
     ("COUNT0_TRAIL0", (), 0),
     ("COUNT1_TRAIL0", (LEARN_SKILL_RESULT_RECORD_A,), 0),
@@ -222,6 +269,11 @@ LEARN_SKILL_RESULT_STEPS = (
             LEARN_SKILL_RESULT_RECORD_B,
         ),
         1,
+    ),
+    (
+        "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0",
+        LEARN_SKILL_RESULT_STEP_REAL_SKILL_ID_RECORDS,
+        0,
     ),
 )
 LEARN_SKILL_RESULT_STEP_ORDER = tuple(
@@ -262,6 +314,9 @@ LEARN_SKILL_RESULT_PROBE_PAYLOAD_SHA256 = {
     "COUNT3_TRAIL1": (
         "E249658720DCE4D6CBE6E26A9400336D13FBBCEF8AE91FC759EBCD8A82009FEB"
     ),
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": (
+        "CA5817A938C0A142EFC3B6A51CA88CF77AD1CCDF3240FF89C46762EFA34266ED"
+    ),
 }
 LEARN_SKILL_RESULT_PROBE_PC_SHA256 = {
     "COUNT0_TRAIL0": (
@@ -278,6 +333,9 @@ LEARN_SKILL_RESULT_PROBE_PC_SHA256 = {
     ),
     "COUNT3_TRAIL1": (
         "6707ED55E005B1A7BA79BCCAF9CD32908E5A215BE17DAC02D0DAFCB6A9119479"
+    ),
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": (
+        "3814DBDBF889430547BB39801933DB95E010E97D7C9B06883778424A6DD06D90"
     ),
 }
 LEARN_SKILL_RESULT_PROBE_FRAME_SHA256 = {
@@ -296,6 +354,9 @@ LEARN_SKILL_RESULT_PROBE_FRAME_SHA256 = {
     "COUNT3_TRAIL1": (
         "C445872E4EA632567B85D06001CE951532F42B0FA058DAC9DA40CF5E60612D87"
     ),
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": (
+        "74499AB968A42AAD326CACCF0E9A99BA1D2CF489EA90C513F3E64631D7CBE136"
+    ),
 }
 LEARN_SKILL_RESULT_PROBE_PAYLOAD_SIZE = {
     "COUNT0_TRAIL0": 5,
@@ -303,6 +364,7 @@ LEARN_SKILL_RESULT_PROBE_PAYLOAD_SIZE = {
     "COUNT1_TRAIL1": 18,
     "COUNT3_TRAIL0": 44,
     "COUNT3_TRAIL1": 44,
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": 57,
 }
 LEARN_SKILL_RESULT_PROBE_PC_SIZE = {
     "COUNT0_TRAIL0": 27,
@@ -310,6 +372,7 @@ LEARN_SKILL_RESULT_PROBE_PC_SIZE = {
     "COUNT1_TRAIL1": 40,
     "COUNT3_TRAIL0": 66,
     "COUNT3_TRAIL1": 66,
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": 79,
 }
 LEARN_SKILL_RESULT_PROBE_FRAME_SIZE = {
     "COUNT0_TRAIL0": 37,
@@ -317,6 +380,7 @@ LEARN_SKILL_RESULT_PROBE_FRAME_SIZE = {
     "COUNT1_TRAIL1": 50,
     "COUNT3_TRAIL0": 77,
     "COUNT3_TRAIL1": 77,
+    "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": 90,
 }
 
 
@@ -365,6 +429,25 @@ def _require_step_plan() -> None:
     if LEARN_SKILL_RESULT_RECORD_ZERO not in multi:
         raise RuntimeError(
             "HYP-PF-033 the multi-record step must exercise the all-zero record"
+        )
+    real_ids_label = "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
+    real_ids_records = LEARN_SKILL_RESULT_STEP_RECORDS[real_ids_label]
+    if len(real_ids_records) != len(LEARN_SKILL_RESULT_REAL_SKILL_IDS):
+        raise RuntimeError(
+            "HYP-PF-033 real-skill-id step count drifted from "
+            "class_catalog.starting_skill_ids(1)"
+        )
+    for record, skill_id in zip(
+        real_ids_records, LEARN_SKILL_RESULT_REAL_SKILL_IDS
+    ):
+        if record != LearnSkillResultRecord(skill_id, skill_id, skill_id):
+            raise RuntimeError(
+                "HYP-PF-033 real-skill-id step no longer matches "
+                "class_catalog.starting_skill_ids(1)"
+            )
+    if LEARN_SKILL_RESULT_STEP_TRAILING[real_ids_label] != 0:
+        raise RuntimeError(
+            "HYP-PF-033 the real-skill-id step must send trailing 0"
         )
 
 

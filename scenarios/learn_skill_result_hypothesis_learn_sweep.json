@@ -12,13 +12,14 @@
   "dispatch": {
     "trigger": "accepted_chat_input_frame_exact_ascii12_shape",
     "trigger_classifier": "classify_chat_input_attempt",
-    "frames_per_accepted_request": 5,
+    "frames_per_accepted_request": 6,
     "step_order": [
       "COUNT0_TRAIL0",
       "COUNT1_TRAIL0",
       "COUNT1_TRAIL1",
       "COUNT3_TRAIL0",
-      "COUNT3_TRAIL1"
+      "COUNT3_TRAIL1",
+      "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
     ],
     "step_records": {
       "COUNT0_TRAIL0": [],
@@ -69,6 +70,28 @@
           "record_u16_4": 4660,
           "record_u32_8": 1616928864
         }
+      ],
+      "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": [
+        {
+          "record_u32_0": 111,
+          "record_u16_4": 111,
+          "record_u32_8": 111
+        },
+        {
+          "record_u32_0": 40000,
+          "record_u16_4": 40000,
+          "record_u32_8": 40000
+        },
+        {
+          "record_u32_0": 99,
+          "record_u16_4": 99,
+          "record_u32_8": 99
+        },
+        {
+          "record_u32_0": 110,
+          "record_u16_4": 110,
+          "record_u32_8": 110
+        }
       ]
     },
     "step_trailing_u8": {
@@ -76,7 +99,8 @@
       "COUNT1_TRAIL0": 0,
       "COUNT1_TRAIL1": 1,
       "COUNT3_TRAIL0": 0,
-      "COUNT3_TRAIL1": 1
+      "COUNT3_TRAIL1": 1,
+      "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": 0
     },
     "spacing_seconds": 3.0,
     "first_frame_delay_seconds": 0.0,
@@ -87,7 +111,8 @@
       "HYP_PF_033_LEARN_SKILL_RESULT_COUNT1_TRAIL0",
       "HYP_PF_033_LEARN_SKILL_RESULT_COUNT1_TRAIL1",
       "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL0",
-      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL1"
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL1",
+      "HYP_PF_033_LEARN_SKILL_RESULT_COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
     ],
     "one_shot": false,
     "socket_action": "none"
@@ -159,6 +184,14 @@
         "pc_sha256": "6707ED55E005B1A7BA79BCCAF9CD32908E5A215BE17DAC02D0DAFCB6A9119479",
         "frame_size": 77,
         "frame_sha256": "C445872E4EA632567B85D06001CE951532F42B0FA058DAC9DA40CF5E60612D87"
+      },
+      "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0": {
+        "payload_size": 57,
+        "payload_sha256": "CA5817A938C0A142EFC3B6A51CA88CF77AD1CCDF3240FF89C46762EFA34266ED",
+        "pc_size": 79,
+        "pc_sha256": "3814DBDBF889430547BB39801933DB95E010E97D7C9B06883778424A6DD06D90",
+        "frame_size": 90,
+        "frame_sha256": "74499AB968A42AAD326CACCF0E9A99BA1D2CF489EA90C513F3E64631D7CBE136"
       }
     }
   },
