@@ -420,6 +420,27 @@ def compose_player_hit_frame(
                    "gm.attr_wire.named_field_x(): %r" % (stray,))
         return None
 
+    # [OPEN QUESTION - LANE-B raised, COO to decide] `live`'s KEYS are
+    # adjudicated above and its VALUES are then dropped: the frame below is
+    # composed from the CONNECTION's cache, not from this dict.  So the two
+    # stand-downs above guard data that has no influence on the bytes, and a
+    # hook answering `{3: 0, 4: 0, 24: 0}` - valid keys, false values -
+    # passes every gate here.  That is survivable only while nothing sends.
+    # It matters the moment `MOB_HIT_FRAME_CONFIRMED` becomes an int, because
+    # `build_named_field_update` enforces that the cache is COMPLETE (all 55
+    # rows) and nothing anywhere enforces that it is CURRENT - `capture_
+    # initial` is public and unvalidated - while `RE-222` says every row the
+    # frame carries overwrites the client's own copy.  A stale cache would
+    # then revert a player's cash or HP-max on their screen: GT-218's family
+    # with a stale value where GT-218 had a zero.  Found by pf-adversary
+    # round yq5gzr (D6); asked in `pf_bridge/notes_to_chief/20260904_0800_
+    # LANE-B-ASK-COO-door-b-validates-live-values-then-ships-the-cache.md`.
+    # NOT
+    # decided here, and deliberately not "fixed" by having this door compose
+    # from `live` instead: which of the two sources is the player's real
+    # state is a design question above this lane's pay grade, and the door
+    # sends nothing today either way.
+
     # -- compose, through the ONE encoder 0045 names -----------------------
     try:
         rows = hit_frame_vital_rows()
@@ -429,9 +450,18 @@ def compose_player_hit_frame(
         #     if not cache.is_captured(): cache.capture_initial(block)
         # so a door on its way OUT -- including out through a REFUSAL --
         # left 55 rows in the CONNECTION's cache.
-        # `build_named_field_update` requires exactly the 26
-        # `named_field_x()` rows, so one stand-down broke every later named
-        # send on that connection ("it holds 55 of 26 named rows").  Gate 3
+        # `build_named_field_update` refuses a cache that does not hold
+        # EXACTLY `attr_wire.all_field_x()` -- all 55 rows, not the named
+        # subset -- so a partial seed broke every later named send on that
+        # connection.  (CORRECTED round yq5gzr, pf-adversary D4: this
+        # sentence used to say "requires exactly the 26 named_field_x()
+        # rows", wrong twice over.  `named_field_x()` returns 27 today, x=9
+        # having joined it in `5ce0d39`, and the completeness check was
+        # widened from the named set to every FIELDS row by COO-DECISION
+        # 20260904_0215 -- so quoting the named set here contradicted this
+        # module's own docstring eleven lines further down, on the single
+        # most load-bearing claim of the withdrawal.  The error text it
+        # really prints today is "it holds N of 55 FIELDS rows".)  Gate 3
         # refuses to MAKE a cache; not writing one this door did not seed is
         # the same rule, and it was missing.  An unseeded cache is the
         # ENCODER's refusal to name, and it already names it.

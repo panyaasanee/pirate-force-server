@@ -177,6 +177,63 @@ def counted_guard_uses(source, constant):
     return guarded_tests(source, constant)[0]
 
 
+# -- the same question, asked of DESIGN skips (round yq5gzr) ------------------
+#
+# The walkers above answer "which tests does this module declare as guarded by
+# a precondition".  A design skip has no constant to look for - it is an
+# unconditional decision written into the test - so this one asks the blunter
+# question that server#710 needed answered and nobody could: does this module
+# contain ANY machinery that can produce a SKIPPED line?  Every shape unittest
+# and pytest actually honour is counted, and nothing that merely says the word.
+_SKIP_CALLS = ("skipTest", "skip", "SkipTest")
+_SKIP_DECORATORS = ("skip", "skipIf", "skipUnless")
+
+
+def design_skip_sites(source):
+    """``["line 12: self.skipTest", ...]`` for every skip site in ``source``."""
+    tree = ast.parse(source)
+    sites = []
+
+    def _tail(node):
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return getattr(node, "id", None)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = _tail(node.func)
+            # `skip` alone is ambiguous - `pytest.skip` and `unittest.skip`
+            # are skips, somebody's own `self.skip_this_row` is not - so a
+            # bare `skip` counts only when it is qualified by a module.
+            if name == "skipTest" or name == "SkipTest":
+                sites.append("line %d: %s" % (node.lineno, name))
+            elif (name == "skip" and isinstance(node.func, ast.Attribute)
+                  and _tail(node.func.value) in ("pytest", "unittest")):
+                sites.append("line %d: %s.skip"
+                             % (node.lineno, _tail(node.func.value)))
+        elif isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if _tail(exc) == "SkipTest":
+                sites.append("line %d: raise SkipTest" % node.lineno)
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+            for dec in node.decorator_list:
+                target = dec.func if isinstance(dec, ast.Call) else dec
+                if _tail(target) in _SKIP_DECORATORS:
+                    sites.append("line %d: @%s on %s"
+                                 % (dec.lineno, _tail(target), node.name))
+    # A `raise unittest.SkipTest(...)` is both a Raise and a Call, so the
+    # walk above sees it twice.  De-duplicate by line, keeping the order.
+    seen = set()
+    unique = []
+    for site in sites:
+        line = site.split(":")[0]
+        if line in seen:
+            continue
+        seen.add(line)
+        unique.append(site)
+    return unique
+
+
 ALL_PRESENT = {key: True for key in pre.REGISTRY}
 NONE_PRESENT = {key: False for key in pre.REGISTRY}
 
@@ -579,6 +636,80 @@ class PinFileTests(unittest.TestCase):
                     "top of this file for what counts)"
                     % (entry["module"], entry["count"], entry["key"], uses),
                 )
+
+    def test_every_design_pin_has_a_skip_in_its_module_to_stand_on(self):
+        """A design pin whose skip no longer exists goes red HERE, not on CI.
+
+        THE HOLE THIS CLOSES, MEASURED (pf-adversary D3, round yq5gzr).
+        The two cards above re-derive `preconditions` from module source, so
+        deleting a guard is caught locally.  `design_skips` had no
+        equivalent: nothing but `tools/pf_pytest_precondition_census.py`
+        driven over a REAL full-suite transcript ever compared a design pin
+        against the tree.  A pin naming a skip that does not exist anywhere
+        passes every local selection and goes red only on the Windows gate.
+
+        That is not hypothetical, it is what happened.  Round elvg52 removed
+        `tests/test_lane_b_mob_ai_tick.py`'s skipTest along with the card
+        that carried it, left the design pin behind, ran its own tests
+        green, and lost server#710 to `PIN DRIFT ... pinned 1, observed 0`
+        with the whole round's work unmerged.  The rule at the top of
+        docs/PYTEST_SKIP_PINS.json ("change it in the same commit as the
+        test that moved it") already covered this and reads to everyone as
+        being about ADDING a skip; it runs in both directions, and deleting
+        a skip is moving its pin to zero.  A rule that only the gate can
+        enforce is a rule that costs a round every time it is broken.
+
+        WHY `>=` AND NOT `==`: the exact number of SKIPPED lines a
+        conditional skip produces at run time is not decidable from source
+        (a skipTest inside a loop or a branch is one site and any number of
+        lines).  The census still grades the exact count against the real
+        transcript, which is the right place for it.  What source CAN answer
+        is the question that closed #710 - is there any skip here at all? -
+        so this card answers exactly that and says so.
+        """
+        for entry in self.pins["design_skips"]:
+            module = entry["module"]
+            source = (ROOT / module).read_text(encoding="utf-8")
+            sites = design_skip_sites(source)
+            with self.subTest(module=module, reason=entry["reason"][:40]):
+                self.assertGreaterEqual(
+                    len(sites), entry["count"],
+                    "docs/PYTEST_SKIP_PINS.json pins %d design skip(s) in %s "
+                    "but the source has %d skip site(s) %r. If the skip was "
+                    "deleted, delete its pin in the SAME commit - that is "
+                    "what server#710 did not do, and the Windows gate closed "
+                    "the pull request for it."
+                    % (entry["count"], module, len(sites), sites),
+                )
+
+    def test_the_design_skip_walker_sees_the_shapes_it_claims_to(self):
+        """The card above is only worth its line count if its oracle works."""
+        cases = [
+            ("class T(unittest.TestCase):\n"
+             "    def test_a(self):\n        self.skipTest('x')\n", 1),
+            ("class T(unittest.TestCase):\n"
+             "    def test_a(self):\n        raise unittest.SkipTest('x')\n", 1),
+            ("class T(unittest.TestCase):\n"
+             "    def test_a(self):\n        raise SkipTest('x')\n", 1),
+            ("import pytest\n"
+             "def test_a():\n    pytest.skip('x')\n", 1),
+            ("@unittest.skip('x')\n"
+             "class T(unittest.TestCase):\n    def test_a(self):\n        pass\n", 1),
+            ("class T(unittest.TestCase):\n"
+             "    @unittest.skipIf(True, 'x')\n"
+             "    def test_a(self):\n        pass\n", 1),
+            # The #710 shape: a module with no skip machinery at all.
+            ("class T(unittest.TestCase):\n"
+             "    def test_a(self):\n        self.assertTrue(True)\n", 0),
+            # A word that merely mentions skipping is not a skip.
+            ("class T(unittest.TestCase):\n"
+             "    def test_a(self):\n"
+             "        # we do not skipTest here\n"
+             "        skipped = 0\n        self.assertEqual(skipped, 0)\n", 0),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source.splitlines()[-1].strip()):
+                self.assertEqual(len(design_skip_sites(source)), expected)
 
     def test_the_pinned_test_names_exist_in_their_modules(self):
         for entry in self.pins["preconditions"]:
