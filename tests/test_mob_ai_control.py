@@ -134,9 +134,17 @@ class MinedRowTests(unittest.TestCase):
         # bg0001-only mining left every Bg0002 monster unresolvable.  The
         # links table is the union, and this test derives the same union
         # rather than trusting the count.
+        # ROUND jqeo2m: ``field_mobs.BG0005_SCENE`` joins the walk.  Scene 5
+        # is REGISTERED in ``field_mobs._SCENE_TABLE_MODULES`` this round, so
+        # its six rows are rows this lane ships and a player can reach --
+        # they belong on the derived side, not among the extras.  Their AI
+        # links entered the mined table in the same commit, and had to:
+        # ``mob_ai_control.open_register(field_mobs.roster_for_scene_id(5))``
+        # raised ``ai_row_missing: placement 59 points at AI_COMBAT 201``
+        # before ``tools/pf_mine_mob_ai_rows.py``'s union was widened.
         derived = sorted(
             (mob.placement_index, mob.ai_wander, mob.ai_combat)
-            for scene in (None, field_mobs.BG0002_SCENE)
+            for scene in (None, field_mobs.BG0002_SCENE, field_mobs.BG0005_SCENE)
             for mob in (field_mobs.load_roster() if scene is None
                         else field_mobs.load_roster(scene=scene))
         )

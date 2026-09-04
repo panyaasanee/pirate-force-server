@@ -191,15 +191,29 @@ def load_roster_modules(repo_root: Path) -> tuple:
     Bg0015's 12 hostile rows want ``AI_COMBAT`` ids 102/134/273/301/323/333/
     472 and placement 87 wants ``AI_WANDER`` 22, none of which the
     bg0001+Bg0002-only union ever asked the bridge tables for.
+
+    ROUND jqeo2m: added ``field_mob_tables_bg0005``, and unlike round
+    n8kq4r's entry this one is NOT ahead of a registration -- scene 5 enters
+    ``field_mobs._SCENE_TABLE_MODULES`` in the same commit.  The refusal
+    round n8kq4r describes was reproduced on scene 5 before this line was
+    written, not predicted from it: with the roster registered and this
+    union unwidened, ``mob_ai_control.open_register(field_mobs
+    .roster_for_scene_id(5))`` raises ``MobAiControlError: ai_row_missing:
+    placement 59 points at AI_COMBAT 201``.  Scene 5's six hostile rows want
+    ``AI_COMBAT`` 111/134/201/214/250 and ``AI_WANDER`` 11/16.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
         from pirateforce_foundation import field_mob_tables
         from pirateforce_foundation import field_mob_tables_bg0002
+        from pirateforce_foundation import field_mob_tables_bg0005
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
-    return (field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0015)
+    return (
+        field_mob_tables, field_mob_tables_bg0002,
+        field_mob_tables_bg0005, field_mob_tables_bg0015,
+    )
 
 
 def mine(gamedata: Path, repo_root: Path,

@@ -193,6 +193,7 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+from . import field_mob_tables_bg0005
 from . import field_mob_tables_bg0015
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
@@ -510,9 +511,18 @@ def assert_single_scene_tables(table_modules: Any) -> None:
 _SCENE_TABLE_MODULES = {
     field_mob_tables.SCENE: field_mob_tables,
     field_mob_tables_bg0002.SCENE: field_mob_tables_bg0002,
+    field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
 BG0002_SCENE = field_mob_tables_bg0002.SCENE
+# ROUND jqeo2m.  Scene 5 (Evil Port), the first scene whose ARRIVAL census
+# was already live when its roster arrived: lane A opened
+# ``login_entry_allowed`` for it in round l03cgh, so unlike scenes 2 and 14
+# a player can stand in this map today and the only thing missing was
+# something to swing at.  Six placements, mined under the project's one
+# identity rule (``cline``, COO-DECISION 2026-08-29T03:45+07:00); the
+# generated module carries the rows and the census that selected them.
+BG0005_SCENE = field_mob_tables_bg0005.SCENE
 BG0015_SCENE = field_mob_tables_bg0015.SCENE
 
 

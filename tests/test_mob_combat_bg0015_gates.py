@@ -175,8 +175,12 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # one, so ``has_composer`` flips to True and the scene-14 entry
         # leaves ACKNOWLEDGED_WITHOUT_COMPOSER (the promise is kept, not
         # just quoted; see mob_scene_recompose.py's own strike-through).
+        # ROUND jqeo2m: ~~(1, 2, 14)~~ -> (1, 2, 5, 14).  Scene 5 registered
+        # its roster and its composer together, on the same terms scene 14
+        # did here.  This file's subject is scene 14 and none of its own
+        # answers moved; only the table it reads grew a row.
         status = gates.recompose_status()
-        self.assertEqual(status["composer_scene_ids"], (1, 2, 14))
+        self.assertEqual(status["composer_scene_ids"], (1, 2, 5, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -330,7 +334,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # this round via field_mobs.py's own registration, not via this
         # module -- reloading THIS module still changes nothing, which
         # remains the assertion; only the baseline it compares against grew.
-        self.assertEqual(set(before), {"bg0001", "Bg0002", "Bg0015"})
+        # ROUND jqeo2m: ~~{"bg0001", "Bg0002", "Bg0015"}~~ gains "bg0005",
+        # for the same reason and by the same mechanism as the line above --
+        # field_mobs.py's own registration, never this module.  The
+        # assertion this test exists for (reloading gates.py changes
+        # nothing) is the one above and is untouched.
+        self.assertEqual(
+            set(before), {"bg0001", "Bg0002", "bg0005", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):

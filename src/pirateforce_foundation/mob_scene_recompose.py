@@ -61,6 +61,7 @@ from . import mob_death
 from . import mob_ledger_admission
 from . import world_population
 from . import world_population_bg0002
+from . import world_population_bg0005
 from . import world_population_bg0015
 
 
@@ -163,7 +164,23 @@ class SceneComposer:
 # a place where scene behaviour is smuggled in.
 COMPOSER_DELEGATED = "delegated_to_diag_multi_object_wiring"
 COMPOSER_BG0002 = "bg0002_population_plus_roster_override"
+COMPOSER_BG0005 = "bg0005_population_plus_roster_override"
 COMPOSER_BG0015 = "bg0015_population_plus_roster_override"
+
+# EVERY COMPOSER KIND THAT BUILDS ITS OWN CENSUS HERE, rather than delegating
+# to a composer that already lives elsewhere.  ROUND jqeo2m: the two places
+# that used to spell this set out as a literal tuple (:func:`_compose`'s own
+# guard and the ``heals`` condition in :func:`recompose_frames`) are the exact
+# pair round n4pv7k found out of step with each other when
+# :data:`COMPOSER_BG0015` was added to one and not the other, and the comment
+# it left predicted the next scene would repeat it ("a future fourth scene's
+# own composer must be added here explicitly or it inherits scene 1's
+# ``heals=False`` behaviour by omission").  Naming the set once is how this
+# round declines to be that prediction: both readers now read THIS tuple, so
+# a fifth scene is one entry, not two that can drift apart.
+NON_DELEGATED_COMPOSER_KINDS = (
+    COMPOSER_BG0002, COMPOSER_BG0005, COMPOSER_BG0015,
+)
 
 _COMPOSERS = {
     world_population.SCENE_ID: SceneComposer(
@@ -172,10 +189,83 @@ _COMPOSERS = {
     world_population_bg0002.SCENE2_N_ID: SceneComposer(
         world_population_bg0002.SCENE2_N_ID, "Bg0002", COMPOSER_BG0002,
     ),
+    world_population_bg0005.SCENE_N_ID: SceneComposer(
+        world_population_bg0005.SCENE_N_ID, "bg0005", COMPOSER_BG0005,
+    ),
     world_population_bg0015.SCENE_N_ID: SceneComposer(
         world_population_bg0015.SCENE_N_ID, "Bg0015", COMPOSER_BG0015,
     ),
 }
+
+
+# -------------------------------------------------------------------------
+# COMPOSER KIND -> THE SCENE POPULATION BUILDER IT MEANS.
+# -------------------------------------------------------------------------
+# ROUND jqeo2m.  Each entry calls exactly one scene's builder with THAT
+# module's own ``COUNT_SOURCE_CALLER`` constant, read off the module rather
+# than re-spelled here -- the same rule the delegated scene-1 return value
+# already follows, and for the same reason: a second spelling is a second
+# thing to drift.  ``count_source`` is CALLER, not FULL_ROSTER, for every
+# scene; see :func:`_compose` for why.
+def _build_bg0002(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0002.build_bg0002_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
+    )
+
+
+def _build_bg0005(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0005.build_bg0005_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0005.COUNT_SOURCE_CALLER,
+    )
+
+
+def _build_bg0015(legacy, anchor, actor_count, *, scene_id):
+    return world_population_bg0015.build_bg0015_population(
+        legacy, anchor, actor_count, scene_id=scene_id,
+        count_source=world_population_bg0015.COUNT_SOURCE_CALLER,
+    )
+
+
+_POPULATION_BUILDERS = {
+    COMPOSER_BG0002: _build_bg0002,
+    COMPOSER_BG0005: _build_bg0005,
+    COMPOSER_BG0015: _build_bg0015,
+}
+
+
+def assert_every_non_delegated_kind_has_a_builder(
+    kinds: Any = None, builders: Any = None,
+) -> None:
+    """Refuse a build table that does not cover every non-delegated kind.
+
+    ROUND jqeo2m.  :func:`_compose` looks its builder up in
+    :data:`_POPULATION_BUILDERS` AFTER a guard that has already admitted
+    every kind in :data:`NON_DELEGATED_COMPOSER_KINDS`, so a kind added to
+    the tuple and forgotten here would reach a ``KeyError`` inside the
+    listener thread -- an uncaught escape on exactly the path this module's
+    docstring promises never to raise on.  A kind in the table that is NOT
+    admitted is the milder half and is refused too: it is a builder no
+    composition can ever reach, which means a scene someone believes is
+    composable and is not.
+
+    Called at import time on this module's own pair, and exposed so a test
+    can hand it a broken pair rather than having to break the real one.
+    """
+    admitted = frozenset(
+        NON_DELEGATED_COMPOSER_KINDS if kinds is None else kinds)
+    have = frozenset(
+        _POPULATION_BUILDERS if builders is None else builders)
+    if admitted != have:
+        raise SceneRecomposeError(
+            "non-delegated composer kinds and population builders disagree: "
+            "admitted with no builder %s, builder with no admission %s"
+            % (sorted(admitted - have), sorted(have - admitted))
+        )
+
+
+assert_every_non_delegated_kind_has_a_builder()
 
 
 # -------------------------------------------------------------------------
@@ -265,15 +355,19 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
     # fact the other two entries record.  LANE-B/chief: please review and
     # correct the wording if this table's convention expects more than the
     # bare fact for a new entry.
-    5: (
-        "Bg0005 -- lane A's arrival census composes it (lane_hooks/"
-        "lane_a_scene_census.py, registered and opened round l03cgh); "
-        "field_mobs names no scene 5 at all, so it has no combat roster and "
-        "no strike can reach a recompose.  This composer IS live (scene 5's "
-        "login_entry_allowed is true), so a player can reach the arrival "
-        "census; there is simply nothing in field_mobs for it to recompose "
-        "against yet."
-    ),
+    #
+    # ~~5: "Bg0005 -- lane A's arrival census composes it ... there is simply
+    # nothing in field_mobs for it to recompose against yet."~~ STRUCK ROUND
+    # jqeo2m (LANE-B), on the same terms scene 14's entry was struck in round
+    # n4pv7k: scene 5 now has BOTH a roster
+    # (``field_mobs.roster_for_scene_id(5)``, six rows out of
+    # ``field_mob_tables_bg0005``) and a recompose composer
+    # (:data:`COMPOSER_BG0005` and its branch in :func:`_compose`), so it no
+    # longer belongs in a dict of scenes that are missing one.  The
+    # acknowledgement's own promise -- "this lane WILL compose it; what it
+    # cannot do is compose a map with no monsters in it" -- is discharged
+    # here, in the same PR that puts the monsters in the map, which is what
+    # the tripwire below was built to force.
     # ADDED ROUND fx0007 (LANE-A), same shape as the scene 5 entry above:
     # scene 6 entered ``world_scene_travel.CENSUS_SOURCES`` this round
     # (built, wired AND opened in one round, same compressed pass round
@@ -1109,8 +1203,12 @@ def recompose_frames(
     # fourth scene's own composer must be added here explicitly or it
     # inherits scene 1's ``heals=False`` behaviour by omission, the same way
     # scene 14 just did.
+    # ROUND jqeo2m: reads :data:`NON_DELEGATED_COMPOSER_KINDS` instead of
+    # re-spelling the tuple, so scene 5's composer joined this condition and
+    # ``_compose``'s guard in one edit rather than the two the comment above
+    # warned a fourth scene would need.
     heals = (
-        composer.kind in (COMPOSER_BG0002, COMPOSER_BG0015)
+        composer.kind in NON_DELEGATED_COMPOSER_KINDS
         and admission["ledger"] is None
     )
     return SceneRecompose(
@@ -1170,13 +1268,13 @@ def _compose(
         # override it, so the value is READ from that module rather than
         # spelled again here -- a second spelling is a second thing to drift.
         return pc, frame, None, world_population.COUNT_SOURCE_CALLER
-    if composer.kind not in (COMPOSER_BG0002, COMPOSER_BG0015):
+    if composer.kind not in NON_DELEGATED_COMPOSER_KINDS:
         raise SceneRecomposeError(
             "unknown composer kind %r for scene %d" % (
                 composer.kind, composer.scene_id))
 
-    # SCENE 2 AND SCENE 14, THE TWO NON-DELEGATED COMPOSITIONS IN THIS
-    # MODULE.  The same three calls ``mob_death.hostile_census_frames``
+    # SCENES 2, 5 AND 14, THE NON-DELEGATED COMPOSITIONS IN THIS MODULE.
+    # The same three calls ``mob_death.hostile_census_frames``
     # makes for scene 1 -- build, roster override, splice -- with the
     # scene's own population builder in the first position, because
     # ``world_population.build_world_population`` refuses anywhere but
@@ -1187,18 +1285,21 @@ def _compose(
     # (``anchor.actor_count``), and a recompose that quietly re-derives the
     # full roster count would change membership on a frame that is supposed
     # to refresh it.
-    if composer.kind == COMPOSER_BG0002:
-        generation = world_population_bg0002.build_bg0002_population(
-            legacy, anchor.anchor, anchor.actor_count,
-            scene_id=composer.scene_id,
-            count_source=world_population_bg0002.COUNT_SOURCE_CALLER,
-        )
-    else:
-        generation = world_population_bg0015.build_bg0015_population(
-            legacy, anchor.anchor, anchor.actor_count,
-            scene_id=composer.scene_id,
-            count_source=world_population_bg0015.COUNT_SOURCE_CALLER,
-        )
+    #
+    # ROUND jqeo2m: the ``if/else`` pair this used to be could hold exactly
+    # two composers, and a third would have silently taken the ``else``
+    # branch -- scene 5 composed out of ``world_population_bg0015``'s
+    # builder, which refuses any scene but 14, so that particular mistake
+    # would at least have been loud.  A dispatch keyed by composer kind
+    # cannot pick the wrong builder at all, and
+    # :func:`assert_every_non_delegated_kind_has_a_builder` (run at import
+    # time, below the table) is what makes "cannot" a checked statement
+    # rather than a description of today's table.
+    builder = _POPULATION_BUILDERS[composer.kind]
+    generation = builder(
+        legacy, anchor.anchor, anchor.actor_count,
+        scene_id=composer.scene_id,
+    )
     # ``admitted`` here, not ``ledger``: a ledger that cannot answer for
     # these rows makes ``repopulation_entries`` raise, and round jop8ph's
     # whole point is that the answer to that is a named decline, not an

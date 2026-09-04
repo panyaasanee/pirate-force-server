@@ -150,13 +150,44 @@ class Bg0005TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_agrees_with_this_table(
         self,
     ) -> None:
-        hits = list(
-            (ROOT / "src" / "pirateforce_foundation").glob(
-                "field_mob_tables_bg0005*"))
-        self.assertEqual(hits, [])
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+
+        RENAMED AND TURNED AROUND, round jqeo2m (LANE-B), in the same commit
+        that made the old assertion false -- the discipline this file's own
+        ``test_only_the_population_seam_imports_this_module`` sibling already
+        records for a "yet" tripwire.  ``field_mob_tables_bg0005.py`` exists
+        now and is registered in ``field_mobs._SCENE_TABLE_MODULES``.
+
+        A cross-lane edit, made rather than left red for the same reason lane
+        A gave when it added scene 4/5/6's entries to LANE-B's
+        ``mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER``: leaving a
+        shared tripwire failing is not an option the round that trips it can
+        choose.  What replaces it is worth more than a deletion: the two
+        lanes mined this scene's CLINE type 5 crosswalk independently, so
+        this asserts they landed on the same MOBS row for every placement
+        lane B ships.  LANE-A: correct the wording if this file's convention
+        wants something else here; the assertion itself is the point.
+        """
+        from pirateforce_foundation import field_mob_tables_bg0005
+        from pirateforce_foundation import field_mobs
+
+        self.assertTrue(
+            (ROOT / "src" / "pirateforce_foundation"
+             / "field_mob_tables_bg0005.py").is_file())
+        sets = field_mob_tables_bg0005.SET_NUMBER_FOR_PLACEMENT
+        for mob in field_mobs.roster_for_scene_id(identity.SCENE_N_ID):
+            theirs = identity.IDENTITIES.get(sets[mob.placement_index])
+            self.assertIsNotNone(
+                theirs,
+                "lane B ships placement %d, which this table calls "
+                "unresolved" % mob.placement_index)
+            self.assertEqual(
+                (theirs.mobs_n_id, theirs.name),
+                (mob.template_id, mob.display_name),
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

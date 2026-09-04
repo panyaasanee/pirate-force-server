@@ -622,8 +622,19 @@ class RulingForTests(unittest.TestCase):
         # row would still fail this test.  The set of identities behind
         # UNKILLABLE lines must be EXACTLY the set this scan derives, not
         # merely "at most one line".
+        # ROUND jqeo2m: ~~``hex(...)``~~ -> ``"0x%X"``, and the change is a
+        # DEFECT FIX, not a cosmetic one.  ``describe_widening_coverage``
+        # formats identities with ``%X`` (upper case); ``hex()`` is lower
+        # case.  Every identity this loop had ever compared -- 0x2058
+        # (Carlos) among them -- happened to contain no hex letter, so the
+        # two spellings were identical by luck and the substring check
+        # passed.  Scene 5's first uncovered row is 0x203C, and the SAME
+        # correct behaviour ("this row has no letter covering it, and the
+        # report says so by identity") then read as ``unexpected UNKILLABLE
+        # line``.  A test that only works while no identity contains a-f is
+        # not the containment it claims to be.
         expected_unkillable_identities = {
-            hex(mob.actor_identity)
+            "0x%X" % mob.actor_identity
             for _scene, mob in self.shipped()
             if not rulings_covering(mob)
         }

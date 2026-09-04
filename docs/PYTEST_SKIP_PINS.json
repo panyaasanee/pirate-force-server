@@ -383,6 +383,16 @@
       "note": "round 2vxlx2 (LANE-B): field_mob_tables_bg0015.py is GENERATED prep data for M3/BUILD-004 (COO-DECISION 2026-08-26 12:46: Bg0015 confirmed as the real M3 map, prepared but not wired in until lane A's second gate + geometry check passes). These three re-run tools/pf_mine_scene_mob_roster.py --scene Bg0015 against the bridge clone's gamedata so the committed module cannot drift unnoticed. Following the exact pattern test_pf_scan_field_scene_candidates.py already set (round ctflxc) so this pin exists in the same commit as the test, not after it. ROUND ua236k: re-mined under cline per COO-DECISION 20260829_0345, so the roster is 12 not 17 and the third test is renamed accordingly; a fourth was added pinning that CLINE type 14 agrees with the set-number reading on 0 of 51 rows, which is why every identity in the table moved."
     },
     {
+      "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0005.py",
+      "count": 2,
+      "tests": [
+        "Bg0005RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0005RegenerateTests::test_verify_frozen_runs_at_all_and_reproduces_bg0001"
+      ],
+      "note": "round jqeo2m (LANE-B): field_mob_tables_bg0005.py is GENERATED, and unlike the bg0002/bg0015 entries above it is REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it - scene 5's arrival census and login door were already open (LANE-A, round l03cgh), so nothing was gated. The first test re-runs tools/pf_mine_scene_mob_roster.py --scene bg0005 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed, the same control every other roster module here carries. The second is new to this file and is not about bg0005 at all: --verify-frozen, the generator's ONE checkable control by its own docstring, had been raising ValueError: too many values to unpack (expected 7) on every call since unambiguous_placements grew an eighth tuple element, so the two scenes mined in between were mined with the control off and nothing said so because nothing called the function. It is called here. Pinned in the same commit as the tests, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
       "key": "original_schema_history",
       "module": "tests/test_foundation.py",
       "count": 1,
