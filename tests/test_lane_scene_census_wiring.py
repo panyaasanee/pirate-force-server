@@ -284,6 +284,75 @@ class LaneSceneCensusWiringTests(unittest.TestCase):
             "world_census_lane_membership_set_cleared", state.events,
         )
 
+    # ----- CORE-REQUEST (LANE-B 20260904_1134): actor_identities ---------
+
+    def test_actor_identities_populate_the_announced_membership(self):
+        """The gap RE-157 job 2 / MOB-COMBAT-001's own comment named: a
+        lane-composed arrival used to stamp an EMPTY announced membership
+        no matter what the lane composed, because SceneCensusResult carried
+        no per-actor identity list.  ``actor_identities`` (COO-DECISION
+        20260903_2247) is that list; this proves runtime.py's call site
+        actually reads it into the announced membership RE-157's admits()
+        checks, not just that the field exists on the tuple."""
+        self._register(lambda **kwargs: self._result()._replace(
+            actor_identities=(11, 22, 33),
+        ))
+        state = self._state_at_scene("lane_census_identities", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(state.mob_combat_announced_membership.scene_id,
+                          LANE_SCENE_N_ID)
+        self.assertEqual(
+            state.mob_combat_announced_membership.actor_identities,
+            frozenset({11, 22, 33}),
+        )
+
+    def test_actor_identities_are_coerced_to_int(self):
+        """Same untrusted-lane-input net as every other field on this
+        tuple: a str digit committed as a str would silently never match
+        RE-157's ``admits()``, which compares actor identities as ints."""
+        self._register(lambda **kwargs: self._result()._replace(
+            actor_identities=("11", "22"),
+        ))
+        state = self._state_at_scene("lane_census_identities_str", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(
+            state.mob_combat_announced_membership.actor_identities,
+            frozenset({11, 22}),
+        )
+
+    def test_the_default_empty_actor_identities_still_stamps_a_membership(self):
+        """A composer written before this field existed (default ``()``)
+        keeps meaning what it meant: an announced membership with an empty
+        actor set, not None and not a refusal -- the same "nothing to
+        announce" outcome this branch always produced."""
+        self._register(lambda **kwargs: self._result())
+        state = self._state_at_scene("lane_census_identities_default", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(len(self._census(actions)), 2)
+        self.assertEqual(
+            state.mob_combat_announced_membership.actor_identities,
+            frozenset(),
+        )
+
+    def test_a_malformed_actor_identity_refuses_the_whole_census(self):
+        """Same net as membership's own malformed-value test: a value
+        int() cannot coerce refuses the census rather than committing a
+        membership whose bookkeeping then explodes."""
+        self._register(lambda **kwargs: self._result()._replace(
+            actor_identities=("not-an-int",),
+        ))
+        state = self._state_at_scene("lane_census_identities_bad", LANE_SCENE_N_ID)
+        actions, _out = self._step(state)
+        self.assertEqual(self._census(actions), [])
+        self.assertIn(
+            "world_census_lane_composer_refused_ValueError",
+            state.events,
+        )
+        self.assertTrue(state.world_census_refused)
+        self.assertIsNone(state.mob_combat_announced_membership)
+
     def test_a_malformed_membership_refuses_the_whole_census(self):
         """Untrusted lane input, same net as every other field: a value
         with no MembershipReset shape refuses the census instead of

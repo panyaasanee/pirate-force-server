@@ -444,24 +444,33 @@ class Bg0015WiredPathTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return state.dispatch(legacy.parse_outer(pc))
 
-    def test_a_real_swing_in_scene_14_now_answers_not_announced(
+    def test_a_real_swing_in_scene_14_is_now_actually_announced(
             self) -> None:
-        # RENAMED, COO-DECISION 20260903_1942 item 2: registration means
-        # scene 14 is no longer an EMPTY roster, so the twelve real
-        # identities are no longer answered as "not a field mob" -- they
-        # are now IN the ledger (see the ledger assertion below) and get
-        # refused one gate later, by the RE-157 job 2 announced-actor
-        # guard (mob_combat_membership), because the scene-14 census
-        # commit stamps an empty announced set for now (see this file's
-        # ADDENDUM docstring in the test below).  This is still an inert
-        # swing -- no hit, no cadence spend -- just refused for a
-        # different, one-gate-later reason than before this round.
+        # RENAMED AGAIN, CORE-REQUEST LANE-B 20260904_1134 (chief round
+        # `9vec2s`): the announced-actor gap this test's PREVIOUS name
+        # pinned ("...now_answers_not_announced") is exactly the one that
+        # CORE-REQUEST closed -- ``SceneCensusResult.actor_identities``
+        # (COO-DECISION 20260903_2247) is now read by the census commit
+        # site in ``runtime.py`` instead of being discarded as ``()``, so
+        # the scene-14 lane composer's real roster (``field_mobs.
+        # roster_for_scene_id(14)``) is what gets announced, not an empty
+        # set.  The twelve real identities are therefore admitted by
+        # RE-157 job 2's announced-actor guard now, on the first dispatch
+        # that reaches the scene's census commit -- measured below by the
+        # ABSENCE of the refusal this test used to require.
+        #
+        # STILL NOT A HIT AND STILL NOT A KILL, and nothing here claims
+        # one: the packet ``_attack`` sends is action code 0 (a "wield"
+        # capture, this file's own docstring), never a strike, so passing
+        # the announced-actor gate produces no further ``mob_combat_``
+        # event at all for these twelve -- silence, not success, is the
+        # measured outcome of an admitted-but-non-strike swing.
         state = self._state_in_scene_14("bg0015_gates_wired")
         for identity in gates.splice_identities(self.legacy):
             self._attack(state, identity)
         answers = [e for e in state.events if e.startswith("mob_combat_")]
         self.assertEqual(
-            answers.count("mob_combat_target_not_announced_no_reply"), 12)
+            answers.count("mob_combat_target_not_announced_no_reply"), 0)
         for event in state.events:
             self.assertNotIn(mob_combat.REFUSE_TARGET_NOT_IN_LEDGER, event)
         self.assertEqual(state.mob_combat_scene_folder, gates.BG0015_FOLDER)
@@ -469,10 +478,16 @@ class Bg0015WiredPathTests(unittest.TestCase):
         self.assertEqual(
             set(state.mob_combat_ledger.identities()),
             set(gates.splice_identities(self.legacy)))
+        self.assertEqual(
+            state.mob_combat_announced_membership.actor_identities,
+            frozenset(gates.splice_identities(self.legacy)),
+            "the announced membership must be the scene's real roster, "
+            "not the empty set this test used to require",
+        )
         # An identity that is NOT one of the twelve real roster members is
-        # still answered as "not a field mob" -- that half of the old
-        # pin still holds, just for a genuinely absent identity rather
-        # than for every identity because the roster itself was absent.
+        # still answered as "not a field mob" -- unaffected by this round,
+        # since that gate runs on the ledger, before announced-actor is
+        # ever asked.
         for arbitrary in (0xDEADBEEF, 0x1, 0xFFFF):
             self._attack(state, arbitrary)
         all_answers = [e for e in state.events if e.startswith("mob_combat_")]
@@ -480,7 +495,7 @@ class Bg0015WiredPathTests(unittest.TestCase):
             all_answers.count(gates.WIRED_ANSWER_FOR_A_TABLELESS_SCENE), 3)
         self.assertEqual(
             all_answers.count("mob_combat_target_not_announced_no_reply"),
-            12)
+            0)
 
     def test_bg0015_registration_is_now_real_not_simulated(
             self) -> None:
@@ -509,18 +524,21 @@ class Bg0015WiredPathTests(unittest.TestCase):
         same process.  This test now only reads the registry, never
         mutates it.
 
-        RE-157 job 2 (MOB-COMBAT-001 announced-actor guard): the scene-14
-        census commit (``runtime.py``'s lane-composer branch) runs before
-        this file's helper ever attacks, but ``lane_hooks.SceneCensusResult``
-        carries no per-actor identity list, only opaque wire bytes, so that
-        commit cannot name what it announced and stamps an EMPTY
-        announced-actor membership for scene 14 rather than a fabricated or
-        stale one (see the ``JUDGMENT CALL`` comment at that commit site in
-        ``runtime.py``).  0x2017 is therefore a real roster/ledger member
-        that was never ANNOUNCED, which is exactly the gap RE-157 job 2
-        closes: the guard refuses the swing before the recompose call
-        (which now has a real composer, ``has_composer`` is ``True``,
-        re-verified live this round) is ever reached at all.
+        RE-157 job 2 (MOB-COMBAT-001 announced-actor guard), UPDATED round
+        `9vec2s` (CORE-REQUEST LANE-B 20260904_1134): the scene-14 census
+        commit (``runtime.py``'s lane-composer branch) runs before this
+        file's helper ever attacks.  It used to stamp an EMPTY announced-
+        actor membership regardless of what the lane composed, because
+        ``lane_hooks.SceneCensusResult`` carried no per-actor identity
+        list -- that gap is what this test used to measure, via 0x2017
+        (a real roster/ledger member) being refused as un-announced.
+        ``SceneCensusResult.actor_identities`` (COO-DECISION 20260903_2247)
+        closes it: the commit site now reads that field instead of a
+        literal ``()``, so 0x2017 IS announced, on the very first dispatch
+        that reaches the census.  0x2017 remains a non-strike (action code
+        0) packet either way, so passing the announced-actor gate produces
+        no further ``mob_combat_`` event -- the measured outcome below is
+        the ABSENCE of the old refusal, not a new one in its place.
         """
         from pirateforce_foundation import field_mob_tables_bg0015 as module
         registry = field_mobs._SCENE_TABLE_MODULES
@@ -537,15 +555,19 @@ class Bg0015WiredPathTests(unittest.TestCase):
         self.assertEqual(
             state.mob_combat_ledger.identities(),
             tuple(sorted(gates.splice_identities(self.legacy))))
-        # The one reply this specific (non-strike) packet produces today,
-        # measured rather than assumed.  RE-157 job 2: this used to be
-        # "..._skipped_no_composer_for_scene" (the recompose path's own
-        # refusal) -- see the docstring's RE-157 paragraph for why the
-        # MOB-COMBAT-001 announced-actor guard now refuses one gate
-        # earlier, before the recompose call is ever reached.
-        self.assertIn(
+        # No mob_combat_ event at all today, measured rather than assumed:
+        # the announced-actor guard now admits 0x2017 (see the docstring's
+        # RE-157 paragraph), and a non-strike packet that clears that gate
+        # has nothing further to refuse or report.
+        self.assertNotIn(
             "mob_combat_target_not_announced_no_reply",
             state.events)
+        self.assertEqual(
+            [e for e in state.events if e.startswith("mob_combat_")], [])
+        self.assertEqual(
+            state.mob_combat_announced_membership.actor_identities,
+            frozenset(gates.splice_identities(self.legacy)),
+        )
         self.assertTrue(gates.recompose_status()["has_composer"])
 
 

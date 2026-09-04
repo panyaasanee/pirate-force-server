@@ -213,6 +213,23 @@ def _pickup_vital_id():
     return PICKUP_REQUEST_VITAL_ID
 
 
+def _click_body_lengths(legacy: Any) -> dict:
+    """`TargetVital`/`ChooseNPC` lengths, from the lane that owns them.
+
+    Lazy import, same reason as ``_pickup_vital_id`` above: ``world_click_
+    vitals`` imports this module (for ``declared_lengths_for_the_walk``,
+    its own stand-in for this exact landing), so a module-level import here
+    would be circular.  CORE-REQUEST (LANE-A 20260903_1641): before this,
+    every frame carrying a click id stopped the walk entirely by name (an
+    unrecognised id refuses the WHOLE frame, so a click reaching a scene's
+    position report cost the position too) -- these two rows, composed by
+    ``world_click_vitals.body_lengths`` from the same frozen codec ``v141``
+    itself writes with, are what let that frame walk.
+    """
+    from .world_click_vitals import body_lengths
+    return body_lengths(legacy)
+
+
 def body_length_table(legacy: Any) -> dict:
     """id -> declared body length, built fresh from the modules that own it.
 
@@ -226,6 +243,7 @@ def body_length_table(legacy: Any) -> dict:
         if type(vital_id) is int:
             table[vital_id] = length
     table[_pickup_vital_id()] = 7
+    table.update(_click_body_lengths(legacy))
     return table
 
 

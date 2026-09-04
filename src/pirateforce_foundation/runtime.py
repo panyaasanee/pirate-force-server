@@ -8353,6 +8353,15 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     print(f"BACKPACK_LOAD_REFUSED {exc}")
                     self.events.append("foundation_start_game_rejected_no_reply")
                     return []
+                # CORE-REQUEST-GM-054 (COO-DECISION 20260904_1151): this
+                # session is now the live owner of the character it just
+                # selected, for lane_hooks.current_session_scene_id to find
+                # later.  foundation.selected.id is unconditionally set by
+                # the successful select_and_start just above (see the same
+                # guard-free read at this session's mob_pickup claim below).
+                lane_hooks.register_live_session(
+                    self.foundation.selected.id, self,
+                )
                 load_only = scene_load_scenario is not None
                 entry = None
                 gm_state_action = None
@@ -10667,6 +10676,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                         .population_refresh_anchor
                                     )
                                 )
+                            # CORE-REQUEST (LANE-B 20260904_1134): the
+                            # identities LANE-B's own hostile-mob registry
+                            # names for this scene (``SceneCensusResult.
+                            # actor_identities``, added by COO-DECISION
+                            # 20260903_2247 -- this is the first call site to
+                            # read it).  Coerced inside this same net, like
+                            # every other lane field: a malformed entry
+                            # refuses the whole census rather than stamping a
+                            # membership neither side can trust.
+                            lane_actor_identities = tuple(
+                                int(identity)
+                                for identity in composed.actor_identities
+                            )
                     except Exception as error:
                         # Fail closed, the same net and the same reasoning
                         # as the bg0002 branch above: an escape here
@@ -10718,31 +10740,45 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 f"{len(lane_pc)}_frame_"
                                 f"{len(lane_frame)}"
                             )
-                            # RE-157 job 2 / MOB-COMBAT-001.  JUDGMENT CALL,
-                            # flagged for review: ``lane_hooks.
-                            # SceneCensusResult`` (unlike ``generation`` from
-                            # the bg0001/bg0002 builders) carries no per-
-                            # actor identity list -- only opaque
-                            # ``pc``/``frame`` bytes and, optionally,
-                            # PLACEMENT indices via ``membership``, which
-                            # this module's own docstring (nonclaim 4) says
-                            # must never stand in for actor identities by
-                            # coincidental equality.  So this commit cannot
-                            # name what it announced and stamps an EMPTY
-                            # membership for this scene/generation instead
-                            # of a fabricated or stale one: fail closed
-                            # means no field mob a lane composes for is
-                            # attackable until a lane composer can hand its
-                            # own actor identities back (a
-                            # ``SceneCensusResult`` field, not this call
-                            # site's to add -- lane_hooks is not in this
-                            # round's scope).  Latent today, same as the
-                            # comment above this block: no lane scene a
-                            # player can stand in and fight in exists yet.
+                            # RE-157 job 2 / MOB-COMBAT-001.  CORE-REQUEST
+                            # (LANE-B 20260904_1134): this branch used to
+                            # stamp an EMPTY membership here NO MATTER WHAT
+                            # THE LANE COMPOSED, because ``SceneCensusResult``
+                            # carried no per-actor identity list at all --
+                            # only opaque ``pc``/``frame`` bytes and,
+                            # optionally, PLACEMENT indices via
+                            # ``membership``, which this module's own
+                            # docstring (nonclaim 4) says must never stand in
+                            # for actor identities by coincidental equality.
+                            # ``actor_identities`` (added to the tuple by
+                            # COO-DECISION 20260903_2247, populated by
+                            # ``lane_a_scene_census.compose`` the same round)
+                            # closes that gap; this is the first call site to
+                            # read it, coerced into ``lane_actor_identities``
+                            # in the net above like every other lane field.
+                            # SO A LANE-COMPOSED ARRIVAL CAN NOW ANNOUNCE A
+                            # REAL ROSTER, for exactly the scenes
+                            # ``field_mobs.roster_for_scene_id`` answers --
+                            # 5 and 14 today (LANE-B, 20260904_1134) -- and
+                            # an empty one for every other lane-composed
+                            # scene, which is the same honest "nothing to
+                            # announce" this branch always sent, not a new
+                            # refusal.  See
+                            # ``tests/test_field_mob_tables_bg0005.py``'s
+                            # ``LaneComposedScenesAreNotFightableYetTest``,
+                            # which pins the count of scenes armed this way
+                            # and goes red the day a third one joins or the
+                            # RE-157 gate is re-measured, by design (that
+                            # test's own docstring says how to update it).
+                            # NOT CLAIMED HERE: that RE-157's gate, cadence,
+                            # or any other combat precondition also passes
+                            # for scene 5/14 today -- only that this commit
+                            # no longer discards a roster the lane already
+                            # composed.
                             self.mob_combat_announced_membership_generation += 1
                             self.mob_combat_announced_membership = (
                                 mob_combat_membership.build_membership(
-                                    scene_id, (),
+                                    scene_id, lane_actor_identities,
                                     self.mob_combat_announced_membership_generation,
                                 )
                             )
