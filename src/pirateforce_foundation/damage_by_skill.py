@@ -84,6 +84,19 @@ answered and LANE-B or chief writes the call site, this function has no
 caller anywhere in this repository — a fact this docstring states directly
 per `COO-DECISION 20260904_0943` item (c), rather than leaving a reader to
 infer it from an absent grep hit.
+
+[UPDATE, round `qni1p5`, per `COO-DECISION 20260904_1246` ("keep going on
+skill-99 damage, do not wait for chief")]: `tests/test_damage_by_skill.py`'s
+`test_normal_attack_against_916_with_the_production_pin_attacker` now pins
+the exact number this function returns against the house's standard test
+field (Training Iron Man, template 916) when handed the REAL production
+attacker (`mob_combat.pin_attacker()`, the object `runtime.py` binds to
+`MOB_COMBAT_DEFAULT_ATTACKER` today) rather than only the arbitrary stand-in
+attacker the rest of this test file uses — 891, re-derived from the named
+formula constants, matching `mob_combat.py`'s own existing costing comment
+for this defender.  This does not change "zero production callers" above:
+the pin proves what this gate WOULD return the day a caller exists, it is
+not itself a caller.
 """
 from __future__ import annotations
 
