@@ -286,7 +286,7 @@ class WorldGround:
             floor = self._floors.get(fold)
             if not floor or drop_key not in floor:
                 return None
-            row, _deadline = floor.pop(drop_key)
+            row, floor_deadline = floor.pop(drop_key)
             if not floor:
                 self._floors.pop(fold, None)
             taken = self._taken.setdefault(fold, collections.OrderedDict())
@@ -303,31 +303,56 @@ class WorldGround:
             # and handed here.  The deadline bounds it further: what it must
             # outlive is only the copies other cells may still hold, and every
             # such copy carries at most one full lifetime.
-            taken[drop_key] = (row, now + 2.0 * self._lifetime)
+            # THE ROW'S OWN FLOOR DEADLINE IS CARRIED, not recomputed, so a
+            # claim that is handed back cannot renew the object's life
+            # (pf-adversary pass 2, D4, MEASURED: a claimant standing out of
+            # range and clicking every 60 s kept one row standing for 99,960
+            # seconds, because ``return_claim`` re-floored it at
+            # ``now + lifetime`` every time.  ``DROP_LIFETIME_SECONDS`` has to
+            # bound the world floor the way it bounds a cell's).
+            taken[drop_key] = (row, now + 2.0 * self._lifetime, floor_deadline)
             while len(taken) > TAKEN_KEY_MEMORY:
                 taken.popitem(last=False)
             return row
 
     def return_claim(self, row: Any) -> bool:
-        """Put a claimed row back.  For a pickup that then REFUSED.
+        """Put a claimed row back, ON ITS OWN REMAINING TIME.  Round 59iqwi.
 
         A claim is taken before the transaction, so a transaction that fails
-        would otherwise delete a row nobody picked up -- the floor would lose
-        an object that is still lying in front of the player.  Returning it
-        also clears the taken record, so the row is claimable again.
+        BEFORE the take would otherwise delete a row nobody picked up -- the
+        floor would lose an object still lying in front of the player, and the
+        taken record would then refuse the owner's own clicks for the rest of
+        its life (pf-adversary pass 2, D3).
+
+        WHAT IT MUST NOT DO IS EXTEND THE ROW'S LIFE (pass 2, D4).  The
+        deadline the claim popped is carried in the taken record and restored
+        here; a row whose deadline has passed while it was claimed is NOT
+        re-floored, because it is expired and a floor that resurrects expired
+        rows is the ghost this lane keeps paying for.  Refusals like
+        ``claimant_out_of_range`` are ordinary -- R303 refused two of its four
+        decoded clicks that way -- so "every refused click renews the object"
+        is not a corner case, it is the common path.
         """
         if type(row) is not mob_loot.GroundDrop:
             return False
         fold = row.scene_key
         with self._lock:
-            held = self._taken.get(fold, {}).get(row.drop_key)
-            if held is not None and held[0] is row:
-                self._taken[fold].pop(row.drop_key, None)
             now = float(self._clock())
+            held = self._taken.get(fold, {}).get(row.drop_key)
+            deadline = None
+            if held is not None and held[0] is row:
+                deadline = held[2]
+                self._taken[fold].pop(row.drop_key, None)
+            if deadline is None or now >= deadline:
+                # Either this row was never claimed from this floor (nothing
+                # to give back) or it outlived its own deadline while the
+                # transaction ran.  Both are refusals, and neither is an
+                # error: the caller's own outcome already says what happened.
+                return False
             floor = self._floors.setdefault(fold, collections.OrderedDict())
             if row.drop_key in floor:
                 return False
-            floor[row.drop_key] = (row, now + self._lifetime)
+            floor[row.drop_key] = (row, deadline)
             while len(floor) > self._cap:
                 floor.popitem(last=False)
             return True
@@ -356,7 +381,7 @@ class WorldGround:
             taken = self._taken.get(fold)
             if not taken or drop_key not in taken:
                 return None
-            row, deadline = taken[drop_key]
+            row, deadline, _floor_deadline = taken[drop_key]
             if float(self._clock()) >= deadline:
                 taken.pop(drop_key, None)
                 return None
@@ -700,10 +725,26 @@ def restore_scene_ground(store: Any, scene: Any, *, world: Any = None) -> str:
     """Put a scene's durable floor back into the world.  NEVER RAISES.
 
     Returns ``""`` when it restored, and a refusal NAME otherwise -- today
-    always :data:`REFUSE_TAKEN_DOOR_IS_ABSENT` on a real ``SQLiteStore``, and
-    that is the honest state of this half rather than a stub: the write side
-    above is live and filling the table now, so the day the marker lands there
-    is a floor to restore FROM.
+    always :data:`REFUSE_TAKEN_DOOR_IS_ABSENT` on a real ``SQLiteStore``.
+
+    ~~"the write side above is live and filling the table now, so the day the
+    marker lands there is a floor to restore FROM"~~ IS STRUCK, pf-adversary
+    pass 2 D6, MEASURED: ``runtime.py``'s kill site calls ``sustain_a_kill``
+    WITHOUT a ``store=``, so :func:`persist_generation` has no production
+    caller and ``ground_drops`` is empty on a running server.  The write side
+    is wired on THIS side of the seam and waiting for one keyword at chief's
+    call site (`pf_bridge/notes_to_chief/20260904_1652` item 3).  Saying
+    otherwise here while ``sustain_a_kill``'s own docstring said "absent, the
+    floor is memory only" left two files in one lane disagreeing about one
+    fact.
+
+    A SECOND THING THIS HALF WILL BREAK ON THE DAY IT WORKS, named here
+    because it is the design question pass 2 ended on: rows rebuilt from the
+    table are NEW objects, and the duplication guard recognises a shared row
+    by IDENTITY (``held is gone``).  A floor restored from the database is
+    therefore invisible to that guard.  Whatever lands the marker has to land
+    an object identity that survives a process too -- the drop key issued
+    server-wide, not per session.
     """
     if store is None:
         return REFUSE_STORE_CANNOT_BE_ASKED
