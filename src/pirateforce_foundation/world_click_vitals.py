@@ -272,11 +272,18 @@ def leading_click_is_mains_branch(legacy: Any, parsed: Any) -> bool:
     """True when the frame LEADS with a click id, so main's branch SEES it.
 
     "SEES", not "answers", and the distinction is measured rather than
-    pedantic.  ``runtime.py:8856`` and ``v141:4396`` both test
-    ``parsed.nested_id``, so a leading click reaches their branches -- and
-    both then apply conditions this module cannot evaluate: a
-    ``production_allowed`` responder for the scene, an armed
-    ``population_indices``, a marker latch.  pf-adversary drove a leading
+    pedantic.  Three sites test ``parsed.nested_id`` against
+    ``(TARGET_VITAL, CHOOSE_NPC)`` on main's path, and a leading click
+    reaches all three: ``runtime.py``'s ``scene_choose_npc_responder``
+    guard (the one that then asks ``lane_hooks.module_production_allowed``,
+    and the one an earlier draft of this docstring pinned by a line number
+    that has since rotted), ``runtime.py``'s
+    ``_dispatch_columbus_quest3021``, and ``v141:4396``.  Names, not line
+    numbers, on purpose: this file has been wrong twice about a line
+    number in ``runtime.py`` and never wrong about a symbol.  All three
+    then apply conditions this module cannot evaluate: a
+    ``production_allowed`` responder for the scene (the first site only),
+    an armed ``population_indices``, a marker latch.  pf-adversary drove a leading
     click naming an identity the census never armed and measured ZERO
     replies (round ``0zoxir``), so an earlier draft of this docstring, which
     said a leading click "is answered today", was false.
