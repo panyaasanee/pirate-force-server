@@ -114,5 +114,68 @@ class SkillCatalogTests(unittest.TestCase):
             "produces:\n%s%s" % (finished.stdout, finished.stderr))
 
 
+class NPassiveIsNotATypeColumnTests(unittest.TestCase):
+    """Round 6o11t1: pf-static-re and pf-adversary independently falsified
+    the shortcut of reading ``n_PASSIVE`` as the basic/attack/AOE/buff/heal/
+    passive taxonomy (see skill_catalog.py's module docstring for the full
+    evidence).  This class pins the counter-example inside our own 8 known
+    ids so a future round that quietly reintroduces the shortcut -- or a
+    table update that erases the counter-example -- goes red here instead of
+    only in an investigation report nobody re-reads."""
+
+    def test_the_literal_basic_attack_shares_its_value_with_a_movement_skill(self):
+        # Skill 99 "Normal Attack" is the one skill in this catalog that is
+        # unambiguously a basic attack.  If n_PASSIVE distinguished
+        # basic-attack from other kinds, it would not equal the value of a
+        # pure movement skill (110 "Strive Jump").
+        normal_attack = int(skill_catalog.skill_raw_context(99)["n_PASSIVE"])
+        strive_jump = int(skill_catalog.skill_raw_context(110)["n_PASSIVE"])
+        vip_strive_jump = int(skill_catalog.skill_raw_context(111)["n_PASSIVE"])
+        self.assertEqual(normal_attack, 2)
+        self.assertEqual(strive_jump, 2)
+        self.assertEqual(vip_strive_jump, 2)
+        self.assertEqual(
+            normal_attack, strive_jump,
+            "n_PASSIVE no longer collides Normal Attack with Strive Jump -- "
+            "the counter-example this test exists to pin has changed; "
+            "re-investigate before trusting n_PASSIVE as a type column "
+            "again, do not just delete this assertion")
+
+    def test_the_five_basic_trainings_sit_at_a_different_single_value(self):
+        basic_training_ids = (40000, 41000, 42000, 43000, 44000)
+        values = {
+            skill_id: int(skill_catalog.skill_raw_context(skill_id)["n_PASSIVE"])
+            for skill_id in basic_training_ids
+        }
+        self.assertEqual(set(values.values()), {1})
+        # And that single value is NOT "nothing is ever actively cast" --
+        # table-wide, 97/118 rows at n_PASSIVE=1 carry a non-blank
+        # s_CAST_CONDITION (pf-static-re, round 6o11t1).  We only assert the
+        # local half we can pin without re-scanning the whole table: none of
+        # our 8 ids' s_CAST_CONDITION values are consistent with n_PASSIVE=1
+        # meaning "distinct from n_PASSIVE=2" in any cast-behavior sense --
+        # both 99 (n_PASSIVE=2) and the Basic Trainings (n_PASSIVE=1) can
+        # have any cast-condition shape; the Basic Trainings just happen to
+        # be blank here.
+        for skill_id in basic_training_ids:
+            with self.subTest(skill_id=skill_id):
+                context = skill_catalog.skill_raw_context(skill_id)
+                self.assertEqual(context["s_CAST_CONDITION"], "")
+                self.assertEqual(context["s_CAST_BEHAVIOR"], "")
+
+    def test_n_passive_alone_cannot_separate_our_known_attack_from_our_known_movement(self):
+        # The direct statement of the trap: grouping our 8 known ids by
+        # n_PASSIVE puts the basic attack in the same bucket as a movement
+        # skill, and separates it from every Basic Training -- the opposite
+        # of what a basic/attack/AOE/buff/heal/passive column should do.
+        by_value: dict[int, list[int]] = {}
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            value = int(skill_catalog.skill_raw_context(skill_id)["n_PASSIVE"])
+            by_value.setdefault(value, []).append(skill_id)
+        self.assertIn(99, by_value[2])
+        self.assertIn(110, by_value[2])
+        self.assertNotIn(99, by_value.get(1, []))
+
+
 if __name__ == "__main__":
     unittest.main()
