@@ -58,13 +58,38 @@ frame with this nested id arrived and its five bytes matched the shape
 RE-227 pinned".  It does NOT mean the value is an island id, a scene id, or
 anything else with meaning yet.  The `issued=` / `provisioned=` pair beside
 it comes from `world_m2_survey_plan` and is about THIS SERVER, not about the
-client: `provisioned=0` means this build could not have provisioned a single
-proximity record (no island XYZ has been measured yet), so an `issued=no`
+client: ~~`provisioned=0` means this build could not have provisioned a
+single proximity record (no island XYZ has been measured yet)~~ -- GT-228
+(PASS, R308) has since measured both, so today the pair reads
+`provisioned=2` -- so an `issued=no`
 next to it says the captain report that produced this confirm popped without
 anything from us -- which is the one reading of this line that would refute
 RE-227's provisioning hypothesis instead of supporting it.  (Not during
 GT-228, whose STOP rule forbids pressing confirm: no confirm, no frame, no
 line.  This is what the FIRST confirm frame this server ever sees will say.)
+
+    THAT REFUTATION READING NEEDS `sent=`, AND ONLY `sent=` (pf-adversary,
+    round `16uvmp`).  It was written when this line's only possible state was
+    "we have no send path", and it survived the strike-through above at the
+    new number: on a build reading `sent=unwired`, an `issued=no` refutes
+    NOTHING, because no record left this process for the client to have
+    ignored -- it says a client sent us five bytes we do not recognise.  The
+    refutation is available only on a run whose outbound hex actually carries
+    the two `AddSurveyData` frames, i.e. `sent=` naming a count.  A grader who
+    reads `issued=no` beside `sent=unwired` as evidence against RE-227 has
+    graded a frame this server never sent.
+
+AND `match=trial confidence=low` IS THE FRAGMENT NOT TO OVER-READ (round
+`16uvmp`).  The first provisioning trial writes the destination number
+(2/3) into the record rather than the plan's own 0xA0xx handle -- COO-DECISION
+20260904_1345 item 1 -- so that is the value a confirm on that trial echoes,
+and the plan now resolves it.  It appends `match=trial confidence=low` when
+it does, because a single digit coming back is CONSISTENT with our record
+having been the source and is not evidence of it; a handle echo, which no
+other namespace in this exchange could produce, appends nothing and is the
+strong reading.  Before this the plan recognised only the handle, so a
+perfect attended run of `GT-233` would have printed `issued=no` -- the
+refutation line above -- for a confirm produced by our own record.
 It does NOT mean the confirm sequence that produced it has been seen live on
 a real client (RE-227's own reachability proof for this branch is synthetic;
 see the dispatch-wiring test's own docstring).  `UNPARSED` means the payload
@@ -101,6 +126,39 @@ _EXPECTED_LEN = 5
 # the gap directly: with no cap, a 2,000,000-byte payload produced a
 # 4,000,072-character console line.
 _MAX_HEX_BYTES = 96
+
+# THE ONE FRAGMENT ON THIS LINE THAT IS ABOUT WHAT THIS SERVER DID.
+#
+# pf-adversary (round `16uvmp`) asked the question this line could not answer:
+# what on it distinguishes "we provisioned a record and the client echoed it"
+# from "we have never sent anything and a client sent us a 2"?  Nothing did.
+# `issued=`, `provisioned=` and `arrival_plan=` are all computed from
+# `world_m2_survey_plan.MEASURED_XYZ` and the scene registry -- CAPABILITY, not
+# event -- so every one of them reads the same on a build with no send path at
+# all, which is this build.  A client that sends five bytes can make the line
+# say `issued=yes` today.
+#
+# ~~`unwired` is the state of THIS REPOSITORY~~ THAT DAY ARRIVED, 2026-09-04:
+# chief's round `t7bsfx` landed the call site LANE-A's CORE-REQUEST asked for
+# (`runtime.py`, PR #760, repaired by #763), so this constant is now `wired`
+# -- changed by chief, in LANE-A's file, because
+# `tests/test_lane_a_enter_instance_log.py` is written to go RED until it is,
+# and leaving it red would block every lane's PR rather than only this one's
+# author (LANE-A: the word is yours to refine; the letter for this round says
+# so).  The tripwire that backs it is unchanged and still checked, not
+# asserted: the provisioning-trial module's own guard names every file
+# allowed to reach it.
+#
+# WHAT `wired` DOES AND DOES NOT SAY.  It says a send path EXISTS in this
+# build.  It does not say a record left this process on THIS boot: the call
+# site is behind the attended-only `PF_M2_SURVEY_TRIAL` flag, and on a
+# flagless boot nothing is composed at all.  The test's own message asks for
+# "a count of what actually went out" -- that count belongs to the console
+# lines the call site prints (`M2_SURVEY_TRIAL_SENT ... records=N`, and the
+# frozen server's `[G>]` line per frame), not to a module-level constant that
+# cannot see a session.  A grader reading `sent=wired` must still read those
+# lines before concluding a record was provisioned.
+SEND_PATH_STATE = "wired"
 
 
 def decode_opaque(payload: bytes) -> int | None:
@@ -141,12 +199,18 @@ def console_line(payload: bytes) -> str:
     # annotation from `world_m2_survey_plan` stays inside that limit on
     # purpose: it says whether the value is a handle THIS BUILD issued and
     # how many records this build could provision at all, never what the
-    # client thinks the number means.  With no measured island XYZ that
+    # client thinks the number means.  ~~With no measured island XYZ that
     # reads `issued=no provisioned=0`, which is the line that tells a
-    # grader a captain report popped WITHOUT a record from this server.
+    # grader a captain report popped WITHOUT a record from this server.~~
+    # CORRECTED (pf-adversary second pass, this round): GT-228 measured both,
+    # so it reads `provisioned=2`, and no fragment here can tell a grader
+    # anything about a record leaving this server -- only `sent=` below can,
+    # and today it says `unwired`.  See this module's docstring section on
+    # the refutation reading.
     return (
         f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
         f" {_arrival_annotation()}"
+        f" sent={SEND_PATH_STATE}"
         " no_responder bytes_out=0"
     )
 

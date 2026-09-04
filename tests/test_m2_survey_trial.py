@@ -207,12 +207,19 @@ class RuntimeCallSiteTests(unittest.TestCase):
             "world_m2_provisioning_trial.encode_trial_records",
         )[0]
         passed = {kw.arg: kw.value for kw in composer.keywords}
-        self.assertEqual(set(passed), {"msg_id", "vital_version"})
-        for arg, value in passed.items():
+        # `player_scene_id` became mandatory in LANE-A's round `16uvmp`
+        # (their own frame guard); it is the scene this dispatch is in, not
+        # a trial number, so it is named here and checked separately.
+        self.assertEqual(
+            set(passed), {"msg_id", "vital_version", "player_scene_id"},
+        )
+        for arg in ("msg_id", "vital_version"):
             with self.subTest(arg=arg):
+                value = passed[arg]
                 self.assertIsInstance(value, ast.Attribute)
                 self.assertIsInstance(value.value, ast.Name)
                 self.assertEqual(value.value.id, "m2_survey_trial")
+        self.assertIsInstance(passed["player_scene_id"], ast.Name)
 
     def test_the_server_never_composes_the_client_s_confirm_frame(self):
         """COO-DECISION 20260904_1845 item 4: the server must not send
@@ -477,6 +484,7 @@ class DispatchWiringTests(unittest.TestCase):
                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL,
                 vital_version=m2_survey_trial
                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL,
+                player_scene_id=m2_survey_trial.M2_SEA_SCENE_ID,
             )
         }
 

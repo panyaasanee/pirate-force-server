@@ -11623,6 +11623,16 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL,
                                 vital_version=m2_survey_trial
                                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL,
+                                # LANE-A made this argument mandatory in
+                                # round `16uvmp` for the same reason this
+                                # call site checks `plan_frame_matches`
+                                # above: a scene-126 triple provisioned to
+                                # a player in scene 17 can pop a captain
+                                # report whose confirm now composes a real
+                                # teleport.  Both checks stay -- theirs
+                                # cannot be forgotten, mine names the
+                                # refusal on the console.
+                                player_scene_id=m2_survey_scene,
                             )
                         )
                         # The wire value for each record, in the same order
