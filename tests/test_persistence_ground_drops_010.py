@@ -185,13 +185,16 @@ class TheMigrationItselfTests(_StoreFixture):
 class TheTableShapeTests(_StoreFixture):
 
     def test_the_columns_match_ground_drop_plus_the_folded_key(self):
+        # `taken_at` (`migrations/012_ground_drops_taken_marker.sql`) is
+        # included here on purpose -- this test's job is "every column this
+        # store's accessors can see", not "only what 010 itself created".
         columns = {row[1] for row in _table_info(self.path)}
         self.assertEqual(
             columns,
             {
                 "id", "scene", "scene_fold", "drop_key", "item_id",
                 "quantity", "x", "y", "z", "mob_identity", "killer_identity",
-                "created_at",
+                "created_at", "taken_at",
             },
         )
 
@@ -559,6 +562,157 @@ class TheDoorsScopeStaysWhatWasOrderedTests(_StoreFixture):
             SQLiteStore.commit_ground_drop).parameters)
         self.assertNotIn("sid", params)
         self.assertNotIn("character_id", params)
+
+
+TWELVE = MIGRATIONS / "012_ground_drops_taken_marker.sql"
+
+
+class TheTakenMarkerMigrationTests(_StoreFixture):
+    """`migrations/012_ground_drops_taken_marker.sql` -- the read-half
+    unblock ordered by `notes_to_chief/20260904_1650_LANE-B-TO-LANE-DB-
+    ground-drops-need-a-taken-marker.md`."""
+
+    def test_012_is_on_disk_with_no_duplicate_version_number(self):
+        self.assertTrue(TWELVE.exists(), TWELVE)
+        versions = sorted(
+            int(p.name[:3]) for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
+        )
+        self.assertIn(12, versions)
+        self.assertEqual(len(versions), len(set(versions)))
+
+    def test_the_ledger_records_version_12(self):
+        self.assertIn(12, _applied(self.path))
+
+    def test_taken_at_is_nullable_and_no_existing_row_is_touched(self):
+        """`ALTER TABLE ... ADD COLUMN` with no default -- every row that
+        existed before this migration (none, in this fixture, but the
+        column's own `notnull` flag is the general proof) gets NULL, not a
+        rewritten value; this is why the migration needs no snapshot of its
+        own (see the migration file's docstring)."""
+        columns = {row[1]: row for row in _table_info(self.path)}
+        self.assertIn("taken_at", columns)
+        cid, name, coltype, notnull, dflt_value, pk = columns["taken_at"]
+        self.assertEqual(notnull, 0)
+        self.assertIsNone(dflt_value)
+
+    def test_a_drop_committed_through_009s_worth_of_history_still_has_no_taken_at(self):
+        row = self.store.commit_ground_drop(**A_DROP)
+        self.assertIsNone(_raw_taken_at(self.path, row.id))
+
+
+def _raw_taken_at(path, row_id):
+    db = sqlite3.connect(str(path))
+    try:
+        return db.execute(
+            "SELECT taken_at FROM ground_drops WHERE id=?", (row_id,)
+        ).fetchone()[0]
+    finally:
+        db.close()
+
+
+class TheTakenMarkerDoorTests(_StoreFixture):
+    """`SQLiteStore.mark_ground_drop_taken` /
+    `SQLiteStore.list_ground_drops_still_on_the_ground` -- the read half
+    `mob_ground_persistence.restore_scene_ground` was refusing by name
+    (`REFUSE_TAKEN_DOOR_IS_ABSENT`) until both of these existed.
+    """
+
+    def test_an_untaken_row_is_still_on_the_ground(self):
+        self.store.commit_ground_drop(**A_DROP)
+        seen = self.store.list_ground_drops_still_on_the_ground(A_DROP["scene"])
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].drop_key, A_DROP["drop_key"])
+
+    def test_marking_taken_removes_it_from_still_on_the_ground(self):
+        self.store.commit_ground_drop(**A_DROP)
+        marked = self.store.mark_ground_drop_taken(
+            A_DROP["scene"], A_DROP["drop_key"])
+        self.assertTrue(marked)
+        self.assertEqual(
+            self.store.list_ground_drops_still_on_the_ground(A_DROP["scene"]),
+            (),
+        )
+
+    def test_marking_taken_does_not_delete_the_row(self):
+        """`COO-DECISION 20260901_0253` -- a mark, never a `DELETE`."""
+        self.store.commit_ground_drop(**A_DROP)
+        self.store.mark_ground_drop_taken(A_DROP["scene"], A_DROP["drop_key"])
+        still_ledgered = self.store.list_ground_drops_for_scene(A_DROP["scene"])
+        self.assertEqual(len(still_ledgered), 1)
+        self.assertEqual(still_ledgered[0].drop_key, A_DROP["drop_key"])
+
+    def test_marking_writes_a_real_timestamp(self):
+        self.store.commit_ground_drop(**A_DROP)
+        self.store.mark_ground_drop_taken(A_DROP["scene"], A_DROP["drop_key"])
+        row = self.store.list_ground_drops_for_scene(A_DROP["scene"])[0]
+        taken_at = _raw_taken_at(self.path, row.id)
+        self.assertIsNotNone(taken_at)
+        # `_now()`'s own ISO-8601 format -- the store's other timestamp
+        # columns all round-trip through this, and LANE-B's letter asks for
+        # exactly this guarantee for `created_at` on the sibling column.
+        from datetime import datetime
+        datetime.fromisoformat(taken_at)
+
+    def test_marking_twice_is_not_an_error_and_keeps_the_first_timestamp(self):
+        self.store.commit_ground_drop(**A_DROP)
+        self.assertTrue(
+            self.store.mark_ground_drop_taken(A_DROP["scene"], A_DROP["drop_key"]))
+        row = self.store.list_ground_drops_for_scene(A_DROP["scene"])[0]
+        first = _raw_taken_at(self.path, row.id)
+        self.assertTrue(
+            self.store.mark_ground_drop_taken(A_DROP["scene"], A_DROP["drop_key"]))
+        second = _raw_taken_at(self.path, row.id)
+        self.assertEqual(first, second)
+
+    def test_marking_a_drop_key_that_was_never_committed_returns_false(self):
+        self.assertFalse(
+            self.store.mark_ground_drop_taken("bg0001", 0xDEADBEEF))
+        self.assertEqual(_raw_rows(self.path), [])
+
+    def test_marking_in_one_scene_does_not_take_the_same_key_in_another(self):
+        self.store.commit_ground_drop(**A_DROP)
+        other_scene = self.store.commit_ground_drop(
+            **{**A_DROP, "scene": "bg0002"})
+        self.store.mark_ground_drop_taken(A_DROP["scene"], A_DROP["drop_key"])
+        self.assertEqual(
+            len(self.store.list_ground_drops_still_on_the_ground("bg0002")), 1)
+        self.assertEqual(
+            self.store.list_ground_drops_still_on_the_ground("bg0002")[0].id,
+            other_scene.id,
+        )
+
+    def test_lookup_is_case_insensitive_like_the_write_side(self):
+        self.store.commit_ground_drop(**A_DROP)
+        self.store.mark_ground_drop_taken("BG0001", A_DROP["drop_key"])
+        self.assertEqual(
+            self.store.list_ground_drops_still_on_the_ground("Bg0001"), (),
+        )
+
+    def test_an_empty_scene_is_refused_by_both_methods(self):
+        with self.assertRaises(ValueError):
+            self.store.mark_ground_drop_taken("", A_DROP["drop_key"])
+        with self.assertRaises(ValueError):
+            self.store.list_ground_drops_still_on_the_ground("")
+
+    def test_a_non_ascii_scene_is_refused_by_both_methods(self):
+        with self.assertRaises(ValueError):
+            self.store.mark_ground_drop_taken("Straße", A_DROP["drop_key"])
+        with self.assertRaises(ValueError):
+            self.store.list_ground_drops_still_on_the_ground("Straße")
+
+    def test_a_drop_key_outside_u32_is_refused(self):
+        for bad in (-1, 0x100000000):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    self.store.mark_ground_drop_taken("bg0001", bad)
+
+    def test_a_bool_drop_key_is_refused_not_coerced_to_0_or_1(self):
+        with self.assertRaises(TypeError):
+            self.store.mark_ground_drop_taken("bg0001", True)
+
+    def test_an_empty_scene_still_on_the_ground_returns_nothing_not_an_error(self):
+        self.assertEqual(
+            self.store.list_ground_drops_still_on_the_ground("bg9999"), ())
 
 
 if __name__ == "__main__":
