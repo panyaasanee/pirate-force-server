@@ -2082,5 +2082,62 @@ class NoModuleOfThisLaneReportsASkipTests(unittest.TestCase):
             )
 
 
+class ReadTypedAttributesAndNameTests(unittest.TestCase):
+    """`SQLiteStore.read_typed_attributes_and_name` -- the one-connection
+    read `pf-adversary` round `1cajqi` asked for: `persistence_attr_compose.
+    live_typed_values_for` used to call `read_typed_attributes` and
+    `get_character` as two separate connections, and the adversary pass
+    reproduced live both the stale-read and the mismatched-KeyError outcomes
+    a write or a soft-delete landing between them could produce.  This
+    method exists so there is no window for either.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("read-typed-and-name")
+
+    def _make(self, tag):
+        return self.store.create_character(
+            self.account_id, f"Snap{tag}", f"snap{tag}",
+            f"fingerprint-snap-{tag}", _build_wire, self.home,
+        )
+
+    def test_agrees_with_the_two_separate_reads_it_replaces(self):
+        character = self._make("agree")
+        columns, name = self.store.read_typed_attributes_and_name(character.id)
+        self.assertEqual(columns, self.store.read_typed_attributes(character.id))
+        self.assertEqual(name, self.store.get_character(character.id).name)
+
+    def test_null_columns_are_omitted_same_as_read_typed_attributes(self):
+        character = self._make("nulls")
+        columns, _ = self.store.read_typed_attributes_and_name(character.id)
+        self.assertNotIn("class_id", columns)
+        self.assertNotIn("cash", columns)
+
+    def test_a_written_column_appears_in_the_same_call(self):
+        character = self._make("written")
+        self.store.write_typed_attributes(character.id, {"class_id": 3})
+        columns, name = self.store.read_typed_attributes_and_name(character.id)
+        self.assertEqual(columns["class_id"], 3)
+        self.assertEqual(name, "Snapwritten")
+
+    def test_unknown_character_id_raises_keyerror(self):
+        with self.assertRaises(KeyError):
+            self.store.read_typed_attributes_and_name(999999)
+
+    def test_soft_deleted_character_raises_keyerror(self):
+        character = self._make("gone")
+        self.store.soft_delete_character(
+            self.store.open_session(self.account_id), character.selector,
+        )
+        with self.assertRaises(KeyError):
+            self.store.read_typed_attributes_and_name(character.id)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

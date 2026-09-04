@@ -1156,6 +1156,41 @@ class SQLiteStore:
             raise KeyError(character_id)
         return {c: row[c] for c in columns if row[c] is not None}
 
+    def read_typed_attributes_and_name(
+        self, character_id: int
+    ) -> tuple[dict[str, int | float], str]:
+        """``(read_typed_attributes(character_id), name)`` from ONE connection.
+
+        LANE-DB owns this method; no existing method is touched by it.
+
+        Built for `persistence_attr_compose.live_typed_values_for`
+        (`pf-adversary` round `1cajqi`, finding 2): that caller needs both the
+        typed columns and the name for the SAME row, and two separate calls to
+        `read_typed_attributes`/`get_character` -- each opening its own
+        connection -- leaves a window between them where a concurrent write
+        (or soft-delete) can make the two reads describe two different
+        moments of the same character.  Measured, not merely reasoned about:
+        the adversary pass reproduced both outcomes live -- a write landing in
+        that window is missed by whichever half already ran, and a soft-delete
+        landing in it makes one half raise `KeyError` while the other still
+        returns.  One connection, one row, closes the window; the character's
+        name comes from the SAME `SELECT`, not a second query.
+        """
+        from . import persistence_typed_attrs as typed_attrs
+
+        columns = list(typed_attrs.TYPED_COLUMNS)
+        projection = ",".join(columns)
+        with self.connect() as db:
+            row = db.execute(
+                f"SELECT {projection},name FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+        typed = {c: row[c] for c in columns if row[c] is not None}
+        return typed, row["name"]
+
     def write_typed_attributes(
         self, character_id: int, values: dict[str, int | float]
     ) -> dict[str, int | float]:

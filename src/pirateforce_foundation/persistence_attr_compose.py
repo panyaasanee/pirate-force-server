@@ -780,3 +780,96 @@ def unlock_report() -> dict[str, object]:
             x for x, owned in SERVER_OWNED_FIELDS.items() if owned.column_exists
         ),
     }
+
+
+# -- The live version of unlock_report -- for ONE real character -------------
+# `unlock_report()` above always measures against `{}`: it answers "what is
+# blocked if nobody supplies anything", which is the honest worst case but
+# not what `COO-DECISION 20260904_0942` item 3 asked this lane to report --
+# "the login-mask set intersected with the rows that really have a value" for
+# an actual character, named as a list rather than folded into a zero.  The
+# two functions below build that list from what `store` actually holds today,
+# reusing `block_gaps`/`SERVER_OWNED_FIELDS` rather than re-deciding anything:
+# a row this character's own database row does not have stays reported as
+# `REASON_NO_TYPED_VALUE`, never guessed.
+#
+# NEITHER FUNCTION READS OR DERIVES THE LOGIN MASK ITSELF.  `gm/login_mask.
+# login_field_x` is the one derivation of that set this repository has, and
+# deriving it means composing a frame through `legacy_bridge.load_legacy`,
+# which every existing caller of it points at
+# `current/pf_login_game_server_v141.py` -- the one file and everything of it
+# this lane may never touch or use as a criterion (house rule, restated in
+# this module's own "WHY NOT THE CHARACTER'S OWN CREATION BLOB" section).  So
+# this lane reports the full `SERVER_OWNED_FIELDS` supplied/not-supplied
+# split instead of a login-mask-filtered one; the round file that reads it
+# narrows to the login-mask subset by citing the measured example already
+# written down in `gm/login_mask.py`'s own module docstring (plain login
+# composes `{1,2,3,4,7,9,10,13,24}`, the faction branch adds `{11}`) rather
+# than this lane re-typing that set as a second, driftable copy of it.
+#
+# `server_owned_fields_not_supplied` BELOW IS A SUPERSET OF THE LOGIN-MASK
+# GAP, NOT THE GAP ITSELF -- read before quoting it in a letter.  x=9, x=10
+# and x=11 are three of the fields the measured login mask above carries, and
+# NONE of the three ever appears in either list `live_unlock_report` returns:
+# they are `CLIENT_DEFAULT`-sourced in this module's own partition, not
+# `SERVER_OWNED`, so they are outside both lists by construction.  A reader
+# who takes `server_owned_fields_not_supplied` as "what the login block is
+# missing" without first doing the intersection `COO-DECISION 20260904_0942`
+# item 3 asked for (this set of 22 names INTERSECTED with the measured
+# login-mask set above)
+# is quoting a superset that ALSO silently drops three login-relevant fields
+# in the other direction -- pf-adversary round `1cajqi` named this trap.
+def live_typed_values_for(store, character_id: int) -> dict[int, object]:
+    """``{x: value}`` for every server-owned field ``character_id``'s row
+    really has today -- the ``typed_values`` argument every function above
+    takes, built from live data instead of a caller's hand-assembled dict.
+
+    One read-only source, this lane's own: `store.
+    read_typed_attributes_and_name` (a single connection, a single row --
+    added this round after `pf-adversary` measured that reading the typed
+    columns and the name through two SEPARATE calls, each its own
+    connection, leaves a window where a concurrent write or soft-delete
+    makes the two halves describe two different moments of the same
+    character).  The typed half goes through `persistence_typed_attrs.
+    typed_values_for_compose` (re-validates on the way, so a value this
+    module could not honour cannot reach `block_gaps` silently); the name is
+    x=1, the one server-owned field that is not a typed column
+    (`persistence_typed_attrs.NOT_A_TYPED_ATTRIBUTE_COLUMN`).  Raises
+    `KeyError` for a character that does not exist or was soft-deleted,
+    exactly as `store.read_typed_attributes_and_name` already does; no new
+    refusal is invented here.
+    """
+    from .persistence_typed_attrs import typed_values_for_compose
+
+    stored, name = store.read_typed_attributes_and_name(character_id)
+    values = typed_values_for_compose(stored)
+    if isinstance(name, str) and name:
+        values[1] = name
+    return values
+
+
+def live_unlock_report(store, character_id: int) -> dict[str, object]:
+    """``unlock_report()``'s numbers for ONE REAL character instead of the
+    always-``{}`` baseline: which server-owned fields this character's row
+    supplies today, and which are still ``server_owned_value_not_supplied``,
+    named rather than zero-filled (`COO-DECISION 20260904_0942` item 3).
+    """
+    typed_values = live_typed_values_for(store, character_id)
+    gaps = block_gaps(typed_values)
+    by_reason: dict[str, list[int]] = {}
+    for gap in gaps:
+        if gap.reason not in by_reason:
+            by_reason[gap.reason] = []
+        by_reason[gap.reason].append(gap.x)
+    return {
+        "character_id": character_id,
+        "total_fields": len(FIELDS),
+        "blocked_fields": len(gaps),
+        "by_reason": {reason: sorted(xs) for reason, xs in sorted(by_reason.items())},
+        "server_owned_fields_supplied": sorted(
+            x for x in SERVER_OWNED_FIELDS if x in typed_values
+        ),
+        "server_owned_fields_not_supplied": sorted(
+            x for x in SERVER_OWNED_FIELDS if x not in typed_values
+        ),
+    }
