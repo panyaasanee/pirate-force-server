@@ -383,6 +383,22 @@ def _current_frame_cap() -> int:
     return mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
 
 
+def _console_ascii(line: str) -> str:
+    """Make one line safe for the cp874 console this project actually runs on.
+
+    ROUND hlwgri, pf-adversary D7, MEASURED: :func:`_say_world_line` keeps a
+    dead console from costing a FRAME, but it also swallows the line -- so a
+    refusal whose ``%r`` detail carried a character cp874 has no mapping for
+    printed NOTHING, and a token whose stated invariant is "silence means
+    this build has no call site" then lies.  ``describe_presence`` already
+    defends itself this way (``encode("ascii", "backslashreplace")``); every
+    line this module composes by hand now does too, so the escape hatch in
+    :func:`_say_world_line` is left for what it was written for rather than
+    used as the encoding strategy.
+    """
+    return line.encode("ascii", "backslashreplace").decode("ascii")
+
+
 def _say_world_line(line: str) -> bool:
     """Print one world line, and LOSE THE LINE rather than the kill.
 
@@ -844,34 +860,34 @@ def reannounce_ground(cell: Any, legacy: Any, scene: Any = None) -> tuple:
             cell_scene = getattr(cell, "current_scene", None)
             if (cell_scene is None
                     or mob_loot.scene_key(scene) != mob_loot.scene_key(cell_scene)):
-                _say_world_line("%s scene=%r reason=%s" % (
+                _say_world_line(_console_ascii("%s scene=%r reason=%s" % (
                     GROUND_REANNOUNCE_REFUSED_TOKEN, scene,
-                    REFUSE_SCENE_DISAGREES))
+                    REFUSE_SCENE_DISAGREES)))
                 return ()
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s scene=%r reason=%s:%r" % (
-            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, REFUSE_CELL_RAISED, error))
+        _say_world_line(_console_ascii("%s scene=%r reason=%s:%r" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, REFUSE_CELL_RAISED, error)))
         return ()
     try:
         step = sustain_a_kill(cell, legacy, ())
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s scene=%r reason=%s:%r" % (
-            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, "reannounce_raised", error))
+        _say_world_line(_console_ascii("%s scene=%r reason=%s:%r" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, "reannounce_raised", error)))
         return ()
     if step.refused:
-        _say_world_line("%s scene=%r reason=%s" % (
+        _say_world_line(_console_ascii("%s scene=%r reason=%s" % (
             GROUND_REANNOUNCE_REFUSED_TOKEN,
-            step.scene if step.scene is not None else scene, step.state))
+            step.scene if step.scene is not None else scene, step.state)))
         return ()
     try:
         actions = loot_actions(step)
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s scene=%r reason=%s:%r" % (
+        _say_world_line(_console_ascii("%s scene=%r reason=%s:%r" % (
             GROUND_REANNOUNCE_REFUSED_TOKEN, step.scene, "actions_raised",
-            error))
+            error)))
         return ()
-    _say_world_line("%s scene=%r items=%d" % (
-        GROUND_REANNOUNCE_TOKEN, step.scene, step.live))
+    _say_world_line(_console_ascii("%s scene=%r items=%d" % (
+        GROUND_REANNOUNCE_TOKEN, step.scene, step.live)))
     return actions
 
 
@@ -990,16 +1006,48 @@ flag: production_allowed is True and this behaviour is on for every boot.
 #
 # [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION].  The COO's own
 # ratification keeps this label until a human sees the label NOT blink on a
-# real screen: ``GT-223`` step (8) is that measurement, and until it passes
-# nobody may report RE-208's "it comes back" half as closed.
+# real screen -- ``GT-223`` pass criterion (8), which is EYES ONLY (its own
+# text: "client-observable (human eyes only)", evidence = a short video).  It
+# greps no console line and no ticket greps this module's tokens today.
 #
-# WHY THIS IS NOT THE REPEATED-RESEND PATH THE COO BARRED on
-# 2026-08-30T17:42+07:00 (see WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_
-# WIRING below, which stays withdrawn): that ruling refused a resend driven
-# by MOVEMENT or a cap -- a cadence nobody had measured -- and the 2026-09-03
-# ratification above is the later, narrower decision, for one event only.
-# This composer fires on ONE event: a blow the player themself aimed at a mob
-# that survived it.  No timer, no movement, no thread, no clock.
+# THIS COMPOSER IS BUILT AND DELIBERATELY NOT WIRED.  See
+# :data:`GROUND_SURVIVING_BLOW_CALL_SITE_STATUS` and
+# :data:`WITHHELD_GROUND_SURVIVING_BLOW_WIRING`: the wiring ask was drafted
+# this round and then WITHDRAWN by this lane, in the same round, on its own
+# adversarial measurement.  The reason, measured by driving the real
+# ``mob_combat.strike``/``commit_step`` against
+# ``field_mobs.load_roster(scene=BG0002)[0]`` (max_hp 3857) and counting
+# blows until ``step.death_due`` flipped:
+#
+#     attacker level 50 ->   8 blows/kill ->   7 extra ground publications
+#     attacker level 10 ->  33 blows/kill ->  32 extra publications
+#     attacker level  1 -> 133 blows/kill -> 132 extra publications
+#
+# At ~57 B for a one-row floor and ~+30 B per further row, a level-1
+# character killing ONE mob over a five-row floor is ~23.6 KB of repeated
+# ground frames and hundreds of console lines for that single kill.  The COO
+# ruling of 2026-08-30T17:42+07:00 barred any REPEATED resend -- capped or
+# movement-driven -- until an attended round fires EXACTLY ONE extra resend
+# after a drop and measures whether the label comes back.  The 2026-09-03
+# ratification of option (b) names the event ("a blow that does not kill")
+# and nowhere names a 132:1 amplification, so this lane will not read it as
+# permission for one.  The decision is the COO's, not this lane's, and the
+# ask is in pf_bridge/notes_to_chief/20260905_0146_LANE-B-ASK-COO-*.
+#
+# TWO MORE THINGS THAT MUST BE ANSWERED BEFORE A CALL SITE EXISTS, both
+# MEASURED this round and neither fixed here:
+#   (i)  runtime.py never rehydrates a session's ``mob_loot_cell`` from the
+#        world floor (``runtime.py:1524`` builds an empty ``DropLedgerCell``;
+#        ``list_ground_drops_for_scene`` has no caller in runtime.py).  Every
+#        publication therefore OMITS every row the session's own cell does
+#        not hold -- which is the same replace-by-omission this composer was
+#        written to undo, and in ``GT-223``'s filmed window (4b -> 5) it
+#        would omit the pre-relogin row once per blow instead of once.
+#   (ii) ``sustain_a_kill`` pays ``cell.note_scene_published`` before this
+#        function knows whether ``loot_actions`` will succeed, so a raising
+#        ``loot_actions`` marks a removal debt paid that nothing published --
+#        the ghost ``mob_loot.frames_after_rows_expired``'s ``will_send``
+#        exists to prevent.  Reproduced by fault injection this round.
 # ---------------------------------------------------------------------------
 
 #: Printed once per surviving blow that composed a generation, empty ground
@@ -1019,6 +1067,19 @@ GROUND_SURVIVING_BLOW_TOKEN = "GROUND_REANNOUNCE_AFTER_A_SURVIVING_BLOW"
 GROUND_SURVIVING_BLOW_REFUSED_TOKEN = (
     "GROUND_REANNOUNCE_REFUSED_AFTER_A_SURVIVING_BLOW")
 
+#: WHERE THIS COMPOSER STANDS, in the sibling lane's own vocabulary
+#: (``mob_pickup_request.GROUND_AFTER_CALL_SITE_STATUS`` = ``"sent"``,
+#: ``PICKUP_REQUEST_DISPATCH_CALL_SITE_STATUS`` = ``"landed"``).  A reader
+#: who greps this module's name on ``main`` and finds a hit must be able to
+#: tell "the fix is shipped" from "the fix is composed and nothing sends it",
+#: because that confusion has already cost this project a round once.
+#: It is a STRING, not a bool, and it is read by a test rather than by the
+#: code: nothing here is gated on it, because the honest gate is that no
+#: caller exists.  When a call site is authorised and landed, this becomes
+#: ``"sent"`` in the same commit that lands it, and the test that pins it
+#: fails until it does.
+GROUND_SURVIVING_BLOW_CALL_SITE_STATUS = "composed_not_sent_no_call_site"
+
 #: The blow killed: the per-kill call site already re-emits this same
 #: generation, and sending it twice for one blow is the one way this call
 #: site could make the wire worse than it is today.
@@ -1033,13 +1094,25 @@ def reannounce_ground_after_a_surviving_blow(
 ) -> tuple:
     """Re-send the floor after a blow that did NOT kill.  NEVER RAISES.
 
-    THE CALL SITE THIS IS FOR: runtime.py's mob-hit dispatch, in the branch
-    that runs when ``step.death_due`` is false, after the bar frame is
-    queued -- see :data:`GROUND_SURVIVING_BLOW_WIRING` for the one line.
-    The bar frame is a CENSUS RECOMPOSE (runtime.py prints
+    THERE IS NO CALL SITE, AND THAT IS THIS ROUND'S ANSWER, NOT AN OVERSIGHT
+    -- see :data:`GROUND_SURVIVING_BLOW_CALL_SITE_STATUS` and
+    :data:`WITHHELD_GROUND_SURVIVING_BLOW_WIRING`.  The call site this was
+    built for is runtime.py's mob-hit dispatch in the branch where the blow
+    did not kill; it is withheld pending a COO decision on a measured 7-132x
+    amplification and on two unanswered questions named in the module
+    comment above.
+
+    [ASSUMPTION OF LANE B - AWAITING COO] WHY A GROUND RE-EMIT THERE WOULD
+    HELP AT ALL: the bar frame is a census recompose (runtime.py prints
     ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE`` beside it), and a census that does
-    not carry the floor is replace-by-omission on the client -- which is
-    what RE-208's "the item label vanished when I hit the next mob" is.
+    not carry the floor MIGHT be replace-by-omission for the ground list the
+    way RE-092 measured it is for the remote-actor registry.  THAT TRANSFER
+    IS NOT MEASURED: ``mob_loot.MOB_LOOT_NONCLAIMS`` entry 18 says in its own
+    words that what a RuntimeRes carrying a different derived mask does to a
+    live ground entry is UNMEASURED, and ``REEMISSION_REDRAWS_THE_LABEL`` is
+    still ``None``.  The only ground wipe this project has actually measured
+    is GT-242's, on the ``0x4B98`` reply -- a different frame.  So this
+    function is a composer for a hypothesis, not the fix for a proven cause.
 
     ``step`` is the ``mob_combat.CombatStep`` the caller already has in
     hand; this call reads ONE field of it, ``death_due``, and reads it
@@ -1057,78 +1130,93 @@ def reannounce_ground_after_a_surviving_blow(
     console line carries the difference between "nothing to send" and
     "something refused".
 
-    CADENCE, SAID OUT LOUD: one console line per surviving blow, by design
-    and not by accident -- the same cadence the per-kill line already has
-    for kills.  ``GT-223`` step (8) reads those lines.
+    CADENCE, MEASURED RATHER THAN ASSERTED: TWO console lines per composing
+    call, not one -- this function's own, plus the
+    ``MOB_GROUND_WORLD_REMEMBERED ... scene='' new=0 ... keys=none`` line
+    ``sustain_a_kill`` prints unconditionally.  That second line is the
+    discriminator an attended round greps to tell "the floor was told" from
+    "this seam never ran", so a wired version of this call would bury it
+    once per blow.  Named here because a cadence claim in a docstring is
+    worth exactly what it was measured at, and because it is one more thing
+    a call site has to answer for.
+
+    NO TICKET GREPS THESE TOKENS.  ``GT-223`` criterion (8) is EYES ONLY (a
+    short video, human eyes, its own text forbids inferring it from the
+    console), and no other entry in ``GAME_TEST_QUEUE.md`` mentions this
+    module's names.  This function's console lines are for an operator
+    reading a boot, not evidence any ticket collects.
     """
     try:
         death_due = step.death_due
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s reason=%s:%r" % (
+        _say_world_line(_console_ascii("%s reason=%s:%r" % (
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN,
-            REFUSE_DEATH_DUE_UNREADABLE, error))
+            REFUSE_DEATH_DUE_UNREADABLE, error)))
         return ()
     if death_due is True:
-        _say_world_line("%s reason=%s" % (
-            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, REFUSE_THE_BLOW_KILLED))
+        _say_world_line(_console_ascii("%s reason=%s" % (
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, REFUSE_THE_BLOW_KILLED)))
         return ()
     if death_due is not False:
-        _say_world_line("%s reason=%s value=%r" % (
+        _say_world_line(_console_ascii("%s reason=%s value=%r" % (
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN,
-            REFUSE_DEATH_DUE_UNREADABLE, death_due))
+            REFUSE_DEATH_DUE_UNREADABLE, death_due)))
         return ()
     try:
         presence = sustain_a_kill(cell, legacy, ())
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s reason=%s:%r" % (
-            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, "reannounce_raised", error))
+        _say_world_line(_console_ascii("%s reason=%s:%r" % (
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, "reannounce_raised", error)))
         return ()
     if presence.refused:
-        _say_world_line("%s scene=%r reason=%s" % (
+        _say_world_line(_console_ascii("%s scene=%r reason=%s" % (
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN, presence.scene,
-            presence.state))
+            presence.state)))
         return ()
     try:
         actions = loot_actions(presence)
     except Exception as error:                          # noqa: BLE001
-        _say_world_line("%s scene=%r reason=%s:%r" % (
+        _say_world_line(_console_ascii("%s scene=%r reason=%s:%r" % (
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN, presence.scene,
-            "actions_raised", error))
+            "actions_raised", error)))
         return ()
-    _say_world_line("%s scene=%r items=%d" % (
-        GROUND_SURVIVING_BLOW_TOKEN, presence.scene, presence.live))
+    _say_world_line(_console_ascii("%s scene=%r items=%d" % (
+        GROUND_SURVIVING_BLOW_TOKEN, presence.scene, presence.live)))
     return actions
 
 
 # ---------------------------------------------------------------------------
-# The wiring ask for reannounce_ground_after_a_surviving_blow.  runtime.py is
-# chief's file; this is the whole change, one line, and GT-223 step (8) is
-# the ticket that measures it.
+# THE WIRING ASK, DRAFTED AND THEN WITHHELD BY THIS LANE IN THE SAME ROUND.
+# It is kept, struck, rather than deleted -- the record of what was asked for
+# before the amplification was measured, exactly as
+# WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING below is kept.
+# NOBODY SHOULD WIRE FROM THIS TEXT.  It becomes a live ask only if the COO
+# rules on the three things named in the module comment above (the 7-132x
+# amplification against the 2026-08-30T17:42 bar; the session cell that is
+# never rehydrated, so every publication omits the rows it does not hold;
+# the removal debt sustain_a_kill pays before this function knows whether
+# anything will be sent) -- and, if the ruling is yes, the shape it should
+# take is almost certainly NOT this one but a latch: at most one extra
+# publication per new ground generation, which is the "exactly ONE extra
+# resend" the 17:42 ruling asked to be measured in the first place.
 # ---------------------------------------------------------------------------
-GROUND_SURVIVING_BLOW_WIRING = """runtime.py, the mob-hit dispatch, in the
-branch that runs when the blow did NOT kill -- immediately after
-
-  actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))
-
-and BEFORE the ``if step.death_due:`` block that follows it (order matters:
-the client must take the bar/census recompose first and the floor after it,
-because the recompose is what drops the floor).
-
-ADD, as one line:
+WITHHELD_GROUND_SURVIVING_BLOW_WIRING = """~~runtime.py, the mob-hit dispatch,
+in the branch that runs when the blow did NOT kill -- after the bar frame is
+queued and before the death branch:
 
   actions.extend(mob_drop_presence.reannounce_ground_after_a_surviving_blow(
-      self.mob_loot_cell, legacy, step))
+      self.mob_loot_cell, legacy, step))~~   WITHHELD, round hlwgri.
 
-Nothing else changes: no new import (the per-kill call site in the death
-branch below already imports this module), no new event (this call prints its
-own console line), no branch (the function returns () on every refusal, on a
-bare floor, and on a blow that killed -- so the extend is safe even if the
-line ends up reached on a fatal blow).
-
-WHY IT TAKES ``step``: so that a fatal blow reaching this line refuses BY
-NAME instead of double-sending the generation the death branch below is
-about to send.  The guard lives in this lane's file, not in chief's
-condition, so a later edit to that branch cannot silently lose it.
+WHY THE TEXT ABOVE IS NOT SAFE TO PASTE EVEN IF THE CADENCE QUESTION IS
+SETTLED: "after the bar append and before ``if step.death_due:``" names two
+different indentation levels.  The append sits inside ``if len(step.frames)
+> 1:``; ``if step.death_due:`` is two levels out.  ``CombatStep.frames``
+returns a 1-tuple on a killing blow, so at the inner reading the fatal-blow
+guard in this module can never fire, and at the outer reading a swing at a
+mob already on the HP floor (``no_room`` True, therefore ``death_due``
+False) publishes the whole floor for a blow that did nothing.  A future
+authorised wiring ask has to name ONE line number and answer the no_room
+case; this one did neither.
 """
 
 # ---------------------------------------------------------------------------

@@ -8,16 +8,24 @@ branch of `mob_combat.strike` returns `(announce_frame, bar_frame)` and
 runtime.py's hit dispatch reaches `return actions` with every ground
 re-emit sitting inside `if step.death_due:`.
 
-This file pins the WIRE-LEVEL half of the composer that closes that gap:
+This file pins the WIRE-LEVEL half of the composer built for that gap:
 `reannounce_ground_after_a_surviving_blow` sends exactly what the per-kill
 path would send for the same ledger, refuses BY NAME on a blow that killed
 (so one blow can never put the generation on the wire twice), fails closed
 on a step it cannot read, and never raises out of the listener thread.
 
+THE COMPOSER IS DELIBERATELY NOT WIRED, and this file pins that too.  The
+round's own pf-adversary pass MEASURED 7 to 132 non-fatal blows per kill,
+so a per-blow call site is an amplification the 2026-08-30T17:42 COO ruling
+bars until an attended round has measured exactly ONE extra resend.  The
+ask went back to the COO instead; `GROUND_SURVIVING_BLOW_CALL_SITE_STATUS`
+says `composed_not_sent_no_call_site` and a test here fails if that stops
+being true without a call site landing.
+
 NOTHING HERE CLAIMS THE LABEL STOPS BLINKING ON A REAL SCREEN.  `GT-223`
-step (8) is that measurement, and until it passes the fix stays labelled
-`[LANE-B ASSUMPTION - AWAITING COO CONFIRMATION]` exactly as the COO's own
-ratification requires.
+pass criterion (8) is that measurement, it is EYES ONLY (a short video),
+and until it passes the approach stays labelled `[LANE-B ASSUMPTION -
+AWAITING COO CONFIRMATION]` exactly as the COO's own ratification requires.
 """
 
 from pathlib import Path
@@ -140,9 +148,9 @@ class ASurvivingBlowResendsTheFloorTests(SurvivingBlowTestBase):
         self.assertIsInstance(actions, tuple)
         self.assertTrue(actions, "a floor with rows must put frames on the wire")
         self.assertEqual(
-            [a[1:] for a in actions], [a[1:] for a in expected],
-            "the surviving-blow call must compose the same bytes as the "
-            "per-kill call site, not a second encoder path")
+            list(actions), list(expected),
+            "the surviving-blow call must compose the same actions as the "
+            "per-kill call site -- label included, not a second encoder path")
 
     def test_the_console_line_names_this_call_site_and_counts_the_floor(self):
         self.kill()
@@ -154,26 +162,28 @@ class ASurvivingBlowResendsTheFloorTests(SurvivingBlowTestBase):
         self.assertNotIn("items=0", said[0])
 
     def test_it_does_not_print_gt242s_negative_control_token(self):
-        # GT-242's RECHECK greps GROUND_REANNOUNCE_AFTER_SECOND_PWD as its
-        # "this build has no call site" control.  A second call site printing
-        # that exact string would make the control lie.
+        # GT-242's RECHECK extracts with `git grep -c` and `findstr /C:` --
+        # SUBSTRING matches, not prefixes.  pf-adversary (round hlwgri, D9)
+        # showed a prefix assertion passes a token that merely CONTAINS the
+        # control string, so this asserts the property the ticket relies on.
         self.kill()
         reannounce_ground_after_a_surviving_blow(
             self.cell, self.legacy, _Step(False))
         for line in self.console.lines:
-            self.assertFalse(
-                line.startswith(GROUND_REANNOUNCE_TOKEN),
+            self.assertNotIn(
+                GROUND_REANNOUNCE_TOKEN, line,
                 "this call site must not print the 0x4B98 call site's token")
-        self.assertNotEqual(
-            GROUND_SURVIVING_BLOW_TOKEN, GROUND_REANNOUNCE_TOKEN)
+        self.assertNotIn(GROUND_REANNOUNCE_TOKEN, GROUND_SURVIVING_BLOW_TOKEN)
+        self.assertNotIn(
+            GROUND_REANNOUNCE_TOKEN, GROUND_SURVIVING_BLOW_REFUSED_TOKEN)
 
-    def test_neither_token_is_a_prefix_of_the_other(self):
+    def test_neither_token_contains_the_other(self):
         # A refusal line that a grep for the success token also counts is how
         # "the floor was resent N times" becomes a number nobody can trust.
-        self.assertFalse(GROUND_SURVIVING_BLOW_REFUSED_TOKEN.startswith(
-            GROUND_SURVIVING_BLOW_TOKEN))
-        self.assertFalse(GROUND_SURVIVING_BLOW_TOKEN.startswith(
-            GROUND_SURVIVING_BLOW_REFUSED_TOKEN))
+        self.assertNotIn(
+            GROUND_SURVIVING_BLOW_TOKEN, GROUND_SURVIVING_BLOW_REFUSED_TOKEN)
+        self.assertNotIn(
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, GROUND_SURVIVING_BLOW_TOKEN)
 
     def test_a_bare_floor_is_checked_and_said_not_silent(self):
         actions = reannounce_ground_after_a_surviving_blow(
@@ -301,6 +311,36 @@ class AConsoleThatCannotBeWrittenToCostsALineNotAFrameTests(
         self.assertEqual(
             [a[1:] for a in actions], [a[1:] for a in expected])
 
+    def test_a_detail_cp874_cannot_encode_still_reaches_the_console(self):
+        # pf-adversary D7: _say_world_line keeps a dead console from costing
+        # a frame, but a line it swallows is a line the tester's findstr will
+        # not find -- and this module's own rule says "silence means this
+        # build has no call site".  Every line is ASCII-escaped before it is
+        # printed, so a refusal reason can never go silent.
+        class _Cp874Console:
+            def __init__(self):
+                self.lines = []
+
+            def __call__(self, *args, **kwargs):
+                text = " ".join(str(a) for a in args)
+                text.encode("cp874")            # raises on an unmappable char
+                self.lines.append(text)
+
+        class _StepWithAnUnmappableError:
+            @property
+            def death_due(self):
+                raise RuntimeError("scene \u2192 unmappable in cp874")
+
+        console = _Cp874Console()
+        builtins.print = console
+        actions = reannounce_ground_after_a_surviving_blow(
+            self.cell, self.legacy, _StepWithAnUnmappableError())
+        self.assertEqual(actions, ())
+        self.assertEqual(len(console.lines), 1, "the refusal must be visible")
+        self.assertIn(
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, console.lines[0])
+        self.assertIn("\\u2192", console.lines[0])
+
     def test_reannounce_ground_refusal_path_does_not_raise_either(self):
         cell = mob_loot.DropLedgerCell(clock=self.clock)
         builtins.print = _Console(raising=True)
@@ -309,17 +349,65 @@ class AConsoleThatCannotBeWrittenToCostsALineNotAFrameTests(
             reannounce_ground(cell, self.legacy, scene=SCENE), ())
 
 
-class TheWiringAskIsOneLineForChiefTests(unittest.TestCase):
-    def test_the_wiring_string_names_the_function_and_the_branch(self):
-        wiring = mob_drop_presence.GROUND_SURVIVING_BLOW_WIRING
-        self.assertIn("reannounce_ground_after_a_surviving_blow", wiring)
-        self.assertIn("MOB_COMBAT_BAR", wiring)
-        self.assertIn("step.death_due", wiring)
+class NothingSendsThisYetAndTheEvidenceSaysSoTests(SurvivingBlowTestBase):
+    """pf-adversary D8: a reader who greps this module on `main` and finds a
+    hit must be able to tell "shipped" from "composed, nothing sends it"."""
 
-    def test_it_is_not_the_withdrawn_movement_resend(self):
-        wiring = mob_drop_presence.GROUND_SURVIVING_BLOW_WIRING
-        self.assertNotIn("TARGET_POS_VITAL", wiring)
-        self.assertNotIn("scenario", wiring)
+    def test_the_call_site_status_says_composed_not_sent(self):
+        self.assertEqual(
+            mob_drop_presence.GROUND_SURVIVING_BLOW_CALL_SITE_STATUS,
+            "composed_not_sent_no_call_site",
+            "when a call site is authorised and lands, this becomes 'sent' "
+            "in the same commit -- and this test is what notices if it does "
+            "not")
+
+    def test_the_wiring_text_is_withheld_not_pasteable(self):
+        withheld = mob_drop_presence.WITHHELD_GROUND_SURVIVING_BLOW_WIRING
+        self.assertIn("WITHHELD", withheld)
+        self.assertIn("~~", withheld, "struck, not deleted")
+        self.assertFalse(
+            hasattr(mob_drop_presence, "GROUND_SURVIVING_BLOW_WIRING"),
+            "a live-looking wiring name is exactly what gets pasted")
+
+
+class TheRemovalDebtThisCallCannotPayForTests(SurvivingBlowTestBase):
+    """pf-adversary D6, PINNED AS A KNOWN DEFECT, not as correct behaviour.
+
+    `sustain_a_kill` pays `cell.note_scene_published` before this function
+    knows whether `loot_actions` will succeed.  When it does not, a removal
+    debt is marked paid that nothing published -- the ghost
+    `mob_loot.frames_after_rows_expired`'s `will_send` exists to prevent.
+    This test exists so the defect is visible and cannot be rediscovered as
+    a surprise; it is one of the three things a future call site has to
+    answer for.
+    """
+
+    def test_a_failed_compose_still_costs_the_publication_debt(self):
+        self.kill(0)
+        self.clock.advance(mob_loot.DROP_LIFETIME_SECONDS + 1.0)
+        self.kill(1)
+        owed_before = self.cell.rows_owed_a_removal()
+        self.assertTrue(
+            owed_before,
+            "this test is vacuous unless a removal is actually owed")
+        real = mob_drop_presence.loot_actions
+
+        def explode(step):
+            raise RuntimeError("compose failed after the debt was paid")
+
+        mob_drop_presence.loot_actions = explode
+        try:
+            actions = reannounce_ground_after_a_surviving_blow(
+                self.cell, self.legacy, _Step(False))
+        finally:
+            mob_drop_presence.loot_actions = real
+        self.assertEqual(actions, (), "nothing went on the wire")
+        self.assertEqual(
+            self.cell.rows_owed_a_removal(), (),
+            "KNOWN DEFECT (adversary D6, round hlwgri): the debt was paid by "
+            "a call that sent nothing.  If this assertion starts failing "
+            "because the debt survives, the defect is FIXED -- update this "
+            "test and the module comment together")
 
 
 if __name__ == "__main__":
