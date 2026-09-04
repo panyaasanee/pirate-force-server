@@ -245,7 +245,7 @@ from .logout_hypothesis import (
 # PF-HYPOTHESIS-LEDGER: HYP-PF-040 active
 # LOGOUT-DIALOG-OPEN-001.  Registered in docs/HYPOTHESIS_LEDGER.json; this
 # annotation and that entry's source_refs bind each other both ways.
-production_allowed = False
+production_allowed = True
 
 DIALOG_OPEN_PUSH_EVENT = "logout_dialog_open_hypothesis_return_select_pushed"
 DIALOG_OPEN_PUSH_LABEL = (
