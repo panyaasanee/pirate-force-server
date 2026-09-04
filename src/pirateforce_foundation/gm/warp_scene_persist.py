@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from collections import abc
 
 from .. import world_scene_travel
 from ..model import Position
@@ -132,6 +133,14 @@ FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_PERSIST_FAILED"
 #: 2 forbids, arriving through a door `COO 1452`'s ruling never opened.
 ROLLBACK_CONSOLE_TOKEN = "GM_WARP_SCENE_ROLLED_BACK"
 ROLLBACK_FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_ROLLBACK_FAILED"
+
+#: The two lines the BOOT REGISTRY DOOR prints -- `CORE-REQUEST-GM-056`,
+#: accepted by chief in `notes_to_chief/20260905_0045_CHIEF-TO-LANE-GM-core-
+#: request-gm-056-accepted.md`.  An operator has to be able to read off the
+#: console which of the two registries this process is answering warps from,
+#: because the whole point of the door is that the two can disagree.
+BOOT_REGISTRY_CONSOLE_TOKEN = "GM_WARP_BOOT_REGISTRY_INSTALLED"
+BOOT_REGISTRY_REFUSED_CONSOLE_TOKEN = "GM_WARP_BOOT_REGISTRY_REFUSED"
 
 # The outcome words.  One per reachable state, never collapsed into a single
 # "failed": this module exists BECAUSE "the row did not move" and "the row
@@ -185,6 +194,26 @@ OUTCOME_ROLLBACK_NOT_CONFIRMED = "rollback_not_confirmed"
 # this one guards an action LABEL) so a reader of either return value can
 # tell which guard actually fired without reading the caller.
 OUTCOME_NOT_A_WARP = "not_a_warp"
+
+# The words `use_boot_scene_registry` answers with.  It is called from the
+# BOOT of a server, so it never raises and it never returns a bare bool: a
+# refusal has to say WHICH refusal, or an operator staring at a boot log
+# cannot tell "chief passed the wrong object" from "the object is right and
+# its contents are broken".
+OUTCOME_BOOT_REGISTRY_INSTALLED = "boot_registry_installed"
+OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY = (
+    "boot_registry_refused_not_a_registry"
+)
+OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX = "boot_registry_refused_unusable_"
+#: The one unusable reason that is not an exception type name: rows that
+#: cannot be counted without being consumed (pf-adversary, this round, D4).
+OUTCOME_BOOT_REGISTRY_UNSIZED_ROWS = "unsized_rows"
+
+#: Which of the two registries this process is answering from.  Read by tests
+#: and by `login_registry_source()`; never by a decision in this module -- the
+#: answer must not change shape depending on where the registry came from.
+REGISTRY_SOURCE_BOOT = "boot"
+REGISTRY_SOURCE_SELF_READ = "self_read"
 
 #: The ONLY action label `rollback_warp_scene_on_send_failure` acts on.  A
 #: LITERAL COPY of
@@ -257,6 +286,10 @@ _LOGIN_REGISTRY_SNAPSHOT_TAKEN = False
 # read this replaced could not do that.
 _LOGIN_REGISTRY_SNAPSHOT_LOCK = threading.Lock()
 
+#: `REGISTRY_SOURCE_BOOT`, `REGISTRY_SOURCE_SELF_READ`, or None when nothing
+#: has been taken yet.  Bookkeeping only -- see `login_registry_source`.
+_LOGIN_REGISTRY_SOURCE: str | None = None
+
 
 def reset_login_registry_snapshot_for_tests() -> None:
     """Drop the snapshot below, so the next call re-reads the registry.
@@ -267,9 +300,14 @@ def reset_login_registry_snapshot_for_tests() -> None:
     throwaway registry and the next expects the shipped one.
     """
     global _LOGIN_REGISTRY_SNAPSHOT, _LOGIN_REGISTRY_SNAPSHOT_TAKEN
+    global _LOGIN_REGISTRY_SOURCE
     with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
         _LOGIN_REGISTRY_SNAPSHOT = None
         _LOGIN_REGISTRY_SNAPSHOT_TAKEN = False
+        # Cleared with the snapshot, not separately: a suite that reset the
+        # snapshot and kept the word would report `boot` for an answer that
+        # came off the disk on the next call.
+        _LOGIN_REGISTRY_SOURCE = None
 
 
 def _login_registry_snapshot():
@@ -321,6 +359,7 @@ def _login_registry_snapshot():
     to take it off.
     """
     global _LOGIN_REGISTRY_SNAPSHOT, _LOGIN_REGISTRY_SNAPSHOT_TAKEN
+    global _LOGIN_REGISTRY_SOURCE
     with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
         if not _LOGIN_REGISTRY_SNAPSHOT_TAKEN:
             try:
@@ -329,11 +368,213 @@ def _login_registry_snapshot():
                 )
             except Exception:  # noqa: BLE001 - unreadable registry fails closed
                 _LOGIN_REGISTRY_SNAPSHOT = None
+            _LOGIN_REGISTRY_SOURCE = REGISTRY_SOURCE_SELF_READ
             # SET LAST, INSIDE THE LOCK.  A second thread that arrives while
             # the read is in flight waits for the answer instead of being
             # handed `None` and told the scene refuses logins.
             _LOGIN_REGISTRY_SNAPSHOT_TAKEN = True
         return _LOGIN_REGISTRY_SNAPSHOT
+
+
+def login_registry_source() -> str | None:
+    """Where this process's registry answers come from, or None if untouched.
+
+    `REGISTRY_SOURCE_BOOT` once `use_boot_scene_registry` has installed the
+    runtime's own object; `REGISTRY_SOURCE_SELF_READ` once this module has
+    fallen back to its own disk read.  Diagnostic and test vocabulary only:
+    nothing in this module branches on it, because the prediction
+    `login_would_accept` makes must not change SHAPE with where the registry
+    came from -- only WHICH registry it is asking.
+    """
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        return _LOGIN_REGISTRY_SOURCE
+
+
+def login_registry_is(candidate: object) -> bool:
+    """Whether the registry this module answers from IS `candidate`.
+
+    IDENTITY, not equality, and that is the entire point (pf-adversary, this
+    round, D1, MEASURED).  `use_boot_scene_registry` prints the same line --
+    `GM_WARP_BOOT_REGISTRY_INSTALLED scenes=17 replaced=none` -- for the
+    correct wiring and for `use_boot_scene_registry(load_scene_registry())`,
+    which is a THIRD independent disk read and leaves `vlk8rq` finding 3
+    completely open.  Every other signal this module ships (the token, the
+    source word, the scene count, `replaced=`) is a function of state, so
+    none of them can tell the fix from the non-fix.  This one is a function
+    of identity, so it can.
+
+    It exists for the `runtime.py` wiring test that lands with chief's call
+    site: `login_registry_is(scene_entry_registry)` is the assertion that
+    grades the wire, and nothing weaker does.
+
+    FALSE WHEN NOTHING IS HELD, for either argument.  A bare
+    `_LOGIN_REGISTRY_SNAPSHOT is candidate` answers TRUE for
+    `login_registry_is(None)` on an untouched module -- "no registry" and
+    "the registry you asked about" are not the same fact, and a grading
+    helper that conflates them would pass a wire that was never made.
+    """
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        if _LOGIN_REGISTRY_SNAPSHOT is None:
+            return False
+        return _LOGIN_REGISTRY_SNAPSHOT is candidate
+
+
+def use_boot_scene_registry(registry: object) -> str:
+    """Answer every later warp from the registry the RUNTIME booted with.
+
+    `CORE-REQUEST-GM-056`, accepted by chief on 2026-09-05T00:45+07:00.  The
+    call site is in `runtime.py` immediately after
+    `scene_entry_registry = world_scene_travel.load_scene_registry()` at
+    `runtime.py:706` -- not dispatch, not login, and nothing on a hot path.
+
+    IT IS TWO LINES, NOT ONE, and the acceptance letter's "one line" was
+    wrong (pf-adversary, this round, D2, MEASURED).  `runtime.py` imports
+    five modules from `.gm` and `warp_scene_persist` is not among them, so
+    the call alone raises `NameError` on the first `make_state_class` -- at
+    `app.py:834`, i.e. the server does not boot at all, in the module whose
+    stated reason for NEVER RAISES is that a failure here costs the server.
+    Chief needs `from .gm import warp_scene_persist` alongside the existing
+    `.gm` imports as well as the call.
+
+    AND THE ARGUMENT MUST BE `scene_entry_registry` ITSELF, never a fresh
+    `world_scene_travel.load_scene_registry()`.  A fresh read installs
+    cleanly, prints the identical console line, and leaves the defect fully
+    open -- see `login_registry_is`, which is the only signal that can tell
+    the two apart.
+
+    WHAT THIS CLOSES.  `_login_registry_snapshot` above takes a SECOND, LATER,
+    INDEPENDENT read of `scenarios/world_scene_registry_001.json`, while the
+    login path this module exists to PREDICT is threaded the runtime's own
+    `scene_entry_registry` object.  Two reads of one file agree exactly when
+    the file has not changed between them and differ precisely when it has --
+    which is the one case that matters, and the harmful direction writes a
+    durable row into a scene the running login still refuses (the module
+    docstring's "bricks a character").  MEASURED in round `vlk8rq`, finding
+    3, and struck in `_login_registry_snapshot`'s own docstring, which names
+    this function as the thing that actually closes it.  Once installed, the
+    LOGIN PREDICTION in this module and the login path itself read one and
+    the same object, and that disagreement has nowhere left to live.
+
+    SCOPED DELIBERATELY, and the wider sentence that stood here is struck
+    (pf-adversary, this round, D5): ~~once installed there is ONE registry
+    object in the process~~ is FALSE.  `lifecycle.py:121` takes a third,
+    independent read at `CharacterLifecycle` construction, and that is the
+    one gating the actual durable write (`lifecycle.py:201`/`:252`, through
+    `is_position_persist_allowed(..., self._scene_registry)`).  This door
+    unifies this module with the runtime's `scene_entry_registry`; it does
+    NOT unify `lifecycle`.  The bricking direction is a `login_entry_allowed`
+    question and this does close that -- but nobody should read the closing
+    sentence of this ticket as more than it is.
+
+    NEVER RAISES, and never for a smaller reason than the others in this file:
+    this runs inside chief's boot factory, so an exception here does not cost
+    a warp, it costs the SERVER.  A refusal leaves the module exactly as it
+    was -- the narrower-but-shipped self-read behaviour, already covered by
+    `TheRegistryIsReadOnceTests` -- so a bad argument degrades to today rather
+    than to a server that will not boot or one that refuses every warp.
+
+    WHY `isinstance`, WHICH THIS FILE OTHERWISE AVOIDS.  The registry is not
+    consumed here; it is handed to `world_scene_travel.destination(scene_id,
+    registry)`, whose first line is `(registry or load_scene_registry())`.
+    A duck-typed stand-in that happens to be FALSY -- `{}`, `[]`, `0`, an
+    empty container double -- would therefore install "successfully" and then
+    be silently discarded on every single call, putting back the exact
+    per-call disk read this door exists to remove, with a console line saying
+    it had been removed.  `SceneRegistry` is a frozen dataclass and is always
+    truthy, so requiring the type makes that shape unreachable instead of
+    merely unlikely.
+
+    AND THEN IT PROBES.  The right type carrying broken contents is the other
+    way to lose every warp quietly: a `SceneRegistry` whose `destinations` do
+    not include home makes `destination` raise for that scene, and
+    `login_would_accept` fails closed for EVERYTHING with no line anyone
+    reads.  Resolving home through the candidate before installing it turns
+    that into one loud boot-time refusal.  Home is the probe because a
+    registry a server can boot on always pins it -- `destination`'s own
+    default argument is `HOME_SCENE_ID`.
+
+    Returns one of `OUTCOME_BOOT_REGISTRY_INSTALLED`,
+    `OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY`, or
+    `OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX` + the probe's exception
+    type name.  The TYPE NAME ONLY, never the message, for the reason
+    `persist_warp_scene`'s compose guard gives next door.
+    """
+    global _LOGIN_REGISTRY_SNAPSHOT, _LOGIN_REGISTRY_SNAPSHOT_TAKEN
+    global _LOGIN_REGISTRY_SOURCE
+
+    if not isinstance(registry, world_scene_travel.SceneRegistry):
+        return _boot_registry_refused(
+            OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY
+        )
+
+    # SIZED BEFORE PROBED, and the order is the whole point (pf-adversary,
+    # this round, D4, MEASURED).  `SceneRegistry` is a bare dataclass, so
+    # `destinations` can be a GENERATOR -- and the home probe below CONSUMES
+    # it.  A generator therefore passed the probe, installed, and then made
+    # `destination` re-iterate an exhausted iterator, so `login_would_accept`
+    # answered False for EVERY scene for the life of the process: verbatim
+    # the outage the probe's own paragraph claims to close, reported as a
+    # successful install.  Refusing anything that cannot be measured without
+    # being consumed closes it BEFORE the probe can spend it.  Every shape a
+    # real registry uses -- tuple, list, set, frozenset -- is `Sized`.
+    if not isinstance(getattr(registry, "destinations", None), abc.Sized):
+        return _boot_registry_refused(
+            f"{OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX}"
+            f"{OUTCOME_BOOT_REGISTRY_UNSIZED_ROWS}"
+        )
+
+    try:
+        world_scene_travel.destination(
+            world_scene_travel.HOME_SCENE_ID, registry,
+        )
+    except Exception as error:  # noqa: BLE001 - KeyError for a registry with
+        # no home row, ValueError for a bent id; both refuse and keep today's
+        # behaviour rather than installing an object nothing can be read from.
+        return _boot_registry_refused(
+            f"{OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX}"
+            f"{type(error).__name__}"
+        )
+
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        # `replaced=` is not decoration.  Chief's call site runs at factory
+        # construction, before any connection exists, so the honest expected
+        # value is `none` -- and a boot log that says `self_read` means this
+        # process answered at least one warp from a registry it read itself
+        # before the runtime handed over its own, which is a wiring order
+        # defect a tester can see instead of one nobody can.
+        replaced = _LOGIN_REGISTRY_SOURCE or "none"
+        _LOGIN_REGISTRY_SNAPSHOT = registry
+        _LOGIN_REGISTRY_SOURCE = REGISTRY_SOURCE_BOOT
+        _LOGIN_REGISTRY_SNAPSHOT_TAKEN = True
+
+    # COUNTED OUTSIDE THE LOCK.  `len()` runs `__len__`, which is arbitrary
+    # caller code, and this lock is contended by every warp on every
+    # connection -- nothing that can block or re-enter this module belongs
+    # inside it.  Still guarded, but no longer as the place a non-`Sized`
+    # `destinations` is handled: that is refused above, before the probe, so
+    # this cannot be reached by the generator shape D4 measured.
+    try:
+        scenes = len(registry.destinations)
+    except Exception:  # noqa: BLE001 - a raising `__len__` on an object that
+        # answered `isinstance(..., Sized)`; the count is console decoration
+        # and must never cost an install that is otherwise correct.
+        scenes = "unknown"
+
+    if not _console(
+        f"{BOOT_REGISTRY_CONSOLE_TOKEN} scenes={scenes} replaced={replaced}"
+    ):
+        # No session exists at boot to hang a lost-line note on, and the
+        # install itself has already happened and is correct.  Swallowing the
+        # loss is the only option here; it is named so that is a decision and
+        # not an oversight.
+        pass
+    return OUTCOME_BOOT_REGISTRY_INSTALLED
+
+
+def _boot_registry_refused(reason: str) -> str:
+    """Print the refusal, change NOTHING, hand the word back."""
+    _console(f"{BOOT_REGISTRY_REFUSED_CONSOLE_TOKEN} reason={reason}")
+    return reason
 
 
 def login_would_accept(scene_id: object) -> bool:
@@ -689,7 +930,18 @@ def _registry_forbids_persist(scene_id: object) -> bool:
     if isinstance(scene_id, bool) or type(scene_id) is not int:
         return False
     try:
-        return not world_scene_travel.is_position_persist_allowed(scene_id)
+        return not world_scene_travel.is_position_persist_allowed(
+            # THE SAME REGISTRY THE REST OF THE CALL USED.  Left to its
+            # default this helper re-reads the registry FILE, so one
+            # `persist_warp_scene` could judge `login_would_accept` against
+            # the runtime's boot object and this question against a fresh
+            # disk read -- the very two-registry split
+            # `use_boot_scene_registry` exists to remove, reintroduced one
+            # helper down.  A `None` snapshot (unreadable registry) hands
+            # `None` through and this reads the file exactly as it did
+            # before, which is the shipped behaviour for that case.
+            scene_id, _login_registry_snapshot(),
+        )
     except Exception:  # noqa: BLE001 - see docstring: fail closed to "no".
         return False
 

@@ -9795,3 +9795,130 @@ patch `FORCE_POS_VITAL_VERSION_CONFIRMED` อยู่แล้ว + ขีด�
 = แดง 6 · อ่านแฟล็กผิดตัว = จับได้ · เปลี่ยนชื่อคำ = จับได้ (ปักเป็น literal ทั้งคู่) ·
 ทำให้แคบเหลือกิ่งเดียว = จับได้ · รูป args ที่เลี่ยง `has_coordinates` = ไม่มี ·
 ผู้เรียก composer อื่นใน `src/` = ไม่มี · snapshot ปนเปื้อนข้ามไฟล์ในชุดเต็ม = ไม่เกิด (วัดแล้ว 9 การอ่าน)
+
+---
+
+## รอบ `hv8ets` (R346-GM · 2026-09-05T01:13+07:00) — `CORE-REQUEST-GM-056` สร้างประตูแล้ว · GM-055 ถูกถอน แทนด้วย GM-057
+
+### `use_boot_scene_registry` — ตัวปิดจริงของ `ADVERSARY_PENDING #745-R2` ข้อ 5
+
+ข้อ 5 (`login_would_accept` อ่าน registry เอง ไม่ใช่อ็อบเจกต์ที่ล็อกอินถือ) ถูก "แก้ครึ่งเดียว" ในรอบ
+`vlk8rq` ด้วย `_login_registry_snapshot()` — อ่านครั้งเดียวต่อโปรเซสแทนต่อ call ซึ่งซื้อได้แค่
+"วาปใบหลังไม่ขัดกับวาปใบก่อน" ไม่ได้ซื้อ "ตรงกับล็อกอินที่กำลังรัน" · `vlk8rq` finding 3 วัดแล้วว่า
+สองการอ่านต่างกันพอดีตอนไฟล์เปลี่ยน และ docstring ของฟังก์ชันนั้นขีดฆ่าคำอ้างเดิมของตัวเองไว้ พร้อม
+ระบุว่าตัวปิดจริงคือ `CORE-REQUEST-GM-056` **รอบนี้สร้างตัวปิดนั้นแล้ว (ยังไม่ต่อสาย)**
+
+- `use_boot_scene_registry(registry) -> str` · `login_registry_source() -> str | None`
+- คำ: `boot_registry_installed` · `boot_registry_refused_not_a_registry` ·
+  `boot_registry_refused_unusable_<ชื่อชนิด exception>`
+- โทเคน: `GM_WARP_BOOT_REGISTRY_INSTALLED scenes=<n> replaced=<none|self_read>` ·
+  `GM_WARP_BOOT_REGISTRY_REFUSED reason=<คำ>` (stderr เท่านั้น)
+
+**สี่ข้อที่ตัดสินใจไว้ ให้รอบหลังอ่านแล้วไม่ต้องขุดซ้ำ:**
+
+1. **`isinstance(..., SceneRegistry)` ไม่ใช่ duck typing — ตั้งใจ** `world_scene_travel.destination`
+   ขึ้นต้นด้วย `(registry or load_scene_registry())` ⇒ อ็อบเจกต์ **falsy** ใด ๆ ติดตั้ง "สำเร็จ" แล้ว
+   ถูกทิ้งทุก call = การอ่านดิสก์ต่อ call กลับมาเงียบ ๆ พร้อมบรรทัดคอนโซลที่บอกว่ามันหายไปแล้ว
+   นี่เป็นรูที่แย่กว่าไม่มีประตูเลย เพราะมันโกหก
+2. **probe `destination(HOME_SCENE_ID, registry)` ก่อนติดตั้ง** ทะเบียนชนิดถูกแต่เนื้อในพัง (ไม่มีแถว
+   home) จะทำให้ `login_would_accept` fail-closed ทั้งทะเบียน โดยอาการเดียวคือ `/warp` เลิกเขียนแถว
+   ใต้คำที่โทษ "นโยบายของฉาก" — รูปเดียวกับ finding 2/finding 5 ของรอบก่อน ๆ ในโมดูลนี้เอง
+3. **ปฏิเสธ = ไม่เปลี่ยนอะไรเลย** ถอยไปเป็นพฤติกรรมที่ shipped วันนี้ ไม่ใช่เซิร์ฟเวอร์ที่ปฏิเสธ warp
+   ทุกใบ · และ **ไม่ raise อะไรเลยไม่ว่าถูกส่งอะไรมา** เพราะมันรันใน boot factory ของ chief
+   exception ที่นั่นคิดเงินกับทั้งเซิร์ฟเวอร์ ไม่ใช่กับ warp ใบเดียว
+4. **`len(registry.destinations)` อยู่นอกล็อกและมี try** สองเหตุ: `__len__` เป็นโค้ดของผู้เรียก และ
+   ล็อกนี้ถูกแย่งโดยทุกวาปของทุกคอนเนกชัน ห้ามมีโค้ดผู้เรียกอยู่ข้างใน · และ `SceneRegistry` เป็น
+   dataclass เปล่า ไม่มี `__post_init__` ⇒ `destinations` เป็นอะไรก็ได้ probe พิสูจน์แค่ว่า
+   **iterable** ไม่ได้พิสูจน์ว่า **Sized** (generator ผ่าน probe แล้วทำให้ `len` ระเบิดหลังติดตั้งไปแล้ว)
+
+**ผลพลอยได้ที่แก้ไปด้วย**: `_registry_forbids_persist` เดิมเรียก `is_position_persist_allowed(scene_id)`
+โดยไม่ส่ง registry ⇒ อ่านไฟล์ใหม่ ⇒ `persist_warp_scene` หนึ่ง call ตัดสินจาก **สองทะเบียน**
+(boot object สำหรับ `login_would_accept` · ดิสก์สำหรับคำถามนี้) = รอยแยกเดียวกับที่ประตูนี้มาปิด
+โผล่ต่ำลงไปหนึ่งชั้น **แก้**: ส่ง `_login_registry_snapshot()` เข้าไป (snapshot เป็น `None` = อ่านไฟล์
+เหมือนเดิมเป๊ะ) · เทส `test_the_whole_call_judges_from_one_registry_not_two` ปักไว้
+
+### เทส (`tests/test_gm_warp_scene_persist.py` — 68 → 103 passed)
+
+- **ชั้น 1 `TheBootRegistryDoorTests`** — ประตู · ชั้น 2 **`TheBootRegistryDecidesTheWarpTests`** —
+  แถวถาวรจริงบนฐานข้อมูลจริง โดยอ่านไฟล์ทะเบียนไม่ได้เลย
+- **ยังไม่เขียนเทส wiring ระดับ `runtime.py`** — บรรทัดเป็นของ chief เขียนตอนนี้ = เทสแดงที่ยืนยัน
+  สายที่ยังไม่มีใครต่อ · เขียนในรอบที่บรรทัดของ chief ลง main (รูปเดียวกับ
+  `test_gm_login_scene_registry_wiring_in_runtime.py`)
+- มิวเทชันที่ยิงเองก่อนเรียก adversary ตายครบ: ลดเกต `isinstance` เหลือ `is None` (10 แดง) ·
+  ถอด probe (1 แดง) · **ติดตั้งผล `load_scene_registry()` แทนอาร์กิวเมนต์** = ข้อบกพร่องที่ฟังก์ชันนี้
+  มีไว้ปิดพอดี (แดงทั้งสองชั้น) · ถอด registry ออกจาก `_registry_forbids_persist` (1 แดง)
+
+### `CORE-REQUEST-GM-055` ถูกปฏิเสธและ **ถอนแล้ว** — แทนด้วย `GM-057`
+
+chief ปฏิเสธจุดเสียบเดิม (แก้ `current/pf_login_game_server_v141.py:7748-7757` ตรง ๆ) เพราะไฟล์นั้น
+pin ด้วย `IMMUTABLE_V141_SHA256` และไม่เคยถูกแก้ตัวอักษรเลย — **รับคำปฏิเสธทั้งข้อ ไม่โต้แย้ง**
+
+กลไกที่ chief ชี้: `app.py:921` สลับ **globals** ของ v141 ผ่าน `connection.adapt_game_listener`
+(bytecode ไม่ถูกแก้แม้แต่บิตเดียว) ⇒ ทุก hook เสียบตรงนั้น ไม่ใช่ที่ตัวไฟล์
+
+**คำถามที่ chief ตั้งค้างไว้ ("facade ไม่รู้ `label`") ตอบแล้ว: ไม่ต้องให้ v141 บอกเลย**
+`label` ของ warp เป็นของเราเองตั้งแต่ต้น (`SEND_FAILURE_WARP_ACTION_LABEL` pin อยู่ใน `gm/` แล้ว
+และ `chat_command_action` เป็นคนประกอบ tuple `(label, out_pc, out_frame, delay)` ที่ v141 วนส่ง)
+สิ่งเดียวที่ facade ต้องบอกคือ **"การส่งบนคอนเนกชันนี้พังแล้ว"** พร้อมไบต์ของเฟรม
+
+**จุดเสียบที่ขอใน `GM-057`** (`connection.py` เขต chief): เขียน method `sendall` ทับบน
+`AcceptedGameSocket` (วันนี้ปล่อยผ่าน `__getattr__` ไป raw socket) แล้ว offer duck-typed hook
+ให้ `self.state` — precedent คือ `attach_transport_socket_closer` ที่ chief เขียนไว้เอง
+· สามข้อที่ห้ามพลาด: **ห้ามกลืน exception** (v141 จับเองแล้ว `break` ถ้ากลืน v141 จะคิดว่าเฟรมออกไปแล้ว
+= แย่กว่าปัญหาเดิม) · observer ระเบิดต้องไม่คิดเงินกับการส่ง (รูป `report_close_error`) · duck-typed opt-in
+
+**งานฝั่งเราที่ไม่ต้องรอ chief (= งานแรกรอบถัดไป)**: `gm/warp_send_watch.py` — cell ต่อคอนเนกชัน
+park `(label, frame_bytes)` ตอน `persist_warp_scene` คืน `persisted` · เคลียร์เมื่อ **เฟรมของมันเอง**
+ออกไปสำเร็จ (ไม่ใช่เฟรมใดก็ได้ — warp อาจเป็น action ที่สองในลิสต์) · เรียก
+`rollback_warp_scene_on_send_failure` เมื่อการส่งพังโดย cell ยังไม่ว่าง **รวมกรณี v141 `break`
+ทิ้งเฟรม warp ที่ยังไม่ถึงคิว**
+
+### nonclaim ของรอบนี้
+
+ไม่มีอะไรผ่านจอ · ช่องว่างสองทะเบียน (`vlk8rq` finding 3) **ยังไม่ปิด** จนกว่าบรรทัดของ chief
+ที่ `runtime.py:706` จะลง main — รอบนี้สร้างประตู ไม่ได้ต่อสาย · หน้าต่าง D8 ข้อ 2 (rollback ตอนส่งพัง)
+**ยังเปิดอยู่** · ไม่มีบัญชีใดได้/เสียสถานะ GM
+
+### pf-adversary รอบ `hv8ets` — คืนผลหลังผมเปิด PR ไปแล้ว หกข้อ แก้สี่ ส่งต่อสอง
+
+🔴 **บทเรียนของรอบนี้ ไม่ใช่เรื่องโค้ด**: agent เงียบ ~22 นาทีจนผมสรุปว่า "ไม่คืนผล" เขียนไฟล์รอบ
+เป็น `ADVERSARY_MANUAL` และเปิด PR เซิร์ฟเวอร์ไปแล้ว **แล้วมันจึงคืนผล** และในผลนั้นมีข้อที่ทำให้
+เซิร์ฟเวอร์บูตไม่ขึ้น ⇒ **รอบหลังห้ามสรุปว่า agent ตายจากความเงียบ** ให้ push แล้วรอผลก่อนปิดใบเสมอ
+· ผลถูกเอามาแก้ครบก่อน push จริง และชุดเต็มถูกรันใหม่ (สองครั้งในรอบ พร้อมเหตุผลในไฟล์รอบ)
+
+**D2 [HIGH, วัดแล้ว] ใบสั่ง "หนึ่งบรรทัด" ของผมถึง chief คอมไพล์ไม่ผ่าน** — `runtime.py` ไม่ได้
+import `warp_scene_persist` (มีจาก `.gm` ห้าโมดูล ไม่มีตัวนี้) ⇒ `NameError` ที่ `make_state_class`
+ครั้งแรก = `app.py:834` = เซิร์ฟเวอร์ไม่บูต · **ข้อที่แย่ที่สุดของรอบ** เพราะโมดูลนี้ประกาศ NEVER RAISES
+ด้วยเหตุผลว่า "exception ที่นี่คิดกับทั้งเซิร์ฟเวอร์" แล้วใบสั่งของผมเองพาไปที่นั่น
+**แก้**: ใบ `0121` แก้เป็นสองบรรทัด (import + call) เวลา 01:45 · docstring เขียน IT IS TWO LINES
+
+**D4 [MEDIUM, วัดแล้ว] ตัวแก้ของผมเองแก้ผิดทาง** — probe home **กิน** iterator ⇒
+`SceneRegistry(destinations=<generator>)` ผ่าน probe · รายงาน `INSTALLED` · แล้ว `login_would_accept`
+ตอบ `False` ทุกฉากตลอดชีพโปรเซส โดยตัวบอกเดียวคือคำว่า `unknown` = **อาการที่ probe อ้างว่าปิด
+รายงานเป็นความสำเร็จ** · การกัน `len` ไม่ให้ raise แก้แค่อาการ
+**แก้จริง**: `isinstance(destinations, abc.Sized)` **ก่อน** probe แล้ว **ปฏิเสธ** ด้วยคำ
+`boot_registry_refused_unusable_unsized_rows` · tuple/list/set/frozenset ยังผ่านครบ
+
+**D1 [HIGH] ไม่มีสัญญาณไหนแยกการต่อสายที่ถูกออกจากที่ผิดได้** — `use_boot_scene_registry(load_scene_registry())`
+คือการอ่านดิสก์ **ครั้งที่สาม** ทิ้งข้อบกพร่องไว้ทั้งดวง แต่พิมพ์บรรทัดคอนโซลเหมือนกันทุกตัวอักษร
+และเทสใหม่ทั้งสองคลาสยังเขียว — ทุกสัญญาณที่รอบนี้ชิปเป็นฟังก์ชันของ **สถานะ** ไม่ใช่ **identity**
+**แก้**: `login_registry_is(candidate) -> bool` (identity · `False` เสมอเมื่อยังไม่มีอะไรติดตั้ง
+แม้ถาม `None`) **⇒ เกณฑ์รับของเทส wiring รอบหน้าคือ `login_registry_is(scene_entry_registry)`
+ห้ามเกรดด้วยโทเคน/คำ source/จำนวนฉาก/`replaced=` เด็ดขาด**
+
+**D5 [LOW-MEDIUM] docstring อวดอ้างเกินจริง** — "ONE registry object in the process" **เท็จ**
+`lifecycle.py:121` เป็นการอ่านครั้งที่สาม และ**มันคือตัวที่เกตการเขียนถาวรจริง**
+(`lifecycle.py:201`/`:252`) ⇒ ขีดฆ่าประโยคเดิม เขียนขอบเขตที่ถูกแทน ("การทำนายล็อกอิน" ไม่ใช่
+"ทั้งโปรเซส") · **หนี้ที่ยังไม่มีเจ้าของใบ: การอ่านที่สามใน `lifecycle`**
+
+**D3 [MEDIUM-HIGH, วัดแล้ว] ส่งต่อ chief** — `make_state_class` ถูกเรียก 227 ครั้ง แทบทั้งหมดในเทส
+⇒ เมื่อเสียบแล้ว ทุกครั้งจะติดตั้ง process-global โดยไม่มี teardown · วัดจริง: registry ที่ปั้นใน
+`mock.patch` ค้างอยู่หลัง patch ออก ⇒ เทสหลังจากนั้นได้คำตอบจากทะเบียนที่ไม่เคยมีในไฟล์ไหน
+ชุดเต็มเขียวเพราะไม่มีใครถามฉาก 278 ทีหลัง = **"เขียวเพราะยังไปไม่ถึง"** ⇒ ขอ chief เคาะสามทาง
+
+**D6 [PROPOSED] ติดตั้งซ้ำชนะเงียบ ๆ** — ตัวบอกใบเดียวคือ `replaced=boot` ⇒ ปักเทสไว้แล้ว
+
+**ที่ adversary ทำให้พังไม่ได้**: deadlock/torn read (stress 6 เทรด 6 วิ · 0 exception) ·
+ความบริสุทธิ์ของการปฏิเสธ (8 รูปอินพุต ไม่มี half-install) · เกต `isinstance` ถูกต้อง ·
+probe ไม่ปฏิเสธของที่บูตได้จริง (`login_teleport_fields:923` เรียก `destination(HOME, ...)` อยู่แล้ว) ·
+มิวแทนต์ 7 ตัว ตาย 6 · ไม่รั่วจากไฟล์เทสนี้ · ไม่มีผู้ใช้ global นี้ที่อื่นใน repo
