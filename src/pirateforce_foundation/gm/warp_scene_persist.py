@@ -169,6 +169,26 @@ OUTCOME_NOTHING_TO_ROLL_BACK = "nothing_to_roll_back"
 OUTCOME_ROLLBACK_REFUSED_PREFIX = "rollback_refused_"
 OUTCOME_ROLLBACK_NOT_CONFIRMED = "rollback_not_confirmed"
 
+# `rollback_warp_scene_on_send_failure`'s own word for "this call was not
+# about a warp at all" -- the v141 send loop calls it after EVERY queued
+# action, not only a warp, so most calls must be free.  Named separately
+# from `OUTCOME_NOT_A_TARGET` above (that one guards a WarpTarget shape;
+# this one guards an action LABEL) so a reader of either return value can
+# tell which guard actually fired without reading the caller.
+OUTCOME_NOT_A_WARP = "not_a_warp"
+
+#: The ONLY action label `rollback_warp_scene_on_send_failure` acts on.  A
+#: LITERAL COPY of
+#: `chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL`,
+#: not an import of it: `chat_command_action` already imports THIS module
+#: (`rollback_warp_scene`, `row_before_warp`), so importing the label back
+#: would be circular.  `tests/test_gm_warp_scene_rollback.py` pins the two
+#: strings equal, so a rename of one without the other fails a test instead
+#: of quietly making this function a permanent no-op.
+SEND_FAILURE_WARP_ACTION_LABEL = (
+    "LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_TELEPORT_VITAL"
+)
+
 #: Event names, one per outcome, in this module's own namespace so a reader of
 #: `session.events` can tell a warp-persist line from `/speed`'s.
 EVENT_PREFIX = "gm_warp_scene_persist_"
@@ -436,6 +456,61 @@ def rollback_warp_scene(session: object, previous: object) -> str:
     if not _console(f"{ROLLBACK_CONSOLE_TOKEN} scene={stored.scene_id}"):
         _note_console_loss(session, OUTCOME_ROLLED_BACK)
     return OUTCOME_ROLLED_BACK
+
+
+def rollback_warp_scene_on_send_failure(session: object, label: object) -> str:
+    """`CORE-REQUEST-GM-055`'s hookup.  Undo a warp row whose frame never
+    left the wire at all.
+
+    THE WINDOW THIS CLOSES.  `persist_warp_scene` writes the destination row
+    at FRAME-COMPOSE time (`chat_command_action._persist_warp_scene`, called
+    from `_warp_teleport_action_no_coords`), and the socket write for that
+    same action happens roughly 2,200 lines later, in `current/pf_login_
+    game_server_v141.py`'s own action-send loop -- chief's zone, where this
+    lane may not put a call (`AGENTS.md` section 7).  If the socket dies in
+    that gap (`ConnectionResetError`, `ConnectionAbortedError`,
+    `BrokenPipeError`, `OSError` -- the loop's own `except` clause, which
+    already prints `SEND_FAILED {label} {e!r}` before `break`), the row now
+    names a scene the client was NEVER SENT TO, and nothing before this
+    function put it back.  That is the same character-bricking shape
+    `rollback_warp_scene`'s docstring closes for the audit-append window,
+    one send-loop iteration later and entirely outside this lane's own call
+    stack -- which is why chief calls IN rather than this lane calling OUT.
+
+    ONE ARGUMENT NARROWS THE BLAST RADIUS TO ONE LABEL.  The send loop calls
+    this after EVERY queued action fails to go out, not only a warp's, so a
+    `say`, a `/speed` frame or a staged-login write must cost this function
+    NOTHING.  `label != SEND_FAILURE_WARP_ACTION_LABEL` returns
+    `OUTCOME_NOT_A_WARP` before touching `session` at all -- no read, no
+    write, no console line -- because a wrong-label call is not evidence of
+    anything this module is about.
+
+    WHERE `previous` COMES FROM, AND WHY IT IS SAFE TO TRUST HERE.
+    `persist_warp_scene` restores `foundation.selected` to the PRE-WARP
+    snapshot immediately after the durable write succeeds (module docstring:
+    "the durable row moves; the in-memory row does not" -- it stays the last
+    position the client is KNOWN to have reported).  Nothing between then and
+    a `SEND_FAILED` on the very same action changes it: the client cannot
+    have reported a new position for a frame that never reached it.  So
+    `foundation.selected.position`, read HERE, is exactly the row
+    `_persist_warp_scene` captured with `row_before_warp` before the write --
+    without this function needing a second parameter chief's call site would
+    otherwise have to thread through 2,200 lines of unrelated code to supply.
+
+    NEVER RAISES, same house rule as `rollback_warp_scene`: this runs inside
+    the send loop's own `except` block, on the game-listener thread, and a
+    raise here must not mask the `SEND_FAILED` handling already in flight.
+    Delegates every write, restore, read-back and console line to
+    `rollback_warp_scene`, so a `session` shape this module cannot act on
+    reports the SAME named outcomes (`no_session_door`,
+    `rollback_refused_*`, ...) a caller of that function already knows.
+    """
+    if label != SEND_FAILURE_WARP_ACTION_LABEL:
+        return OUTCOME_NOT_A_WARP
+    foundation = getattr(session, "foundation", None)
+    selected = getattr(foundation, "selected", None)
+    previous = getattr(selected, "position", None)
+    return rollback_warp_scene(session, previous)
 
 
 def _rollback_failed(previous: Position, reason: str, session: object) -> str:
