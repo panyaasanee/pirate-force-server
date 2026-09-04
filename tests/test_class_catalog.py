@@ -1,6 +1,7 @@
 """LANE-CS: class registry, pinned to the committed client table."""
 from __future__ import annotations
 
+import csv
 import subprocess
 import sys
 import unittest
@@ -54,6 +55,64 @@ class ClassCatalogTests(unittest.TestCase):
             for class_id in class_catalog.CLASS_IDS
         }
         self.assertEqual(len(basic_training_ids), 5)
+
+    def test_starting_dress_sets_all_three_looks_per_class(self):
+        # gamedata/tables/CONSTDATA_TH__CHARCREATE_CLASS.tsv:
+        # (n_DRESS_HAT, n_DRESS_CHEST[_2/_3], n_DRESS_LEGGINGS[_2/_3]).
+        self.assertEqual(
+            class_catalog.starting_dress_sets(1),
+            ((0, 2300026, 2300027), (0, 2300032, 2300033), (0, 2300122, 2300123)))
+        self.assertEqual(
+            class_catalog.starting_dress_sets(2),
+            ((0, 2300038, 2300039), (0, 2300044, 2300045), (0, 2300116, 2300117)))
+        self.assertEqual(
+            class_catalog.starting_dress_sets(4),
+            ((0, 2300002, 2300003), (0, 2300011, 2300012), (0, 2300098, 2300099)))
+        self.assertEqual(
+            class_catalog.starting_dress_sets(16),
+            ((0, 2300083, 2300084), (0, 2300071, 2300072), (0, 2300110, 2300111)))
+        self.assertEqual(
+            class_catalog.starting_dress_sets(32),
+            ((0, 2300014, 2300015), (0, 2300023, 2300024), (0, 2300065, 2300066)))
+
+    def test_source_table_has_no_per_look_hat_columns(self):
+        # pf-adversary (round covering COO-DECISION 20260904_0548 item 2):
+        # a test that only re-checks the *loaded* dress-set tuples for a
+        # shared hat value is tautological -- class_catalog.py's loader
+        # computes one _hat per row and reuses it for all three tuples by
+        # construction, so it can never independently catch the source
+        # table growing n_DRESS_HAT_2/_3.  Read the raw header instead: if
+        # upstream ever adds per-look hat columns, this goes red and
+        # starting_dress_sets' "hat is shared" claim (and the docstring
+        # justifying it) needs re-deriving, not silently staying stale.
+        with (ROOT / "src/pirateforce_foundation/data/charcreate_class.tsv").open(
+            "r", encoding="ascii", newline=""
+        ) as handle:
+            header = next(csv.reader(handle, delimiter="\t"))
+        self.assertIn("n_DRESS_HAT", header)
+        self.assertNotIn("n_DRESS_HAT_2", header)
+        self.assertNotIn("n_DRESS_HAT_3", header)
+
+    def test_starting_dress_sets_hat_is_shared_across_all_three_looks(self):
+        # Given the source-table fact above, the loader must actually reuse
+        # that one hat value rather than, say, silently zeroing looks #2/#3.
+        for class_id in class_catalog.CLASS_IDS:
+            hats = {look[0] for look in class_catalog.starting_dress_sets(class_id)}
+            self.assertEqual(len(hats), 1)
+
+    def test_starting_dress_sets_chest_and_leggings_distinct_across_looks(self):
+        # The 3 looks are meant to be visually distinct picks; a repeated
+        # chest/leggings pair across looks would mean two "looks" are really
+        # the same item and the table changed shape underneath this reader.
+        for class_id in class_catalog.CLASS_IDS:
+            chest_leggings_pairs = {
+                look[1:] for look in class_catalog.starting_dress_sets(class_id)
+            }
+            self.assertEqual(len(chest_leggings_pairs), 3)
+
+    def test_starting_dress_sets_unknown_class_id_raises(self):
+        with self.assertRaises(KeyError):
+            class_catalog.starting_dress_sets(999)
 
     def test_unknown_class_id_raises(self):
         with self.assertRaises(KeyError):
