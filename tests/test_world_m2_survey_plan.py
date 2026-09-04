@@ -118,6 +118,67 @@ class TheConstantsOtherThingsRestOnTests(unittest.TestCase):
         self.assertFalse(plan.plan_is_for_scene(17))
 
 
+class SceneGuardNamesItsRefusalTests(unittest.TestCase):
+    """`scene_guard_reason`, closed round `m1wqqy` for `ADVERSARY_PENDING`
+    item 3 (round `16uvmp`): the guard used to return a bare `False` for
+    both a caller in the wrong scene and a caller passing something that
+    was never a scene id -- silent where this file otherwise names its
+    refusals (`BLOCKED_XYZ_UNMEASURED` above)."""
+
+    def test_the_frame_scene_itself_is_not_refused(self):
+        self.assertIsNone(plan.scene_guard_reason(126))
+
+    def test_a_different_int_scene_is_the_wrong_scene_reason(self):
+        self.assertEqual(
+            plan.scene_guard_reason(17), plan.PLAN_SCENE_REFUSED_WRONG_SCENE
+        )
+
+    def test_a_float_that_equals_126_is_still_refused_by_type(self):
+        # `126 == 126.0` is True in Python -- the old bare `==` guard let
+        # this through silently.  A scene id has never been a float in this
+        # codebase, so this is refused, and named for exactly what it is:
+        # not the wrong scene, the wrong TYPE.
+        self.assertEqual(
+            plan.scene_guard_reason(126.0), plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+
+    def test_a_string_scene_id_is_refused_by_type_not_by_value(self):
+        self.assertEqual(
+            plan.scene_guard_reason("126"), plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+
+    def test_none_is_refused_by_type(self):
+        self.assertEqual(
+            plan.scene_guard_reason(None), plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+
+    def test_a_bool_is_refused_by_type_even_though_it_subclasses_int(self):
+        self.assertEqual(
+            plan.scene_guard_reason(True), plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+        self.assertEqual(
+            plan.scene_guard_reason(False), plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+
+    def test_the_two_reasons_are_distinct_strings(self):
+        self.assertNotEqual(
+            plan.PLAN_SCENE_REFUSED_WRONG_SCENE, plan.PLAN_SCENE_REFUSED_NOT_AN_INT
+        )
+
+    def test_plan_is_for_scene_stays_a_thin_boolean_view(self):
+        for scene_id in (126, 17, "126", None, 126.0, True):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    plan.plan_is_for_scene(scene_id),
+                    plan.scene_guard_reason(scene_id) is None,
+                )
+
+    def test_never_raises(self):
+        for scene_id in (object(), [], {}, 126.0, "126", None, True, -1):
+            with self.subTest(scene_id=scene_id):
+                plan.scene_guard_reason(scene_id)  # must not raise
+
+
 class FailClosedOnMeasurementTests(unittest.TestCase):
     # `test_no_xyz_is_measured_yet` lived here until GT-228 (R308, PASS,
     # 2026-09-04) reported and this file's own docstring did exactly what it

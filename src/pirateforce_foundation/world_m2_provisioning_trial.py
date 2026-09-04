@@ -1,6 +1,13 @@
 """LANE-A / M2: the first provisioning trial's two records, composed and
-ready for a send path -- and called by no send path anywhere in this
-repository.
+~~ready for a send path -- and called by no send path anywhere in this
+repository.~~ -- CORRECTED, round `t7bsfx`/R342 (chief/LANE-E): COO-DECISION
+20260904_1845 item 1 ordered the `runtime.py` call site built, and it is on
+`main` since `#760` (20:35+07), gated behind `m2_survey_trial`'s
+attended-only flag.  This module is now `encode_trial_records`'s one named
+caller -- see `tests/test_world_m2_provisioning_trial.py`'s
+`NotWiredToAnySendPathTests` for the guard that widened to say so, and
+`tests/test_m2_survey_trial.py`'s `RuntimeCallSiteTests` for the test that
+pins the call to that one gated site.
 
 COO-DECISION 20260904_1345 item 3(b) ordered this built now that GT-228
 (R308, PASS) measured real island XYZ: "send `NavigationEx_
@@ -35,8 +42,9 @@ client reads the field as -- RE-227 nonclaim 3 and `navigationex_survey_
 record`'s own docstring both hold: nothing proves this u16 means anything
 to the client beyond an opaque value it copies back unchanged.
 
-CALLED FROM NO SEND PATH ANYWHERE IN THIS REPOSITORY.  Two things are still
-missing before that could change, and neither is this module's to supply:
+~~CALLED FROM NO SEND PATH ANYWHERE IN THIS REPOSITORY.  Two things are
+still missing before that could change, and neither is this module's to
+supply:
 
     1. The wire `msg_id` for `NavigationEx_AddSurveyDataVtial`.  RE-227
        never proved a number for it (see `navigationex_survey_record`'s own
@@ -51,7 +59,26 @@ missing before that could change, and neither is this module's to supply:
        .../FROM_CHIEF_R334_TO_ALL_20260904_0820.md).
 
 So this module's whole job is: the day both of those land, composing and
-encoding the two trial records is not a new guess -- it is these two calls.
+encoding the two trial records is not a new guess -- it is these two
+calls.~~ -- BOTH LANDED (round `t7bsfx`/R342): `msg_id`/`vital_version` are
+`m2_survey_trial.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL` /
+`..._VERSION_TRIAL`, and the call site is `runtime.py`'s
+`m2_survey_trial_scene_attempted` block, which calls `encode_trial_records`
+exactly once per arrival in scene 126 and appends
+`m2_survey_trial_sent_<count>` to `session.events` when it composes
+something -- the one place in this repository that composing a send is
+recorded (pf-adversary, round `m1wqqy`: nobody has traced this event
+through to a confirmed socket write, so it proves a frame was QUEUED, not
+that it left the wire), and
+the source `lane_hooks/lane_a_enter_instance_log.py`'s `sent=` fragment now
+reads from (`ADVERSARY_PENDING` item 1, round `16uvmp`, closed round
+`m1wqqy`).  `encode_trial_records`'s scene guard now has a NAMED reason too
+(`world_m2_survey_plan.scene_guard_reason`; `ADVERSARY_PENDING` item 3,
+same closing round) -- this function still returns the bare `()` its one
+caller expects (chief's `elif trial_state == TRIAL_OPEN` branch reads only
+truthiness), so a CORE-REQUEST is what it takes to have `runtime.py` print
+the reason on its own refusal line instead of the generic `no_records`; see
+this round's letter.
 """
 from __future__ import annotations
 
@@ -150,3 +177,19 @@ def encode_trial_records(
         )
         for record in trial_survey_records()
     )
+
+
+def trial_scene_refusal_reason(player_scene_id: object) -> str | None:
+    """``None`` when ``encode_trial_records(player_scene_id, ...)`` would
+    compose records; otherwise the NAMED reason its scene guard refused
+    (`world_m2_survey_plan.scene_guard_reason`).
+
+    `encode_trial_records` itself still returns the bare `()` its one caller
+    (`runtime.py`) already handles by truthiness -- widening that return
+    shape is chief's call, not this module's, and the CORE-REQUEST for it is
+    this round's letter.  This function exists so a caller who DOES want the
+    reason -- a test, or `runtime.py` after that request lands -- has
+    somewhere to ask instead of re-deriving it from `player_scene_id ==
+    world_m2_survey_plan.XYZ_FRAME_SCENE_ID`.  Never raises.
+    """
+    return plan.scene_guard_reason(player_scene_id)
