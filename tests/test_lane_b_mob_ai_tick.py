@@ -33,9 +33,11 @@ import ast
 import contextlib
 import io
 import sys
+import types
 from contextlib import redirect_stdout
 from pathlib import Path
 import unittest
+import unittest.mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -841,20 +843,27 @@ class HitFrameDoorBTests(unittest.TestCase):
     THIS CLASS IS THE SECOND DRAFT.  The first one was measured by
     pf-adversary and it was worse than it read: its "full live block" card
     compared the door's output against the door's own input, so it proved
-    forwarding and called it completeness (D2), while the block it composed
-    omitted 29 of 55 rows -- every row the client's full-object copy would
-    then zero, including cash.  The cards below fix the oracle: completeness
-    is asked of `persistence_attr_compose`, LANE-DB's adjudicator, and the
-    frame is compared against an independently composed full block.
+    forwarding and called it completeness (round `5pvte3`'s own D2), while
+    the block it composed omitted 29 of 55 rows -- every row the client's
+    full-object copy would then zero, including cash.
+
+    THAT DRAFT ASKED `persistence_attr_compose`, LANE-DB's adjudicator,
+    directly.  `COO-DECISION 20260904_0546` (round `f2qyxx`'s own D2)
+    withdrew it from this door's adjudication path entirely: Door B's frame
+    is about `gm/attr_wire.named_field_x()`, the 27-row named set, never
+    LANE-DB's 55-row persistence block.  The completeness promise `RE-222`
+    demands did not go away -- it is enforced by
+    `gm.attr_wire.build_named_field_update` itself now, against the
+    CONNECTION's own cache, not by a second check this door used to run and
+    then discard the result of.  The cards below test that shape.
     """
 
     def setUp(self):
-        from pirateforce_foundation import mob_hit_frame, persistence_attr_compose
+        from pirateforce_foundation import mob_hit_frame
         from pirateforce_foundation.gm import attr_wire
         from pirateforce_foundation.legacy_bridge import load_legacy
         self.door = mob_hit_frame
         self.attr_wire = attr_wire
-        self.adjudicator = persistence_attr_compose
         self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
         self.character_id = 0x750059
         self.identity = (0x11, 0x22)
@@ -873,6 +882,16 @@ class HitFrameDoorBTests(unittest.TestCase):
         sentinel = object()
         name = self.door.ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR
         previous = getattr(self.attr_wire, name, sentinel)
+        # pf-adversary D14, MEASURED: this finally block used to restore
+        # `MOB_HIT_FRAME_CONFIRMED` to a hardcoded `None` instead of the
+        # value it actually held before this context manager patched it --
+        # inconsistent with gate (i)'s own `previous`/`sentinel` dance three
+        # lines below, which restores the REAL prior value.  Harmless only
+        # because nothing else in this suite leaves that constant non-None
+        # across a test boundary today; a future nested `_gates` use (or a
+        # module-level fixture that pre-sets it) would have this context
+        # manager silently clobber a value it never touched.
+        previous_lane_b = self.door.MOB_HIT_FRAME_CONFIRMED
         self.door.MOB_HIT_FRAME_CONFIRMED = lane_b
         if encoder is None:
             if previous is not sentinel:
@@ -882,7 +901,7 @@ class HitFrameDoorBTests(unittest.TestCase):
         try:
             yield
         finally:
-            self.door.MOB_HIT_FRAME_CONFIRMED = None
+            self.door.MOB_HIT_FRAME_CONFIRMED = previous_lane_b
             if previous is sentinel:
                 if hasattr(self.attr_wire, name):
                     delattr(self.attr_wire, name)
@@ -906,19 +925,67 @@ class HitFrameDoorBTests(unittest.TestCase):
         return result, buffer.getvalue()
 
     def _adjudicated_live_values(self):
-        """A hook payload the adjudicator would actually stand behind.
+        """A hook payload THIS DOOR's own adjudication would accept.
 
-        Derived from `persistence_attr_compose` rather than written out, so
-        the day a row changes source class this helper follows it instead of
-        pinning a stale set.  Returns `None` when no such payload exists --
-        which is the case at this commit, and the point of
-        `test_the_block_is_not_adjudicated_on_this_tree`.
+        Built from `attr_wire.named_field_x()` -- the 27-row set
+        `COO-DECISION 20260904_0546` settled Door B's frame is about, never
+        LANE-DB's 55-row `persistence_attr_compose` block (withdrawn from
+        this door entirely, pf-adversary D2).  Derived rather than written
+        out, so the day LANE-GM renames or widens `named_field_x()` this
+        helper follows it instead of pinning a stale set.  `None` only if
+        that set is ever empty -- not reachable on this tree, kept as a
+        guard rather than an assumption.
         """
+        wanted = self.attr_wire.named_field_x()
+        if not wanted:
+            return None
         supplied = {}
-        for x, owned in self.adjudicator.SERVER_OWNED_FIELDS.items():
+        for x in wanted:
             field = self.attr_wire.BY_X[x]
             supplied[x] = "Ann" if field[5] == "wstr" else 2
-        return supplied if not self.adjudicator.block_gaps(supplied) else None
+        return supplied
+
+    def _full_valid_baseline(self):
+        """A cache baseline `build_named_field_update` will actually accept.
+
+        WAS every `attr_wire.FIELDS` row, all 55.  CHANGED round yq5gzr, and
+        the change came from LANE-GM rather than from this lane: `#715` made
+        (b'') the LOGIN MASK SET (`COO-DECISION 20260904_0545` item 1/2), so
+        the encoder now refuses any cache that is not one of the shapes
+        production login itself sets bits for -- a 55-row cache raises
+        "refusing to build a 0x309A frame that is not login-shaped".
+        `COO-DECISION 20260904_0546` puts Door B on that same set, so this
+        helper follows it there.
+
+        DERIVED, never typed: the widest admitted shape comes from
+        `login_mask.admitted_field_x_sets(legacy)`, LANE-GM's own function.
+        Writing the nine or ten row numbers out here would pin a set this
+        lane does not own, and the pin would rot the next time they move it
+        -- which is exactly what just happened to the 55.  Values are
+        type-correct per row `kind`, the only shapes
+        `attr_wire.validate_field_value` accepts; `RawBlockCache` is
+        source-agnostic by its own docstring, so seeding one for a card that
+        needs the ENCODER to survive a bad byte (pf-adversary D12) needs no
+        sign-off from whoever will eventually seed it for real.
+        """
+        from pirateforce_foundation.gm import login_mask
+        admitted = login_mask.admitted_field_x_sets(self.legacy)
+        self.assertTrue(admitted, "LANE-GM admits no login shape at all")
+        widest = max(admitted, key=len)
+        values = {}
+        for field in self.attr_wire.FIELDS:
+            x, kind = field[0], field[5]
+            if x not in widest:
+                continue
+            if kind == "wstr":
+                values[x] = "x"
+            elif kind == "blob":
+                values[x] = b""
+            elif kind == "f32":
+                values[x] = 0.0
+            else:
+                values[x] = 0
+        return values
 
     # -- the gates ---------------------------------------------------------
 
@@ -961,6 +1028,26 @@ class HitFrameDoorBTests(unittest.TestCase):
         self.assertIn("MOB_HIT_FRAME_STANDDOWN reason=%s"
                       % self.door.STANDDOWN_GATE_NOT_CONFIRMED,
                       buffer.getvalue())
+
+    def test_the_gates_helper_restores_the_lane_gate_it_actually_held(self):
+        # pf-adversary D14, MEASURED: `_gates`' own `finally` block used to
+        # hardcode `MOB_HIT_FRAME_CONFIRMED = None` on the way out instead
+        # of restoring whatever value was really there on entry --
+        # inconsistent with how the SAME context manager already treats
+        # gate (i) three lines below (`previous`/`sentinel`).  Nesting one
+        # `_gates()` call inside another is what makes the bug observable:
+        # with the old code the inner call's exit stomped the outer call's
+        # value back to `None` instead of leaving it standing.
+        self.assertIsNone(self.door.MOB_HIT_FRAME_CONFIRMED)
+        with self._gates(lane_b=7, encoder=0):
+            self.assertEqual(self.door.MOB_HIT_FRAME_CONFIRMED, 7)
+            with self._gates(lane_b=9, encoder=0):
+                self.assertEqual(self.door.MOB_HIT_FRAME_CONFIRMED, 9)
+            self.assertEqual(
+                self.door.MOB_HIT_FRAME_CONFIRMED, 7,
+                "the inner _gates() call did not restore the outer call's "
+                "own value on exit")
+        self.assertIsNone(self.door.MOB_HIT_FRAME_CONFIRMED)
 
     def test_the_read_point_resolution_is_consistent_either_way(self):
         # SECOND DRAFT, pf-adversary D13, MEASURED: the first one read the
@@ -1030,14 +1117,31 @@ class HitFrameDoorBTests(unittest.TestCase):
         # the constant being set buys this door NOTHING.  It goes red the day
         # somebody "simplifies" gate (i) into reading that constant -- the
         # exact shortcut GT-218 punished.
-        self.assertIsNotNone(
-            self.attr_wire.UPDATE_ATTR_VITAL_VERSION_CONFIRMED,
-            "the /speed exception is expected to still be in force; if it "
-            "was withdrawn this card needs rewording, not deleting")
+        #
+        # pf-adversary D3, MEASURED: an earlier draft of this card pinned
+        # `assertIsNotNone(UPDATE_ATTR_VITAL_VERSION_CONFIRMED)` -- LANE-GM's
+        # OWN constant, not this lane's.  `GT-218`'s own finding is that
+        # withdrawing that exception is the SAFER direction, so a LANE-GM
+        # round that does exactly that would turn this card red for a
+        # reason entirely outside this lane's control, on a value this card
+        # does not actually need for its own claim.  What this lane owns
+        # and can promise is that its OWN gate name is never the /speed
+        # exception's constant -- derived from source, not pinned as a
+        # number that assumes the exception still exists, so this card
+        # survives GM's withdrawal either way.
+        self.assertNotEqual(
+            self.door.ATTR_WIRE_FULL_BLOCK_UNLOCK_ATTR,
+            "UPDATE_ATTR_VITAL_VERSION_CONFIRMED",
+            "gate (i) must read gm.attr_wire.FULL_BLOCK_UNLOCK_CONFIRMED, "
+            "never the /speed exception's own constant")
         with self._gates(lane_b=0, encoder=None):
             result, console = self._compose(hook=lambda cid: {3: 1})
         self.assertIsNone(result)
         self.assertIn(self.door.STANDDOWN_ENCODER_LOCKED, console)
+        # Whatever UPDATE_ATTR_VITAL_VERSION_CONFIRMED currently holds --
+        # still set by the /speed exception, or None once LANE-GM withdraws
+        # it -- is deliberately NOT asserted here: that value belongs to
+        # LANE-GM, and this card's claim does not depend on it either way.
 
     def test_the_door_will_not_manufacture_a_connections_cache(self):
         # pf-adversary D6: a per-compose cache means the session cache never
@@ -1087,10 +1191,37 @@ class HitFrameDoorBTests(unittest.TestCase):
         # pf-adversary D4 measured FIVE uncaught paths out of the first
         # draft, one of them inside the refusal that existed to protect this.
         # Every row below is one of those, replayed.
-        payloads = (
-            {24: -1},                     # a signed cash read
-            {1: b"Panya"},                # a BLOB column where a wstr goes
-            {4: 100.0},                   # a float the ordered signature allows
+        #
+        # THREE OF THESE ARE ABOUT A *VALUE*, NOT A KEY -- and pf-adversary
+        # D12, MEASURED, found that with this class's DEFAULT (fresh,
+        # unseeded) cache, all three used to stop at the withdrawn
+        # `block_gaps` completeness gate before ever reaching code that
+        # inspects the value itself; `live`'s VALUES are never fed into the
+        # frame this door builds (only the cache's own baseline and
+        # `hp_after` are), so the only way to prove a bad value survives the
+        # real encoder is to put it INTO a seeded cache, where
+        # `attr_wire.build_named_field_update` will actually try to encode
+        # it.  The other six payloads are about KEYS, which the door's own
+        # checks inspect directly, so they keep the default unseeded cache.
+        value_cases = {
+            24: -1,        # a signed cash read (u64 field, negative)
+            1: b"Panya",   # a BLOB where a wstr goes
+            4: 100.0,      # a float on a u32 row
+        }
+        for x, bad_value in value_cases.items():
+            baseline = self._full_valid_baseline()
+            baseline[x] = bad_value
+            cache = self.attr_wire.RawBlockCache()
+            cache.capture_initial(baseline)
+            with self._gates(lane_b=0, encoder=0):
+                result, console = self._compose(
+                    hook=lambda cid, v=x: {v: 1}, cache=cache)
+            self.assertIsNone(result, "x=%d bad value composed" % (x,))
+            self.assertIn(
+                self.door.STANDDOWN_ENCODER_REFUSED, console,
+                "x=%d bad value did not reach the real encoder" % (x,))
+
+        key_payloads = (
             {9: 1, "scene": 1},           # mixed-type keys: the sorted() crash
             {39: 1},                      # half of a shared mask-bit pair
             {30: 1},                      # SENSITIVE_FIELDS
@@ -1098,7 +1229,7 @@ class HitFrameDoorBTests(unittest.TestCase):
             {},                           # empty
             None,                         # not a dict
         )
-        for payload in payloads:
+        for payload in key_payloads:
             with self._gates(lane_b=0, encoder=0):
                 result, console = self._compose(
                     hook=lambda cid, v=payload: v)
@@ -1125,83 +1256,256 @@ class HitFrameDoorBTests(unittest.TestCase):
             self.attr_wire.BY_NAME.clear()
             self.attr_wire.BY_NAME.update(original)
 
-    # -- the adjudicator, which is the completeness oracle ------------------
+    # -- the withdrawal: LANE-DB's persistence composer is not this door's --
 
-    def test_the_block_is_not_adjudicated_on_this_tree(self):
-        # THE CARD THAT CARRIES THE ROUND'S HONESTY.  `RE-222` says the
-        # client's apply is a full-object copy, so a block is either complete
-        # or it blanks what it omits.  "Complete" is not this lane's opinion
-        # and not a count written here: it is
-        # `persistence_attr_compose.block_gaps`, LANE-DB's own adjudicator,
-        # built on the owner's ban of the guessed zero.  At this commit it
-        # names all 55 rows, so the door stands down -- and the day somebody
-        # closes those gaps, this card is what tells them Door B is now the
-        # next thing to look at.
-        gaps = self.adjudicator.block_gaps({})
+    def test_the_door_never_touches_persistence_attr_compose(self):
+        # THE CARD THAT CARRIES THIS ROUND'S WITHDRAWAL.  `COO-DECISION
+        # 20260904_0546` settled the question `test_the_block_is_not_
+        # adjudicated_on_this_tree` (WAS here: pinned `len(block_gaps({}))
+        # == 55`) was blocked on: Door B's frame is about the 27-row
+        # `gm/attr_wire.named_field_x()` set, never LANE-DB's 55-row
+        # `persistence_attr_compose` block.  That module is withdrawn from
+        # this door's adjudication path entirely (pf-adversary D2) --
+        # measured out of the AST, same discipline as
+        # `test_this_door_never_writes_into_the_connections_cache` above,
+        # rather than asserted as a promise, so a reimport (even one nobody
+        # calls) goes red on the line number.  Checked BOTH WAYS an import
+        # could sneak back in -- the import statement itself, and a call to
+        # either function through some other alias -- per the house rule
+        # that a refusal claim must go red both ways, not a single scan.
+        tree = ast.parse(
+            (SRC_ROOT / "mob_hit_frame.py").read_text(encoding="utf-8"))
+        import_hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if "persistence_attr_compose" in alias.name:
+                        import_hits.append(
+                            "import %s:%d" % (alias.name, node.lineno))
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if "persistence_attr_compose" in module:
+                    import_hits.append(
+                        "from %s import ...:%d" % (module, node.lineno))
+                # `from . import persistence_attr_compose` (a relative
+                # import, exactly the shape this module used before this
+                # round) has `module is None` -- the name lives in the
+                # ALIAS, not the module path.  MEASURED: the first draft of
+                # this card checked `node.module` alone and reintroducing
+                # that exact import line left it green.
+                for alias in node.names:
+                    if "persistence_attr_compose" in alias.name:
+                        import_hits.append(
+                            "from %s import %s:%d"
+                            % (module or ".", alias.name, node.lineno))
         self.assertEqual(
-            len(gaps), len(self.attr_wire.FIELDS),
-            "block_gaps no longer refuses every row -- Door B's completeness "
-            "oracle has moved and this lane must re-measure what its frame "
-            "would now carry before anything flips a gate")
-        with self._gates(lane_b=0, encoder=0):
-            result, console = self._compose(hook=lambda cid: {})
-        self.assertIsNone(result)
-        # An empty dict is refused as "no live source" before the
-        # adjudicator; a non-empty one that the adjudicator will not stand
-        # behind is refused by name.
-        supplied = {x: 2 for x in
-                    sorted(self.adjudicator.SERVER_OWNED_FIELDS)[:1]}
-        with self._gates(lane_b=0, encoder=0):
-            result, console = self._compose(hook=lambda cid: dict(supplied))
-        self.assertIsNone(result)
-        self.assertIn(self.door.STANDDOWN_BLOCK_NOT_ADJUDICATED, console)
-        self.assertIn("block_gaps", console)
+            import_hits, [],
+            "Door B re-imported LANE-DB's persistence composer: %r -- "
+            "COO-DECISION 20260904_0546 withdrew it from this door's "
+            "adjudication path entirely" % (import_hits,))
+        call_hits = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (func.attr if isinstance(func, ast.Attribute)
+                    else getattr(func, "id", None))
+            if name in ("compose_full_block", "block_gaps"):
+                call_hits.append("%s:%d" % (name, node.lineno))
+        self.assertEqual(
+            call_hits, [],
+            "Door B calls LANE-DB's adjudicator: %r" % (call_hits,))
 
-    def test_a_row_the_adjudicator_does_not_own_is_refused(self):
-        # A value for a row LANE-DB does not treat as server-owned cannot
-        # honestly enter a block; the door names that rather than letting
-        # `compose_full_block` raise (pf-adversary D4).
-        not_owned = sorted(
+    def test_persistence_attr_compose_is_never_invoked_at_runtime(self):
+        # A SOURCE-TEXT SCAN HAS A BLIND SPOT: it cannot see a call reached
+        # through `importlib.import_module`, `getattr`, or `sys.modules` --
+        # none of those need the literal token `block_gaps` or
+        # `compose_full_block` to appear as an `ast.Call`.  MEASURED: a hand
+        # -built mutant that reached `persistence_attr_compose.block_gaps`
+        # entirely through `importlib.import_module` + string concatenation
+        # left `test_the_door_never_touches_persistence_attr_compose` above
+        # green (pf-adversary, this round, Finding 1).  This card does not
+        # read the source at all -- it patches LANE-DB's two functions to
+        # RAISE if a real call reaches them, then drives this door's actual
+        # positive compose path (the same shape as
+        # `test_when_the_connection_cache_is_complete_the_frame_composes`
+        # below), and proves the door still produces its ordinary frame.
+        #
+        # WHAT THIS CARD DOES *NOT* COVER, corrected round yq5gzr
+        # (pf-adversary D1, MEASURED).  The first draft of this comment
+        # claimed "no route to those two functions -- static, dynamic, or a
+        # helper elsewhere in the tree that hands this module a bound
+        # callable -- can pass this card".  That was false, and a mutant
+        # proved it: `patch.object` rebinds a MODULE ATTRIBUTE, so it cannot
+        # reach a name this door bound at its own IMPORT time.  Two lines at
+        # module scope --
+        #     _pac = importlib.import_module('...persistence_attr' '_compose')
+        #     _adj = getattr(_pac, 'block_' 'gaps')
+        # -- plus a call to `_adj(live)` inside the compose path left this
+        # card and the AST card above BOTH green while LANE-DB's real
+        # function ran.  The generalisation caught the symptom of the
+        # previous round's mutant (late binding) and not its mechanism.
+        # `test_no_module_level_name_binds_persistence_attr_compose` below
+        # closes the import-time half; this card covers the call-time half.
+        # Neither reads execution directly, so a hand-built copy of the
+        # function object (`types.FunctionType(pac.block_gaps.__code__,...)`)
+        # would still evade both -- said plainly here rather than claimed
+        # away, because the last claim of completeness was wrong.
+        from pirateforce_foundation import persistence_attr_compose
+
+        def _raise(*_args, **_kwargs):
+            raise AssertionError(
+                "Door B reached persistence_attr_compose at runtime -- "
+                "COO-DECISION 20260904_0546 withdrew it from this door's "
+                "adjudication path entirely")
+
+        baseline = self._full_valid_baseline()
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
+        supplied = self._adjudicated_live_values()
+        self.assertIsNotNone(supplied)
+        with unittest.mock.patch.object(
+                persistence_attr_compose, "block_gaps", side_effect=_raise), \
+             unittest.mock.patch.object(
+                persistence_attr_compose, "compose_full_block",
+                side_effect=_raise), \
+             self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied), cache=cache)
+        self.assertIsNotNone(
+            result,
+            "the door failed to compose its ordinary positive-path frame "
+            "with LANE-DB's functions patched to raise -- something on "
+            "this path still reaches them")
+        self.assertEqual(console, "")
+
+    def test_no_module_level_name_binds_persistence_attr_compose(self):
+        # pf-adversary D1, round yq5gzr, MEASURED.  The card above patches
+        # LANE-DB's two functions on their own module; a name this door
+        # bound at IMPORT time already holds the original object and never
+        # sees the patch.  The mutant in that card's comment ran LANE-DB's
+        # real `block_gaps` with every other card in this file green.
+        #
+        # This card asks the door's own live namespace instead of its source
+        # text or LANE-DB's module: after import, is ANY object reachable by
+        # name from `mob_hit_frame` a thing that came out of
+        # `persistence_attr_compose`?  That catches the two-line alias above
+        # no matter how the name was spelled or assembled, because the
+        # question is asked of the OBJECT and not of the identifier.
+        from pirateforce_foundation import persistence_attr_compose
+
+        banned_file = getattr(persistence_attr_compose, "__file__", None)
+        banned_name = persistence_attr_compose.__name__
+
+        def _origin(value):
+            """Where did this object come from, if it is code or a module."""
+            if isinstance(value, types.ModuleType):
+                return getattr(value, "__file__", None), value.__name__
+            func = getattr(value, "__func__", None) or value
+            func = getattr(func, "func", func)  # functools.partial
+            code = getattr(func, "__code__", None)
+            if code is None:
+                return None, None
+            return code.co_filename, getattr(func, "__module__", None)
+
+        offenders = []
+        for name, value in vars(self.door).items():
+            where, module_name = _origin(value)
+            hit = (where is not None and banned_file is not None
+                   and Path(where) == Path(banned_file))
+            hit = hit or (module_name is not None
+                          and module_name.split(".")[-1]
+                          == banned_name.split(".")[-1])
+            if hit:
+                offenders.append("%s -> %r" % (name, value))
+        self.assertEqual(
+            offenders, [],
+            "Door B holds a name bound to LANE-DB's withdrawn adjudicator: "
+            "%r. COO-DECISION 20260904_0546 withdrew "
+            "persistence_attr_compose from this door entirely, and an "
+            "import-time alias is exactly the shape that walks through both "
+            "the AST scan and the runtime patch above." % (offenders,))
+
+    def test_a_row_outside_the_named_set_is_refused(self):
+        # A value for a row that is not in `named_field_x()` cannot honestly
+        # be something a hit frame is "about" (`COO-DECISION 20260904_0546`:
+        # the door adjudicates only against the 27-row named set, never
+        # LANE-DB's 55-row block).  WAS `test_a_row_the_adjudicator_does_
+        # not_own_is_refused`, measured against `persistence_attr_compose.
+        # SERVER_OWNED_FIELDS` -- retired with that module's withdrawal.
+        not_named = sorted(
             x for x in self.attr_wire.BY_X
-            if x not in self.adjudicator.SERVER_OWNED_FIELDS)
-        self.assertTrue(not_owned)
+            if x not in set(self.attr_wire.named_field_x()))
+        self.assertTrue(not_named)
         with self._gates(lane_b=0, encoder=0):
             result, console = self._compose(
-                hook=lambda cid: {not_owned[0]: 1})
+                hook=lambda cid: {not_named[0]: 1})
         self.assertIsNone(result)
-        self.assertIn(self.door.STANDDOWN_LIVE_SOURCE_NOT_SERVER_OWNED,
-                      console)
+        self.assertIn(self.door.STANDDOWN_LIVE_SOURCE_NOT_NAMED, console)
 
-    def test_when_the_adjudicator_agrees_the_frame_is_a_full_block(self):
-        # The completeness card, with an oracle that is NOT the door's own
-        # input (the mistake pf-adversary D2 measured).  It runs only in a
-        # world where the adjudicator stands behind a block; on this tree it
-        # does not, and the card says so out loud instead of passing quietly.
+    def test_when_the_connection_cache_is_complete_the_frame_composes(self):
+        # THE POSITIVE-PATH CARD.  WAS `test_when_the_adjudicator_agrees_
+        # the_frame_is_a_full_block`, which asked `persistence_attr_
+        # compose.compose_full_block` for an oracle -- retired along with
+        # that dependency.  What proves a real frame can leave this door now
+        # is narrower and matches what actually ships: a CONNECTION cache
+        # that already satisfies `attr_wire.build_named_field_update`'s own
+        # completeness gate (`all_field_x()`, seeded here with
+        # `_full_valid_baseline()` -- source-agnostic, per `RawBlockCache`'s
+        # own docstring, and something gate 3 forbids THIS door from
+        # building for itself) plus a live source naming rows entirely
+        # within `named_field_x()`.  The frame that comes out is built from
+        # the CACHE's own values with only `hp_current` overridden -- NOT
+        # from `live`, which this door never feeds into the bytes it sends
+        # (module docstring, gate 4) -- so `expected_values` below is
+        # derived from `baseline`, not from `supplied`.
+        baseline = self._full_valid_baseline()
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
         supplied = self._adjudicated_live_values()
-        if supplied is None:
-            self.assertTrue(self.adjudicator.block_gaps({}))
-            self.skipTest(
-                "persistence_attr_compose stands behind no block at this "
-                "commit, so there is no full block for Door B to compose; "
-                "test_the_block_is_not_adjudicated_on_this_tree is the card "
-                "that measures that")
+        self.assertIsNotNone(supplied)
         rows = self.door.hit_frame_vital_rows()
-        expected_values = self.adjudicator.compose_full_block(supplied)
+        expected_values = dict(baseline)
         expected_values[rows["hp_current"]] = 90
         expected = self.attr_wire.make_update_attr_frame(
             self.legacy, self.identity[0], self.identity[1], expected_values)
         with self._gates(lane_b=0, encoder=0):
             result, console = self._compose(
-                hp_after=90, hook=lambda cid: dict(supplied))
+                hp_after=90, hook=lambda cid: dict(supplied), cache=cache)
         self.assertIsNotNone(result)
         self.assertEqual(result, expected)
         self.assertEqual(console, "")
+        # The mask carries EXACTLY the rows the cache holds - no more, no
+        # fewer.  This loop used to assert that every one of the 55 FIELDS
+        # rows had its bit set, which was the right question while (b'')
+        # meant "the whole block"; `#715` made (b'') the LOGIN MASK SET, so
+        # the same sentence now has to be asked of that set instead.  Both
+        # directions matter and for the reason RE-222 Q0 gives: a bit that
+        # is set carries a value the client copies over its own, and a bit
+        # that is NOT set is a ZERO on the client rather than "unchanged" -
+        # so a mask wider than the cache is as wrong as one narrower.
         _body, basic_mask, actor_mask = self.attr_wire.encode_block(
             self.legacy, self.identity[0], self.identity[1], expected_values)
         for field in self.attr_wire.FIELDS:
             mask = basic_mask if field[1] == "basic" else actor_mask
-            self.assertTrue(mask & field[2],
-                            "row %r is missing from the block" % (field[6],))
+            with self.subTest(row=field[6]):
+                if field[0] in expected_values:
+                    self.assertTrue(
+                        mask & field[2],
+                        "row %r is in the cache but missing from the block"
+                        % (field[6],))
+                else:
+                    self.assertFalse(
+                        mask & field[2],
+                        "row %r is NOT in the login-shaped cache but the "
+                        "block sets its bit anyway -- an unset row the "
+                        "client is told about is a zero on their screen"
+                        % (field[6],))
+        # The cache now remembers what was actually sent
+        # (`RawBlockCache.record_sent`, called by `build_named_field_update`
+        # on success) -- the next command on this connection builds on real
+        # prior state, not the stale baseline it started from.
+        self.assertEqual(cache.current_values(), expected_values)
 
     # -- arguments still raise ---------------------------------------------
 
@@ -1217,14 +1521,37 @@ class HitFrameDoorBTests(unittest.TestCase):
     # -- the four rows are LANE-GM's ---------------------------------------
 
     def test_the_four_vital_rows_are_resolved_from_the_encoders_own_table(self):
+        # pf-adversary D5, first pass: an earlier draft pinned the raw
+        # indices `{hp_current: 3, hp_max: 4, mp_current: 5, mp_max: 6}` by
+        # hand with no rationale attached.  A second draft derived `expected`
+        # from `attr_wire.BY_NAME` at test-run time instead -- pf-adversary
+        # (this round, Finding 2) MEASURED that draft could not fail on the
+        # exact regression it existed to catch: `hit_frame_vital_rows()` is
+        # itself `attr_wire.BY_NAME[name][0]`, so a live-vs-live comparison
+        # moves both sides together under any renumbering.  Back to a
+        # literal PIN below, same discipline as `GRADE_SUBSET_SHA256` in
+        # `tests/test_foundation_legacy_seam.py`: a hand-typed number is fine
+        # WHEN it is a deliberate trip-wire with its own re-derivation
+        # instructions, not an uncommented copy nobody can trace.
         rows = self.door.hit_frame_vital_rows()
+        # PIN, recorded this round (elvg52) against
+        # `attr_wire.BY_NAME[name][0]` for each name below, read live in a
+        # cloud clone.  Re-derive and update this dict, in the same commit,
+        # the day LANE-GM moves or renames any of these four rows -- do not
+        # copy a number from a docstring or an old PR by hand.
+        expected = {
+            "hp_current": 3,
+            "hp_max": 4,
+            "mp_current": 5,
+            "mp_max": 6,
+        }
         self.assertEqual(
-            rows,
-            {"hp_current": 3, "hp_max": 4, "mp_current": 5, "mp_max": 6},
-            "gm/attr_wire.FIELDS rows 3-6 have moved or been renamed.  This "
-            "lane's hit frame is built out of exactly these four rows "
+            rows, expected,
+            "gm/attr_wire.FIELDS rows for %r have moved or been renamed.  "
+            "This lane's hit frame is built out of exactly these four rows "
             "(COO-DECISION 20260904_0045); somebody has to come and say what "
-            "changed before it composes another byte.")
+            "changed before it composes another byte."
+            % (self.door.HIT_FRAME_VITAL_FIELD_NAMES,))
         for name, x in rows.items():
             field = self.attr_wire.BY_X[x]
             self.assertEqual(field[6], name)
@@ -1259,16 +1586,31 @@ class HitFrameDoorBTests(unittest.TestCase):
         # `compose_player_hit_frame` ended with
         #     if not cache.is_captured(): cache.capture_initial(block)
         # so a door standing DOWN still left 55 rows in the CONNECTION's
-        # RawBlockCache -- and `build_named_field_update` requires exactly
-        # the 26 `named_field_x()` rows, so one refusal broke every later
-        # named send on that connection.
+        # RawBlockCache -- and `build_named_field_update` refuses a cache
+        # whose shape is not one `gm.login_mask` admits, so a seed of the
+        # wrong shape broke every later named send on that connection.
+        # (CORRECTED TWICE in round yq5gzr.  It said "the 26
+        # `named_field_x()` rows" (pf-adversary D4) - that set held 27 by
+        # then and was not what the check read.  The correction to "exactly
+        # `all_field_x()`, all 55" was true for about an hour: `#715` landed
+        # mid-round and made (b'') the LOGIN MASK SET, nine or ten rows.
+        # The lesson is in `mob_hit_frame.py` at the same spot - name the
+        # authority, never re-type a count another lane owns and moves.)
         #
-        # A behavioural card cannot reach that line today (LANE-DB's
-        # adjudicator refuses all 55 rows first), and a card that cannot
-        # reach the bug is a card that cannot die for it. So this asks the
-        # AST, like `test_nothing_calls_this_door_yet` above: this module
-        # calls NOTHING that mutates the cache it was handed. Re-add the
-        # line and this goes red on the line number.
+        # THAT RATIONALE EXPIRED IN THE SAME COMMIT THAT WROTE IT
+        # (pf-adversary D3 round f2qyxx -> D2 round yq5gzr, MEASURED).  The
+        # sentence that used to stand here said "a behavioural card cannot
+        # reach that line today, because LANE-DB's adjudicator refuses all
+        # 55 rows first" -- true right up until THIS round's withdrawal took
+        # that adjudicator off the path.  Both of this door's paths run to
+        # completion now, so the behavioural card is writable, and
+        # `test_the_cache_is_untouched_on_every_path_this_door_takes` below
+        # is it.  A mutant that re-seeded the cache through
+        # `getattr(cache, "capture_" + "initial")` left this AST card green
+        # and 55 rows in a connection the door had just REFUSED to send for.
+        # This card stays as the cheap static half -- re-add the literal
+        # line and it goes red on the line number -- but it is no longer the
+        # only thing standing behind D7.
         mutators = ("capture_initial", "capture", "update", "seed",
                     "seed_cache_from_live_values")
         found = []
@@ -1292,6 +1634,71 @@ class HitFrameDoorBTests(unittest.TestCase):
             "belongs to the connection and is seeded by its owner; this "
             "door reads it and composes from it, and on every refusal it "
             "leaves it exactly as it found it." % (found,))
+
+    def test_the_cache_is_untouched_on_every_path_this_door_takes(self):
+        # The behavioural half of D7 (pf-adversary D2, round yq5gzr).  The
+        # AST card above cannot see a write reached through
+        # `getattr(cache, "capture_" + "initial")`; this one drives the real
+        # door and asks the real cache what happened to it.
+        #
+        # Both paths matter and they fail differently.  On a REFUSAL the
+        # cache must not be seeded at all -- that was the original D7 bug,
+        # where one stand-down left 55 rows in a connection and broke every
+        # later named send on it.  On the POSITIVE path the door composes
+        # FROM the cache, so the cache must come out byte-for-byte as it
+        # went in: recording what was sent belongs to the encoder that sent
+        # it (`build_named_field_update` -> `record_sent`), never to this
+        # door, which sends nothing.
+        baseline = self._full_valid_baseline()
+        supplied = self._adjudicated_live_values()
+        self.assertIsNotNone(supplied)
+
+        # (1) refusal: x=30 is a real row but outside the named set.
+        virgin = self.attr_wire.RawBlockCache()
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: {30: 1}, cache=virgin)
+        self.assertIsNone(result, console)
+        self.assertIn("MOB_HIT_FRAME_STANDDOWN", console)
+        self.assertFalse(
+            virgin.is_captured(),
+            "the door seeded a connection's cache on a path where it sent "
+            "NOTHING -- that is pf-adversary D7 exactly: %r"
+            % (virgin.current_values(),))
+
+        # (2) positive path.  The cache DOES move here, and legitimately:
+        # `attr_wire.build_named_field_update` calls `record_sent` on its
+        # way out, because the encoder that put the bytes on the wire is the
+        # thing that knows what was sent.  MEASURED here rather than assumed
+        # -- the first draft of this card asserted the cache came out
+        # identical and went red on exactly that write.  What D7 forbids is
+        # THIS DOOR seeding or rewriting rows of its own, so the card pins
+        # the shape of the move instead of forbidding it: only the one row
+        # the hit frame changes may differ, and by exactly the value asked
+        # for.  A door that re-seeded the cache would move 55 rows, or move
+        # one to a value nobody asked for, and either way this goes red.
+        rows = self.door.hit_frame_vital_rows()
+        changed_x = rows[self.door.HIT_FRAME_CHANGED_FIELD_NAME]
+        seeded = self.attr_wire.RawBlockCache()
+        seeded.capture_initial(baseline)
+        before = seeded.current_values()
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied), cache=seeded)
+        self.assertIsNotNone(result, console)
+        after = seeded.current_values()
+        moved = {x: after[x] for x in after if before.get(x, object()) != after[x]}
+        self.assertEqual(
+            moved, {changed_x: 90},
+            "the connection's cache came out of this door changed in ways "
+            "the send does not account for. Only x=%d (the hit frame's own "
+            "changed row) may move, and only to the value the caller asked "
+            "for; anything else is this door writing state it does not own "
+            "(pf-adversary D7). before=%r after=%r"
+            % (changed_x, before, after))
+        self.assertEqual(
+            sorted(after), sorted(before),
+            "the door added or dropped rows in the connection's cache")
 
     def test_this_module_is_pure_ascii(self):
         # The sibling guard `test_mob_stat_fabrication_guard` reads every
