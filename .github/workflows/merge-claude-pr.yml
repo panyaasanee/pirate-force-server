@@ -153,6 +153,22 @@ env:
   # the close bound below -- PF_STALE_HOURS is untouched, on purpose, because
   # this repository's gate takes tens of minutes and a queued runner can
   # wait; only the "try `gh pr ready`" attempt moves earlier.
+  # [PANYA-DECISION 20260904_1253+07:00] the value above was 45 until this
+  # decision; the owner set both repositories to 75 so the un-draft attempt
+  # stops firing in the middle of rounds that are still alive (a lane round
+  # may run up to 90 minutes).  75 is her judgement, not a measurement: do
+  # NOT cite pf_bridge#507 as evidence for it.  #507 was the opposite case -
+  # a round that had FINISHED and could not un-draft itself, which argues for
+  # un-drafting sooner - and nobody has measured a live round killed at 45.
+  # There is no second cushion for the residual 76-90 minute round, whatever
+  # a summary of that decision may say.  The marker filter (the `case "$BODY"`
+  # guard in the reaper below) runs BEFORE the un-draft attempt, so a
+  # markerless draft is never un-drafted at all; every pull request this
+  # bound can act on therefore already carries the marker, which
+  # PROCESS_GATES.md section 16 (marker before un-draft) guarantees.  A round
+  # still working past 75 minutes with the marker already in its body can be
+  # un-drafted here and merged on first green.  PROCESS_GATES.md section 22
+  # narrows that window; it does not close it.  [pf-adversary, chief R338]
   PF_STALE_MINUTES: '75'
   # The job inside gate-windows.yml whose conclusion IS the gate verdict.  If
   # that job is ever renamed, this must be renamed with it, in the same commit.
@@ -729,7 +745,7 @@ jobs:
             # Early un-stick attempt for a stale DRAFT, at PF_STALE_MINUTES
             # rather than PF_STALE_HOURS -- see the env block above for why.
             # This can fire on every schedule/workflow_run tick once a draft
-            # crosses 45 minutes; a successful `gh pr ready` is a no-op on
+            # crosses PF_STALE_MINUTES; a successful `gh pr ready` is a no-op on
             # later ticks because the PR is then non-draft and this branch is
             # skipped.  Does not close anything and does not touch the
             # PF_STALE_HOURS bound below.
@@ -778,7 +794,7 @@ jobs:
             # READY_ATTEMPTED may already be "yes" from the PF_STALE_MINUTES
             # attempt above; this is a final retry immediately before the
             # close path below, in case the owner clicked "Ready for review"
-            # or a permissions fix landed between the 45m attempt and now.
+            # or a permissions fix landed between the PF_STALE_MINUTES attempt and now.
             if [ "$DRAFT" = "true" ]; then
               READY_ATTEMPTED=yes
               if gh pr ready "$PR" --repo "$REPO" 2>&1 | sed 's/^/  ready> /'; then
