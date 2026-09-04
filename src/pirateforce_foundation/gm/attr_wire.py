@@ -1615,14 +1615,53 @@ def _refuse_selector_change(current_scene: int, login_scene, rows) -> None:
 #: -- ANSWERED 2026-09-04 by `COO-DECISION 20260904_0846` item 1, which
 #: chose option (b): x=9 must be the session's CURRENT scene at send time.
 #: So x=9's membership here is now about the COMPARISON, not about the byte
-#: that ships: `live_full_block_values` still fetches the login byte through
+#: that ships: ~~`live_full_block_values` still fetches the login byte through
 #: this routing, hands it to `_refuse_selector_change`, and then REPLACES it
-#: with the current scene.  The login byte no longer reaches a frame.
+#: with the current scene~~ -- STRUCK round `zjbjys` (pf-adversary D5): there
+#: is no replace any more.  The login byte is popped into `fence_basis` and
+#: never enters the returned block at all; the value the block carries is
+#: read from `live_current_scene`.
+#:
+#: ~~x=9's membership here is now about the COMPARISON~~ -- D1, CLOSED round
+#: `zjbjys` (`COO-DECISION 20260904_1149` item 1): x=9 is no longer in the
+#: login-byte VALUE group at all.  This constant kept its name and its three
+#: members because it is what "not a typed column" means for this table, and
+#: `mob_hit_frame.py` (LANE-B's file, outside this lane's write zone) names
+#: it in a docstring -- but `split_sources` now peels x=9 off into
+#: `CURRENT_SCENE_SOURCED_ROWS` as its own group.  Read this constant as
+#: "rows the typed-column source must never answer for", not as "rows whose
+#: value ships from the login hook": for x=9 the shipped value comes from
+#: `live_current_scene`, and the login byte survives only as the basis
+#: `_refuse_selector_change` compares against.
 LOGIN_SOURCED_ROWS = frozenset({9, 10, 11})
 
+#: The THIRD source group (`COO-DECISION 20260904_1149` item 1, "D1"): rows
+#: whose value is read from `live_current_scene` at compose time and from
+#: nowhere else.  Exactly one row today, and it is the HP-pair selector.
+#:
+#: WHY IT IS A GROUP AND NOT A SPECIAL CASE.  `COO-DECISION 20260904_0846`
+#: item 1 chose option (b): x=9 carries the session's CURRENT scene at send
+#: time.  Before this round the code fetched the login byte for x=9, ran the
+#: fence, and then assigned the current scene over it -- which pf-adversary
+#: round `y6j1mn` measured to be a SELF-ASSIGNMENT (the fence raises unless
+#: the two are already equal), i.e. option (a) plus a refusal wearing option
+#: (b)'s comment.  Naming the source group makes the routing say what the
+#: decision says, so the day the fence lifts (`COO-DECISION 20260904_1149`
+#: item 3: it stays until the (b'') GT answers) nobody has to remember to
+#: re-route anything.
+#:
+#: WHAT DID NOT CHANGE, STATED PLAINLY: not one byte on the wire.  The fence
+#: still refuses every compose where the current scene differs from the byte
+#: login sent, so every frame that ships still carries the login value --
+#: only now it ships from the source that decision named.
+CURRENT_SCENE_SOURCED_ROWS = frozenset({SELECTOR_ROW_X})
 
-def login_scoped_sources(legacy) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """`(named_rows, login_byte_rows)` -- the login set split by value source.
+
+def login_scoped_sources(
+    legacy,
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
+    """`(named_rows, login_byte_rows, current_scene_rows)` -- the login set
+    split by value source.
 
     `COO-DECISION 20260904_0545` item 2 names the sources row by row: the
     `known=True` rows come from chief's live read point, EXCEPT the rows in
@@ -1632,20 +1671,59 @@ def login_scoped_sources(legacy) -> tuple[tuple[int, ...], tuple[int, ...]]:
     `20260904_0505` measured login as having bytes for.  That is the whole
     reason the redefinition unblocks anything: the 55-row wording wanted 26
     more rows from a source that has never held one.
+
+    ~~a two-tuple~~ -- struck round `zjbjys` (D1, `COO-DECISION 20260904_1149`
+    item 1): x=9 left the login-byte group for `CURRENT_SCENE_SOURCED_ROWS`,
+    so this returns THREE groups.  The arity changed deliberately rather than
+    the third group being smuggled in as an extra keyword: a caller that still
+    unpacks two names is a caller that would silently route x=9 to the login
+    hook, and this house would rather that be a `ValueError` at import-time
+    coverage than a wrong byte on a wire nobody is watching.
     """
     from . import login_mask  # noqa: PLC0415 - avoids an import cycle
 
     return split_sources(login_mask.login_field_x(legacy))
 
 
-def split_sources(rows) -> tuple[tuple[int, ...], tuple[int, ...]]:
+def split_sources(rows) -> tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]:
     """`login_scoped_sources` for an EXPLICIT row set (one connection's own
-    shape), rather than for the union of every shape production can compose."""
-    named = set(named_field_x()) - LOGIN_SOURCED_ROWS
-    return (
+    shape), rather than for the union of every shape production can compose.
+
+    Returns `(named_rows, login_byte_rows, current_scene_rows)`; the three
+    groups partition `rows` exactly, and `live_full_block_values` asserts
+    that they do.
+    """
+    # BOTH constants are subtracted, and the second one is not redundant.
+    # pf-adversary round `zjbjys` D2 [MEASURED]: with only the first
+    # subtraction, the named group and the scene group are disjoint ONLY
+    # because `LOGIN_SOURCED_ROWS` still happens to contain 9 -- and this
+    # round's own comment on that constant invites a future reader to clean
+    # x=9 out of it.  Doing so put x=9 in BOTH the named group and the scene
+    # group, with no assert firing, and routed the HP-pair selector through
+    # chief's typed-column hook: the one source `COO-DECISION 20260904_0545`
+    # item 2 and pf-adversary D3 forbid it, because a column that disagrees
+    # with the live scene flips the pair.  It fails closed today only because
+    # that hook has no x=9 yet -- and chief is ORDERED to add one.
+    named = set(named_field_x()) - LOGIN_SOURCED_ROWS - CURRENT_SCENE_SOURCED_ROWS
+    groups = (
         tuple(x for x in rows if x in named),
-        tuple(x for x in rows if x not in named),
+        tuple(
+            x
+            for x in rows
+            if x not in named and x not in CURRENT_SCENE_SOURCED_ROWS
+        ),
+        tuple(x for x in rows if x in CURRENT_SCENE_SOURCED_ROWS),
     )
+    # The partition, checked as a partition -- a set-union equality cannot
+    # see a row that landed in two groups (D2 again: both of the old asserts
+    # passed while x=9 was duplicated).  Counted on DISTINCT rows so a caller
+    # passing the same row twice is not mistaken for an overlap.
+    distinct = {x for x in rows}
+    assert sum(len(set(group)) for group in groups) == len(distinct), (
+        "split_sources internal invariant broken: the three source groups "
+        f"must partition the requested rows, got {groups!r} for {distinct!r}"
+    )
+    return groups
 
 
 def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) -> dict:
@@ -1675,13 +1753,20 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     getting the refusal they assert on rather than a `TypeError`.
 
     THIRD SOURCE, ADDED ROUND `y6j1mn` (`COO-DECISION 20260904_0846` item
-    1): when the requested rows include x=9, the block that leaves here
-    carries the session's CURRENT scene on it, read from
-    `CURRENT_SCENE_READ_POINT`, and the login byte for that row survives
-    only as the thing `_refuse_selector_change` compares against.  Both the
-    unreadable-scene refusal and the fence refusal are `AttrWireError` --
-    the same all-or-nothing contract as the other two sources, so a caller
-    that already handles "the block could not be built" needs no new branch.
+    1), MADE A REAL SOURCE GROUP ROUND `zjbjys` (`COO-DECISION 20260904_1149`
+    item 1, "D1"): when the requested rows include x=9, the block that leaves
+    here carries the session's CURRENT scene on it, read from
+    `CURRENT_SCENE_READ_POINT` through `CURRENT_SCENE_SOURCED_ROWS`, and the
+    login byte for that row is fetched only as the thing
+    `_refuse_selector_change` compares against -- it is never a value in the
+    returned dict.  Both the unreadable-scene refusal and the fence refusal
+    are `AttrWireError` -- the same all-or-nothing contract as the other two
+    sources, so a caller that already handles "the block could not be built"
+    needs no new branch.
+
+    The three groups partition the requested rows exactly, and this function
+    asserts that they do, in both directions: nothing may reach the returned
+    dict that no source was asked for, and no requested row may be missing.
     """
     if rows is None and legacy is None:
         raise AttrWireError(
@@ -1690,23 +1775,48 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
             "requires the loaded legacy module -- pass legacy=load_legacy(...)"
         )
     if rows is None:
-        named_rows, login_rows = login_scoped_sources(legacy)
+        named_rows, login_rows, scene_rows = login_scoped_sources(legacy)
     else:
-        named_rows, login_rows = split_sources(rows)
+        named_rows, login_rows, scene_rows = split_sources(rows)
     named = live_named_values(character_id, hooks=hooks, wanted=named_rows)
-    unnamed = live_login_bytes(character_id, hooks=hooks, wanted=login_rows)
+    # THE LOGIN READ STILL COVERS `scene_rows` (D1, round `zjbjys`).  x=9's
+    # value no longer SHIPS from here, but `_refuse_selector_change` needs
+    # the byte login sent this connection as its comparison basis, and
+    # `COO-DECISION 20260904_1149` item 3 keeps that fence until the (b'')
+    # GT answers.  Asking for the row in the same call also keeps the old
+    # refusal exactly: a connection whose login byte for x=9 is absent or
+    # unsendable still fails the WHOLE block here, before any fence runs,
+    # rather than quietly shipping a current scene nobody can compare.
+    # Sorted-unique, not concatenated: pf-adversary round `zjbjys` D4
+    # [MEASURED] -- a caller-supplied `rows` holding x=9 twice made the pop
+    # below raise a bare `KeyError`, which is not an `AttrWireError`, escapes
+    # `mob_hit_frame`'s handler and breaks this function's own
+    # "named error, never a partial answer" contract.  Sorting also keeps
+    # `missing_login_rows: absent=` in ascending order for whoever reads it
+    # off a console (D7).
+    unnamed = live_login_bytes(
+        character_id,
+        hooks=hooks,
+        wanted=tuple(sorted(set(login_rows) | set(scene_rows))),
+    )
+    fence_basis = {x: unnamed.pop(x) for x in dict.fromkeys(scene_rows)}
     combined = {**named, **unnamed}
     assert set(combined) == set(named_rows) | set(login_rows), (
-        "live_full_block_values internal invariant broken: the two sources "
-        "must partition the login set exactly"
+        "live_full_block_values internal invariant broken: the named and "
+        "login-byte sources must cover the login set minus the current-scene "
+        "group exactly"
+    )
+    assert set(fence_basis) == set(scene_rows), (
+        "live_full_block_values internal invariant broken: the current-scene "
+        "group must have a login byte to compare against"
     )
     # -- THE SELECTOR FENCE (`COO-DECISION 20260904_0846` item 1) ----------
     # READ THIS BEFORE BUILDING ON IT.  pf-adversary round `y6j1mn` measured
-    # what this block actually does, and it is NARROWER than the decision
-    # asked for.  D1 is still open (blocked on `CORE-REQUEST-GM-054`); D2
-    # was closed round `zq18m1` (`COO-DECISION 20260904_1046`) by
-    # refusing the OTHER door outright rather than routing it through here
-    # -- see `build_named_field_update`'s own docstring for why.
+    # what this block actually does; D1 and D2 are both closed now, and what
+    # follows is the state after them, not the plan for them.  D2 was closed
+    # round `zq18m1` (`COO-DECISION 20260904_1046`) by refusing the OTHER
+    # door outright rather than routing it through here -- see
+    # `build_named_field_update`'s own docstring for why.
     #
     # ~~What leaves here is the CURRENT scene; the login byte never reaches
     # a frame again.~~ -- STRUCK, D1 [MEASURED]: `_refuse_selector_change`
@@ -1715,12 +1825,45 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     # self-assignment.  The byte that ships is the login byte, every time.
     # Deleting the assignment keeps 296 tests green (measured).  So this
     # block is not option (b); it is option (a) PLUS A REFUSAL for the
-    # players option (b) would have made a difference to.  The re-routing
-    # that makes it option (b) for real: x=9 becomes its own source group in
-    # `split_sources`, built from `live_current_scene` and never fetched
-    # from the login hook at all.  STILL OPEN this round: that re-routing
-    # needs `CORE-REQUEST-GM-054`'s read point (`current_session_scene_id`),
-    # not landed as of this push -- see `notes_to_chief/20260904_1022`.
+    # players option (b) would have made a difference to.
+    #
+    # D1 CLOSED round `zjbjys` (`COO-DECISION 20260904_1149` item 1) -- AND
+    # WHAT IT DID NOT DO.  x=9 is now its own source group
+    # (`CURRENT_SCENE_SOURCED_ROWS`): the value assigned below comes from
+    # `live_current_scene`, and the login hook is no longer asked for it as a
+    # VALUE at all -- only as `fence_basis`, the thing the fence compares
+    # against.  The routing now says what `0846` item 1 decided.  It does NOT
+    # widen the door by one player: the fence is unchanged, so a compose
+    # where the current scene differs from the login byte still refuses, and
+    # every frame that ships still carries the same byte it carried before
+    # this round.  ~~[MEASURED] this round: full suite green with no test
+    # expectation about wire bytes changed.~~ -- STRUCK THE SAME ROUND
+    # (pf-adversary D1 [MEASURED]).  A green suite is NOT evidence for this
+    # re-route: the suite is EQUALLY green with the assignment below mutated
+    # back to `combined[x] = fence_basis[x]`, which is option (a), the thing
+    # `0846` rejected.  That is structural, not an oversight -- while the
+    # fence stands, the two sources are FORCED EQUAL, so no value-level
+    # assertion can tell them apart.  Only PROVENANCE can, and
+    # `test_D1_the_shipped_value_is_the_object_live_current_scene_returned`
+    # is the card that does it (object identity through a patched read
+    # point); it goes red under that mutant.  Cite that card, never the
+    # suite.  This was a REFACTOR OF THE
+    # SOURCE ROUTING, not a change of behaviour, and anyone reporting it as
+    # "option (b) now works for players who walked" is reporting a thing that
+    # did not happen -- that needs the fence lifted, which
+    # `COO-DECISION 20260904_1149` item 3 holds until the (b'') GT answers.
+    #
+    # `CORE-REQUEST-GM-054`'s read point (`current_session_scene_id`) is
+    # STILL NOT LANDED (checked on `main` this round; `lane_hooks` has no
+    # such attribute).  It was never a blocker for this re-routing -- the old
+    # code already called `live_current_scene` unconditionally whenever x=9
+    # was in the block, so a boot without the read point already refused the
+    # whole block, exactly as it does now.  What GM-054 gates is the fence
+    # being LIFTED, not the routing being honest.  See
+    # `notes_to_chief/20260904_1022`, and `COO-DECISION 20260904_1149` item 4
+    # for the guarded contract chief was asked to ship
+    # (`session.client_confirmed_scene` + `scene_label_is_server_guess`,
+    # never `position.scene_id`).
     #
     # ~~`build_named_field_update` and `login_mask.build_login_shaped_frame`
     # are both callers of this function~~ -- STRUCK, D2 [MEASURED], THEN
@@ -1740,14 +1883,51 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     # stop, until GM-054 lands and the honest re-routing (D1's fix) can
     # cover both doors at once.
     #
-    # The login byte is still fetched, and IS what ships (see D1).  x=9
-    # stays in `LOGIN_SOURCED_ROWS` for that reason.
-    if SELECTOR_ROW_X in combined:
+    # ~~The login byte is still fetched, and IS what ships (see D1).  x=9
+    # stays in `LOGIN_SOURCED_ROWS` for that reason.~~ -- STRUCK round
+    # `zjbjys`, BOTH HALVES FALSE (pf-adversary D2 [MEASURED]).  The login
+    # byte is fetched but is NOT what ships.  And the real reason x=9 stays
+    # in `LOGIN_SOURCED_ROWS` is not that one: it is that `split_sources`
+    # subtracts BOTH that constant and `CURRENT_SCENE_SOURCED_ROWS` from the
+    # named group, and removing x=9 from the first while trusting the second
+    # to cover it was measured to route the selector through chief's
+    # typed-column hook with no assert firing.  The subtraction is written
+    # defensively for exactly that reason -- read `split_sources` before
+    # touching either constant.
+    # CONTENT, NOT FLAG (pf-adversary round `zjbjys` D3 [MEASURED]).  The
+    # first draft of D1 keyed this on `if scene_rows:` -- a property of how
+    # the ROUTER classified the row, where the old code keyed on
+    # `SELECTOR_ROW_X in combined`, a property of what is about to be
+    # RETURNED.  Measured cost of that swap: empty
+    # `CURRENT_SCENE_SOURCED_ROWS` (a one-line edit to a constant this round
+    # introduced) and x=9 falls into the login group and SHIPS A STALE
+    # SELECTOR WITH NO CONSOLE LINE -- verbatim the mutant `COO-DECISION
+    # 20260904_0846` item 1 names, and on Door B's path
+    # (`mob_hit_frame.compose_mob_hit_frame`, which calls
+    # `make_update_attr_frame` without a `character_id`) the wall's third
+    # fence is skipped, so this is the ONLY fence x=9 has.  So the set fenced
+    # here is the union: rows the router sent to the scene group, PLUS any
+    # selector row that reached `combined` through any other route at all.
+    # This module's own `seed_cache_from_live_values` D9 note says it:
+    # read the content, not the flag.
+    # Anchored on `SELECTOR_ROW_X` itself, not on the group constant: the
+    # constant is the ROUTING and the whole point of D3 is that the fence
+    # must not depend on it.
+    to_fence = tuple(
+        dict.fromkeys(
+            tuple(scene_rows)
+            + ((SELECTOR_ROW_X,) if SELECTOR_ROW_X in combined else ())
+        )
+    )
+    if to_fence:
         try:
             current_scene = live_current_scene(character_id, hooks=hooks)
-            _refuse_selector_change(
-                current_scene, combined[SELECTOR_ROW_X], combined
-            )
+            for x in to_fence:
+                # `fence_basis` for a row the router routed here; `combined`
+                # for one that arrived some other way -- either is "the byte
+                # login sent this connection", which is all the fence wants.
+                basis = fence_basis[x] if x in fence_basis else combined[x]
+                _refuse_selector_change(current_scene, basis, combined)
         except AttrWireError as error:
             _print_seed_line(
                 sys.stderr,
@@ -1756,7 +1936,15 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
                 str(error),
             )
             raise
-        combined[SELECTOR_ROW_X] = current_scene
+        # Only after EVERY row has cleared the fence -- a partially-assigned
+        # `combined` must never escape this function, and the loop above
+        # raises out of the whole call, not out of one row.
+        for x in to_fence:
+            combined[x] = current_scene
+    assert SELECTOR_ROW_X not in combined or to_fence, (
+        "live_full_block_values internal invariant broken: the selector row "
+        "reached the returned block without the fence running on it"
+    )
     return combined
 
 

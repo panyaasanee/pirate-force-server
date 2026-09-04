@@ -21,11 +21,13 @@ import struct
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.legacy_bridge import load_legacy
+from pirateforce_foundation.gm import attr_wire
 from pirateforce_foundation.gm import login_mask
 from pirateforce_foundation.gm.attr_wire import LOGIN_SOURCED_ROWS
 from pirateforce_foundation.gm.attr_wire import (
@@ -761,9 +763,15 @@ class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
         # alternate pair it can select (x=52/x=53) is NOT in the login set,
         # so a selector value that disagrees with login would point the
         # client at two bits nothing set -- HP `0/0`, GT-218's symptom.
-        named_rows, login_rows = login_scoped_sources(self.legacy)
+        named_rows, login_rows, scene_rows = login_scoped_sources(self.legacy)
         selector_x = BY_NAME["category_5C"][0]
-        self.assertIn(selector_x, login_rows)
+        # D1 (round `zjbjys`, `COO-DECISION 20260904_1149` item 1) moved it
+        # OUT of the login-byte value group and into its own: what D3 was
+        # really pinning is "never a typed column", and that is stronger now
+        # -- the selector's value comes from `live_current_scene` and from
+        # nowhere else.
+        self.assertIn(selector_x, scene_rows)
+        self.assertNotIn(selector_x, login_rows)
         self.assertNotIn(selector_x, named_rows)
         # and the alternate pair really is outside the set, which is what
         # makes the routing above load-bearing rather than tidy.
@@ -1283,16 +1291,183 @@ class SelectorRowIsTheCurrentSceneTests(unittest.TestCase):
         # `_refuse_selector_change` raises unless the current scene EQUALS
         # the login byte, so the assignment that follows is a
         # self-assignment and the login byte is the only value that can
-        # reach a frame.  This card pins that TRUTH, so the day the lane
-        # re-routes x=9 to its own source (which is what `COO-DECISION
-        # 20260904_0846` item 1 actually asks for), this card goes red and
-        # has to be rewritten deliberately rather than drifting.
+        # reach a frame.
+        #
+        # D1 LANDED (round `zjbjys`) AND THIS CARD DID NOT GO RED -- which is
+        # the finding, not an oversight.  The re-routing changed WHERE the
+        # shipped value is read from (`CURRENT_SCENE_SOURCED_ROWS` /
+        # `live_current_scene`, never the login hook); it did not change WHAT
+        # ships, because the fence still refuses every compose where the two
+        # differ.  So the name stays true and the card stays green.  The card
+        # that WILL go red the day the fence is lifted is
+        # `test_MUTANT_x9_carrying_the_old_login_scene_is_red`, and lifting
+        # the fence needs the (b'') GT (`COO-DECISION 20260904_1149` item 3).
         combined = live_full_block_values(
             7, hooks=self._hooks(), legacy=self.legacy,
         )
         self.assertEqual(
             combined[SELECTOR_ROW_X], _login_values()[SELECTOR_ROW_X],
         )
+
+    def test_D1_x9_is_its_own_source_group_and_the_login_hook_is_not_its_value(self):
+        # D1 (`COO-DECISION 20260904_1149` item 1).  Three properties, and
+        # the third is the one a reader would otherwise have to derive:
+        #   1. x=9 is in the current-scene group, not the login-byte group;
+        #   2. the value that lands on x=9 came THROUGH `live_current_scene`
+        #      (patched here, so this is provenance, not a coincidence of two
+        #      equal numbers);
+        #   3. the login hook is STILL asked for x=9 -- because the fence
+        #      compares against it -- so this is a re-route of the VALUE, not
+        #      a removal of the login read.
+        named_rows, login_rows, scene_rows = login_scoped_sources(self.legacy)
+        self.assertEqual(scene_rows, (SELECTOR_ROW_X,))
+        self.assertNotIn(SELECTOR_ROW_X, login_rows)
+        self.assertNotIn(SELECTOR_ROW_X, named_rows)
+
+        login_byte = _login_values()[SELECTOR_ROW_X]
+        calls = []
+
+        def _spy(character_id, *, hooks=None):
+            calls.append(character_id)
+            return login_byte
+
+        with mock.patch.object(attr_wire, "live_current_scene", _spy):
+            combined = live_full_block_values(
+                7, hooks=self._hooks(), legacy=self.legacy,
+            )
+        self.assertEqual(calls, [7])
+        self.assertEqual(combined[SELECTOR_ROW_X], login_byte)
+
+    def test_D1_the_shipped_value_is_the_object_live_current_scene_returned(self):
+        # THE ONLY CARD THAT CAN TELL D1 APART FROM NOT DOING D1
+        # (pf-adversary round `zjbjys`, D1, MEASURED).  The card above was
+        # written as provenance and is not: while the fence stands, the
+        # current scene and the login byte are FORCED EQUAL, so `==` cannot
+        # distinguish the two sources and the full suite stays green with
+        # the assignment mutated back to `combined[x] = fence_basis[x]` --
+        # option (a), the thing `COO-DECISION 20260904_0846` rejected.
+        # pf-adversary reproduced both greens.
+        #
+        # Identity can distinguish them.  `_Tagged` is an `int` subclass, so
+        # it compares EQUAL to the login byte and the fence still passes and
+        # the frame still composes -- but it is a different OBJECT, so
+        # `assertIs` says which source the value came from.  Under the
+        # option-(a) mutant this goes red.
+        #
+        # `live_current_scene` is patched rather than fed through the hook on
+        # purpose: the real function rejects `int` subclasses by design
+        # (`type(scene) is not int`, so `True` cannot sail through as scene
+        # 1), which is correct and must stay.  What is under test here is the
+        # ROUTING above it, not that validator.
+        class _Tagged(int):
+            pass
+
+        tagged = _Tagged(_login_values()[SELECTOR_ROW_X])
+        with mock.patch.object(
+            attr_wire, "live_current_scene", lambda cid, hooks=None: tagged
+        ):
+            combined = live_full_block_values(
+                7, hooks=self._hooks(), legacy=self.legacy,
+            )
+        self.assertIs(combined[SELECTOR_ROW_X], tagged)
+
+    def test_D2_the_three_source_groups_are_asserted_to_partition_the_rows(self):
+        # pf-adversary D2 (MEASURED): the two set-union asserts could not see
+        # a row that landed in TWO groups -- and with x=9 removed from
+        # `LOGIN_SOURCED_ROWS` (the cleanup this round's own comment invites)
+        # it landed in the named group AND the scene group, routing the
+        # HP-pair selector through chief's typed-column hook with nothing
+        # firing.  `split_sources` now subtracts BOTH constants and counts
+        # the partition.
+        rows = login_mask.login_field_x(self.legacy)
+        named_rows, login_rows, scene_rows = attr_wire.split_sources(rows)
+        self.assertEqual(
+            len(set(named_rows)) + len(set(login_rows)) + len(set(scene_rows)),
+            len(set(rows)),
+        )
+        # And the defensive subtraction is real, not incidental: with x=9
+        # gone from `LOGIN_SOURCED_ROWS`, it must STILL stay out of the named
+        # group.
+        with mock.patch.object(
+            attr_wire, "LOGIN_SOURCED_ROWS", frozenset({10, 11})
+        ):
+            named_rows, login_rows, scene_rows = attr_wire.split_sources(rows)
+        self.assertNotIn(SELECTOR_ROW_X, named_rows)
+        self.assertNotIn(SELECTOR_ROW_X, login_rows)
+        self.assertIn(SELECTOR_ROW_X, scene_rows)
+
+    def test_D3_the_fence_is_keyed_on_the_block_not_on_the_routing(self):
+        # pf-adversary D3 (MEASURED): keying the fence on `if scene_rows:`
+        # made it a property of how the router classified the row.  Empty the
+        # group constant and x=9 fell into the login group and SHIPPED A
+        # STALE SELECTOR WITH NO CONSOLE LINE -- the `0846` mutant, on the
+        # one path (Door B's) where this is the only fence x=9 has.  The
+        # fence now covers any selector row that reaches the block at all.
+        login_byte = _login_values()[SELECTOR_ROW_X]
+        stream = io.StringIO()
+        with mock.patch.object(
+            attr_wire, "CURRENT_SCENE_SOURCED_ROWS", frozenset()
+        ):
+            with contextlib.redirect_stderr(stream):
+                with self.assertRaises(AttrWireError) as caught:
+                    live_full_block_values(
+                        7,
+                        hooks=self._hooks(scene=login_byte + 1),
+                        legacy=self.legacy,
+                    )
+        self.assertIn("selector_would_change", str(caught.exception))
+        self.assertIn(SELECTOR_STANDDOWN_CONSOLE_TOKEN, stream.getvalue())
+
+    def test_D4_a_duplicated_row_refuses_by_name_instead_of_raising_KeyError(self):
+        # pf-adversary D4 (MEASURED): `rows` holding x=9 twice popped twice
+        # and raised a bare `KeyError`, which is not an `AttrWireError`, so
+        # it escapes `mob_hit_frame`'s handler and breaks this function's own
+        # "a named error, never a partial answer" contract.  A duplicate is
+        # now simply a duplicate.
+        rows = tuple(login_mask.login_field_x(self.legacy)) + (SELECTOR_ROW_X,)
+        combined = live_full_block_values(
+            7, hooks=self._hooks(), legacy=self.legacy, rows=rows,
+        )
+        self.assertEqual(sorted(combined), sorted(set(rows)))
+
+    def test_D1_the_fence_still_compares_against_the_login_byte_not_itself(self):
+        # The defect this re-route could have introduced, named: if the fence
+        # compared the current scene against the value already assigned to
+        # x=9, it would be comparing a number with itself and would never
+        # refuse anything again.  A current scene that differs from the login
+        # byte must still stand down, with the console token.
+        login_byte = _login_values()[SELECTOR_ROW_X]
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            with self.assertRaises(AttrWireError) as caught:
+                live_full_block_values(
+                    7,
+                    hooks=self._hooks(scene=login_byte + 1),
+                    legacy=self.legacy,
+                )
+        self.assertIn("selector_would_change", str(caught.exception))
+        self.assertIn(SELECTOR_STANDDOWN_CONSOLE_TOKEN, stream.getvalue())
+
+    def test_D1_a_login_hook_with_no_byte_for_x9_still_refuses_the_whole_block(self):
+        # x=9 left the login-byte VALUE group, and the cheap way to write
+        # that would have been to stop asking the login hook for it at all.
+        # That would hand the fence a `None` to compare against -- or, worse,
+        # skip it.  The whole block must still refuse, by the login read's
+        # own reason string, BEFORE any fence runs.
+        login_values = _login_values()
+        del login_values[SELECTOR_ROW_X]
+        with self.assertRaises(AttrWireError) as caught:
+            live_full_block_values(
+                7,
+                hooks=_Hooks(
+                    _complete_values(),
+                    login_values=login_values,
+                    scene=_login_values()[SELECTOR_ROW_X],
+                ),
+                legacy=self.legacy,
+            )
+        self.assertIn("missing_login_rows", str(caught.exception))
+        self.assertIn(str(SELECTOR_ROW_X), str(caught.exception))
 
     def test_D2_the_named_field_door_now_re_verifies_at_the_wall(self):
         # ~~test_D2_the_named_field_door_is_NOT_behind_either_fence~~ --
