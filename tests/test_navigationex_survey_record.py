@@ -1,0 +1,182 @@
+"""Byte-for-byte fixture tests for the `NavigationEx_AddSurveyDataVtial`
+nested record encoder (RE-227's pinned field layout), and a repository-wide
+grep guard proving it is called from no send path.
+
+LANE-A, COO-DECISION 20260904_0747 item 3(b): build the encoder from bytes
+RE-227 already pinned, never wire it to send until GT-228 measures real
+island XYZ.
+"""
+from __future__ import annotations
+
+import struct
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "current"))
+
+import pf_login_game_server_v141 as legacy  # noqa: E402
+from pirateforce_foundation import navigationex_survey_record as survey  # noqa: E402
+
+
+def _hand_built_record(fields: survey.SurveyRecordFields) -> bytes:
+    """The same 9 fields, assembled with raw struct packing instead of the
+    frozen tag helpers -- an independent second construction so a bug
+    shared between this module and its own encoder cannot hide (same
+    discipline as the sibling walker's fixture-rot guards).
+    """
+    return (
+        bytes([0x0B, survey.SURVEY_RECORD_KIND])
+        + bytes([0x12]) + struct.pack("<H", fields.survey_id & 0xFFFF)
+        + bytes([0x12]) + struct.pack("<H", fields.unmeasured_0x14 & 0xFFFF)
+        + bytes([0x12]) + struct.pack("<H", fields.unmeasured_0x16 & 0xFFFF)
+        + bytes([0x2A]) + struct.pack("<f", fields.x)
+        + bytes([0x2A]) + struct.pack("<f", fields.y)
+        + bytes([0x2A]) + struct.pack("<f", fields.z)
+        + bytes([0x32]) + struct.pack("<Q", fields.unmeasured_0x28 & 0xFFFFFFFFFFFFFFFF)
+        + bytes([0x12]) + struct.pack("<H", fields.unmeasured_0x30 & 0xFFFF)
+    )
+
+
+class EncodeSurveyRecordTests(unittest.TestCase):
+    def test_matches_an_independently_hand_built_fixture(self):
+        fields = survey.SurveyRecordFields(
+            survey_id=0x1234, x=6077.9, y=1012.4, z=186.0,
+            unmeasured_0x14=0xAAAA, unmeasured_0x16=0xBBBB,
+            unmeasured_0x28=0x1122334455667788, unmeasured_0x30=0xCCCC,
+        )
+        self.assertEqual(
+            survey.encode_survey_record(legacy, fields),
+            _hand_built_record(fields),
+        )
+
+    def test_default_unmeasured_fields_are_zero_not_a_guessed_value(self):
+        fields = survey.SurveyRecordFields(survey_id=1, x=0.0, y=0.0, z=0.0)
+        record = survey.encode_survey_record(legacy, fields)
+        self.assertEqual(record, _hand_built_record(fields))
+        self.assertEqual(fields.unmeasured_0x14, 0)
+        self.assertEqual(fields.unmeasured_0x16, 0)
+        self.assertEqual(fields.unmeasured_0x28, 0)
+        self.assertEqual(fields.unmeasured_0x30, 0)
+
+    def test_length_matches_the_fixed_offset_span_re_227_pinned(self):
+        # +0x10 .. +0x32 (the last field's value ends there) is 0x22 = 34
+        # bytes of RECORD MEMORY, but the WIRE encoding also carries one tag
+        # byte per field (9 fields), so wire length is record span + fields
+        # bytes already counted as tag bytes -- checked directly against the
+        # module's own declared constant instead of re-deriving the value
+        # differently here, so a future field addition must update both
+        # together.
+        fields = survey.SurveyRecordFields(survey_id=1, x=1.0, y=2.0, z=3.0)
+        self.assertEqual(
+            len(survey.encode_survey_record(legacy, fields)), survey.RECORD_LEN,
+        )
+
+    def test_the_record_kind_byte_is_the_proven_value_one(self):
+        # RE-227 item 2: the contact tick selects a record only when byte
+        # +0x10 == 1.  A record built with any other kind would never be
+        # read by that tick -- pinned here so a future edit cannot drift it.
+        self.assertEqual(survey.SURVEY_RECORD_KIND, 1)
+        fields = survey.SurveyRecordFields(survey_id=1, x=0.0, y=0.0, z=0.0)
+        record = survey.encode_survey_record(legacy, fields)
+        self.assertEqual(record[0], 0x0B)
+        self.assertEqual(record[1], 1)
+
+    def test_the_survey_id_field_is_the_one_enterinstance_echoes(self):
+        # Cross-checked against the sibling inbound module's own fixed
+        # shape (`12 <u16 LE> 0B 06`): the byte this record writes at the
+        # survey_id field position must be readable the same way that
+        # module decodes its confirm frame, since the client is proven
+        # (RE-227) to copy this exact u16 unchanged into that frame.
+        from pirateforce_foundation.lane_hooks import lane_a_enter_instance_log as enter_instance
+
+        for survey_id in (0, 1, 0x1234, 0xFFFF):
+            fields = survey.SurveyRecordFields(survey_id=survey_id, x=0.0, y=0.0, z=0.0)
+            record = survey.encode_survey_record(legacy, fields)
+            # record[0:2] = kind tag(0x0B) + value; record[2] = the
+            # survey_id field's own tag(0x12); record[3:5] = its u16 LE
+            # value.
+            self.assertEqual(record[2], 0x12)
+            self.assertEqual(
+                int.from_bytes(record[3:5], "little"), survey_id,
+            )
+            # And decoding a hand-built EnterInstance confirm body carrying
+            # the same id round-trips through the sibling module.
+            confirm_body = legacy.u16tag(0x12, survey_id) + legacy.u8tag(0x0B, 6)
+            self.assertEqual(enter_instance.decode_opaque(confirm_body), survey_id)
+
+    def test_the_xyz_triple_round_trips(self):
+        fields = survey.SurveyRecordFields(survey_id=1, x=-4418.0, y=-6261.2, z=186.0)
+        record = survey.encode_survey_record(legacy, fields)
+        # Three f32 fields, each tag(1) + value(4), sitting after the kind
+        # byte(2) and three u16 fields(3*3=9): offset 2+9 = 11.
+        offset = 11
+        self.assertEqual(record[offset], 0x2A)
+        got_x = struct.unpack("<f", record[offset + 1:offset + 5])[0]
+        self.assertEqual(record[offset + 5], 0x2A)
+        got_y = struct.unpack("<f", record[offset + 6:offset + 10])[0]
+        self.assertEqual(record[offset + 10], 0x2A)
+        got_z = struct.unpack("<f", record[offset + 11:offset + 15])[0]
+        self.assertAlmostEqual(got_x, fields.x, places=1)
+        self.assertAlmostEqual(got_y, fields.y, places=1)
+        self.assertAlmostEqual(got_z, fields.z, places=1)
+
+
+class EncodeAddSurveyDataOuterTests(unittest.TestCase):
+    def test_wraps_the_record_in_the_frozen_make_runtime_vital_envelope(self):
+        fields = survey.SurveyRecordFields(survey_id=0x1234, x=1.0, y=2.0, z=3.0)
+        record = survey.encode_survey_record(legacy, fields)
+        pc, frame = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xDEAD, vital_version=7, fields=fields,
+        )
+        expected_pc, expected_frame = legacy.make_runtime_vital(0xDEAD, 7, record)
+        self.assertEqual(pc, expected_pc)
+        self.assertEqual(frame, expected_frame)
+        self.assertIn(record, pc)
+
+    def test_msg_id_has_no_default_the_caller_must_supply_one(self):
+        import inspect
+
+        sig = inspect.signature(survey.encode_add_survey_data_outer)
+        self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
+
+
+class NotWiredToAnySendPathTests(unittest.TestCase):
+    def test_no_python_file_anywhere_in_this_repository_imports_this_module(self):
+        # A grep guard, not a claim about intent: proves the nonclaim in
+        # this module's own docstring stays true as the tree grows.  Only
+        # this test file and the module's own file may reference it.
+        #
+        # pf-adversary (this round): the first draft of this guard scanned
+        # only `src/`, which is exactly where this project's OTHER real
+        # send paths do not all live -- `tools/pf_*_headless_replay.py`
+        # scripts open real sockets and send real frames
+        # (`grep -l "socket.socket\|sendall" tools/*.py` finds several),
+        # and a mutation adding an import of this module to one of them
+        # left the old, narrower guard green.  Scanning the WHOLE
+        # repository (this file's own module and this test file excepted)
+        # is what actually backs the docstring's "ANYWHERE IN THIS
+        # REPOSITORY" claim.
+        hits = []
+        for path in ROOT.rglob("*.py"):
+            if ".git" in path.parts:
+                continue
+            if path.name in (
+                "navigationex_survey_record.py",
+                "test_navigationex_survey_record.py",
+            ):
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "navigationex_survey_record" in text:
+                hits.append(str(path.relative_to(ROOT)))
+        self.assertEqual(
+            hits, [],
+            "navigationex_survey_record must not be imported by any send "
+            f"path until GT-228 measures real island XYZ; found: {hits}",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
