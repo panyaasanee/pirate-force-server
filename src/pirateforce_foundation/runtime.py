@@ -313,6 +313,30 @@ MOB_COMBAT_STALE_RETRY_LIMIT = 8
 CLIENT_CONFIRMED_SCENE_FIELD = "client_confirmed_scene"
 
 
+# NavigationEx_EnterInstanceVital, the vital the client sends when the player
+# confirms the captain-report window (RE-227, PARTIAL/static half).
+#
+# PROVENANCE, and why this is a literal here rather than `legacy.<NAME>`:
+# `current/pf_login_game_server_v141.py` is a frozen snapshot and carries no
+# constant for this vital (it names TRIGGER_VITAL and 60-odd others; this is
+# not among them), and it may not be edited.  The id comes from
+# pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv line 287
+# (`0xC723  NavigationEx_EnterInstanceVital`), a registry recovered from the
+# client image's own strings and verifiable without the image: the file's
+# header gives the v141 protocol_name_id hash as
+# `sum((i+1)*ord(c) for i,c in enumerate(name)) & 0xFFFF`, and
+# tests/test_lane_a_navigationex_enter_instance_dispatch_wiring.py recomputes
+# that hash over the literal wire name and asserts it equals this constant --
+# so a typo in these four hex digits is a red test, not a branch that quietly
+# never matches.  Same house shape as GM_RUN_GM_COMMAND_VITAL_ID = 0x51E9.
+#
+# NOT CLAIMED: that the client has ever actually sent this frame to THIS
+# server.  It has not -- we have never provisioned the survey record that
+# makes the window pop (RE-227 nonclaim 6, COO-DECISION 20260904_0747).
+NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID = 0xC723
+NAVIGATIONEX_ENTER_INSTANCE_VITAL_NAME = "NavigationEx_EnterInstanceVital"
+
+
 def _recompose_event_suffix(record):
     """The event suffix for a recompose that did NOT compose.
 
@@ -8215,6 +8239,43 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.rx_frames += 1
                 lane_hooks.fire(
                     "vital_inbound_trigger_vital",
+                    session=self,
+                    payload=bytes(parsed.nested_payload),
+                )
+                return []
+            if nested_id == NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID:
+                # COO-DECISION 20260904_0746 item 3, landed one round early
+                # because the registry already carries the id (that decision
+                # says early is allowed "if the registry has the opcode
+                # ready", and requires the point to fire safely with NO hook
+                # module present -- lane_hooks.fire() reads
+                # _HOOKS.get(point, ()), so an unsubscribed point is a
+                # no-op, and the name audit only reports a REGISTERED point
+                # nothing fires, never a fired point nothing registers).
+                #
+                # Why this frame matters: RE-227 (static, full CFG census;
+                # pf_bridge/notes_to_chief/20260904_0724) moved M2's whole
+                # hypothesis off TriggerVital.  The client does not send
+                # anything when the ship touches an island: the server has
+                # to provision a NavigationEx_AddSurveyDataVtial record
+                # first, the client checks the <=500 proximity itself and
+                # pops the captain-report window LOCALLY, and only the
+                # confirm button sends -- this vital, body
+                # `12 <opaque-u16 copied from the survey record> 0B 06`.
+                # We have never sent that record, which is why R307 saw the
+                # window never pop.
+                #
+                # Same shape as the two branches above: count the frame,
+                # fire the report-only point, send nothing back.  Answering
+                # it would be guessing an opcode (the scene-change frame is
+                # still only a TeleportVital *candidate* -- RE-227 nonclaim
+                # 6), and the survey record cannot be sent at all until
+                # GT-228 measures real island XYZ (COO-DECISION 0747 (b)).
+                # LANE-A owns the hook module and the encoder; this call
+                # site is the one edit only chief may make.
+                self.rx_frames += 1
+                lane_hooks.fire(
+                    "vital_inbound_navigationex_enter_instance_vital",
                     session=self,
                     payload=bytes(parsed.nested_payload),
                 )
