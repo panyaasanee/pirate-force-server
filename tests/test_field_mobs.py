@@ -885,12 +885,28 @@ class FieldMobTests(unittest.TestCase):
             # NOTHING: it is a pure rule (an HP and two booleans) called by
             # the two ChooseNPC responders, and the assertion below still
             # says no dispatch file picked it up.
+            # ROUND amz1w5 (lane B) adds mob_death_persistence.py: the
+            # world's grave book reads ``live_scenes``/``load_roster`` --
+            # both public readers -- for one purpose only, and it is a
+            # refusal rather than a feature.  pf-adversary MEASURED what
+            # happens without it: a diag multi-object's identity, stamped
+            # with bg0001's own scene tag, reaches the books, is seeded into
+            # every later session's register, and makes
+            # ``mob_death.repopulation_entries`` refuse bg0001's arrival
+            # census for the life of the process.  So a grave is only dug
+            # for a row this module's own tables ship.  IT DISPATCHES
+            # NOTHING: its write half is inside ``mob_death.commit_death``
+            # and its read half has no runtime.py call site at all -- that
+            # is this round's one-line wiring ask
+            # (``mob_death_persistence.DEATH_SEED_WIRING``), not a landed
+            # call site.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "lane_a_click_hp.py",
              "mob_ai_control.py",
              "mob_census_hostility.py",
              "mob_combat.py", "mob_combat_bg0015_gates.py", "mob_death.py",
              "mob_death_bg0015_ruling_proposal.py",
+             "mob_death_persistence.py",
              "mob_diag_multi_object.py",
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",

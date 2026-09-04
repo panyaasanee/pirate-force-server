@@ -2290,8 +2290,20 @@ def kill(
     )
 
 
-def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
+def commit_death(
+    current: DeathRegister, step: DeathStep, *,
+    world: Any = None, announce: bool = True,
+) -> DeathRegister:
     """Compare-and-swap: accept a kill only against the register it was read from.
+
+    ``world`` and ``announce`` reach :func:`mob_death_persistence.
+    remember_death` and nothing else.  They are keyword-only and defaulted so
+    that no existing call site changes, and they EXIST because pf-adversary
+    (round ``amz1w5``) measured the alternative: with the burial hardwired,
+    a diag path, a hypothesis module or a test had no way to commit a kill
+    without writing to a structure that outlives the process's every session,
+    and this function's own promise -- it is a pure value operation on a
+    register -- would have quietly stopped being true.
 
     The mirror of ``mob_combat.commit_step``, and it exists for the same
     reason.  Two kills computed from the same register both return a register
@@ -2343,6 +2355,54 @@ def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
             "was computed from a different lineage that happens to be the "
             "same length" % ", ".join("0x%X" % i for i in dropped),
         )
+    # THE WORLD'S BOOKS, and this is the only place in this lane that may
+    # write to them (ka1-A R309: a monster killed in one session stood back
+    # up at full HP in the next).  HERE and not in :func:`kill`, because a
+    # step ``kill`` composed may be thrown away and recomputed against a
+    # fresher register -- burying a monster there would put a corpse on the
+    # world's books whose death frames were never sent, and the player would
+    # meet a monster they never killed that refuses every hit.  Past every
+    # refusal above, so only a death this function ACCEPTED is remembered.
+    #
+    # Imported inside the function on purpose: mob_death_persistence imports
+    # this module for its typed records, and a module-level import here
+    # would close that circle at interpreter start.  The import is cached
+    # after the first kill, and a kill is not a hot path.
+    #
+    # NEVER RAISES, by that function's own contract, and the try is the
+    # second line rather than the first: this function's callers dispatch
+    # frames on the answer, and a bookkeeping failure must cost the world a
+    # grave, never the player their kill.
+    #
+    # THE OUTCOME IS DELIBERATELY NOT ACTED ON, and pf-adversary was right
+    # to ask why (round ``amz1w5``, D4).  There is no action available: a
+    # refused burial cannot cost the player the kill this function has
+    # already accepted and whose frames the caller is about to send.  What a
+    # refusal DOES is degrade this scene to the behaviour it had before this
+    # seam existed -- the monster stands back up on the next relogin -- and
+    # it arrives as a named console line from `remember_death` itself, which
+    # is the only place it can arrive without lying to somebody.
+    try:
+        from . import mob_death_persistence
+
+        mob_death_persistence.remember_death(
+            step.record, world=world, announce=announce)
+    except Exception as error:                          # noqa: BLE001
+        # NAMED, NOT SWALLOWED, and pf-adversary had to point out that the
+        # first version of this block printed NOTHING here.  That matters
+        # more than an ordinary silent except: the evidence that the write
+        # half works AT ALL is the presence of a
+        # MOB_DEATH_WORLD_REMEMBERED line, so "the persistence module is
+        # broken" and "chief has not wired the seam yet" would have had the
+        # same signature -- an empty console -- and an attended round would
+        # have graded one as the other.
+        if announce:
+            try:
+                print("MOB_DEATH_WORLD_REMEMBER_REFUSED scene=%r "
+                      "reason=persistence_door_raised:%r"
+                      % (getattr(step.record, "scene", ""), error))
+            except Exception:                           # noqa: BLE001
+                pass
     return step.register
 
 
