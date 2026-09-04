@@ -7518,6 +7518,20 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # explicit nonclaim (RE-119 T4 leaves the request's own
                 # discriminator field bounded negative).
                 self.rx_frames += 1
+                # CORE-REQUEST (LANE-UI, 20260905_0347): one observer at the
+                # dispatch site LANE-UI cannot write to itself.  Log-only,
+                # exactly the shape the eight friend/mail/party/trade points
+                # below already use -- `fire()` never returns a value and
+                # never touches control flow, so the empty-vector reply path
+                # CORE-REQUEST-025 installed above is byte-for-byte what it
+                # was.  This decides NOTHING about the request's own fields;
+                # RE-236 item (b) (`u16@+0x14` = quest id / NPC id / list
+                # index) stays open and RE-119 T4's ban on building a
+                # response out of the discriminator stands untouched.
+                lane_hooks.fire(
+                    "vital_inbound_trace_path_req_vital",
+                    session=self, payload=bytes(parsed.nested_payload),
+                )
                 if self.foundation.selected is None:
                     self.events.append("trace_path_no_selected_no_reply")
                     return []
