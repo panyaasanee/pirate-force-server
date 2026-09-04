@@ -751,6 +751,151 @@ def presence_event(step: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ROUND 59iqwi/next, `COO-DECISION 20260904_1649` item 2 answering chief's ask
+# (`pf_bridge/notes_to_chief/20260904_1708_CHIEF-TO-LANE-B-ground-reannounce-
+# function-request-and-two-guard-exemptions.md`, GT-242).
+#
+# WHAT A PLAYER SEES BECAUSE OF THIS FUNCTION (once chief wires the call
+# site).  KA1A finding 1, R309, measured on the real client
+# (`pf_bridge/notes_to_chief/20260904_1430`): drop an item, open the
+# inventory bag WITHOUT clicking anything, and the crystal disappears from
+# the ground.  The item was never taken and never expired -- the console
+# kept printing ``MOB_DROP_PRESENCE ... carried=1 oldest_left=65.6s`` right
+# after -- the client was simply told the wrong thing by a DIFFERENT reply:
+# ``CheckSecondPwdVital 0x4B98``'s own 44-byte OK frame ends
+# ``0B 00``, an empty ground-list, and the client reads that as "the floor
+# is bare" and clears it.  This function is the correction for that one
+# named frame: call it right after that reply goes out and the client is
+# told the truth a second time.
+#
+# NOT THE REFUSED RESEND.  `COO-DECISION 2026-08-30T17:42+07:00` refused a
+# STANDING, repeated resend on a movement cadence -- see
+# `WITHDRAWN_DROP_PRESENCE_RESEND_ON_MOVEMENT_WIRING` below, which is still
+# withdrawn and this function does not revive it.  This is a single call
+# tied to one named inbound frame (`0x4B98`), the same shape the scene-
+# boundary reannounce already makes on a kill or a scene entry -- it fires
+# once per second-password reply, never on a timer and never on every frame
+# of anything.
+# ---------------------------------------------------------------------------
+
+#: Printed once per call that actually composed a step, empty ground
+#: included -- an explicit ``items=0`` line, not silence, is what tells an
+#: operator "the floor was checked and it was bare" apart from "this build
+#: has no call site yet" (GT-242 RECHECK criterion: zero lines of this name
+#: anywhere in a boot means an old build, not a passing negative control).
+GROUND_REANNOUNCE_TOKEN = "GROUND_REANNOUNCE_AFTER_SECOND_PWD"
+#: Printed instead of the line above when nothing could be composed at all
+#: (no scene, not a real cell, an exception) -- a DIFFERENT name on purpose,
+#: so ``items=0`` (checked, bare) is never confused with a refusal on the
+#: console or in a grep.
+GROUND_REANNOUNCE_REFUSED_TOKEN = "GROUND_REANNOUNCE_AFTER_SECOND_PWD_REFUSED"
+
+REFUSE_SCENE_DISAGREES = REFUSED_PREFIX + "scene_disagrees_with_the_cell"
+
+
+def reannounce_ground(cell: Any, legacy: Any, scene: Any = None) -> tuple:
+    """Re-send everything still live on one scene's floor.  NEVER RAISES.
+
+    THE CALL SITE THIS IS FOR: chief's responder for ``CheckSecondPwdVital
+    0x4B98``, right after that reply is queued.  Call with the connection's
+    own ``self.mob_loot_cell`` and ``legacy`` -- the same two arguments
+    ``sustain_a_kill`` already takes at the kill dispatch, because this
+    reuses that exact mechanism (``sustain_a_kill(cell, legacy, ())`` -- no
+    new kill, the whole live ledger of the cell's own scene) rather than a
+    second encoder path.  ``tests/test_mob_drop_presence_sustained_resend_
+    hypothesis.py`` already proved this resend is correct, at zero placement
+    cost and zero new byte layout, across a real multi-resend window.
+
+    ``scene`` is OPTIONAL and is a cross-check, not a source of truth: the
+    cell alone decides what it publishes (``cell.publication()``, exactly as
+    ``sustain_a_kill`` uses it).  Pass it when the caller already has the
+    scene id in hand (chief's letter: "I can send you both") and a call
+    whose scene disagrees with the cell's own is refused BY NAME rather than
+    silently resending the cell's scene under a caller's wrong label --
+    reannouncing scene 3's floor while chief believes it just answered scene
+    5 would be a worse bug than sending nothing.  Omit it and the cell's own
+    scene is trusted alone, same as every other caller in this module.
+
+    Returns a TUPLE of ``loot_actions``-shaped entries, ALWAYS -- ``()`` for
+    an empty floor, ``()`` for a cell with no scene, ``()`` for anything this
+    call cannot compose.  Never ``None``: a caller that only ever sees a
+    tuple needs no branch to tell "nothing to send" from "something went
+    wrong" apart, and this function's own console line is what carries that
+    difference instead (:data:`GROUND_REANNOUNCE_TOKEN` with ``items=0`` for
+    the first, :data:`GROUND_REANNOUNCE_REFUSED_TOKEN` for the second).
+
+    FAIL-CLOSED: every exception is caught here, printed as a named refusal,
+    and answered with ``()`` -- this sits under an inbound frame from a
+    stranger by way of the same listener thread every other entry point in
+    this module already promises not to bring down.
+    """
+    try:
+        if scene is not None:
+            cell_scene = getattr(cell, "current_scene", None)
+            if (cell_scene is None
+                    or mob_loot.scene_key(scene) != mob_loot.scene_key(cell_scene)):
+                print("%s scene=%r reason=%s" % (
+                    GROUND_REANNOUNCE_REFUSED_TOKEN, scene,
+                    REFUSE_SCENE_DISAGREES))
+                return ()
+    except Exception as error:                          # noqa: BLE001
+        print("%s scene=%r reason=%s:%r" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, REFUSE_CELL_RAISED, error))
+        return ()
+    try:
+        step = sustain_a_kill(cell, legacy, ())
+    except Exception as error:                          # noqa: BLE001
+        print("%s scene=%r reason=%s:%r" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN, scene, "reannounce_raised", error))
+        return ()
+    if step.refused:
+        print("%s scene=%r reason=%s" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN,
+            step.scene if step.scene is not None else scene, step.state))
+        return ()
+    try:
+        actions = loot_actions(step)
+    except Exception as error:                          # noqa: BLE001
+        print("%s scene=%r reason=%s:%r" % (
+            GROUND_REANNOUNCE_REFUSED_TOKEN, step.scene, "actions_raised",
+            error))
+        return ()
+    print("%s scene=%r items=%d" % (
+        GROUND_REANNOUNCE_TOKEN, step.scene, step.live))
+    return actions
+
+
+# ---------------------------------------------------------------------------
+# The wiring ask for reannounce_ground.  runtime.py is chief's file; this is
+# the whole change, and it is the pasteable answer to
+# `pf_bridge/notes_to_chief/20260904_1708_CHIEF-TO-LANE-B-*`.  GT-242 is the
+# ticket that measures it.
+# ---------------------------------------------------------------------------
+GROUND_REANNOUNCE_WIRING = """runtime.py, right after the reply to CheckSecondPwdVital
+0x4B98 is queued (the block that calls legacy.make_check_second_password_success
+or second_password_bypass.make_proactive_second_password_ok -- wherever the 44-byte
+reply actually gets appended to actions).
+
+ADD, AFTER that reply is queued, not before (the client must see the OK reply
+and the ground truth in that order):
+
+  actions.extend(mob_drop_presence.reannounce_ground(self.mob_loot_cell, legacy))
+
+Nothing else changes: no new import beyond what DROP_PRESENCE_WIRING already put
+on the import line, no new event (this call prints its own console line and needs
+none), no branch (reannounce_ground returns () on every refusal and on a bare
+floor, so the extend is always safe).
+
+WHY NO ``scene=`` ARGUMENT AT THIS CALL SITE: the connection's own
+``self.mob_loot_cell`` already knows its scene the same way sustain_a_kill reads
+it (cell.publication()); passing this call site's own belief about the scene
+would only ever confirm what the cell already says, at the cost of one more name
+to keep in sync. Pass it only if a future call site has scene information the
+cell itself might not (a resync from another source) and wants the disagreement
+refused rather than silently resolved by the cell's own answer.
+"""
+
+# ---------------------------------------------------------------------------
 # The wiring ask.  runtime.py is chief's file; this is the whole change.
 #
 # STATUS: WIRED, not open.  Chief's commit 432381a2 (round t7t5yd,

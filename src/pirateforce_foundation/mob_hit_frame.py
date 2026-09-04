@@ -70,9 +70,17 @@ THE GATES, IN THE ORDER THEY ARE CHECKED
    the same one ``seed_cache_from_live_values`` calls -- this door is a
    CALLER of it, per ``0045``, not a second implementation of its
    partitioning).  The rows this connection's login shape needs OUTSIDE the
-   named set (x=9/x=10/x=11 -- ``attr_wire.LOGIN_SOURCED_ROWS``) come from
-   the SAME function's login-byte half, never from a real-time read and
-   never from the cache.  COMPLETENESS is measured against the SHAPE gate 3
+   named set (x=9/x=10/x=11 -- ``attr_wire.LOGIN_SOURCED_ROWS``, the name and
+   its three members unchanged) come from the SAME function, but no longer
+   from one half for all three -- CORRECTED 2026-09-04 (LANE-GM letter
+   ``pf_bridge/notes_to_chief/20260904_1328``, closing ``COO-DECISION
+   20260904_1149`` D1): x=10/x=11 still come from the login-byte half; x=9
+   (the HP-pair selector) moved to its own THIRD group,
+   ``attr_wire.CURRENT_SCENE_SOURCED_ROWS``, and its value comes from
+   ``live_current_scene`` instead.  Its login bytes are still pulled, but only
+   as the fence's comparison value below -- never composed into the frame
+   again.  Neither case is a real-time read of a live socket, and neither is
+   the cache.  COMPLETENESS is measured against the SHAPE gate 3
    read off the cache's keys, from these live sources -- a row that shape
    needs and neither source can answer is a whole-frame stand-down
    (:data:`STANDDOWN_LIVE_SOURCE_INCOMPLETE`), never a fill from the cache
