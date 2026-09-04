@@ -470,8 +470,6 @@ class SceneLivenessLedger:
         if scene_id is None:
             return None
         existing = self._facts.get(scene_id)
-        if existing is not None and existing.from_this_process:
-            return scene_id
         # A SEEDED fact does NOT excuse a settle line from the cross-check.
         # Before 2026-09-05 the seed list was two ids, and returning early on
         # any existing fact was harmless enough that nobody measured it.
@@ -480,13 +478,30 @@ class SceneLivenessLedger:
         # (99999, 99999, 0) -- 100,000 units from its pinned spawn -- and the
         # early return accepted it, left `refused_by_cross_check` at 0, and
         # made `from_this_process` unreachable for every widened id.  So an
-        # inherited fact now falls through: the arithmetic still has to pass,
-        # and a line that passes UPGRADES the seed to something this boot saw
-        # instead of being swallowed by it.
+        # inherited fact now falls through AS FAR AS THE ARITHMETIC, and no
+        # further: a bad line is refused and counted, and a line that passes
+        # leaves the existing fact exactly as it was.
+        #
+        # ~~a first version of this change UPGRADED a passing line to
+        # `from_this_process=True`~~ IS STRUCK the same round (pf-adversary
+        # pass 2): the pinned spawns of the widened ids sit 2,000-10,000
+        # units apart while `CROSS_CHECK_RADIUS_UNITS` is 12,000, so the
+        # arithmetic cannot tell them apart, and a settle line labelled
+        # scene 4 emitted while the player stands at 278's spawn passed --
+        # replacing GT-212's OBSERVER_CONFIRMED evidence with a
+        # server-labelled coordinate delta and printing it as
+        # `this_process`.  That breaks this module's own three contracts
+        # ("never records twice", "the first evidence is the evidence",
+        # "an inherited fact is never read as something this boot saw") in
+        # the module whose entire purpose is not doing that.  Refusing the
+        # false line is the whole win here; upgrading was never needed for
+        # it.
         checked = _cross_check(self._registry, scene_id, _settled_at(line))
         if checked is False:
             self._refused_by_cross_check += 1
             return None
+        if existing is not None:
+            return scene_id
         self._facts[scene_id] = ArrivalFact(
             scene_id=scene_id,
             evidence="coordinate discontinuity labelled with this scene id by "

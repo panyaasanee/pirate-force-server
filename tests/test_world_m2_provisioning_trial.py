@@ -265,5 +265,46 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         self.assertNotIn(".send(", source)
 
 
+
+class OuterLeadingByteIsForwardedTests(unittest.TestCase):
+    """pf-adversary pass 2, round `f03s5f`.
+
+    The composer grew `outer_leading_byte` and this function -- the only
+    path between it and the wire -- could not pass it.  An attended round
+    would have armed the trial, sent byte-identical bytes, seen the same
+    dialog and reported that the byte did not help, without ever having
+    sent it.
+    """
+
+    _SCENE = plan.XYZ_FRAME_SCENE_ID
+
+    def test_the_default_is_byte_identical_to_what_r313_sent(self):
+        default = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+        )
+        explicit = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=None,
+        )
+        self.assertEqual(default, explicit)
+        self.assertTrue(default)
+
+    def test_a_value_reaches_every_record_this_function_composes(self):
+        default = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+        )
+        withbyte = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=survey.OUTER_PRESENCE_PRESENT,
+        )
+        self.assertEqual(len(withbyte), len(default))
+        for (trigger_a, pc_a, _), (trigger_b, pc_b, _) in zip(default, withbyte):
+            self.assertEqual(trigger_a, trigger_b)
+            self.assertEqual(len(pc_b), len(pc_a) + 2)
+            self.assertEqual(pc_b[20:22], bytes([0x0B, 1]))
+            self.assertEqual(pc_b[:20], pc_a[:20])
+            self.assertEqual(pc_b[22:], pc_a[20:])
+
+
 if __name__ == "__main__":
     unittest.main()
