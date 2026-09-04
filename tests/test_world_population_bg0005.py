@@ -247,9 +247,22 @@ class Bg0005Census(unittest.TestCase):
         # EXACT SET, not "contains" - a third importer, or the seam being
         # swapped for a direct runtime.py import, both fail here and have to
         # be argued for in a round of their own.
+        # ROUND jqeo2m (LANE-B), the "third importer argued for in a round of
+        # its own" the comment above asks for: ``mob_scene_recompose.py``
+        # imports this module to build scene 5's MID-SESSION recompose census,
+        # which is the same relationship it already has with
+        # ``world_population_bg0002`` and ``world_population_bg0015`` -- the
+        # arrival census is lane A's, the recompose of that same census after
+        # a hit or a kill is lane B's, and lane B composes it by CALLING this
+        # builder rather than by writing a second one.  Scene 5 gained a
+        # combat roster in that round, and ``mob_scene_recompose``'s own
+        # written acknowledgement for scene 5 said it would compose the scene
+        # in the round its first roster row landed.  ``runtime.py`` still
+        # does not import this module, which is the fact this test protects.
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
 
 
 if __name__ == "__main__":  # pragma: no cover

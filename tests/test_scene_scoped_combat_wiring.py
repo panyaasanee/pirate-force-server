@@ -69,7 +69,21 @@ CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 # An addressed scene the registry names but no mined mob table serves --
 # resolved through the reader itself at import time so this file cannot pin
 # a hand-typed folder spelling (the exact drift the reader exists to end).
-TABLELESS_SCENE_ID = 5
+#
+# ROUND jqeo2m: ~~``TABLELESS_SCENE_ID = 5``~~ -- a hand-typed scene id sitting
+# directly under a comment promising it was resolved through the reader.  It
+# stopped being tableless the moment scene 5 got a roster, and the test below
+# then failed for the opposite of its own reason (it asserts a scene has NO
+# roster; the scene gaining one is progress, not a regression).  DERIVED now,
+# from the same two readers the test itself calls, so the next scene this lane
+# arms simply moves the choice along instead of turning this file red.
+TABLELESS_SCENE_ID = next(
+    scene_id
+    for scene_id, _folder in world_scene_folder._FOLDER_BY_SCENE_ID
+    if world_scene_folder.scene_folder_for_scene_id(scene_id) is not None
+    and world_scene_folder.scene_folder_for_scene_id(scene_id)
+    not in field_mobs.live_scenes()
+)
 # No registry row addresses this id; world_scene_folder answers None.
 UNADDRESSED_SCENE_ID = 9999
 

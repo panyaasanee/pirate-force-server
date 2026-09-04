@@ -661,13 +661,27 @@ def verify_frozen(gamedata: Path, legacy_path: Path) -> tuple[int, int]:
     Returns ``(rows_compared, mismatches)``.  This is the only claim in this
     tool that is checkable without the client: the selection rule either
     reproduces a table that has been on the wire for months, or it does not.
+
+    ROUND jqeo2m, MEASURED, NOT REVIEWED FROM THE SIDE.  This function had
+    been RAISING, not verifying, since ``unambiguous_placements`` grew its
+    eighth element (``set_number``, added for the crosswalk rule): the fixed
+    seven-name unpack below read ``ValueError: too many values to unpack
+    (expected 7)`` on every single invocation, so ``--verify-frozen`` -- the
+    one control this whole tool's credibility rests on, by its own docstring
+    -- could not be run at all, and the two scenes mined since were mined
+    without it.  Nothing caught it because no test calls this function and
+    the flag is off by default.  Unpacked positionally with ``*_`` now, so a
+    NINTH element cannot break it a second time; ``tests/
+    test_pf_mine_scene_mob_roster_verify_frozen.py`` calls it directly so the
+    next time it does break, a test says so instead of a lane finding out by
+    typing the flag.
     """
     import ast
 
     sources = Sources(gamedata, CONTROL_SCENE)
     derived = [
-        (index, template_id, x, y, z, outfit)
-        for index, template_id, x, y, z, outfit, _ in unambiguous_placements(sources)
+        (row[0], row[1], row[2], row[3], row[4], row[5])
+        for row in unambiguous_placements(sources)
     ]
     text = legacy_path.read_text(encoding="utf-8")
     marker = "PORT_ROYAL_UNAMBIGUOUS_PLACEMENTS = ["

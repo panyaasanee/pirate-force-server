@@ -556,13 +556,20 @@ class SceneRecomposeTests(unittest.TestCase):
     # -- 8. the registry itself --------------------------------------------
 
     def test_the_composer_table_agrees_with_itself(self):
+        # ROUND jqeo2m: reads NON_DELEGATED_COMPOSER_KINDS rather than
+        # re-spelling the kinds a THIRD time.  This literal was the third
+        # copy of the same set (the other two were _compose's guard and the
+        # heals condition, which had already drifted apart once), and it is
+        # the copy that turns "a new scene's composer was registered" into a
+        # test failure with no defect behind it -- exactly the noise that
+        # teaches a future round to edit the assertion rather than read it.
         for scene_id in recompose.composer_scene_ids():
             composer = recompose.composer_for_scene_id(scene_id)
             self.assertEqual(composer.scene_id, scene_id)
             self.assertIn(
                 composer.kind,
-                (recompose.COMPOSER_DELEGATED, recompose.COMPOSER_BG0002,
-                 recompose.COMPOSER_BG0015))
+                (recompose.COMPOSER_DELEGATED,)
+                + tuple(recompose.NON_DELEGATED_COMPOSER_KINDS))
 
     def test_every_scene_this_lane_ships_monsters_for_can_be_recomposed(self):
         """The drift pin.  A future scene that gains a roster -- and therefore

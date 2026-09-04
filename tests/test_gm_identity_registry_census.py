@@ -346,8 +346,14 @@ class WithinOneSceneTests(unittest.TestCase):
         # identities are every one a census identity of that same scene
         # (the assertion this test exists for); this count just has to
         # keep up with which scenes were checked.
+        # ROUND jqeo2m: ~~3~~ -> 4.  Scene 5 (bg0005) joined on the same
+        # terms scene 14 did, and the per-scene subTest above is what
+        # actually proved it: all six of its roster identities are census
+        # identities of scene 5, so none of them is silently dropped by
+        # ``apply_identity_override`` -- which is the containment this test
+        # exists for.  This number only tracks how many scenes were checked.
         self.assertEqual(
-            3, checked, "only scenes 1, 2 and 14 ship rosters today")
+            4, checked, "only scenes 1, 2, 5 and 14 ship rosters today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
         # The routing itself, driven directly.  Shipped data cannot reach
