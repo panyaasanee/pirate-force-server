@@ -18,11 +18,19 @@ import ast
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import damage_by_skill, field_mobs, mob_combat, skill_catalog
+from pirateforce_foundation import (
+    damage_by_skill,
+    damage_model_hypothesis,
+    field_mobs,
+    hostile_hp_link_hypothesis,
+    mob_combat,
+    skill_catalog,
+)
 
 
 TRAINING_IRON_MAN_TEMPLATE_ID = 916
@@ -40,6 +48,19 @@ class TheFormulaIsImportedNotCopiedTests(unittest.TestCase):
 
     def test_combatant_is_the_same_class_object(self):
         self.assertIs(damage_by_skill.Combatant, mob_combat.Combatant)
+
+    def test_the_formula_constants_also_match_the_other_two_proven_copies(self):
+        """Literal compliance with COO condition (a): a direct cross-check
+        against BOTH hypothesis modules, not only identity with mob_combat.
+        Redundant with identity today (mob_combat.py's own
+        ``test_the_formula_constants_are_the_proven_ones`` already ties those
+        two to mob_combat), but this file must not depend on that other
+        file's test surviving (pf-adversary this round, D3)."""
+        for name in ("ATK_BASE", "K_ATK_STR", "K_ATK_LV", "DEF_BASE",
+                     "K_DEF_CON", "K_DEF_LV", "MIN_HIT"):
+            here = getattr(mob_combat, name)
+            self.assertEqual(here, getattr(damage_model_hypothesis, name))
+            self.assertEqual(here, getattr(hostile_hp_link_hypothesis, name))
 
     def test_no_formula_constant_is_assigned_in_this_module(self):
         """AST check, not just "it works today": a future edit that pastes
@@ -84,6 +105,25 @@ class ResolveSkillDamageTests(unittest.TestCase):
 
     def test_normal_attack_is_classified(self):
         self.assertTrue(damage_by_skill.is_classified_attack_skill(99))
+
+    def test_resolve_skill_damage_actually_calls_the_imported_function(self):
+        """Not redundant with the identity tests in
+        ``TheFormulaIsImportedNotCopiedTests`` (pf-adversary this round, D1,
+        reproduced by mutation): a version of ``resolve_skill_damage`` that
+        stops calling ``resolve_damage`` and instead inlines the exact same
+        arithmetic with numeric literals leaves the (now merely unused)
+        import untouched, so the identity tests still pass and the AST
+        no-assignment test never fires -- nothing else in this file would
+        have noticed a real fourth copy.  Patching the module-level name and
+        checking the call goes THROUGH it is the one thing an inlined
+        rewrite cannot survive."""
+        sentinel = object()
+        with mock.patch.object(damage_by_skill, "resolve_damage",
+                                return_value=sentinel) as patched:
+            got = damage_by_skill.resolve_skill_damage(
+                99, self.attacker, self.defender)
+        patched.assert_called_once_with(self.attacker, self.defender)
+        self.assertIs(got, sentinel)
 
     def test_every_other_starting_kit_skill_is_refused_not_guessed(self):
         others = [

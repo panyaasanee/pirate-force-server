@@ -40,19 +40,37 @@ it as an attack.
 ZERO PRODUCTION CALLERS THIS ROUND.  `mob_combat.attack_from_observed_action`
 reads only `field_qword_20` (the target identity) from the inbound
 `ActionVital` fields — no field it consumes today carries a skill id, so
-there is nothing for the real hit path to key `resolve_skill_damage` off of.
-Round `go74te` confirmed this by reading the parser
+there is nothing for the real combat-hit path to key `resolve_skill_damage`
+off of.  Round `go74te` confirmed this by reading the parser
 (`current/pf_login_game_server_v141.py:parse_action_vital`), which decodes
-several fields no caller in `action_ack.py`/`mob_combat.py` ever reads
+several fields `mob_combat.py`'s combat dispatch never reads
 (`action_u32_30`, `field_u32_34`, `field_u8_48`, `field_u16_4a`,
-`field_u8_4c`) — one of them may be the skill id, but which one is not
+`field_u8_4c`).
+
+    CORRECTION (round `ltahoi`, pf-adversary this round, D2): a DRAFT of this
+    docstring and of the CORE-REQUEST letter both said these five fields are
+    unread by "`action_ack.py`/`mob_combat.py`" — that is FALSE of
+    `action_ack.py`.  `action_ack.parse_scene006_ea7d` and
+    `make_scene007_action_ack` read and strictly gate on all five, for a
+    DIFFERENT EA7D consumer than combat: the SCENE-006/007 relocation
+    acknowledgement wired from `scene_load.py:173`'s
+    `SceneActionAck(action=0xEA7D, target_identity=0x203D, scene_id=1)` --
+    a frame is refused outright (returns ``None``) unless `action_u32_30 ==
+    0xEA7D` and `field_u16_4a == 1` exactly.  Whether that is the SAME wire
+    shape the client sends when a player clicks to attack, or a distinct one,
+    is not established here -- this module does not touch either consumer
+    and does not resolve that question, it only refuses to repeat the wrong
+    claim.  See the CORE-REQUEST letter for the collision this raises for
+    whoever answers it.
+
+One of the five fields may be the skill id, but which one is not
 established, and this module does not guess.  A `CORE-REQUEST` asking chief
 to name that field went out the same round this module was added
-(`pf_bridge/notes_to_chief/` — see the round file for the exact filename).
-Until that request is answered and LANE-B or chief writes the call site,
-this function has no caller anywhere in this repository — a fact this
-docstring states directly per `COO-DECISION 20260904_0943` item (c), rather
-than leaving a reader to infer it from an absent grep hit.
+(`pf_bridge/notes_to_chief/20260904_1041_...md`).  Until that request is
+answered and LANE-B or chief writes the call site, this function has no
+caller anywhere in this repository — a fact this docstring states directly
+per `COO-DECISION 20260904_0943` item (c), rather than leaving a reader to
+infer it from an absent grep hit.
 """
 from __future__ import annotations
 
