@@ -57,12 +57,31 @@ classification.
     titles; value 5 is 97% ids 0-999, ship cannon titles) -- this reads as
     "which subsystem/owner row this is" (player vs. monster-state vs.
     ship-weapon), not a gameplay type tag.  Do not build a ``skill_type()``
-    accessor on ``n_PASSIVE``; the next round that wants one has to start
-    from decoding ``s_CAST_CONDITION``/``s_CAST_BEHAVIOR`` (a small command
-    language: ``GO(0)``, ``CHASE(n)``, ``SKIP(n)``, ``ISVIP_I(n)``, ...) --
-    see ``tests/test_skill_catalog.py``'s
+    accessor on ``n_PASSIVE``; see ``tests/test_skill_catalog.py``'s
     ``NPassiveIsNotATypeColumnTests`` for the pinned counter-examples that
     make this a red test, not a comment, if anyone re-copies the shortcut.
+
+    DECODING ``s_CAST_CONDITION``/``s_CAST_BEHAVIOR`` HAS ALSO BEEN TRIED,
+    AND IT ALSO FAILED.  A round reading this docstring might reasonably
+    read the paragraph above as "the untried next step is to decode
+    ``s_CAST_CONDITION``/``s_CAST_BEHAVIOR`` (``GO(0)``, ``CHASE(n)``,
+    ``SKIP(n)``, ``ISVIP_I(n)``, ...)" -- that step has already been run,
+    as ``RE-232`` (pf_bridge CLIENT_RE_QUEUE.md, closed round `tp9rpy`,
+    result letter pf_bridge/notes_to_chief/20260904_1055_RE-232-RESULT-
+    BOUNDED-NEGATIVE-EIGHT-ROWS-DO-NOT-CLASSIFY.md), and it came back
+    BOUNDED-NEGATIVE: the grammar has real condition/behavior structure
+    (loader span ``[0x00754450,0x007549A6)``, parser span
+    ``[0x007534F0,0x007537D4)``, both span-pinned in the result letter), but
+    among these 8 skills there is no independently-labeled AOE, self-buff or
+    heal example to check a classifier against, and the tokens actually seen
+    (``GO``, ``CHASE``, ``SKIP``, ``ISVIP_I``) are control-flow/edge data,
+    not a type enum -- ``GO(0)`` alone appears on the one real attack (99)
+    and both movement skills (110/111), so it cannot even separate attack
+    from movement.  Re-deriving this span from scratch is not the next
+    round's starting point any more; a NEW ticket adding at least 8 more
+    independently-labeled rows (2 single-target, 2 AOE, 2 self-buff, 2 heal)
+    is, per the result letter's own suggestion, and no such ticket exists
+    yet as of this round.
 """
 from __future__ import annotations
 
