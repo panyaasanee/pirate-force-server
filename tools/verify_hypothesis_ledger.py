@@ -874,7 +874,25 @@ DEFAULT_LEDGER = ROOT / "docs" / "HYPOTHESIS_LEDGER.json"
 # the new code still calls that composer by name, so the pins in
 # tools/pf_runtimeres_actor_entry_static.py and the RUNTIMERES_COUNTS block do
 # not move and were deliberately not touched.
-CANONICAL_CONTENT_SHA256 = "826C4ADD9E72CC014D91793166800A719EE2B668A3232F69F46F0E5A8E537115"
+# RE-PIN, chief cloud round zwxuuk (2026-09-05 +07:00): HYP-PF-033's
+# exact_value_or_transform, accepted_ceiling, stop_rule and expiry.decision
+# text are updated to record VERSION LEARN-SKILL-RESULT-002 -- the sixth
+# pinned frame, COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0, that
+# pirate-force-server#768 (round fv5xnu) already shipped in code under
+# COO-DECISION 20260904_2154's approval, widening
+# scenarios/learn_skill_result_hypothesis_learn_sweep.json's
+# frames_per_accepted_request from 5 to 6 in place. That PR never touched
+# this ledger file, so this hash stayed correct for the OLD five-frame text
+# while the shipped code had already moved to six -- exactly the staleness
+# LANE-CS's pf-adversary pass caught
+# (notes_to_chief/20260905_0013_LANE-CS-TO-CHIEF-adversary-confirms-
+# hypothesis-ledger-stale-on-768-governance-gate-false-green.md). No entry
+# added, removed, reordered or reindexed; expiry.tracked_versions gains
+# "LEARN-SKILL-RESULT-002" (2 of 5 ceiling slots now spent, matching
+# policy.max_related_versions); no status/kind/checkpoint/production_allowed
+# touched -- production_allowed stays False, this is a bookkeeping catch-up,
+# not a new production claim.
+CANONICAL_CONTENT_SHA256 = "DFFBC296A21A77BF43B5B0A28FDF514A3ECE0D2CC856D6C1E8E6C4971CD2A6BF"
 IMMUTABLE_V141_PATH = "current/pf_login_game_server_v141.py"
 IMMUTABLE_V141_SHA256 = "2EB05ED2FDBDD5EE3D91F7FBB8C1D16A4C7A02A843BC97169B16A389E4EA4C22"
 ANNOTATION_RE = re.compile(

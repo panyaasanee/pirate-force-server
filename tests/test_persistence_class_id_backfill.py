@@ -423,5 +423,37 @@ class BackupOnDiskTests(unittest.TestCase):
         self.assertIn("classid_backfill", report.snapshot_path.parent.name)
 
 
+class AppPyWiringTests(unittest.TestCase):
+    """CORE-REQUEST (LANE-DB round suh0aq, chief round zwxuuk): the one-line
+    hookup after `store.migrate_with_backup()` this module's own letter
+    (`pf_bridge/notes_to_chief/20260904_2357_LANE-DB-CORE-REQUEST-...`)
+    asked for.  A source-text check, not an import/mock of `app.main` (which
+    needs a real socket and CLI argv this test file has no business
+    building) -- the same shape the quest/shop guard uses to pin a call site
+    without executing it.  Mutant: delete the call from `app.py` and this
+    goes red.
+    """
+
+    def test_app_py_calls_the_backfill_after_migration(self):
+        import inspect
+
+        from pirateforce_foundation import app
+
+        source = inspect.getsource(app.main)
+        self.assertIn(
+            "persistence_class_id_backfill.backfill_missing_class_ids(store)",
+            source,
+        )
+        # Ordering: the call site must be textually after both
+        # `migrate_with_backup()` call sites (the if/else branches), not
+        # spliced in before either -- a boot must not backfill a
+        # not-yet-migrated database.
+        call_at = source.index(
+            "persistence_class_id_backfill.backfill_missing_class_ids(store)"
+        )
+        for marker in ("store.migrate_with_backup()",):
+            self.assertLess(source.rindex(marker), call_at)
+
+
 if __name__ == "__main__":
     unittest.main()

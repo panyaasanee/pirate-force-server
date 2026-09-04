@@ -11,6 +11,7 @@ from . import lane_hooks
 from . import live_login_attr_bytes
 from . import live_named_attr_values
 from .persistence_backup import BackupError
+from . import persistence_class_id_backfill
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
 from .chat_input_hypothesis import load_chat_input_hypothesis_scenario
 from .delete_actor_hypothesis import load_delete_actor_hypothesis_scenario
@@ -792,6 +793,13 @@ def main() -> int:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True); store.migrate_with_backup()
             # A previous process cannot own a live lease after this process starts.
             store.expire_open_sessions()
+        # CORE-REQUEST (LANE-DB round suh0aq, COO-DECISION 20260904_0445): backfill
+        # characters.class_id for rows that predate the creation-time hookup
+        # (CharacterLifecycle above already covers every character created from
+        # here on).  Snapshots first (same BackupError this except clause already
+        # catches), then resolves each missing row through the SAME resolver the
+        # creation-time hookup uses.  Never raises for an individual row.
+        persistence_class_id_backfill.backfill_missing_class_ids(store)
     except BackupError as error:
         print("ABORT: refusing to migrate the database because the pre-migration "
               "snapshot could not be taken -- your database has NOT been changed.",
