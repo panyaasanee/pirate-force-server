@@ -1693,36 +1693,23 @@ class MobDeathTests(unittest.TestCase):
         # ~~REAL MEASURED DATA, not invented: field_mobs.cross_scene_identity_
         # collisions() finds 4 real bg0001 x Bg0002 pairs today; placement 58
         # is one of them (0x203B in both).~~
-        # ROUND 8ftmbx: THERE ARE NONE LEFT, and this test now says so first.
-        # COO-DECISION 2026-08-29T00:41+07:00 withdrew bg0001's nine
-        # set-number rows, and the four placements the scene still ships
-        # (103/105/107/109) collide with nothing Bg0002 ships (50..96).  The
-        # scene-keyed grave still has to work -- the day either roster grows
-        # is the day it matters again -- so the pair below is CONSTRUCTED and
-        # labelled as such: bg0001's real control mob, and a Bg0002 stand-in
-        # placed at the same placement index so the two compute the identical
-        # wire identity in two different scenes.  Both sides are still
-        # authorised by an already-landed ruling (916 by
-        # WIDENED_BG0001_RULING, template 34 by WIDENED_BG0002_RULING), so
-        # this still drives the collision all the way through kill() rather
-        # than only through the register's own API.
+        # ROUND 8ftmbx: THERE ARE NONE LEFT, and this test now said so first.
         # ROUND jqeo2m: real cross-scene collisions DO exist again -- three
-        # of them -- and this guard used to read "there are none".  It was
-        # green for the wrong reason: the reporting default had fallen
-        # behind ``_SCENE_TABLE_MODULES``, so the instrument answered zero
-        # while Bg0015's registration had already created 0x2058 and scene
-        # 5's added 0x203C and 0x2047.
-        #
-        # The guard's own instruction was "build this test on that pair
-        # instead of on a stand-in", and this round CANNOT: driving the
-        # collision through ``kill()`` needs BOTH sides authorised by a
-        # landed ruling, and every real pair today has at least one side
-        # nobody has authorised killing (Carlos 924, and all six bg0005
-        # templates).  So the constructed pair stays, and the guard is
-        # rewritten to say the thing that is actually true and to expire
-        # itself: the day a ruling lands that makes a real pair usable, this
-        # fails and the next round builds the card on it.  DERIVED, never a
-        # hand-typed list.
+        # of them -- but every one had at least one side nobody had
+        # authorised killing, so the card stayed on a constructed stand-in
+        # and named its own expiry: "the day a ruling lands that makes a
+        # real pair usable, this fails and the next round builds the card on
+        # it".
+        # ROUND k4wm9t: COO-DECISION 2026-09-04T11:48+07:00 widened death
+        # scope to all six of bg0005's shipped templates, and one of the
+        # three real collisions the round above found now has an owner
+        # ruling on BOTH sides: bg0005 placement 59 (template 148, Red
+        # Devil, 0x203C) and Bg0002 placement 59 (template 34, Fighting
+        # Fish soldier, same wire identity because both scenes place a mob
+        # at placement index 59).  This card is now built on THAT real pair,
+        # per the guard's own instruction, and both mobs below are loaded
+        # through field_mobs.load_roster(scene=...) rather than constructed
+        # by hand.
         def _has_a_ruling(template_id):
             return any(
                 template_id in templates
@@ -1734,72 +1721,82 @@ class MobDeathTests(unittest.TestCase):
             if _has_a_ruling(row["template_a"]) and _has_a_ruling(
                 row["template_b"])
         ]
-        self.assertEqual(
-            usable, [],
-            "a real cross-scene collision now has an owner ruling on BOTH "
-            "sides: build this test on that pair instead of on a stand-in")
-        bg0001_mob = self.mob
-        bg0002_real = [m for m in self.bg0002_roster if m.template_id == 34][0]
-        bg0002_mob = field_mobs.FieldMob(
-            **{**bg0002_real.__dict__,
-               "placement_index": bg0001_mob.placement_index})
-        self.assertEqual(bg0001_mob.actor_identity, bg0002_mob.actor_identity)
-        self.assertNotEqual(bg0001_mob.scene, bg0002_mob.scene)
-        self.assertEqual(bg0001_mob.template_id, 916)
-        self.assertEqual(bg0002_mob.template_id, 34)
+        self.assertIn(
+            {
+                "scene_a": "Bg0002", "scene_b": "bg0005", "same_scene": False,
+                "placement_index": 59, "actor_identity": 0x203C,
+                "template_a": 34, "name_a": "Fighting Fish soldier",
+                "template_b": 148, "name_b": "Red Devil",
+            },
+            usable,
+            "the real bg0002xbg0005 collision this test is built on is no "
+            "longer reported by cross_scene_identity_collisions() -- either "
+            "a roster changed or the instrument did; find out which before "
+            "trusting this card")
 
-        step_a = self.killing_outcome_solo(bg0001_mob)
+        bg0002_mob = [
+            m for m in self.bg0002_roster
+            if m.template_id == 34 and m.placement_index == 59][0]
+        bg0005_roster = field_mobs.load_roster(scene=field_mobs.BG0005_SCENE)
+        bg0005_mob = [
+            m for m in bg0005_roster
+            if m.template_id == 148 and m.placement_index == 59][0]
+        self.assertEqual(bg0002_mob.actor_identity, bg0005_mob.actor_identity)
+        self.assertNotEqual(bg0002_mob.scene, bg0005_mob.scene)
+
+        bg0005_ruling = (
+            "COO-DECISION 2026-09-04T11:48+07:00 "
+            "widen-death-scope-bg0005-six-templates")
+
+        step_a = self.killing_outcome_solo(bg0002_mob)
         death_a = kill(
-            self.legacy, bg0001_mob, step_a.outcome, DeathRegister(),
-            widened=WIDENED_BG0001_RULING)
-        # bg0001's mob is dead in ITS scene...
+            self.legacy, bg0002_mob, step_a.outcome, DeathRegister(),
+            widened=WIDENED_BG0002_RULING)
+        # Bg0002's mob is dead in ITS scene...
         self.assertTrue(
-            death_a.register.is_dead(bg0001_mob.actor_identity,
-                                      bg0001_mob.scene))
-        # ...and this is the fix, proven the negative way: before this round
+            death_a.register.is_dead(bg0002_mob.actor_identity,
+                                      bg0002_mob.scene))
+        # ...and this is the fix, proven the negative way: before that round
         # a bare-identity register would already answer True here (the wrong
         # grave), and the kill() call two lines below would have raised
         # REFUSE_ALREADY_DEAD instead of succeeding.
         self.assertFalse(
-            death_a.register.is_dead(bg0002_mob.actor_identity,
-                                      bg0002_mob.scene))
+            death_a.register.is_dead(bg0005_mob.actor_identity,
+                                      bg0005_mob.scene))
 
-        step_b = self.killing_outcome_solo(bg0002_mob)
+        step_b = self.killing_outcome_solo(bg0005_mob)
         death_b = kill(
-            self.legacy, bg0002_mob, step_b.outcome, death_a.register,
-            widened=WIDENED_BG0002_RULING)
+            self.legacy, bg0005_mob, step_b.outcome, death_a.register,
+            widened=bg0005_ruling)
 
         # Both are now dead, each correctly in its OWN scene, independently.
         self.assertTrue(
-            death_b.register.is_dead(bg0001_mob.actor_identity,
-                                      bg0001_mob.scene))
-        self.assertTrue(
             death_b.register.is_dead(bg0002_mob.actor_identity,
                                       bg0002_mob.scene))
-        self.assertEqual(
-            death_b.register.record_of(
-                bg0001_mob.actor_identity, bg0001_mob.scene).max_hp,
-            bg0001_mob.max_hp)
+        self.assertTrue(
+            death_b.register.is_dead(bg0005_mob.actor_identity,
+                                      bg0005_mob.scene))
         self.assertEqual(
             death_b.register.record_of(
                 bg0002_mob.actor_identity, bg0002_mob.scene).max_hp,
             bg0002_mob.max_hp)
+        self.assertEqual(
+            death_b.register.record_of(
+                bg0005_mob.actor_identity, bg0005_mob.scene).max_hp,
+            bg0005_mob.max_hp)
         # live_roster() (used by repopulation_entries/corpse_override to
-        # decide who still stands) must agree per scene too: bg0001's own
-        # roster now excludes its dead mob but Bg0002's roster is untouched
+        # decide who still stands) must agree per scene too: Bg0002's own
+        # roster now excludes its dead mob but bg0005's roster is untouched
         # by a register that also carries a DIFFERENT scene's corpse sharing
         # this wire identity.
         self.assertNotIn(
-            bg0001_mob.actor_identity,
-            [m.actor_identity for m in live_roster(self.roster, death_b.register)])
-        # The Bg0002 side of the pair is the stand-in, so the roster it is
-        # asked about has to be one that contains it.
-        bg0002_roster_with_stand_in = tuple(self.bg0002_roster) + (bg0002_mob,)
-        self.assertIn(
             bg0002_mob.actor_identity,
             [m.actor_identity
-             for m in live_roster(
-                 bg0002_roster_with_stand_in, death_a.register)])
+             for m in live_roster(self.bg0002_roster, death_b.register)])
+        self.assertIn(
+            bg0005_mob.actor_identity,
+            [m.actor_identity
+             for m in live_roster(bg0005_roster, death_a.register)])
 
     def test_a_reapply_does_not_resurrect_the_dead(self):
         step = self.killing_outcome()

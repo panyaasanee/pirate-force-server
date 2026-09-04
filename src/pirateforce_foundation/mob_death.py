@@ -188,6 +188,7 @@ from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
+from . import field_mob_tables_bg0005
 from . import field_mobs
 from . import mob_combat
 from . import world_population
@@ -444,6 +445,32 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # field_mobs._SCENE_TABLE_MODULES are "two separate matters" -- that
     # gate (COO-DECISION 2026-09-01T08:47+07:00 item (c)) stays locked.
     "COO-RULING-20260901-1046": frozenset({343, 345, 348, 350, 353, 355}),
+    # COO-DECISION 2026-09-04T11:48+07:00 (notes_to_chief/20260904_1148_
+    # COO-DECISION-lane-b-widen-death-scope-bg0005-six-templates-approved.md),
+    # answering LANE-B-ASK-COO 2026-09-04T10:57+07:00 (round jqeo2m,
+    # notes_to_chief/20260904_1057_LANE-B-ASK-COO-six-bg0005-templates-need-
+    # a-death-ruling.md): approves killing all six of Bg0005's own hostile
+    # placements -- 148 Red Devil, 150 Ned apes, 144 Hard Blade Eagle, 146
+    # Black Jack, 523 Jet cat thieves No.5, 525 Jet cat thieves No.6 -- the
+    # same "option (a): register the roster, refuse loud and safe" this lane
+    # already chose before the letter answered, per the SAME three-step
+    # methodology bg0001/Bg0002/Bg0015 already used (a rank, a combat AI, a
+    # drops table, no town target, no player-model body). The set below is
+    # exactly ``field_mob_tables_bg0005.HOSTILE_PLACEMENTS``'s distinct
+    # template ids -- re-derived from the mined roster in
+    # ``tests/test_field_mob_tables_bg0005.py`` rather than hand-copied a
+    # second time, the same discipline every other ruling in this dict is
+    # held to.
+    # NOT APPROVED BEYOND THESE SIX: a new row in scene 5, or any row in
+    # scenes 3/4, needs its own letter, per the COO letter's own item 3.
+    # NOT A GT UNLOCK: NOW.md still forbids opening an attended monster-hit
+    # GT queue entry for scene 5 until P-2 (monster name colour) closes --
+    # this entry only lets a kill on these six templates travel under a
+    # letter; nothing here opens ``GAME_TEST_QUEUE.md``.
+    "COO-DECISION 2026-09-04T11:48+07:00 "
+    "widen-death-scope-bg0005-six-templates": frozenset(
+        {148, 150, 144, 146, 523, 525}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -525,6 +552,12 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # approved path), and ``tests/test_mob_death_bg0015_ruling_proposal.py``
     # asserts ``ruling_for()`` accepts those real rows under this exact key.
     "COO-RULING-20260901-1046": "Bg0015",
+    # Tied to Bg0005 -- a bg0001/Bg0002/Bg0015 mob sharing one of these six
+    # template ids by coincidence (none do at HEAD) would be refused here,
+    # the same reverse-direction hazard every other entry in this dict
+    # already guards against.
+    "COO-DECISION 2026-09-04T11:48+07:00 "
+    "widen-death-scope-bg0005-six-templates": field_mob_tables_bg0005.SCENE,
 }
 
 
