@@ -3,19 +3,24 @@
 
 Mirrors tests/test_lane_a_trigger_vital_dispatch_wiring.py, which does the
 same job for the sibling `vital_inbound_trigger_vital` point sitting next to
-this one in runtime.py.  The difference is that this point has NO hook module
-yet: LANE-A's is due a round later, so there is nothing here to assert a
-`LANE_A_*` console line against.  That is the interesting half.  COO-DECISION
-0746 item 3 allows the call site to land early only on the condition that the
-point fires safely with no subscriber, so this file proves exactly that pair:
+this one in runtime.py.  COO-DECISION 0746 item 3 allowed the call site to
+land early, on the condition that it fires safely with no subscriber; this
+file originally proved exactly that empty-table state, one round before
+LANE-A's own module existed.
+
+LANE-A's module (`lane_hooks/lane_a_enter_instance_log.py`) landed round
+09:51, per COO-DECISION 20260904_0850 item 3, so the pair this file proves is
+now:
 
   1. a raw 0xC723 frame reaching a real logged-in session dispatches into the
-     branch, counts, and returns no actions -- with the hook table EMPTY for
-     the point (this is the "landed early" state, and it must not raise, warn,
-     or answer the client);
+     branch, counts, and returns no actions -- true whether or not a hook is
+     registered, and it must not raise, warn, or answer the client;
   2. the same frame delivers `payload` verbatim to a hook once one registers
-     -- so LANE-A's module, when it arrives, is wired by the act of
-     subscribing and needs no second runtime.py edit.
+     -- LANE-A's module is wired by the act of subscribing and needed no
+     second runtime.py edit, which is what `test_the_point_now_has_lane_as_
+     own_subscriber` and `test_a_subscribed_frame_dispatches_counts_and_
+     fires_the_hook` below now assert against the real module instead of an
+     empty table.
 
 It also pins the id itself.  0xC723 is a literal in runtime.py because the
 frozen v141 snapshot has no constant for this vital, so the usual protection
@@ -162,18 +167,23 @@ class NavigationExEnterInstanceDispatchWiringTests(unittest.TestCase):
             NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID,
         )
 
-    def test_the_point_has_no_subscriber_yet(self):
-        # The precondition the two tests below are interesting under, asserted
-        # rather than assumed: LANE-A's hook module does not exist yet.  When
-        # it lands this test is the one that has to change, deliberately, in
-        # the same PR -- it must never be "fixed" by deleting it.
-        self.assertEqual(
-            lane_hooks.registered_points().get(POINT, 0), 0,
-            "a subscriber appeared for %s: update this file's docstring and "
-            "the sibling assertions in the same PR" % POINT,
+    def test_the_point_now_has_lane_as_own_subscriber(self):
+        # LANDED, round 09:51 (COO-DECISION 20260904_0850 item 3):
+        # `lane_hooks/lane_a_enter_instance_log.py` registers on this point.
+        # This test used to pin the OPPOSITE fact ("no subscriber yet") as
+        # the precondition the two tests below were interesting under -- its
+        # own docstring said the day a module landed, THIS test had to
+        # change deliberately in the same PR, never be "fixed" by deletion.
+        # This is that change.
+        self.assertGreaterEqual(
+            lane_hooks.registered_points().get(POINT, 0), 1,
+            "LANE-A's module should be registered on %s by now" % POINT,
         )
 
-    def test_an_unsubscribed_frame_dispatches_counts_and_answers_nothing(self):
+    def test_a_subscribed_frame_dispatches_counts_and_fires_the_hook(self):
+        # Flipped in the same round the subscriber landed (chief
+        # 20260904_0850 item 3: "the two tests below" from the old docstring
+        # both had to change together, not just the registration test).
         state = self._login_and_start("navent1")
         rx_before = state.rx_frames
         stderr = io.StringIO()
@@ -184,10 +194,14 @@ class NavigationExEnterInstanceDispatchWiringTests(unittest.TestCase):
             state.rx_frames, rx_before + 1,
             "the frame must be counted, not dropped as unmatched",
         )
-        # An unsubscribed point is a no-op, so nothing fires and nothing errs.
+        # A subscribed point fires, and LANE-A's own hook prints the opaque
+        # value it decoded -- both are checked, not just the generic token,
+        # so a module that registered but decoded nothing still fails here.
         console = stderr.getvalue()
-        self.assertNotIn("LANE_HOOK_FIRED", console)
-        self.assertNotIn("ERR", console)
+        self.assertIn("LANE_HOOK_FIRED", console)
+        self.assertIn("LANE_A_ENTER_INSTANCE opaque=0x1234", console)
+        self.assertNotIn("UNPARSED", console)
+        self.assertNotIn(" ERR ", console)
 
     def test_the_payload_reaches_a_hook_verbatim_once_one_registers(self):
         body = _confirm_body(self.legacy, 0xBEEF)
