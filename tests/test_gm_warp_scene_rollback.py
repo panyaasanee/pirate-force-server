@@ -598,5 +598,125 @@ class RealDatabaseTests(unittest.TestCase):
         self.assertEqual(outcome, warp_scene_persist.OUTCOME_PERSISTED)
 
 
+class SendFailureHookupTests(RealDatabaseTests):
+    """`rollback_warp_scene_on_send_failure` -- `CORE-REQUEST-GM-055`'s own
+    wrapper, exercised through the same real store/session/router
+    `RealDatabaseTests` uses, BEFORE chief's `v141` call site exists to
+    drive it directly.  Subclasses that class rather than repeating its
+    `setUp`/`_session`/`_row`: the "no test-to-test imports" rule the file's
+    header states is about coupling ACROSS files, not within one.
+
+    THE LABEL GUARD IS THE WHOLE POINT, measured first for that reason: the
+    send loop calls this after EVERY queued action's socket write fails, not
+    only a warp's.
+    """
+
+    def test_a_send_failure_after_a_no_coords_warp_rolls_the_row_back(self):
+        """The exact window `CORE-REQUEST-GM-055` names: the row already
+        moved (frame composed, DB written) and the socket write that should
+        have followed it never happened."""
+        session = self._session("sendfail01")
+        before = self._row(session)
+        self.assertEqual(before.scene_id, 1)
+
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        # The frame composed; nothing about the SEND has happened yet, so the
+        # in-memory row is still the departure scene `persist_warp_scene`
+        # restored it to -- exactly what chief's call site would see.
+        self.assertEqual(session.foundation.selected.position.scene_id, 1)
+
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.rollback_warp_scene_on_send_failure(
+                session,
+                chat_command_action.
+                WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+            )
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        after = self._row(session)
+        self.assertEqual(after.scene_id, before.scene_id)
+        self.assertEqual(
+            (after.x, after.y, after.z), (before.x, before.y, before.z),
+        )
+        self.assertIn(
+            f"{warp_scene_persist.ROLLBACK_CONSOLE_TOKEN} scene={before.scene_id}",
+            stream.getvalue(),
+        )
+        # The audit-append undo is a SEPARATE window (finding 1, above) --
+        # this send-failure rollback must not consume or disable it.
+        self.assertIsNotNone(verdict.undo)
+
+    def test_the_label_is_pinned_against_chat_command_actions_own_constant(
+        self,
+    ):
+        """`SEND_FAILURE_WARP_ACTION_LABEL` is a literal copy, not an import
+        (the function's own docstring gives the circular-import reason).
+        This is the guard against the two drifting apart silently."""
+        self.assertEqual(
+            warp_scene_persist.SEND_FAILURE_WARP_ACTION_LABEL,
+            chat_command_action.
+            WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+        )
+
+    def test_every_other_action_label_is_free(self):
+        """The send loop calls this after ANY action's socket write fails.
+        A `say`, a `/speed` frame, a with-coordinates warp (`ForcePos`) and
+        the two-argument cross-scene `TeleportVital` must all cost nothing
+        -- not a read, not a write, not a console line."""
+        session = self._session("sendfail02")
+        before = self._row(session)
+        other_labels = (
+            chat_command_action.WARP_ACTION_LABEL,
+            chat_command_action.WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL,
+            chat_command_action.SAY_ACTION_LABEL,
+            chat_command_action.SPEED_ACTION_LABEL,
+            "",
+            None,
+        )
+        for label in other_labels:
+            with self.subTest(label=label):
+                stream = io.StringIO()
+                with redirect_stderr(stream):
+                    outcome = (
+                        warp_scene_persist
+                        .rollback_warp_scene_on_send_failure(session, label)
+                    )
+                self.assertEqual(
+                    outcome, warp_scene_persist.OUTCOME_NOT_A_WARP,
+                )
+                self.assertEqual(stream.getvalue(), "")
+        self.assertEqual(self._row(session).scene_id, before.scene_id)
+
+    def test_a_raising_write_door_reports_the_same_refusal_word(self):
+        """No warp happened first, on purpose: this measures that the
+        wrapper's failure path IS `rollback_warp_scene`'s own, not a second
+        vocabulary invented for the wrapper."""
+        session = self._session("sendfail03")
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            session.foundation.checkpoint = mock.Mock(
+                side_effect=PermissionError("stale session"),
+            )
+            outcome = warp_scene_persist.rollback_warp_scene_on_send_failure(
+                session,
+                chat_command_action.
+                WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL,
+            )
+        self.assertEqual(
+            outcome,
+            warp_scene_persist.OUTCOME_ROLLBACK_REFUSED_PREFIX
+            + "PermissionError",
+        )
+        self.assertIn(
+            f"{warp_scene_persist.ROLLBACK_FAIL_CONSOLE_TOKEN} "
+            f"scene=1 reason={outcome}",
+            stream.getvalue(),
+        )
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
