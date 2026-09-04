@@ -136,6 +136,34 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
         self.assertEqual(plan.provisionable_count(), 2)
         self.assertEqual(plan.blocked_rows(), ())
 
+    def test_gt_228_primary_and_backup_values_match_the_coo_letter_not_just_each_other(self):
+        # `test_gt_228_measured_both_targets_and_nothing_is_blocked_any_more`
+        # above only checks that `planned_records()` copies `MEASURED_XYZ`
+        # faithfully -- it is silent if the dict itself holds a transcribed
+        # wrong number, and pf-adversary (round `tpuvll`) mutation-tested
+        # that gap directly: swapping primary/backup, swapping x/y, and
+        # corrupting a digit all left the rest of this file's suite green.
+        # These four literals are copied from the two source letters, not
+        # from `plan.py`, so a future transcription slip here fails:
+        #   notes_to_chief/20260904_1345_COO-DECISION-lane-a-gt228-pass-*
+        #   (COO's PRIMARY pick, item 2: rx152 for 153, rx433 for 154)
+        #   notes_to_chief/20260904_1331_KA1A-R308-RESULTS-* (all four
+        #   raw HUD readings: rx130/rx152 for 153, rx433/rx491 for 154)
+        self.assertEqual(plan.MEASURED_XYZ[153], (-5613.8, 4162.5, 186.0))  # rx152, PRIMARY
+        self.assertEqual(plan.MEASURED_XYZ[154], (-1563.5, -5275.1, 186.0))  # rx433, PRIMARY
+        self.assertEqual(plan.MEASURED_XYZ_BACKUP[153], (-4451.6, 4531.1, 186.0))  # rx130
+        self.assertEqual(plan.MEASURED_XYZ_BACKUP[154], (-1720.4, -5251.6, 186.0))  # rx491
+        # The two dicts must not share a value between islands or between
+        # primary/backup -- that shape would hide exactly the swap mutation
+        # pf-adversary tried.
+        all_values = [
+            plan.MEASURED_XYZ[153],
+            plan.MEASURED_XYZ[154],
+            plan.MEASURED_XYZ_BACKUP[153],
+            plan.MEASURED_XYZ_BACKUP[154],
+        ]
+        self.assertEqual(len(set(all_values)), 4)
+
     def test_the_accessor_answers_from_the_table_not_from_none(self):
         # 155 (Slave Market Island) is a real dock row GT-228 did not
         # measure -- only M2's own two targets, 153/154, are in
