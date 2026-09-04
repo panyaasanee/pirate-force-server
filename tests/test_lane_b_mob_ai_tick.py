@@ -1693,6 +1693,95 @@ class HitFrameDoorBTests(unittest.TestCase):
                 "record_sent kept the cache's own stale value at x=%d "
                 "instead of recording what was actually sent" % (x,))
 
+    # -- the cache's shape must itself be a real one ------------------------
+
+    def test_an_unadmitted_cache_shape_is_a_stand_down_not_a_keyerror(self):
+        # pf-adversary (this round), Finding 1, MEASURED against the
+        # PREVIOUS draft of this fix: `RawBlockCache.capture_initial` is,
+        # by its own docstring, "PUBLIC and unvalidated" -- nothing stopped
+        # a cache from holding a row that is not a real
+        # `attr_wire.FIELDS` entry at all (a future table shrink leaving a
+        # long-lived cache holding a retired number, say).  That row's `x`
+        # reached `attr_wire.live_named_values`/`live_login_bytes`'s own
+        # unguarded `BY_X[x]` the moment a hook's answer happened to name
+        # it too, raising a bare `KeyError` -- NOT `attr_wire.AttrWireError`
+        # -- straight through this door's `except attr_wire.AttrWireError`,
+        # contradicting the module's own promise that nothing below the
+        # argument checks raises.  Reproduced against that draft (a hand
+        # patch removing the admitted-shape check below turned this red
+        # with exactly that `KeyError`, not a stand-down); this card pins
+        # the fix instead: an unadmitted shape stands down BEFORE
+        # `live_full_block_values` is ever called.
+        #
+        # THE BOGUS ROW GOES THROUGH THE LOGIN-BYTE HOOK, DELIBERATELY, NOT
+        # THE NAMED ONE: this door's own pre-check (`not_fields`/`stray`,
+        # above) already screens the NAMED hook's raw keys against
+        # `attr_wire.BY_X`/`named_field_x()`, so a bogus key in THAT hook's
+        # answer is caught earlier regardless of this card's fix. Nothing
+        # screens the login-byte hook's keys the same way -- that
+        # asymmetry is exactly what pf-adversary's finding measured, so the
+        # card has to reach it through the door the pre-check does not
+        # guard.
+        baseline = self._full_valid_baseline()
+        bogus_x = 9999
+        self.assertNotIn(
+            bogus_x, self.attr_wire.BY_X,
+            "fixture drifted: %d is now a real FIELDS row" % (bogus_x,))
+        baseline[bogus_x] = 1
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
+
+        supplied = self._adjudicated_live_values()
+        self.assertIsNotNone(supplied)
+        # The login-byte hook answers for the bogus row too -- this is the
+        # exact condition pf-adversary's finding needed to reach the
+        # unguarded lookup: the row must be in BOTH the requested shape
+        # and this hook's own answer.
+        login_supplied = dict(self._adjudicated_login_byte_values())
+        login_supplied[bogus_x] = 1
+
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNone(result, console)
+        self.assertIn(self.door.STANDDOWN_CACHE_SHAPE_NOT_ADMITTED, console)
+
+    def test_the_named_hook_is_called_at_most_once_per_compose(self):
+        # pf-adversary (this round), Finding 2, MEASURED: an earlier draft
+        # fetched `live` once (for the two named-row gates below) and then
+        # let `live_full_block_values` call the SAME hook a SECOND,
+        # independent time to build the values the frame actually carries
+        # -- so the two gates validated one call's answer while the bytes
+        # sent could come from a different one, with nothing anywhere
+        # proving the hook is idempotent between calls.  This card pins a
+        # single call: a hook that raises on its second invocation must
+        # still compose successfully.
+        calls = []
+
+        def _hook(character_id):
+            calls.append(character_id)
+            if len(calls) > 1:
+                raise AssertionError(
+                    "the named read point was called a second time in one "
+                    "compose -- gate 4's validation covered a call whose "
+                    "answer this door never actually sent")
+            return dict(self._adjudicated_live_values())
+
+        baseline = self._full_valid_baseline()
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
+        login_supplied = self._adjudicated_login_byte_values()
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=_hook,
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNotNone(result, console)
+        self.assertEqual(
+            len(calls), 1,
+            "the named read point was called %d times in one compose, "
+            "expected exactly 1" % (len(calls),))
+
     # -- arguments still raise ---------------------------------------------
 
     def test_an_hp_outside_the_writable_range_is_refused_before_any_gate(self):

@@ -245,6 +245,16 @@ STANDDOWN_LIVE_SOURCE_NOT_NAMED = "live_source_not_named"
 #: cache gate 3 already read for shape, and never filled with zero -- both
 #: are exactly the ``GT-218`` family this ruling closed.
 STANDDOWN_LIVE_SOURCE_INCOMPLETE = "live_source_incomplete"
+#: NEW 2026-09-04, pf-adversary (this round), Finding 1, MEASURED: a cache's
+#: key set is "PUBLIC and unvalidated" (``RawBlockCache``'s own docstring),
+#: and passing an unadmitted shape straight to ``live_full_block_values``
+#: reaches an unguarded ``BY_X[x]`` lookup in ``attr_wire.live_named_values``/
+#: ``live_login_bytes`` -- a bare ``KeyError``, not ``AttrWireError``, the
+#: moment a hook's answer happens to include that same bogus key.  Checked
+#: BEFORE that call, against ``login_mask.admitted_field_x_sets``, the same
+#: check ``attr_wire.build_named_field_update`` already carried for this
+#: same reason before this door stopped routing through it.
+STANDDOWN_CACHE_SHAPE_NOT_ADMITTED = "cache_shape_not_admitted"
 STANDDOWN_ENCODER_REFUSED = "encoder_refused"
 
 MOB_HIT_FRAME_STAND_DOWN_REASONS = (
@@ -256,6 +266,7 @@ MOB_HIT_FRAME_STAND_DOWN_REASONS = (
     STANDDOWN_LIVE_SOURCE_NOT_A_FIELD,
     STANDDOWN_LIVE_SOURCE_NOT_NAMED,
     STANDDOWN_LIVE_SOURCE_INCOMPLETE,
+    STANDDOWN_CACHE_SHAPE_NOT_ADMITTED,
     STANDDOWN_ENCODER_REFUSED,
 )
 
@@ -481,6 +492,32 @@ def compose_player_hit_frame(
                    "connection; this door will not guess one")
         return None
 
+    # `RawBlockCache.capture_initial` IS, BY ITS OWN DOCSTRING, "PUBLIC and
+    # unvalidated": `shape` is not proven to hold only real `attr_wire.
+    # FIELDS` rows yet, and pf-adversary (this round) MEASURED what that
+    # costs -- an `x` in `shape` that is not a real row still reaches
+    # `gm.attr_wire.live_named_values`/`live_login_bytes`'s own `BY_X[x]`
+    # lookup one call below, an UNGUARDED dict index that raises a bare
+    # `KeyError`, not `AttrWireError`, the instant a hook's answer happens
+    # to include that same bogus key.  `attr_wire.build_named_field_update`
+    # -- the function this door used to route through -- already carried
+    # this exact check, for this exact reason, before it ever touched the
+    # cache's key set; dropping it when this door stopped calling that
+    # function reopened the hole.  Checked here, the same way, against
+    # `login_mask.admitted_field_x_sets`: every admitted shape is derived
+    # from a REAL production login composition, so membership in one is
+    # already a proof that every row in it is a real `FIELDS` row -- no
+    # second, narrower table of "real x values" needs inventing.
+    from .gm import login_mask  # noqa: PLC0415 - avoids an import cycle, see attr_wire.py
+    admitted = login_mask.admitted_field_x_sets(legacy)
+    if not any(shape == set(known_shape) for known_shape in admitted):
+        stand_down(STANDDOWN_CACHE_SHAPE_NOT_ADMITTED,
+                   "cache holds %r, which is not one of the admitted login "
+                   "shapes %r; this door will not guess at, or compose "
+                   "for, a shape production login never sends"
+                   % (sorted(shape), [sorted(s) for s in admitted]))
+        return None
+
     # -- (b'') IN FULL, from live sources ONLY -----------------------------
     # `COO-DECISION 20260904_0847` (option a, strict): `live` IS the truth, and the
     # cache just consulted for shape may not fill a single row of the frame
@@ -494,9 +531,39 @@ def compose_player_hit_frame(
     # connection's own branch -- the same D1 finding `build_named_field_
     # update` already carries a comment about: the union would admit x=11
     # for a connection whose login composed the plain branch.
+    #
+    # `hooks=_same_live_hooks`, NOT the raw `lane_hooks_module`
+    # (pf-adversary this round, Finding 2, MEASURED): passing the module
+    # straight through would have `live_full_block_values` call the NAMED
+    # hook a SECOND, independent time to build `values` -- a call the two
+    # gates just above never see, so their validation would cover only the
+    # FIRST call's answer while the bytes this door actually sends come
+    # from a possibly-different second one (nothing here or in `attr_wire`
+    # proves the hook is idempotent between calls).  `_same_live_hooks`
+    # answers the named read point with the EXACT `live` dict already
+    # fetched and validated above, so the hook is invoked at most once per
+    # compose; the login-byte read point is untouched, resolved off
+    # whichever module this door was actually given.
+    resolved_hooks_module = lane_hooks_module
+    if resolved_hooks_module is None:
+        from . import lane_hooks as resolved_hooks_module  # noqa: PLC0415
+    login_byte_hook = getattr(
+        resolved_hooks_module, attr_wire.LOGIN_BYTES_READ_POINT, None)
+
+    class _same_live_hooks:
+        """A `hooks=` stand-in: answers the named point with the `live`
+        dict this door already fetched and validated (never calls the
+        real hook again); the login-byte point passes straight through."""
+
+    setattr(_same_live_hooks, attr_wire.LIVE_VALUE_READ_POINT,
+            staticmethod(lambda character_id, _live=live: dict(_live)))
+    if login_byte_hook is not None:
+        setattr(_same_live_hooks, attr_wire.LOGIN_BYTES_READ_POINT,
+                staticmethod(login_byte_hook))
+
     try:
         values = attr_wire.live_full_block_values(
-            character_id, hooks=lane_hooks_module, legacy=legacy, rows=shape)
+            character_id, hooks=_same_live_hooks, legacy=legacy, rows=shape)
     except attr_wire.AttrWireError as exc:
         stand_down(STANDDOWN_LIVE_SOURCE_INCOMPLETE, "%r" % (exc,))
         return None
