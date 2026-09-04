@@ -261,6 +261,15 @@ XYZ_SOURCE_TICKET = "GT-228"
 # needs its own table, not a row here.
 XYZ_FRAME_SCENE_ID = 126
 
+# `plan_is_for_scene()`'s two named refusals (pf-adversary, round `16uvmp`,
+# `ADVERSARY_PENDING` item 3, closed round `m1wqqy`).  The guard returned a
+# bare `False` for both a caller standing in the wrong scene and a caller
+# passing a value that was never a scene id at all -- silent in the exact
+# spot this codebase otherwise names its refusals (`ARRIVAL_REFUSED_*`
+# above, `BLOCKED_XYZ_UNMEASURED` below).  Same naming shape as those.
+PLAN_SCENE_REFUSED_WRONG_SCENE = "PLAN_SCENE_REFUSED_WRONG_SCENE"
+PLAN_SCENE_REFUSED_NOT_AN_INT = "PLAN_SCENE_REFUSED_NOT_AN_INT"
+
 # The reason string every M2 destination is blocked with today.  Built from
 # the ticket constant rather than spelling the number twice.
 BLOCKED_XYZ_UNMEASURED = f"XYZ_UNMEASURED_PENDING_{XYZ_SOURCE_TICKET}"
@@ -497,11 +506,40 @@ def record_xyz_from_hud(hud_x: float, hud_y: float) -> tuple[float, float, float
     return (float(hud_x), float(hud_y), island_plane_z())
 
 
-def plan_is_for_scene(scene_id: int) -> bool:
+def scene_guard_reason(scene_id: object) -> str | None:
+    """``None`` when ``scene_id`` is the frame the plan's coordinates are
+    expressed in; otherwise the NAMED reason it is not.
+
+    STRICT ON TYPE, ON PURPOSE (pf-adversary, round `16uvmp`,
+    `ADVERSARY_PENDING` item 3).  The equality check this guard used to be
+    (``scene_id == XYZ_FRAME_SCENE_ID``) silently ACCEPTED ``126.0`` --
+    Python's ``==`` does not care that a float is not the int this frame's
+    id has always been -- while refusing ``"126"`` or ``None`` with no word
+    said about why.  A caller passing a scene id of the wrong TYPE has a bug
+    of a different shape than a caller standing in the wrong scene, and a
+    silent ``False`` reported both identically.  ``bool`` is rejected too:
+    it subclasses ``int`` in Python and ``True == 1`` would otherwise let a
+    stray boolean pass as a scene id.
+
+    Never raises.
+    """
+    if isinstance(scene_id, bool) or not isinstance(scene_id, int):
+        return PLAN_SCENE_REFUSED_NOT_AN_INT
+    if scene_id != XYZ_FRAME_SCENE_ID:
+        return PLAN_SCENE_REFUSED_WRONG_SCENE
+    return None
+
+
+def plan_is_for_scene(scene_id: object) -> bool:
     """Whether a player in ``scene_id`` is in the frame the plan's
     coordinates are expressed in.  A caller that provisions records without
-    asking this is sending a triple into the wrong space."""
-    return scene_id == XYZ_FRAME_SCENE_ID
+    asking this is sending a triple into the wrong space.
+
+    A thin boolean view of `scene_guard_reason` -- kept for every caller
+    that only ever needed yes/no; a caller that also wants to know WHY now
+    has somewhere to ask.
+    """
+    return scene_guard_reason(scene_id) is None
 
 
 def planned_records() -> tuple[PlannedRecord, ...]:

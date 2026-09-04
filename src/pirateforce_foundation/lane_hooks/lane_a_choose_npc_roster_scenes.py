@@ -288,6 +288,20 @@ import sys
 
 from typing import Any, Callable
 
+# A PASS-THROUGH IMPORT, AND THE ONE QUEST/SHOP CODE NAME THIS LANE CANNOT
+# RENAME.  Chief's guard goes recursive over the subpackages by 2026-09-05
+# 03:21 (`pf_bridge/notes_to_chief/20260904_2016`, ADDRESSEE: LANE-A) and
+# its rule is rename-the-symbol.  There is no rename available here: every
+# way of importing a module binds its name as code, and the module is not
+# this lane's to rename.  What this file does with it is read ONE integer
+# (`COLUMBUS_PLACEMENT_INDEX`, in `_scenes_where_columbus_collides`) -- it
+# decides no quest state, exactly like `world_m2_columbus_trigger_
+# readiness.py`, which chief's exemption table already allows for this same
+# name.  Requested as a per-symbol exemption in the same round
+# (`notes_to_chief/20260904_2229_LANE-A-TO-CHIEF-one-line-answer-
+# columbus-quest-dispatch-exemption.md`), and pinned
+# meanwhile by `tests/test_lane_a_modules_are_guard_clean.py` so no SECOND
+# such name can arrive unread behind it.
 from .. import columbus_quest_dispatch
 from .. import lane_hooks
 from .. import world_census_level

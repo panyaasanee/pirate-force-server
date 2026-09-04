@@ -61,7 +61,26 @@ what terms:
        .../FROM_CHIEF_R334_TO_ALL_20260904_0820.md).
 
 So this module's whole job is: the day both of those land, composing and
-encoding the two trial records is not a new guess -- it is these two calls.
+encoding the two trial records is not a new guess -- it is these two
+calls. -- BOTH LANDED (round `t7bsfx`/R342): `msg_id`/`vital_version` are
+`m2_survey_trial.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL` /
+`..._VERSION_TRIAL`, and the call site is `runtime.py`'s
+`m2_survey_trial_scene_attempted` block, which calls `encode_trial_records`
+exactly once per arrival in scene 126 and appends
+`m2_survey_trial_sent_<count>` to `session.events` when it composes
+something -- the one place in this repository that composing a send is
+recorded (pf-adversary, round `m1wqqy`: nobody has traced this event
+through to a confirmed socket write, so it proves a frame was QUEUED, not
+that it left the wire), and
+the source `lane_hooks/lane_a_enter_instance_log.py`'s `sent=` fragment now
+reads from (`ADVERSARY_PENDING` item 1, round `16uvmp`, closed round
+`m1wqqy`).  `encode_trial_records`'s scene guard now has a NAMED reason too
+(`world_m2_survey_plan.scene_guard_reason`; `ADVERSARY_PENDING` item 3,
+same closing round) -- this function still returns the bare `()` its one
+caller expects (chief's `elif trial_state == TRIAL_OPEN` branch reads only
+truthiness), so a CORE-REQUEST is what it takes to have `runtime.py` print
+the reason on its own refusal line instead of the generic `no_records`; see
+this round's letter.
 """
 from __future__ import annotations
 
@@ -162,3 +181,19 @@ def encode_trial_records(
         )
         for record in trial_survey_records()
     )
+
+
+def trial_scene_refusal_reason(player_scene_id: object) -> str | None:
+    """``None`` when ``encode_trial_records(player_scene_id, ...)`` would
+    compose records; otherwise the NAMED reason its scene guard refused
+    (`world_m2_survey_plan.scene_guard_reason`).
+
+    `encode_trial_records` itself still returns the bare `()` its one caller
+    (`runtime.py`) already handles by truthiness -- widening that return
+    shape is chief's call, not this module's, and the CORE-REQUEST for it is
+    this round's letter.  This function exists so a caller who DOES want the
+    reason -- a test, or `runtime.py` after that request lands -- has
+    somewhere to ask instead of re-deriving it from `player_scene_id ==
+    world_m2_survey_plan.XYZ_FRAME_SCENE_ID`.  Never raises.
+    """
+    return plan.scene_guard_reason(player_scene_id)
