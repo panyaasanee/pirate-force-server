@@ -1007,19 +1007,38 @@ class NothingCallsThisYetTests(unittest.TestCase):
         ``read_click``/``leading_click_is_mains_branch``/etc. landing in the
         same file with no test ever noticing.  This reads the real source
         and pins the ONE name it may call from this module today.
+
+        USES ``_click_vitals_names_referenced`` BELOW, NOT A BARE
+        ``ImportFrom`` SCAN (pf-adversary, round 9vec2s: the first draft of
+        this test only matched ``from .world_click_vitals import X``, and a
+        mutation adding a SECOND, differently-shaped reference --
+        ``from . import world_click_vitals as _wcv`` plus
+        ``_wcv.read_click`` -- sat right next to the legitimate import and
+        passed the whole suite, including this test, unnoticed.  This test
+        exists specifically to catch that shape and every other one
+        ``test_the_ast_helper_sees_every_import_shape_including_the_hidden``
+        already proves ``_ast_mentions`` can see.
         """
         source = (
             ROOT / "src" / "pirateforce_foundation" / "vital_walk.py"
         ).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        called_names = set()
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.ImportFrom)
-                and node.module == "world_click_vitals"
-            ):
-                called_names.update(alias.name for alias in node.names)
-        self.assertEqual(called_names, {"body_lengths"})
+        names = _click_vitals_names_referenced(ast.parse(source))
+        self.assertEqual(names, {"body_lengths"})
+
+    def test_the_narrow_scan_itself_catches_the_shape_that_broke_it(self):
+        """Proves the detector above bites, the same discipline
+        ``test_the_ast_helper_sees_every_import_shape_including_the_hidden``
+        applies to ``_ast_mentions`` -- this is that test's sibling for
+        ``_click_vitals_names_referenced``, over the exact mutation
+        pf-adversary used to break the first draft of the test above.
+        """
+        snippet = (
+            "from .world_click_vitals import body_lengths\n"
+            "from . import world_click_vitals as _wcv\n"
+            "_ = _wcv.read_click\n"
+        )
+        names = _click_vitals_names_referenced(ast.parse(snippet))
+        self.assertEqual(names, {"body_lengths", "read_click"})
 
     def test_the_ast_helper_sees_every_import_shape_including_the_hidden(self):
         """Prove the detector bites before relying on it.
@@ -1071,6 +1090,61 @@ def _ast_mentions(tree) -> bool:
         if any("world_click_vitals" in name for name in names):
             return True
     return False
+
+
+def _click_vitals_names_referenced(tree) -> set:
+    """Every name of THIS module's a caller actually reaches, by any shape.
+
+    Companion to ``_ast_mentions`` (a yes/no detector): this collects WHICH
+    names, so a caller's exemption can be pinned narrow instead of blanket.
+    Three shapes, same three ``_ast_mentions`` already proves matter:
+
+    1. ``from .world_click_vitals import X[, Y, ...]`` -- ``X``/``Y`` land
+       directly.
+    2. ``import world_click_vitals [as alias]`` / ``from . import
+       world_click_vitals [as alias]`` -- the BINDING is recorded, and every
+       ``binding.attr`` access anywhere in the tree contributes ``attr``.
+       This is the shape pf-adversary used to slip a second, unreviewed
+       reference past a first draft that only matched shape 1.
+    3. A string constant argument to any call that names this module
+       (``importlib.import_module("...world_click_vitals")``,
+       ``__import__(...)``) -- opaque by construction (the member reached
+       through it cannot be recovered from the AST alone), so it
+       contributes the sentinel ``"<opaque import>"`` rather than being
+       silently invisible.  A caller asserting an exact name set will fail
+       loudly on this sentinel instead of passing by accident.
+    """
+    names: set = set()
+    bindings: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "world_click_vitals":
+            for alias in node.names:
+                names.add(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module is None:
+            for alias in node.names:
+                if alias.name == "world_click_vitals":
+                    bindings.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith("world_click_vitals"):
+                    bindings.add(alias.asname or alias.name.rsplit(".", 1)[-1])
+        elif isinstance(node, ast.Call):
+            for argument in node.args:
+                if (
+                    isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, str)
+                    and "world_click_vitals" in argument.value
+                ):
+                    names.add("<opaque import>")
+    if bindings:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in bindings
+            ):
+                names.add(node.attr)
+    return names
 
 
 if __name__ == "__main__":

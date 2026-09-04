@@ -9,6 +9,7 @@ unchanged by this PR.
 from __future__ import annotations
 
 import sys
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -610,6 +611,54 @@ class CurrentSessionSceneIdTests(unittest.TestCase):
         # session_1's own bookkeeping about a character it no longer owns.
         self.assertEqual(
             lane_hooks.current_session_scene_id(self.CHARACTER_ID), 7,
+        )
+
+    def test_the_lock_actually_serializes_concurrent_registrations(self):
+        # pf-adversary, round 9vec2s SECOND pass: the compare-and-delete in
+        # register_live_session is TWO separate dict operations (a `.get()`
+        # then a `del`), and this project runs one thread per connection --
+        # so a second thread's legitimate registration for the SAME
+        # "previous" character could complete in the gap between this
+        # thread's compare and its delete, and get its fresh entry deleted
+        # by the first thread's now-stale check.  The fix is
+        # `_LIVE_SESSION_LOCK` around the whole sequence.  This proves the
+        # lock is load-bearing rather than decorative: while one thread
+        # holds it mid-registration, a second thread's call to
+        # `register_live_session` must not be able to complete (or even
+        # observe/mutate the table) until the first releases it.
+        OTHER_CHARACTER_ID = self.CHARACTER_ID + 2
+        self.addCleanup(
+            lane_hooks._LIVE_SESSION_BY_CHARACTER.pop,
+            OTHER_CHARACTER_ID, None,
+        )
+        session_2 = _FakeSession(client_confirmed_scene=2)
+        thread_2_done = threading.Event()
+
+        def thread_2_body():
+            lane_hooks.register_live_session(OTHER_CHARACTER_ID, session_2)
+            thread_2_done.set()
+
+        with lane_hooks._LIVE_SESSION_LOCK:
+            thread_2 = threading.Thread(target=thread_2_body)
+            thread_2.start()
+            # Thread 2 must be blocked ON THE LOCK, unable to finish, for as
+            # long as this thread holds it.
+            still_blocked = not thread_2_done.wait(timeout=0.2)
+            self.assertTrue(
+                still_blocked,
+                "a second thread's register_live_session completed while "
+                "this thread still held _LIVE_SESSION_LOCK -- the lock is "
+                "not actually guarding the sequence",
+            )
+            self.assertNotIn(
+                OTHER_CHARACTER_ID, lane_hooks._LIVE_SESSION_BY_CHARACTER,
+            )
+
+        # Released: thread 2 must now complete promptly.
+        self.assertTrue(thread_2_done.wait(timeout=5))
+        thread_2.join(timeout=5)
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(OTHER_CHARACTER_ID), 2,
         )
 
 

@@ -117,6 +117,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 import sys
+import threading
 import weakref
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
@@ -954,6 +955,23 @@ def current_login_attr_bytes(character_id) -> dict:
 _LIVE_SESSION_BY_CHARACTER: "weakref.WeakValueDictionary[int, Any]" = (
     weakref.WeakValueDictionary()
 )
+#: Guards the compound check-then-evict-then-register sequence below.
+#: LOAD-BEARING, not belt-and-braces (pf-adversary, round 9vec2s, second
+#: pass): this project runs one thread per connection (``connection.py``,
+#: ``shutdown.py``'s ``ManagedThread``), so two ``register_live_session``
+#: calls for two different characters ARE genuinely concurrent.  The
+#: eviction's own compare-and-delete -- ``.get(previous) is session`` then
+#: ``del`` -- is two separate dict operations with a real gap between them;
+#: without a lock around the whole sequence, a second thread's legitimate
+#: ``register_live_session(previous, session_2)`` for the SAME previous id
+#: (that character reconnecting for real, elsewhere) can complete between
+#: this thread's compare and its delete, and the delete then removes
+#: ``session_2``'s fresh, correct entry instead of the stale one it was
+#: written to protect -- reproduced under a forced interleaving in review.
+#: A plain dict get/set/del is atomic on its own (the GIL), but this
+#: sequence is three of them read-modify-write across one call, which is
+#: exactly the shape the GIL does not protect.
+_LIVE_SESSION_LOCK = threading.Lock()
 
 
 def register_live_session(character_id: int, session: object) -> None:
@@ -988,21 +1006,28 @@ def register_live_session(character_id: int, session: object) -> None:
     elsewhere) must not be evicted by this connection's own reselect -- that
     would be this same bug in reverse, deleting a live answer instead of a
     stale one.
+
+    THE WHOLE SEQUENCE RUNS UNDER ``_LIVE_SESSION_LOCK`` (pf-adversary,
+    round 9vec2s, second pass): see that lock's own comment for the race
+    this closes -- the compare-and-delete above is exactly the kind of
+    check-then-act pair that is unsafe across the connection threads this
+    project actually runs one of per socket.
     """
     character_id = int(character_id)
-    previous = getattr(session, "_lane_hooks_registered_character_id", None)
-    if previous is not None and previous != character_id:
-        if _LIVE_SESSION_BY_CHARACTER.get(previous) is session:
-            del _LIVE_SESSION_BY_CHARACTER[previous]
-    try:
-        session._lane_hooks_registered_character_id = character_id
-    except Exception:  # noqa: BLE001 - a session that refuses the write
-        # (an exotic stub in some other lane's test, e.g.) still gets
-        # registered under the new id below; it just loses this eviction
-        # bookkeeping for ITS next call, which only matters for a session
-        # this attribute-hostile in the first place.
-        pass
-    _LIVE_SESSION_BY_CHARACTER[character_id] = session
+    with _LIVE_SESSION_LOCK:
+        previous = getattr(session, "_lane_hooks_registered_character_id", None)
+        if previous is not None and previous != character_id:
+            if _LIVE_SESSION_BY_CHARACTER.get(previous) is session:
+                del _LIVE_SESSION_BY_CHARACTER[previous]
+        try:
+            session._lane_hooks_registered_character_id = character_id
+        except Exception:  # noqa: BLE001 - a session that refuses the write
+            # (an exotic stub in some other lane's test, e.g.) still gets
+            # registered under the new id below; it just loses this eviction
+            # bookkeeping for ITS next call, which only matters for a
+            # session this attribute-hostile in the first place.
+            pass
+        _LIVE_SESSION_BY_CHARACTER[character_id] = session
 
 
 class NoConfirmedScene(LookupError):
