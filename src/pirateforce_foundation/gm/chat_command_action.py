@@ -363,10 +363,7 @@ from .warp_target_record import (
     current_character_id,
     record_warp_target,
 )
-from .warp_scene_persist import (
-    OUTCOME_PERSISTED as WARP_SCENE_PERSISTED,
-    persist_warp_scene,
-)
+from .warp_scene_persist import persist_warp_scene
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -3043,17 +3040,27 @@ def _persist_warp_scene(session: object, target: object) -> str:
     measured the gap it closes -- warp, close the client without walking, and
     the next login came back to the scene the character had LEFT.
 
-    CALLED FROM THE TWO TELEPORT BRANCHES ONLY, never from the same-scene
-    ForcePos branch, and the difference is not tidiness.  A TeleportVital is
-    measured to move a real client's screen (`GT-106-R2`); RE-129 measured the
-    client's ForcePos handler as `mov al,1; ret 4`, i.e. it ignores the frame
-    entirely.  Persisting on the ForcePos branch would move the row to a point
-    the client is known NOT to have gone to -- the exact
+    CALLED FROM ONE BRANCH ONLY -- the no-coordinate TeleportVital, which is
+    the send point `COO 1452` named (`LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_
+    TELEPORT_VITAL`, the `/warp 2` the owner measured in R309).  ~~from the two
+    teleport branches~~ -- struck in the same round; see
+    `_warp_teleport_action`'s own block for what the second one cost.
+
+    NEVER FROM THE FORCEPOS BRANCH, and the difference is not tidiness.  A
+    TeleportVital is measured to move a real client's screen (`GT-106-R2`);
+    RE-129 measured the client's ForcePos handler as `mov al,1; ret 4`, i.e.
+    it ignores the frame entirely.  Persisting there would move the row to a
+    point the client is known NOT to have gone to -- the exact
     row-disagrees-with-screen state `1430` is complaining about, inverted.
 
-    Called AFTER the frame exists and after `_park_warp_target`, for that
-    function's own stated reason: a refusal leaves no bytes on the wire and
-    must leave no durable change either.
+    Called AFTER the frame exists.  IT IS NOT CONDITIONAL ON
+    `_park_warp_target`, and that is stated rather than implied: pf-adversary
+    read the first draft's comment as a claim that it was.  A failed park
+    costs the CONFIRMATION MACHINERY (nothing downstream can compare the
+    client's next report against this destination); it is not evidence the
+    frame was refused, and a warp whose frame exists still has a destination
+    the row should name.  A refusal is a different thing entirely and returns
+    long before this line.
 
     The outcome word is returned as well as noted so a caller that wants to
     branch on it can, and so the pinning tests do not have to read
@@ -3121,14 +3128,28 @@ def _warp_teleport_action(
 
     if not _park_warp_target(session, target):
         _note(session, EVENT_WARP_TARGET_NOT_RECORDED)
-    # `1430` applies to this shape too, even though `COO 1452` item 4 says
-    # `/warp <n> <x> <y>` itself is still closed by `1744` item 3: the branch
-    # is live in code (`WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED` is True) and
-    # sends the same live TeleportVital, so leaving it out would rebuild the
-    # gap the day that command reopens, silently.  Its known F-2 caveat (a
-    # coordinate-carrying warp carries the OLD scene's z) is carried into the
-    # row on purpose: the row's job is to say what the client was told.
-    _persist_warp_scene(session, target)
+    # NO DURABLE WRITE ON THIS SHAPE.  ~~`_persist_warp_scene(session, target)`
+    # -- `1430` applies to this shape too, even though `COO 1452` item 4 says
+    # `/warp <n> <x> <y>` is still closed by `1744` item 3: the branch is live
+    # in code, so leaving it out would rebuild the gap the day it reopens.~~
+    # STRUCK IN THE ROUND THAT WROTE IT (`q3cde9`), not deleted, because a
+    # reader of `#745` needs to see why it stopped being the reasoning.
+    # pf-adversary measured what it cost, end to end through the real router
+    # and the real store: `/warp 126 <x> <y>` wrote `scene_id=126` with the GM's
+    # typed x/y and the DEPARTURE scene's z, scene 126 is pinned
+    # `login_entry_allowed=False`, and the next login was refused
+    # `scene_not_allowed_at_login` -- with only a login able to rewrite the row.
+    # R306 also measured this shape making the client close itself, so no
+    # TargetPos ever arrives to correct it.  Before this round the row was
+    # untouched and the character survived; the "improvement" took that away,
+    # which CHARTER-02 rule 2 forbids outright.
+    #
+    # And the premise was simply wrong: `1744` item 3's closure was implemented
+    # on the ForcePos route only (see `EVENT_WARP_WITHHELD_FORCE_POS_CLOSED`'s
+    # own comment, "the SAME-SCENE ForcePos shape is shut by POLICY").  This
+    # cross-scene-with-coordinates route has no closure at all, so it is not
+    # dormant code -- it is a live command, and `COO 1452` item 4 said do not
+    # touch it.  Persisting here needs COO's own ruling, not this lane's.
 
     return _Verdict(
         (WARP_CROSS_SCENE_TELEPORT_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED
