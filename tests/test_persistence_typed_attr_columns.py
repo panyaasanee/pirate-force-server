@@ -64,6 +64,7 @@ import pf_birth_state as birth_state  # noqa: E402
 
 from pirateforce_foundation import persistence_attr_compose as compose  # noqa: E402
 from pirateforce_foundation import persistence_typed_attrs as typed  # noqa: E402
+from pirateforce_foundation import persistence_vitals as vitals  # noqa: E402
 from pirateforce_foundation.gm.attr_wire import BY_X  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
@@ -2292,6 +2293,112 @@ class ReadTypedAttributesPreMigration006Tests(unittest.TestCase):
         )
         self.assertEqual(result_and_name, result)
         self.assertEqual(name, "Normal")
+
+
+class WriteTypedAttributesPreMigration006Tests(unittest.TestCase):
+    """`write_typed_attributes` / `write_typed_attribute_if_unset` against a
+    database that never ran migration 006 -- the same crash class
+    `ReadTypedAttributesPreMigration006Tests` above guards the read side
+    against, confirmed live by a `pf-adversary` pass THIS round via
+    `ALTER TABLE ... DROP COLUMN` against these exact two methods: before
+    this guard, the `UPDATE` in `write_typed_attributes` and the `UPDATE` in
+    `write_typed_attribute_if_unset` both raised a raw
+    `sqlite3.OperationalError: no such column: ...`, with no column named.
+
+    Unlike the read side, a write cannot silently narrow its projection and
+    drop the requested column -- writing nothing while reporting success
+    would be exactly the kind of unannounced loss `COO-DECISION 20260901_
+    1059` forbids -- so the fix here is not "omit the missing column" but
+    "fail loudly, with the column named": both methods now call the SAME
+    `persistence_vitals.verify_schema` every other vitals-writing method in
+    `store.py` already calls right after `BEGIN IMMEDIATE`, and a missing
+    column raises `persistence_vitals.SchemaDriftError` instead of the raw
+    `sqlite3.OperationalError`.
+
+    Confirmed unreachable in production today (the one boot path that skips
+    migration installs a read-only session with no write path, and the one
+    unconditional writer call on that path only iterates ids that are
+    already empty on such a database) -- this is a preventive guard for any
+    OTHER caller, present or future, not a second live incident report.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("pre-006-typed-write")
+        self.character = self.store.create_character(
+            self.account_id, "PreMigrationWrite", "premigrationwrite",
+            "fingerprint-pre-006-write", _build_wire, self.home,
+        )
+        # Drop a column that is NOT the one about to be written, to prove
+        # the guard checks the whole schema (matching every other vitals-
+        # writing method's `verify_schema` call), not just the requested
+        # column -- and a second column, to match
+        # `ReadTypedAttributesPreMigration006Tests` in not scoping the drop
+        # to one column.
+        with self.store.connect() as db:
+            db.execute("ALTER TABLE characters DROP COLUMN class_id")
+            db.execute("ALTER TABLE characters DROP COLUMN experience")
+
+    def test_write_typed_attributes_raises_schema_drift_not_a_crash(self):
+        with self.assertRaises(vitals.SchemaDriftError) as caught:
+            self.store.write_typed_attributes(self.character.id, {"level": 5})
+        self.assertIn("class_id", str(caught.exception))
+
+    def test_write_typed_attributes_targeting_the_missing_column_itself(self):
+        with self.assertRaises(vitals.SchemaDriftError):
+            self.store.write_typed_attributes(
+                self.character.id, {"class_id": 2},
+            )
+
+    def test_write_typed_attribute_if_unset_raises_schema_drift_not_a_crash(self):
+        with self.assertRaises(vitals.SchemaDriftError) as caught:
+            self.store.write_typed_attribute_if_unset(
+                self.character.id, "level", 5,
+            )
+        self.assertIn("class_id", str(caught.exception))
+
+    def test_write_typed_attribute_if_unset_targeting_the_missing_column(self):
+        with self.assertRaises(vitals.SchemaDriftError):
+            self.store.write_typed_attribute_if_unset(
+                self.character.id, "class_id", 2,
+            )
+
+    def test_nothing_is_written_when_schema_drift_is_raised(self):
+        # A refused write must not leave a partial row behind.  `BEGIN
+        # IMMEDIATE` plus a guard that raises before any `UPDATE` runs
+        # already guarantees this; confirm the target column is still NULL
+        # rather than trusting the transaction boundary alone. `mp_current`
+        # (unlike `level`/`hp_current`/`hp_max`/`speed_walk`) gets no birth
+        # default from migration 009, so NULL here can only mean "never
+        # written".
+        with self.assertRaises(vitals.SchemaDriftError):
+            self.store.write_typed_attributes(
+                self.character.id, {"mp_current": 5},
+            )
+        result = self.store.read_typed_attributes(self.character.id)
+        self.assertNotIn("mp_current", result)
+
+    def test_an_already_migrated_database_still_writes_normally(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = SQLiteStore(Path(tmp.name) / "state.sqlite3", MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("fully-migrated-006-write")
+        normal = store.create_character(
+            account_id, "NormalWrite", "normalwrite",
+            "fingerprint-normal-006-write", _build_wire, self.home,
+        )
+        after = store.write_typed_attributes(normal.id, {"class_id": 4})
+        self.assertEqual(after["class_id"], 4)
+        written = store.write_typed_attribute_if_unset(
+            normal.id, "experience", 10,
+        )
+        self.assertEqual(written, 10)
 
 
 if __name__ == "__main__":  # pragma: no cover
