@@ -905,6 +905,377 @@ class TheBranchesThatCallItTests(unittest.TestCase):
         )
 
 
+def _raises(error):
+    """A `load_scene_registry` stand-in that makes reading the FILE impossible."""
+    def explode(*_args, **_kwargs):
+        raise error
+    return explode
+
+
+def _install_quietly(registry):
+    """Install a boot registry without its console line reaching the log.
+
+    Used by every case whose subject is NOT the console: the gate prints this
+    file's output for a human to read, and a boot token repeated once per
+    test would train that reader to skip the lines that matter.
+    """
+    with redirect_stderr(io.StringIO()):
+        return warp_scene_persist.use_boot_scene_registry(registry)
+
+
+class TheBootRegistryDoorTests(unittest.TestCase):
+    """`CORE-REQUEST-GM-056`, accepted by chief 2026-09-05T00:45+07:00.
+
+    Layer one of two.  This half proves the DOOR: what
+    `use_boot_scene_registry` accepts, what it refuses, and that an accepted
+    registry takes the disk read out of the process entirely.
+    `TheBootRegistryDecidesTheWarpTests` below is the other half, and drives
+    the same object through the real `persist_warp_scene` against a real
+    database.
+
+    Not proven here, and deliberately: that `runtime.py` CALLS this.  Chief
+    owns that line and adds it next round (the acceptance letter names
+    `runtime.py:706`), and the runtime-level wiring test in the shape of
+    `test_gm_login_scene_registry_wiring_in_runtime.py` belongs to the round
+    that line lands in -- writing it now would be a red test asserting a
+    wire nobody has made.
+    """
+
+    def setUp(self):
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    def _bent(self, **changes_by_scene):
+        """The shipped registry with named scenes replaced field-by-field."""
+        real = world_scene_travel.load_scene_registry()
+        changes = {int(k.lstrip("s")): v for k, v in changes_by_scene.items()}
+        return replace(
+            real,
+            destinations=tuple(
+                replace(target, **changes[target.n_id])
+                if target.n_id in changes else target
+                for target in real.destinations
+            ),
+        )
+
+    # ---- accepted -----------------------------------------------------
+
+    def test_an_accepted_registry_answers_every_later_warp_with_no_disk_read(self):
+        """The headline: after the install, the FILE is out of the picture.
+
+        `load_scene_registry` is made to explode for the rest of the test, so
+        a green assertion is `login_would_accept` answering correctly while
+        the only way to read the registry file was an exception.
+        """
+        registry = world_scene_travel.load_scene_registry()
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED,
+            _install_quietly(registry),
+        )
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            _raises(AssertionError("the module went back to the disk")),
+        ):
+            for _ in range(5):
+                self.assertTrue(
+                    warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+                )
+
+    def test_the_installed_object_itself_is_what_answers(self):
+        """Not "a registry that agrees with the file" -- THIS object.
+
+        The mutation kill for installing the argument and then reading the
+        disk anyway: the bent row says scene 2 refuses logins, the file on
+        disk says it allows them, and the answer has to follow the argument.
+        """
+        bent = self._bent(s2={"login_entry_allowed": False})
+        _install_quietly(bent)
+        self.assertFalse(
+            warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+        )
+        # and the file it did not read still says the opposite
+        self.assertTrue(
+            world_scene_travel.load_scene_registry()[
+                DESTINATION_SCENE
+            ].login_entry_allowed
+        )
+
+    def test_the_source_word_says_boot_and_the_console_line_says_none_replaced(self):
+        registry = world_scene_travel.load_scene_registry()
+        self.assertIsNone(warp_scene_persist.login_registry_source())
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_scene_persist.use_boot_scene_registry(registry)
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_BOOT,
+            warp_scene_persist.login_registry_source(),
+        )
+        line = stream.getvalue()
+        self.assertIn(warp_scene_persist.BOOT_REGISTRY_CONSOLE_TOKEN, line)
+        self.assertIn(f"scenes={len(registry.destinations)}", line)
+        self.assertIn("replaced=none", line)
+
+    def test_installing_after_a_self_read_says_so_on_the_console(self):
+        """A wiring-order defect a tester can see.
+
+        Chief's call site runs before any connection exists, so `self_read`
+        here means this process already answered a warp from its own read of
+        the file before the runtime handed over its object.  The install is
+        still correct and still happens; what changes is that the boot log
+        stops looking clean.
+        """
+        warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_SELF_READ,
+            warp_scene_persist.login_registry_source(),
+        )
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.use_boot_scene_registry(
+                world_scene_travel.load_scene_registry()
+            )
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED, outcome
+        )
+        self.assertIn("replaced=self_read", stream.getvalue())
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_BOOT,
+            warp_scene_persist.login_registry_source(),
+        )
+
+    # ---- refused, and today's behaviour kept ---------------------------
+
+    def test_a_falsy_stand_in_is_refused_rather_than_silently_discarded(self):
+        """The reason this door checks the TYPE.
+
+        `world_scene_travel.destination` opens with
+        `(registry or load_scene_registry())`, so a falsy object installs
+        fine and is then thrown away on every single call -- restoring the
+        per-call disk read while the console line claims it was removed.
+        Every falsy shape a caller could plausibly pass is refused here.
+        """
+        for falsy in ({}, [], (), 0, "", None, False):
+            with self.subTest(falsy=repr(falsy)):
+                warp_scene_persist.reset_login_registry_snapshot_for_tests()
+                self.assertEqual(
+                    warp_scene_persist
+                    .OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY,
+                    _install_quietly(falsy),
+                )
+                self.assertIsNone(warp_scene_persist.login_registry_source())
+
+    def test_a_truthy_wrong_object_is_refused_too(self):
+        class LooksNothingLikeARegistry:
+            destinations = ()
+
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.use_boot_scene_registry(
+                LooksNothingLikeARegistry()
+            )
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY,
+            outcome,
+        )
+        self.assertIn(
+            warp_scene_persist.BOOT_REGISTRY_REFUSED_CONSOLE_TOKEN,
+            stream.getvalue(),
+        )
+
+    def test_a_registry_with_no_home_row_is_refused_by_the_probe(self):
+        """Right type, contents that would lose every warp in silence.
+
+        Without the probe this installs, `destination` raises for every
+        lookup, `login_would_accept` fails closed for the whole registry, and
+        the only symptom is that `/warp` stops writing rows with a word that
+        blames scene policy.
+        """
+        real = world_scene_travel.load_scene_registry()
+        homeless = replace(
+            real,
+            destinations=tuple(
+                target for target in real.destinations
+                if target.n_id != world_scene_travel.HOME_SCENE_ID
+            ),
+        )
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.use_boot_scene_registry(homeless)
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX
+            + "KeyError",
+            outcome,
+        )
+        self.assertIn(
+            warp_scene_persist.BOOT_REGISTRY_REFUSED_CONSOLE_TOKEN,
+            stream.getvalue(),
+        )
+        # The probe's exception MESSAGE never reaches the console: it carries
+        # a scene id, and console lines are not the place for it.
+        self.assertNotIn("is not pinned in the registry", stream.getvalue())
+
+    def test_a_refusal_leaves_the_shipped_behaviour_exactly_as_it_was(self):
+        """Degrade to today, never to a server that refuses every warp."""
+        _install_quietly(object())
+        self.assertTrue(
+            warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+        )
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_SELF_READ,
+            warp_scene_persist.login_registry_source(),
+        )
+
+    def test_it_never_raises_for_anything_a_boot_could_hand_it(self):
+        """It runs in chief's boot factory: a raise costs the server."""
+        for argument in (None, object(), 3, "registry", b"", [1, 2], {"a": 1}):
+            with self.subTest(argument=repr(argument)):
+                warp_scene_persist.reset_login_registry_snapshot_for_tests()
+                with contextlib.redirect_stderr(io.StringIO()):
+                    outcome = warp_scene_persist.use_boot_scene_registry(
+                        argument
+                    )
+                self.assertIsInstance(outcome, str)
+                self.assertNotEqual(
+                    warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED,
+                    outcome,
+                )
+
+    def test_the_whole_call_judges_from_one_registry_not_two(self):
+        """The split this door would otherwise reintroduce one helper down.
+
+        `_registry_forbids_persist` picks WHICH true word `persist_warp_scene`
+        reports when a read-back shows the row did not move, and it used to
+        ask `is_position_persist_allowed` with no registry -- which re-reads
+        the FILE.  So one call could judge `login_would_accept` against the
+        runtime's boot object and this question against a fresh disk read.
+        With the file unreadable, an answer at all is the proof it came from
+        the installed object; the pre-change code fails closed to False here.
+        """
+        bent = self._bent(s2={"persist_position_allowed": False})
+        _install_quietly(bent)
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            _raises(OSError("the file is gone")),
+        ):
+            self.assertTrue(
+                warp_scene_persist._registry_forbids_persist(DESTINATION_SCENE)
+            )
+            # and a scene the same object leaves alone still answers "no"
+            self.assertFalse(
+                warp_scene_persist._registry_forbids_persist(
+                    world_scene_travel.HOME_SCENE_ID
+                )
+            )
+
+    def test_a_registry_whose_rows_have_no_length_still_installs(self):
+        """`SceneRegistry` is a bare dataclass: `destinations` is whatever a
+        caller passed.  The home probe proves that thing is ITERABLE, not
+        that it is `Sized` -- and the console count is a decoration while the
+        install is the deliverable, so a `len()` that raises must not become
+        the exception this function promises never to throw.
+        """
+        real = world_scene_travel.load_scene_registry()
+
+        class IterableWithNoLength:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def __iter__(self):
+                return iter(self._rows)
+
+        registry = replace(
+            real, destinations=IterableWithNoLength(real.destinations),
+        )
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.use_boot_scene_registry(registry)
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED, outcome
+        )
+        self.assertIn("scenes=unknown", stream.getvalue())
+        self.assertTrue(
+            warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+        )
+
+    def test_a_closed_console_does_not_undo_an_install_that_is_correct(self):
+        registry = world_scene_travel.load_scene_registry()
+        with mock.patch.object(warp_scene_persist.sys, "stderr", None):
+            outcome = warp_scene_persist.use_boot_scene_registry(registry)
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED, outcome
+        )
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_BOOT,
+            warp_scene_persist.login_registry_source(),
+        )
+
+
+class TheBootRegistryDecidesTheWarpTests(RealDatabaseTests):
+    """Layer two: the same object, through the real door, on a real database.
+
+    The door tests above grade `login_would_accept`.  This one grades what a
+    tester would actually lose -- the durable row -- and it grades it with
+    the registry FILE unreadable, so nothing here can be answered by a
+    fallback disk read.  Same proof shape as
+    `test_gm_login_scene_registry_wiring_in_runtime.py`'s read paths, at the
+    module door instead of at `runtime.py`, because the `runtime.py` line is
+    chief's to add.
+    """
+
+    def setUp(self):
+        super().setUp()
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    def test_the_row_moves_on_a_registry_the_file_can_no_longer_be_read_for(self):
+        session = self._session("bootreg01")
+        target = _target(DESTINATION_SCENE)
+        _install_quietly(world_scene_travel.load_scene_registry())
+        self.assertEqual(1, self._row(session).scene_id)
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            _raises(OSError("the file is gone")),
+        ):
+            with redirect_stderr(io.StringIO()):
+                outcome = warp_scene_persist.persist_warp_scene(session, target)
+        self.assertEqual(warp_scene_persist.OUTCOME_PERSISTED, outcome)
+        self.assertEqual(DESTINATION_SCENE, self._row(session).scene_id)
+
+    def test_a_boot_registry_that_shuts_the_scene_keeps_the_row_where_it_was(self):
+        """The direction that matters: the install can REFUSE a write the
+        file on disk would have allowed.
+
+        This is the disagreement `vlk8rq` finding 3 measured, now resolved in
+        favour of the object the login path holds.  Without the install the
+        module reads the file, sees scene 2 login-allowed, and moves the row
+        into a scene this boot's login would refuse -- the bricking shape.
+        """
+        session = self._session("bootreg02")
+        target = _target(DESTINATION_SCENE)
+        shut = replace(
+            world_scene_travel.load_scene_registry(),
+            destinations=tuple(
+                replace(t, login_entry_allowed=False)
+                if t.n_id == DESTINATION_SCENE else t
+                for t in world_scene_travel.load_scene_registry().destinations
+            ),
+        )
+        _install_quietly(shut)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(session, target)
+        self.assertEqual(warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE, outcome)
+        self.assertEqual(1, self._row(session).scene_id)
+        self.assertIn(warp_scene_persist.FAIL_CONSOLE_TOKEN, stream.getvalue())
+
+
 def _target(scene_id, *, x=None, y=0.0, z=0.0):
     """A `WarpTarget` carrying the scene's own pinned spawn unless told otherwise."""
     if x is not None:
