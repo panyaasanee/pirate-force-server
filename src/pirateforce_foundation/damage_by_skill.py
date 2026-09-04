@@ -97,6 +97,23 @@ formula constants, matching `mob_combat.py`'s own existing costing comment
 for this defender.  This does not change "zero production callers" above:
 the pin proves what this gate WOULD return the day a caller exists, it is
 not itself a caller.
+
+[UPDATE, round `plg1ne`, per RE-240 RESULT (`pf_bridge/notes_to_chief/
+20260904_1714_RE-240-RESULT-HOTBAR-DISPATCH-EXITS-NO-PRODUCER.md`), which
+answers the CORE-REQUEST above]: chief's letter `20260904_1405` closed
+CORE-REQUEST `1041` by naming none of the five fields and opening `RE-240`
+in its place.  RE-240 came back DONE/BOUNDED-NEGATIVE: the hotbar/skillbar
+key dispatcher (`0x450B20`) that the ticket walked for every named
+`TOOLBAR*`/`SKILLBAR*` hotkey exits at its epilogue `0x4518F3` before any
+frame is built at all -- no call, no producer, no
+`ActionVital`/`TriggerCastSkillVital` field write on that route.  So the
+skill id is not merely unidentified among the five fields named above; the
+route that would have produced the frame carrying it was never reached to
+begin with.  The result letter's own next step is an attended capture
+(press skill 99 from the hotbar, and separately the WIELD `Z` control, in
+the same session, then diff the two decoded frames byte for byte) --
+cloud-static work on this question is exhausted until that capture exists.
+"Zero production callers" above is unchanged.
 """
 from __future__ import annotations
 
