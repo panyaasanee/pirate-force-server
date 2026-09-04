@@ -6370,7 +6370,53 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             )
             return actions
 
+        def _say_dispatch_nested_vitals(self, parsed) -> None:
+            """One log-only console line per frame: what parse_outer COULD see.
+
+            [COO-DECISION 20260904_0848 item 4, LANE-A D13 / chief 0910]:
+            ``current/pf_login_game_server_v141.py:parse_outer`` (frozen, never
+            edited here) decodes only the FIRST nested vital in a frame -- its
+            own comment says why: "with more than one, boundaries require each
+            vital's serializer schema", which nothing generic here has. A
+            frame with ``vital_count >= 2`` therefore has nested vitals this
+            dispatcher cannot identify or reach AT ALL, and that failure is
+            silent: no exception, no refusal event, nothing an attended round
+            would notice on its own. Measured concretely on
+            ``NavigationEx_EnterInstanceVital`` (RE-227): R307's own capture
+            recorded ``vital_count = 2`` for the frame family GT-228 is about
+            to boot against, and every hook written so far (LANE-A's walker
+            included) can only ever fire for a frame where that vital is
+            FIRST.
+
+            This does not decode anything new and sends no byte anywhere --
+            it prints exactly what ``parsed`` already carries: the declared
+            count, and the first (only) nested id parse_outer resolved, or
+            ``none`` when the outer mask carries no VitalData collection at
+            all (``outer_mask & 0x02 == 0``) or an empty one
+            (``vital_count == 0``). An attended tester can then read
+            ``vital_count`` off the console DURING the session and know, live,
+            whether a frame that mattered arrived with company parse_outer
+            never showed anyone -- instead of only finding out afterwards,
+            from a capture nobody was told to take.
+            """
+            count = getattr(parsed, "vital_count", None)
+            first_id = getattr(parsed, "nested_id", None)
+            first_id_text = "none" if first_id is None else f"0x{first_id:04X}"
+            try:
+                print(
+                    "DISPATCH_NESTED_VITALS vital_count=%s first_nested_id=%s "
+                    "(parse_outer decodes the first nested vital only; "
+                    "ids of any later ones in this frame are NOT visible here)"
+                    % (count, first_id_text),
+                    file=sys.stderr,
+                )
+            except Exception:                        # noqa: BLE001
+                # A lost console line is never a lost session -- same rule,
+                # same reason, as _vital_walk_say a few hundred lines below.
+                pass
+
         def dispatch(self, parsed):
+            self._say_dispatch_nested_vitals(parsed)
             # COO-DECISION 2026-09-03T19:43+07:00 item 1.  FIRST, before any
             # lane composes a verdict on this frame: if the session is
             # standing in a different scene's folder than the ledger and the
