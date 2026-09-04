@@ -274,5 +274,119 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         self.assertEqual(hooklog.decode_opaque(bytes(memoryview(body))), 0x42)
 
 
+class TheArrivalFragment(unittest.TestCase):
+    """`arrival_plan=` -- the second annotation, and the reason it has its own
+    guard rather than sharing the plan's.
+
+    Imported at class scope, not relied on to be in `sys.modules` because an
+    earlier test happened to run first: pf-adversary measured this class
+    erroring with `KeyError` when run on its own or under a test-order
+    randomiser.
+    """
+
+    def setUp(self):
+        from pirateforce_foundation import world_m2_arrival  # noqa: F401
+
+    def test_a_decoded_line_carries_the_arrival_pair(self):
+        line = hooklog.console_line(_body(0x1234))
+        self.assertIn("arrival_plan=2/2", line)
+        # Beside the plan's pair, not instead of it: the two halves of M2
+        # have to be readable apart on one line.
+        self.assertIn("issued=no provisioned=0", line)
+
+    def test_it_tracks_the_arrival_module_rather_than_being_a_constant(self):
+        import types
+
+        name = "pirateforce_foundation.world_m2_arrival"
+        stub = types.ModuleType(name)
+        stub.console_annotation = lambda _registry=None: "arrival_plan=1/2"
+        import pirateforce_foundation as package
+
+        saved_module = sys.modules[name]
+        saved_attr = package.world_m2_arrival
+        try:
+            sys.modules[name] = stub
+            package.world_m2_arrival = stub
+            line = hooklog.console_line(_body(0x1234))
+        finally:
+            sys.modules[name] = saved_module
+            package.world_m2_arrival = saved_attr
+        self.assertIn("arrival_plan=1/2", line)
+
+    def test_a_broken_arrival_module_costs_its_own_fragment_only(self):
+        # The whole reason the guard is separate: an arrival module that
+        # cannot be imported must not take `issued=`/`provisioned=` -- which
+        # answers a different question off different data -- down with it.
+        import pirateforce_foundation as package
+
+        name = "pirateforce_foundation.world_m2_arrival"
+        saved_module = sys.modules[name]
+        saved_attr = package.world_m2_arrival
+        try:
+            del package.world_m2_arrival
+            sys.modules[name] = None
+            line = hooklog.console_line(_body(0x1234))
+        finally:
+            sys.modules[name] = saved_module
+            package.world_m2_arrival = saved_attr
+        self.assertIn("arrival_plan=err", line)
+        self.assertIn("issued=no provisioned=0", line)
+        self.assertIn("opaque=0x1234", line)
+        self.assertIn("no_responder bytes_out=0", line)
+
+    def test_the_fragment_names_nothing_the_client_sent(self):
+        # Same RE-227 nonclaim 3 guard the raw-value test applies, restated
+        # for the fragment added this round.
+        line = hooklog.console_line(_body(154))
+        self.assertNotIn("island", line.lower())
+        self.assertNotIn("scene", line.lower())
+        self.assertNotIn("trigger", line.lower())
+        line.encode("ascii")
+
+    def test_an_unparsed_line_still_carries_no_annotation_at_all(self):
+        line = hooklog.console_line(b"\xff\xee\xdd")
+        self.assertNotIn("arrival_plan=", line)
+
+    def test_the_independence_is_conditional_and_both_cases_are_pinned(self):
+        # pf-adversary asked the right question and the answer has two
+        # halves, so both are measured here rather than asserted in prose.
+        # `world_m2_arrival` imports `world_m2_survey_plan` AT MODULE SCOPE:
+        #   * once both are loaded, breaking the plan costs only its own
+        #     fragment -- the arrival module already holds its reference;
+        #   * on a COLD boot, where the arrival module has not been imported
+        #     yet, an unimportable plan takes the arrival import down with it
+        #     and BOTH fragments read err.  That is the case a real server
+        #     meets, and the one the docstring's "learns something a single
+        #     err would have hidden" must not be read as excluding.
+        # In every case the opaque value and the bytes_out marker survive,
+        # which is the property both guards exist for.
+        import pirateforce_foundation as package
+
+        plan_name = "pirateforce_foundation.world_m2_survey_plan"
+        arrival_name = "pirateforce_foundation.world_m2_arrival"
+        saved = {
+            name: (sys.modules[name], getattr(package, name.split(".")[-1]))
+            for name in (plan_name, arrival_name)
+        }
+        try:
+            sys.modules[plan_name] = None
+            del package.world_m2_survey_plan
+            warm = hooklog.console_line(_body(0x1234))
+            sys.modules[arrival_name] = None
+            del package.world_m2_arrival
+            cold = hooklog.console_line(_body(0x1234))
+        finally:
+            for name, (module, attr) in saved.items():
+                sys.modules[name] = module
+                setattr(package, name.split(".")[-1], attr)
+        self.assertIn("issued=err provisioned=err", warm)
+        self.assertIn("arrival_plan=2/2", warm)
+        self.assertIn("issued=err provisioned=err", cold)
+        self.assertIn("arrival_plan=err", cold)
+        for line in (warm, cold):
+            self.assertIn("opaque=0x1234", line)
+            self.assertIn("no_responder bytes_out=0", line)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -146,6 +146,7 @@ def console_line(payload: bytes) -> str:
     # grader a captain report popped WITHOUT a record from this server.
     return (
         f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
+        f" {_arrival_annotation()}"
         " no_responder bytes_out=0"
     )
 
@@ -170,6 +171,41 @@ def _annotation(opaque: int) -> str:
         return plan.console_annotation(opaque)
     except Exception:
         return "issued=err provisioned=err"
+
+
+def _arrival_annotation() -> str:
+    """`world_m2_arrival.console_annotation`, behind a guard of its OWN.
+
+    Deliberately not folded into `_annotation` above: the two answer
+    different questions off different data (the plan needs measured island
+    XYZ, the arrival half needs the scene registry), and one of them failing
+    must not cost the other's fragment.  A reader who sees `issued=no
+    provisioned=0 arrival_plan=err` learns something a single `err` would
+    have hidden.
+
+    THE INDEPENDENCE IS CONDITIONAL, AND BOTH CASES ARE PINNED BY TESTS
+    rather than left to this paragraph.  `world_m2_arrival` imports
+    `world_m2_survey_plan` at module scope, so: once both are loaded,
+    breaking the plan costs only `issued=`/`provisioned=` and
+    `arrival_plan=` still answers; but on a COLD boot -- the case a real
+    server meets -- an unimportable plan takes the arrival import with it
+    and all three read err.  The guards are still separate because the
+    warm case is the common one and because the two answer off different
+    data, not because the coupling does not exist.
+
+    Takes no argument, and that is the point: it says nothing about the value
+    the client just sent -- only whether THIS BUILD has anywhere to put a
+    player if a handle ever does resolve.  So it stays inside RE-227 nonclaim
+    3 the same way the `issued=` pair does, and the guard test that forbids
+    the words island/scene/trigger in this line still passes:
+    `arrival_plan=2/2` carries none of them.
+    """
+    try:
+        from .. import world_m2_arrival as arrival
+
+        return arrival.console_annotation()
+    except Exception:
+        return "arrival_plan=err"
 
 
 # The point name is spelled as a STRING LITERAL here, not as ``POINT``, for
