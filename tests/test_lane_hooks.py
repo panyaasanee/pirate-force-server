@@ -476,5 +476,142 @@ class SceneCensusComposerRegistryTests(unittest.TestCase):
         )
 
 
+class _FakeSession:
+    """Minimal stand-in for runtime.py's session: just the two R328 fields
+    ``current_session_scene_id`` reads.  A plain object (not a dataclass with
+    ``__slots__``) so it supports weak references, the same as the real
+    session class."""
+
+    def __init__(self, *, client_confirmed_scene=None, scene_label_is_server_guess=False):
+        self.client_confirmed_scene = client_confirmed_scene
+        self.scene_label_is_server_guess = scene_label_is_server_guess
+
+
+class CurrentSessionSceneIdTests(unittest.TestCase):
+    """CORE-REQUEST-GM-054 (LANE-GM 20260904_1022), contract fixed by
+    COO-DECISION 20260904_1151: read client_confirmed_scene, never
+    foundation.selected.position.scene_id, and raise rather than guess."""
+
+    CHARACTER_ID = 424242
+
+    def tearDown(self):
+        lane_hooks._LIVE_SESSION_BY_CHARACTER.pop(self.CHARACTER_ID, None)
+
+    def test_no_registration_at_all_raises(self):
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+
+    def test_registered_but_never_moved_raises(self):
+        session = _FakeSession(client_confirmed_scene=None)
+        lane_hooks.register_live_session(self.CHARACTER_ID, session)
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+
+    def test_server_guess_raises_even_with_a_confirmed_scene_on_file(self):
+        # The exact substitution COO-DECISION 20260904_1151 named and
+        # refused: a warp queued but not yet confirmed by the client's own
+        # coordinates must not answer with the (stale) last-confirmed scene.
+        session = _FakeSession(
+            client_confirmed_scene=2, scene_label_is_server_guess=True,
+        )
+        lane_hooks.register_live_session(self.CHARACTER_ID, session)
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+
+    def test_confirmed_and_not_a_guess_returns_the_scene_id(self):
+        session = _FakeSession(
+            client_confirmed_scene=5, scene_label_is_server_guess=False,
+        )
+        lane_hooks.register_live_session(self.CHARACTER_ID, session)
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID), 5,
+        )
+
+    def test_never_reads_a_position_scene_id_field(self):
+        # A session shaped like the field COO-DECISION 20260904_1151
+        # refused (foundation.selected.position.scene_id) but with no
+        # client_confirmed_scene of its own must still raise -- this point
+        # has no fallback to that field at all.
+        class _SessionWithOnlyPositionScene:
+            foundation = type(
+                "F", (), {"selected": type("S", (), {
+                    "position": type("P", (), {"scene_id": 7})(),
+                })()},
+            )
+
+        lane_hooks.register_live_session(
+            self.CHARACTER_ID, _SessionWithOnlyPositionScene(),
+        )
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+
+    def test_a_second_registration_for_the_same_character_replaces_the_first(self):
+        first = _FakeSession(client_confirmed_scene=1)
+        second = _FakeSession(client_confirmed_scene=9)
+        lane_hooks.register_live_session(self.CHARACTER_ID, first)
+        lane_hooks.register_live_session(self.CHARACTER_ID, second)
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID), 9,
+        )
+
+    def test_a_garbage_collected_session_disappears_rather_than_answering_stale(self):
+        session = _FakeSession(client_confirmed_scene=3)
+        lane_hooks.register_live_session(self.CHARACTER_ID, session)
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID), 3,
+        )
+        del session
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+
+    def test_a_same_connection_reselect_evicts_the_stale_character(self):
+        # pf-adversary, round 9vec2s: runtime.py registers right after
+        # select_and_start succeeds, which is NOT the same moment as the
+        # login completing -- world_scene_entry.SceneEntryRefused can still
+        # return [] with start_game_reply_sent left False, so the client
+        # retries with a DIFFERENT selector on the SAME connection (same
+        # session object).  Without eviction, character A's id would keep
+        # answering with session's CURRENT (character B's) confirmed scene.
+        OTHER_CHARACTER_ID = self.CHARACTER_ID + 1
+        self.addCleanup(
+            lane_hooks._LIVE_SESSION_BY_CHARACTER.pop,
+            OTHER_CHARACTER_ID, None,
+        )
+        session = _FakeSession(client_confirmed_scene=1)
+        lane_hooks.register_live_session(self.CHARACTER_ID, session)
+        # Same connection, refused, retries as a different character.
+        lane_hooks.register_live_session(OTHER_CHARACTER_ID, session)
+        session.client_confirmed_scene = 9  # B's real, confirmed location
+        with self.assertRaises(lane_hooks.NoConfirmedScene):
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID)
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(OTHER_CHARACTER_ID), 9,
+        )
+
+    def test_a_reselect_never_evicts_a_DIFFERENT_sessions_legitimate_entry(self):
+        # Compare-and-delete, the other direction: character A reconnects
+        # for real on session_2 (its own new, live entry) BEFORE session_1
+        # (which last had A, then moved on to B) gets around to registering
+        # B.  session_1's reselect must not delete session_2's live answer
+        # for A out from under it.
+        OTHER_CHARACTER_ID = self.CHARACTER_ID + 1
+        self.addCleanup(
+            lane_hooks._LIVE_SESSION_BY_CHARACTER.pop,
+            OTHER_CHARACTER_ID, None,
+        )
+        session_1 = _FakeSession(client_confirmed_scene=1)
+        session_2 = _FakeSession(client_confirmed_scene=7)
+        lane_hooks.register_live_session(self.CHARACTER_ID, session_1)
+        # character A reconnects for real, on a different session/connection
+        lane_hooks.register_live_session(self.CHARACTER_ID, session_2)
+        # session_1 only now finishes its own retry as character B
+        lane_hooks.register_live_session(OTHER_CHARACTER_ID, session_1)
+        # A's real, current session must still answer -- untouched by
+        # session_1's own bookkeeping about a character it no longer owns.
+        self.assertEqual(
+            lane_hooks.current_session_scene_id(self.CHARACTER_ID), 7,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

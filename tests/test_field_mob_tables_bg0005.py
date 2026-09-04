@@ -456,47 +456,77 @@ class Bg0005RecomposeActuallyComposesTest(unittest.TestCase):
 
 
 class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
-    """THE SEAM THIS ROUND WALKED INTO, pinned so the next round cannot.
+    """THE SEAM THIS ROUND WALKED INTO -- UPDATED, round `9vec2s`, not
+    deleted: the seam this card originally pinned is now OPEN, on a
+    measurement, not by removing the card that named it shut.
 
-    pf-adversary measured that a player in scene 5 still cannot damage
-    anything: scene 5 arrives through ``runtime.py``'s LANE-COMPOSED census
-    branch, which stamps an EMPTY announced membership on purpose, and the
-    RE-157 gate refuses every unannounced target before cadence and before
-    the ledger.  Registering a roster is what makes ``target_is_field_mob``
-    true and therefore what lets that gate fire at all.
+    ORIGINAL FINDING (round jqeo2m, still true about the code as it stood
+    then): a player in scene 5 could not damage anything, because scene 5
+    arrives through ``runtime.py``'s LANE-COMPOSED census branch, and that
+    branch stamped an EMPTY announced membership NO MATTER WHAT THE LANE
+    COMPOSED -- ``SceneCensusResult`` carried no per-actor identity list at
+    all, so the call site had nothing honest to announce.  The RE-157 gate
+    refuses every unannounced target before cadence and before the ledger,
+    so an empty announced membership meant no swing in a lane-composed
+    scene could ever land, roster or no roster.
 
-    That block says the fix is "a ``SceneCensusResult`` field, not this call
-    site's to add -- lane_hooks is not in this round's scope", and its own
-    justification is "no lane scene a player can stand in and fight in
-    exists yet".  Two such scenes exist now (14 and 5), so the justification
-    is spent.  Neither lane owns the seam, which is how two rounds shipped
-    green while the outcome that matters never happened once.
+    WHAT CLOSED IT (CORE-REQUEST LANE-B 20260904_1134, chief round
+    `9vec2s`): ``SceneCensusResult.actor_identities`` already existed
+    (COO-DECISION 20260903_2247) and ``lane_a_scene_census.compose`` already
+    populated it from ``field_mobs.roster_for_scene_id`` -- the gap was one
+    call site in ``runtime.py`` that built the announced membership from a
+    literal ``()`` instead of reading the field the composer had been
+    filling in all along.  ``test_lane_scene_census_wiring.py``'s
+    ``test_actor_identities_populate_the_announced_membership`` (and its
+    three siblings: str-coercion, the untouched default, and the malformed-
+    value refusal) is the measurement backing this: a lane-composed arrival
+    now stamps the REAL roster the composer handed it, on a synthetic
+    composer driven through the real dispatcher -- not scene 5 itself, and
+    not a live attack.
 
-    This card is the answer to "what fails the NEXT scene registration while
-    the seam is shut": it holds the runtime's own two sentences to the
-    source, so the round that opens the seam -- or the round that arms a
-    third scene behind it -- has to come here and say which.
+    NOT CLAIMED HERE, still: that scene 5 (or 14) is fightable end to end.
+    RE-157's cadence gate, the AI register, aggro, and every other combat
+    precondition are untouched by this round and unmeasured by this file --
+    see the OTHER classes in this module for scene 5's own combat-readiness
+    tests, and ``pf_bridge/NOW.md``'s standing rule that GT (attended) tests
+    against scene 5 wait for P-2 to close regardless of what the code can
+    now do.  What changed is narrower and real: the announced-membership
+    seam that made every lane-composed scene structurally unfightable, no
+    matter how complete its roster, is gone.
+
+    This card stays as the place a future round updates again, the same way
+    this one did: with a measurement and a named PR, not a deletion.
     """
 
-    def test_the_lane_composed_arrival_still_stamps_an_empty_membership(
+    def test_the_lane_composed_arrival_now_announces_a_real_roster(
             self) -> None:
-        # Whitespace- and comment-marker-normalised, because the sentence
-        # this pins is wrapped across three comment lines in the source and
-        # a raw substring search would break on a re-wrap that changed
-        # nothing.  (NOW.md: a PR that moves a string a test greps for must
-        # fix the grep in the same round -- so the grep is made hard to
-        # break by re-wrapping in the first place.)
+        # Whitespace- and comment-marker-normalised, same reason the
+        # original version of this test gave: the sentence this pins is
+        # wrapped across several comment lines in the source, and a raw
+        # substring search would break on a re-wrap that changed nothing.
+        # (NOW.md: a PR that moves a string a test greps for must fix the
+        # grep in the same round -- so the grep is made hard to break by
+        # re-wrapping in the first place.)
         raw = (SRC / "pirateforce_foundation" / "runtime.py").read_text(
             encoding="utf-8")
         runtime_src = " ".join(raw.replace("#", " ").split())
         self.assertIn(
-            "no lane scene a player can stand in and fight in exists yet",
+            "SO A LANE-COMPOSED ARRIVAL CAN NOW ANNOUNCE A REAL ROSTER",
             runtime_src,
             "the lane-composed arrival branch's own justification has "
-            "changed.  If the seam was opened, this test is what should "
-            "have been updated with it -- read the new wording and pin the "
-            "new fact; if a lane scene became fightable, say so with a "
-            "measurement, not by deleting this card.",
+            "changed again.  Read the new wording at the "
+            "mob_combat_announced_membership_generation call site (RE-157 "
+            "job 2 / MOB-COMBAT-001) and pin the new fact here with a "
+            "measurement -- do not delete this card, and do not just widen "
+            "the assertion to match whatever text happens to be there.",
+        )
+        self.assertNotIn(
+            "no lane scene a player can stand in and fight in exists yet",
+            runtime_src,
+            "the OLD justification this test used to pin is still present "
+            "-- if the call site reverted to stamping an empty membership "
+            "unconditionally, that is a regression of CORE-REQUEST "
+            "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
     def test_this_lane_has_armed_two_scenes_behind_that_shut_seam(

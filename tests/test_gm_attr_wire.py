@@ -1056,14 +1056,32 @@ class LiveLoginBytesTests(unittest.TestCase):
             live_login_bytes(7, hooks=_NoReadPointHooks())
         self.assertIn("no_login_byte_read_point", str(caught.exception))
 
-    def test_the_real_lane_hooks_package_still_has_no_login_read_point(self):
-        # Same shape as `live_named_values`'s own canary test: the day
-        # chief lands this one (under this name or another -- see
-        # `LOGIN_BYTES_READ_POINT`'s own comment), this test goes red and
-        # this lane finds out from its own suite.
+    def test_the_real_lane_hooks_package_now_has_the_login_read_point(self):
+        # WAS `..._still_has_no_login_read_point`, whose own comment said
+        # "the day chief lands this one ... this test goes red and this
+        # lane finds out from its own suite."  It landed (chief round
+        # `9vec2s`, COO-DECISION 20260904_0216), so the claim is replaced by
+        # its opposite rather than removed -- same treatment
+        # `UnlockBPrimeSeedingTests.test_the_real_lane_hooks_package_now_
+        # has_the_read_point` gave the sibling read point's own canary.
+        #
+        # NOT SATISFIED BY THIS ALONE, and nothing here says it is: the
+        # point answers only x=7 and x=10 (the two `unnamed_field_x()` rows
+        # the ordinary login path actually touches -- a structural fact
+        # about the login composer, not a gap to widen), so a send with any
+        # other unnamed row wanted still refuses -- with `missing_login_rows`
+        # naming them instead of `no_login_byte_read_point`.  The full
+        # behaviour lives in tests/test_live_login_attr_bytes.py.
         from pirateforce_foundation import lane_hooks
 
-        self.assertFalse(hasattr(lane_hooks, LOGIN_BYTES_READ_POINT))
+        self.assertTrue(
+            hasattr(lane_hooks, LOGIN_BYTES_READ_POINT),
+            "chief's login read point is gone again -- every login-byte"
+            " seed refuses with no_login_byte_read_point until it is back",
+        )
+        self.assertTrue(
+            callable(getattr(lane_hooks, LOGIN_BYTES_READ_POINT))
+        )
 
     def test_one_missing_unnamed_row_refuses_the_whole_answer(self):
         values = _login_values()

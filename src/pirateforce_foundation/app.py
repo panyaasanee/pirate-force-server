@@ -8,6 +8,7 @@ from .legacy_bridge import LegacyProjector, load_legacy
 from .mob_loot import preserve_ground_heartbeat_frame
 from .lifecycle import CharacterLifecycle
 from . import lane_hooks
+from . import live_login_attr_bytes
 from . import live_named_attr_values
 from .persistence_backup import BackupError
 from .channel_message_hypothesis import load_channel_message_hypothesis_scenario
@@ -810,6 +811,13 @@ def main() -> int:
     # (`attr_wire`'s named-field door is shut, `/speed`'s two locks are shut).
     lane_hooks.register_live_attr_values_source(
         live_named_attr_values.source_for_store(store)
+    )
+    # CORE-REQUEST-GM (COO-DECISION 20260904_0216): the second read point,
+    # `lane_hooks.current_login_attr_bytes`, same reasoning and same boot
+    # order as the one directly above -- per-character-id, not per-
+    # connection, and the store has already migrated.
+    lane_hooks.register_login_attr_bytes_source(
+        live_login_attr_bytes.source_for_store(store)
     )
     legacy.run_self_test(verbose=True)
     projector = LegacyProjector(legacy)

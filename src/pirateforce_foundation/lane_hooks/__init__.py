@@ -117,6 +117,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 import sys
+import weakref
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
@@ -793,6 +794,268 @@ def current_named_attr_values(character_id) -> dict:
             continue
         coerced[key] = value
     return coerced
+
+
+#: The one process-wide source of the LOGIN path's own bytes for the
+#: unnamed rows it happens to touch, installed by boot wiring (``app.py``)
+#: and read by ``current_login_attr_bytes`` below.  Same shape and same
+#: reason as ``_LIVE_ATTR_VALUES_SOURCE``: ``None`` means the read point
+#: answers "nothing", which its consumer (``attr_wire.live_login_bytes``)
+#: turns into a named refusal rather than a guess.
+_LOGIN_ATTR_BYTES_SOURCE = None
+#: One line per process, not per call: see ``current_login_attr_bytes``.
+_LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED = False
+
+
+def register_login_attr_bytes_source(source) -> None:
+    """Install the callable ``current_login_attr_bytes`` reads through.
+
+    ``source`` is ``callable(character_id) -> {x: value}``; today the boot
+    wiring hands in ``live_login_attr_bytes.source_for_store(store)``.
+    Passing ``None`` uninstalls it, which is how a test puts the process
+    back the way it found it.  Last registration wins, re-arming the
+    announcement below -- same reasoning as
+    ``register_live_attr_values_source``, restated there in full.
+    """
+    global _LOGIN_ATTR_BYTES_SOURCE, _LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED
+    if source is not None and not callable(source):
+        raise TypeError(
+            "login attr bytes source must be callable(character_id) -> "
+            f"dict, got {type(source).__name__}"
+        )
+    replacing = (
+        _LOGIN_ATTR_BYTES_SOURCE is not None and source is not None
+    )
+    _LOGIN_ATTR_BYTES_SOURCE = source
+    _LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED = False
+    if source is None:
+        print(
+            _console_safe("LANE_HOOK_LOGIN_ATTR_SOURCE CLEARED"),
+            file=sys.stderr,
+        )
+        return
+    print(
+        _console_safe(
+            "LANE_HOOK_LOGIN_ATTR_SOURCE REGISTERED "
+            f"{getattr(source, '__qualname__', type(source).__name__)}"
+            + (" REPLACED_AN_EARLIER_SOURCE" if replacing else "")
+        ),
+        file=sys.stderr,
+    )
+
+
+def current_login_attr_bytes(character_id) -> dict:
+    """Every ``attr_wire.unnamed_field_x()`` row the ORDINARY LOGIN PATH
+    already sends for ``character_id`` today, keyed by ``x``
+    (``LOGIN_BYTES_READ_POINT``, ordered by ``COO-DECISION 20260904_0216``).
+
+    A MISSING ROW IS AN ABSENT KEY, NEVER A ZERO -- same rule as
+    ``current_named_attr_values``, for the same reason: the client's apply
+    is a full-object copy (``RE-222`` Q0), so a mask bit left unset writes
+    zero into the field it names.  Most unnamed rows have no login-time
+    source AT ALL (``live_login_attr_bytes``'s own module docstring: the
+    login composer's mask never sets those bits, a structural fact, not a
+    search miss), so this point answering fewer keys than
+    ``unnamed_field_x()`` wants is the everyday, correct case -- the
+    consumer (``attr_wire.live_login_bytes``) turns each absent one into a
+    named ``missing_login_rows`` entry, never a guess.
+
+    THIS POINT READS AND NEVER SENDS, and IT NEVER RAISES -- both exactly
+    as ``current_named_attr_values`` documents for itself, for the same
+    reasons; see that function's docstring rather than repeating it here.
+    Key coercion, non-dict rejection, and the once-per-process console
+    announcements below all follow it verbatim.
+    """
+    global _LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED
+    source = _LOGIN_ATTR_BYTES_SOURCE
+    if source is None:
+        if not _LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED:
+            _LOGIN_ATTR_BYTES_NO_SOURCE_ANNOUNCED = True
+            print(
+                _console_safe(
+                    "LANE_HOOK login_attr_bytes NO_SOURCE_REGISTERED "
+                    "current_login_attr_bytes answers nothing in this "
+                    "process"
+                ),
+                file=sys.stderr,
+            )
+        return {}
+    try:
+        values = source(character_id)
+    except Exception as error:      # noqa: BLE001 - see docstring
+        print(
+            _console_safe(
+                "LANE_HOOK login_attr_bytes current_login_attr_bytes ERR "
+                f"{error!r}"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(values, dict):
+        print(
+            _console_safe(
+                "LANE_HOOK login_attr_bytes current_login_attr_bytes ERR "
+                f"source returned {type(values).__name__}, not dict"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    try:
+        items = list(values.items())
+    except Exception as error:      # noqa: BLE001 - see docstring
+        print(
+            _console_safe(
+                "LANE_HOOK login_attr_bytes current_login_attr_bytes ERR "
+                f"iterating the source's mapping raised {error!r}"
+            ),
+            file=sys.stderr,
+        )
+        return {}
+    coerced: dict = {}
+    for key, value in items:
+        if isinstance(key, bool) or not isinstance(key, int):
+            if isinstance(key, str) and key.isascii() and key.isdigit():
+                key = int(key)
+            else:
+                print(
+                    _console_safe(
+                        "LANE_HOOK login_attr_bytes current_login_attr_bytes"
+                        f" ERR dropped key {key!r} ({type(key).__name__} is"
+                        " not a row number)"
+                    ),
+                    file=sys.stderr,
+                )
+                continue
+        if key in coerced:
+            print(
+                _console_safe(
+                    "LANE_HOOK login_attr_bytes current_login_attr_bytes ERR"
+                    f" duplicate row {key} after key coercion; keeping the"
+                    " first"
+                ),
+                file=sys.stderr,
+            )
+            continue
+        coerced[key] = value
+    return coerced
+
+
+#: character_id -> the live runtime.py session object that most recently
+#: selected it, as a WEAK reference.  Populated by ``register_live_session``,
+#: called once from runtime.py right after a START_GAME_REQ's
+#: ``select_and_start`` succeeds -- the only point that has both the
+#: character id (``foundation.selected.id``) and the session object carrying
+#: ``client_confirmed_scene``/``scene_label_is_server_guess`` (R328).  A
+#: WeakValueDictionary on purpose: when a connection closes, its session
+#: object is freed and its entry disappears with it, so a disconnected
+#: character answers "no live session" (an honest refusal) rather than a
+#: stale scene label from a session that no longer exists -- no separate
+#: close-connection hook needed to keep this table from lying.
+_LIVE_SESSION_BY_CHARACTER: "weakref.WeakValueDictionary[int, Any]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def register_live_session(character_id: int, session: object) -> None:
+    """Record ``session`` as the live owner of ``character_id`` right now.
+
+    LAST REGISTRATION WINS, same reasoning as
+    ``register_live_attr_values_source``: a reconnect (or a second
+    ``START_GAME_REQ`` on one connection) must replace the entry, not be
+    refused as a duplicate -- there is exactly one live session that can
+    answer for a character at any moment, and the newest caller is always
+    the current one.
+
+    EVICTS THIS SESSION'S OWN PREVIOUS CHARACTER (pf-adversary, round
+    `9vec2s`): the call site is ``runtime.py``'s ``START_GAME_REQ`` handler,
+    right after ``select_and_start`` succeeds -- which is NOT the same
+    moment as the login actually completing.  One branch further down
+    (``world_scene_entry.SceneEntryRefused``) can still return ``[]`` with
+    ``start_game_reply_sent`` left ``False``, by design, so the client can
+    retry with a DIFFERENT selector on the SAME connection.  Without this
+    eviction, the refused character's id stayed in the table pointing at
+    this session, which had gone on to represent an entirely different
+    (successfully selected) character -- a query for the refused
+    character's scene would answer with the OTHER character's real,
+    confirmed location.  Tracked with one attribute on the session itself
+    rather than a reverse index, since the session already carries several
+    of these (``client_confirmed_scene`` and friends) and there is exactly
+    one at a time to remember.
+
+    COMPARE-AND-DELETE, not a plain delete: the evicted key is removed only
+    if it STILL points at THIS session.  A stale key some other session has
+    since claimed legitimately (the previous character logged in for real,
+    elsewhere) must not be evicted by this connection's own reselect -- that
+    would be this same bug in reverse, deleting a live answer instead of a
+    stale one.
+    """
+    character_id = int(character_id)
+    previous = getattr(session, "_lane_hooks_registered_character_id", None)
+    if previous is not None and previous != character_id:
+        if _LIVE_SESSION_BY_CHARACTER.get(previous) is session:
+            del _LIVE_SESSION_BY_CHARACTER[previous]
+    try:
+        session._lane_hooks_registered_character_id = character_id
+    except Exception:  # noqa: BLE001 - a session that refuses the write
+        # (an exotic stub in some other lane's test, e.g.) still gets
+        # registered under the new id below; it just loses this eviction
+        # bookkeeping for ITS next call, which only matters for a session
+        # this attribute-hostile in the first place.
+        pass
+    _LIVE_SESSION_BY_CHARACTER[character_id] = session
+
+
+class NoConfirmedScene(LookupError):
+    """``current_session_scene_id`` has no honest answer for this character.
+
+    Covers every refusal CORE-REQUEST-GM-054 asks for under one exception
+    type: no live session (never selected a character, or disconnected),
+    a session that has not yet had any position report to confirm, and a
+    session whose held label is the server's own unconfirmed guess.  The
+    letter's own contract text is "raise or leave unregistered" -- read by
+    the caller (``gm.attr_wire.live_current_scene``) as "cannot read this
+    row" rather than an error to log.
+    """
+
+
+def current_session_scene_id(character_id: int) -> int:
+    """The scene ``character_id``'s live session's CLIENT last confirmed.
+
+    CORE-REQUEST-GM-054 (LANE-GM 20260904_1022), contract fixed by
+    COO-DECISION 20260904_1151: reads the R328 pair runtime.py already
+    maintains on the session itself, ``client_confirmed_scene`` /
+    ``scene_label_is_server_guess`` -- **never**
+    ``foundation.selected.position.scene_id``, which
+    ``_gm_warp_resync_selected_scene`` overwrites with the warp
+    DESTINATION at queue time, before anything from the client has agreed
+    it arrived (the exact substitution COO-DECISION 20260904_1151 named
+    and refused).
+
+    Raises ``NoConfirmedScene`` -- never a guess, never a default -- for
+    every one of: no live session found for ``character_id`` (see
+    ``register_live_session``), a session whose ``scene_label_is_server_
+    guess`` is true (a warp queued but not yet confirmed by the client's
+    own coordinates), and a session whose ``client_confirmed_scene`` is
+    still ``None`` (logged in, never moved).  All three are the everyday
+    "cannot answer yet" case this letter asks for, not a fault to log
+    here -- the caller's own read point is where that accounting belongs.
+    """
+    session = _LIVE_SESSION_BY_CHARACTER.get(int(character_id))
+    if session is None:
+        raise NoConfirmedScene(
+            f"no live session registered for character {character_id}"
+        )
+    if getattr(session, "scene_label_is_server_guess", False):
+        raise NoConfirmedScene(
+            f"character {character_id}'s scene label is an unconfirmed "
+            "server guess (scene_label_is_server_guess is True)"
+        )
+    scene_id = getattr(session, "client_confirmed_scene", None)
+    if scene_id is None:
+        raise NoConfirmedScene(
+            f"character {character_id} has no client-confirmed scene yet"
+        )
+    return int(scene_id)
 
 
 def module_production_allowed(module_name: str) -> bool:
