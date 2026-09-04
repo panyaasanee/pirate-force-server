@@ -1,12 +1,11 @@
 """Shared wire primitives for CORE-REQUEST 1120's eight resolved
-friend/mail/party/trade classes.
+friend/mail/party classes, plus ``TradeInviteVital``.
 
 Nothing in this file is wired into ``runtime.py`` or ``vital_walk.py`` --
 see COO-DECISION ``20260904_1244`` item 3 (LANE-UI writes these as pure
 encode/decode modules; chief owns the single dispatch hook separately,
 ``notes_to_chief/20260904_1245_COO-DECISION-chief-queue-*.md``) and
-``notes_to_chief/20260904_1120_LANE-UI-CORE-REQUEST-eight-community-party-
-trade-vitals-*.md``'s own scope line: "เปิด branch รับเฟรม + ตอบ ack/error
+``notes_to_chief/20260904_1120_*.md``'s own scope line: "เปิด branch รับเฟรม + ตอบ ack/error
 frame ที่วางเปล่า ... ไม่ใช่การทำ business logic เต็ม". This module supplies
 the "รับเฟรม" (decode) half and the raw field-shape encode half only; it
 does not compose an ack/error response of its own, because no class in
@@ -130,5 +129,15 @@ def read_untagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
         raise WireDecodeError("truncated wstring payload")
     if length % 2 != 0:
         raise WireDecodeError("odd-length UTF-16LE payload")
-    text = buf[start:end].decode("utf-16le")
+    try:
+        text = buf[start:end].decode("utf-16le")
+    except UnicodeDecodeError as error:
+        # An unpaired UTF-16 surrogate (e.g. a lone 0xD800/0xDC00 code
+        # unit) is a perfectly even-length, in-bounds payload that Python's
+        # "utf-16le" codec still refuses -- this is not a truncation or a
+        # tag mismatch, so it needs its own branch to stay inside the
+        # module's fail-closed contract instead of escaping as a raw
+        # UnicodeDecodeError (pf-adversary: every decode_* caller here
+        # only ever catches WireDecodeError).
+        raise WireDecodeError("malformed UTF-16LE payload") from error
     return text, end

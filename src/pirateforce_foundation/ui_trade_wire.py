@@ -6,9 +6,9 @@ docstring for why fields are named positionally rather than by guessed
 meaning. Field shape is copied field-for-field from
 ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv``.
 
-NOT ``TradeCmdVital``.  This is only the trade INVITE class (opcode/fields
-fully resolved, per ``CORE-REQUEST 1120``). ``TradeCmdVital`` (the
-class that would actually execute a trade) is separately tracked --
+NOT ``TradeCmdVital``.  This is only the ``TradeInviteVital`` class
+(opcode/fields fully resolved, per ``CORE-REQUEST 1120``). ``TradeCmdVital``
+(the class that would actually execute the exchange) is separately tracked --
 ``notes_to_chief/20260904_0621_LANE-UI-CORE-REQUEST-wire-tradecmdvital-
 *.md`` -- with 14/20 fields resolved and no known-good live capture yet
 (``parse_success=0`` on all eight attempted parses); it is out of scope

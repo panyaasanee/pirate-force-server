@@ -84,6 +84,18 @@ class UntaggedWstringTests(unittest.TestCase):
         with self.assertRaises(wire.WireDecodeError):
             wire.read_untagged_wstring(malformed, 0)
 
+    def test_unpaired_surrogate_payload_fails_closed(self):
+        # An even-length, fully in-bounds payload that still is not valid
+        # UTF-16LE: a lone high surrogate (0xD800) with no low surrogate to
+        # pair with. This slipped past the module's original fail-closed
+        # claim (pf-adversary, round md7pjz-recovery): "utf-16le".decode()
+        # raises UnicodeDecodeError on this input, which is neither a
+        # truncation nor a tag mismatch, so it needs its own coverage
+        # distinct from the two malformed-length cases above.
+        malformed = bytes([2, 0, 0, 0]) + bytes([0x00, 0xD8])
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_untagged_wstring(malformed, 0)
+
 
 class U8U32TagReaderTests(unittest.TestCase):
     def test_read_u8tag_wrong_tag_fails_closed(self):

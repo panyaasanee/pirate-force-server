@@ -9,8 +9,7 @@ the two directions share an identical field layout for both classes).
 
 WHAT THIS FILE DOES NOT CLAIM.  Every field below has a proven wire
 SHAPE (tag byte, width, order) and zero proven MEANING.
-``notes_to_chief/20260904_1120_LANE-UI-CORE-REQUEST-eight-community-party-
-trade-vitals-*.md`` nonclaim (2) is explicit: caller/verb semantics for all
+``notes_to_chief/20260904_1120_*.md`` nonclaim (2) is explicit: caller/verb semantics for all
 eight classes in this batch are ``CALL_UNCLASSIFIED`` -- nobody has traced
 which client code calls these, with what field values, for what game
 action. Field names below are therefore positional
