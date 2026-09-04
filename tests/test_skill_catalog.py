@@ -94,6 +94,68 @@ class SkillCatalogTests(unittest.TestCase):
                     skill_catalog.stamina_cost(skill_id),
                     int(skill_catalog.skill_raw_context(skill_id)["n_STAMINA_COST"]))
 
+    def test_basic_training_skill_ids_is_exactly_the_five_known_ids(self):
+        # pf-adversary this round: the title-suffix derivation
+        # (skill_catalog._BASIC_TRAINING_SKILL_IDS, built from
+        # `.endswith(" Basic Training")`) is correct against today's table,
+        # but nothing pinned the DERIVED tuple itself -- a future table
+        # change that adds a spurious id whose title happens to end in
+        # " Basic Training" would silently widen own_class_bit()'s domain
+        # with no test catching it at the derivation site (it would only
+        # surface indirectly, if at all, through the unrelated 8-id-count
+        # pin in test_the_eight_starting_kit_skill_ids). Pin it directly.
+        self.assertEqual(
+            skill_catalog._BASIC_TRAINING_SKILL_IDS,
+            (40000, 41000, 42000, 43000, 44000))
+
+    def test_own_class_bit_matches_the_raw_n_isclass_column(self):
+        # Real values from the committed table (not invented): each Basic
+        # Training skill's n_ISCLASS is its own bit, distinct per class.
+        expected = {40000: 1, 41000: 4, 42000: 16, 43000: 2, 44000: 32}
+        for skill_id, bit in expected.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(skill_catalog.own_class_bit(skill_id), bit)
+                self.assertEqual(
+                    skill_catalog.own_class_bit(skill_id),
+                    int(skill_catalog.skill_raw_context(skill_id)["n_ISCLASS"]))
+
+    def test_own_class_bit_equals_the_class_id_that_grants_it(self):
+        # Cross-check between two INDEPENDENTLY committed tables
+        # (SKILL_CONTEXT via skill_catalog, CHARCREATE_CLASS via
+        # class_catalog): each Basic Training row's own n_ISCLASS bit must
+        # equal the class_id of the class that names it a starting skill.
+        # Derived from class_catalog, not a hand-typed skill-id list -- if
+        # the client ever ships a 6th selectable class or renumbers one of
+        # the 5, this goes red instead of silently pinning stale bits.
+        checked = 0
+        for class_id in class_catalog.CLASS_IDS:
+            for skill_id in class_catalog.starting_skill_ids(class_id):
+                if not skill_catalog.skill_title(skill_id).endswith(
+                    " Basic Training"
+                ):
+                    continue
+                with self.subTest(class_id=class_id, skill_id=skill_id):
+                    self.assertEqual(
+                        skill_catalog.own_class_bit(skill_id), class_id)
+                checked += 1
+        self.assertEqual(
+            checked, 5,
+            "expected exactly 5 Basic Training rows across all classes -- "
+            "got %d, re-check class_catalog.CLASS_IDS / starting_skill_ids "
+            "before trusting this cross-check" % checked)
+
+    def test_own_class_bit_refuses_the_three_non_basic_training_ids(self):
+        # 99/110/111's raw n_ISCLASS (63/0/0) has no established meaning --
+        # see the module docstring. Refusing beats guessing.
+        for skill_id in (99, 110, 111):
+            with self.subTest(skill_id=skill_id):
+                with self.assertRaises(skill_catalog.SkillCatalogError):
+                    skill_catalog.own_class_bit(skill_id)
+
+    def test_own_class_bit_raises_key_error_for_an_unknown_id(self):
+        with self.assertRaises(KeyError):
+            skill_catalog.own_class_bit(123456)
+
     def test_no_accessor_exists_for_n_target_yet(self):
         # n_TARGET has no RE'd unit or direction (module docstring, this
         # round) -- guards against a future edit quietly adding a named

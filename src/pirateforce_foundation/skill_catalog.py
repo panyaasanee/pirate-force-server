@@ -34,7 +34,7 @@ not claim it means "MP").  ``n_PASSIVE`` is carried as the client's own raw
 value precisely so nobody downstream mistakes a raw column for a decoded
 classification.
 
-[UPDATE, this round]: ``cooldown_seconds()`` and ``stamina_cost()`` join
+[UPDATE, round `kd06fo`]: ``cooldown_seconds()`` and ``stamina_cost()`` join
 ``level_learn()`` as named accessors for ``n_CD``/``n_STAMINA_COST`` -- the
 "ค่า MP/CD/ระยะ" (MP/CD/range values) half of LANE-CS's queue item 1 that the
 starting-kit catalog carried in ``skill_raw_context()`` since round `iazmrv`
@@ -48,6 +48,24 @@ unit or direction this project has RE'd, so naming it "range" or "target
 mode" would be exactly the invented-meaning mistake this section warns
 against for ``n_PASSIVE`` -- ``skill_raw_context()`` still carries it
 verbatim for a future round that does RE it.
+
+[UPDATE, this round]: ``own_class_bit()`` is a THIRD, narrower kind of
+accessor -- unlike ``cooldown_seconds()``/``stamina_cost()`` it does not
+accept every starting-kit id.  ``tools/pf_class_skill_starting_kit_extract.py``'s
+own docstring already measured (round `iazmrv`, before this catalog was
+code) that ``n_ISCLASS`` is "self-referential UI bookkeeping" for the 5
+per-class "Basic Training" rows -- each row's OWN class bit, matching
+``class_catalog``'s ``class_id`` for the class that grants it -- and
+explicitly "not a general skill-to-class foreign key usable for other skill
+ids."  ``own_class_bit()`` therefore only answers for those 5 ids (raising
+``SkillCatalogError`` for 99/110/111, whose raw ``n_ISCLASS`` values 63/0/0
+have no established meaning here) and ``tests/test_skill_catalog.py`` cross-
+checks every one of the 5 against ``class_catalog.starting_skill_ids()``,
+not against a hand-typed table. The same extractor docstring records a 6th
+value (id 45000, bit 8, the unselectable "Voodooist" lead) this catalog does
+not carry -- which is also why 99's raw ``n_ISCLASS`` of 63 (0b111111, one
+bit more than the 5 known classes OR together) is left unexplained rather
+than read as "usable by every class."
 
     ROUND 6o11t1 CHECKED THE OBVIOUS SHORTCUT AND IT IS A TRAP.
     ``n_PASSIVE`` is not boolean -- table-wide it takes 6 distinct values (0:
@@ -169,6 +187,14 @@ if set(SKILL_ID_TO_TITLE) != set(SKILL_ID_TO_RAW_CONTEXT):
         "from each other" % (
             sorted(SKILL_ID_TO_RAW_CONTEXT), sorted(SKILL_ID_TO_TITLE)))
 
+# Derived from the client's own titles (SKILL_ID_TO_TITLE), not typed by
+# hand: the 5 ids own_class_bit() answers for.  See the module docstring's
+# [UPDATE, this round] paragraph for why these 5 and not the other 3.
+_BASIC_TRAINING_SKILL_IDS: tuple[int, ...] = tuple(
+    skill_id for skill_id in STARTING_KIT_SKILL_IDS
+    if SKILL_ID_TO_TITLE[skill_id].endswith(" Basic Training")
+)
+
 
 def skill_title(skill_id: int) -> str:
     try:
@@ -203,6 +229,26 @@ def stamina_cost(skill_id: int) -> int:
     module docstring: this is the closest cost field the table has, named as
     the table names it -- this function does not claim it means "MP"."""
     return int(skill_raw_context(skill_id)["n_STAMINA_COST"])
+
+
+def own_class_bit(skill_id: int) -> int:
+    """The client's own ``n_ISCLASS`` column for skill_id -- but ONLY for the
+    5 per-class "Basic Training" ids (see the module docstring's [UPDATE,
+    this round] paragraph). Raises :class:`SkillCatalogError` for the other
+    3 starting-kit ids (99/110/111), whose raw ``n_ISCLASS`` values have no
+    established meaning, and ``KeyError`` for an id outside the catalog
+    entirely, same as every other accessor here."""
+    if skill_id not in SKILL_ID_TO_RAW_CONTEXT:
+        raise KeyError("skill_id %r is not in the starting-kit catalog" % (skill_id,))
+    if skill_id not in _BASIC_TRAINING_SKILL_IDS:
+        raise SkillCatalogError(
+            "own_class_bit(%r) refused: n_ISCLASS is only established as a "
+            "self-referential class bit for the 5 Basic Training skill ids "
+            "%r (tools/pf_class_skill_starting_kit_extract.py's own "
+            "docstring) -- see this function's docstring for why the other "
+            "starting-kit ids are not given a meaning here" % (
+                skill_id, _BASIC_TRAINING_SKILL_IDS))
+    return int(skill_raw_context(skill_id)["n_ISCLASS"])
 
 
 def is_known_skill_id(skill_id: int) -> bool:
