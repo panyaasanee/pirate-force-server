@@ -568,6 +568,12 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         ride this door: setting it would widen the mask.  The next test pins
         that refusal, so the narrowing is stated in both directions rather
         than only being tested where it still passes.
+
+        Narrowed again round `zq18m1` (`COO-DECISION 20260904_1046`,
+        pf-adversary D2): `SELECTOR_ROW_X` (x=9) is excluded even though it
+        is `known=True` and in the login set -- this door refuses it by
+        name now.  `test_d2_the_selector_row_is_refused_by_this_door_by_name`
+        pins that refusal; see `build_named_field_update`'s own docstring.
         """
         # `known=False` rows (x=7, x=10) stay refused by this door even
         # though the login shape carries them: this API is where a caller
@@ -575,8 +581,12 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         # cannot name.  Their door is `login_mask.build_login_shaped_frame`'s
         # `overrides`, which `COO-DECISION 20260904_0545` item 2 names for
         # x=7 by hand ("x=7 = the value the command is setting").
-        rows = [x for x in login_mask.login_field_x(self.legacy) if BY_X[x][7]]
+        rows = [
+            x for x in login_mask.login_field_x(self.legacy)
+            if BY_X[x][7] and x != SELECTOR_ROW_X
+        ]
         self.assertIn(BY_NAME["cash"][0], rows)
+        self.assertNotIn(SELECTOR_ROW_X, rows)
         for x in rows:
             field = BY_X[x]
             cache = RawBlockCache()
@@ -607,6 +617,31 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         self.assertIn("not in the login set", str(caught.exception))
         # And nothing was sent or cached on the way to that refusal.
         self.assertEqual(set(cache.current_values()), set(_full_values()))
+
+    def test_d2_the_selector_row_is_refused_by_this_door_by_name(self):
+        # pf-adversary round `y6j1mn`, D2 [MEASURED], closed round `zq18m1`
+        # (`COO-DECISION 20260904_1046`).  x=9 is `known=True` and IS in the
+        # login set -- neither of the two checks above would catch it -- but
+        # this door reaches `make_update_attr_frame` without ever calling
+        # `live_full_block_values`, so the change-detection selector fence
+        # (`_refuse_selector_change`) never runs on a value set through
+        # here.  Before this refusal existed, `build_named_field_update`
+        # with x=9 and a value that is not 8 composed a real frame: the
+        # narrow `x9==8` check inside `make_update_attr_frame` is the only
+        # guard reachable from this door, and it does not fire for any
+        # other value.  So the door refuses the row outright now.
+        selector_x = SELECTOR_ROW_X
+        self.assertTrue(BY_X[selector_x][7], "selector row must be known=True")
+        self.assertIn(selector_x, login_mask.login_field_x(self.legacy))
+        cache = RawBlockCache()
+        seeded = _full_values()
+        cache.capture_initial(seeded)
+        for value in (5, 8, seeded[selector_x]):
+            with self.assertRaises(AttrWireError) as caught:
+                build_named_field_update(self.legacy, cache, 1, 0, selector_x, value)
+            self.assertIn("D2 MEASURED", str(caught.exception))
+        # And nothing was sent or cached on the way to any of those refusals.
+        self.assertEqual(cache.current_values(), seeded)
 
 
 class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
@@ -1185,18 +1220,37 @@ class SelectorRowIsTheCurrentSceneTests(unittest.TestCase):
             combined[SELECTOR_ROW_X], _login_values()[SELECTOR_ROW_X],
         )
 
-    def test_D2_the_named_field_door_is_NOT_behind_either_fence(self):
-        # pf-adversary round `y6j1mn`, D2, MEASURED -- pinned as a KNOWN
-        # HOLE, not as a property anyone wants.  `build_named_field_update`
-        # composes from the cache and never calls `live_full_block_values`,
-        # so a cache seeded at the login scene keeps composing frames with
-        # that scene on the selector after the session has moved, silently.
-        # The card exists so the hole cannot be forgotten: when the next
-        # round moves the fences to `make_update_attr_frame`, this goes red.
+    def test_D2_the_named_field_door_no_longer_reaches_either_value_at_all(self):
+        # ~~test_D2_the_named_field_door_is_NOT_behind_either_fence~~ --
+        # RENAMED (not the hole it pinned, the closure of it), round
+        # `zq18m1` (`COO-DECISION 20260904_1046`).  pf-adversary round
+        # `y6j1mn`, D2, MEASURED: `build_named_field_update` composed from
+        # the cache and never called `live_full_block_values`, so a cache
+        # seeded at the login scene kept composing frames with that scene
+        # on the selector after the session had moved, silently -- neither
+        # fence was reachable from this door.
+        #
+        # Closed THIS round not by routing this door through
+        # `live_full_block_values` (that re-routing needs
+        # `CORE-REQUEST-GM-054`'s read point, still not landed -- see
+        # `attr_wire.live_full_block_values`'s own comment) but by refusing
+        # `SELECTOR_ROW_X` outright: the door that cannot run the
+        # change-detection fence can no longer touch the row it guards, at
+        # all, for any value.  So the assertion this card now pins is the
+        # mirror of the old one: the door raises for the row, full stop --
+        # see `BuildNamedFieldUpdateTests
+        # .test_d2_the_selector_row_is_refused_by_this_door_by_name` for the
+        # multi-value pin (login value, 8, and an arbitrary value).
         import inspect
         source = inspect.getsource(build_named_field_update)
-        self.assertNotIn("live_full_block_values", source)
-        self.assertNotIn("live_current_scene", source)
+        self.assertIn("SELECTOR_ROW_X", source)
+        cache = RawBlockCache()
+        cache.capture_initial(_login_values())
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(
+                self.legacy, cache, 1, 0, SELECTOR_ROW_X, _login_values()[SELECTOR_ROW_X],
+            )
+        self.assertIn("D2 MEASURED", str(caught.exception))
 
     def test_D3_the_selector_row_is_never_an_override_a_caller_picks(self):
         # pf-adversary round `y6j1mn`, D3, MEASURED: `overrides` is applied

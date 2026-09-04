@@ -1636,10 +1636,10 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     # -- THE SELECTOR FENCE (`COO-DECISION 20260904_0846` item 1) ----------
     # READ THIS BEFORE BUILDING ON IT.  pf-adversary round `y6j1mn` measured
     # what this block actually does, and it is NARROWER than the decision
-    # asked for.  Written out rather than fixed in the same breath because
-    # the honest fix is a re-routing this round did not have the lock left
-    # to do; `LANE-GM 20260904_1055` carries the findings and the next
-    # round of this lane takes them as its first work item.
+    # asked for.  D1 is still open (blocked on `CORE-REQUEST-GM-054`); D2
+    # was closed round `zq18m1` (`COO-DECISION 20260904_1046`) by
+    # refusing the OTHER door outright rather than routing it through here
+    # -- see `build_named_field_update`'s own docstring for why.
     #
     # ~~What leaves here is the CURRENT scene; the login byte never reaches
     # a frame again.~~ -- STRUCK, D1 [MEASURED]: `_refuse_selector_change`
@@ -1651,19 +1651,27 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     # players option (b) would have made a difference to.  The re-routing
     # that makes it option (b) for real: x=9 becomes its own source group in
     # `split_sources`, built from `live_current_scene` and never fetched
-    # from the login hook at all.
+    # from the login hook at all.  STILL OPEN this round: that re-routing
+    # needs `CORE-REQUEST-GM-054`'s read point (`current_session_scene_id`),
+    # not landed as of this push -- see `notes_to_chief/20260904_1022`.
     #
     # ~~`build_named_field_update` and `login_mask.build_login_shaped_frame`
-    # are both callers of this function~~ -- STRUCK, D2 [MEASURED]:
-    # `build_named_field_update` composes from `RawBlockCache` and does NOT
-    # call this function, so NEITHER fence is on it.  Measured end to end: a
-    # cache seeded at login scene 3, a current-scene hook then answering 5,
-    # and that door composed a 129-byte 0x309A frame carrying 3 on the
-    # selector, with no console line -- which is verbatim the mutant `0846`
-    # item 1 named.  The fences belong at `make_update_attr_frame`, the one
-    # wall every composer passes, with the login x=9 handed in; that is the
-    # same reasoning `0345` used to move the (b'') raise there, and this
-    # round did not follow it.
+    # are both callers of this function~~ -- STRUCK, D2 [MEASURED], THEN
+    # CLOSED (not by routing -- by refusal): `build_named_field_update`
+    # composed from `RawBlockCache` and did NOT call this function, so
+    # NEITHER fence was on it. Measured end to end: a cache seeded at login
+    # scene 3, a current-scene hook then answering 5, and that door composed
+    # a 129-byte 0x309A frame carrying 3 on the selector, with no console
+    # line -- which is verbatim the mutant `0846` item 1 named. Re-routing
+    # that door through here was considered and rejected THIS round: doing
+    # so needs a `character_id` and `hooks` that door's callers (future
+    # chat-command actions) may not carry the same way this one's caller
+    # does, and forcing the shape now would guess at that caller's contract
+    # before `GM-054` exists.  So `build_named_field_update` now refuses
+    # `x == SELECTOR_ROW_X` by name instead -- the door that cannot run the
+    # change-detection fence can no longer touch the row it guards, full
+    # stop, until GM-054 lands and the honest re-routing (D1's fix) can
+    # cover both doors at once.
     #
     # The login byte is still fetched, and IS what ships (see D1).  x=9
     # stays in `LOGIN_SOURCED_ROWS` for that reason.
@@ -1824,6 +1832,8 @@ def build_named_field_update(
       * `x` not in `FIELDS` at all;
       * `x` in `SENSITIVE_FIELDS` (never settable through this API, known or
         not -- see that set's own comment);
+      * `x == SELECTOR_ROW_X` (D2 below -- never settable through this API,
+        known or not, same posture as `SENSITIVE_FIELDS`);
       * `x` present but `known=False` (this round's provisional scope
         limit, [สมมติของสาย GM - รอ COO ยืนยัน] -- see module docstring);
       * `cache` never seeded (`RawBlockCache.merged_with` raises).
@@ -1832,10 +1842,44 @@ def build_named_field_update(
     `RawBlockCache.record_sent`) and returns `(pc, frame)` -- NOT sent by
     this function; same posture as `gm/warp_executor.py`/`gm/say_wire.py`,
     a caller sends.
+
+    WHY `SELECTOR_ROW_X` IS REFUSED HERE OUTRIGHT (pf-adversary round
+    `y6j1mn`, D2 [MEASURED], the finding `LANE-GM 20260904_1055` carried and
+    `COO-DECISION 20260904_1046` named this round's first work item): this
+    door reaches `make_update_attr_frame` (below) directly through
+    `RawBlockCache`, and NEVER calls `live_full_block_values` -- the
+    function that carries `_refuse_selector_change`, the change-detection
+    half of the selector fence.  `make_update_attr_frame` only carries the
+    NARROW, value-named half (`x9 == 8` with no x=52/x=53); it cannot see
+    that a value differs from what login sent, only that it equals 8.
+    Measured end to end before this refusal existed: a cache seeded at
+    login scene 3, `build_named_field_update(..., x=9, value=5)` composed a
+    real 0x309A frame carrying 5 on the selector -- the narrow fence never
+    fired because 5 != 8, and no console line printed.  The honest fix
+    (`x=9` becomes its own source group, built from `live_current_scene`
+    and never fetched from `RawBlockCache` at all) needs
+    `CORE-REQUEST-GM-054`'s read point, not landed as of this round.  Until
+    it lands, the door that CANNOT run the change-detection fence must not
+    be able to touch the row that fence exists to guard -- so this refuses
+    by name rather than leave a gap this round could not close for real.
+    The row stays settable through the one door that DOES run the fence:
+    `login_mask.build_login_shaped_frame` (via `live_full_block_values`).
     """
     field = BY_X.get(x)
     if field is None:
         raise AttrWireError(f"unknown field x={x!r} (valid: 1..{len(FIELDS)})")
+    if x == SELECTOR_ROW_X:
+        raise AttrWireError(
+            f"field x={x} ({field[6]}) is refused: this door reaches "
+            "make_update_attr_frame without ever calling "
+            "live_full_block_values, so the change-detection half of the "
+            "selector fence (_refuse_selector_change) never runs on a value "
+            "set through here -- only the narrow x9==8 check would, and it "
+            "does not cover this value (pf-adversary round y6j1mn, D2 "
+            "MEASURED; COO-DECISION 20260904_1046). Use "
+            "login_mask.build_login_shaped_frame instead, which routes "
+            "through live_full_block_values and runs both fences."
+        )
     if x in SENSITIVE_FIELDS:
         raise AttrWireError(f"field x={x} ({field[6]}) is refused: SENSITIVE_FIELDS")
     if not field[7]:
