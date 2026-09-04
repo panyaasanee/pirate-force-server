@@ -125,16 +125,44 @@ class EncodeSurveyRecordTests(unittest.TestCase):
 
 
 class EncodeAddSurveyDataOuterTests(unittest.TestCase):
-    def test_wraps_the_record_in_the_frozen_make_runtime_vital_envelope(self):
+    def test_wraps_the_record_in_the_frozen_make_runtime_vitals_envelope(self):
         fields = survey.SurveyRecordFields(survey_id=0x1234, x=1.0, y=2.0, z=3.0)
         record = survey.encode_survey_record(legacy, fields)
         pc, frame = survey.encode_add_survey_data_outer(
             legacy, msg_id=0xDEAD, vital_version=7, fields=fields,
         )
-        expected_pc, expected_frame = legacy.make_runtime_vital(0xDEAD, 7, record)
+        expected_pc, expected_frame = legacy.make_runtime_vitals(
+            [(0xDEAD, 7, record)],
+        )
         self.assertEqual(pc, expected_pc)
         self.assertEqual(frame, expected_frame)
         self.assertIn(record, pc)
+
+    def test_the_envelope_carries_the_trailing_derived_class_mask(self):
+        """The two bytes GT-010 died without.  Chief, round `t7bsfx`/R342,
+        pf-adversary D1.
+
+        `make_runtime_vital` (SINGULAR) omits the `0B 00` derived-class
+        change mask that `make_runtime_vitals` appends, and the frozen
+        composer's own comment says omitting it makes the client over-read
+        the collection response and raise `ErrorData=28317` -- measured
+        closing the client in R306.  Pinned as a byte fact rather than left
+        to the composer's name, so a future tidy-up back to the singular
+        call is a red test and not a spent attended round.
+        """
+        fields = survey.SurveyRecordFields(survey_id=1, x=0.0, y=0.0, z=0.0)
+        pc, _frame = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xDEAD, vital_version=0, fields=fields,
+        )
+        self.assertTrue(
+            pc.endswith(legacy.u8tag(0x0B, 0)),
+            "the AddSurveyData envelope must end with the derived-class "
+            "change mask (0B 00); it does not",
+        )
+        singular_pc, _ = legacy.make_runtime_vital(
+            0xDEAD, 0, survey.encode_survey_record(legacy, fields),
+        )
+        self.assertEqual(pc, singular_pc + legacy.u8tag(0x0B, 0))
 
     def test_msg_id_has_no_default_the_caller_must_supply_one(self):
         import inspect

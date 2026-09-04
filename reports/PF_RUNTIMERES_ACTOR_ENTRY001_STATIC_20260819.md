@@ -313,7 +313,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "npc_hp_link_hypothesis.py",
     "runtimeres_death_hypothesis.py"
   ],
-  "src_vital_stream_call_sites": 26,
+  "src_vital_stream_call_sites": 27,
   "vt20_dispatch_shapes_image_wide": 387,
   "vt20_dispatch_shapes_in_updateattrvital_handler": 0,
   "vt20_dispatch_shapes_with_vtable_load": 230
@@ -999,3 +999,26 @@ for v in [720896, 786431] ends in `0B 00`, and so does a real login-path
 No other census key moves: the function composes no actor entry, and the
 prose in `MOB_LOOT_WIRING` that names the composer is deliberately spelled
 without an argument list so a call-site regex does not count it.
+
+## Round `t7bsfx`/R342 (LANE-E / chief), 2026-09-04
+
+`src_vital_stream_call_sites` moves **26 -> 27**. The twenty-seventh site is
+`navigationex_survey_record.encode_add_survey_data_outer`, which moved OFF
+`make_runtime_vital` (singular) and ONTO `make_runtime_vitals` with a
+one-element list.
+
+This is not a new sender: the function already composed the M2 survey
+record's outbound frame and, as of PR #760, `runtime.py` calls it behind the
+attended-only `PF_M2_SURVEY_TRIAL` flag. What changed is the envelope. The
+singular composer appends no derived-class change mask; the plural one
+appends the trailing `0B 00`, and this repository records three independent
+incidents of the singular envelope raising `GSCN_RunTimeProtocolRes
+ErrorData=28317` on the real client -- `current/pf_login_game_server_v141.py`
+:706-710 (the frozen composer's own comment), `delete_actor_hypothesis.py`
+:28-33 (attended GT-010, 2026-08-18), `gm/state_wire.py:104-116`
+(GT-107/RE-113) -- with `gm/chat_command_action.py:1281` recording that error
+closing the client in R306. pf-adversary measured the two envelopes byte for
+byte in this round: identical prefix, 58 bytes vs 60.
+
+No other census key moves: the function composes no actor entry and no
+remote-actor stream, and the change is one call, not a new path.

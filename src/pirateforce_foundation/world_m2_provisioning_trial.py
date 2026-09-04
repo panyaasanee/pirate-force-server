@@ -1,6 +1,15 @@
 """LANE-A / M2: the first provisioning trial's two records, composed and
-ready for a send path -- and called by no send path anywhere in this
-repository.
+ready for a send path.
+
+~~"and called by no send path anywhere in this repository"~~ IS STRUCK as of
+2026-09-04 (chief, round `t7bsfx`/R342, PR #760): `runtime.py` now calls
+`encode_trial_records` once, in scene 126, behind the attended-only flag
+`PF_M2_SURVEY_TRIAL`, per COO-DECISION 20260904_1845 item 1 -- which is the
+CORE-REQUEST this file's own docstring asked for below.  The guard test that
+backed the old claim was not deleted: it now names that one caller, and
+`tests/test_m2_survey_trial.py::RuntimeCallSiteTests` holds the other half
+(one call, inside the branch the flag opens, both numbers read from the gate
+module).
 
 COO-DECISION 20260904_1345 item 3(b) ordered this built now that GT-228
 (R308, PASS) measured real island XYZ: "send `NavigationEx_
@@ -35,8 +44,9 @@ client reads the field as -- RE-227 nonclaim 3 and `navigationex_survey_
 record`'s own docstring both hold: nothing proves this u16 means anything
 to the client beyond an opaque value it copies back unchanged.
 
-CALLED FROM NO SEND PATH ANYWHERE IN THIS REPOSITORY.  Two things are still
-missing before that could change, and neither is this module's to supply:
+BOTH OF THE TWO THINGS BELOW LANDED ON 2026-09-04 (see the strike above);
+they are kept here because they say what the call site had to supply and on
+what terms:
 
     1. The wire `msg_id` for `NavigationEx_AddSurveyDataVtial`.  RE-227
        never proved a number for it (see `navigationex_survey_record`'s own
@@ -115,8 +125,9 @@ def encode_trial_records(
     own required arguments, passed through unchanged -- this function adds
     no default for ``msg_id`` either, for the same reason: printing a wire
     id here that RE-227 never proved would be the mistake its own nonclaims
-    section exists to prevent.  CALLED FROM NO SEND PATH ANYWHERE IN THIS
-    REPOSITORY; see the module docstring.
+    section exists to prevent.  Its one caller (runtime.py, behind the
+    attended-only flag) passes 0xC4AF as a TRIAL value with a console line
+    naming it; see the module docstring's strike.
     """
     return tuple(
         (record.trigger_id,) + encode_add_survey_data_outer(

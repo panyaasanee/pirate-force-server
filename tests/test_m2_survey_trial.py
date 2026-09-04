@@ -215,16 +215,38 @@ class RuntimeCallSiteTests(unittest.TestCase):
                 self.assertEqual(value.value.id, "m2_survey_trial")
 
     def test_the_server_never_composes_the_client_s_confirm_frame(self):
-        # COO-DECISION 20260904_1845 item 4: the server must not send
-        # NavigationEx_EnterInstanceVital itself.  runtime.py may name the
-        # id (it dispatches the INBOUND frame), but nothing here may build
-        # an outbound one out of the trial's numbers.
-        source = self.RUNTIME.read_text(encoding="utf-8")
-        self.assertNotIn("make_enter_instance", source)
+        """COO-DECISION 20260904_1845 item 4: the server must not send
+        `NavigationEx_EnterInstanceVital` itself -- that is the CLIENT's
+        confirm frame, and a server that sends it answers its own question.
 
+        Asserted on the SHAPE, not on a substring.  The first draft checked
+        `"make_enter_instance" not in source`, a string that names no
+        function anywhere in this repository and therefore could never fail
+        (pf-adversary D9); the way this ban would actually be broken is a
+        `legacy.make_runtime_vital(s)` call carrying
+        `NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID`, which is what this looks
+        for.  runtime.py may still NAME that constant -- it dispatches the
+        inbound frame -- so only its use as a composer argument is banned.
+        """
+        composers = {"make_runtime_vital", "make_runtime_vitals"}
+        tree = self._tree()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and func.attr in composers):
+                continue
+            names = {
+                child.id for child in ast.walk(node)
+                if isinstance(child, ast.Name)
+            }
+            self.assertNotIn(
+                "NAVIGATIONEX_ENTER_INSTANCE_VITAL_ID", names,
+                "runtime.py composes the client's own confirm frame; "
+                "COO-DECISION 20260904_1845 item 4 forbids it",
+            )
 
-if __name__ == "__main__":  # pragma: no cover
-    unittest.main()
 
 
 class DispatchWiringTests(unittest.TestCase):
@@ -355,29 +377,50 @@ class DispatchWiringTests(unittest.TestCase):
         self.assertEqual(trial_again, [])
         self.assertNotIn("M2_SURVEY_TRIAL", console_again)
 
-    def test_an_armed_boot_sends_both_records_in_the_sea_scene(self):
+    def test_an_armed_boot_sends_both_records_twice_in_the_sea_scene(self):
+        from pirateforce_foundation import world_population
+
         self._arm()
         state = self._session_in_scene(
             "m2armed", m2_survey_trial.M2_SEA_SCENE_ID,
         )
         trial, console = self._poll(state)
-        self.assertEqual(len(trial), 2, trial)
+        # Two records, each queued INITIAL and REAPPLY -- the schedule
+        # world_population.py:184-188 records as the one that was accepted
+        # ("a caller that sends one frame is not reproducing what was
+        # accepted"), pf-adversary D4.
+        self.assertEqual(len(trial), 4, trial)
         labels = sorted(action[0] for action in trial)
-        self.assertEqual(
-            labels,
-            ["M2_SURVEY_TRIAL_DEST153", "M2_SURVEY_TRIAL_DEST154"],
-        )
-        for _label, pc, frame, delay in trial:
+        self.assertEqual(labels, [
+            "M2_SURVEY_TRIAL_SURVEY2_DOCK153_INITIAL",
+            "M2_SURVEY_TRIAL_SURVEY2_DOCK153_REAPPLY",
+            "M2_SURVEY_TRIAL_SURVEY3_DOCK154_INITIAL",
+            "M2_SURVEY_TRIAL_SURVEY3_DOCK154_REAPPLY",
+        ])
+        # The label leads with the value that is ON THE WIRE (survey_id
+        # 2/3), not the dock-table id, because the label is what an
+        # attended capture gets matched against and 153/154 never appear on
+        # the wire (LANE-A's warning, pf-adversary D3).
+        for label, pc, frame, delay in trial:
             self.assertIsInstance(pc, bytes)
             self.assertIsInstance(frame, bytes)
             self.assertTrue(frame)
-            self.assertEqual(delay, 0.0)
-            # The record's own kind byte and the trial msg id, on the wire.
+            self.assertEqual(
+                delay,
+                0.0 if label.endswith("_INITIAL")
+                else world_population.INITIAL_REAPPLY_MS / 1000.0,
+            )
+            # The trial msg id, the record kind byte, and the trailing
+            # derived-class mask GT-010 died without (pf-adversary D1).
             self.assertIn(bytes.fromhex("12afc4"), pc)
             self.assertIn(bytes.fromhex("0b01"), pc)
+            self.assertTrue(pc.endswith(bytes.fromhex("0b00")))
         self.assertIn("M2_SURVEY_TRIAL_SENT", console)
         self.assertIn("records=2", console)
         self.assertIn("msg_id=0xC4AF", console)
+        # The label is a claim about a scene the client has not confirmed;
+        # the line says so rather than implying otherwise (D2).
+        self.assertIn("confirmed=none", console)
 
     def test_an_armed_boot_sends_nothing_anywhere_but_the_sea_scene(self):
         self._arm()
@@ -396,7 +439,7 @@ class DispatchWiringTests(unittest.TestCase):
             "m2return", m2_survey_trial.M2_SEA_SCENE_ID,
         )
         first, _ = self._poll(state)
-        self.assertEqual(len(first), 2)
+        self.assertEqual(len(first), 4)
         self.assertEqual(self._poll(state)[0], [])
 
         def relabel(scene_id):
@@ -412,5 +455,79 @@ class DispatchWiringTests(unittest.TestCase):
         self.assertEqual(self._poll(state)[0], [])
         relabel(m2_survey_trial.M2_SEA_SCENE_ID)
         again, _ = self._poll(state)
-        self.assertEqual(len(again), 2)
+        self.assertEqual(len(again), 4)
         self.assertEqual(self._poll(state)[0], [])
+    def _trial_frames(self):
+        """The exact frames the trial numbers compose, built here so a
+        flagless boot can be checked for the BYTES rather than for a label.
+
+        pf-adversary D8 wrote a runtime.py mutant that shipped these frames
+        on a flagless boot under a different label and passed every test in
+        this file: both behavioural tests filtered on the `M2_SURVEY_TRIAL`
+        prefix, so renaming the label made the send invisible to them. The
+        bytes cannot be renamed.
+        """
+        from pirateforce_foundation import world_m2_provisioning_trial
+
+        return {
+            frame for _dock, _pc, frame in
+            world_m2_provisioning_trial.encode_trial_records(
+                self.legacy,
+                msg_id=m2_survey_trial
+                .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL,
+                vital_version=m2_survey_trial
+                .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL,
+            )
+        }
+
+    def test_a_flagless_boot_puts_none_of_the_trial_bytes_on_the_wire(self):
+        state = self._session_in_scene(
+            "m2bytes", m2_survey_trial.M2_SEA_SCENE_ID,
+        )
+        import contextlib
+        import io
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            actions = state.dispatch(
+                self.legacy.parse_outer(self._poll_pc())
+            )
+        forbidden = self._trial_frames()
+        self.assertTrue(forbidden)
+        for label, _pc, frame, _delay in actions:
+            with self.subTest(label=label):
+                self.assertNotIn(
+                    frame, forbidden,
+                    f"action {label!r} carries the trial's own frame bytes "
+                    "on a boot where PF_M2_SURVEY_TRIAL is unset",
+                )
+
+    def test_a_send_made_before_the_client_confirmed_is_made_again_after(
+        self,
+    ):
+        """pf-adversary D2: `/warp 126` relabels the row at queue time and
+        the client may ignore it, so the first send can land while the
+        player is still elsewhere.  The trial re-arms exactly once when the
+        client does confirm the scene -- and then stops.
+        """
+        self._arm()
+        state = self._session_in_scene(
+            "m2confirm", m2_survey_trial.M2_SEA_SCENE_ID,
+        )
+        first, first_console = self._poll(state)
+        self.assertEqual(len(first), 4)
+        self.assertIn("confirmed=none", first_console)
+        self.assertEqual(self._poll(state)[0], [])
+
+        state.client_confirmed_scene = m2_survey_trial.M2_SEA_SCENE_ID
+        again, again_console = self._poll(state)
+        self.assertEqual(len(again), 4)
+        self.assertIn(
+            f"confirmed={m2_survey_trial.M2_SEA_SCENE_ID}", again_console,
+        )
+        # ...and only once more.
+        self.assertEqual(self._poll(state)[0], [])
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()
