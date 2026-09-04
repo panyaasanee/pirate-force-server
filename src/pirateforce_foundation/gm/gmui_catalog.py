@@ -163,9 +163,12 @@ GM_VITALS = (
         0x8D30,
         "GM_ForbidToTalkResultVital",
         "server->client",
-        None,
-        "no codec in this package; a mute/forbid-to-talk button would need "
-        "one built before it could report anything",
+        "gm.forbid_to_talk_wire",
+        "layout proven in external/PF_SERIALIZER_FIELDS.tsv rows 6283-6288 "
+        "(tag 0x0B @+0x14, tag 0x14 @+0x18, tagged wstring @+0x1C, tag "
+        "corrected to 0x48 by PF_A2_STRING_WIRE_TAG_DELTA.tsv rows "
+        "6287/6288); not wired into runtime.py -- a mute/forbid-to-talk "
+        "button still needs a call site before it could report anything",
     ),
     VitalRow(
         0x9F2C,
@@ -186,9 +189,11 @@ GM_VITALS = (
         0x6CEC,
         "Activity_CheatCodeVital",
         "client->server",
-        None,
-        "no codec in this package; layout not in the proven serializer table "
-        "either",
+        "gm.activity_cheat_code_wire",
+        "layout proven in external/PF_SERIALIZER_FIELDS.tsv rows 4345-4356 "
+        "(tag 0x14 @+0x14, five tagged wstrings, tag corrected to 0x48 by "
+        "PF_A2_STRING_WIRE_TAG_DELTA.tsv rows 4347-4356); decode-only, no "
+        "dispatch.py call site yet",
     ),
 )
 
