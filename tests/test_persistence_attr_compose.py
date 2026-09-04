@@ -202,6 +202,7 @@ class ComposeRefusalTests(unittest.TestCase):
         producers = {
             "_value_for", "compose_full_block", "block_gaps",
             "compose_sparse_block", "sparse_block_gaps",
+            "live_typed_values_for", "live_unlock_report",
         }
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef) or node.name not in producers:
@@ -888,6 +889,118 @@ class SparsePermissionProvenanceTests(unittest.TestCase):
         head = gait.read_text(encoding="utf-8")[:2000]
         self.assertIn("run", head)
         self.assertIn("bootstrap", head)
+
+
+def _wire(selector):
+    return b"wire", b"avatar", 0x20000001 + selector, 0
+
+
+class LiveUnlockReportTests(unittest.TestCase):
+    """`live_typed_values_for`/`live_unlock_report` -- the per-character list
+    `COO-DECISION 20260904_0942` item 3 asked for, against a REAL database
+    instead of the always-`{}` baseline `unlock_report()` measures.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        sys.path.insert(0, str(ROOT / "src"))
+        from pirateforce_foundation.model import Position
+        from pirateforce_foundation.store import SQLiteStore
+
+        path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(path, ROOT / "migrations")
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("live-unlock-report")
+
+    def _make(self, tag):
+        return self.store.create_character(
+            self.account_id, f"Live{tag}", f"live{tag}",
+            f"fingerprint-live-{tag}", _wire, self.home,
+        )
+
+    def test_a_freshly_created_character_supplies_exactly_the_009_defaults(self):
+        """`level`/`hp_current`/`hp_max`/`speed_walk` (migration 009's four
+        DEFAULTs) plus the name -- and nothing else -- for a row created with
+        no follow-up write.  This is the concrete, checkable version of the
+        claim `persistence_attr_compose.py`'s own comment makes about those
+        four columns; a round that changes what a bare `create_character`
+        leaves behind moves this test, not the round file.
+        """
+        character = self._make("fresh")
+        values = compose.live_typed_values_for(self.store, character.id)
+        self.assertEqual(values[1], f"Livefresh")
+        self.assertEqual(values[2], 1)
+        self.assertEqual(values[3], 100)
+        self.assertEqual(values[4], 100)
+        self.assertEqual(values[7], 400.0)
+        self.assertEqual(set(values), {1, 2, 3, 4, 7})
+
+    def test_live_unlock_report_names_the_gap_instead_of_zero_filling_it(self):
+        character = self._make("gap")
+        report = compose.live_unlock_report(self.store, character.id)
+        self.assertEqual(report["character_id"], character.id)
+        self.assertEqual(
+            report["server_owned_fields_supplied"], [1, 2, 3, 4, 7],
+        )
+        still_missing = report["server_owned_fields_not_supplied"]
+        # class_id (13) and cash (24) are two of the seventeen COO-DECISION
+        # 20260902_1607 holds NULL -- named here rather than counted, so a
+        # round that seeds one of them without updating this test is caught.
+        self.assertIn(13, still_missing)
+        self.assertIn(24, still_missing)
+        self.assertEqual(
+            set(report["server_owned_fields_supplied"])
+            | set(still_missing),
+            set(compose.SERVER_OWNED_FIELDS),
+        )
+        # the same 17 fields land in block_gaps under REASON_NO_TYPED_VALUE,
+        # named rather than silently absent from the report
+        no_typed_value = report["by_reason"][compose.REASON_NO_TYPED_VALUE]
+        self.assertEqual(sorted(still_missing), no_typed_value)
+
+    def test_a_column_this_lane_writes_moves_from_gap_to_supplied(self):
+        """The report is LIVE, not a snapshot of birth: a write through the
+        already-existing typed-attribute door changes which list a field is
+        on, with no new code path invented to prove it.
+        """
+        character = self._make("write")
+        before = compose.live_unlock_report(self.store, character.id)
+        self.assertIn(13, before["server_owned_fields_not_supplied"])
+
+        self.store.write_typed_attributes(character.id, {"class_id": 4})
+
+        after = compose.live_unlock_report(self.store, character.id)
+        self.assertIn(13, after["server_owned_fields_supplied"])
+        self.assertNotIn(13, after["server_owned_fields_not_supplied"])
+
+    def test_unknown_character_id_raises_keyerror_same_as_the_store(self):
+        with self.assertRaises(KeyError):
+            compose.live_typed_values_for(self.store, 999999)
+        with self.assertRaises(KeyError):
+            compose.live_unlock_report(self.store, 999999)
+
+    def test_a_soft_deleted_character_raises_keyerror_too(self):
+        character = self._make("deleted")
+        self.store.soft_delete_character(
+            self.store.open_session(self.account_id), character.selector,
+        )
+        with self.assertRaises(KeyError):
+            compose.live_unlock_report(self.store, character.id)
+
+    def test_never_reports_a_field_outside_server_owned_fields(self):
+        """The two lists partition `SERVER_OWNED_FIELDS` exactly -- never a
+        field this lane does not own (x=7 is server-owned here even though
+        `gm/attr_wire.FIELDS` marks it `known=False`; that disagreement is
+        the module's own documented [สมมติของสาย DB - รอ RE], not a bug this
+        test should paper over by excluding x=7)."""
+        character = self._make("partition")
+        report = compose.live_unlock_report(self.store, character.id)
+        supplied = set(report["server_owned_fields_supplied"])
+        missing = set(report["server_owned_fields_not_supplied"])
+        self.assertEqual(supplied & missing, set())
+        self.assertEqual(supplied | missing, set(compose.SERVER_OWNED_FIELDS))
 
 
 if __name__ == "__main__":  # pragma: no cover
