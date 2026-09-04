@@ -1046,6 +1046,104 @@ class WriteIfUnsetTests(unittest.TestCase):
         self.assertEqual(after["class_id"], 1)
 
 
+class ListCharacterIdsMissingClassIdTests(unittest.TestCase):
+    """`list_character_ids_missing_class_id` -- the read half of the
+    boot-time backfill `COO-DECISION 20260904_0445` orders: a plain SELECT
+    that names which characters the creation-time hookup never reached,
+    so a caller can hand each one to the SAME resolver
+    (`persistence_class_id.resolve_class_id`) rather than a second one.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("list-missing-class-id")
+
+    def _make(self, tag):
+        return self.store.create_character(
+            self.account_id, f"Missing{tag}", f"missing{tag}",
+            f"fingerprint-missing-{tag}", _build_wire, self.home,
+        )
+
+    def test_empty_database_reports_nothing(self):
+        self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
+
+    def test_a_freshly_created_character_is_null_and_listed(self):
+        character = self._make("a")
+        self.assertNotIn(
+            "class_id", self.store.read_typed_attributes(character.id),
+        )
+        self.assertEqual(
+            self.store.list_character_ids_missing_class_id(),
+            (character.id,),
+        )
+
+    def test_a_character_whose_class_id_is_set_is_not_listed(self):
+        set_char = self._make("set")
+        still_null = self._make("null")
+        self.store.write_typed_attribute_if_unset(set_char.id, "class_id", 4)
+        self.assertEqual(
+            self.store.list_character_ids_missing_class_id(),
+            (still_null.id,),
+        )
+
+    def test_a_soft_deleted_character_with_null_class_id_is_excluded(self):
+        deleted = self._make("deleted")
+        kept = self._make("kept")
+        self.store.soft_delete_character(
+            self.store.open_session(self.account_id), deleted.selector,
+        )
+        self.assertEqual(
+            self.store.list_character_ids_missing_class_id(),
+            (kept.id,),
+        )
+
+    def test_result_is_sorted_ascending_by_id(self):
+        """Names the contract this method promises (a stable, ascending
+        sequence a boot log can print reproducibly), not the SQL clause that
+        happens to produce it today.
+
+        `pf-adversary` (round `b0ede7`) measured that this table cannot tell
+        the two apart: `characters.id` is an INTEGER PRIMARY KEY that this
+        store only ever inserts into with monotonically increasing values (no
+        hard delete exists anywhere in `store.py`, so no id is ever freed and
+        reused), which means SQLite's own rowid-order table scan already
+        matches ascending-id order even with `ORDER BY id` deleted from the
+        query -- verified by removing that clause on a scratch copy and
+        rerunning this whole class: it stayed green.  So this assertion is a
+        real contract test (a caller may rely on the order), not a regression
+        test for the `ORDER BY` clause specifically -- catching a future loss
+        of that clause on THIS table shape would need a fixture whose
+        physical row order differs from id order, which this store's own
+        never-hard-deletes invariant makes structurally unreachable here.
+        """
+        first = self._make("first")
+        second = self._make("second")
+        third = self._make("third")
+        self.assertEqual(
+            self.store.list_character_ids_missing_class_id(),
+            tuple(sorted((first.id, second.id, third.id))),
+        )
+
+    def test_write_typed_attributes_is_untouched_by_this_method_existing(self):
+        """LANE-DB's charter (`COO-DECISION 20260901_1100`): a new method may
+        be added, an existing one may not change."""
+        character = self._make("untouched")
+        self.assertEqual(
+            self.store.list_character_ids_missing_class_id(),
+            (character.id,),
+        )
+        after = self.store.write_typed_attributes(
+            character.id, {"class_id": 2},
+        )
+        self.assertEqual(after["class_id"], 2)
+        self.assertEqual(self.store.list_character_ids_missing_class_id(), ())
+
+
 class TheGateStillRefusesTests(unittest.TestCase):
     """Built columns are not composed blocks, and this file says so."""
 

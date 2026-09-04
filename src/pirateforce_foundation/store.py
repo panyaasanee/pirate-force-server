@@ -1273,6 +1273,42 @@ class SQLiteStore:
             ).rowcount
         return checked[validated_column] if written == 1 else None
 
+    def list_character_ids_missing_class_id(self) -> tuple[int, ...]:
+        """Ids of every live character whose ``class_id`` is still NULL.
+
+        New method (LANE-DB's charter, `COO-DECISION 20260901_1100`: new
+        methods here are allowed, changing an old one is not).  For the
+        boot-time backfill `COO-DECISION 20260904_0445` ordered: the
+        creation-time hookup (`lifecycle.persist_class_id_from_starting_gear`,
+        called through `write_typed_attribute_if_unset` above) only reaches a
+        character at the moment she is created, so every character who
+        existed before that hookup landed is still NULL here and stays that
+        way forever unless something goes back for her.  This method is the
+        read half of "something" -- a plain, read-only SELECT, no write, no
+        decode, no class resolution.  A caller loops over the ids this
+        returns and calls the SAME creation-time function on each one
+        (`persistence_class_id.resolve_class_id`'s NULL-only,
+        never-a-guess contract is what makes that safe to repeat), which
+        keeps this lane from writing a second class-id resolver -- rule (a)
+        of `COO-DECISION 20260904_0445`.
+
+        Excludes soft-deleted rows (`deleted_at IS NOT NULL`) for the same
+        reason `get_character`/`list_characters` do: a deleted character is
+        not on anyone's screen to backfill for, and `write_typed_attribute_
+        if_unset` refuses a soft-deleted row anyway (`KeyError`), so
+        including her here would only print a failure line for a character
+        nobody is fixing.  Ordered by id so a boot log naming failures reads
+        in a stable, reproducible sequence rather than in whatever order
+        SQLite happens to walk the table.
+        """
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id FROM characters "
+                "WHERE class_id IS NULL AND deleted_at IS NULL "
+                "ORDER BY id"
+            ).fetchall()
+        return tuple(row["id"] for row in rows)
+
     def write_typed_attributes_and_compose_sparse(
         self, character_id: int, values: dict[str, int | float]
     ) -> dict[int, object]:
