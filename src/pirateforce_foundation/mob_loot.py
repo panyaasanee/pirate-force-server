@@ -2967,15 +2967,6 @@ class DropLedgerCell:
         # The bounded memory behind REFUSE_DROP_EXPIRED.  A deque, so the
         # structure that explains a refusal cannot itself grow without bound.
         self._expired = _collections.deque(maxlen=EXPIRED_KEY_MEMORY)
-        # WHICH OF THIS CELL'S ROWS CAME FROM SOMEBODY ELSE'S KILL, round
-        # 59iqwi: the keys :meth:`admit_standing_rows` readmitted and this
-        # cell has not taken or expired since.  It is the only thing that
-        # tells a row this session MINTED from a row it was SEEDED with, and
-        # the duplication guard in ``mob_ground_persistence`` needs exactly
-        # that distinction: only a seeded copy can also be standing in
-        # another session's cell.  Bounded by the ledger itself -- a key
-        # leaves here when the row leaves the ledger.
-        self._admitted: set = set()
         # HOW MANY ROWS THIS CELL HAS EVER RETIRED BY SWEEPING, monotonic and
         # only ever touched under the lock, advanced by ``_sweep_locked``
         # itself so EVERY sweeper counts, not only the publication read.  A TOTAL rather than a per-call
@@ -3052,11 +3043,6 @@ class DropLedgerCell:
                 continue
             removed.append(taken)
             self._expired.append(key)
-            # A readmitted row that expired is no longer a seeded copy of
-            # anything (round 59iqwi): the world's own sweep retires it on the
-            # same lifetime, so the duplication guard has nothing left to
-            # guard and must not keep answering about a key nobody holds.
-            self._admitted.discard(key)
             # THE ROW IS OWED A REMOVAL PUBLICATION FROM HERE, not from the
             # method that happened to trigger the sweep.  Every sweeper in
             # this class ends up in this method (the list is in the comment
@@ -3248,20 +3234,7 @@ class DropLedgerCell:
                     "was not taken by anyone" % drop_key)
             self._ledger, taken = take_drop(self._ledger, drop_key)
             self._deadlines.pop(drop_key, None)
-            self._admitted.discard(drop_key)
             return taken
-
-    @property
-    def admitted_keys(self) -> frozenset:
-        """The keys this cell was SEEDED with and still holds.  Round 59iqwi.
-
-        Empty for every cell that has only ever looted its own kills, which
-        is what makes it usable as evidence: a key in here is a row another
-        session's cell can also be holding, and the duplication guard in
-        :mod:`mob_ground_persistence` fires on nothing else.
-        """
-        with self._lock:
-            return frozenset(self._admitted)
 
     def admit_standing_rows(self, drops: Any) -> tuple:
         """Take the world's standing rows into THIS cell.  Returns the admitted.
@@ -3322,13 +3295,34 @@ class DropLedgerCell:
                             "0x%X is standing in scene %s; a readmission "
                             "never moves a declared cell"
                             % (self._scene, drop.drop_key, drop.scene))
-            held = {drop.drop_key for drop in self._ledger.drops}
-            fresh = tuple(
-                drop for drop in incoming if drop.drop_key not in held)
+            held = {
+                drop.drop_key: drop.scene_key for drop in self._ledger.drops}
+            fresh = []
+            for drop in incoming:
+                if drop.drop_key not in held:
+                    fresh.append(drop)
+                    continue
+                if held[drop.drop_key] != drop.scene_key:
+                    # A KEY THIS CELL HOLDS FOR A DIFFERENT SCENE IS NOT THIS
+                    # ROW (pf-adversary D10, round 59iqwi, MEASURED: the
+                    # ledger is deliberately cross-scene, so a player who
+                    # minted key K in scene A and then walked into scene B was
+                    # silently never shown B's row K -- no refusal, no line,
+                    # no loss anybody could see).  Two different objects
+                    # cannot share a key in one ledger, so this is refused by
+                    # name; what makes it stop happening is a server-wide
+                    # issuer, which is the other half of `COO-DECISION
+                    # 2026-09-03T18:44+07:00` and is not built.
+                    raise MobLootContractError(
+                        REFUSE_DUPLICATE_LEDGER_KEY,
+                        "drop key 0x%X is already on this cell's ground in "
+                        "scene %s and the world offers it in scene %s; two "
+                        "objects cannot share a key in one ledger"
+                        % (drop.drop_key, held[drop.drop_key], drop.scene_key))
+            fresh = tuple(fresh)
             if not fresh:
                 return ()
             self._ledger = admit_standing_drops(self._ledger, fresh)
-            self._admitted.update(drop.drop_key for drop in fresh)
             if not self._scene_declared:
                 # INFERRED, never declared -- the same standing a kill's scene
                 # has, and for the same reason: nothing here came from a

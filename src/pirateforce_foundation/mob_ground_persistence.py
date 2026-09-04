@@ -40,8 +40,8 @@ that door can say what was ever dropped and cannot yet say what is STILL ON
 THE GROUND, so restoring from it would put every picked-up item back on the
 floor at every boot -- duplication, dressed as persistence.  The door needs a
 `taken` marker (a marker, NOT a delete -- `COO-DECISION 2026-09-01T02:53`);
-`pf_bridge/notes_to_chief/20260904_17xx_LANE-B-TO-LANE-DB-ground-drops-need-a-
-taken-marker...` is the ticket, and the day those two methods exist
+`pf_bridge/notes_to_chief/20260904_1650_LANE-B-TO-LANE-DB-ground-drops-need-a-
+taken-marker.md` is the ticket, and the day those two methods exist
 :func:`restore_scene_ground` starts answering with no edit here.
 """
 from __future__ import annotations
@@ -255,13 +255,23 @@ class WorldGround:
                 return ()
             return tuple(row for row, _deadline in floor.values())
 
-    def forget(self, scene: Any, drop_key: int) -> bool:
-        """One row left the ground for good.  True when this floor held it.
+    def claim(self, scene: Any, drop_key: Any) -> Any:
+        """ATOMICALLY take one row off the world's floor.  The authority.
 
-        The ONLY removal path, and it is not a sweep: the caller is the pickup
-        that has already published the removal to the client (`COO-DECISION
-        2026-09-01T02:53+07:00` -- a row is removed when a publisher says so,
-        never before).
+        ROUND 59iqwi, pf-adversary D1: this replaces a ``forget`` that was
+        called AFTER a pickup had already succeeded, which could not stop the
+        second pickup of one row.  Once a floor is shared, one drop can sit in
+        two sessions' cells, each cell is authority over its own ledger alone,
+        and a memo posted after the fact is not a lock.  MEASURED, on the real
+        roster: player A killed, player B was seeded from the floor and
+        clicked first, and A -- whose own cell had minted the row -- was then
+        handed a second copy of the same crystal.
+
+        So the take is decided HERE, before either transaction runs, and
+        exactly one caller can win: the row is removed and returned under this
+        lock, and every later claimant gets ``None``.  ``None`` alone is NOT a
+        refusal (see :meth:`was_taken`): a row this floor never held is
+        somebody else's business and must still reach the cell's own rules.
         """
         fold = mob_loot.scene_key(scene)
         # Checked here rather than through ``mob_loot``'s own ``_require_int``:
@@ -270,27 +280,61 @@ class WorldGround:
         # -- which is the direction that hands a player the same item twice.
         if type(drop_key) is not int or not 0 <= drop_key <= 0xFFFFFFFF:
             raise ValueError("a drop key is a u32, got %r" % (drop_key,))
-        key = drop_key
         with self._lock:
-            taken = self._taken.setdefault(fold, collections.OrderedDict())
-            taken[key] = True
-            while len(taken) > TAKEN_KEY_MEMORY:
-                taken.popitem(last=False)
+            now = float(self._clock())
+            self._sweep_locked(fold, now)
             floor = self._floors.get(fold)
-            if not floor or key not in floor:
-                return False
-            floor.pop(key, None)
+            if not floor or drop_key not in floor:
+                return None
+            row, _deadline = floor.pop(drop_key)
             if not floor:
                 self._floors.pop(fold, None)
+            taken = self._taken.setdefault(fold, collections.OrderedDict())
+            # A DEADLINE, NOT A PERMANENT RECORD (pf-adversary D2).  Keys are
+            # minted from ``DROP_KEY_BASE`` by every fresh ledger, so a taken
+            # NUMBER comes back constantly; a memory that never forgot refused
+            # every later row carrying that number for the life of the
+            # process, which is R307's unclickable ghost rebuilt by the guard
+            # meant to stop duplication.  What this memory has to outlive is
+            # only the copies of THIS row that other cells may still hold, and
+            # every such copy carries at most one full lifetime.
+            taken[drop_key] = now + 2.0 * self._lifetime
+            while len(taken) > TAKEN_KEY_MEMORY:
+                taken.popitem(last=False)
+            return row
+
+    def return_claim(self, row: Any) -> bool:
+        """Put a claimed row back.  For a pickup that then REFUSED.
+
+        A claim is taken before the transaction, so a transaction that fails
+        would otherwise delete a row nobody picked up -- the floor would lose
+        an object that is still lying in front of the player.  Returning it
+        also clears the taken record, so the row is claimable again.
+        """
+        if type(row) is not mob_loot.GroundDrop:
+            return False
+        fold = row.scene_key
+        with self._lock:
+            self._taken.get(fold, {}).pop(row.drop_key, None)
+            now = float(self._clock())
+            floor = self._floors.setdefault(fold, collections.OrderedDict())
+            if row.drop_key in floor:
+                return False
+            floor[row.drop_key] = (row, now + self._lifetime)
+            while len(floor) > self._cap:
+                floor.popitem(last=False)
             return True
 
     def was_taken(self, scene: Any, drop_key: Any) -> bool:
-        """Did somebody pick this key up in this process?  Bounded memory.
+        """Did a claim take this key off this floor, recently?  Bounded twice.
 
-        Answers False for a key that merely EXPIRED, and False once the memory
-        has rolled past it.  Both are deliberate: this is the evidence half of
-        a refusal, and a guard that answered "maybe" by returning True would
-        refuse clicks on rows nobody ever took.
+        Bounded by count (``TAKEN_KEY_MEMORY``) and by TIME: an entry lives
+        two drop lifetimes, which outlasts every copy of that row any cell can
+        still be holding and nothing more.  Answers False for a key that
+        merely EXPIRED and False for a key this floor never held -- both
+        deliberate, because this is the evidence half of a refusal and a guard
+        that answered "maybe" by returning True refuses clicks on rows nobody
+        ever took (pf-adversary D2 measured exactly that).
         """
         if type(drop_key) is not int:
             return False
@@ -299,7 +343,13 @@ class WorldGround:
         except Exception:                                   # noqa: BLE001
             return False
         with self._lock:
-            return drop_key in self._taken.get(fold, ())
+            taken = self._taken.get(fold)
+            if not taken or drop_key not in taken:
+                return False
+            if float(self._clock()) >= taken[drop_key]:
+                taken.pop(drop_key, None)
+                return False
+            return True
 
     def clear(self) -> None:
         """Forget every floor.  For a test fixture and for nothing else."""
@@ -397,77 +447,102 @@ def describe_remembered(outcome: RememberOutcome) -> str:
     )
 
 
-def forget_taken(
-    scene: Any, drop_key: Any, *, world: Any = None, store: Any = None,
-) -> bool:
-    """A pickup took a row for good.  NEVER RAISES.
+@dataclass(frozen=True)
+class ClaimOutcome:
+    """What the world said when a click reached for one of its rows."""
 
-    Called from the pickup path AFTER the take and the removal publication
-    have both happened, so this can never be the reason a player's click was
-    refused: the worst a failure here costs is a row the world still thinks is
-    standing, which the next seed hands to a cell that refuses the click by
-    name (``drop_not_in_ledger``) rather than handing an item out twice.
-    """
-    try:
-        floor = world if isinstance(world, WorldGround) else world_ground()
-        forgotten = floor.forget(scene, drop_key)
-    except Exception:                                   # noqa: BLE001
-        return False
-    if store is not None:
-        mark = getattr(store, TAKEN_DOOR_METHOD, None)
-        if callable(mark):
-            try:
-                mark(scene=mob_loot.scene_key(scene), drop_key=int(drop_key))
-            except Exception:                           # noqa: BLE001
-                # The durable door is BEST EFFORT on this path and the reason
-                # is asymmetric cost: a marker that did not land makes a row
-                # come back after a server restart (a bug, and one nobody can
-                # hit until the restore half is live at all), while raising
-                # here would break a pickup that has already succeeded.
-                pass
-    return forgotten
+    scene: str
+    row: Any = None
+    refused: bool = False
+    reason: str = ""
+
+    @property
+    def claimed(self) -> bool:
+        return self.row is not None
 
 
-def another_session_already_took(
+def claim_for_pickup(
     cell: Any, drop_key: Any, *, world: Any = None,
-) -> bool:
-    """Is this click reaching for a row somebody else already picked up?
+) -> ClaimOutcome:
+    """Decide the take in ONE place, before either cell's transaction.  NEVER RAISES.
 
-    NEVER RAISES, and it answers True only when BOTH halves are true: the key
-    is one this cell was SEEDED with and still holds
-    (``DropLedgerCell.admitted_keys``), and the world remembers the key being
-    taken.  Anything else is False, which leaves every path that existed
-    before this round exactly as it was -- including the
-    ``drop_already_taken`` refusal R307 measured, which stays the answer for a
-    double-click inside one session.
+    THE AUTHORITY QUESTION, ANSWERED (pf-adversary D1 of this round, which
+    measured one drop becoming two items).  Once a scene's floor is shared,
+    two sessions can hold one row and each cell is authority over its own
+    ledger alone.  So the click asks the WORLD first:
 
-    THE FIRST HALF IS "SEEDED", NOT MERELY "HELD", AND THAT IS THE WHOLE
-    NARROWNESS OF THIS GUARD (measured, round 59iqwi: the first draft asked
-    only whether the cell held the key, and the world's taken-memory is
-    process-wide, so a cell that had minted the key from its OWN kill was
-    refused because an unrelated earlier session had taken a row with the
-    same number -- thirty tests in ``tests/test_mob_pickup_request.py`` went
-    red saying so).  A row this cell rolled itself cannot be standing in
-    another cell; only a readmitted one can.
+      * the world held the row and hands it over -> this caller won, and no
+        other caller can win it now.  Proceed to the transaction.
+      * the world does not hold it AND remembers it being claimed recently ->
+        somebody else won.  ``refused`` -- this is the second click on one
+        object, and it is the only case that is refused.
+      * the world does not hold it and does not remember it -> the world has
+        no opinion (a cell built before this feature, a row the floor swept
+        while a seeded cell still draws it).  NOT refused: the cell's own
+        rules answer, exactly as they did before this round.
 
-    THIS IS WHAT SEEDING COSTS.  Two logins standing in one scene are seeded
-    from one floor, so one row can sit in two cells, and each cell's own
-    pickup transaction is authority over its own ledger alone: without this,
-    the second click mints a second item out of one drop.
+    Note which case the KILLER is in: ``remember_generation`` puts a kill's
+    rows on the floor at the moment they drop, so the player who made the drop
+    claims it from the world like everybody else.  That is the fix for D1 --
+    the earlier guard asked whether the row had been readmitted, which is the
+    one question that excludes the session most likely to hold the other copy.
     """
-    if type(drop_key) is not int:
-        return False
+    scene = getattr(cell, "current_scene", None)
     try:
-        seeded = drop_key in cell.admitted_keys
+        floor = world if isinstance(world, WorldGround) else world_ground()
+        row = floor.claim(scene, drop_key)
     except Exception:                                   # noqa: BLE001
-        return False
-    if not seeded:
+        return ClaimOutcome("", None, False, REFUSE_CELL_RAISED)
+    if row is not None:
+        return ClaimOutcome(row.scene_key, row)
+    try:
+        if floor.was_taken(scene, drop_key):
+            return ClaimOutcome(
+                mob_loot.scene_key(scene), None, True,
+                REFUSE_TAKEN_BY_ANOTHER_SESSION)
+    except Exception:                                   # noqa: BLE001
+        return ClaimOutcome("", None, False, REFUSE_CELL_RAISED)
+    return ClaimOutcome("", None, False, "")
+
+
+def return_claim(outcome: Any, *, world: Any = None) -> bool:
+    """Give a claimed row back to the world.  For a pickup that then refused.
+
+    NEVER RAISES.  A claim is taken before the transaction; a transaction that
+    refuses afterwards must not leave the floor short an object that is still
+    lying in front of the player.
+    """
+    row = getattr(outcome, "row", None)
+    if row is None:
         return False
     try:
         floor = world if isinstance(world, WorldGround) else world_ground()
-        return floor.was_taken(getattr(cell, "current_scene", None), drop_key)
+        return floor.return_claim(row)
     except Exception:                                   # noqa: BLE001
         return False
+
+
+def note_taken_in_the_durable_door(
+    row: Any, *, store: Any = None,
+) -> bool:
+    """Mark a claimed row taken in the table, when that door exists.  NEVER RAISES.
+
+    BEST EFFORT, and the asymmetry is the reason: a marker that did not land
+    makes a row come back after a server restart, while raising here would
+    break a pickup that has already succeeded.  Absent the marker method (the
+    state of `SQLiteStore` today) this is a no-op -- and the restore half is
+    refused by name for the same absence, so nothing reads what nothing marks.
+    """
+    if store is None or type(row) is not mob_loot.GroundDrop:
+        return False
+    mark = getattr(store, TAKEN_DOOR_METHOD, None)
+    if not callable(mark):
+        return False
+    try:
+        mark(scene=row.scene_key, drop_key=row.drop_key)
+    except Exception:                                   # noqa: BLE001
+        return False
+    return True
 
 
 def seed_cell(cell: Any, scene: Any = None, *, world: Any = None) -> SeedOutcome:
@@ -529,11 +604,18 @@ def persist_generation(store: Any, drops: Any) -> PersistOutcome:
     """Offer a generation to the durable door.  NEVER RAISES.
 
     The call site `COO-DECISION 2026-09-03T18:44+07:00` gives this lane for
-    `SQLiteStore.commit_ground_drop`.  It reads the scene's rows back ONCE
-    before writing and skips the keys already there, so the door's own
-    ``UNIQUE(scene_fold,drop_key)`` refusal stays what it was built to be --
-    the loud report of two issuers minting one key -- instead of the ordinary
-    outcome of re-announcing a floor.
+    `SQLiteStore.commit_ground_drop`.  Every row is offered to the door and
+    the DOOR decides -- ~~this function used to read the scene's rows back
+    first and skip the keys already there~~ STRUCK, pf-adversary D5 of this
+    round, MEASURED: that pre-read turned point 4 of `COO-DECISION
+    2026-09-03T18:43+07:00` -- "two issuers minting one key must be refused by
+    the database itself, loudly" -- into the quiet counter ``already_there``,
+    and, because `list_ground_drops_for_scene` returns every row EVER
+    committed, it made the table stop accepting the low keys entirely after
+    the first server restart (a fresh ledger issues from ``DROP_KEY_BASE``
+    again).  It also cost a full scan of an unbounded table per kill on the
+    listener thread.  The caller hands this ONE KILL'S new rows, never a
+    re-announced floor, so there was no re-announcement to protect.
 
     A row the door refuses is COUNTED AND NAMED, never retried and never
     raised: a floor that cannot be written down is a worse day than yesterday
@@ -548,19 +630,10 @@ def persist_generation(store: Any, drops: Any) -> PersistOutcome:
     if store is None:
         return PersistOutcome(scene, reason=REFUSE_STORE_CANNOT_BE_ASKED)
     commit = getattr(store, "commit_ground_drop", None)
-    listing = getattr(store, "list_ground_drops_for_scene", None)
-    if not callable(commit) or not callable(listing):
+    if not callable(commit):
         return PersistOutcome(scene, reason=REFUSE_WRITE_DOOR_IS_ABSENT)
-    try:
-        known = {row.drop_key for row in listing(scene)}
-    except Exception as error:                          # noqa: BLE001
-        return PersistOutcome(scene, reason="%s:%r" % (
-            REFUSE_DOOR_RAISED, error))
     wrote, already, refused = [], [], []
     for row in rows:
-        if row.drop_key in known:
-            already.append(row)
-            continue
         try:
             commit(
                 scene=row.scene, drop_key=row.drop_key, item_id=row.item_id,
@@ -569,9 +642,12 @@ def persist_generation(store: Any, drops: Any) -> PersistOutcome:
                 killer_identity=row.killer_identity,
             )
         except Exception:                               # noqa: BLE001
+            # Including the collision the table exists to make loud: it has
+            # already printed ``GROUND_DROP_KEY_COLLISION_REFUSED`` by the
+            # time it reaches here, and this counts it rather than swallowing
+            # it into a benign-sounding "already there".
             refused.append(row)
             continue
-        known.add(row.drop_key)
         wrote.append(row)
     return PersistOutcome(scene, tuple(wrote), tuple(already), tuple(refused))
 

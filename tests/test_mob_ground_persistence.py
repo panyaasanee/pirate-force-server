@@ -94,14 +94,21 @@ class TheWorldFloorTests(unittest.TestCase):
         self.clock.advance(0.2)
         self.assertEqual(self.world.standing("bg0002"), ())
 
-    def test_forget_removes_only_the_named_row_and_reports_whether_it_held_it(self):
+    def test_claim_takes_only_the_named_row_and_only_once(self):
         self.world.remember((a_drop(0x00100000), a_drop(0x00100001)))
-        self.assertTrue(self.world.forget("bg0002", 0x00100000))
-        self.assertFalse(self.world.forget("bg0002", 0x00100000))
-        self.assertFalse(self.world.forget("bg0005", 0x00100001))
+        first = self.world.claim("bg0002", 0x00100000)
+        self.assertEqual(first.drop_key, 0x00100000)
+        self.assertIsNone(self.world.claim("bg0002", 0x00100000))
+        self.assertIsNone(self.world.claim("bg0005", 0x00100001))
         self.assertEqual(
             [row.drop_key for row in self.world.standing("bg0002")],
             [0x00100001])
+
+    def test_a_claim_that_found_nothing_leaves_no_taken_record(self):
+        """Otherwise a click on a key this floor never held would poison the
+        number for every later row that carries it."""
+        self.assertIsNone(self.world.claim("bg0002", 0x00100000))
+        self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
 
     def test_a_row_that_is_not_a_typed_drop_is_refused_not_stored(self):
         new, already, refused = self.world.remember(("not a drop",))
@@ -267,104 +274,133 @@ class TheSeedSeamTests(unittest.TestCase):
 
     def test_a_taken_row_is_not_handed_to_the_next_session(self):
         self.world.remember((a_drop(),))
-        ground.forget_taken("bg0002", 0x00100000, world=self.world)
+        self.world.claim("bg0002", 0x00100000)
         cell = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
         self.assertEqual(
             ground.seed_cell(cell, "bg0002", world=self.world).admitted, ())
 
-    def test_forget_taken_never_raises_on_a_scene_it_cannot_read(self):
-        self.assertFalse(ground.forget_taken(None, 1, world=self.world))
-        self.assertFalse(ground.forget_taken("bg0002", None, world=self.world))
 
+class TheClaimIsTheAuthorityTests(unittest.TestCase):
+    """One drop, two seeded cells, ONE item.  pf-adversary D1 of this round.
 
-class TheDuplicationGuardTests(unittest.TestCase):
-    """One drop, two seeded cells, ONE item.  The price of a shared floor."""
+    The first shape of this guard asked whether the clicking cell had been
+    SEEDED with the row, which excludes the killer -- and the killer holds the
+    other copy.  Measured on the real roster: B was seeded, B clicked first, A
+    (who minted the row) clicked after and was handed a second crystal.  The
+    take is decided in the world now, before either transaction runs.
+    """
 
     def setUp(self):
         self.clock = _Clock()
         self.world = ground.WorldGround(
             lifetime_seconds=120.0, clock=self.clock)
         self.world.remember((a_drop(),))
-        self.first = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
-        self.second = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
-        ground.seed_cell(self.first, "bg0002", world=self.world)
-        ground.seed_cell(self.second, "bg0002", world=self.world)
+        self.killer = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
+        self.killer.admit_standing_rows((a_drop(),))     # stands in for the mint
+        self.seeded = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
+        ground.seed_cell(self.seeded, "bg0002", world=self.world)
 
     def test_both_cells_really_do_hold_the_one_row(self):
-        """Otherwise the guard below would be measuring nothing."""
-        for cell in (self.first, self.second):
+        """Otherwise everything below would be measuring nothing."""
+        for cell in (self.killer, self.seeded):
             self.assertEqual(
                 [row.drop_key for row in cell.ledger.drops], [0x00100000])
 
-    def test_the_second_session_is_refused_after_the_first_takes_it(self):
-        self.first.take(0x00100000)
-        ground.forget_taken("bg0002", 0x00100000, world=self.world)
-        self.assertTrue(ground.another_session_already_took(
-            self.second, 0x00100000, world=self.world))
+    def test_exactly_one_of_two_claimants_wins_the_row(self):
+        first = ground.claim_for_pickup(
+            self.seeded, 0x00100000, world=self.world)
+        second = ground.claim_for_pickup(
+            self.killer, 0x00100000, world=self.world)
+        self.assertTrue(first.claimed)
+        self.assertEqual(first.row.item_id, CRYSTAL)
+        self.assertFalse(second.claimed)
+        self.assertTrue(second.refused)
+        self.assertEqual(
+            second.reason, ground.REFUSE_TAKEN_BY_ANOTHER_SESSION)
 
-    def test_the_session_that_took_it_is_not_refused_by_this_guard(self):
-        """Its own cell no longer holds the row, so this stays somebody
-        else's answer -- a double-click inside one session keeps the
-        transaction's own ``drop_already_taken``."""
-        self.first.take(0x00100000)
-        ground.forget_taken("bg0002", 0x00100000, world=self.world)
-        self.assertFalse(ground.another_session_already_took(
-            self.first, 0x00100000, world=self.world))
+    def test_the_killer_is_refused_too_and_that_is_the_whole_defect(self):
+        """D1 in one assertion: the loser is whoever asked second, not
+        whoever failed to be seeded."""
+        self.assertTrue(ground.claim_for_pickup(
+            self.seeded, 0x00100000, world=self.world).claimed)
+        self.assertTrue(ground.claim_for_pickup(
+            self.killer, 0x00100000, world=self.world).refused)
 
-    def test_an_untaken_row_is_never_refused(self):
-        self.assertFalse(ground.another_session_already_took(
-            self.second, 0x00100000, world=self.world))
+    def test_a_row_the_world_never_held_is_not_refused(self):
+        """The cell's own rules still answer for it -- every pickup path that
+        existed before this round is untouched."""
+        outcome = ground.claim_for_pickup(
+            self.seeded, 0x0010BEEF, world=self.world)
+        self.assertFalse(outcome.claimed)
+        self.assertFalse(outcome.refused)
 
-    def test_a_row_that_only_expired_is_not_reported_as_taken(self):
-        """Expiry is not a take: a guard that conflated the two would refuse
-        clicks on rows nobody ever picked up."""
+    def test_a_refused_transaction_gives_the_row_back(self):
+        claim = ground.claim_for_pickup(
+            self.seeded, 0x00100000, world=self.world)
+        self.assertTrue(ground.return_claim(claim, world=self.world))
+        self.assertEqual(
+            [row.drop_key for row in self.world.standing("bg0002")],
+            [0x00100000])
+        self.assertTrue(ground.claim_for_pickup(
+            self.killer, 0x00100000, world=self.world).claimed)
+
+    def test_the_taken_record_expires_so_a_reminted_key_is_clickable(self):
+        """pf-adversary D2.  Every fresh ledger issues from DROP_KEY_BASE, so
+        the NUMBER comes back; a memory that never forgot refused every later
+        row carrying it for the life of the process."""
+        ground.claim_for_pickup(self.seeded, 0x00100000, world=self.world)
+        self.assertTrue(self.world.was_taken("bg0002", 0x00100000))
+        self.clock.advance(2 * 120.0 + 1.0)
+        self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
+        later = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
+        self.assertFalse(ground.claim_for_pickup(
+            later, 0x00100000, world=self.world).refused)
+
+    def test_a_row_that_only_expired_was_never_taken(self):
         self.clock.advance(121.0)
         self.assertEqual(self.world.standing("bg0002"), ())
         self.assertFalse(self.world.was_taken("bg0002", 0x00100000))
 
-    def test_a_key_this_cell_minted_itself_is_never_refused(self):
-        """The narrowness that keeps every pre-existing pickup path intact.
+    def test_the_claim_never_raises_on_junk(self):
+        self.assertFalse(ground.claim_for_pickup(
+            object(), 0x00100000, world=self.world).claimed)
+        self.assertFalse(ground.claim_for_pickup(
+            self.seeded, "not a key", world=self.world).refused)
+        self.assertFalse(ground.return_claim(None, world=self.world))
 
-        The world's taken memory is process-wide, so the number 0x100000 can
-        be "taken" while an unrelated cell legitimately holds its OWN row
-        under that number.  Only a SEEDED copy can be a duplicate, so only a
-        seeded copy is refused -- measured here rather than described, since
-        the first draft of this guard turned thirty pickup tests red by
-        asking the weaker question.
-        """
-        self.world.forget("bg0002", 0x00100000)
-        mine = mob_loot.DropLedgerCell(
-            ledger=mob_loot.DropLedger((a_drop(),), 1, 0x00100001),
-            clock=self.clock, scene="bg0002")
-        self.assertEqual(
-            [row.drop_key for row in mine.ledger.drops], [0x00100000])
-        self.assertEqual(mine.admitted_keys, frozenset())
-        self.assertFalse(ground.another_session_already_took(
-            mine, 0x00100000, world=self.world))
-
-    def test_taking_a_seeded_row_takes_it_out_of_admitted_keys(self):
-        self.assertEqual(self.first.admitted_keys, frozenset({0x00100000}))
-        self.first.take(0x00100000)
-        self.assertEqual(self.first.admitted_keys, frozenset())
-
-    def test_an_expired_seeded_row_leaves_admitted_keys_too(self):
-        self.clock.advance(121.0)
-        self.assertEqual(self.second.ledger.drops, ())
-        self.assertEqual(self.second.admitted_keys, frozenset())
-
-    def test_the_guard_never_raises_on_junk(self):
-        self.assertFalse(ground.another_session_already_took(
-            object(), 0x00100000, world=self.world))
-        self.assertFalse(ground.another_session_already_took(
-            self.second, "not a key", world=self.world))
-
-    def test_the_taken_memory_is_bounded_per_scene(self):
+    def test_the_taken_memory_is_bounded_by_count_as_well(self):
         world = ground.WorldGround(clock=_Clock())
-        for offset in range(ground.TAKEN_KEY_MEMORY + 5):
-            world.forget("bg0002", 0x00100000 + offset)
+        rows = [a_drop(0x00100000 + n)
+                for n in range(ground.TAKEN_KEY_MEMORY + 5)]
+        world.remember(tuple(rows))
+        cell = mob_loot.DropLedgerCell(scene="bg0002")
+        for row in rows:
+            world.claim("bg0002", row.drop_key)
         self.assertFalse(world.was_taken("bg0002", 0x00100000))
         self.assertTrue(world.was_taken(
             "bg0002", 0x00100000 + ground.TAKEN_KEY_MEMORY + 4))
+        del cell
+
+
+class TheCrossSceneKeyClashTests(unittest.TestCase):
+    """pf-adversary D10: a key held for ANOTHER scene is not this row."""
+
+    def test_a_clashing_key_is_refused_by_name_not_skipped_in_silence(self):
+        cell = mob_loot.DropLedgerCell()
+        cell.admit_standing_rows((a_drop(0x00100000, scene="bg0002"),))
+        with self.assertRaises(mob_loot.MobLootContractError) as caught:
+            cell.admit_standing_rows((a_drop(0x00100000, scene="bg0005"),))
+        self.assertEqual(
+            caught.exception.args[0], mob_loot.REFUSE_DUPLICATE_LEDGER_KEY)
+
+    def test_the_seed_seam_turns_that_into_a_named_refusal_not_a_raise(self):
+        world = ground.WorldGround(clock=_Clock())
+        world.remember((a_drop(0x00100000, scene="bg0005"),))
+        cell = mob_loot.DropLedgerCell()
+        cell.admit_standing_rows((a_drop(0x00100000, scene="bg0002"),))
+        outcome = ground.seed_cell(cell, "bg0005", world=world)
+        self.assertEqual(
+            outcome.reason, mob_loot.REFUSE_DUPLICATE_LEDGER_KEY)
 
 
 class TheConsoleLinesTests(unittest.TestCase):
@@ -413,12 +449,21 @@ class TheDurableDoorTests(unittest.TestCase):
         self.assertEqual(stored[0].item_id, CRYSTAL)
         self.assertEqual(stored[0].mob_identity, 0x203D)
 
-    def test_re_announcing_a_floor_writes_no_second_row_and_never_raises(self):
+    def test_a_second_issuer_of_one_key_is_refused_loudly_by_the_table(self):
+        """`COO-DECISION 20260903_1843` point 4, kept loud (pf-adversary D5).
+
+        The door prints `GROUND_DROP_KEY_COLLISION_REFUSED` and raises; this
+        counts the row as REFUSED rather than swallowing it into a benign
+        "already there", and the table still holds exactly one row.
+        """
         row = a_drop()
         ground.persist_generation(self.store, (row,))
-        again = ground.persist_generation(self.store, (row,))
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            again = ground.persist_generation(self.store, (row,))
         self.assertEqual(again.wrote, ())
-        self.assertEqual(len(again.already_there), 1)
+        self.assertEqual(len(again.refused), 1)
+        self.assertIn("GROUND_DROP_KEY_COLLISION_REFUSED", stdout.getvalue())
         self.assertEqual(
             len(self.store.list_ground_drops_for_scene("bg0002")), 1)
 

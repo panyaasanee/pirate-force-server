@@ -383,6 +383,25 @@ def _current_frame_cap() -> int:
     return mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
 
 
+def _say_world_line(line: str) -> bool:
+    """Print one world line, and LOSE THE LINE rather than the kill.
+
+    ROUND 59iqwi, pf-adversary D7, MEASURED: a bare ``print`` here raised
+    ``UnicodeEncodeError`` straight out of :func:`sustain_a_kill` on the
+    cp874 console this project actually runs on -- a function every other
+    failure of which is caught and returned as a named refusal.  The sibling
+    lane already carries the scar and the rule
+    (``mob_pickup_request._say``): a console that cannot be written to costs
+    a LINE, never a FRAME.  Returns whether the line was printed, so a test
+    can prove the loss is the line rather than assume it.
+    """
+    try:
+        print(line)
+    except Exception:                            # noqa: BLE001 - see docstring
+        return False
+    return True
+
+
 def sustain_a_kill(
     cell: Any, legacy: Any, drops: Any = (), *,
     store: Any = None, world: Any = None,
@@ -410,9 +429,12 @@ def sustain_a_kill(
     LEDGER as one generation and it takes nothing.
 
     ``drops`` is the tuple ``cell.loot_a_kill`` returned, and it is used for
-    ONE thing: telling the console which rows are this kill's and which were
-    already on the ground.  Passing ``()`` is legal and only costs that
-    distinction -- the generation is composed from the cell either way, which
+    ~~ONE thing~~ TWO since round 59iqwi: telling the console which rows are
+    this kill's and which were already on the ground, and handing the new rows
+    to the world's floor.  Passing ``()`` is legal and costs that distinction
+    AND the world entry (pf-adversary D8: ``runtime.py`` has a live path that
+    passes ``()`` when the ledger retry gave up, and those rows are not in the
+    cell either, so the floor and the cell still agree) -- the generation is composed from the cell either way, which
     is the property that makes a partial generation unrepresentable here.
 
     ROUND 4e9r7g, COO-DECISION 2026-09-02T02:52+07:00 way 1.  ~~"the WHOLE
@@ -445,9 +467,10 @@ def sustain_a_kill(
     # for the next session.  One bounded console line, always, because "the
     # floor was told" and "this seam never ran" are the two states an attended
     # round has to be able to tell apart by grep (G-OBS).
-    print(mob_ground_persistence.describe_remembered(
-        mob_ground_persistence.remember_generation(
-            drops, world=world, store=store)))
+    _say_world_line(
+        mob_ground_persistence.describe_remembered(
+            mob_ground_persistence.remember_generation(
+                drops, world=world, store=store)))
 
     # ONE snapshot, then everything is derived from it.  Reading ``cell.ledger``
     # twice is not the same as reading it once: the property sweeps expired
