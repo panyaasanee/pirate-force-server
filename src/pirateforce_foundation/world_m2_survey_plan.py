@@ -194,11 +194,13 @@ from . import world_island_dock_table as islands
 
 # The opaque u16 handles this server issues: `SURVEY_HANDLE_BASE + trigger id`.
 #
-# [LANE-A ASSUMPTION - awaiting COO confirmation, letter 20260904_1036]: that
-# the client accepts a handle of the server's own choosing at all.  See the
-# docstring's "THE HANDLE" section for the failure this would produce and for
-# the two-edit rollback (this line to 0, plus the guard test that already
-# covers both configurations).
+# [CONFIRMED - COO 20260904_1147, answering letter 20260904_1036 items 5/8]:
+# this base and the base+trigger-id allocation scheme are the ones to use;
+# rollback is base 0, per the adversary-fixed guard test that covers both.
+# NOT settled by that letter, and still open: whether the CLIENT accepts a
+# handle of the server's own choosing at all.  See the docstring's "THE
+# HANDLE" section for the failure this would produce -- that nonclaim is
+# unchanged by the confirmation above.
 SURVEY_HANDLE_BASE = 0xA000
 
 # RE-227: the client's contact tick compares squared distance against this.
@@ -226,6 +228,14 @@ PLANNED_TRIGGER_IDS: tuple[int, ...] = islands.M2_TARGET_TRIGGER_IDS
 # EMPTY, AND THAT IS THE CURRENT TRUTH OF M2.  GT-228 fills it; nothing else
 # may.  None of the three committed tables opened for it (see the docstring)
 # carries a position for either M2 target.
+#
+# COO 20260904_1147 item 1: a value converted from the HUD X/Y reading plus
+# the island plane z (see `island_plane_z()`) and an axis calibrated against
+# `CONSTDATA_TH__MARKER.tsv` counts as a source for this dict -- no separate
+# "record consumed" capture is required first.  When GT-228 supplies a row,
+# tag BOTH lines it adds with a trailing comment `# DERIVED-FROM GT-228 +
+# MARKER n_ID 17`, so a later reader can tell a converted value from a
+# fabricated one without re-reading this letter.
 MEASURED_XYZ: dict[int, tuple[float, float, float]] = {}
 
 # The outfit the client ships every island actor of scene 126 under.
