@@ -62,7 +62,7 @@ what terms:
 
 So this module's whole job is: the day both of those land, composing and
 encoding the two trial records is not a new guess -- it is these two
-calls.~~ -- BOTH LANDED (round `t7bsfx`/R342): `msg_id`/`vital_version` are
+calls. -- BOTH LANDED (round `t7bsfx`/R342): `msg_id`/`vital_version` are
 `m2_survey_trial.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL` /
 `..._VERSION_TRIAL`, and the call site is `runtime.py`'s
 `m2_survey_trial_scene_attempted` block, which calls `encode_trial_records`

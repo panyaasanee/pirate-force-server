@@ -10,6 +10,7 @@ module decodes the fixed shape directly instead of reusing that walker.
 """
 from __future__ import annotations
 
+import ast
 import sys
 import unittest
 from pathlib import Path
@@ -25,6 +26,92 @@ from pirateforce_foundation.lane_hooks import (  # noqa: E402
 
 def _body(opaque: int, trailer: bytes = b"\x0b\x06") -> bytes:
     return b"\x12" + opaque.to_bytes(2, "little") + trailer
+
+
+class TheProducerOfTheOnlyEventFragment(unittest.TestCase):
+    """THE TRIPWIRE `sent_state` NEEDS, AND DID NOT HAVE.
+
+    pf-adversary (round `xf6eoi`, MEASURED) renamed `runtime.py`'s
+    ``m2_survey_trial_sent_<n>`` event to `..._DISPATCHED_<n>` and ran the
+    WHOLE suite: green, every test, including the nine below.  The console
+    would then have printed `provisioned=2 ... sent=0` on a boot that
+    composed and queued two records -- `sent=0` being exactly the reading
+    an attended grader is told means "this server never sent".  Nothing
+    anywhere went red, because the only thing tying reader to producer was
+    the same literal typed twice: once in `lane_a_enter_instance_log.py`
+    and once in a `_FakeSession(events=[...])` fixture in this file.
+
+    That is a fixture, not a tripwire.  The test this round retired
+    (`test_the_state_is_the_repositorys_and_goes_red_when_a_call_site_
+    lands`) DID act -- it is why chief had to touch this lane's constant in
+    `#763` at all -- so the recovery must not leave the file with less
+    coupling than it had.  This class is that coupling, in the direction
+    that matters: the reader's prefix must still be what the writer writes.
+
+    `runtime.py` is chief's file and LANE-A may not edit it.  This does not
+    edit it; it reads it, and goes red rather than silently disagreeing
+    with it.  Read via `ast`, not `grep`: an f-string tokenises differently
+    on 3.11 and on the gate's 3.14 (PEP 701), and `ast.JoinedStr` is the
+    one reading that is identical on both.
+    """
+
+    RUNTIME = ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+
+    def _appended_event_prefixes(self):
+        """Every static prefix appended to a `.events` list in `runtime.py`.
+
+        Matches `<anything>.events.append(f"prefix{...}")` and the plain
+        string form, and returns the leading literal of each.
+        """
+        tree = ast.parse(self.RUNTIME.read_text(encoding="utf-8"))
+        prefixes = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute) or func.attr != "append":
+                continue
+            target = func.value
+            if not isinstance(target, ast.Attribute) or target.attr != "events":
+                continue
+            for arg in node.args:
+                if isinstance(arg, ast.JoinedStr):
+                    head = arg.values[0] if arg.values else None
+                    if isinstance(head, ast.Constant) and isinstance(head.value, str):
+                        prefixes.append(head.value)
+                elif isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    prefixes.append(arg.value)
+        return prefixes
+
+    def test_the_prefix_this_hook_counts_is_still_the_one_runtime_appends(self):
+        prefixes = self._appended_event_prefixes()
+        # `runtime.py` appends ~300 distinct event prefixes; printing all of
+        # them on failure buries the answer.  Show only the survey-trial
+        # neighbours, which is where a rename will have landed.
+        neighbours = sorted({p for p in prefixes if p.startswith("m2_survey")})
+        self.assertTrue(
+            hooklog._SENT_EVENT_PREFIX in prefixes,
+            "runtime.py no longer appends the event this hook counts.  The "
+            "`sent=` fragment on LANE_A_ENTER_INSTANCE now reads 0 on a boot "
+            "that sent records.  Either restore the event name or move "
+            "`_SENT_EVENT_PREFIX` to match it -- do not delete this test.  "
+            f"Looking for {hooklog._SENT_EVENT_PREFIX!r}; the survey-trial "
+            f"prefixes runtime.py does append are: {neighbours}",
+        )
+
+    def test_the_reader_is_not_pinned_to_a_prefix_nothing_writes(self):
+        """The mirror: this file's own fixtures must use the real name.
+
+        A fixture string that has drifted from the module constant would
+        make every `sent=` test above pass against a prefix the hook does
+        not count.
+        """
+        source = Path(__file__).read_text(encoding="utf-8")
+        self.assertIn(
+            f'"{hooklog._SENT_EVENT_PREFIX}',
+            source,
+            "this file's fixtures no longer spell the prefix the hook reads",
+        )
 
 
 class DecodeOpaqueTests(unittest.TestCase):
@@ -336,10 +423,17 @@ class TheOneFragmentThatIsAboutThisServer(unittest.TestCase):
         self.assertIn("sent=2", line)
 
     def test_multiple_sends_in_one_session_sum(self):
-        # Two arrivals in the sea scene within one connection -- measured
-        # possible because `m2_survey_trial_scene_attempted` resets on a
-        # scene change, so a player who leaves scene 126 and comes back can
-        # trigger the trial a second time.
+        # CORRECTED (pf-adversary, round `xf6eoi`).  The earlier comment
+        # here named the wrong route and called a reading of source a
+        # measurement: it said a scene change is what re-arms the trial.
+        # `runtime.py:11596`'s condition is `m2_survey_trial_scene_attempted
+        # is None OR m2_survey_reconfirmed`, and the second arm -- the
+        # deliberate re-arm when the client confirms a scene that was sent
+        # unconfirmed -- needs no scene change at all.  So the sum can pass
+        # the per-arrival record count on ONE arrival, and the line can read
+        # `provisioned=2 ... sent=4`.  That is the designed meaning of a
+        # cumulative counter, and `sent_state`'s docstring now says so; what
+        # was wrong was the explanation, not the number.
         session = _FakeSession(events=["m2_survey_trial_sent_2", "m2_survey_trial_sent_2"])
         line = hooklog.console_line(_body(0x1234), session)
         self.assertIn("sent=4", line)
@@ -374,6 +468,65 @@ class TheOneFragmentThatIsAboutThisServer(unittest.TestCase):
         session.events = _HostileEvents(["m2_survey_trial_sent_2"])
         line = hooklog.console_line(_body(0x1234), session)
         self.assertIn("sent=unknown", line)
+
+    def test_an_events_property_that_raises_still_reads_as_unknown(self):
+        # pf-adversary, round `xf6eoi`, MEASURED: `getattr(session,
+        # "events", None)` swallows only `AttributeError`, so a session
+        # whose `events` is a property that raises went straight out of
+        # `console_line` -- the same "prints nothing" failure the hostile
+        # `__iter__` case was written to close, one attribute earlier.
+        class _RaisingEvents:
+            @property
+            def events(self):
+                raise RuntimeError("boom")
+
+        line = hooklog.console_line(_body(0x1234), _RaisingEvents())
+        self.assertIn("sent=unknown", line)
+
+    def test_a_base_exception_from_iteration_is_caught_too(self):
+        # `except Exception` missed `BaseException`; a container raising one
+        # took the line down.  KeyboardInterrupt/SystemExit stay re-raised
+        # on purpose -- see the next test.
+        class _HostileEvents(list):
+            def __iter__(self):
+                raise BaseException("boom")  # noqa: TRY002 - that is the point
+
+        session = _FakeSession()
+        session.events = _HostileEvents(["m2_survey_trial_sent_2"])
+        self.assertIn("sent=unknown", hooklog.console_line(_body(0x1234), session))
+
+    def test_the_interpreters_own_shutdown_signals_are_not_swallowed(self):
+        # A log line is not worth eating a Ctrl-C or a SystemExit; the same
+        # shape `lane_a_choose_npc_scene1` already uses for lane B's
+        # registry.  Both the attribute read and the iteration are checked.
+        class _InterruptingIter(list):
+            def __iter__(self):
+                raise KeyboardInterrupt
+
+        session = _FakeSession()
+        session.events = _InterruptingIter(["m2_survey_trial_sent_2"])
+        with self.assertRaises(KeyboardInterrupt):
+            hooklog.sent_state(session)
+
+        class _ExitingProperty:
+            @property
+            def events(self):
+                raise SystemExit(2)
+
+        with self.assertRaises(SystemExit):
+            hooklog.sent_state(_ExitingProperty())
+
+    def test_a_suffix_that_is_not_a_plain_run_of_ascii_digits_is_skipped(self):
+        # pf-adversary, round `xf6eoi`, MEASURED on the old parser:
+        # `_-5` gave sent=-5, `_ 7 ` gave 7, `_1_0` gave 10, and an
+        # Arabic-Indic digit gave 2.  None is reachable from the wire today
+        # -- every append in the tree has a static prefix and an int -- but
+        # the old code's own comment claimed the entries are this repo's
+        # own, which is an assumption, not a check.
+        for suffix in ("-5", " 7 ", "1_0", "٢", "", "+2", "2.0"):
+            with self.subTest(suffix=repr(suffix)):
+                session = _FakeSession(events=[f"m2_survey_trial_sent_{suffix}"])
+                self.assertIn("sent=0", hooklog.console_line(_body(0x1234), session))
 
     def test_the_hook_itself_passes_the_real_session_through(self):
         import contextlib

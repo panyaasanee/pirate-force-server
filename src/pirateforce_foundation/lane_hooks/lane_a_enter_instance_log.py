@@ -167,6 +167,7 @@ _MAX_HEX_BYTES = 96
 # send path -- a counter incremented on the send path, not a guess about
 # whether one exists.
 _SENT_EVENT_PREFIX = "m2_survey_trial_sent_"
+_ASCII_DIGITS = "0123456789"
 
 
 def sent_state(session: object) -> str:
@@ -186,18 +187,41 @@ def sent_state(session: object) -> str:
     this is the only one that is EVENT (did this session's own dispatch
     actually build a frame).
 
+    IT SUMS, AND A SUM CAN EXCEED THE RECORD COUNT ON ONE ARRIVAL
+    (pf-adversary, round `xf6eoi`, MEASURED against `runtime.py`).  The
+    arming condition at `runtime.py:11596` is `m2_survey_trial_scene_
+    attempted is None or m2_survey_reconfirmed` -- the second is the
+    deliberate re-arm when the client confirms a scene that was sent
+    unconfirmed, and it needs NO scene change.  So one arrival can append
+    the event twice and the line can read `provisioned=2 ... sent=4` for
+    two distinct records.  That is not a defect in the count: `sent=` is
+    "how many records this session composed and queued", cumulative, and a
+    reader comparing it to `provisioned=` is comparing an event total to a
+    per-arrival capability.
+
     ``"unknown"`` when ``session`` carries no readable ``events`` list --
     deliberately not ``"0"``: a caller this hook cannot introspect must not
-    be reported the same as a session that tried and sent nothing.  NEVER
-    RAISES: a malformed *entry* in ``events`` (wrong type, wrong shape) is
-    skipped; a container whose own iteration protocol raises is caught too
-    (pf-adversary, round `m1wqqy`: a `list` subclass with a hostile
-    `__iter__` propagated out of this function before this guard existed,
-    and `lane_hooks.fire()`'s outer catch-all would have printed an ERR
-    line instead of any `LANE_A_ENTER_INSTANCE` line at all -- exactly the
-    "prints nothing" failure this hook exists to prevent).
+    be reported the same as a session that tried and sent nothing.
+
+    NEVER RAISES, and this round made that true rather than aspirational
+    (pf-adversary, round `xf6eoi`, MEASURED: it was false twice).  A
+    malformed *entry* is skipped; a suffix that is not a plain run of ASCII
+    digits is skipped (`_-5`, `_ 7 `, `_1_0` and an Arabic-Indic digit all
+    used to parse); a container whose iteration raises is caught; and
+    reading the attribute itself is guarded too -- a `session` whose
+    ``events`` is a PROPERTY that raises sailed straight through
+    `getattr(..., None)`, which swallows only `AttributeError`, and out of
+    `console_line` entirely.  `KeyboardInterrupt`/`SystemExit` are re-raised
+    (the shape `lane_a_choose_npc_scene1` already uses): a hook must not
+    swallow the interpreter's own shutdown signals to protect a log line.
     """
-    events = getattr(session, "events", None)
+    try:
+        events = getattr(session, "events", None)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - an `events` property that raises
+        # must not take this line down; see the docstring's "NEVER RAISES".
+        return "unknown"
     if not isinstance(events, (list, tuple)):
         return "unknown"
     total = 0
@@ -205,11 +229,16 @@ def sent_state(session: object) -> str:
         for event in events:
             if not isinstance(event, str) or not event.startswith(_SENT_EVENT_PREFIX):
                 continue
-            try:
-                total += int(event[len(_SENT_EVENT_PREFIX):])
-            except ValueError:  # pragma: no cover - events are this repo's own
+            suffix = event[len(_SENT_EVENT_PREFIX):]
+            # `str.isdigit()` is true for Arabic-Indic and other non-ASCII
+            # digits that `int()` then happily parses, which is why this is
+            # a character-set check and not `isdigit`.
+            if not suffix or suffix.strip(_ASCII_DIGITS) != "":
                 continue
-    except Exception:  # noqa: BLE001 - iterating a hostile events container
+            total += int(suffix)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except BaseException:  # noqa: BLE001 - iterating a hostile events container
         # must not take this line down; see the docstring's "NEVER RAISES".
         return "unknown"
     return str(total)
