@@ -114,6 +114,127 @@ class ConsoleLineTests(unittest.TestCase):
         self.assertNotIn("+", line)
 
 
+class TheProvisioningAnnotationTests(unittest.TestCase):
+    """The `issued=` / `provisioned=` pair the line carries from
+    `world_m2_survey_plan` (LANE-A round `npbdgr`).
+
+    It is about THIS SERVER, never about the client's reading of the u16 --
+    the guard above (`test_the_value_is_never_named_island_scene_or_trigger_
+    tip`) still governs the assembled line, and these tests exist so the
+    annotation cannot quietly become decoration that says the same thing
+    whatever the plan holds.
+    """
+
+    def test_a_decoded_line_says_this_build_can_provision_nothing(self):
+        line = hooklog.console_line(_body(0x1234))
+        self.assertIn("issued=no", line)
+        self.assertIn("provisioned=0", line)
+
+    def test_the_annotation_tracks_the_plan_rather_than_being_a_constant(self):
+        from pirateforce_foundation import world_m2_survey_plan as plan
+
+        saved = dict(plan.MEASURED_XYZ)
+        try:
+            plan.MEASURED_XYZ[153] = (0.0, 0.0, 0.0)
+            mine = plan.handle_for_trigger_id(153)
+            line = hooklog.console_line(_body(mine))
+            self.assertIn("issued=yes", line)
+            self.assertIn("provisioned=1", line)
+            self.assertIn(f"opaque=0x{mine:04x}", line)
+            # A value we did not issue, on the same non-empty plan.
+            self.assertIn("issued=no", hooklog.console_line(_body(0x1234)))
+        finally:
+            plan.MEASURED_XYZ.clear()
+            plan.MEASURED_XYZ.update(saved)
+        self.assertIn("provisioned=0", hooklog.console_line(_body(0x1234)))
+
+    def test_an_unparsed_line_carries_no_annotation_at_all(self):
+        # There is no opaque to annotate, and the UNPARSED shape is what
+        # GT-228's own grep and the cap test above read.
+        line = hooklog.console_line(b"\xff\xee\xdd")
+        self.assertNotIn("issued=", line)
+        self.assertNotIn("provisioned=", line)
+
+    def test_a_raising_plan_costs_the_annotation_not_the_line(self):
+        import types
+
+        name = "pirateforce_foundation.world_m2_survey_plan"
+        broken = types.ModuleType(name)
+        broken.console_annotation = lambda _handle: (
+            (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        import pirateforce_foundation as package
+
+        saved_module = sys.modules[name]
+        saved_attr = package.world_m2_survey_plan
+        try:
+            sys.modules[name] = broken
+            package.world_m2_survey_plan = broken
+            line = hooklog.console_line(_body(0x1234))
+        finally:
+            sys.modules[name] = saved_module
+            package.world_m2_survey_plan = saved_attr
+        self.assertIn("opaque=0x1234", line)
+        self.assertIn("issued=err", line)
+        self.assertIn("no_responder bytes_out=0", line)
+
+    def test_a_plan_that_cannot_even_be_imported_costs_the_annotation_only(self):
+        # pf-adversary measured the shape this guards: with the plan imported
+        # at module scope, a pinned-source drift underneath it took THIS HOOK
+        # out of `lane_hooks._discover()` with IMPORT_FAILED -- no
+        # registration, no line, and on an attended console that is
+        # indistinguishable from "no confirm frame arrived", which GT-228 is
+        # allowed to PASS on.  The import is inside the guard now.
+        import pirateforce_foundation as package
+
+        name = "pirateforce_foundation.world_m2_survey_plan"
+        saved_module = sys.modules[name]
+        saved_attr = package.world_m2_survey_plan
+        try:
+            # No package attribute and a poisoned sys.modules entry is what an
+            # import that raised on its way up leaves behind.
+            del package.world_m2_survey_plan
+            sys.modules[name] = None
+            line = hooklog.console_line(_body(0x1234))
+        finally:
+            sys.modules[name] = saved_module
+            package.world_m2_survey_plan = saved_attr
+        self.assertIn("opaque=0x1234", line)
+        self.assertIn("issued=err provisioned=err", line)
+        self.assertIn("no_responder bytes_out=0", line)
+
+    def test_this_hook_still_registers_when_the_plan_cannot_be_imported(self):
+        # The registration path itself must not depend on the plan module.
+        import importlib
+
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "lane_hooks"
+            / "lane_a_enter_instance_log.py"
+        ).read_text(encoding="utf-8")
+        module_scope_imports = [
+            line for line in source.splitlines()
+            if line.startswith("from ") or line.startswith("import ")
+        ]
+        self.assertNotIn(
+            "from .. import world_m2_survey_plan as plan", module_scope_imports
+        )
+        # ...and it really does import cleanly with the plan unavailable.
+        import pirateforce_foundation as package
+
+        name = "pirateforce_foundation.world_m2_survey_plan"
+        saved_module = sys.modules[name]
+        saved_attr = package.world_m2_survey_plan
+        try:
+            del package.world_m2_survey_plan
+            sys.modules[name] = None
+            importlib.reload(hooklog)
+            self.assertIs(hooklog.production_allowed, True)
+        finally:
+            sys.modules[name] = saved_module
+            package.world_m2_survey_plan = saved_attr
+            importlib.reload(hooklog)
+
+
 class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
     def test_it_is_registered_declares_production_allowed_and_survives_discovery(self):
         points = lane_hooks.registered_points()
