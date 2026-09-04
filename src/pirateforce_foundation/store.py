@@ -2537,6 +2537,92 @@ class SQLiteStore:
             ).fetchall()
         return tuple(GroundDropRow(*row) for row in rows)
 
+    def mark_ground_drop_taken(self, scene: str, drop_key: int) -> bool:
+        """Mark one ground-drop row TAKEN.  Returns whether the row exists.
+
+        Round `p6x3ee`, answering `notes_to_chief/20260904_1650_LANE-B-TO-
+        LANE-DB-ground-drops-need-a-taken-marker.md`.  `migrations/
+        012_ground_drops_taken_marker.sql` gives the `taken_at` column;
+        this is the only thing in the codebase that sets it.  This is a
+        MARK, not a `DELETE` -- `COO-DECISION 20260901_0253` ("no ledger
+        row may be removed") stands, the same rule `commit_ground_drop`
+        and its migration already answer to.
+
+        IDEMPOTENT ON PURPOSE.  LANE-B's letter is explicit that pickup
+        may be delivered more than once for the same `(scene, drop_key)`;
+        calling this twice on the same row is not an error and does not
+        move `taken_at` to the second call's time -- the `WHERE taken_at
+        IS NULL` guard below means only the FIRST call actually writes,
+        so the timestamp answers "when was this actually taken", not
+        "when was this most recently asked about".
+
+        THE RETURN VALUE ANSWERS ONE QUESTION ONLY: does a row for this
+        `(scene, drop_key)` exist in this table at all (whether it was
+        already taken, just got taken by this call, or is still standing
+        after some other outcome)?  `True` either way a row exists;
+        `False` only when the door was asked to mark a `drop_key` this
+        scene never had a `commit_ground_drop` call for -- a caller with
+        that gap has a bug LANE-B's side needs to see, not a value this
+        door should paper over by pretending it happened anyway.
+        """
+        scene = _require_ground_drop_scene(scene)
+        if isinstance(drop_key, bool) or not isinstance(drop_key, int):
+            raise TypeError("drop_key must be an int")
+        if not 0 <= drop_key <= 0xFFFFFFFF:
+            raise ValueError(
+                "drop_key 0x%X is outside the u32 range" % drop_key
+            )
+        scene_fold = scene.casefold()
+        taken_at = _now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE ground_drops SET taken_at=? "
+                "WHERE scene_fold=? AND drop_key=? AND taken_at IS NULL",
+                (taken_at, scene_fold, drop_key),
+            )
+            if cursor.rowcount:
+                return True
+            row = db.execute(
+                "SELECT 1 FROM ground_drops WHERE scene_fold=? AND drop_key=?",
+                (scene_fold, drop_key),
+            ).fetchone()
+            return row is not None
+
+    def list_ground_drops_still_on_the_ground(
+        self, scene: str
+    ) -> tuple[GroundDropRow, ...]:
+        """Every row for one scene that has NOT been marked taken, oldest first.
+
+        The read half `mob_ground_persistence.restore_scene_ground` was
+        refusing by name (`REFUSE_TAKEN_DOOR_IS_ABSENT`) until this method
+        and `mark_ground_drop_taken` above both existed -- round `p6x3ee`,
+        same letter as that method's docstring.  Same lookup shape as
+        `list_ground_drops_for_scene` (fold-based, this door's own floor,
+        no `mob_loot` import), with one extra `WHERE taken_at IS NULL`.
+
+        `created_at` on the rows this returns is already the store's own
+        `_now()` ISO-8601 format (`datetime.fromisoformat` parses it
+        directly) -- a caller that wants to drop stale rows by age (LANE-B's
+        letter raises the drop's own 120s lifetime) parses that column
+        itself; whether a row is old enough to expire is `mob_loot.
+        DROP_LIFETIME_SECONDS`, a gameplay constant this lane's charter
+        keeps out of `store.py` on purpose (see `persistence_ground_drops.
+        py`'s own docstring for why this door does not import `mob_loot`).
+        This method answers "not yet marked taken", nothing about age.
+        """
+        scene = _require_ground_drop_scene(scene)
+        scene_fold = scene.casefold()
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id,scene,drop_key,item_id,quantity,x,y,z,"
+                "mob_identity,killer_identity,created_at "
+                "FROM ground_drops WHERE scene_fold=? AND taken_at IS NULL "
+                "ORDER BY id",
+                (scene_fold,),
+            ).fetchall()
+        return tuple(GroundDropRow(*row) for row in rows)
+
     def grant_starting_skills(
         self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"
     ) -> tuple[int, ...]:
