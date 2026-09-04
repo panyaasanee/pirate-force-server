@@ -76,6 +76,18 @@ class _WithMeasuredXYZ:
         return False
 
 
+class _WithOnlyMeasuredXYZ(_WithMeasuredXYZ):
+    """Like `_WithMeasuredXYZ`, but empties the dict first.  Needed for the
+    one test below that must see the pre-GT-228 all-refuse state, now that
+    GT-228 has left both real M2 targets measured by default."""
+
+    def __enter__(self):
+        self._saved = dict(plan.MEASURED_XYZ)
+        plan.MEASURED_XYZ.clear()
+        plan.MEASURED_XYZ.update(self._rows)
+        return plan
+
+
 class _WithPlannedIds:
     """`PLANNED_TRIGGER_IDS` swapped and restored."""
 
@@ -350,16 +362,30 @@ class TheReadinessCountIsDerived(unittest.TestCase):
 
 
 class TheOrderIsFailClosedOnTheHandle(unittest.TestCase):
-    def test_the_plan_issues_nothing_today_so_every_handle_refuses(self):
-        self.assertEqual(plan.MEASURED_XYZ, {})
-        for handle in (0x0000, 0x1234, 0xFFFF,
-                       plan.handle_for_trigger_id(PRISON_EXILE_TRIGGER),
-                       plan.handle_for_trigger_id(SPICE_PARADISE_TRIGGER)):
-            order = arrival.arrival_order(handle)
-            self.assertEqual(
-                order.refusal, arrival.ARRIVAL_REFUSED_HANDLE_NOT_ISSUED
-            )
-            self.assertFalse(order.deliverable)
+    def test_an_empty_plan_refuses_every_handle(self):
+        # The pre-GT-228 shape, reproduced by forcing the dict empty: GT-228
+        # (R308, PASS) has since left both real targets measured by default,
+        # which is exactly what `test_the_module_is_not_merely_always_
+        # refusing` below and `test_todays_default_plan_delivers_for_both_
+        # m2_targets` prove.
+        with _WithOnlyMeasuredXYZ({}):
+            for handle in (0x0000, 0x1234, 0xFFFF,
+                           plan.handle_for_trigger_id(PRISON_EXILE_TRIGGER),
+                           plan.handle_for_trigger_id(SPICE_PARADISE_TRIGGER)):
+                order = arrival.arrival_order(handle)
+                self.assertEqual(
+                    order.refusal, arrival.ARRIVAL_REFUSED_HANDLE_NOT_ISSUED
+                )
+                self.assertFalse(order.deliverable)
+
+    def test_todays_default_plan_delivers_for_both_m2_targets(self):
+        # GT-228 landed as data-only, so this is the DEFAULT state now --
+        # no injection, unlike every other test in this class.
+        for trigger_id in (PRISON_EXILE_TRIGGER, SPICE_PARADISE_TRIGGER):
+            order = arrival.arrival_order(plan.handle_for_trigger_id(trigger_id))
+            self.assertIsNone(order.refusal, order)
+            self.assertTrue(order.deliverable)
+            self.assertEqual(order.trigger_id, trigger_id)
 
     def test_a_refusal_carries_none_where_a_zero_would_be_read_as_an_answer(self):
         order = arrival.arrival_order(0x1234)

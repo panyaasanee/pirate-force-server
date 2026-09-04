@@ -42,6 +42,33 @@ every line says `no_responder bytes_out=0` for exactly that reason.  A
 `PROP` line is the R307 case (Seafood Cargo and friends).  `UNPARSED` means
 the payload did not walk cleanly as tags -- the hex is printed so the next
 round works from bytes rather than from this module's opinion of them.
+
+GT-228 OBSERVED OVERRIDE (COO-DECISION 20260904_1345 item 3(a))
+-----------------------------------------------------------------
+R308 (PASS, OBSERVER_CONFIRMED 2026-09-04T13:22+07:00,
+`pf_bridge/notes_to_chief/20260904_1331_KA1A-R308-RESULTS-*`) measured the
+REAL wire ids at island contact: id **2** at Prison Exile Island (3/3
+contacts) and id **3** at Spice Paradise Island (2/2 contacts) -- NOT 153 or
+154, which is what `world_island_dock_table`'s own dock rows use and what
+this hook used to key off of.  No 0x1FB2 frame carrying 153 or 154 has ever
+been captured; the two id spaces (dock-table `trigger_id` vs this frame's
+0x0F tag) may simply not be the same namespace at all (nonclaims 1/2 of the
+R308 letter -- this is not proven, only accepted as the PRIMARY hypothesis
+per COO-DECISION item 1).
+
+So `M2_OBSERVED_ISLAND_TRIGGER_IDS` below overrides the general dock-table
+classification for exactly ids 2 and 3, printing ISLAND with the matching
+dock row's name (153 Prison Exile / 154 Spice Paradise) while keeping the
+WIRE id in the `id=` field, so a reader can always tell "what arrived" from
+"what we think it means".  KNOWN, ACCEPTED FALSE-POSITIVE RISK: `Trigger_TIP`
+itself names ids 2/3 "Edmund Hidden Treasure"/"Seafood Cargo", ordinary sea
+props, and R307 (round `ufcemz`, before GT-228 existed) captured a REAL id=3
+frame during ordinary sailing (frame #217 in this hook's own test fixture)
+that this override now ALSO reports as ISLAND.  That collision is exactly
+what the narrow RE ticket opened alongside this decision (COO 1345 item
+3(d): what the client does with 0x1FB2's response, and how many paths open
+the captain-report page) exists to resolve -- this override is a deliberate,
+documented hypothesis, not a claim that ids 2/3 mean ISLAND unconditionally.
 """
 from __future__ import annotations
 
@@ -104,6 +131,35 @@ _TAG_LENGTH_PREFIXED = (0x44, 0x48)
 # to write a megabyte into the console a grader reads.
 _MAX_HEX_BYTES = 96
 
+# Wire trigger id (as observed on 0x1FB2, R308) -> dock table trigger_id
+# (world_island_dock_table.DESTINATION_ROWS) whose name/scene this hook
+# reports.  See the module docstring's "GT-228 OBSERVED OVERRIDE" section
+# for what this does and does not claim.
+M2_OBSERVED_ISLAND_TRIGGER_IDS: dict[int, int] = {
+    2: 153,  # Prison Exile Island -- GT-228 R308, id=2 on 3/3 contacts
+    3: 154,  # Spice Paradise Island -- GT-228 R308, id=3 on 2/2 contacts
+}
+
+
+def _m2_observed_override_line(wire_trigger_id: int, dock_trigger_id: int) -> str:
+    """The console body for a wire id in ``M2_OBSERVED_ISLAND_TRIGGER_IDS``.
+
+    Keeps the WIRE id in ``id=`` (what actually arrived) and the dock row's
+    own name/scene from ``dock_trigger_id`` (what we now believe it means),
+    tagged ``wire=OBSERVED_GT228_R308`` so this is never confused with
+    ``world_island_dock_table``'s own ``wire_scene_id_status`` grading, which
+    this override does not carry (no 0x1FB2 frame with 153/154 has ever been
+    seen, so that field would have nothing to grade).
+    """
+    row = islands.destination_for_trigger_id(dock_trigger_id)
+    name = islands.console_safe(row.name) if row is not None else "?"
+    scene = row.scene_name_tip_id if row is not None else "?"
+    min_level = row.min_level if row is not None else "?"
+    return (
+        f"id={wire_trigger_id} name={name} {islands.CLASS_ISLAND}"
+        f" scene={scene} min_level={min_level} wire=OBSERVED_GT228_R308"
+    )
+
 
 def first_tag_value(payload: bytes, tag: int) -> int | None:
     """The first ``tag`` value in ``payload``, walking tags in order.
@@ -156,10 +212,12 @@ def console_line(payload: bytes) -> str:
             f"{TOKEN} UNPARSED len={len(payload)} hex={shown.hex()}{truncated}"
             " no_responder bytes_out=0"
         )
-    return (
-        f"{TOKEN} {islands.describe_trigger_id(trigger_id)}"
-        " no_responder bytes_out=0"
-    )
+    dock_trigger_id = M2_OBSERVED_ISLAND_TRIGGER_IDS.get(trigger_id)
+    if dock_trigger_id is not None:
+        body = _m2_observed_override_line(trigger_id, dock_trigger_id)
+    else:
+        body = islands.describe_trigger_id(trigger_id)
+    return f"{TOKEN} {body} no_responder bytes_out=0"
 
 
 # The point name is spelled as a STRING LITERAL here, not as ``POINT``.

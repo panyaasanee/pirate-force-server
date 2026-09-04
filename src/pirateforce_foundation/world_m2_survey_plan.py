@@ -32,16 +32,20 @@ handle, and the server is the one who picks it.**  RE-227's item 2 is that
 the field is copied unchanged; a value we chose and then see come back is
 ours by construction, not by interpretation.
 
-WHY IT PROVISIONS NOTHING TODAY, AND WHY THAT IS THE DELIVERABLE
+WHY THIS FILE NOW PROVISIONS TWO RECORDS, AND WHY THAT WAS THE DELIVERABLE
 ----------------------------------------------------------------
-`MEASURED_XYZ` below is EMPTY.  No destination in this project has a measured
-position in the sea, so `planned_records()` returns `()` and
-`provisionable_count()` is 0.  Every function here is fail-closed around that
-fact rather than around a flag: no XYZ, no record, no handle issued, and
-`confirm_resolution()` answers "not issued by us" for every possible u16.
+`GT-228` reported PASS (R308, 2026-09-04) and `MEASURED_XYZ` below now
+carries both M2 destinations, so `planned_records()` returns two rows and
+`provisionable_count()` is 2.  This module's fail-closed shape is unchanged:
+it is fail-closed around DATA, not a flag, so a destination with no measured
+XYZ still refuses today exactly as both did before GT-228 -- see
+`MEASURED_XYZ`'s own comment for the key, the frame, and the two numbers.
 
-The day `GT-228` reports, this file changes by DATA ONLY -- two lines in
-`MEASURED_XYZ` -- and the plan becomes non-empty on its own.
+This landed exactly the way the file promised: DATA ONLY, in `MEASURED_XYZ`
+-- no other function in this module changed.  What it does NOT mean: nothing
+here sends a record (the encoder stays unimported, see "NOT a send path"
+below) and nothing here has been client-confirmed to work -- that is
+`GT-233`'s job, not this dict's.
 
 WHICH COORDINATE FRAME, WHICH IS THE QUESTION A RECORD CANNOT DUCK
 ------------------------------------------------------------------
@@ -225,18 +229,54 @@ PLANNED_TRIGGER_IDS: tuple[int, ...] = islands.M2_TARGET_TRIGGER_IDS
 
 # trigger id -> (x, y, z) in the frame named by `XYZ_FRAME_SCENE_ID`.
 #
-# EMPTY, AND THAT IS THE CURRENT TRUTH OF M2.  GT-228 fills it; nothing else
-# may.  None of the three committed tables opened for it (see the docstring)
-# carries a position for either M2 target.
+# GT-228 (R308, PASS, OBSERVER_CONFIRMED 2026-09-04T13:22+07:00) FILLED THIS
+# DICT.  Keyed by `world_island_dock_table.DestinationRow.trigger_id` --
+# 153 Prison Exile Island, 154 Spice Paradise Island -- the SAME namespace
+# `handle_for_trigger_id()` and `PLANNED_TRIGGER_IDS` already use.  This is
+# NOT the id GT-228 saw on the wire: R308's own results letter
+# (pf_bridge/notes_to_chief/20260904_1331_KA1A-R308-RESULTS-*) measured the
+# live `TriggerVital 0x1FB2` frame carrying id=2 at Prison Exile and id=3 at
+# Spice Paradise on every one of 5 contacts -- 153/154 never appeared on the
+# wire -- which falsifies the "wire tag 0x0F carries this trigger_id"
+# hypothesis in `world_island_dock_table.py`'s own docstring.  That is a
+# finding about THAT module's docstring, opened for lane C below; it changes
+# nothing about which key THIS dict is read by, because `planned_records()`
+# looks this dict up by `PLANNED_TRIGGER_IDS` (153/154), not by the wire id.
 #
-# COO 20260904_1147 item 1: a value converted from the HUD X/Y reading plus
-# the island plane z (see `island_plane_z()`) and an axis calibrated against
-# `CONSTDATA_TH__MARKER.tsv` counts as a source for this dict -- no separate
-# "record consumed" capture is required first.  When GT-228 supplies a row,
-# tag BOTH lines it adds with a trailing comment `# DERIVED-FROM GT-228 +
-# MARKER n_ID 17`, so a later reader can tell a converted value from a
-# fabricated one without re-reading this letter.
-MEASURED_XYZ: dict[int, tuple[float, float, float]] = {}
+# Both readings were taken with the ship in scene 126 -- the same frame
+# `XYZ_FRAME_SCENE_ID` already names -- so no cross-scene conversion applies
+# here (contrast `record_xyz_from_hud()` + `island_plane_z()`, offered below
+# for a HUD that gives only two numbers: GT-228's TriggerVital frame carries
+# a genuine third one, decoded straight off the wire, so that fallback was
+# not needed this time).  z reads 186.0 on every one of the 5 contacts
+# (constant, and distinct from the ship's own z of 86.0 in the same frames).
+#
+# COO 20260904_1345 item 2 (relayed chief 20260904_1401 section 2.5): each
+# island was contacted twice, ~1219 units apart for Prison Exile; the PRIMARY
+# reading below is COO's pick, NOT an average.  The other reading is kept as
+# a labeled backup in `MEASURED_XYZ_BACKUP`, to be tried by GT-233's own STOP
+# rule if the primary does not pop the captain-report page -- see that dict's
+# comment.  Measured on `pirate-force-server` commit
+# d8969729bcdf7f6880d1b18595ea8aea77e4a7f7 (R308's boot, NOT main's head that
+# day -- ticket's own deviation 1; noted, not "fixed").
+MEASURED_XYZ: dict[int, tuple[float, float, float]] = {
+    # Prison Exile Island.  PRIMARY = rx152 13:10:13 id=2.
+    153: (-5613.8, 4162.5, 186.0),
+    # Spice Paradise Island.  PRIMARY = rx433 13:19:39 id=3.
+    154: (-1563.5, -5275.1, 186.0),
+}
+
+# The labeled backups COO 20260904_1345 item 2 ordered kept, NOT averaged
+# into `MEASURED_XYZ`.  Same keys, same frame, same shape -- and read by no
+# function in this module today.  GT-233's own STOP rule (chief
+# 20260904_1401 section 2.5) is what would try one of these, if the primary
+# reading above does not pop the captain report on an attended run.
+MEASURED_XYZ_BACKUP: dict[int, tuple[float, float, float]] = {
+    # Prison Exile Island.  rx130 13:09:28 id=2, ~1219 units from rx152.
+    153: (-4451.6, 4531.1, 186.0),
+    # Spice Paradise Island.  rx491 13:21:36 id=3.
+    154: (-1720.4, -5251.6, 186.0),
+}
 
 # The outfit the client ships every island actor of scene 126 under.
 _ISLAND_OUTFIT = "MAP_ISLAND_01"
@@ -278,11 +318,12 @@ class ConfirmResolution(NamedTuple):
     """What a confirm frame's echoed u16 is, as far as THIS BUILD can say.
 
     ``issued`` is True only when the value equals the handle of a record this
-    build could actually provision -- which needs measured XYZ.  With
-    ``MEASURED_XYZ`` empty it is False for every possible u16, and that is a
-    result, not a gap: a confirm frame arriving today carries a handle this
-    server never issued, which would refute the provisioning hypothesis
-    rather than confirm it.
+    build could actually provision -- which needs measured XYZ.  Since
+    GT-228 (PASS, R308), ``MEASURED_XYZ`` carries both M2 destinations, so
+    ``issued`` is True for the two real handles (see ``handle_for_trigger_id``
+    for trigger ids 153/154) and still False for every other u16 -- a
+    destination with no measured XYZ would still refuse, but there is none
+    left today.
     """
 
     handle: int
@@ -413,7 +454,9 @@ def planned_records() -> tuple[PlannedRecord, ...]:
     """Every record this build could provision right now.
 
     Fail-closed on data, not on a flag: a destination appears here only when
-    ``MEASURED_XYZ`` carries a triple for it, so today this returns ``()``.
+    ``MEASURED_XYZ`` carries a triple for it.  Since GT-228 (PASS, R308) both
+    M2 destinations have one, so today this returns 2 records; a destination
+    with no measured XYZ would still be skipped.
     """
     planned: list[PlannedRecord] = []
     for trigger_id in PLANNED_TRIGGER_IDS:
@@ -442,7 +485,8 @@ def planned_records() -> tuple[PlannedRecord, ...]:
 
 
 def provisionable_count() -> int:
-    """How many records this build could provision.  0 until GT-228 reports."""
+    """How many records this build could provision.  2 since GT-228 (PASS,
+    R308) filled ``MEASURED_XYZ`` for both M2 destinations; 0 before that."""
     return len(planned_records())
 
 

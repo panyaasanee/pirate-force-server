@@ -92,7 +92,16 @@ class TheFiveCapturedFramesEachProduceOneCorrectLineTests(unittest.TestCase):
                 )
 
     def test_each_frame_yields_one_line_carrying_the_clients_own_name(self):
+        # Frame 217 (id=3, "Seafood Cargo") is excluded from the blanket PROP
+        # assertion below on purpose -- see the class right after this one.
+        # GT-228 (R308, PASS) made id=3 the OBSERVED wire id for Spice
+        # Paradise Island contact, and the hook now reports it as ISLAND
+        # even though this specific captured frame really is R307's ordinary
+        # Seafood Cargo prop hit; COO-DECISION 20260904_1345 item 3(a)
+        # accepts that collision as a known risk of the id-2/3 hypothesis.
         for frame, (trigger_id, name) in EXPECTED_NAMES.items():
+            if frame == 217:
+                continue
             line = hooklog.console_line(NESTED_PAYLOADS[frame])
             with self.subTest(frame=frame):
                 self.assertIn(f"id={trigger_id} ", line)
@@ -100,6 +109,17 @@ class TheFiveCapturedFramesEachProduceOneCorrectLineTests(unittest.TestCase):
                 self.assertIn(" PROP", line)
                 self.assertNotIn("ISLAND", line)
                 self.assertNotIn("UNPARSED", line)
+
+    def test_frame_217_is_the_known_id3_collision_gt228_now_calls_island(self):
+        # Real R307 bytes, real "Seafood Cargo" name from the client's own
+        # table -- and, since GT-228, ALSO the id the wire uses for Spice
+        # Paradise Island contact.  This test pins the collision so the next
+        # round that touches this hook sees it as a documented, accepted
+        # trade-off rather than rediscovering it as a regression.
+        line = hooklog.console_line(NESTED_PAYLOADS[217])
+        self.assertIn("id=3 name=Spice Paradise Island ISLAND", line)
+        self.assertIn("wire=OBSERVED_GT228_R308", line)
+        self.assertNotIn("Seafood Cargo", line)
 
     def test_the_five_lines_are_five_distinct_lines(self):
         lines = {hooklog.console_line(p) for p in NESTED_PAYLOADS.values()}
@@ -167,6 +187,59 @@ class AnIslandIdWouldAnnounceItselfTests(unittest.TestCase):
 
     def test_the_two_ids_the_ticket_targets_are_the_milestone_targets(self):
         self.assertEqual(islands.M2_TARGET_TRIGGER_IDS, (153, 154))
+
+
+# R308's own captured nested payloads (KA1A-R308-RESULTS, 20260904_1331):
+# rx130/rx152/rx248 at Prison Exile Island (id=2), rx433/rx491 at Spice
+# Paradise Island (id=3).  Trimmed to the tag-walker's own shape
+# (`0F <id> 00 0B 04 2A x 2A y 2A z`), same convention `NESTED_PAYLOADS`
+# above uses for the R307 fixtures.
+R308_NESTED_PAYLOADS = {
+    "rx130": _hex(
+        "0F 02 00 0B 04 2A 78 1C 8B C5 2A AB 98 8D 45 2A 00 00 3A 43"
+    ),
+    "rx152": _hex(
+        "0F 02 00 0B 04 2A 54 6E AF C5 2A 51 14 82 45 2A 00 00 3A 43"
+    ),
+    "rx433": _hex(
+        "0F 03 00 0B 04 2A 31 6F C3 C4 2A 04 D9 A4 C5 2A 00 00 3A 43"
+    ),
+    "rx491": _hex(
+        "0F 03 00 0B 04 2A 03 0C D7 C4 2A E4 1C A4 C5 2A 00 00 3A 43"
+    ),
+}
+
+
+class TheGT228ObservedOverrideTests(unittest.TestCase):
+    """id 2/3 on REAL R308 wire bytes -- not the 153/154 fabricated payloads
+    `AnIslandIdWouldAnnounceItselfTests` above uses, which have never once
+    been observed.  COO-DECISION 20260904_1345 item 3(a)."""
+
+    def test_every_r308_island_contact_frame_says_island(self):
+        expect = {
+            "rx130": (2, "Prison Exile Island"),
+            "rx152": (2, "Prison Exile Island"),
+            "rx433": (3, "Spice Paradise Island"),
+            "rx491": (3, "Spice Paradise Island"),
+        }
+        for label, (wire_id, name) in expect.items():
+            line = hooklog.console_line(R308_NESTED_PAYLOADS[label])
+            with self.subTest(label=label):
+                self.assertIn(f"id={wire_id} name={name} ISLAND", line)
+                self.assertIn("wire=OBSERVED_GT228_R308", line)
+                self.assertIn("no_responder bytes_out=0", line)
+
+    def test_the_override_table_is_exactly_the_two_observed_ids(self):
+        self.assertEqual(
+            hooklog.M2_OBSERVED_ISLAND_TRIGGER_IDS, {2: 153, 3: 154}
+        )
+
+    def test_an_id_outside_the_override_still_uses_the_dock_table(self):
+        # id=40 (Black Braid Landmine, R307 frame 114) is untouched by the
+        # override -- still PROP, still the client's own name.
+        line = hooklog.console_line(NESTED_PAYLOADS[114])
+        self.assertIn("id=40 name=Black Braid Landmine PROP", line)
+        self.assertNotIn("OBSERVED_GT228_R308", line)
 
 
 class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
@@ -577,6 +650,18 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
         self.assertEqual(len(lines), 5, console)
         self.assertEqual(state.rx_frames, rx_before + 5)
         for _frame_no, (trigger_id, name) in EXPECTED_NAMES.items():
+            if _frame_no == 217:
+                # id=3 -- the known GT-228 override collision, see
+                # `TheFiveCapturedFramesEachProduceOneCorrectLineTests
+                # .test_frame_217_is_the_known_id3_collision_gt228_now_calls_island`.
+                self.assertTrue(
+                    any(
+                        "id=3 name=Spice Paradise Island ISLAND" in line
+                        for line in lines
+                    ),
+                    lines,
+                )
+                continue
             self.assertTrue(
                 any(f"id={trigger_id} name={name} " in line for line in lines),
                 f"no line for id={trigger_id}: {lines}",
