@@ -10049,6 +10049,75 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     actions = []
             else:
                 actions = super().dispatch(parsed)
+            # LANE-B's ground re-announce, wired here and nowhere else.
+            # `mob_drop_presence.GROUND_REANNOUNCE_WIRING` asks for this line
+            # "wherever the 44-byte reply actually gets appended to actions"
+            # and names the two `make_proactive_second_password_ok` blocks.
+            # MEASURED this round (pf-adversary, executable probe, both with
+            # and without scenario flags): those two blocks are BOTH behind
+            # `second_password_mode == "bypass"`, and the attended build must
+            # boot `required` -- `--second-password-mode bypass` turns the
+            # census off on all 13 maps (`world_census_enabled` below, and
+            # `pf_bridge/notes_to_chief/20260902_1604_LANE-GM-TO-CHIEF-*`).
+            # Pasting there would have been dead code on every attended boot.
+            #
+            # The reply IS sent on a `required` boot -- by INHERITANCE, which
+            # is why no grep of this file finds the vital:
+            # `PersistentGameSessionState(legacy.GameSessionState)` reaches
+            # `pf_login_game_server_v141.py:3864-3867`, which appends
+            # `V110_CHECK_SECOND_PASSWORD_OK` (pc 34 B / frame 44 B) through
+            # the `super().dispatch(parsed)` above.  ka1-A's R309 log records
+            # both halves on a no-flag boot: `14:18:01 client CheckSecondPwd
+            # Vital 0x4B98 (64 B) -> server V110_CHECK_SECOND_PASSWORD_OK
+            # (44 B)` (`pf_bridge/notes_to_chief/20260904_1430_KA1A-R309-*`).
+            #
+            # GATED ON THE VITAL, NOT UNCONDITIONAL.  Every non-ChooseNPC
+            # vital lands on this branch, so an unguarded extend here would
+            # be a resend of the whole floor on every inbound frame -- the
+            # standing cadence resend `WITHDRAWN_DROP_PRESENCE_RESEND_ON_
+            # MOVEMENT_WIRING` records COO refusing on 2026-08-30T17:42.
+            # Gated, it is one extra re-announce per second-password unlock,
+            # which is a rare player-driven event (the bag prompt plus four
+            # keys and Enter -- `reports/PF_RE_V101_Empty_Backpack_and_
+            # Second_Password_20260814.md`), the shape LANE-B asked for.
+            #
+            # NO `scene=` ARGUMENT, per the wiring ask: the cell knows its own
+            # scene through `cell.publication()`, exactly as `sustain_a_kill`
+            # reads it, and this call site's own belief would only ever
+            # confirm it at the cost of one more name to keep in sync.
+            #
+            # NOT A CLAIM ABOUT WHY THE FLOOR CLEARS.  `mob_drop_presence`'s
+            # comment block says the reply's trailing `0B 00` is "an empty
+            # ground-list" the client reads as a bare floor.  MEASURED this
+            # round: `0B 00` is the RuntimeRes v4 derived-class change mask
+            # = 0 (`pf_login_game_server_v141.py:706-711` appends it to EVERY
+            # runtime-vitals frame -- V99 show-message and V100 music carry
+            # the same two bytes), so the ground list is ABSENT (derived bit
+            # 0x08 clear), not present-and-empty.  Whether an absent member
+            # empties the client's pool is UNMEASURED and awaiting COO by
+            # LANE-B's own note (`mob_loot.py:5189-5195`).  This line is a
+            # positive re-assertion of ground truth after the reply; it does
+            # not depend on that mechanism being what anyone thinks it is.
+            if getattr(parsed, "nested_id", None) == getattr(
+                legacy, "CHECK_SECOND_PWD_VITAL", None,
+            ):
+                # `reannounce_ground` never raises for any argument and always
+                # returns a tuple, so neither a getattr default nor a branch is
+                # needed past this point -- an absent cell is one of the named
+                # refusals it prints, not an exception on the listener thread.
+                reannounced = list(mob_drop_presence.reannounce_ground(
+                    getattr(self, "mob_loot_cell", None), legacy,
+                ))
+                actions = list(actions) + reannounced
+                # The token `reannounce_ground` prints fires on COMPOSITION.
+                # This event fires on the APPEND, and carries the count, so a
+                # paste that composes frames and then drops them (an `actions`
+                # rebind, a forgotten extend) is distinguishable from a floor
+                # that was genuinely bare -- pf-adversary D6 this round.
+                self.events.append(
+                    "ground_reannounce_after_second_pwd_appended_%d"
+                    % len(reannounced)
+                )
             # The frozen branch is the "fifth line" -- it queues
             # scene-1-shaped actors without reading what scene the session
             # is in.  It cannot be edited (v141 is pinned) and cannot be
