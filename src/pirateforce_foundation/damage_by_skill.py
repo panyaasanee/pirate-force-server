@@ -30,12 +30,25 @@ movement, by their own titles, not attacks.  The five 40000-series ids are
 "<Class> Basic Training" — `skill_catalog.py`'s own docstring (round 6o11t1)
 already proved `n_PASSIVE` cannot be used to tell these apart from real
 attack skills, and the one table that could (`s_CAST_CONDITION`/
-`s_CAST_BEHAVIOR` token grammar) is still an OPEN ticket, `RE-232`, not yet
-answered.  Guessing any of the other 7 one way or the other here would be
-exactly the "invented type column" `skill_catalog.py` already refused to
-build.  `resolve_skill_damage` therefore REFUSES every id but 99 by name,
-loudly, instead of silently treating it as zero damage or silently treating
-it as an attack.
+`s_CAST_BEHAVIOR` token grammar) has now been tried and failed: `RE-232`
+came back **BOUNDED-NEGATIVE** (pf_bridge/notes_to_chief/20260904_1055_
+RE-232-RESULT-BOUNDED-NEGATIVE-EIGHT-ROWS-DO-NOT-CLASSIFY.md, closed the
+same round this docstring was corrected, `tp9rpy`) — the grammar has real
+condition/behavior structure, but none of the 8 rows offers an
+independently-labeled AOE, self-buff or heal example to check a classifier
+against, and the tokens it does show (`GO`, `CHASE`, `SKIP`, `ISVIP_I`) are
+control-flow/edge data, not a type enum, so they cannot tell the remaining 7
+ids apart either.  The result letter's own `BUILD_IMPACT` line is explicit:
+"no classifier change" — the refusal below is not provisional pending an
+open ticket, it is what the evidence supports today.  Guessing any of the
+other 7 one way or the other here would be exactly the "invented type
+column" `skill_catalog.py` already refused to build.  A classifier for them
+would need a NEW ticket (the result letter's own suggestion: at least 8 more
+rows, independently labeled 2 single-target + 2 AOE + 2 self-buff + 2 heal,
+alongside these 8 as controls) — no such ticket exists yet as of this round.
+`resolve_skill_damage` therefore REFUSES every id but 99 by name, loudly,
+instead of silently treating it as zero damage or silently treating it as an
+attack.
 
 ZERO PRODUCTION CALLERS THIS ROUND.  `mob_combat.attack_from_observed_action`
 reads only `field_qword_20` (the target identity) from the inbound
@@ -125,8 +138,8 @@ def resolve_skill_damage(
         raise DamageBySkillError(
             "skill_id %r (%r) is a known starting-kit skill but is not yet "
             "classified as an attack skill -- RE-232 (s_CAST_CONDITION/"
-            "s_CAST_BEHAVIOR token grammar) has not answered whether it "
-            "deals damage; refusing rather than guessing" % (
+            "s_CAST_BEHAVIOR token grammar) came back BOUNDED-NEGATIVE and "
+            "does not classify it either way; refusing rather than guessing" % (
                 skill_id, skill_catalog.skill_title(skill_id))
         )
     return resolve_damage(attacker, defender)
