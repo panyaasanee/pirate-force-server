@@ -59,7 +59,12 @@ directions.
 
 A DESTINATION THE NEXT LOGIN WOULD REFUSE IS NOT PERSISTED.  This write
 exists FOR the next login -- that is the entire content of `1430`.  A scene
-pinned `login_entry_allowed=False` (scene 126 today) accepts the write
+pinned `login_entry_allowed=False` (~~scene 126 today~~ -- STRUCK, and the
+number was already wrong when it was written: re-derived from
+`scenarios/world_scene_registry_001.json` at HEAD the set is **17 and 126**,
+pf-adversary round `741zlx` finding 9; `world_scene_entry.py` carries the
+mirror-image half-truth "today: scene 17 only", which is chief's zone and is
+named in this round's letter rather than edited here) accepts the write
 through `is_position_persist_allowed`, which is a different question, and
 `world_scene_entry.resolve_entry` then refuses the next login with
 `scene_not_allowed_at_login`: the row is written, the character cannot get
@@ -113,6 +118,20 @@ CONSOLE_TOKEN = "GM_WARP_SCENE_PERSISTED"
 #: warp target at all, and there is no scene id to name.
 FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_PERSIST_FAILED"
 
+#: The two lines the UNDO prints.  `pf-adversary` round `741zlx`, finding 1
+#: (CRITICAL, MEASURED): `_make_action` can withhold a composed `/warp <n>`
+#: AFTER this module has already moved the row -- an `outcome` row that cannot
+#: be appended withholds the action, and until this round nothing put the row
+#: back, because `_warp_teleport_action_no_coords` returned a `_Verdict` with
+#: `undo=None` while `_Verdict`'s own docstring reserves that for a handler
+#: that changed no durable state.  Measured end to end: zero bytes on the
+#: wire, `character_positions` reading the destination, the in-memory row
+#: still in the departure scene, and the next login landing in a scene the
+#: client was never sent to -- the character-bricking shape `CHARTER-02` rule
+#: 2 forbids, arriving through a door `COO 1452`'s ruling never opened.
+ROLLBACK_CONSOLE_TOKEN = "GM_WARP_SCENE_ROLLED_BACK"
+ROLLBACK_FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_ROLLBACK_FAILED"
+
 # The outcome words.  One per reachable state, never collapsed into a single
 # "failed": this module exists BECAUSE "the row did not move" and "the row
 # moved to the wrong place" had looked identical to a tester, and a report
@@ -126,11 +145,45 @@ OUTCOME_COMPOSE_REFUSED_PREFIX = "compose_refused_"
 OUTCOME_WRITE_REFUSED_PREFIX = "write_refused_"
 OUTCOME_READBACK_UNAVAILABLE = "readback_unavailable"
 OUTCOME_ROW_NOT_TOUCHED = "row_not_touched"
+# `pf-adversary` round `741zlx`, finding 2 (MAJOR, MEASURED).  `row_not_touched`
+# was answering two questions with one word, which is the exact merge the block
+# above forbids for itself.  Scene 14 is marker-backed and
+# `login_entry_allowed=True`, so it IS a live `/warp` destination -- but it is
+# pinned `persist_position_allowed=False`, so `lifecycle.checkpoint` calls
+# `save_position(write_position=False)` and RETURNS CLEANLY HAVING WRITTEN
+# NOTHING.  Measured: `/warp 14` sends the frame, the row stays in the
+# departure scene, the next login comes back to it -- R309's own symptom,
+# unclosed, for that scene.  A tester reading `row_not_touched` cannot tell
+# "the registry deliberately forbids writing here" from "the store silently
+# lied about a write it accepted", and only the second is a defect.  The
+# registry answer gets its own word; nothing else changes, and in particular
+# this lane does NOT decide whether scene 14 should become persistable -- that
+# is a registry question, raised with COO in this round's letter.
+OUTCOME_PERSIST_FORBIDDEN_BY_REGISTRY = "persist_forbidden_by_registry"
 OUTCOME_SELECTED_NOT_RESTORED = "selected_not_restored"
+
+# The undo's own words.  Same rule as above: "there was nothing to put back"
+# and "putting it back failed" are different answers and never share a word.
+OUTCOME_ROLLED_BACK = "rolled_back"
+OUTCOME_NOTHING_TO_ROLL_BACK = "nothing_to_roll_back"
+OUTCOME_ROLLBACK_REFUSED_PREFIX = "rollback_refused_"
+OUTCOME_ROLLBACK_NOT_CONFIRMED = "rollback_not_confirmed"
 
 #: Event names, one per outcome, in this module's own namespace so a reader of
 #: `session.events` can tell a warp-persist line from `/speed`'s.
 EVENT_PREFIX = "gm_warp_scene_persist_"
+
+#: `pf-adversary` round `741zlx`, finding 4 (MAJOR, MEASURED): a stderr whose
+#: `write()` raises used to cost the token SILENTLY -- `persist_warp_scene`
+#: returned `persisted` and printed nothing at all, so the one blindness
+#: `COO-DECISION 20260904_1646` item 2 exists to abolish ("wrote" and
+#: "wrote-failed-silently" identical on the screen a tester reads) was
+#: reachable through the console itself.  The sibling call site next door
+#: already names its own version of this (`EVENT_CONSOLE_WRITE_FAILED_PREFIX`
+#: in `chat_command_action.py`); this module had no such event.  Now every
+#: skipped line leaves a named event carrying the reason word whose line was
+#: lost, so a skip is counted even when it cannot be seen.
+EVENT_CONSOLE_WRITE_FAILED_PREFIX = EVENT_PREFIX + "console_write_failed_"
 
 # The columns the read-back compares.  `heading` is deliberately absent: the
 # write carries the row's own heading over unchanged, so it can never be
@@ -212,7 +265,7 @@ def persist_warp_scene(session: object, target: object) -> str:
         # A session shape with no write door is not an error to raise; it is
         # a replay tool, a test double, or a connection that has not reached
         # the game stage.  Named, and the warp still goes out.
-        return _fail(target, OUTCOME_NO_SESSION_DOOR)
+        return _fail(target, OUTCOME_NO_SESSION_DOOR, session)
 
     selected = getattr(foundation, "selected", None)
     character_id = getattr(selected, "id", None)
@@ -220,11 +273,11 @@ def persist_warp_scene(session: object, target: object) -> str:
         # `checkpoint` itself raises RuntimeError for a None selection; this
         # branch answers the same state with a word instead, and additionally
         # covers the read-back below, which needs an int id it can look up.
-        return _fail(target, OUTCOME_NO_CHARACTER)
+        return _fail(target, OUTCOME_NO_CHARACTER, session)
 
     if not login_would_accept(target.scene_id):
         # See the module docstring: writing here is what bricks a character.
-        return _fail(target, OUTCOME_LOGIN_WOULD_REFUSE)
+        return _fail(target, OUTCOME_LOGIN_WOULD_REFUSE, session)
 
     try:
         position = warp_destination_position(target, getattr(selected, "position", None))
@@ -232,7 +285,9 @@ def persist_warp_scene(session: object, target: object) -> str:
         # Type name only, never the message: a message can embed the
         # coordinates a GM typed, and console lines are not the place for
         # operator-controlled text (`_one_line`'s reasoning next door).
-        return _fail(target, f"{OUTCOME_COMPOSE_REFUSED_PREFIX}{type(error).__name__}")
+        return _fail(
+            target, f"{OUTCOME_COMPOSE_REFUSED_PREFIX}{type(error).__name__}", session,
+        )
 
     try:
         checkpoint(position)
@@ -243,39 +298,229 @@ def persist_warp_scene(session: object, target: object) -> str:
         # after the store call returns, but a partially-applied double could
         # have done either, and putting the snapshot back is correct for both.
         _restore_selected(foundation, selected)
-        return _fail(target, f"{OUTCOME_WRITE_REFUSED_PREFIX}{type(error).__name__}")
+        return _fail(
+            target, f"{OUTCOME_WRITE_REFUSED_PREFIX}{type(error).__name__}", session,
+        )
 
     if not _restore_selected(foundation, selected):
         # The durable row moved and the in-memory row could not be put back,
         # so `runtime.py`'s cross-scene machinery is now keyed on a row this
         # module changed.  Reported as its own outcome rather than folded
         # into success: the write landed, but not on the terms above.
-        return _fail(target, OUTCOME_SELECTED_NOT_RESTORED)
+        return _fail(target, OUTCOME_SELECTED_NOT_RESTORED, session)
 
     stored = _row_position(foundation, character_id)
     if stored is None:
-        return _fail(target, OUTCOME_READBACK_UNAVAILABLE)
+        return _fail(target, OUTCOME_READBACK_UNAVAILABLE, session)
     for column in _COMPARED_COLUMNS:
         if getattr(stored, column, None) != getattr(position, column):
             # The write door returned cleanly and the row is not the row this
-            # call asked for.  Today the one reachable cause is the
+            # call asked for.  ~~Today the one reachable cause is the
             # `is_position_persist_allowed` gate inside `lifecycle.checkpoint`,
             # which skips the column write for a pinned-False scene while
             # still proving ownership.  Whatever the cause: no PERSISTED token
-            # -- but the tester watching the console still gets the FAILED one.
-            return _fail(target, OUTCOME_ROW_NOT_TOUCHED)
+            # -- but the tester watching the console still gets the FAILED
+            # one.~~ -- STRUCK, not deleted (finding 2): the cause was named
+            # correctly and then reported under a word that hides it.  When
+            # the registry is the reason, SAY the registry is the reason; the
+            # word is different, the console line is still printed, and the
+            # `row_not_touched` word keeps its honest meaning -- "the store
+            # accepted a write and the row did not move", which IS a defect.
+            if not _registry_forbids_persist(target.scene_id):
+                return _fail(target, OUTCOME_ROW_NOT_TOUCHED, session)
+            return _fail(target, OUTCOME_PERSIST_FORBIDDEN_BY_REGISTRY, session)
 
-    try:
-        # From the ROW that came back, not from the value passed in.
-        print(f"{CONSOLE_TOKEN} scene={stored.scene_id}", file=sys.stderr)
-    except Exception:  # noqa: BLE001 - a closed or replaced stderr must not
-        # undo a durable write that already succeeded.  The row is the
-        # deliverable; the line about it is not.
-        pass
+    # From the ROW that came back, not from the value passed in.
+    if not _console(f"{CONSOLE_TOKEN} scene={stored.scene_id}"):
+        # A closed, detached or raising stderr must not undo a durable write
+        # that already succeeded -- but it must not make the write INVISIBLE
+        # either (finding 4).  The row is the deliverable; the line about it
+        # is not; the record that the line was lost is.
+        _note_console_loss(session, OUTCOME_PERSISTED)
     return OUTCOME_PERSISTED
 
 
-def _fail(target: WarpTarget, reason: str) -> str:
+def row_before_warp(session: object):
+    """The durable row as it stands RIGHT NOW, or None if it cannot be read.
+
+    Called by `chat_command_action._persist_warp_scene` immediately BEFORE
+    `persist_warp_scene`, so that the caller holds the only thing an undo can
+    be built from.  Reads through the same `store.get_character` door the
+    read-back uses, adds no SQL, and never raises.
+
+    `None` means "no undo is possible", and the caller must offer none rather
+    than offer one that cannot put anything back -- reporting a revert that
+    did not happen is the false report this module exists to refuse.
+    """
+    foundation = getattr(session, "foundation", None)
+    character_id = getattr(getattr(foundation, "selected", None), "id", None)
+    if isinstance(character_id, bool) or type(character_id) is not int:
+        return None
+    return _row_position(foundation, character_id)
+
+
+def rollback_warp_scene(session: object, previous: object) -> str:
+    """Put the pre-warp row back.  One word back.  NEVER raises.
+
+    THE UNDO `_Verdict` ALREADY EXPECTED AND THIS HANDLER NEVER SUPPLIED.
+    `pf-adversary` round `741zlx`, finding 1, MEASURED through the real
+    router and the real store: inject one fault the production code already
+    handles (`log_gm_command_outcome` raising `OSError` -- a full disk, a
+    read-only capture directory) and `_make_action` withholds the composed
+    `/warp <n>` action AFTER this module has moved the row.  It reverts the
+    staged config, it clears the parked warp target, it sets `action = None`
+    -- and the row stayed in the destination scene with ZERO bytes on the
+    wire.  The GM's screen never changed; the next login landed in a scene
+    the client was never sent to, and only another login could rewrite it.
+    That is the bricking shape `CHARTER-02` rule 2 forbids and the exact rule
+    `persist_warp_scene`'s own docstring states ("A refused warp leaves no
+    bytes on the wire and must leave no row change either").
+
+    THIS IS NOT THE `v141` SEND WINDOW.  `CORE-REQUEST-GM-055` (this round)
+    asks chief for the OTHER one: the row is written at compose time and the
+    socket write happens ~2,200 lines later, in chief's zone, where this lane
+    may not put a call.  The audit-withheld window is entirely inside this
+    lane's own files, which is why it is closed here and now instead of being
+    added to that letter.
+
+    Goes through the SAME write door, for the same reason the forward write
+    does: `FoundationSession.checkpoint` -> `lifecycle.checkpoint` ->
+    `store.save_position`, so the ownership check and the persist-allowed
+    gate behave exactly as they did on the way out.  Restores
+    `foundation.selected` afterwards on the same grounds as the forward
+    write, and READS THE ROW BACK: an undo that reports success it cannot
+    demonstrate is the failure this module refuses everywhere else.
+    """
+    if not isinstance(previous, Position):
+        # Nothing was captured, so there is nothing to claim.  Named rather
+        # than silently "successful": the caller reports it as its own event.
+        return OUTCOME_NOTHING_TO_ROLL_BACK
+
+    foundation = getattr(session, "foundation", None)
+    checkpoint = getattr(foundation, "checkpoint", None)
+    selected = getattr(foundation, "selected", None)
+    character_id = getattr(selected, "id", None)
+    if (
+        not callable(checkpoint)
+        or selected is None
+        or isinstance(character_id, bool)
+        or type(character_id) is not int
+    ):
+        return _rollback_failed(previous, OUTCOME_NO_SESSION_DOOR, session)
+
+    try:
+        checkpoint(previous)
+    except Exception as error:  # noqa: BLE001 - see the forward write's own
+        # reasoning: a stale or non-owning session raises PermissionError out
+        # of `store.save_position`, and a store double can raise anything.
+        _restore_selected(foundation, selected)
+        return _rollback_failed(
+            previous,
+            f"{OUTCOME_ROLLBACK_REFUSED_PREFIX}{type(error).__name__}",
+            session,
+        )
+
+    _restore_selected(foundation, selected)
+
+    stored = _row_position(foundation, character_id)
+    if stored is None:
+        return _rollback_failed(
+            previous, OUTCOME_READBACK_UNAVAILABLE, session,
+        )
+    for column in _COMPARED_COLUMNS:
+        if getattr(stored, column, None) != getattr(previous, column):
+            return _rollback_failed(
+                previous, OUTCOME_ROLLBACK_NOT_CONFIRMED, session,
+            )
+
+    if not _console(f"{ROLLBACK_CONSOLE_TOKEN} scene={stored.scene_id}"):
+        _note_console_loss(session, OUTCOME_ROLLED_BACK)
+    return OUTCOME_ROLLED_BACK
+
+
+def _rollback_failed(previous: Position, reason: str, session: object) -> str:
+    """`_fail`'s twin for the undo: same rule, different token and scene.
+
+    The scene named is the one the row was being put BACK to, because that is
+    the fact a tester needs -- "the row should now read scene 1 and does not".
+    """
+    if not _console(
+        f"{ROLLBACK_FAIL_CONSOLE_TOKEN} scene="
+        f"{getattr(previous, 'scene_id', '?')} reason={reason}"
+    ):
+        _note_console_loss(session, reason)
+    return reason
+
+
+def _registry_forbids_persist(scene_id: object) -> bool:
+    """Whether THIS scene is pinned `persist_position_allowed=False`.
+
+    Asked only after a read-back has already shown the row did not move, and
+    only to pick which true word to report.  Fails CLOSED to "no" -- an
+    unreadable or raising registry must not let a real silent-write defect be
+    reported as a deliberate policy refusal, which is the direction that
+    would hide a bug rather than name one.
+    """
+    if isinstance(scene_id, bool) or type(scene_id) is not int:
+        return False
+    try:
+        return not world_scene_travel.is_position_persist_allowed(scene_id)
+    except Exception:  # noqa: BLE001 - see docstring: fail closed to "no".
+        return False
+
+
+def _console(line: str) -> bool:
+    """Put one line on stderr.  Never raises.  NEVER falls back to stdout.
+
+    `pf-adversary` round `741zlx`, finding 3 (MAJOR, MEASURED).  Both callers
+    used to say `print(..., file=sys.stderr)`, and `sys.stderr` can be `None`
+    -- a detached console, `pythonw`, a harness that closed it.  `print` reads
+    `file=None` as "use stdout" and writes the token there without raising, so
+    the guard both call sites had (a `try/except`) could not see it happen.
+    That is the exact incident the sibling next door documents and guards
+    against (`chat_command_action.py`: "`None` is checked separately ...
+    `print` would quietly write the token to STDOUT (pf-adversary D1), which
+    is the `lane_hooks` JSON-artifact incident"), and it is the reason this
+    module's own `CONSOLE_TOKEN` comment gives for choosing stderr at all:
+    `tools/pf_runtimeres_death_headless_replay.py --json` writes its artifact
+    on stdout, so a token that lands there corrupts the artifact instead of
+    informing a tester.
+
+    Returns whether the line was really written, so a caller can NAME a lost
+    line rather than skip it in silence (finding 4).
+    """
+    stream = sys.stderr
+    if stream is None:
+        return False
+    try:
+        print(line, file=stream)
+    except Exception:  # noqa: BLE001 - a closed, replaced or raising stderr
+        # must not turn a named outcome back into a raise, nor undo whatever
+        # the outcome already cost or saved.  The row is the deliverable; the
+        # line about it is not.
+        return False
+    return True
+
+
+def _note_console_loss(session: object, reason: str) -> None:
+    """Record that the console line for `reason` never reached the screen.
+
+    Defensive to the bone: this runs on the game-listener thread inside error
+    handling, so a session with no `events`, a read-only `events`, or an
+    `append` that raises costs nothing.  A lost line that is also an
+    unrecorded loss is the failure mode this exists to end, but it must not
+    become a second way to take the thread down.
+    """
+    try:
+        events = getattr(session, "events", None)
+        if events is None:
+            return
+        events.append(f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{reason}")
+    except Exception:  # noqa: BLE001 - see docstring
+        return
+
+
+def _fail(target: WarpTarget, reason: str, session: object = None) -> str:
     """Print `FAIL_CONSOLE_TOKEN` and hand the reason word straight back.
 
     `COO-DECISION 20260904_1646` item 2: every reachable non-persisted
@@ -286,12 +531,13 @@ def _fail(target: WarpTarget, reason: str) -> str:
     past the `isinstance(target, WarpTarget)` guard at the top of
     `persist_warp_scene`.
     """
-    try:
-        print(f"{FAIL_CONSOLE_TOKEN} scene={target.scene_id} reason={reason}", file=sys.stderr)
-    except Exception:  # noqa: BLE001 - see CONSOLE_TOKEN's print, same rule:
-        # a closed or replaced stderr must not turn a named outcome back
-        # into a raise, nor undo whatever the outcome already cost or saved.
-        pass
+    if not _console(
+        f"{FAIL_CONSOLE_TOKEN} scene={target.scene_id} reason={reason}"
+    ):
+        # The line is gone; the loss is not.  `session` is optional only so
+        # the older direct callers in the tests keep working -- every call
+        # from `persist_warp_scene` passes it.
+        _note_console_loss(session, reason)
     return reason
 
 
