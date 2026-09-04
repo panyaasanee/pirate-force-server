@@ -2712,13 +2712,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             attribute one on-screen effect (if any ever appears) to one
             frame: the count=0 edge with trailing 0, count=1 with trailing
             0, the same count=1 body with only the trailing byte moved to 1,
-            and the count=3 multi-record body with varied opaque values
-            under trailing 0 and again under trailing 1.  The body
-            shape is the GT-050-proven one; the record SEMANTICS are unknown
-            and unnamed, and the values are this project's own design.
-            Every frame is composed, re-decoded and hash-pinned before any
-            of them is queued.  The lane touches no store (learned skills
-            have no table), takes no socket action, and is not one-shot.
+            the count=3 multi-record body with varied opaque values under
+            trailing 0 and again under trailing 1, and (added for the
+            skill-window-content GT, COO-DECISION 20260904_2154) a count=4
+            body carrying class_id=1's own real starting-kit skill ids
+            (each repeated in all three record wire positions) under
+            trailing 0.  The body shape is the GT-050-proven one; the
+            record SEMANTICS are unknown and unnamed even for the real-id
+            step, and the values are this project's own design.  Every
+            frame is composed, re-decoded and hash-pinned before any of
+            them is queued.  The lane touches no store (learned skills have
+            no table), takes no socket action, and is not one-shot.
             """
             self.rx_frames += 1
             classification = classify_chat_input_attempt(legacy, parsed)
