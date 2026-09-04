@@ -2,26 +2,27 @@
 -- see ``lane_ui_party_wire_log.py``'s module docstring for the shared
 shape, limits, and the CORE-REQUEST/letter chain this belongs to.
 
-NOT wired into ``runtime.py`` yet. The point name below
+WIRED into ``runtime.py``. The point name below
 (``vital_inbound_trace_path_req_vital``) is REGISTERED (this module's
 import prints ``LANE_HOOK_REGISTERED`` for it, same as every other
-``lane_hooks`` module) but never FIRED until a ``lane_hooks.fire(...)`` call
-lands inside ``trace_path.py``'s existing dispatch branch
-(``runtime.py:7487``, ``nested_id == trace_path.TRACE_PATH_REQ_VITAL_ID``)
--- see ``lane_hooks/__init__.py``'s own module docstring, "ROUND apk7ue,
-ACCURACY NOTE", for the precedent this module follows exactly
-(``vital_inbound_chat_local_talk`` is the same shape: registered, never
-fired, until its own owning lane's dispatch branch adds one line). That one
-line is CORE-REQUEST'd to chief in
+``lane_hooks`` module) and, since chief (LANE-E) round 5e00uw, is also
+FIRED: ``lane_hooks.fire(...)`` sits inside ``trace_path.py``'s existing
+dispatch branch (``nested_id == trace_path.TRACE_PATH_REQ_VITAL_ID``, grep
+that rather than trusting a line number). That call was CORE-REQUEST'd to
+chief in
 ``notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-fire-trace-path-req-observer.md``,
-same round this file was written. Until that lands, this module changes
-zero behavior on ``main`` -- it exists so the call, once added, has
-something ready to fire into, the same reasoning
+the same round this file was written, and granted the round after. It is
+log-only: ``fire()`` returns no value and touches no control flow, so the
+empty-vector reply CORE-REQUEST-025 installed in that branch is unchanged,
+and this module still decides nothing about the request's own fields
+(``RE-236`` item (b) stays open). Before that call landed, this module
+changed zero behavior on ``main`` -- it existed so the call, once added,
+had something ready to fire into, the same reasoning
 ``logout_dialog_open_hypothesis.py``'s own docstring gives for its own
 inert-until-wired module.
 
 WHY THIS IS WORTH BUILDING BEFORE THE WIRING LANDS. The next attended round
-that answers ``RE-236`` item (ข) (``CLIENT_RE_QUEUE.md``: click two targets
+that answers ``RE-236`` item (b) (``CLIENT_RE_QUEUE.md``: click two targets
 whose ``QUEST.n_ID``/``MOBS.n_ID`` do not collide, GO! each, compare
 ``u16@+0x14`` across the two outbound frames) currently has to capture raw
 hex and decode it by hand afterward, the way this project's own static
@@ -50,17 +51,14 @@ from .. import ui_tracepath_wire as wire
 
 production_allowed = True
 
-# The registration below is DELIBERATELY never fired yet -- see this
-# module's own docstring, "NOT wired into runtime.py yet", for why and for
-# the CORE-REQUEST that is the one thing that changes this. Declaring it
-# here (same mechanism ``lane_gm_chat_command.py`` uses for
-# ``vital_inbound_chat_local_talk``) makes that a machine-checked fact
-# instead of a docstring claim nothing re-verifies:
-# ``gm/lane_gate_name_audit.py``'s dead-hook-point scan reds if EITHER side
-# of the premise stops holding -- a real ``fire()`` for this point landing
-# in ``runtime.py`` without this line being removed in the same PR, or this
-# module ceasing to register the point while the line is still here.
-registered_but_not_fired = ("vital_inbound_trace_path_req_vital",)
+# This point IS fired now.  ``runtime.py``'s ``CTracePathReqVital`` dispatch
+# branch calls ``lane_hooks.fire("vital_inbound_trace_path_req_vital", ...)``
+# as of chief (LANE-E) round 5e00uw, granting LANE-UI's CORE-REQUEST of
+# 20260905_0347.  The ``registered_but_not_fired`` declaration that stood
+# here is therefore removed in the same commit that added that call, exactly
+# as the comment it replaces (and the CORE-REQUEST itself) required:
+# ``gm/lane_gate_name_audit.py``'s dead-hook-point scan reds if a real
+# ``fire()`` lands while the declaration is still present.
 
 _TOKEN = "LANE_UI_TRACE_PATH_REQ"
 
