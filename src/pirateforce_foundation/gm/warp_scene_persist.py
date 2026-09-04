@@ -339,9 +339,24 @@ def _login_registry_snapshot():
 def login_would_accept(scene_id: object) -> bool:
     """Whether a persisted row in this scene would survive the next login.
 
-    The mirror of `world_scene_entry.resolve_entry`'s own `via_login and not
-    target.login_entry_allowed` refusal, asked HERE because this write exists
-    for that login and nowhere else.
+    The mirror of `world_scene_entry.resolve_entry`'s TWO refusals, asked
+    HERE because this write exists for that login and nowhere else:
+    `via_login and not target.login_entry_allowed`
+    (`REFUSED_NOT_ALLOWED_AT_LOGIN`), and -- `ADVERSARY_PENDING #745-R2` item
+    6, MEASURED missing in the round that shipped this function --
+    `target.n_id != HOME_SCENE_ID and target.spawn is None`
+    (`REFUSED_NO_PINNED_SPAWN`).  `resolve_entry` raises the second one for a
+    pinned, login-allowed scene with no spawn just as loudly as the first;
+    answering only the first half admitted exactly the silent-lockout shape
+    `gm/login_scene_admission.py`'s own `_target_is_admissible` already
+    closed on the staging side (see that module's `TWO REGISTRY CONDITIONS,
+    not one` docstring) -- this module re-opened it because it was written
+    against `login_entry_allowed` alone and never re-read that sibling.  No
+    scene in the shipped registry is spawnless today (same as admission's
+    guard), so this is a fence against lane A pinning one tomorrow, not a fix
+    for data that exists -- `tests/test_gm_warp_scene_persist.py`'s
+    `LoginWouldAcceptSpawnConditionTests` bends the registry to prove the
+    fence is live, the same way admission's `TheSpawnConditionTests` does.
 
     FAILS CLOSED for every scene this module cannot answer for -- unknown to
     the registry, unreadable, a raising registry.  `is_position_persist_
@@ -363,7 +378,14 @@ def login_would_accept(scene_id: object) -> bool:
     except Exception:  # noqa: BLE001 - KeyError for an unpinned scene,
         # ValueError for one outside the wire range; both fail closed.
         return False
-    return getattr(target, "login_entry_allowed", False) is True
+    if getattr(target, "login_entry_allowed", False) is not True:
+        return False
+    if scene_id == world_scene_travel.HOME_SCENE_ID:
+        # Home never reads its spawn -- a character arriving home keeps its
+        # own persisted position -- so refusing it for a missing spawn would
+        # break the one destination that never touches `target.spawn` at all.
+        return True
+    return getattr(target, "spawn", None) is not None
 
 
 def persist_warp_scene(session: object, target: object) -> str:
@@ -417,6 +439,19 @@ def persist_warp_scene(session: object, target: object) -> str:
     try:
         position = warp_destination_position(target, getattr(selected, "position", None))
     except Exception as error:  # noqa: BLE001 - see docstring
+        # `ADVERSARY_PENDING #745-R2` item 7, MEASURED: neither composer this
+        # lane ships can make `warp_destination_position` raise here -- both
+        # hand back a `WarpTarget` whose x/y/z are already IEEE binary32
+        # floats (see that class's docstring), and `isinstance` is checked
+        # above.  This branch is still not dead vocabulary: `persist_warp_
+        # scene`'s own contract is NEVER RAISES for ANY `WarpTarget`, not
+        # only the two this file happens to build today, and a `WarpTarget`
+        # built directly (a replay tool, a future third composer) is not
+        # bound to have numeric fields.  `tests/test_gm_warp_scene_persist.py`
+        # `TheComposeRefusalGuardTests` constructs one with a non-numeric
+        # field and drives it through this call, so the word is pinned as
+        # reachable rather than left as a claim nothing exercises.
+        #
         # Type name only, never the message: a message can embed the
         # coordinates a GM typed, and console lines are not the place for
         # operator-controlled text (`_one_line`'s reasoning next door).
