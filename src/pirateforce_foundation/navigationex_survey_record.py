@@ -67,6 +67,27 @@ and `gm/chat_command_action.py:1281` records that error CLOSING the client
 in R306.  `tests/test_navigationex_survey_record.py` now pins the two bytes
 as a byte fact, so this cannot regress quietly.
 
+R313 (2026-09-05, attended, `pf_bridge/notes_to_chief/20260905_0212_KA1A-
+R313-RESULTS-*`) SENT THIS FOR REAL AND THE CLIENT REJECTED IT.  The client
+named the class itself in the error dialog -- "NavigationEx_AddSurveyDataVtial
+ErrorData=50351" -- which proves the msg_id is right (RE-227 never had a
+numeric id to cite; this is now the closest thing to one) and, per the same
+error's own wording, that the record's CONTENT, not the envelope, is what it
+could not read.  `tests/test_navigationex_survey_record.py`'s
+`R313CaptureParityTests` pins the captured bytes and proves this encoder
+reproduces them exactly (both the 60-byte `pc` and the 70-byte compressed
+`frame` R313's letter names) -- so the rejection is NOT an encoder-vs-RE-227
+mismatch; it must live in one of the four fields this module already labels
+UNMEASURED, in `vital_version`, or somewhere RE-227's static pass never
+reached.  Closing it further needs either the RE runner's machine (this
+environment has no `GameClient.local.bin`) or another attended trial
+varying one field at a time -- not another read of this module.  As of this
+round GT-233's queue head still reads READY (set by chief before R313
+happened, per `pf_bridge/GAME_TEST_QUEUE.md`); this round's letter to chief
+(`pf_bridge/notes_to_chief/20260905_0306_LANE-A-TO-CHIEF-*`) ASKS for
+BLOCKED-ON-LAYOUT with this narrowed scope -- that edit is chief's to make,
+not made here, and is not yet true of the queue file.
+
 `msg_id` IS A REQUIRED CALLER-SUPPLIED ARGUMENT, ON PURPOSE, WITH NO
 DEFAULT.  The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
 ABSENT from `pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` --

@@ -173,7 +173,14 @@ class SceneRegistryTests(unittest.TestCase):
         row = destination(126, self.registry)
         self.assertFalse(row.login_entry_allowed)
         self.assertEqual(row.spawn, (3050.0, 232.0, 90.0))
-        self.assertFalse(row.sent_before)
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A):
+        # `sent_before` and `login_entry_allowed` are separate claims (COO's
+        # own ruling item (c)) -- round R313 put a live client on the open
+        # sea with `WORLD_SCENE scene_id=126` on the wire, so `sent_before`
+        # is now True.  This does NOT make 126 a destination this server may
+        # route a login into: `login_entry_allowed` is a different registry
+        # field, unread by `sent_before`, and stays False here unchanged.
+        self.assertTrue(row.sent_before)
         raw = {d["n_id"]: d for d in _raw()["destinations"]}[126]
         self.assertIs(raw["coordinate_provenance"]["from_marker"], False)
         self.assertIsNone(raw["coordinate_provenance"]["marker_n_id"])
@@ -769,12 +776,39 @@ class ReturnTicketTests(unittest.TestCase):
         self.assertTrue(entry_report(stage)["needs_return_ticket"])
         self.assertIn("return_ticket=REQUIRED", entry_console_line(stage))
 
-    def test_the_two_measured_scenes_do_not(self):
-        for measured in MEASURED_SCENE_IDS:
+    def test_the_authored_measured_scenes_do_not(self):
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): the
+        # expanded `MEASURED_SCENE_IDS` is no longer "every measured scene
+        # owes no return ticket" -- the COO's own ruling item (c) says the
+        # two ideas do not have to march together ("scenes reached by
+        # whatever door the client actually drew count the same" for
+        # `sent_before`, independent of the table's save/marker columns).
+        # Scene 126 (Atlantis, the ocean panel) is measured -- a client HAS
+        # rendered it -- but its own table row carries n_SAVE=0/n_MARKER=0,
+        # same as the unmeasured test stage, because this server's login
+        # door into it stays shut (see `ATLANTIS_OCEAN_PANEL_SCENE_ID`).  So
+        # this test asserts the return-ticket claim for the scenes that
+        # actually authored one, and asserts 126 is the measured exception
+        # rather than silently dropping it from the loop.
+        no_return_ticket_owed = tuple(
+            n_id for n_id in MEASURED_SCENE_IDS if n_id != 126
+        )
+        self.assertEqual(no_return_ticket_owed, (1, 2, 3, 4, 5, 14))
+        for measured in no_return_ticket_owed:
             target = destination(measured, self.registry)
             self.assertTrue(target.has_authored_entry)
             self.assertTrue(target.persists_characters)
             self.assertIn("return_ticket=not_needed", entry_console_line(target))
+
+    def test_the_measured_ocean_panel_still_owes_a_return_ticket(self):
+        # The one id in `MEASURED_SCENE_IDS` that is not also a no-return-
+        # ticket destination: see the note on the test above.
+        atlantis = destination(126, self.registry)
+        self.assertTrue(atlantis.sent_before)
+        self.assertFalse(atlantis.has_authored_entry)
+        self.assertFalse(atlantis.persists_characters)
+        self.assertTrue(entry_report(atlantis)["needs_return_ticket"])
+        self.assertIn("return_ticket=REQUIRED", entry_console_line(atlantis))
 
     def test_the_way_home_is_a_row_that_can_be_written_back(self):
         home = home_return_position(self.registry)
@@ -798,7 +832,12 @@ class ReturnTicketTests(unittest.TestCase):
              home.limit_height), (1, 1, 1, 30000))
 
     def test_an_unmeasured_scene_is_reported_as_not_sent_before(self):
-        self.assertEqual(world_scene_travel.MEASURED_SCENE_IDS, (1, 2))
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): widened
+        # from `(1, 2)` -- see `MEASURED_SCENE_IDS`'s own per-id citations
+        # for why each of these seven, and no others, is in the tuple.
+        self.assertEqual(
+            world_scene_travel.MEASURED_SCENE_IDS, (1, 2, 3, 4, 5, 14, 126)
+        )
         self.assertFalse(destination(TEST_STAGE_SCENE_ID, self.registry).sent_before)
 
 

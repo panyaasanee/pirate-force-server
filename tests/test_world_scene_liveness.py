@@ -114,7 +114,9 @@ class LedgerSeedTests(unittest.TestCase):
         self.assertEqual(
             ledger.observed_ids,
             tuple(sorted(world_scene_travel.MEASURED_SCENE_IDS)))
-        self.assertEqual(ledger.observed_ids, (1, 2))
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): widened
+        # from `(1, 2)` alongside `MEASURED_SCENE_IDS` itself.
+        self.assertEqual(ledger.observed_ids, (1, 2, 3, 4, 5, 14, 126))
         for fact in ledger.facts():
             with self.subTest(fact.scene_id):
                 self.assertFalse(fact.from_this_process)
@@ -458,7 +460,10 @@ class ObservationTests(unittest.TestCase):
         for bad in JUNK:
             with self.subTest(repr(type(bad))):
                 self.assertIsNone(self.ledger.observe_console_line(bad))
-        self.assertEqual(self.ledger.observed_ids, (1, 2))
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): widened
+        # alongside `MEASURED_SCENE_IDS` -- junk input must still leave the
+        # seeded set exactly as it started, whatever that set is.
+        self.assertEqual(self.ledger.observed_ids, (1, 2, 3, 4, 5, 14, 126))
 
     def test_a_str_subclass_is_still_a_line(self):
         """A logging wrapper is a str subclass; an exact-type gate would make

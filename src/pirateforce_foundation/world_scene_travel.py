@@ -193,7 +193,38 @@ NAVY_TRAINING_CAMP_SCENE_ID = 130
 # advertises rather than where it sends you.  Its login door is shut and
 # this constant does not open it.
 ATLANTIS_OCEAN_PANEL_SCENE_ID = 126
-MEASURED_SCENE_IDS = (1, 2)
+MEASURED_SCENE_IDS = (1, 2, 3, 4, 5, 14, 126)
+# EXPANDED 2026-09-05 (COO-DECISION 20260905_0251, answering this lane's own
+# `20260904_1339_LANE-A-ASK-COO-*`) -- the condition this lane itself set
+# ("only after GT-210/GT-212 close") is met, so every id below now carries
+# BOTH a wire/DB layer and a screen layer, which is the bar `sent_before`
+# has always required.  Per-id citation, because the rule this file has
+# repeated all along is that no id may be added here without one:
+#   1   -- bg0001; every boot in this project's history has rendered it
+#           (`CENSUS_SCENE_ID`/`CENSUS_SOURCE` below are its wire proof)
+#   2   -- Prison Exile Island; `docs/EXPERIMENT_LEDGER.md:32` SCENE-001
+#           (client rendered it) + R310 (`notes_to_chief` round
+#           `20260904_1911_KA1A-R310-RESULTS-*`): `/warp 2` with no walk,
+#           then relog landed the client on the prison island on screen
+#   3   -- Spice Paradise; `GT-210` PASS, OBSERVER_CONFIRMED
+#           2026-09-03T16:51+07:00 (`GAME_TEST_QUEUE.md`) -- an NPC click
+#           answered on screen, and the same R306 round rendered the scene
+#   4   -- Slave Market; `GT-212` PASS, OBSERVER_CONFIRMED
+#           2026-09-03T16:51+07:00 -- one of the nine roster islands, NPC
+#           click answered on screen, plus R306's render of the same scene
+#   5   -- Evil Port; same citation as scene 4 (`GT-212` PASS, one of the
+#           nine roster islands) plus R306's render
+#   14  -- Hell Volcano (Bg0015); `GT-134` BG0015-FIRST-EYES-001 PASS (this
+#           project's first confirmed eyes on the scene) plus R306's own
+#           five-warp chain `2 -> 14 -> 3 -> 4 -> 5`
+#   126 -- Atlantis ocean panel; R313 (`notes_to_chief` round
+#           `20260905_0212_KA1A-R313-RESULTS-*`): `WORLD_SCENE scene_id=126
+#           ... name=Atlantis` on the wire plus a 37-actor census, and the
+#           owner was observed on the open sea at 2026-09-05T02:07+07:00.
+#           `ATLANTIS_OCEAN_PANEL_SCENE_ID` above still keeps its login door
+#           shut -- this only records that a client HAS rendered the scene,
+#           not that this server may route a login into it directly
+# R306 itself is `notes_to_chief/20260903_1657_KA1A-R306-RESULTS-*`.
 CENSUS_SCENE_ID = SCENE_ID
 CENSUS_SOURCE = "bg0001_census"
 # GENERALIZED 2026-08-27 (PANYA-DECISION 20:10, M1-P) - the composer this
