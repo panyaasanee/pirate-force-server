@@ -43,7 +43,7 @@ WHAT THIS MODULE DOES NOT CLAIM (inherits ``RE-119``/``RE-236``'s own
 nonclaims rather than overriding them). Field 1 (``+0x14``, the u16 this
 project has been calling "the discriminator") is NOT named
 ``quest_id``/``npc_id``/``list_index`` here, or anywhere in this file's
-tests -- ``RE-236`` item (ข) is still open, exactly as open as it was
+tests -- ``RE-236`` item (b) is still open, exactly as open as it was
 before this round: this module does not narrow it, decide it, or guess at
 it, and the single captured value it has ever seen (``0``) is a no-target
 minimap click, which is consistent with all three unproven readings at
@@ -85,7 +85,7 @@ class TracePathReqFields:
     one u32-with-tag-0x14 (field 3) sandwiched between them, then one
     u8-with-tag-0x08 (field 8) -- exactly ``PF_SERIALIZER_FIELDS.tsv``'s own
     field order, ``+0x14`` through ``+0x24``. Field 1 is the field this
-    project's open ``RE-236`` item (ข) calls "the discriminator"; it keeps
+    project's open ``RE-236`` item (b) calls "the discriminator"; it keeps
     its positional name here (see module docstring) rather than one of the
     three unproven readings that ticket is still choosing between."""
 
