@@ -364,7 +364,15 @@ class TheGroundDropDoorIsExactlyWhatWasOrderedTests(unittest.TestCase):
     #: means a later round added a ground/drop/loot table or method that
     #: nobody updated this pin for.
     EXPECTED_TABLE_HITS = frozenset({"010_ground_drops.sql: table 'ground_drops'"})
-    EXPECTED_METHOD_HITS = frozenset({"commit_ground_drop", "list_ground_drops_for_scene"})
+    #: `mark_ground_drop_taken`/`list_ground_drops_still_on_the_ground`
+    #: (round `p6x3ee`) answer `notes_to_chief/20260904_1650_LANE-B-TO-LANE-
+    #: DB-ground-drops-need-a-taken-marker.md` -- the read-half unblock for
+    #: `mob_ground_persistence.restore_scene_ground`, which was refusing by
+    #: name (`REFUSE_TAKEN_DOOR_IS_ABSENT`) until both existed.
+    EXPECTED_METHOD_HITS = frozenset({
+        "commit_ground_drop", "list_ground_drops_for_scene",
+        "mark_ground_drop_taken", "list_ground_drops_still_on_the_ground",
+    })
 
     #: Matches across line breaks and arbitrary whitespace between the
     #: keywords and the table name -- `pf-adversary` round `ld70iq`

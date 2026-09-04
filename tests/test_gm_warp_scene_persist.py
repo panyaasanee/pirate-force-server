@@ -25,6 +25,7 @@ it exists for.
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import sys
 import tempfile
@@ -272,6 +273,45 @@ class RealDatabaseTests(unittest.TestCase):
         with redirect_stderr(stream):
             warp_scene_persist.persist_warp_scene(session, _target(126, x=3050.0))
         self.assertNotIn("GM_WARP_SCENE_PERSISTED", stream.getvalue())
+
+    # ---- `ADVERSARY_PENDING #745-R2` item 7: `compose_refused_*` is a
+    # fence this file's own two composers never trip, but the row this
+    # module writes has to come from the guard, not from a claim nothing
+    # exercises. -----------------------------------------------------------
+
+    def test_a_target_that_cannot_compose_a_position_is_refused_not_raised(self):
+        """A directly-built `WarpTarget` with a non-numeric field.
+
+        `warp_destination_position` is never handed a target like this by
+        either composer this lane ships -- both read x/y/z back out of a
+        built wire frame, which is always IEEE binary32 -- but
+        `persist_warp_scene`'s contract is NEVER RAISES for any
+        `WarpTarget`, not only the two shapes this file happens to build
+        today.  This constructs one directly, the way a replay tool or a
+        future third composer could, and drives it through the real call.
+        """
+        session = self._session("persist30")
+        stored = self._row(session)
+        bad_target = WarpTarget(DESTINATION_SCENE, "not-a-float", 0.0, 0.0)
+        outcome = warp_scene_persist.persist_warp_scene(session, bad_target)
+        self.assertEqual(
+            outcome,
+            f"{warp_scene_persist.OUTCOME_COMPOSE_REFUSED_PREFIX}ValueError",
+        )
+        self.assertEqual(self._row(session).scene_id, stored.scene_id)
+
+    def test_the_compose_refusal_prints_the_failed_token_type_name_only(self):
+        session = self._session("persist31")
+        bad_target = WarpTarget(DESTINATION_SCENE, "not-a-float", 0.0, 0.0)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            outcome = warp_scene_persist.persist_warp_scene(session, bad_target)
+        self.assertIn(
+            f"GM_WARP_SCENE_PERSIST_FAILED scene={DESTINATION_SCENE} "
+            f"reason={outcome}",
+            stream.getvalue(),
+        )
+        self.assertNotIn("not-a-float", stream.getvalue())
 
     # ---- COO 1646 item 2: a failed write must be readable off the console,
     # not just off `session.events` ---------------------------------------
@@ -554,6 +594,72 @@ class LoginWouldAcceptTests(unittest.TestCase):
     def test_a_non_int_scene_id_is_refused_rather_than_raising(self):
         for value in (None, "2", 2.0, True):
             self.assertFalse(warp_scene_persist.login_would_accept(value))
+
+
+class LoginWouldAcceptSpawnConditionTests(unittest.TestCase):
+    """`ADVERSARY_PENDING #745-R2` item 6, MEASURED: the half no live row
+    can exercise.
+
+    Same shape as `gm/login_scene_admission.py`'s own
+    `TheSpawnConditionTests`, and for the same reason: with every other
+    case in this file green, `login_would_accept` answered `True` for a
+    scene that is pinned, login-allowed, and has NO spawn -- because it
+    asked `login_entry_allowed` alone and `resolve_entry` refuses that row
+    with `REFUSED_NO_PINNED_SPAWN` too.  Every scene in the shipped
+    registry has a spawn today, so only a bent registry can turn this
+    fence red.
+    """
+
+    SPAWNLESS = 278  # not home; home is exempt and gets its own test below
+
+    def setUp(self):
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    @contextlib.contextmanager
+    def _registry_without_a_spawn_on(self, scene_id):
+        real = world_scene_travel.load_scene_registry()
+        bent = replace(
+            real,
+            destinations=tuple(
+                replace(target, spawn=None)
+                if target.n_id == scene_id else target
+                for target in real.destinations
+            ),
+        )
+        self.assertIsNone(bent[scene_id].spawn, "the fixture bent nothing")
+        self.assertTrue(
+            bent[scene_id].login_entry_allowed,
+            "this row must still be login-allowed, or it would be refused "
+            "for the OTHER reason and prove nothing",
+        )
+        with mock.patch.object(
+            world_scene_travel, "load_scene_registry", return_value=bent
+        ):
+            yield bent
+
+    def test_a_pinned_login_allowed_spawnless_scene_is_refused(self):
+        with self._registry_without_a_spawn_on(self.SPAWNLESS):
+            self.assertFalse(
+                warp_scene_persist.login_would_accept(self.SPAWNLESS)
+            )
+
+    def test_home_is_accepted_without_a_spawn_because_home_uses_the_row(self):
+        """The carve-out, pinned so it is not quietly widened or dropped.
+
+        `resolve_entry` never reads home's spawn -- a character arriving
+        home keeps its own persisted position -- so refusing home for a
+        missing spawn would brick every warp home to make a scene nobody
+        overrides safer.
+        """
+        with self._registry_without_a_spawn_on(world_scene_travel.HOME_SCENE_ID):
+            self.assertTrue(
+                warp_scene_persist.login_would_accept(
+                    world_scene_travel.HOME_SCENE_ID
+                )
+            )
 
 
 class TheRegistryIsReadOnceTests(unittest.TestCase):
