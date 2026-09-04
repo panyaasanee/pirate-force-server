@@ -319,13 +319,20 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
     but hands it a hand-built three-byte payload `0F <id> 00` inside a
     hand-built envelope.
 
-    The frame a client actually sends is neither: it is 69 bytes, its outer
-    header says `vital_count = 2`, and `parse_outer` hands the hook a
-    `nested_payload` that RUNS PAST the end of the TriggerVital and into the
-    position vital behind it (measured this round: 40 bytes handed over for
-    a 20-byte trigger vital).  That overrun is the whole reason the walker
-    in the module refuses to step over tag 0x12, and until this class
-    nothing drove that refusal through the real dispatch path.
+    The frame this class drives is neither: its outer header says
+    `vital_count = 2`, and `parse_outer` hands the hook a `nested_payload`
+    that RUNS PAST the end of the TriggerVital and into the position vital
+    behind it (measured: 40 bytes handed over for a 20-byte trigger vital).
+    That overrun is the whole reason the walker in the module refuses to
+    step over tag 0x12, and until this class nothing drove that refusal
+    through the real dispatch path.
+
+    SIZE, SAID ONCE AND CORRECTLY (pf-adversary D1).  The frame on the wire
+    was 69 bytes; `FRAME_114` is the 60 bytes the R307 letter quotes before
+    its quote is cut, as the fixture's own comment says.  The first draft of
+    this class called the fixture 69 bytes in four places -- reading a number
+    out of an evidence file without reading that file's own conclusion.  The
+    nine unseen tail bytes matter to exactly one test below and it says so.
 
     `GT-228` grades a console line during an attended run on the owner's
     machine.  A `LANE_A_TRIGGER_VITAL ... ISLAND` line printed for the wrong
@@ -392,8 +399,20 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
     def test_the_field_this_class_edits_is_where_it_thinks_it_is(self):
         self.assertEqual(FRAME_114[self._ID_AT - 1], hooklog.TRIGGER_ID_TAG)
         self.assertEqual(
-            int.from_bytes(FRAME_114[self._ID_AT:self._ID_AT + 2], "little"), 40,
+            int.from_bytes(FRAME_114[self._ID_AT:self._ID_AT + 2], "little"),
+            EXPECTED_NAMES[114][0],
         )
+
+    def test_the_fixture_is_the_quoted_60_bytes_not_the_69_on_the_wire(self):
+        # pf-adversary D1: the letter says the frames were 69 bytes ON THE
+        # WIRE and quotes 60 of them.  Nothing in the suite pinned that, so
+        # "69" travelled into four documents as if it described the fixture.
+        # Pinned here so the next person to "fix the fixture to match the
+        # letter" has to read this line first: the 9 missing bytes have never
+        # been seen by anyone, and one test below depends on not pretending
+        # otherwise.
+        self.assertEqual(len(FRAME_114), 60)
+        self.assertEqual(len(NESTED_PAYLOADS[114]), 20)
 
     def _with_trigger_id(self, trigger_id):
         return (
@@ -414,12 +433,12 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
         self.assertIn("no_responder bytes_out=0", lines[0])
 
     def test_an_island_id_in_the_captured_frame_shape_says_island(self):
-        # The proof COO-DECISION 0642 item 3 asks for, standing on main:
-        # a real 69-byte TriggerVital whose ONLY edit is the two id bytes
-        # (0x28 -> 0x99) reaches the hook through runtime.py's dispatcher
-        # and names the island, still sending nothing.  This is the exact
-        # byte string `GT-228`'s search criterion (ข) tells the tester to
-        # grep the capture for: `0F 99 00 0B 04`.
+        # The proof COO-DECISION 0642 item 3 asks for, standing on main: a
+        # captured TriggerVital whose ONLY edit is the two id bytes (0x28 ->
+        # 0x99) reaches the hook through runtime.py's dispatcher and names
+        # the island, still sending nothing.  This is the exact byte string
+        # `GT-228`'s search criterion (ข) tells the tester to grep the
+        # capture for: `0F 99 00 0B 04`.
         state = self._logged_in_session("capisl2")
         frame = self._with_trigger_id(self.ISLAND_ID)
         self.assertIn(b"\x0f\x99\x00\x0b\x04", frame)
@@ -427,17 +446,33 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
         lines = self._lane_a_lines(console)
         self.assertEqual(actions, [])
         self.assertEqual(len(lines), 1, console)
-        self.assertIn("id=153 name=Prison Exile Island ISLAND", lines[0])
-        self.assertIn("scene=2 ", lines[0])
+        # The WHOLE line, evidence label included (pf-adversary D5): `wire=`
+        # is the grade of the scene number sitting next to it, and a test
+        # that pins `scene=2` while letting PROVEN drift to CANDIDATE pins
+        # the number without its warranty.
+        self.assertIn(
+            "id=153 name=Prison Exile Island ISLAND scene=2 min_level=0",
+            lines[0],
+        )
+        self.assertIn("wire=PROVEN", lines[0])
         self.assertIn("no_responder bytes_out=0", lines[0])
 
-    def test_the_other_target_island_reads_the_same_way(self):
+    def test_the_other_target_island_says_candidate_where_this_one_says_proven(self):
+        # NOT "reads the same way" (pf-adversary D5): island 3's line differs
+        # from island 2's in the two places that carry the most weight, and
+        # the attended grader is the person most likely to read one and
+        # assume the other.  Both differences are pinned here.
         state = self._logged_in_session("capisl3")
         actions, console = self._dispatch(state, self._with_trigger_id(154))
         lines = self._lane_a_lines(console)
         self.assertEqual(actions, [])
         self.assertEqual(len(lines), 1, console)
-        self.assertIn("id=154 name=Spice Paradise Island ISLAND", lines[0])
+        self.assertIn(
+            "id=154 name=Spice Paradise Island ISLAND scene=3 min_level=25",
+            lines[0],
+        )
+        self.assertIn("wire=CANDIDATE", lines[0])
+        self.assertNotIn("wire=PROVEN", lines[0])
 
     def test_the_payload_handed_over_runs_past_the_trigger_vital(self):
         # Measured, not assumed -- this is the fact the next two tests
@@ -448,17 +483,37 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
         self.assertGreater(len(bytes(parsed.nested_payload)), 20)
         self.assertTrue(bytes(parsed.nested_payload).startswith(NESTED_PAYLOADS[114]))
 
+    # `12 90 2A 0B 00` -- the header of the position vital riding behind the
+    # TriggerVital in FRAME_114, lifted so the frame below is built out of
+    # named parts rather than offsets.
+    _SECOND_VITAL_HEADER = bytes.fromhex("12902a0b00")
+
+    def _frame_whose_island_bytes_sit_behind_a_0x12(self):
+        """A TriggerVital with NO 0x0F, and `0F 99 00` inside the vital behind it.
+
+        Built explicitly (pf-adversary D10: the first draft sliced at offset
+        40 and re-joined, which reassembles the same bytes for ANY offset --
+        it read like a pinned vital boundary and pinned nothing).  Here the
+        trigger vital keeps its `0B 04` + three floats and loses only the
+        three id bytes, and the island bytes are placed where a walker that
+        stepped over 0x12 lands on them deterministically -- not where the
+        end of a truncated fixture happens to put them (pf-adversary D2).
+        """
+        trigger_body = FRAME_114[self._ID_AT + 2:40]  # 0B 04 + 2A x 2A y 2A z
+        second_vital = self._SECOND_VITAL_HEADER + b"\x0f\x99\x00"
+        return FRAME_114[:20] + trigger_body + second_vital
+
     def test_a_second_vital_cannot_donate_a_trigger_id_to_the_first(self):
-        # The false-ISLAND guard, driven end to end.  Here the TriggerVital
-        # body carries NO 0x0F at all and the position vital behind it
-        # carries `0F 99 00` -- the island byte string.  A walker that
-        # stepped over 0x12 would read 153 out of the neighbouring vital and
-        # print the very line `GT-228` would grade as "the island fired".
-        # It must print UNPARSED with the hex instead, and no island name.
-        head = FRAME_114[:20]
-        body_after_id = FRAME_114[self._ID_AT + 2:40]
-        second_vital = FRAME_114[40:] + b"\x0f\x99\x00"
-        frame = head + body_after_id + second_vital
+        # The false-ISLAND guard, driven end to end.  A walker that stepped
+        # over 0x12 would read 153 out of the neighbouring vital and print
+        # the very line `GT-228` would grade as "the island fired".  It must
+        # print UNPARSED with the hex instead, and no island name.
+        #
+        # NOT a shape the client can produce today (pf-adversary D11): the
+        # pinned serializer row makes tag 0x0F field order 1 of every
+        # TriggerVital, so on the wire the id always precedes any 0x12.
+        # This is a regression guard on the walker, not a live risk.
+        frame = self._frame_whose_island_bytes_sit_behind_a_0x12()
         self.assertNotIn(b"\x0f\x28\x00", frame)
         self.assertIn(b"\x0f\x99\x00", frame)
         state = self._logged_in_session("capfalse")
@@ -468,13 +523,48 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
         self.assertEqual(len(lines), 1, console)
         self.assertIn("UNPARSED", lines[0])
         self.assertNotIn("ISLAND", lines[0])
-        self.assertNotIn("153", lines[0].split("hex=")[0])
+        self.assertNotIn("Prison Exile", lines[0])
 
-    def test_five_captured_frames_print_five_lines_and_send_nothing(self):
-        # The R307 round's own measurement, replayed through the dispatcher:
-        # five frames in, zero answers out.  Whole-session, not per-frame --
-        # a hook that answered every fifth frame would still pass the single
-        # frame test above.
+    def test_the_island_bytes_in_that_frame_are_reachable_if_you_step_over_0x12(self):
+        # The positive control the guard above needs (pf-adversary D2).
+        # Without it, UNPARSED proves only "the walk did not get there" --
+        # which a truncated fixture, a mistyped tail, or a lucky byte can
+        # produce while the walker happily steps over 0x12.  Walking the
+        # same frame from just past the 0x12 field MUST find 153: so when
+        # the walker returns None for the whole frame, the only remaining
+        # explanation is that it refused the 0x12, which is the behaviour
+        # under test.
+        frame = self._frame_whose_island_bytes_sit_behind_a_0x12()
+        at = frame.index(self._SECOND_VITAL_HEADER) + 3  # past `12 90 2A`
+        self.assertEqual(hooklog.first_tag_value(frame[at:], 0x0F), 153)
+        payload = bytes(self.legacy.parse_outer(frame).nested_payload)
+        self.assertIsNone(hooklog.first_tag_value(payload, 0x0F))
+
+    def test_a_trigger_vital_riding_second_never_reaches_the_hook_at_all(self):
+        # MEASURED, and it is a finding, not a feature (pf-adversary D13):
+        # `parse_outer` reads the FIRST nested vital only -- its own comment
+        # says boundaries for the rest need every vital's schema.  Put the
+        # TriggerVital second and `nested_id` is the position vital's
+        # 0x2A90, the dispatch branch is never chosen, and the console says
+        # NOTHING.  R307's five frames happened to carry the TriggerVital
+        # first; nobody has established that the island-contact frame will.
+        # If `GT-228` comes back with a silent console, this is the first
+        # thing to rule out -- not "the build has no call site".
+        frame = FRAME_114[:15] + FRAME_114[40:] + FRAME_114[15:40]
+        parsed = self.legacy.parse_outer(frame)
+        self.assertNotEqual(parsed.nested_id, self.legacy.TRIGGER_VITAL)
+        self.assertEqual(parsed.nested_id, 0x2A90)
+        state = self._logged_in_session("capsecond")
+        _actions, console = self._dispatch(state, frame)
+        self.assertEqual(self._lane_a_lines(console), [], console)
+
+    def test_one_captured_frame_replayed_with_five_ids_sends_nothing(self):
+        # NAMED FOR WHAT IT DRIVES (pf-adversary D4): one captured frame,
+        # five ids -- the other four frames' bytes (their own floats) reach
+        # only `console_line()`, in the offline class above.  What this adds
+        # is the session-level half of R307's measurement: five frames in,
+        # zero answers out.  A hook that answered every fifth frame would
+        # still pass the single-frame test above.
         state = self._logged_in_session("capfive")
         rx_before = state.rx_frames
         console = ""
@@ -498,9 +588,16 @@ class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
             _actions, console = self._dispatch(
                 state, self._with_trigger_id(trigger_id),
             )
+            lines = self._lane_a_lines(console)
             with self.subTest(trigger_id=trigger_id):
-                console.encode("ascii")
-                console.encode("cp874")
+                # Assert a line EXISTS before asserting it encodes
+                # (pf-adversary D3): "".encode("cp874") succeeds, so without
+                # this the test stayed green with the call site deleted --
+                # answering "is the console safe" with a console that has
+                # nothing in it, for a ticket that lives on that console.
+                self.assertEqual(len(lines), 1, console)
+                lines[0].encode("ascii")
+                lines[0].encode("cp874")
 
 
 if __name__ == "__main__":
