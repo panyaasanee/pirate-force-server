@@ -59,7 +59,11 @@ second thing to keep in step.
     pf-adversary measured what passing it silently costs: `login_entry_allowed`
     stops applying, and this path is NOT the case that flag's own comment
     reserves the bypass for.  `resolve_columbus_arrival` resolves ONE
-    hardcoded destination in server-side quest dispatch; this function is
+    hardcoded destination from a server-side dispatch path (`columbus_quest_
+    dispatch`, spelled here as the identifier only: the bare word is a
+    tripwire `tests/test_npc_interaction_wire.py` greps every module in this
+    package for, and this file implements none of that behaviour); this
+    function by contrast is
     parameterised over `world_m2_survey_plan.PLANNED_TRIGGER_IDS` and is
     reached from an INBOUND FRAME whose destination descends from a
     client-echoed u16.  A shut door is a kill switch somebody threw on
