@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation.legacy_bridge import load_legacy
+from pirateforce_foundation.gm import login_mask
+from pirateforce_foundation.gm.attr_wire import LOGIN_SOURCED_ROWS
 from pirateforce_foundation.gm.attr_wire import (
     AC_ATTR_ID,
     BY_NAME,
@@ -51,6 +53,7 @@ from pirateforce_foundation.gm.attr_wire import (
     named_field_x,
     parse_value,
     seed_cache_from_live_values,
+    login_scoped_sources,
     unnamed_field_x,
     validate_field_value,
 )
@@ -260,7 +263,9 @@ class EncodeBlockTests(unittest.TestCase):
         # (b'') callers DO pass a full block through this same function --
         # this pins that the general-purpose composer handles that shape
         # too, not only the sparse ones above.
-        body, basic_mask, actor_mask = encode_block(self.legacy, 0x11, 0x22, _full_values())
+        body, basic_mask, actor_mask = encode_block(
+            self.legacy, 0x11, 0x22, _every_row_values(),
+        )
         expected_basic_mask = 0
         expected_actor_mask = 0
         for field in FIELDS:
@@ -337,15 +342,29 @@ class TheFrameExitIsTheWallTests(unittest.TestCase):
         # Every row, one at a time: dropping any single row must cost the
         # frame.  A mutant that restored the old behaviour for even one row
         # (say, a `known=False` one someone judged harmless) turns this red.
-        for field in FIELDS:
+        # ONE ROW IS NOT A MUTANT, AND SAYING WHICH IS THE POINT.  Dropping
+        # x=11 (`basic_faction`) from the faction branch leaves the PLAIN
+        # branch -- a block this server composes at every login into a scene
+        # `world_faction_admission` does not admit.  Refusing it would be
+        # refusing a shape production ships.  Every OTHER row's absence must
+        # still cost the frame.
+        admitted = [set(shape) for shape in login_mask.admitted_field_x_sets(self.legacy)]
+        for x in login_mask.login_field_x(self.legacy):
             values = _full_values()
-            del values[field[0]]
+            del values[x]
+            if set(values) in admitted:
+                self.assertEqual(
+                    x, BY_NAME["basic_faction"][0],
+                    "a row other than basic_faction now yields another admitted"
+                    " shape when dropped -- the wall got wider without a letter",
+                )
+                continue
             with self.assertRaises(
                 AttrWireError,
-                msg=f"x={field[0]} ({field[6]}) missing alone must cost the frame",
+                msg=f"x={x} ({BY_X[x][6]}) missing alone must cost the frame",
             ) as caught:
                 make_update_attr_frame(self.legacy, 1, 0, values)
-            self.assertIn(str(field[0]), str(caught.exception))
+            self.assertIn("not login-shaped", str(caught.exception))
 
     def test_mutant_the_empty_block_is_refused_too(self):
         with self.assertRaises(AttrWireError):
@@ -398,13 +417,19 @@ class BuildNamedFieldUpdateCompletenessTests(unittest.TestCase):
         # aimed at this door: a cache missing exactly one FIELDS row must
         # refuse a compose, for every row in the table.
         level_x = BY_NAME["level"][0]
-        for field in FIELDS:
+        admitted = [set(shape) for shape in login_mask.admitted_field_x_sets(self.legacy)]
+        for x in login_mask.login_field_x(_shared_legacy()):
             values = _full_values()
-            del values[field[0]]
+            del values[x]
+            if set(values) in admitted:
+                # See the same carve-out in `TheFrameExitIsTheWallTests`:
+                # dropping the faction row leaves the other real branch.
+                self.assertEqual(x, BY_NAME["basic_faction"][0])
+                continue
             cache = RawBlockCache()
             cache.capture_initial(values)
             with self.assertRaises(
-                AttrWireError, msg=f"x={field[0]} ({field[6]}) missing alone should refuse"
+                AttrWireError, msg=f"x={x} ({BY_X[x][6]}) missing alone should refuse"
             ):
                 build_named_field_update(self.legacy, cache, 1, 0, level_x, 5)
 
@@ -525,13 +550,28 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
         # typed one, so nothing the client reads gets zeroed by omission.
         self.assertEqual(cache.current_values(), {**seeded, level_x: 5})
 
-    def test_every_known_non_sensitive_field_is_individually_composable(self):
-        """Every field this round claims to support actually round-trips
-        through the real composer with a real legacy module -- not just
-        the one 'level' field the other tests happen to use."""
-        known_xs = [f[0] for f in FIELDS if f[7] and f[0] not in SENSITIVE_FIELDS]
-        self.assertGreater(len(known_xs), 20)
-        for x in known_xs:
+    def test_every_login_set_row_is_individually_composable(self):
+        """Every row the login shape carries round-trips through the real
+        composer with a real legacy module -- not just the one 'level' field
+        the other tests happen to use.
+
+        ~~Every KNOWN, non-sensitive field~~ -- narrowed 2026-09-04 round
+        `4fxkam`.  `COO-DECISION 20260904_0545` item 2 requires the frame's
+        mask to EQUAL the login mask, so a `known=True` row login does not
+        send (`mp_current`, the five primary attributes, XP...) can no longer
+        ride this door: setting it would widen the mask.  The next test pins
+        that refusal, so the narrowing is stated in both directions rather
+        than only being tested where it still passes.
+        """
+        # `known=False` rows (x=7, x=10) stay refused by this door even
+        # though the login shape carries them: this API is where a caller
+        # CHOOSES a value, and nobody may choose a value for a row this house
+        # cannot name.  Their door is `login_mask.build_login_shaped_frame`'s
+        # `overrides`, which `COO-DECISION 20260904_0545` item 2 names for
+        # x=7 by hand ("x=7 = the value the command is setting").
+        rows = [x for x in login_mask.login_field_x(self.legacy) if BY_X[x][7]]
+        self.assertIn(BY_NAME["cash"][0], rows)
+        for x in rows:
             field = BY_X[x]
             cache = RawBlockCache()
             cache.capture_initial(_full_values())
@@ -542,6 +582,96 @@ class BuildNamedFieldUpdateTests(unittest.TestCase):
             pc, frame = build_named_field_update(self.legacy, cache, 1, 0, x, sample)
             self.assertGreater(len(pc), 0, msg=f"x={x} ({field[6]})")
             self.assertGreater(len(frame), 0, msg=f"x={x} ({field[6]})")
+
+    def test_a_known_row_outside_the_login_set_is_refused_by_that_name(self):
+        # The other half of the narrowing above.  `mp_current` is
+        # `known=True` and not sensitive -- yesterday this door composed it.
+        # Today it must refuse, and it must say WHY it refused (the row is
+        # not in the login set), not "your block is the wrong shape".
+        rows = set(login_mask.login_field_x(self.legacy))
+        outside = [f[0] for f in FIELDS if f[7] and f[0] not in SENSITIVE_FIELDS
+                   and f[0] not in rows]
+        self.assertIn(BY_NAME["mp_current"][0], outside)
+        cache = RawBlockCache()
+        cache.capture_initial(_full_values())
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(
+                self.legacy, cache, 1, 0, BY_NAME["mp_current"][0], 5,
+            )
+        self.assertIn("not in the login set", str(caught.exception))
+        # And nothing was sent or cached on the way to that refusal.
+        self.assertEqual(set(cache.current_values()), set(_full_values()))
+
+
+class AdversaryFindingsRound4fxkamTests(unittest.TestCase):
+    """pf-adversary, round `4fxkam`, run at round start on the new (b'')."""
+
+    def setUp(self):
+        self.legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+
+    def test_d1_the_door_cannot_turn_a_plain_connection_into_a_faction_one(self):
+        # MEASURED BY pf-adversary: a character logged into a scene
+        # `world_faction_admission` refuses (17, 126, 278, 997 on today's
+        # registry) gets the PLAIN block, `basic_mask=0x034F`, no x=11.
+        # Setting x=11 through this door used to compose `0x074F` -- a bit
+        # that connection's login deliberately withheld -- and
+        # `record_sent` then froze the wider shape into the cache for every
+        # later frame.
+        plain_rows = login_mask.field_x_for_masks(
+            *login_mask.production_login_shapes(self.legacy)["plain"]
+        )
+        full = _full_values()
+        cache = RawBlockCache()
+        cache.capture_initial({x: full[x] for x in plain_rows})
+        faction_x = BY_NAME["basic_faction"][0]
+        with self.assertRaises(AttrWireError) as caught:
+            build_named_field_update(self.legacy, cache, 1, 0, faction_x, 1)
+        self.assertIn("is not in the shape this connection's cache holds",
+                      str(caught.exception))
+        # and the cache is untouched, so the next frame is still plain
+        self.assertEqual(set(cache.current_values()), set(plain_rows))
+
+    def test_d1_a_row_the_connection_DOES_hold_is_still_settable(self):
+        # The fix must not close the door it was narrowing.
+        plain_rows = login_mask.field_x_for_masks(
+            *login_mask.production_login_shapes(self.legacy)["plain"]
+        )
+        full = _full_values()
+        cache = RawBlockCache()
+        cache.capture_initial({x: full[x] for x in plain_rows})
+        pc, frame = build_named_field_update(
+            self.legacy, cache, 1, 0, BY_NAME["level"][0], 9,
+        )
+        self.assertTrue(frame)
+        self.assertEqual(set(cache.current_values()), set(plain_rows))
+
+    def test_d3_the_hp_pair_selector_is_never_read_from_a_typed_column(self):
+        # x=9 selects WHICH pair of rows the client reads HP from
+        # (`SELECTOR_NOTE_R301`).  Login writes the live scene onto it; the
+        # alternate pair it can select (x=52/x=53) is NOT in the login set,
+        # so a selector value that disagrees with login would point the
+        # client at two bits nothing set -- HP `0/0`, GT-218's symptom.
+        named_rows, login_rows = login_scoped_sources(self.legacy)
+        selector_x = BY_NAME["category_5C"][0]
+        self.assertIn(selector_x, login_rows)
+        self.assertNotIn(selector_x, named_rows)
+        # and the alternate pair really is outside the set, which is what
+        # makes the routing above load-bearing rather than tidy.
+        login_set = set(login_mask.login_field_x(self.legacy))
+        self.assertNotIn(BY_NAME["alt_hp_current"][0], login_set)
+        self.assertNotIn(BY_NAME["alt_hp_max"][0], login_set)
+
+    def test_s1_a_shared_basic_bit_would_be_refused_not_walked_past(self):
+        # The parser advances one field per set basic bit; two rows on one
+        # basic bit would desync every offset after it.  There is no such
+        # pair today -- this pins that the guard exists rather than that the
+        # table happens to be fine.
+        seen = {}
+        for field in FIELDS:
+            if field[1] != "basic":
+                continue
+            self.assertNotIn(field[2], seen)
+            seen[field[2]] = field[0]
 
 
 class VersionGateTests(unittest.TestCase):
@@ -627,10 +757,16 @@ def _complete_values():
 
 
 def _login_values():
-    """A full, encodable value for every UNNAMED row (b'') requires a login
-    byte for -- `unnamed_field_x()`, includes `SENSITIVE_FIELDS` (x=30)."""
+    """A full, encodable value for every row whose byte comes from login.
+
+    `unnamed_field_x()` (which includes `SENSITIVE_FIELDS`, x=30) PLUS
+    `LOGIN_SOURCED_ROWS`: `COO-DECISION 20260904_0545` item 2 routes x=9,
+    x=10 and x=11 to the session's own login value rather than to a typed
+    column, and pf-adversary round `4fxkam` (D3) is why x=9 in particular
+    may not come from a column -- it is the HP-pair selector.
+    """
     values = {}
-    for x in unnamed_field_x():
+    for x in sorted(set(unnamed_field_x()) | LOGIN_SOURCED_ROWS):
         kind = BY_X[x][5]
         if kind == "wstr":
             values[x] = "y"
@@ -643,10 +779,44 @@ def _login_values():
     return values
 
 
-def _full_values():
-    """Every `FIELDS` row, named and unnamed together -- what (b'') asks a
-    seeded `RawBlockCache`/`encode_block` call to hold in full."""
+def _every_row_values():
+    """One legal value for EVERY `FIELDS` row.
+
+    Still needed after (b'') was redefined: `encode_block` is the shared
+    low-level composer and stays sparse-capable on purpose, so its own tests
+    keep measuring the widest block it can build even though no such block
+    may leave through `make_update_attr_frame` any more.
+    """
     return {**_complete_values(), **_login_values()}
+
+
+_CACHED_LEGACY = []
+
+
+def _shared_legacy():
+    """One loaded legacy module for the helpers below.
+
+    `load_legacy` re-parses a file; the helpers are called from dozens of
+    tests, so caching it here keeps this file's runtime where it was.
+    """
+    if not _CACHED_LEGACY:
+        _CACHED_LEGACY.append(load_legacy(ROOT / "current/pf_login_game_server_v141.py"))
+    return _CACHED_LEGACY[0]
+
+
+def _full_values():
+    """A LOGIN-SHAPED block -- what (b'') asks a seeded `RawBlockCache` /
+    `make_update_attr_frame` call to hold.
+
+    ~~Every `FIELDS` row, named and unnamed together~~ -- struck 2026-09-04
+    round `4fxkam`.  `COO-DECISION 20260904_0545` item 1 withdrew the 55-row
+    wording and item 2 replaced it with the set production login itself sets
+    bits for.  Derived here through `login_mask.login_field_x`, never typed,
+    so this helper follows the composer instead of pinning a copy of it.
+    """
+    rows = login_mask.login_field_x(_shared_legacy())
+    named = {**_complete_values(), **_login_values()}
+    return {x: named[x] for x in rows}
 
 
 class UnlockBPrimeSeedingTests(unittest.TestCase):
@@ -660,8 +830,14 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
     """
 
     def capture(self, **kwargs):
-        """Run the seeder with stderr captured; returns (ok, lines)."""
+        """Run the seeder with stderr captured; returns (ok, lines).
+
+        `legacy` is supplied unless a test overrides it: since `COO-DECISION
+        20260904_0545` the seeder has to derive the login set, and a caller
+        that cannot is refused by name (`no_legacy_for_login_set`).
+        """
         stream = io.StringIO()
+        kwargs.setdefault("legacy", _shared_legacy())
         ok = seed_cache_from_live_values(stream=stream, **kwargs)
         return ok, stream.getvalue()
 
@@ -776,7 +952,10 @@ class UnlockBPrimeSeedingTests(unittest.TestCase):
         )
         self.assertTrue(ok, said)
         self.assertTrue(cache.is_captured())
-        self.assertEqual(sorted(cache.current_values()), sorted(all_field_x()))
+        self.assertEqual(
+            sorted(cache.current_values()),
+            sorted(login_mask.login_field_x(_shared_legacy())),
+        )
         self.assertIn(SEED_CAPTURED_CONSOLE_TOKEN, said)
 
     def test_extra_keys_from_the_read_point_can_never_set_an_unknown_bit(self):
@@ -898,7 +1077,7 @@ class LiveFullBlockValuesTests(unittest.TestCase):
 
     def test_named_point_missing_refuses_before_the_login_point_is_even_asked(self):
         with self.assertRaises(AttrWireError) as caught:
-            live_full_block_values(7, hooks=_NoReadPointHooks())
+            live_full_block_values(7, hooks=_NoReadPointHooks(), legacy=_shared_legacy())
         # `no_read_point` is `live_named_values`'s own reason string; if
         # this ever said `no_login_byte_read_point` instead, the two
         # sources are being queried in the wrong order.
@@ -906,14 +1085,24 @@ class LiveFullBlockValuesTests(unittest.TestCase):
 
     def test_named_point_answers_but_login_point_is_absent_refuses(self):
         with self.assertRaises(AttrWireError) as caught:
-            live_full_block_values(7, hooks=_Hooks(_complete_values()))
+            live_full_block_values(
+                7, hooks=_Hooks(_complete_values()), legacy=_shared_legacy(),
+            )
         self.assertIn("not_a_mapping", str(caught.exception))
 
-    def test_both_sources_answering_yields_exactly_all_field_x(self):
+    def test_both_sources_answering_yields_exactly_the_login_set(self):
+        # WAS `..._yields_exactly_all_field_x` -- renamed, not deleted, by
+        # `COO-DECISION 20260904_0545` item 1/2: the unit is the login set
+        # now, and a test whose NAME still said 55 rows would mislead the
+        # next reader even while passing.
         combined = live_full_block_values(
-            7, hooks=_Hooks(_complete_values(), login_values=_login_values())
+            7,
+            hooks=_Hooks(_complete_values(), login_values=_login_values()),
+            legacy=_shared_legacy(),
         )
-        self.assertEqual(sorted(combined), sorted(all_field_x()))
+        self.assertEqual(
+            sorted(combined), sorted(login_mask.login_field_x(_shared_legacy())),
+        )
 
     def test_named_and_unnamed_rows_never_collide(self):
         # If this ever failed, `named_field_x()`/`unnamed_field_x()` would
@@ -977,6 +1166,7 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
             "char",
             hooks=_Hooks(_complete_values(), login_values=_login_values()),
             stream=stream,
+            legacy=_shared_legacy(),
         )
         said = stream.getvalue()
         self.assertFalse(ok)
@@ -1028,7 +1218,8 @@ class AdversaryFindingsRound3qh50kTests(unittest.TestCase):
         values[unsendable_x] = None
         stream = io.StringIO()
         seed_cache_from_live_values(
-            RawBlockCache(), 7, hooks=_Hooks(values), stream=stream
+            RawBlockCache(), 7, hooks=_Hooks(values), stream=stream,
+            legacy=_shared_legacy(),
         )
         said = stream.getvalue()
         self.assertIn(f"absent={absent_x}", said)
