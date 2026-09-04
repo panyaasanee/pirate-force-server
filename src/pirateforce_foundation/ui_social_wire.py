@@ -73,6 +73,28 @@ class WireDecodeError(Exception):
     returns ``None``. Never escapes this module's public surface."""
 
 
+def u16tag(tag: int, v: int) -> bytes:
+    """Tag byte + 2-byte little-endian value -- same family as ``u64tag``
+    below. Added round `wkrfl6` for ``ui_tracepath_wire.py`` (``CTracePathReq
+    Vital``, tag ``0x0F``, six of its eight fields): no class resolved by
+    this lane before that round needed a bare u16 tag *write* (only reads,
+    via ``read_u32tag``'s sibling below), even though ``0x0F``/2-byte-LE is
+    the exact same shape ``CLIENT_RE_QUEUE.md:53``'s tag legend already
+    documents project-wide."""
+
+    return bytes([tag]) + struct.pack("<H", v & 0xFFFF)
+
+
+def u32tag(tag: int, v: int) -> bytes:
+    """Tag byte + 4-byte little-endian value -- same family as ``u64tag``
+    below. Added round `wkrfl6` alongside ``u16tag`` for the same reason:
+    ``read_u32tag`` already existed for the read direction, nothing here
+    needed to *write* a bare u32 tag before ``ui_tracepath_wire.py``'s
+    field3 (``+0x18``, tag ``0x14``)."""
+
+    return bytes([tag]) + struct.pack("<I", v & 0xFFFFFFFF)
+
+
 def u64tag(tag: int, v: int) -> bytes:
     """Tag byte + 8-byte little-endian value -- the same shape as
     ``current/pf_login_game_server_v141.py``'s ``u8tag``/``u16tag``/
@@ -104,6 +126,18 @@ def read_u8tag(buf: bytes, offset: int, expected_tag: int) -> tuple[int, int]:
             "expected tag 0x%02X, got 0x%02X" % (expected_tag, tag)
         )
     return buf[offset + 1], offset + 2
+
+
+def read_u16tag(buf: bytes, offset: int, expected_tag: int) -> tuple[int, int]:
+    if offset + 3 > len(buf):
+        raise WireDecodeError("truncated u16 field")
+    tag = buf[offset]
+    if tag != expected_tag:
+        raise WireDecodeError(
+            "expected tag 0x%02X, got 0x%02X" % (expected_tag, tag)
+        )
+    value = struct.unpack_from("<H", buf, offset + 1)[0]
+    return value, offset + 3
 
 
 def read_u32tag(buf: bytes, offset: int, expected_tag: int) -> tuple[int, int]:

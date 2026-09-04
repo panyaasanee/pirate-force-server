@@ -1,9 +1,20 @@
-"""The four LANE-UI report-only ``lane_hooks/lane_ui_*_wire_log.py``
-modules that subscribe onto the eight friend/mail/party/trade points
+"""The five LANE-UI report-only ``lane_hooks/lane_ui_*_wire_log.py``
+modules: four subscribe onto the eight friend/mail/party/trade points
 ``runtime.py`` opened in ``_FRIEND_MAIL_PARTY_TRADE_DISPATCH``
 (CORE-REQUEST ``pf_bridge/notes_to_chief/20260904_1120``, hooks landed per
 chief letter ``20260904_1522`` which explicitly hands the ``lane_ui_*.py``
-registration to LANE-UI without a further CORE-REQUEST round).
+registration to LANE-UI without a further CORE-REQUEST round). The fifth,
+``lane_ui_tracepath_wire_log.py`` (round `wkrfl6`), registers a NINTH
+point, ``vital_inbound_trace_path_req_vital`` -- but unlike the first
+eight, nothing in ``runtime.py`` calls ``lane_hooks.fire()`` for it yet
+(CORE-REQUEST pending, ``notes_to_chief/20260905_0347_LANE-UI-CORE-REQUEST-
+*.md``; see that module's own docstring for the precedent this follows).
+Every test below calls each hook function DIRECTLY, the same way for all
+nine cases, so this distinction does not change what is tested here (a
+direct call exercises the exact same code whether or not ``runtime.py``
+ever reaches it) -- it only changes what this file may claim ``runtime.py``
+itself does, which is why the ninth case is asserted registered, not
+claimed to fire in production, in the class below that checks it.
 
 Mirrors ``tests/test_lane_a_enter_instance_log.py``'s own shape for the one
 comparable sibling point already on ``main``: decode-with-a-valid-payload,
@@ -16,9 +27,14 @@ agreeing with itself.
 
 NOT PROVEN HERE (same limit ``test_lane_ui_friend_mail_party_trade_dispatch_
 wiring.py`` states for itself): that a real client has ever sent any of
-these eight frames, or what any field means. These hooks print raw
-positional field values and nothing else -- no field is renamed, no store
-row is touched, no frame is sent back.
+the first eight frames, or what any of their fields mean (the ninth,
+tracepath, is different: ``GT-246`` DID capture a real client frame of
+that class, and ``ui_tracepath_wire.py``'s own tests check this module's
+decode against those literal bytes -- but this file still does not repeat
+that check itself, only the shared UNPARSED/ASCII/no-guessed-name
+properties every case here shares). These hooks print raw positional field
+values and nothing else -- no field is renamed, no store row is touched,
+no frame is sent back.
 """
 from __future__ import annotations
 
@@ -35,11 +51,13 @@ from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import ui_friend_wire  # noqa: E402
 from pirateforce_foundation import ui_mail_wire  # noqa: E402
 from pirateforce_foundation import ui_party_wire  # noqa: E402
+from pirateforce_foundation import ui_tracepath_wire  # noqa: E402
 from pirateforce_foundation import ui_trade_wire  # noqa: E402
 from pirateforce_foundation.lane_hooks import (  # noqa: E402
     lane_ui_friend_wire_log,
     lane_ui_mail_wire_log,
     lane_ui_party_wire_log,
+    lane_ui_tracepath_wire_log,
     lane_ui_trade_wire_log,
 )
 
@@ -101,20 +119,37 @@ _CASES = (
         ui_trade_wire.decode_trade_invite_payload,
         ui_trade_wire.TradeInviteFields(2, 987654321, "yo-ho"),
     ),
+    (
+        lane_ui_tracepath_wire_log, "vital_inbound_trace_path_req_vital",
+        lane_ui_tracepath_wire_log._on_trace_path_req,
+        ui_tracepath_wire.encode_trace_path_req_payload,
+        ui_tracepath_wire.decode_trace_path_req_payload,
+        ui_tracepath_wire.TracePathReqFields(0, 0, 0, 1, 357, 178, 32000, 2),
+    ),
 )
 
 
 class RegistrationAndProductionAllowedTests(unittest.TestCase):
-    def test_every_one_of_the_eight_points_has_at_least_one_subscriber(self):
+    def test_every_one_of_the_nine_points_has_at_least_one_subscriber(self):
+        # "subscriber" here means registered (the decorator ran at import),
+        # not "fired by runtime.py in production" -- true of all nine,
+        # including the unwired ninth (tracepath; see this file's own
+        # module docstring and lane_ui_tracepath_wire_log.py's).
         points = lane_hooks.registered_points()
         for _mod, point, *_rest in _CASES:
             with self.subTest(point=point):
                 self.assertGreaterEqual(points.get(point, 0), 1)
 
-    def test_all_four_modules_declare_production_allowed_true(self):
+    def test_all_five_modules_declare_production_allowed_true(self):
+        # production_allowed=True means "this module's OWN code may run
+        # live" (the lane_hooks discovery gate) -- separate from whether
+        # runtime.py fires the point it registered onto. The ninth
+        # (tracepath) module is included here on purpose: its code is not
+        # scenario-gated or half-built, only unwired.
         for module in (
             lane_ui_party_wire_log, lane_ui_friend_wire_log,
             lane_ui_mail_wire_log, lane_ui_trade_wire_log,
+            lane_ui_tracepath_wire_log,
         ):
             with self.subTest(module=module.__name__):
                 self.assertIs(module.production_allowed, True)
