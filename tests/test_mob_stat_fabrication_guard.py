@@ -128,6 +128,14 @@ LANE_B_MODULES = (
     # commit as the module, same reason every other entry on this tuple
     # gives.
     "mob_death_bg0015_ruling_proposal.py",
+    # ROUND amz1w5: the world's own grave book -- which identity is dead in
+    # which scene, for the whole process, so a relogin does not walk back
+    # into the monster it already killed (ka1-A R309 photographed exactly
+    # that resurrection).  No player stat of any kind: it holds
+    # ``mob_death.DeathRecord`` rows built elsewhere and never computes a
+    # number of its own.  Listed in the same commit as the module, the same
+    # reason every other entry on this tuple gives.
+    "mob_death_persistence.py",
     # ROUND jop8ph: whether a combat ledger may be consulted while composing
     # a given scene's census -- the build half of the scene-bound ledger
     # admission decision.  Listed in the same commit as the module, because

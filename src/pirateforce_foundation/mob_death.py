@@ -2343,6 +2343,30 @@ def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
             "was computed from a different lineage that happens to be the "
             "same length" % ", ".join("0x%X" % i for i in dropped),
         )
+    # THE WORLD'S BOOKS, and this is the only place in this lane that may
+    # write to them (ka1-A R309: a monster killed in one session stood back
+    # up at full HP in the next).  HERE and not in :func:`kill`, because a
+    # step ``kill`` composed may be thrown away and recomputed against a
+    # fresher register -- burying a monster there would put a corpse on the
+    # world's books whose death frames were never sent, and the player would
+    # meet a monster they never killed that refuses every hit.  Past every
+    # refusal above, so only a death this function ACCEPTED is remembered.
+    #
+    # Imported inside the function on purpose: mob_death_persistence imports
+    # this module for its typed records, and a module-level import here
+    # would close that circle at interpreter start.  The import is cached
+    # after the first kill, and a kill is not a hot path.
+    #
+    # NEVER RAISES, by that function's own contract, and the try is the
+    # second line rather than the first: this function's callers dispatch
+    # frames on the answer, and a bookkeeping failure must cost the world a
+    # grave, never the player their kill.
+    try:
+        from . import mob_death_persistence
+
+        mob_death_persistence.remember_death(step.record)
+    except Exception:                                   # noqa: BLE001
+        pass
     return step.register
 
 
