@@ -850,17 +850,30 @@ def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: d
     as the upper layer: it refuses EARLIER and with a better message, but it
     is a rule addressed to callers, and this one is a wall.
 
-    THE UNIT IS `all_field_x()`, NOT `named_field_x()`: `RE-222` Q0
-    (SHA-pinned) says the client's apply is a full-object copy whose
-    constructor zeroes every field before decode, so an unset mask bit is a
-    ZERO on the screen, not "unchanged" -- for a `known=False` row exactly
-    as much as for `cash`.  That is the mechanism `GT-218` measured (HP
-    `0/1`, cash `0`, one frame).  x=30 (`SENSITIVE_FIELDS`) is required here
-    too and that is not a back door: see `unnamed_field_x`'s docstring --
-    carrying forward the login path's own byte for x=30 is a fact about this
-    character's row, not a value any caller chose.  The paired bits
-    (x39/x40, x41/x42) satisfy `encode_block`'s pair rule automatically once
-    every row is present.
+    ~~THE UNIT IS `all_field_x()`, NOT `named_field_x()`~~ -- struck
+    2026-09-04 round `4fxkam` by `COO-DECISION 20260904_0545` item 1, which
+    withdraws `0215` item 1's wording outright.  THE UNIT IS NOW
+    `login_mask.login_field_x(legacy)`: the rows PRODUCTION LOGIN ITSELF sets
+    bits for, derived from the login composer on every call, never typed.
+    `RE-222` Q0 (SHA-pinned) still says an unset mask bit decodes as a ZERO,
+    and `GT-218` still measured that (HP `0/1`, cash `0`, one frame) -- what
+    changed is the evidence about WHICH set is safe: this server sends a
+    9-row block (10 with the faction branch) to a real client at every login
+    and the client survives it daily, byte-for-byte IDENTICAL to what
+    `encode_block` composes for that set (LANE-GM `20260904_0505`, re-measured
+    this round).  A 55-row wall demanded a byte source for 26 rows that no
+    code in this repository has -- a gate whose condition cannot be met.
+    x=30 is NOT in the login set and `login_mask.field_x_for_masks` raises if
+    a future login composer ever puts it there (`0545` item 5).  The paired
+    bits (x39/x40, x41/x42) satisfy `encode_block`'s pair rule automatically:
+    login sets neither pair's bit, so neither half is ever asked for alone.
+
+    THE MASK IS CHECKED AFTER COMPOSING, NOT ONLY THE KEY SET (`0545` item 2:
+    "the frame's basic_mask/actor_mask must EQUAL that login mask exactly").
+    Checking the keys alone would pass a frame whose composed mask drifted
+    from the login mask for any reason the key set cannot see -- a `FIELDS`
+    row rebound to a different bit, say.  The mask is the thing the client
+    reads, so the mask is the thing this wall compares.
 
     Still not gated on `UPDATE_ATTR_VITAL_VERSION_CONFIRMED` -- same
     separation `state_wire.make_gm_update_state_frame` keeps from its own
@@ -868,16 +881,24 @@ def make_update_attr_frame(legacy, identity_lo: int, identity_hi: int, values: d
     this one answers "is this frame shaped like the one that killed the
     client".  Neither substitutes for the other.
     """
-    missing = [x for x in all_field_x() if x not in values]
-    if missing:
+    from . import login_mask  # noqa: PLC0415 - avoids an import cycle, see below
+
+    admitted_sets = login_mask.admitted_field_x_sets(legacy)
+    given = set(values)
+    if not any(given == set(shape) for shape in admitted_sets):
+        widest = max(admitted_sets, key=len)
         raise AttrWireError(
-            "refusing to build a 0x309A frame from a partial block: "
-            f"{len(values)} of {len(all_field_x())} rows present "
-            f"(missing={missing}) -- an unset mask bit is a ZERO on the "
-            "client, not 'unchanged' (RE-222 Q0, the mechanism GT-218 "
-            "measured); see COO-DECISION 20260904_0345 item 1"
+            "refusing to build a 0x309A frame that is not login-shaped: "
+            f"{len(values)} rows given "
+            f"(missing={[x for x in widest if x not in given]}, "
+            f"unexpected={[x for x in sorted(given) if x not in widest]}) -- "
+            f"admitted login shapes are {[list(shape) for shape in admitted_sets]} "
+            "(COO-DECISION 20260904_0545 item 1/2: (b'') is the set production "
+            "login itself sets bits for); an unset mask bit is a ZERO on the "
+            "client, not 'unchanged' (RE-222 Q0, the mechanism GT-218 measured)"
         )
-    body, _basic_mask, _actor_mask = encode_block(legacy, identity_lo, identity_hi, values)
+    body, basic_mask, actor_mask = encode_block(legacy, identity_lo, identity_hi, values)
+    login_mask.refuse_unless_login_shaped(legacy, basic_mask, actor_mask)
     payload = (
         legacy.u16tag(0x12, 1)
         + legacy.u16tag(0x12, AC_ATTR_ID)
@@ -1017,7 +1038,7 @@ def unnamed_field_x() -> tuple:
     return tuple(field[0] for field in FIELDS if field[0] not in named)
 
 
-def live_named_values(character_id, *, hooks=None) -> dict:
+def live_named_values(character_id, *, hooks=None, wanted=None) -> dict:
     """Read every named field's REAL current value, or raise saying why not.
 
     THIS IS CONDITION (b') OF THE UNLOCK, in code (see the module docstring's
@@ -1095,7 +1116,7 @@ def live_named_values(character_id, *, hooks=None) -> dict:
             "NO_SOURCE_REGISTERED) or the registered source knows no row"
         )
 
-    wanted = named_field_x()
+    wanted = named_field_x() if wanted is None else tuple(wanted)
     seeded = {}
     absent = []
     unsendable = []
@@ -1135,7 +1156,7 @@ def live_named_values(character_id, *, hooks=None) -> dict:
     return seeded
 
 
-def live_login_bytes(character_id, *, hooks=None) -> dict:
+def live_login_bytes(character_id, *, hooks=None, wanted=None) -> dict:
     """Read every `unnamed_field_x()` row's LOGIN-SENT bytes, or raise
     saying why not.
 
@@ -1196,7 +1217,7 @@ def live_login_bytes(character_id, *, hooks=None) -> dict:
             "process"
         )
 
-    wanted = unnamed_field_x()
+    wanted = unnamed_field_x() if wanted is None else tuple(wanted)
     seeded = {}
     absent = []
     unsendable = []
@@ -1221,28 +1242,103 @@ def live_login_bytes(character_id, *, hooks=None) -> dict:
     return seeded
 
 
-def live_full_block_values(character_id, *, hooks=None) -> dict:
-    """(b'') IN FULL: a dict covering every `FIELDS` row, or a named
+#: Rows whose value must be THE ONE LOGIN SENT THIS CONNECTION, never a
+#: typed column and never a constant -- `COO-DECISION 20260904_0545` item 2
+#: names them by hand: "x=9 and x=10 from the session, the value login sent;
+#: no constant, no zero".  x=11 joins them for the same reason: the login
+#: composer takes it from `world_faction_admission.PROVEN_BASIC_FACTION`, not
+#: from a character row, and `live_named_attr_values.ROWS_WITH_NO_COLUMN_AT_
+#: ALL` lists it as a row the store has no column for at all.
+#:
+#: WHY THIS IS NOT A HAND-TYPED LIST OF THE (b'') SET.  It is not the set; it
+#: is the SOURCE ROUTING for whatever the derived set turns out to hold.  A
+#: row that leaves the login set stops being routed anywhere, and a row that
+#: joins it lands in the typed-column group unless it is named here -- which
+#: is the conservative direction (the typed group refuses loudly when the
+#: store has no column, rather than a silent constant).
+#:
+#: pf-adversary round `4fxkam` D3 is why x=9 moved here rather than staying
+#: with the named rows: x=9 is the HP-PAIR SELECTOR (`SELECTOR_NOTE_R301`,
+#: [PROVEN in-repo]) and login writes THE SCENE THE PLAYER IS STANDING IN
+#: onto it (`player_wire.py`, `u16tag(0x12, scene_id)` at BasicAttr bit
+#: 0x0100).  Routing it to a typed column would let a column that disagrees
+#: with the live scene flip the selector, and the alternate pair it selects
+#: (x=52/x=53) is NOT in the login set -- so the client would read HP from
+#: two bits nothing set, i.e. `0/0` on the HUD.  That is `GT-218`'s symptom
+#: arriving through the gate built to stop it.  The residual risk is written
+#: up in `pf_bridge/notes_to_chief/20260904_0752_LANE-GM-ASK-COO-*`.
+LOGIN_SOURCED_ROWS = frozenset({9, 10, 11})
+
+
+def login_scoped_sources(legacy) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """`(named_rows, login_byte_rows)` -- the login set split by value source.
+
+    `COO-DECISION 20260904_0545` item 2 names the sources row by row: the
+    `known=True` rows come from chief's live read point, EXCEPT the rows in
+    `LOGIN_SOURCED_ROWS`, which must carry the byte login itself sent this
+    connection.  Under the redefined (b'') the second group is x=7, x=9,
+    x=10 and x=11 -- and x=7/x=10 are the exact two rows LANE-GM's
+    `20260904_0505` measured login as having bytes for.  That is the whole
+    reason the redefinition unblocks anything: the 55-row wording wanted 26
+    more rows from a source that has never held one.
+    """
+    from . import login_mask  # noqa: PLC0415 - avoids an import cycle
+
+    return split_sources(login_mask.login_field_x(legacy))
+
+
+def split_sources(rows) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """`login_scoped_sources` for an EXPLICIT row set (one connection's own
+    shape), rather than for the union of every shape production can compose."""
+    named = set(named_field_x()) - LOGIN_SOURCED_ROWS
+    return (
+        tuple(x for x in rows if x in named),
+        tuple(x for x in rows if x not in named),
+    )
+
+
+def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) -> dict:
+    """(b'') IN FULL: a dict covering the LOGIN SET, or a named
     `AttrWireError`, never a partial answer -- this is the ONLY function
     `seed_cache_from_live_values` calls, so nothing in this module can seed
     a cache from one source alone.
 
-    Combines `live_named_values` (real value, `known=True` rows including
-    x=9) and `live_login_bytes` (login byte, everything else, including
-    `SENSITIVE_FIELDS`).  Either source refusing refuses the WHOLE block --
-    `COO-DECISION 20260904_0215` item 1: "no byte source for any row = the
-    door refuses the whole thing, never a partial send." `live_named_values`
-    is tried first, so a boot missing chief's first read point (today's
-    shipped world) reports `no_read_point`, not the second point's absence
-    -- an operator fixes chief's read points in the order this lane needs
-    them, not in whichever order two exceptions happened to interleave.
+    ~~a dict covering every `FIELDS` row~~ -- struck 2026-09-04 round
+    `4fxkam`: `COO-DECISION 20260904_0545` item 1 withdrew the 55-row
+    wording, and item 2 replaced it with "the set production login itself
+    sets bits for".  Combines `live_named_values` (real value) and
+    `live_login_bytes` (login byte) over `login_scoped_sources` rather than
+    over the whole table.  Either source refusing still refuses the WHOLE
+    block -- "no byte source for any row = the door refuses the whole thing,
+    never a partial send" survives the redefinition unchanged, and is the
+    half of `0215` item 1 that the new wording keeps.  `live_named_values` is
+    tried first, so a boot missing chief's first read point (today's shipped
+    world) reports `no_read_point`, not the second point's absence.
+
+    `legacy` IS REQUIRED AND HAS NO DEFAULT SHAPE.  The login set can only be
+    derived by running the production composer, which needs the loaded
+    `pf_login_game_server_v141` module; a caller that cannot supply it cannot
+    know which rows (b'') wants, so this refuses by name instead of falling
+    back to a set nobody measured.  It is keyword-optional only so that the
+    out-of-zone callers in `tests/test_live_named_attr_values.py` keep
+    getting the refusal they assert on rather than a `TypeError`.
     """
-    named = live_named_values(character_id, hooks=hooks)
-    unnamed = live_login_bytes(character_id, hooks=hooks)
+    if rows is None and legacy is None:
+        raise AttrWireError(
+            "no_legacy_for_login_set: (b'') is the set production login sets "
+            "bits for (COO-DECISION 20260904_0545 item 2), and deriving it "
+            "requires the loaded legacy module -- pass legacy=load_legacy(...)"
+        )
+    if rows is None:
+        named_rows, login_rows = login_scoped_sources(legacy)
+    else:
+        named_rows, login_rows = split_sources(rows)
+    named = live_named_values(character_id, hooks=hooks, wanted=named_rows)
+    unnamed = live_login_bytes(character_id, hooks=hooks, wanted=login_rows)
     combined = {**named, **unnamed}
-    assert set(combined) == set(all_field_x()), (
-        "live_full_block_values internal invariant broken: named_field_x() "
-        "and unnamed_field_x() must partition FIELDS exactly"
+    assert set(combined) == set(named_rows) | set(login_rows), (
+        "live_full_block_values internal invariant broken: the two sources "
+        "must partition the login set exactly"
     )
     return combined
 
@@ -1253,6 +1349,7 @@ def seed_cache_from_live_values(
     *,
     hooks=None,
     stream=None,
+    legacy=None,
 ) -> bool:
     """Seed one connection's cache from the live values, or refuse out loud.
 
@@ -1303,7 +1400,7 @@ def seed_cache_from_live_values(
     if stream is None:
         stream = sys.stderr
     try:
-        values = live_full_block_values(character_id, hooks=hooks)
+        values = live_full_block_values(character_id, hooks=hooks, legacy=legacy)
     except AttrWireError as error:
         _print_seed_line(stream, SEED_REFUSED_CONSOLE_TOKEN, character_id, str(error))
         return False
@@ -1424,16 +1521,58 @@ def build_named_field_update(
     # composes.  `encode_block` does NOT also refuse it (deliberately --
     # see that function's own docstring): this is the one door (b'')
     # governs, not the shared low-level composer every lane uses.
+    from . import login_mask  # noqa: PLC0415 - avoids an import cycle
+
+    # THE ROW ITSELF MUST BE ONE THE LOGIN SHAPE CARRIES (`COO-DECISION
+    # 20260904_0545` item 2).  Setting a `known=True` row that login does NOT
+    # send -- `mp_current`, say -- would add its bit to the frame's mask, and
+    # the mask must EQUAL the login mask, not merely contain it.  The wall
+    # would refuse it a second time; this refuses it first and by the reason
+    # that is actually true of it, instead of telling the caller its block is
+    # the wrong shape when what was wrong was the row it asked for.
+    login_rows = login_mask.login_field_x(legacy)
+    if x not in login_rows:
+        raise AttrWireError(
+            f"field x={x} ({field[6]}) is not in the login set {list(login_rows)}: "
+            "a 0x309A frame's mask must EQUAL the production login mask "
+            "(COO-DECISION 20260904_0545 item 2), so a row login does not send "
+            "cannot be set through this door -- it would widen the mask"
+        )
+
     held = set(cache.current_values())
-    wanted = set(all_field_x())
-    if held != wanted:
+    admitted = login_mask.admitted_field_x_sets(legacy)
+    if not any(held == set(shape) for shape in admitted):
+        widest = set(max(admitted, key=len))
         raise AttrWireError(
             "cache does not satisfy unlock (b''): it holds "
-            f"{len(held)} of {len(wanted)} FIELDS rows "
-            f"(missing={sorted(wanted - held)}, unexpected={sorted(held - wanted)})"
+            f"{len(held)} rows, none of the admitted login shapes "
+            f"{[list(shape) for shape in admitted]} "
+            f"(missing={sorted(widest - held)}, unexpected={sorted(held - widest)})"
             " -- an unset mask bit is a ZERO on the client, not 'unchanged'"
-            " (see the module docstring, section \"(b') IS NOW (b'')\")"
+            " (COO-DECISION 20260904_0545 item 1/2 redefined the set; see the"
+            " module docstring, section \"(b') IS NOW (b'')\")"
         )
+    # THE DOOR MAY CHANGE A VALUE, NEVER THE SHAPE (pf-adversary round
+    # `4fxkam`, D1, MEASURED).  `login_field_x` is the UNION of every shape
+    # production can compose, so checking `x` against it admits x=11 for a
+    # connection whose login composed the PLAIN branch -- a connection in a
+    # scene `world_faction_admission` deliberately refuses a faction bit for.
+    # Measured: the frame went out with `basic_mask=0x074F` where login had
+    # sent `0x034F`, and `record_sent` then froze the faction shape into the
+    # cache for every later frame on that connection.  That is this lane
+    # overruling a gate it does not own, which `login_mask`'s own docstring
+    # forbids in as many words.  The cache is the only per-connection record
+    # of the login shape this module has today, so the shape it holds is what
+    # the answer must be measured against -- not the union.
+    if x not in held:
+        raise AttrWireError(
+            f"field x={x} ({field[6]}) is not in the shape this connection's "
+            f"cache holds {sorted(held)}: this door changes a VALUE, never the "
+            "frame's mask -- setting a row login did not send this connection "
+            "would widen its mask past the login mask (COO-DECISION "
+            "20260904_0545 item 2)"
+        )
+
     merged = cache.merged_with({x: value})
     pc, frame = make_update_attr_frame(legacy, identity_lo, identity_hi, merged)
     cache.record_sent(merged)

@@ -31,12 +31,38 @@ RAW FIELDS, NOT INVENTED TYPES.  SKILL_CONTEXT has no "basic attack / attack /
 AOE / buff / heal / passive" enum column and no MP column (``n_STAMINA_COST``
 is the closest cost field, named as the table names it -- this module does
 not claim it means "MP").  ``n_PASSIVE`` is carried as the client's own raw
-value (observed 1 or 2 in this data, not a 0/1 boolean) precisely so nobody
-downstream mistakes a raw column for a decoded classification.  Deriving a
-basic/attack/AOE/buff/heal/passive taxonomy would require parsing
-``s_CAST_CONDITION``/``s_CAST_BEHAVIOR`` (a small command language: ``GO(0)``,
-``CHASE(n)``, ``SKIP(n)``, ...) plus the (not-yet-copied) Thai
-``s_DESCRIPTION``/``s_CACULATE`` text -- out of scope for this round.
+value precisely so nobody downstream mistakes a raw column for a decoded
+classification.
+
+    ROUND 6o11t1 CHECKED THE OBVIOUS SHORTCUT AND IT IS A TRAP.
+    ``n_PASSIVE`` is not boolean -- table-wide it takes 6 distinct values (0:
+    1 row, 1: 118, 2: 1016, 3: 910, 4: 84, 5: 36), which is suspicious given
+    the mission's target taxonomy also has 6 categories.  It is NOT that
+    taxonomy.  Two independent checks this round (pf-static-re's keyword/
+    title cross-reference across all 6 values, and pf-adversary re-deriving
+    the 8 starting-kit ids directly) falsify it the same way: skill 99
+    ("Normal Attack", the one skill in this whole catalog that is
+    unambiguously a basic attack) has ``n_PASSIVE=2`` -- the SAME value as
+    110/111 ("Strive Jump" / "VIP Strive Jump", movement skills, not attacks)
+    -- while the five per-class "Basic Training" skills (40000/41000/42000/
+    43000/44000) all sit at a different single value, ``n_PASSIVE=1``, along
+    with 97 of 118 value-1 rows table-wide being actively-cast attack skills
+    with a non-blank ``s_CAST_CONDITION`` (e.g. id 5101 "Hammer of Judgment",
+    ``CHASE(5101)``) -- so "1" cannot mean "passive, nothing is cast" either.
+    Table-wide, a single skill title ("Warm Cure") appears at two different
+    ids with two different ``n_PASSIVE`` values (7172 -> 3, 44007 -> 2), and
+    heal/buff/AOE keyword hits are smeared across 3-5 of the 6 values each,
+    never isolated in one.  The one real pattern found is id-range
+    clustering (value 3 is 91% ids 3000-3999, monster "Bite"/"performing"
+    titles; value 5 is 97% ids 0-999, ship cannon titles) -- this reads as
+    "which subsystem/owner row this is" (player vs. monster-state vs.
+    ship-weapon), not a gameplay type tag.  Do not build a ``skill_type()``
+    accessor on ``n_PASSIVE``; the next round that wants one has to start
+    from decoding ``s_CAST_CONDITION``/``s_CAST_BEHAVIOR`` (a small command
+    language: ``GO(0)``, ``CHASE(n)``, ``SKIP(n)``, ``ISVIP_I(n)``, ...) --
+    see ``tests/test_skill_catalog.py``'s
+    ``NPassiveIsNotATypeColumnTests`` for the pinned counter-examples that
+    make this a red test, not a comment, if anyone re-copies the shortcut.
 """
 from __future__ import annotations
 
