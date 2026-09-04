@@ -171,6 +171,84 @@ class EncodeAddSurveyDataOuterTests(unittest.TestCase):
         self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
 
 
+class R313CaptureParityTests(unittest.TestCase):
+    """The static-parser comparison COO-DECISION 20260905_0251 / the R313
+    letter (`pf_bridge/notes_to_chief/20260905_0212_KA1A-R313-RESULTS-*`)
+    asked for: does this encoder's output match the actual bytes the server
+    sent and the client rejected with `ErrorData=50351`?
+
+    R313's own prose calls the frame "70 B"; the hex it pastes is 60 bytes.
+    pf-adversary (this round) caught a first draft here that called that a
+    prose slip -- WRONG.  `encode_add_survey_data_outer` returns a
+    `(pc, frame)` pair, same as every other frozen composer in this
+    project: `pc` is the pre-compression content (60 bytes here) and
+    `frame` is `frame_pc(pc)` -- `current/pf_login_game_server_v141.py`'s
+    `MAGIC + varint(len(compressed)) + snappy_raw_literal(pc)` wrapper.
+    Computed directly below: `len(frame) == 70`.  Both numbers in R313's
+    letter are correct; they name two different layers of the same send,
+    and this class pins both rather than picking one and calling the other
+    wrong.
+    """
+
+    # `SURVEY2_DOCK153_INITIAL`, console line 4168, R313 (2026-09-05T02:0x).
+    _R313_DOCK153_INITIAL_HEX = (
+        "12 9D 6E 14 00 00 00 00 08 04 0B 02 12 01 00 12 AF C4 0B 00 "
+        "0B 01 12 02 00 12 00 00 12 00 00 2A 66 6E AF C5 2A 00 14 82 45 "
+        "2A 00 00 3A 43 32 00 00 00 00 00 00 00 00 12 00 00 0B 00"
+    )
+
+    def test_the_pasted_hex_is_the_60_byte_pc_not_the_70_byte_frame(self):
+        raw = bytes.fromhex(self._R313_DOCK153_INITIAL_HEX.replace(" ", ""))
+        self.assertEqual(len(raw), 60)
+
+    def test_the_encoder_reproduces_the_r313_capture_byte_for_byte(self):
+        # Field values read off the same letter's own decode line, not
+        # re-guessed: msg_id 0xC4AF, vital_version 0, survey_id 2 (DOCK153),
+        # XYZ (-5613.8, 4162.5, 186.0), every unmeasured field 0.
+        fields = survey.SurveyRecordFields(
+            survey_id=2, x=-5613.8, y=4162.5, z=186.0,
+        )
+        pc, frame = survey.encode_add_survey_data_outer(
+            legacy, msg_id=0xC4AF, vital_version=0, fields=fields,
+        )
+        captured = bytes.fromhex(
+            self._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        self.assertEqual(
+            pc, captured,
+            "this encoder no longer reproduces the exact bytes R313 sent "
+            "and the client rejected with ErrorData=50351 -- if this ever "
+            "goes red, the encoder changed, not the finding below",
+        )
+        # The letter's other number: the actual compressed wire frame this
+        # same call would have gone out as is 70 bytes, matching R313's
+        # prose exactly. Pinned so nobody re-reads "70 B" as a second slip.
+        self.assertEqual(len(frame), 70)
+
+    def test_therefore_the_50351_rejection_is_not_an_encoder_vs_re227_mismatch(self):
+        # The point of the two tests above: this encoder already implements
+        # RE-227's pinned layout tag-for-tag (see the module docstring and
+        # `EncodeSurveyRecordTests` above), and it reproduces exactly what
+        # R313 sent. So whatever the client's real reader disagrees with is
+        # NOT visible to a comparison against RE-227's own findings -- it
+        # must live in one of the four fields RE-227 itself called
+        # UNMEASURED (`unmeasured_0x14`, `unmeasured_0x16`,
+        # `unmeasured_0x28`, `unmeasured_0x30`), in `vital_version`, or in a
+        # field RE-227's static pass never reached at all.  Resolving which
+        # needs either the RE runner's own machine (this environment has no
+        # `GameClient.local.bin`) or another attended trial that varies one
+        # field at a time -- this test only closes off the one explanation
+        # that WAS checkable from committed artifacts.
+        self.assertEqual(
+            {"unmeasured_0x14", "unmeasured_0x16", "unmeasured_0x28",
+             "unmeasured_0x30"},
+            {
+                name for name in survey.SurveyRecordFields._fields
+                if name.startswith("unmeasured_")
+            },
+        )
+
+
 class NotWiredToAnySendPathTests(unittest.TestCase):
     def test_no_python_file_anywhere_in_this_repository_imports_this_module(self):
         # A grep guard, not a claim about intent: proves the nonclaim in

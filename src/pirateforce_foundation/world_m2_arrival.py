@@ -155,22 +155,22 @@ strength, which an earlier draft of this docstring got wrong by calling them
     a translation.  It stays fail-closed: this lane does not fuzzy-match
     names to widen a plan.
 
-    A CITATION CORRECTED, BECAUSE ITS OWN SOURCES REFUSE IT.  An earlier
-    draft of this docstring wrote "R306 warped a live client 2 -> 14 -> 3 ->
-    4 -> 5 with full NPC rosters (GT-210 / GT-212 PASS)".  Stated properly:
-    `pf_bridge/NOW.md` (COO, 2026-09-04) records `/warp` succeeding five
-    times across those scenes with NPCs present, and `docs/GM_LANE.md`'s R306
-    entry records the TeleportVital halves passing five times -- a WIRE
-    result naming no scenes.  This repository's own files say GT-210 and
-    GT-212 are OPEN, not PASS (`lane_hooks/lane_a_choose_npc_roster_scenes`:
-    "Nobody has yet clicked an NPC on scene 3 ... whether the client draws it
-    is GT-210 for scene 3 and GT-212 for the nine").  So the client-observable
-    layer is NOT established for scene 3 here, and
-    `SceneDestination.sent_before` staying False for it is consistent with
-    this tree rather than stale.  What the round's letter raises with COO is
-    the DISCREPANCY between NOW.md's account and `MEASURED_SCENE_IDS`, for
-    COO to resolve -- not a widening this module assumes.  `client_confirmed`
-    in the report is that field, printed as it stands.
+    A CITATION CORRECTED, THEN THE DISCREPANCY IT RAISED RESOLVED.  An
+    earlier draft of this docstring wrote "R306 warped a live client 2 -> 14
+    -> 3 -> 4 -> 5 with full NPC rosters (GT-210 / GT-212 PASS)", which its
+    own sources refused: at the time GT-210 and GT-212 were OPEN, not PASS,
+    so the client-observable layer was not yet established for scene 3 and
+    `SceneDestination.sent_before` staying False for it was consistent with
+    this tree rather than stale.  The round's letter raised that DISCREPANCY
+    between `pf_bridge/NOW.md`'s account and `MEASURED_SCENE_IDS` with COO
+    rather than widening the plan itself.  COO-DECISION 20260905_0251
+    resolved it: GT-210 and GT-212 both closed PASS, OBSERVER_CONFIRMED
+    2026-09-03T16:51+07:00 (`GAME_TEST_QUEUE.md`, chief round `pk14rf`/R326),
+    so `MEASURED_SCENE_IDS` now carries scene 3 (with 4, 5, 14, 126, each on
+    its own citation -- see `world_scene_travel.MEASURED_SCENE_IDS`) and
+    `sent_before` is True for it.  `client_confirmed` in the report is that
+    field, printed as it stands, and now reads True for scene 3 rather than
+    the False this paragraph used to explain.
 
 ~~WHY IT REFUSES EVERY HANDLE TODAY, AND WHY THAT IS NOT A BUG~~
 WHAT IT ANSWERS NOW THAT GT-228 HAS REPORTED

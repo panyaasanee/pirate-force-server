@@ -88,13 +88,21 @@ is refused on arithmetic.  This does NOT make the fact mean "the scene opened"
 way of being wrong.  A scene the registry pins no spawn for is recorded with
 ``cross_checked=False`` so a reader can tell the two apart.
 
-WHERE THE LEDGER STARTS.  Two scene ids are pinned in this tree as
-``world_scene_travel.MEASURED_SCENE_IDS``, whose own documentation calls them
-"scene ids a live client in this project has accepted":
+WHERE THE LEDGER STARTS.  Seven scene ids are pinned in this tree as
+``world_scene_travel.MEASURED_SCENE_IDS`` (widened 2026-09-05,
+COO-DECISION 20260905_0251), whose own documentation calls them "scene ids a
+live client in this project has accepted":
 
 * scene 1, Port Royal.
 * scene 2, Prison Exile Island - ``docs/EXPERIMENT_LEDGER.md`` records
   SCENE-001 as a runtime pass in which the client loaded and rendered it.
+* scenes 3 (Spice Paradise) and 4/5 (two of the nine roster islands) -
+  ``GT-210``/``GT-212`` PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00.
+* scene 14, Hell Volcano - ``GT-134`` (``BG0015-FIRST-EYES-001``) PASS.
+* scene 126, the Atlantis ocean panel - round R313 put a live client on the
+  open sea with ``WORLD_SCENE scene_id=126`` on the wire; its own table row
+  still carries no save/marker (see ``world_scene_travel.
+  MEASURED_SCENE_IDS`` for the per-id citations this module borrows).
 
 They are seeded with ``from_this_process=False`` so an inherited fact is never
 read as something this boot saw.  Scene 278 is not seeded, and hand-seeding it
@@ -484,6 +492,20 @@ def _seed_evidence(scene_id: int) -> str:
     if scene_id == 2:
         return ("docs/EXPERIMENT_LEDGER.md SCENE-001 runtime load pass - the "
                 "client loaded and rendered Prison Exile Island")
+    if scene_id == 3:
+        return ("GT-210 PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00 - an "
+                "NPC click on Spice Paradise was answered on screen")
+    if scene_id in (4, 5):
+        return ("GT-212 PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00 - "
+                "one of the nine roster islands, NPC click answered on "
+                "screen")
+    if scene_id == 14:
+        return ("GT-134 BG0015-FIRST-EYES-001 PASS - this project's first "
+                "confirmed eyes on Hell Volcano Island")
+    if scene_id == 126:
+        return ("round R313 (pf_bridge notes_to_chief KA1A-R313-RESULTS) - "
+                "WORLD_SCENE scene_id=126 name=Atlantis on the wire plus the "
+                "owner observed on the open sea, 2026-09-05T02:07+07:00")
     return "world_scene_travel.MEASURED_SCENE_IDS"
 
 
