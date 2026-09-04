@@ -851,11 +851,21 @@ class HitFrameDoorBTests(unittest.TestCase):
     directly.  `COO-DECISION 20260904_0546` (round `f2qyxx`'s own D2)
     withdrew it from this door's adjudication path entirely: Door B's frame
     is about `gm/attr_wire.named_field_x()`, the 27-row named set, never
-    LANE-DB's 55-row persistence block.  The completeness promise `RE-222`
-    demands did not go away -- it is enforced by
-    `gm.attr_wire.build_named_field_update` itself now, against the
-    CONNECTION's own cache, not by a second check this door used to run and
-    then discard the result of.  The cards below test that shape.
+    LANE-DB's 55-row persistence block.
+
+    THIS IS THE THIRD DRAFT'S OWN CORRECTION, ROUND `yq5gzr` -> THIS ONE.
+    Between those two rounds the completeness promise `RE-222` demands was
+    enforced by `gm.attr_wire.build_named_field_update`, against the
+    CONNECTION's own cache -- and the frame's actual BYTES came from that
+    same cache, with `live` checked for shape and then discarded
+    (pf-adversary round `yq5gzr` D6 measured this and asked the COO which
+    source was real).  `COO-DECISION 20260904_0847` answered: `live` IS the
+    truth, the cache may never fill a row, and a row this connection's own
+    login shape needs that no live source can answer is a whole-frame
+    stand-down.  The cache's role is now READER ONLY (which rows this
+    connection's login composed, off its key set) plus `record_sent`; every
+    byte the frame carries comes from `gm.attr_wire.live_full_block_values`
+    instead.  The cards below test THAT shape.
     """
 
     def setUp(self):
@@ -908,13 +918,22 @@ class HitFrameDoorBTests(unittest.TestCase):
             else:
                 setattr(self.attr_wire, name, previous)
 
-    def _compose(self, hp_after=90, hook=None, cache=-1):
-        """Run the door, capturing stdout, and return `(result, console)`."""
+    def _compose(self, hp_after=90, hook=None, cache=-1, login_hook=None):
+        """Run the door, capturing stdout, and return `(result, console)`.
+
+        `login_hook` is NEW 2026-09-04 (`COO-DECISION 20260904_0847`): the
+        second source `attr_wire.live_full_block_values` reads
+        (`attr_wire.LOGIN_BYTES_READ_POINT`), for `LOGIN_SOURCED_ROWS`
+        (x=9/x=10/x=11).  A card whose cache shape carries none of those
+        rows does not need it; every card that expects a real compose does.
+        """
         class _Hooks:
             pass
         module = _Hooks()
         if hook is not None:
             setattr(module, self.door.LIVE_ATTR_VALUES_HOOK_ATTR, hook)
+        if login_hook is not None:
+            setattr(module, self.attr_wire.LOGIN_BYTES_READ_POINT, login_hook)
         if cache == -1:
             cache = self.attr_wire.RawBlockCache()
         buffer = io.StringIO()
@@ -935,6 +954,15 @@ class HitFrameDoorBTests(unittest.TestCase):
         helper follows it instead of pinning a stale set.  `None` only if
         that set is ever empty -- not reachable on this tree, kept as a
         guard rather than an assumption.
+
+        SUPERSEDED 2026-09-04, `COO-DECISION 20260904_0847`: this dict's
+        VALUES now reach the frame this door sends (through
+        `attr_wire.live_full_block_values`), where they used to be checked
+        for shape and then thrown away.  Still returns every named row (a
+        superset of whatever narrower `named_rows` a given shape needs) --
+        `live_named_values` drops the keys it did not ask for rather than
+        refusing them, so callers below may hand this whole dict to any
+        shape's hook.
         """
         wanted = self.attr_wire.named_field_x()
         if not wanted:
@@ -945,28 +973,68 @@ class HitFrameDoorBTests(unittest.TestCase):
             supplied[x] = "Ann" if field[5] == "wstr" else 2
         return supplied
 
+    def _adjudicated_login_byte_values(self):
+        """A login-byte hook payload for `attr_wire.unnamed_field_x()` --
+        every row NOT in the named set, not only `LOGIN_SOURCED_ROWS`
+        (x=9/x=10/x=11): `login_scoped_sources`'s own docstring says the
+        login-byte group is "x=7, x=9, x=10 and x=11" for this tree, and
+        x=7 is a `known=False` row that lands there through
+        `split_sources`'s plain "not in named" branch, never through
+        `LOGIN_SOURCED_ROWS` itself.  Built the same way
+        `_adjudicated_live_values` builds its own superset -- covering the
+        WHOLE unnamed table rather than guessing which subset one shape
+        needs, relying on `live_login_bytes`'s own "extra keys are dropped"
+        contract (its docstring, mirroring `live_named_values`'s).
+
+        NEW 2026-09-04, `COO-DECISION 20260904_0847`: this door now sources
+        every row of its frame from live reads, and the rows outside
+        `named_field_x()` that a login shape still carries come from THIS
+        hook (`attr_wire.LOGIN_BYTES_READ_POINT`), never from the
+        connection's cache.
+
+        UNION, NOT EITHER ALONE: `split_sources` puts a row here when it is
+        NOT in `named_field_x() - LOGIN_SOURCED_ROWS` -- which is true for
+        `unnamed_field_x()` (`known=False`, e.g. x=7) AND separately true
+        for `LOGIN_SOURCED_ROWS` itself (x=9/x=10/x=11, which ARE
+        `known=True` but excluded from the named group by name).  Missing
+        either half here undercounts what a real login shape needs.
+        """
+        wanted = set(self.attr_wire.unnamed_field_x()) | set(
+            self.attr_wire.LOGIN_SOURCED_ROWS)
+        supplied = {}
+        for x in wanted:
+            field = self.attr_wire.BY_X[x]
+            supplied[x] = "x" if field[5] == "wstr" else 2
+        return supplied
+
     def _full_valid_baseline(self):
-        """A cache baseline `build_named_field_update` will actually accept.
+        """A cache SHAPE `attr_wire.make_update_attr_frame` will accept.
 
         WAS every `attr_wire.FIELDS` row, all 55.  CHANGED round yq5gzr, and
         the change came from LANE-GM rather than from this lane: `#715` made
         (b'') the LOGIN MASK SET (`COO-DECISION 20260904_0545` item 1/2), so
-        the encoder now refuses any cache that is not one of the shapes
-        production login itself sets bits for -- a 55-row cache raises
+        the encoder now refuses any block that is not one of the shapes
+        production login itself sets bits for -- a 55-row block raises
         "refusing to build a 0x309A frame that is not login-shaped".
         `COO-DECISION 20260904_0546` puts Door B on that same set, so this
         helper follows it there.
+
+        WHAT THIS SEEDS IS A SHAPE, NOT A VALUE SOURCE -- SUPERSEDED
+        2026-09-04, `COO-DECISION 20260904_0847`: this door used to compose
+        its frame from a cache seeded with exactly this dict; now it reads
+        only the cache's KEYS (`cache.current_values()`, to learn which rows
+        this connection's login composed) and never a value out of it.  The
+        values below are therefore decoys on purpose, distinct from
+        `_adjudicated_live_values()`/`_adjudicated_login_byte_values()`'s own
+        (0/0.0/"x"/b"" here, 2/"Ann" there) -- a card that finds one of
+        THESE values in a composed frame has caught exactly the leak
+        `COO-DECISION 20260904_0847` closed.
 
         DERIVED, never typed: the widest admitted shape comes from
         `login_mask.admitted_field_x_sets(legacy)`, LANE-GM's own function.
         Writing the nine or ten row numbers out here would pin a set this
         lane does not own, and the pin would rot the next time they move it
-        -- which is exactly what just happened to the 55.  Values are
-        type-correct per row `kind`, the only shapes
-        `attr_wire.validate_field_value` accepts; `RawBlockCache` is
-        source-agnostic by its own docstring, so seeding one for a card that
-        needs the ENCODER to survive a bad byte (pf-adversary D12) needs no
-        sign-off from whoever will eventually seed it for real.
+        -- which is exactly what just happened to the 55.
         """
         from pirateforce_foundation.gm import login_mask
         admitted = login_mask.admitted_field_x_sets(self.legacy)
@@ -986,6 +1054,29 @@ class HitFrameDoorBTests(unittest.TestCase):
             else:
                 values[x] = 0
         return values
+
+    def _expected_full_block(self, hp_after):
+        """The values dict `compose_player_hit_frame` SHOULD compose today:
+        every row of the widest admitted shape, sourced the same way the
+        door now sources them (`_adjudicated_live_values` for the named
+        rows, `_adjudicated_login_byte_values` for `LOGIN_SOURCED_ROWS`),
+        with `hp_current` overridden to `hp_after` -- never a value out of
+        `_full_valid_baseline()`, which this round demoted to a shape-only
+        fixture."""
+        from pirateforce_foundation.gm import login_mask
+        widest = max(
+            login_mask.admitted_field_x_sets(self.legacy), key=len)
+        named_values = self._adjudicated_live_values()
+        login_values = self._adjudicated_login_byte_values()
+        expected = {}
+        for x in widest:
+            if x in named_values:
+                expected[x] = named_values[x]
+            elif x in login_values:
+                expected[x] = login_values[x]
+        rows = self.door.hit_frame_vital_rows()
+        expected[rows[self.door.HIT_FRAME_CHANGED_FIELD_NAME]] = hp_after
+        return expected
 
     # -- the gates ---------------------------------------------------------
 
@@ -1192,34 +1283,42 @@ class HitFrameDoorBTests(unittest.TestCase):
         # draft, one of them inside the refusal that existed to protect this.
         # Every row below is one of those, replayed.
         #
-        # THREE OF THESE ARE ABOUT A *VALUE*, NOT A KEY -- and pf-adversary
-        # D12, MEASURED, found that with this class's DEFAULT (fresh,
-        # unseeded) cache, all three used to stop at the withdrawn
-        # `block_gaps` completeness gate before ever reaching code that
-        # inspects the value itself; `live`'s VALUES are never fed into the
-        # frame this door builds (only the cache's own baseline and
-        # `hp_after` are), so the only way to prove a bad value survives the
-        # real encoder is to put it INTO a seeded cache, where
-        # `attr_wire.build_named_field_update` will actually try to encode
-        # it.  The other six payloads are about KEYS, which the door's own
-        # checks inspect directly, so they keep the default unseeded cache.
+        # THREE OF THESE ARE ABOUT A *VALUE*, NOT A KEY.  SUPERSEDED
+        # 2026-09-04, `COO-DECISION 20260904_0847`: `live`'s VALUES now DO
+        # feed the frame this door builds (through
+        # `attr_wire.live_full_block_values`), so a bad value no longer has
+        # to be smuggled in through a seeded cache to reach anything -- the
+        # hook can just answer it directly.  What changed is WHERE it is
+        # caught: `live_named_values` (LANE-GM's own function) validates
+        # every row's value with `attr_wire.validate_field_value` before
+        # this door ever calls the real encoder, so a bad value is now an
+        # INCOMPLETE live source (:data:`STANDDOWN_LIVE_SOURCE_INCOMPLETE`),
+        # not an encoder refusal -- the seeder and the encoder agreeing on
+        # what is sendable is the whole point of that shared validator (see
+        # `validate_field_value`'s own docstring).  The other six payloads
+        # below are about KEYS, which this door's own checks still inspect
+        # directly and unchanged, so they keep the default unseeded cache.
         value_cases = {
             24: -1,        # a signed cash read (u64 field, negative)
             1: b"Panya",   # a BLOB where a wstr goes
             4: 100.0,      # a float on a u32 row
         }
         for x, bad_value in value_cases.items():
-            baseline = self._full_valid_baseline()
-            baseline[x] = bad_value
+            supplied = self._adjudicated_live_values()
+            self.assertIsNotNone(supplied)
+            supplied[x] = bad_value
             cache = self.attr_wire.RawBlockCache()
-            cache.capture_initial(baseline)
+            cache.capture_initial(self._full_valid_baseline())
             with self._gates(lane_b=0, encoder=0):
                 result, console = self._compose(
-                    hook=lambda cid, v=x: {v: 1}, cache=cache)
+                    hook=lambda cid, v=dict(supplied): dict(v),
+                    login_hook=lambda cid: self._adjudicated_login_byte_values(),
+                    cache=cache)
             self.assertIsNone(result, "x=%d bad value composed" % (x,))
             self.assertIn(
-                self.door.STANDDOWN_ENCODER_REFUSED, console,
-                "x=%d bad value did not reach the real encoder" % (x,))
+                self.door.STANDDOWN_LIVE_SOURCE_INCOMPLETE, console,
+                "x=%d bad value did not stop the live source from being "
+                "read as complete" % (x,))
 
         key_payloads = (
             {9: 1, "scene": 1},           # mixed-type keys: the sorted() crash
@@ -1240,6 +1339,13 @@ class HitFrameDoorBTests(unittest.TestCase):
     def test_a_renamed_vital_row_is_a_stand_down_inside_the_gated_path(self):
         # LANE-GM moving their own table may turn this lane's cards red; it
         # may not take a walking player's dispatch down.
+        #
+        # NEEDS A REAL COMPOSABLE CALL TO REACH THIS FAR, changed round
+        # (this one): `hit_frame_vital_rows()` is now called AFTER the live
+        # source resolves as COMPLETE for this connection's shape
+        # (`COO-DECISION 20260904_0847`), not before a cache-merge -- a
+        # default unseeded cache stands down at the shape gate first and
+        # never reaches the renamed-row lookup this card exists to measure.
         original = dict(self.attr_wire.BY_NAME)
         self.attr_wire.BY_NAME.pop("hp_current")
         try:
@@ -1247,9 +1353,13 @@ class HitFrameDoorBTests(unittest.TestCase):
                 self.door.hit_frame_vital_rows()
             supplied = self._adjudicated_live_values()
             if supplied is not None:
+                cache = self.attr_wire.RawBlockCache()
+                cache.capture_initial(self._full_valid_baseline())
                 with self._gates(lane_b=0, encoder=0):
                     result, console = self._compose(
-                        hook=lambda cid: dict(supplied))
+                        hook=lambda cid: dict(supplied),
+                        login_hook=lambda cid: self._adjudicated_login_byte_values(),
+                        cache=cache)
                 self.assertIsNone(result)
                 self.assertIn(self.door.STANDDOWN_ENCODER_REFUSED, console)
         finally:
@@ -1371,7 +1481,9 @@ class HitFrameDoorBTests(unittest.TestCase):
                 side_effect=_raise), \
              self._gates(lane_b=0, encoder=0):
             result, console = self._compose(
-                hp_after=90, hook=lambda cid: dict(supplied), cache=cache)
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: self._adjudicated_login_byte_values(),
+                cache=cache)
         self.assertIsNotNone(
             result,
             "the door failed to compose its ordinary positive-path frame "
@@ -1444,46 +1556,49 @@ class HitFrameDoorBTests(unittest.TestCase):
         self.assertIn(self.door.STANDDOWN_LIVE_SOURCE_NOT_NAMED, console)
 
     def test_when_the_connection_cache_is_complete_the_frame_composes(self):
-        # THE POSITIVE-PATH CARD.  WAS `test_when_the_adjudicator_agrees_
-        # the_frame_is_a_full_block`, which asked `persistence_attr_
-        # compose.compose_full_block` for an oracle -- retired along with
-        # that dependency.  What proves a real frame can leave this door now
-        # is narrower and matches what actually ships: a CONNECTION cache
-        # that already satisfies `attr_wire.build_named_field_update`'s own
-        # completeness gate (`all_field_x()`, seeded here with
-        # `_full_valid_baseline()` -- source-agnostic, per `RawBlockCache`'s
-        # own docstring, and something gate 3 forbids THIS door from
-        # building for itself) plus a live source naming rows entirely
-        # within `named_field_x()`.  The frame that comes out is built from
-        # the CACHE's own values with only `hp_current` overridden -- NOT
-        # from `live`, which this door never feeds into the bytes it sends
-        # (module docstring, gate 4) -- so `expected_values` below is
-        # derived from `baseline`, not from `supplied`.
+        # THE POSITIVE-PATH CARD.  FLIPPED 2026-09-04, `COO-DECISION
+        # 20260904_0847` item 3: "the positive card 'frame = the cache's
+        # value' turns into 'frame = live's value; the cache diverging from
+        # live must never leak out'".  What proves a real frame can leave
+        # this door now is a cache that supplies a SHAPE only
+        # (`_full_valid_baseline()`, demoted this round to a shape-only
+        # fixture whose own values are deliberately decoys -- see that
+        # helper's docstring) plus BOTH live sources
+        # (`_adjudicated_live_values`/`_adjudicated_login_byte_values`)
+        # answering every row that shape needs.  `expected_values` below is
+        # derived from the LIVE sources plus `hp_after`, never from
+        # `baseline` -- the inverse of what this card asked before this
+        # round.
         baseline = self._full_valid_baseline()
         cache = self.attr_wire.RawBlockCache()
         cache.capture_initial(baseline)
         supplied = self._adjudicated_live_values()
         self.assertIsNotNone(supplied)
-        rows = self.door.hit_frame_vital_rows()
-        expected_values = dict(baseline)
-        expected_values[rows["hp_current"]] = 90
+        login_supplied = self._adjudicated_login_byte_values()
+        expected_values = self._expected_full_block(90)
+        # The two sources must actually disagree with the cache's decoys
+        # for this card to prove anything -- a baseline that happened to
+        # equal the live values would pass whichever side leaked.
+        self.assertNotEqual(
+            {x: baseline[x] for x in expected_values},
+            expected_values,
+            "the shape-only baseline accidentally matches the live values; "
+            "this card cannot tell the two sources apart")
         expected = self.attr_wire.make_update_attr_frame(
             self.legacy, self.identity[0], self.identity[1], expected_values)
         with self._gates(lane_b=0, encoder=0):
             result, console = self._compose(
-                hp_after=90, hook=lambda cid: dict(supplied), cache=cache)
-        self.assertIsNotNone(result)
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNotNone(result, console)
         self.assertEqual(result, expected)
         self.assertEqual(console, "")
-        # The mask carries EXACTLY the rows the cache holds - no more, no
-        # fewer.  This loop used to assert that every one of the 55 FIELDS
-        # rows had its bit set, which was the right question while (b'')
-        # meant "the whole block"; `#715` made (b'') the LOGIN MASK SET, so
-        # the same sentence now has to be asked of that set instead.  Both
-        # directions matter and for the reason RE-222 Q0 gives: a bit that
-        # is set carries a value the client copies over its own, and a bit
-        # that is NOT set is a ZERO on the client rather than "unchanged" -
-        # so a mask wider than the cache is as wrong as one narrower.
+        # The mask carries EXACTLY the rows the cache's SHAPE holds - no
+        # more, no fewer.  Both directions matter for the reason RE-222 Q0
+        # gives: a bit that is set carries a value the client copies over
+        # its own, and a bit that is NOT set is a ZERO on the client rather
+        # than "unchanged" - so a mask wider than the shape is as wrong as
+        # one narrower.
         _body, basic_mask, actor_mask = self.attr_wire.encode_block(
             self.legacy, self.identity[0], self.identity[1], expected_values)
         for field in self.attr_wire.FIELDS:
@@ -1492,8 +1607,8 @@ class HitFrameDoorBTests(unittest.TestCase):
                 if field[0] in expected_values:
                     self.assertTrue(
                         mask & field[2],
-                        "row %r is in the cache but missing from the block"
-                        % (field[6],))
+                        "row %r is in the login shape but missing from the "
+                        "block" % (field[6],))
                 else:
                     self.assertFalse(
                         mask & field[2],
@@ -1501,11 +1616,171 @@ class HitFrameDoorBTests(unittest.TestCase):
                         "block sets its bit anyway -- an unset row the "
                         "client is told about is a zero on their screen"
                         % (field[6],))
-        # The cache now remembers what was actually sent
-        # (`RawBlockCache.record_sent`, called by `build_named_field_update`
-        # on success) -- the next command on this connection builds on real
-        # prior state, not the stale baseline it started from.
+        # The cache now remembers what was actually SENT -- the live values,
+        # not the decoy baseline it started from (`RawBlockCache.
+        # record_sent`, called by this door directly now, in the same spot
+        # `build_named_field_update` used to call it on this door's behalf).
         self.assertEqual(cache.current_values(), expected_values)
+
+    def test_a_stale_cache_value_never_reaches_the_frame(self):
+        # THE MUTANT `COO-DECISION 20260904_0847` NAMES BY HAND: "a hook
+        # answering `{3: 0, 4: 0, 24: 0}` while the cache holds real values
+        # -- the frame must carry zero, not the cache's value."  This is
+        # the card pf-adversary round `yq5gzr`'s open question (D6) named
+        # and this round's ruling closed: before this round, `live`'s
+        # VALUES were checked for shape and then discarded, so a stale (or
+        # actively wrong) cache value would ride out on the wire unchanged
+        # and the client's RE-222 full-object copy would show the player a
+        # number nothing just told the server to send -- the `GT-218`
+        # family with a stale value where `GT-218` had a zero.
+        #
+        # The cache below is seeded with REAL, RECOGNISABLE, NON-ZERO
+        # values at x=3/4/24 (via `_full_valid_baseline`'s decoys, which
+        # this test overwrites with a distinct sentinel so a leak cannot
+        # hide behind a coincidental zero on either side) and the hook
+        # answers zero for exactly those three rows.  Every other row is
+        # answered validly (`_adjudicated_live_values`/`_adjudicated_login_
+        # byte_values`) so the compose reaches its positive path rather
+        # than standing down on a different, cheaper gate.
+        cache = self.attr_wire.RawBlockCache()
+        baseline = self._full_valid_baseline()
+        # `COO-DECISION 20260904_0847`'s own mutant text names x=3 alongside
+        # x=4/x=24, but x=3 IS `hit_frame_vital_rows()["hp_current"]` -- the
+        # ONE row this door always overrides to `hp_after`, regardless of
+        # what any source answers for it.  Using it as a leak sentinel here
+        # would test the override, not the cache-never-fills-a-row rule;
+        # the override itself is covered by every other card in this class.
+        # x=4/x=24 are not overridden by anything, so they are the rows
+        # that actually isolate this mutant.
+        sentinel_rows = (4, 24)
+        for x in sentinel_rows:
+            self.assertIn(x, baseline, "fixture drifted: row %d not in the "
+                          "widest admitted shape" % (x,))
+            baseline[x] = 777  # a real, non-zero, recognisable cache value
+        cache.capture_initial(baseline)
+
+        supplied = self._adjudicated_live_values()
+        self.assertIsNotNone(supplied)
+        for x in sentinel_rows:
+            supplied[x] = 0
+        login_supplied = self._adjudicated_login_byte_values()
+
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNotNone(result, console)
+        pc, frame = result
+        # x=24 (cash) is not one of this door's four vital rows, so it is
+        # not clobbered by the hp_after override below -- it is exactly the
+        # row this mutant needs: neither the row the door changes nor one
+        # `expected_values` derives from `hp_after`, only from the hook.
+        rows = self.door.hit_frame_vital_rows()
+        expected_values = self._expected_full_block(90)
+        for x in sentinel_rows:
+            expected_values[x] = 0
+        expected = self.attr_wire.make_update_attr_frame(
+            self.legacy, self.identity[0], self.identity[1], expected_values)
+        self.assertEqual(
+            (pc, frame), expected,
+            "the composed frame does not match an all-zero-at-the-sentinel-"
+            "rows block -- the cache's real value leaked into a byte this "
+            "door sent")
+        self.assertEqual(cache.current_values()[rows["hp_current"]], 90)
+        for x in sentinel_rows:
+            self.assertEqual(
+                cache.current_values()[x], 0,
+                "record_sent kept the cache's own stale value at x=%d "
+                "instead of recording what was actually sent" % (x,))
+
+    # -- the cache's shape must itself be a real one ------------------------
+
+    def test_an_unadmitted_cache_shape_is_a_stand_down_not_a_keyerror(self):
+        # pf-adversary (this round), Finding 1, MEASURED against the
+        # PREVIOUS draft of this fix: `RawBlockCache.capture_initial` is,
+        # by its own docstring, "PUBLIC and unvalidated" -- nothing stopped
+        # a cache from holding a row that is not a real
+        # `attr_wire.FIELDS` entry at all (a future table shrink leaving a
+        # long-lived cache holding a retired number, say).  That row's `x`
+        # reached `attr_wire.live_named_values`/`live_login_bytes`'s own
+        # unguarded `BY_X[x]` the moment a hook's answer happened to name
+        # it too, raising a bare `KeyError` -- NOT `attr_wire.AttrWireError`
+        # -- straight through this door's `except attr_wire.AttrWireError`,
+        # contradicting the module's own promise that nothing below the
+        # argument checks raises.  Reproduced against that draft (a hand
+        # patch removing the admitted-shape check below turned this red
+        # with exactly that `KeyError`, not a stand-down); this card pins
+        # the fix instead: an unadmitted shape stands down BEFORE
+        # `live_full_block_values` is ever called.
+        #
+        # THE BOGUS ROW GOES THROUGH THE LOGIN-BYTE HOOK, DELIBERATELY, NOT
+        # THE NAMED ONE: this door's own pre-check (`not_fields`/`stray`,
+        # above) already screens the NAMED hook's raw keys against
+        # `attr_wire.BY_X`/`named_field_x()`, so a bogus key in THAT hook's
+        # answer is caught earlier regardless of this card's fix. Nothing
+        # screens the login-byte hook's keys the same way -- that
+        # asymmetry is exactly what pf-adversary's finding measured, so the
+        # card has to reach it through the door the pre-check does not
+        # guard.
+        baseline = self._full_valid_baseline()
+        bogus_x = 9999
+        self.assertNotIn(
+            bogus_x, self.attr_wire.BY_X,
+            "fixture drifted: %d is now a real FIELDS row" % (bogus_x,))
+        baseline[bogus_x] = 1
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
+
+        supplied = self._adjudicated_live_values()
+        self.assertIsNotNone(supplied)
+        # The login-byte hook answers for the bogus row too -- this is the
+        # exact condition pf-adversary's finding needed to reach the
+        # unguarded lookup: the row must be in BOTH the requested shape
+        # and this hook's own answer.
+        login_supplied = dict(self._adjudicated_login_byte_values())
+        login_supplied[bogus_x] = 1
+
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNone(result, console)
+        self.assertIn(self.door.STANDDOWN_CACHE_SHAPE_NOT_ADMITTED, console)
+
+    def test_the_named_hook_is_called_at_most_once_per_compose(self):
+        # pf-adversary (this round), Finding 2, MEASURED: an earlier draft
+        # fetched `live` once (for the two named-row gates below) and then
+        # let `live_full_block_values` call the SAME hook a SECOND,
+        # independent time to build the values the frame actually carries
+        # -- so the two gates validated one call's answer while the bytes
+        # sent could come from a different one, with nothing anywhere
+        # proving the hook is idempotent between calls.  This card pins a
+        # single call: a hook that raises on its second invocation must
+        # still compose successfully.
+        calls = []
+
+        def _hook(character_id):
+            calls.append(character_id)
+            if len(calls) > 1:
+                raise AssertionError(
+                    "the named read point was called a second time in one "
+                    "compose -- gate 4's validation covered a call whose "
+                    "answer this door never actually sent")
+            return dict(self._adjudicated_live_values())
+
+        baseline = self._full_valid_baseline()
+        cache = self.attr_wire.RawBlockCache()
+        cache.capture_initial(baseline)
+        login_supplied = self._adjudicated_login_byte_values()
+        with self._gates(lane_b=0, encoder=0):
+            result, console = self._compose(
+                hp_after=90, hook=_hook,
+                login_hook=lambda cid: dict(login_supplied), cache=cache)
+        self.assertIsNotNone(result, console)
+        self.assertEqual(
+            len(calls), 1,
+            "the named read point was called %d times in one compose, "
+            "expected exactly 1" % (len(calls),))
 
     # -- arguments still raise ---------------------------------------------
 
@@ -1667,38 +1942,47 @@ class HitFrameDoorBTests(unittest.TestCase):
             % (virgin.current_values(),))
 
         # (2) positive path.  The cache DOES move here, and legitimately:
-        # `attr_wire.build_named_field_update` calls `record_sent` on its
-        # way out, because the encoder that put the bytes on the wire is the
-        # thing that knows what was sent.  MEASURED here rather than assumed
-        # -- the first draft of this card asserted the cache came out
-        # identical and went red on exactly that write.  What D7 forbids is
-        # THIS DOOR seeding or rewriting rows of its own, so the card pins
-        # the shape of the move instead of forbidding it: only the one row
-        # the hit frame changes may differ, and by exactly the value asked
-        # for.  A door that re-seeded the cache would move 55 rows, or move
-        # one to a value nobody asked for, and either way this goes red.
-        rows = self.door.hit_frame_vital_rows()
-        changed_x = rows[self.door.HIT_FRAME_CHANGED_FIELD_NAME]
+        # this door calls `record_sent` on its own way out now (moved from
+        # `attr_wire.build_named_field_update`, `COO-DECISION 20260904_0847`
+        # item 2 -- "RawBlockCache keeps exactly one job: reader/diagnostic
+        # + record_sent, as before"), because the thing that put the bytes
+        # on the wire is still the thing that knows what was sent.
+        #
+        # WHAT D7 FORBIDS FLIPPED WITH THIS ROUND'S RULING.  It used to be
+        # "only the one row the hit frame changes may differ from the
+        # baseline" -- true while the frame composed FROM the baseline.
+        # Now the frame composes from LIVE, and the baseline is a decoy
+        # (`_full_valid_baseline`'s own docstring), so a cache that came out
+        # matching the baseline anywhere the live values disagree would be
+        # the leak `COO-DECISION 20260904_0847` forbids, not a passing
+        # card.  The invariant this card pins now is the POSITIVE one: the
+        # cache comes out holding EXACTLY what was live-sourced and sent
+        # this round (`_expected_full_block`), key for key, value for
+        # value -- never a trace of the stale baseline it started from.
         seeded = self.attr_wire.RawBlockCache()
         seeded.capture_initial(baseline)
         before = seeded.current_values()
+        login_supplied = self._adjudicated_login_byte_values()
         with self._gates(lane_b=0, encoder=0):
             result, console = self._compose(
-                hp_after=90, hook=lambda cid: dict(supplied), cache=seeded)
+                hp_after=90, hook=lambda cid: dict(supplied),
+                login_hook=lambda cid: dict(login_supplied), cache=seeded)
         self.assertIsNotNone(result, console)
         after = seeded.current_values()
-        moved = {x: after[x] for x in after if before.get(x, object()) != after[x]}
+        expected_after = self._expected_full_block(90)
         self.assertEqual(
-            moved, {changed_x: 90},
-            "the connection's cache came out of this door changed in ways "
-            "the send does not account for. Only x=%d (the hit frame's own "
-            "changed row) may move, and only to the value the caller asked "
-            "for; anything else is this door writing state it does not own "
-            "(pf-adversary D7). before=%r after=%r"
-            % (changed_x, before, after))
+            after, expected_after,
+            "the connection's cache did not come out holding exactly what "
+            "was live-sourced and sent this round -- some row still "
+            "carries the stale baseline it started from, or the door "
+            "wrote something nobody asked for (pf-adversary D7; "
+            "COO-DECISION 20260904_0847). before=%r after=%r expected=%r"
+            % (before, after, expected_after))
         self.assertEqual(
             sorted(after), sorted(before),
-            "the door added or dropped rows in the connection's cache")
+            "the door added or dropped rows in the connection's cache -- "
+            "the SHAPE must survive a send unchanged even though every "
+            "value in it now does not")
 
     def test_this_module_is_pure_ascii(self):
         # The sibling guard `test_mob_stat_fabrication_guard` reads every

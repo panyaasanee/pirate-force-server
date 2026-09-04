@@ -41,46 +41,60 @@ THE GATES, IN THE ORDER THEY ARE CHECKED
    today.  Deliberately NOT ``UPDATE_ATTR_VITAL_VERSION_CONFIRMED``, which is
    already ``0`` but only from the scoped ``/speed`` exception ``0045``
    point 2 forbids this lane from inheriting.
-3. A SESSION ``RawBlockCache``, handed in by a caller.  ``attr_wire``'s own
-   docstring says one instance per CONNECTION, held on the session object,
-   "so the NEXT command in this connection builds on real prior state, not a
-   second guess".  This module will not manufacture one: a per-compose cache
-   would mean two copies of the player's state on one connection, and the
-   next ``/lv`` would re-assert the HP this frame just changed
-   (pf-adversary D6, which measured exactly that on the first draft).
+3. A SESSION ``RawBlockCache``, handed in by a caller -- READ FOR SHAPE ONLY,
+   SUPERSEDED 2026-09-04 ``COO-DECISION 20260904_0847``.  This door used to
+   compose the bytes it sends from this cache; it no longer does (see gate 4
+   below).  What survives is narrower: the cache is still the one
+   per-CONNECTION record of which rows THIS connection's own login composed
+   (``attr_wire``'s own docstring: one instance per connection, "so the next
+   command in this connection builds on real prior state"), and this module
+   still will not manufacture one -- a per-compose cache would mean two
+   copies of the player's state on one connection (pf-adversary D6).  Its
+   VALUES are never read again; only its key set is, and only to learn a
+   shape.
 4. THE LIVE VALUE SOURCE, checked against ``gm/attr_wire.named_field_x()``
    -- the 27-row set a hit frame is "about" -- and NEVER against LANE-DB's
-   55-row ``persistence_attr_compose.compose_full_block``/``block_gaps``.
-   ``COO-DECISION 20260904_0546`` settled a question this module's own
-   NONCLAIMS section used to leave open: that module is LANE-DB's own
-   persistence composer, not a gate of this wire door, and it is WITHDRAWN
-   from this door's adjudication path entirely (pf-adversary round
-   ``f2qyxx``, D2).  What is checked here is narrower and cheaper than an
-   adjudicator: every key the live source hands back must be a real row of
-   ``attr_wire.FIELDS`` (:data:`STANDDOWN_LIVE_SOURCE_NOT_A_FIELD`) and must
-   be one of the 27 named rows (:data:`STANDDOWN_LIVE_SOURCE_NOT_NAMED`).
-   COMPLETENESS of that set is not asked of the live source either: the
-   bytes this door actually composes come from the CONNECTION's own
-   ``RawBlockCache`` (gate 3), never from the live source, and
-   ``attr_wire.build_named_field_update`` already refuses a cache that does
-   not satisfy ``attr_wire.all_field_x()`` in full -- LANE-GM's own gate,
-   unwidened by this round.  A caller whose live source names fewer than
-   all 27 rows still reaches a named refusal; it is simply the encoder's,
-   one gate later than before (see :data:`STANDDOWN_ENCODER_REFUSED`).
+   55-row ``persistence_attr_compose.compose_full_block``/``block_gaps``,
+   withdrawn from this door's adjudication path entirely (``COO-DECISION
+   20260904_0546``, pf-adversary round ``f2qyxx`` D2).  Every key the live
+   source hands back must be a real row of ``attr_wire.FIELDS``
+   (:data:`STANDDOWN_LIVE_SOURCE_NOT_A_FIELD`) and must be one of the 27
+   named rows (:data:`STANDDOWN_LIVE_SOURCE_NOT_NAMED`) -- SUPERSEDED
+   2026-09-04, ``COO-DECISION 20260904_0847``: these two checks used to
+   guard a dict whose VALUES this door then discarded, composing from the
+   cache instead (pf-adversary round ``yq5gzr`` D6, the open question that
+   letter answered).  They no longer do: the COO's ruling is option (a) in
+   strict form -- ``live`` IS the truth, and every row this door's frame carries
+   for the 27-row named set comes from it, through
+   ``gm/attr_wire.live_full_block_values`` (LANE-GM's own shared function,
+   the same one ``seed_cache_from_live_values`` calls -- this door is a
+   CALLER of it, per ``0045``, not a second implementation of its
+   partitioning).  The rows this connection's login shape needs OUTSIDE the
+   named set (x=9/x=10/x=11 -- ``attr_wire.LOGIN_SOURCED_ROWS``) come from
+   the SAME function's login-byte half, never from a real-time read and
+   never from the cache.  COMPLETENESS is measured against the SHAPE gate 3
+   read off the cache's keys, from these live sources -- a row that shape
+   needs and neither source can answer is a whole-frame stand-down
+   (:data:`STANDDOWN_LIVE_SOURCE_INCOMPLETE`), never a fill from the cache
+   and never a fill with zero.
 
 WHY "FULL BLOCK" IS A REQUIREMENT AND NOT A PREFERENCE.  ``RE-222`` (static,
 SHA-pinned, LANE-GM) established that the client's apply path for 0x309A is
 a FULL-OBJECT COPY: every field the frame omits comes back as the fresh
 constructor's zero.  A hit frame carrying ``hp_current`` alone would zero
 the player's cash and HP-max -- which is not an analogy for ``GT-218``, it
-is what ``GT-218`` was.  So this module composes a 55-row block or it
-composes nothing, and "55" is enforced by ``gm/attr_wire.build_named_field_
-update`` (against ``all_field_x()``, on the CONNECTION's cache) rather than
-by a count written here.  SUPERSEDED 2026-09-04, ``COO-DECISION
-20260904_0546``: it used to be LANE-DB's ``persistence_attr_compose.
-block_gaps`` this door consulted directly for the same "55 or nothing"
-promise; that dependency is withdrawn (pf-adversary D2).  The requirement
-itself did not move -- only which gate enforces it did.
+is what ``GT-218`` was.  So this module composes a block shaped exactly like
+this connection's own login send, or it composes nothing.  THE UNIT IS NOT A
+COUNT WRITTEN HERE: it is whatever ``login_mask.admitted_field_x_sets``
+admits, read off the CONNECTION's cache (gate 3) and enforced a second time,
+structurally, by ``gm/attr_wire.make_update_attr_frame`` itself -- so a shape
+this door got wrong from any source still cannot reach a socket.  A stale
+value inside that correctly-shaped block is the OTHER half of ``RE-222`` Q0,
+and it is what ``COO-DECISION 20260904_0847`` closed: a shape can be right
+while a VALUE inside it is wrong, if that value came from anywhere other
+than a live read -- which is why gate 4 now sources every value the same
+way it sources the shape's membership, from ``live_full_block_values``,
+and never from the cache gate 3 already consulted.
 
 NONCLAIMS
 ---------
@@ -105,6 +119,23 @@ NONCLAIMS
 * NO claim about a damage MODEL or a rate.  Nothing here chooses a number;
   ``hp_after`` is an argument, and the only value it is meant to carry is
   one ``mob_ai_player_damage`` already read back out of the database.
+* NO claim that this door still calls ``gm/attr_wire.build_named_field_
+  update``.  SUPERSEDED 2026-09-04, ``COO-DECISION 20260904_0847``: that
+  function reads its OTHER rows from the connection's cache, which this
+  door is now forbidden to do, so it calls ``live_full_block_values`` (for
+  every row's value) and ``make_update_attr_frame`` (the header-adding wall
+  that still refuses a wrong shape) directly instead.  ``RawBlockCache``
+  gains no new write from this: ``record_sent`` is called exactly where it
+  always was, by this door, after a successful compose -- only the read
+  side moved.
+* NO claim that a resolved ``live`` dict of fewer than 27 rows is
+  survivable.  It was, briefly, before this round: an incomplete answer
+  used to fail the encoder's OWN completeness gate one function later, with
+  the same stand-down name.  ``live_full_block_values`` now asks the same
+  question of a NARROWER, per-connection set (this connection's login
+  shape, not the full named table), so a hook this permissive still refuses
+  -- just earlier, and by :data:`STANDDOWN_LIVE_SOURCE_INCOMPLETE` rather
+  than :data:`STANDDOWN_ENCODER_REFUSED`.
 * NO claim that ``0045``'s "0x309A has exactly ONE encoder in this
   repository" is a measured property of this tree.  It is not -- pf-adversary
   D8 named three other in-tree composers for that opcode, and this round's
@@ -208,6 +239,22 @@ STANDDOWN_LIVE_SOURCE_NOT_A_FIELD = "live_source_not_a_field"
 #: hit frame is "about".  The old name would now describe a check this
 #: module does not make.
 STANDDOWN_LIVE_SOURCE_NOT_NAMED = "live_source_not_named"
+#: NEW 2026-09-04 (``COO-DECISION 20260904_0847`` item 1/2): this connection's
+#: login shape names a row that neither ``live_full_block_values``'s named
+#: source nor its login-byte source can answer.  Never filled from the
+#: cache gate 3 already read for shape, and never filled with zero -- both
+#: are exactly the ``GT-218`` family this ruling closed.
+STANDDOWN_LIVE_SOURCE_INCOMPLETE = "live_source_incomplete"
+#: NEW 2026-09-04, pf-adversary (this round), Finding 1, MEASURED: a cache's
+#: key set is "PUBLIC and unvalidated" (``RawBlockCache``'s own docstring),
+#: and passing an unadmitted shape straight to ``live_full_block_values``
+#: reaches an unguarded ``BY_X[x]`` lookup in ``attr_wire.live_named_values``/
+#: ``live_login_bytes`` -- a bare ``KeyError``, not ``AttrWireError``, the
+#: moment a hook's answer happens to include that same bogus key.  Checked
+#: BEFORE that call, against ``login_mask.admitted_field_x_sets``, the same
+#: check ``attr_wire.build_named_field_update`` already carried for this
+#: same reason before this door stopped routing through it.
+STANDDOWN_CACHE_SHAPE_NOT_ADMITTED = "cache_shape_not_admitted"
 STANDDOWN_ENCODER_REFUSED = "encoder_refused"
 
 MOB_HIT_FRAME_STAND_DOWN_REASONS = (
@@ -218,6 +265,8 @@ MOB_HIT_FRAME_STAND_DOWN_REASONS = (
     STANDDOWN_LIVE_SOURCE_REFUSED,
     STANDDOWN_LIVE_SOURCE_NOT_A_FIELD,
     STANDDOWN_LIVE_SOURCE_NOT_NAMED,
+    STANDDOWN_LIVE_SOURCE_INCOMPLETE,
+    STANDDOWN_CACHE_SHAPE_NOT_ADMITTED,
     STANDDOWN_ENCODER_REFUSED,
 )
 
@@ -325,10 +374,10 @@ def compose_player_hit_frame(
     """The ``UpdateAttrVital`` a hit would send -- composed, never sent.
 
     Returns ``(pc, frame)`` only when all the gates in the module docstring
-    are open AND the live value source names rows entirely within
-    ``gm/attr_wire.named_field_x()``.  In every other case it prints exactly
-    one named :func:`hit_frame_stand_down_line` and returns ``None``.  At
-    this commit every call returns ``None`` at the first gate.
+    are open AND every row this connection's login shape needs resolves to
+    a real, live value.  In every other case it prints exactly one named
+    :func:`hit_frame_stand_down_line` and returns ``None``.  At this commit
+    every call returns ``None`` at the first gate.
 
     NOTHING BELOW RAISES ONCE THE ARGUMENTS ARE VALID.  This runs inside a
     walking player's own dispatch, so a hook that explodes, an encoder that
@@ -340,6 +389,10 @@ def compose_player_hit_frame(
 
     ``cache`` is the CONNECTION's ``RawBlockCache``, not one made here; see
     gate 3 in the module docstring for why this module refuses to make one.
+    SUPERSEDED 2026-09-04 (``COO-DECISION 20260904_0847``): its VALUES no
+    longer feed this frame at all -- only its key set does, to learn this
+    connection's own login shape.  Every byte the frame carries comes from
+    ``gm/attr_wire.live_full_block_values`` instead.
     """
     if type(character_id) is not int or character_id <= 0:
         raise MobAiPlayerDamageError(
@@ -372,7 +425,7 @@ def compose_player_hit_frame(
                               None)))
         return None
 
-    # -- gate 3, the connection's own cache --------------------------------
+    # -- gate 3, the connection's own cache -- READ FOR SHAPE, NEVER VALUE --
     if not isinstance(cache, attr_wire.RawBlockCache):
         stand_down(STANDDOWN_NO_SESSION_CACHE,
                    "no per-connection RawBlockCache was handed in (got %r); "
@@ -411,7 +464,11 @@ def compose_player_hit_frame(
     # withdrew `persistence_attr_compose` (`compose_full_block`/
     # `block_gaps`) from this door's adjudication path entirely
     # (pf-adversary D2).  A value for any row outside `named_field_x()`
-    # cannot honestly be something a hit frame is about.
+    # cannot honestly be something a hit frame is about.  SUPERSEDED
+    # 2026-09-04 (`COO-DECISION 20260904_0847`): these two checks used to
+    # guard a `live` dict this door then discarded in favour of the cache
+    # (pf-adversary round yq5gzr D6).  It no longer does -- `live` is read
+    # again below, by `live_full_block_values`, as the actual byte source.
     named = set(attr_wire.named_field_x())
     stray = sorted(x for x in live if x not in named)
     if stray:
@@ -420,73 +477,119 @@ def compose_player_hit_frame(
                    "gm.attr_wire.named_field_x(): %r" % (stray,))
         return None
 
-    # [OPEN QUESTION - LANE-B raised, COO to decide] `live`'s KEYS are
-    # adjudicated above and its VALUES are then dropped: the frame below is
-    # composed from the CONNECTION's cache, not from this dict.  So the two
-    # stand-downs above guard data that has no influence on the bytes, and a
-    # hook answering `{3: 0, 4: 0, 24: 0}` - valid keys, false values -
-    # passes every gate here.  That is survivable only while nothing sends.
-    # It matters the moment `MOB_HIT_FRAME_CONFIRMED` becomes an int, because
-    # `build_named_field_update` enforces that the cache is COMPLETE (all 55
-    # rows) and nothing anywhere enforces that it is CURRENT - `capture_
-    # initial` is public and unvalidated - while `RE-222` says every row the
-    # frame carries overwrites the client's own copy.  A stale cache would
-    # then revert a player's cash or HP-max on their screen: GT-218's family
-    # with a stale value where GT-218 had a zero.  Found by pf-adversary
-    # round yq5gzr (D6); asked in `pf_bridge/notes_to_chief/20260904_0800_
-    # LANE-B-ASK-COO-door-b-validates-live-values-then-ships-the-cache.md`.
-    # NOT
-    # decided here, and deliberately not "fixed" by having this door compose
-    # from `live` instead: which of the two sources is the player's real
-    # state is a design question above this lane's pay grade, and the door
-    # sends nothing today either way.
+    # -- this connection's own login SHAPE, from the cache's KEYS only -----
+    # `COO-DECISION 20260904_0847` item 2: completeness is measured against
+    # the login set, from live sources -- not against the cache.  The cache
+    # remains the one per-connection record of WHICH rows this connection's
+    # login composed (the same reasoning `attr_wire.build_named_field_
+    # update` uses its own cache for, pf-adversary round `4fxkam` D1): an
+    # unseeded cache has no shape to measure against, so this door will not
+    # guess one.
+    shape = set(cache.current_values())
+    if not shape:
+        stand_down(STANDDOWN_NO_SESSION_CACHE,
+                   "cache holds no captured login shape yet for this "
+                   "connection; this door will not guess one")
+        return None
+
+    # `RawBlockCache.capture_initial` IS, BY ITS OWN DOCSTRING, "PUBLIC and
+    # unvalidated": `shape` is not proven to hold only real `attr_wire.
+    # FIELDS` rows yet, and pf-adversary (this round) MEASURED what that
+    # costs -- an `x` in `shape` that is not a real row still reaches
+    # `gm.attr_wire.live_named_values`/`live_login_bytes`'s own `BY_X[x]`
+    # lookup one call below, an UNGUARDED dict index that raises a bare
+    # `KeyError`, not `AttrWireError`, the instant a hook's answer happens
+    # to include that same bogus key.  `attr_wire.build_named_field_update`
+    # -- the function this door used to route through -- already carried
+    # this exact check, for this exact reason, before it ever touched the
+    # cache's key set; dropping it when this door stopped calling that
+    # function reopened the hole.  Checked here, the same way, against
+    # `login_mask.admitted_field_x_sets`: every admitted shape is derived
+    # from a REAL production login composition, so membership in one is
+    # already a proof that every row in it is a real `FIELDS` row -- no
+    # second, narrower table of "real x values" needs inventing.
+    from .gm import login_mask  # noqa: PLC0415 - avoids an import cycle, see attr_wire.py
+    admitted = login_mask.admitted_field_x_sets(legacy)
+    if not any(shape == set(known_shape) for known_shape in admitted):
+        stand_down(STANDDOWN_CACHE_SHAPE_NOT_ADMITTED,
+                   "cache holds %r, which is not one of the admitted login "
+                   "shapes %r; this door will not guess at, or compose "
+                   "for, a shape production login never sends"
+                   % (sorted(shape), [sorted(s) for s in admitted]))
+        return None
+
+    # -- (b'') IN FULL, from live sources ONLY -----------------------------
+    # `COO-DECISION 20260904_0847` (option a, strict): `live` IS the truth, and the
+    # cache just consulted for shape may not fill a single row of the frame
+    # -- a row the shape needs that neither source can answer is a whole
+    # -frame stand-down, never a fill from the cache and never a fill with
+    # zero.  `gm/attr_wire.live_full_block_values` is LANE-GM's own shared
+    # function (the same one `seed_cache_from_live_values` calls); this door
+    # is a CALLER of it, per `COO-DECISION 20260904_0045`, not a second
+    # implementation of its named/login-byte partitioning.  `rows=shape`
+    # (not the default union) is what keeps this call scoped to THIS
+    # connection's own branch -- the same D1 finding `build_named_field_
+    # update` already carries a comment about: the union would admit x=11
+    # for a connection whose login composed the plain branch.
+    #
+    # `hooks=_same_live_hooks`, NOT the raw `lane_hooks_module`
+    # (pf-adversary this round, Finding 2, MEASURED): passing the module
+    # straight through would have `live_full_block_values` call the NAMED
+    # hook a SECOND, independent time to build `values` -- a call the two
+    # gates just above never see, so their validation would cover only the
+    # FIRST call's answer while the bytes this door actually sends come
+    # from a possibly-different second one (nothing here or in `attr_wire`
+    # proves the hook is idempotent between calls).  `_same_live_hooks`
+    # answers the named read point with the EXACT `live` dict already
+    # fetched and validated above, so the hook is invoked at most once per
+    # compose; the login-byte read point is untouched, resolved off
+    # whichever module this door was actually given.
+    resolved_hooks_module = lane_hooks_module
+    if resolved_hooks_module is None:
+        from . import lane_hooks as resolved_hooks_module  # noqa: PLC0415
+    login_byte_hook = getattr(
+        resolved_hooks_module, attr_wire.LOGIN_BYTES_READ_POINT, None)
+
+    class _same_live_hooks:
+        """A `hooks=` stand-in: answers the named point with the `live`
+        dict this door already fetched and validated (never calls the
+        real hook again); the login-byte point passes straight through."""
+
+    setattr(_same_live_hooks, attr_wire.LIVE_VALUE_READ_POINT,
+            staticmethod(lambda character_id, _live=live: dict(_live)))
+    if login_byte_hook is not None:
+        setattr(_same_live_hooks, attr_wire.LOGIN_BYTES_READ_POINT,
+                staticmethod(login_byte_hook))
+
+    try:
+        values = attr_wire.live_full_block_values(
+            character_id, hooks=_same_live_hooks, legacy=legacy, rows=shape)
+    except attr_wire.AttrWireError as exc:
+        stand_down(STANDDOWN_LIVE_SOURCE_INCOMPLETE, "%r" % (exc,))
+        return None
 
     # -- compose, through the ONE encoder 0045 names -----------------------
     try:
         rows = hit_frame_vital_rows()
-        # Composed and written NOWHERE.
-        #
-        # pf-adversary round f2qyxx D7, MEASURED: these two lines used to be
-        #     if not cache.is_captured(): cache.capture_initial(block)
-        # so a door on its way OUT -- including out through a REFUSAL --
-        # left 55 rows in the CONNECTION's cache.
-        # `build_named_field_update` refuses a cache that is not LOGIN-
-        # SHAPED -- one of the row sets production login itself sets bits
-        # for, `gm.login_mask.admitted_field_x_sets(legacy)` -- so a seed of
-        # any other shape breaks every later named send on that connection.
-        #
-        # THIS SENTENCE HAS NOW BEEN WRONG TWICE, so it says where the
-        # authority lives instead of quoting a number.  It first said
-        # "requires exactly the 26 named_field_x() rows" (pf-adversary D4,
-        # round yq5gzr): wrong twice over, since that set held 27 by then
-        # and the check had already been widened off it to every FIELDS row
-        # by COO-DECISION 20260904_0215.  The correction to "all 55" was
-        # accurate for about an hour: `#715` landed mid-round and made (b'')
-        # the login mask set (COO-DECISION 20260904_0545 item 1/2), which is
-        # NINE or ten rows, not 55.  Ask `login_mask`, do not re-type the
-        # answer here; a row count copied into a comment in this module is a
-        # claim about a set another lane owns and moves.  Gate 3
-        # refuses to MAKE a cache; not writing one this door did not seed is
-        # the same rule, and it was missing.  An unseeded cache is the
-        # ENCODER's refusal to name, and it already names it.
-        #
-        # COMPLETENESS of the 55-row block is NOT checked here (round
-        # f2qyxx D2 withdrew the duplicate check this door used to run
-        # through `persistence_attr_compose.compose_full_block`, whose
-        # result was called for and then thrown away).  It is checked by
-        # `attr_wire.build_named_field_update` itself, against the
-        # CONNECTION's own cache and `attr_wire.all_field_x()` -- the one
-        # place a struct range or an un-encodable wstr can still blow up,
-        # and it blows up there as a named `AttrWireError`, caught below as
-        # a stand-down rather than let out (pf-adversary D12: three of this
-        # module's own bad-value regression payloads never used to reach
-        # that far, because the withdrawn duplicate check intercepted them
-        # first on the strength of a `live` dict that was never even the
-        # source of the bytes this function sends).
-        return attr_wire.build_named_field_update(
-            legacy, cache, identity_lo, identity_hi,
-            rows[HIT_FRAME_CHANGED_FIELD_NAME], hp_after,
-        )
+        hp_x = rows[HIT_FRAME_CHANGED_FIELD_NAME]
+        if hp_x not in values:
+            # Not reachable through a real production login today (every
+            # admitted shape carries the four named vital rows), kept as a
+            # named stand-down rather than a KeyError because this door may
+            # not raise on a row LANE-GM's tables moved.
+            stand_down(STANDDOWN_LIVE_SOURCE_INCOMPLETE,
+                       "hp_current row x=%d is not in this connection's "
+                       "login shape %r" % (hp_x, sorted(shape)))
+            return None
+        # The ONE row this door changes; every other row rides at its LIVE
+        # value -- never the cache's -- so the client's full-object copy
+        # does not revert a value another door already moved on this
+        # connection since the cache was last written (`RE-222` Q0; the
+        # GT-218 family `COO-DECISION 20260904_0847` closed).
+        values = dict(values)
+        values[hp_x] = hp_after
+        pc, frame = attr_wire.make_update_attr_frame(
+            legacy, identity_lo, identity_hi, values)
     except MobAiPlayerDamageError as exc:
         # A renamed or demoted vital row.  Named, not raised: LANE-GM moving
         # their own table may not take a walking player's dispatch down.
@@ -495,3 +598,11 @@ def compose_player_hit_frame(
     except _ENCODER_ERRORS as exc:
         stand_down(STANDDOWN_ENCODER_REFUSED, "%r" % (exc,))
         return None
+
+    # The cache still remembers what was actually sent -- its one remaining
+    # write, unchanged by this round (`COO-DECISION 20260904_0847` item 2:
+    # "RawBlockCache keeps exactly one job: reader/diagnostic + record_sent,
+    # as before").  `build_named_field_update` used to call this on this
+    # door's behalf; now this door calls it directly, in the same place.
+    cache.record_sent(values)
+    return pc, frame
