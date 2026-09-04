@@ -177,9 +177,17 @@ class _Case(unittest.TestCase):
         the owner's client (`ErrorData=28317`), so
         `warp_executor.WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` ships False.
 
+        THREE GATES SINCE `COO-DECISION 20260904_2045` ITEM 1.  The third,
+        `warp_executor.WARP_TYPED_COORDINATES_AUTHORIZED`, ships False and
+        stands in front of BOTH coordinate-bearing routes at the head of
+        `_warp_action` -- so it is not specific to ForcePos at all, and every
+        test in this file that types coordinates has to hold it open or it
+        asserts the head closure instead of its own subject.  The name is
+        still kept: to a test author the meaning is unchanged.
+
         A test that wants the SHIPPED answer for a coordinate warp must not
-        call this: see `SameSceneForcePosClosedTests` below, which is the
-        only place that asserts what an unpatched `/warp 2 100 200` does.
+        call this: see `TypedCoordinatesClosedTests` and
+        `SameSceneForcePosClosedTests` below.
         """
         return self._both_force_pos_gates(UNPROVEN_TEST_VERSION)
 
@@ -190,8 +198,28 @@ class _Case(unittest.TestCase):
             teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", version
         ), mock.patch.object(
             warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ), mock.patch.object(
+            warp_executor, "WARP_TYPED_COORDINATES_AUTHORIZED", True
         ):
             yield
+
+    @staticmethod
+    def open_the_typed_coordinates_gate():
+        """Hold `COO-DECISION 20260904_2045` item 1's head gate open.
+
+        For the tests whose subject is a coordinate-bearing route BELOW that
+        gate and which do not go through `open_the_version_gate` (the live
+        cross-scene TeleportVital half, and the refusals that happen inside
+        the composers).  Without it they assert the head closure instead of
+        their own subject and stop being about anything.
+
+        The SHIPPED answer for every one of these shapes -- zero bytes -- is
+        asserted with nothing patched, in `TypedCoordinatesClosedTests` below
+        and in `tests/test_gm_warp_typed_coordinates_closed.py`.
+        """
+        return mock.patch.object(
+            warp_executor, "WARP_TYPED_COORDINATES_AUTHORIZED", True
+        )
 
     def close_the_version_gate(self):
         """The sibling of `open_the_version_gate`, for the tests that prove
@@ -206,7 +234,9 @@ class _Case(unittest.TestCase):
         the policy gate is read FIRST, so leaving it shut here would make
         every one of these tests pass on the wrong refusal -- green while the
         branch they are about went unreached.  A test isolating one gate has
-        to hold the other open.
+        to hold the other open.  `COO-DECISION 20260904_2045` item 1 added a
+        THIRD gate in front of both of them, so this helper holds that one
+        open too, for exactly the same reason.
         """
         return self._version_gate_shut_policy_gate_open()
 
@@ -217,6 +247,8 @@ class _Case(unittest.TestCase):
             teleport_wire, "FORCE_POS_VITAL_VERSION_CONFIRMED", None
         ), mock.patch.object(
             warp_executor, "WARP_SAME_SCENE_FORCE_POS_AUTHORIZED", True
+        ), mock.patch.object(
+            warp_executor, "WARP_TYPED_COORDINATES_AUTHORIZED", True
         ):
             yield
 
@@ -324,7 +356,13 @@ class WarpActionTests(_Case):
         # gate, so it moves to a point this project's own registry proves
         # is on 278's ground (near its spawn).
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
-        action = self.act(session, "/warp 278 -13270 22794")
+        # `COO-DECISION 20260904_2045` item 1 shut this shape at the head of
+        # `_warp_action`; the branch below that closure still has to be right
+        # for the day an RE result reopens it, so the gate is held open here
+        # and the shipped zero-byte answer is asserted in
+        # `TypedCoordinatesClosedTests`.
+        with self.open_the_typed_coordinates_gate():
+            action = self.act(session, "/warp 278 -13270 22794")
         self.assertIsNotNone(action)
         label, pc, frame, delay = action
         self.assertEqual(
@@ -371,7 +409,10 @@ class WarpActionTests(_Case):
         # pre-1441 behaviour (stage, no frame) rather than to a refusal or a
         # crash -- the same graceful degradation the version gates above use.
         session = FakeSession(position=FakePosition(scene_id=2))
-        with mock.patch.object(
+        # `2045`'s head gate held open: this test's subject is which of the
+        # TWO lower branches a coordinate warp falls to, a question that only
+        # exists below that closure.
+        with self.open_the_typed_coordinates_gate(), mock.patch.object(
             warp_executor, "WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED", False
         ):
             action = self.act(session, "/warp 278 100 200")
@@ -383,7 +424,10 @@ class WarpActionTests(_Case):
 
     def test_an_unknown_cross_scene_destination_is_refused_not_composed(self):
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
-        action = self.act(session, "/warp 999999 100 200")
+        # Held open for the same reason as the test above: the subject is the
+        # composer's own refusal word, which lives below `2045`'s head gate.
+        with self.open_the_typed_coordinates_gate():
+            action = self.act(session, "/warp 999999 100 200")
         self.assertIsNone(action)
         self.assertIn(
             f"{chat_command_action.EVENT_WARP_REFUSED_PREFIX}WarpExecutorError",
@@ -452,29 +496,98 @@ class WarpActionTests(_Case):
         )
         self.assertEqual({self.GM_ACCOUNT: 4}, self.staged_login_scenes())
 
-class SameSceneForcePosClosedTests(_Case):
-    """The SHIPPED answer for `/warp <n> <x> <y>`, with no gate patched.
+class TypedCoordinatesClosedTests(_Case):
+    """The SHIPPED answer for `/warp <n> <x> <y>`, with NO gate patched.
 
-    THE ONLY PLACE IN THIS FILE THAT ASKS WHAT A REAL BOOT DOES with a
-    coordinate warp.  Every other test that reaches the ForcePos composer
-    goes through `open_the_version_gate`, which since `COO-DECISION
-    20260903_1744` item 3 also forces this policy gate open -- so without
-    this class the closure would be asserted nowhere, and the widening of
-    those helpers would be unreviewable.
+    `COO-DECISION 20260904_2045` item 1.  This class inherits the job the one
+    below it used to hold, and holds it for the same reason that one was
+    written: `open_the_version_gate` has now widened THREE times, and a
+    helper that opens the closure under test makes the closure unreviewable
+    unless one class asks what an unpatched boot really does.
+
+    What made the widening necessary is worth keeping in front of the reader:
+    the previous closure was per-branch, and round `741zlx`'s finding 10
+    measured a CROSS-SCENE coordinate warp sailing straight past it and
+    sending a real 73-byte frame.  One head guard, asserted here, is the
+    answer to that.
+    """
+
+    def test_the_shipped_answer_for_a_same_scene_coordinate_warp_is_no_bytes(self):
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 2 100 200")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_WARP_WITHHELD_TYPED_COORDS_CLOSED,
+            session.events,
+        )
+        self.assertEqual(
+            self.log_records()[-1]["outcome"],
+            chat_command_action.OUTCOME_WARP_WITHHELD_TYPED_COORDS_CLOSED,
+        )
+
+    def test_the_shipped_answer_for_a_cross_scene_coordinate_warp_is_no_bytes(self):
+        """Finding 10's own shape: this one used to SEND."""
+        session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
+        action = self.act(session, "/warp 278 -13270 22794")
+        self.assertIsNone(action)
+        self.assertIn(
+            chat_command_action.EVENT_WARP_WITHHELD_TYPED_COORDS_CLOSED,
+            session.events,
+        )
+        self.assertEqual({}, self.staged_login_scenes())
+
+    def test_the_outcome_word_is_the_one_gt127_will_read(self):
+        # Pinned as a LITERAL, not against the constant: pf-adversary D6
+        # renamed a word to `withheld_xxxxx` and the suite stayed green,
+        # because GT-127 grades the ndjson `outcome` and no test did.
+        self.assertEqual(
+            chat_command_action.OUTCOME_WARP_WITHHELD_TYPED_COORDS_CLOSED,
+            "withheld_typed_coordinates",
+        )
+
+    def test_the_shipped_flag_is_shut(self):
+        self.assertFalse(warp_executor.WARP_TYPED_COORDINATES_AUTHORIZED)
+
+
+class SameSceneForcePosClosedTests(_Case):
+    """The ForcePos closure, now asserted one gate BELOW the shipped answer.
+
+    ~~The SHIPPED answer for `/warp <n> <x> <y>`, with no gate patched.  THE
+    ONLY PLACE IN THIS FILE THAT ASKS WHAT A REAL BOOT DOES with a coordinate
+    warp.~~  Struck by `COO-DECISION 20260904_2045` item 1: a real boot now
+    answers every coordinate warp at the head of `_warp_action`, so
+    `TypedCoordinatesClosedTests` above is that place and this class keeps
+    the SECOND closure honest -- the one that must still hold on the day an
+    RE result reopens the head gate.  Every test here therefore holds the
+    head gate open, and none of them may claim to describe a shipped boot.
+
+    Every other test that reaches the ForcePos composer goes through
+    `open_the_version_gate`, which since `COO-DECISION 20260903_1744` item 3
+    also forces this policy gate open -- so without this class the closure
+    would be asserted nowhere, and the widening of those helpers would be
+    unreviewable.
 
     ~~It lived inside `WarpActionTests` when round `07kjfd` first wrote it,
     while three artifacts (two test files and `docs/GM_LANE.md`) already
     pointed at a class by this name that did not exist~~ -- pf-adversary D10.
     """
 
-    def test_the_shipped_answer_for_a_coordinate_warp_is_no_bytes(self):
+    def setUp(self):
+        super().setUp()
+        patcher = self.open_the_typed_coordinates_gate()
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_force_pos_route_is_no_bytes_below_the_head_gate(self):
         # `COO-DECISION 20260903_1744` item 3, from R306's cross-lane finding
         # 3: this 45-byte ForcePos closed the owner's client with
-        # `ErrorData=28317`, so the route ships SHUT.  NO GATE IS PATCHED
+        # `ErrorData=28317`, so the route is SHUT.  ~~NO GATE IS PATCHED
         # HERE, deliberately -- this is the one test in the file that asks
-        # what a real boot does with `/warp 2 100 200`, and every other test
-        # that composes ForcePos reaches it through `open_the_version_gate`,
-        # which now opens this policy gate too.
+        # what a real boot does with `/warp 2 100 200`~~ -- `2045` item 1 put
+        # a head gate in front of it, held open by this class's `setUp`; what
+        # a real boot does is `TypedCoordinatesClosedTests` above.  The
+        # closure asserted here is the one that must still stand the day the
+        # head gate reopens.
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
         action = self.act(session, "/warp 2 100 200")
         self.assertIsNone(action)
@@ -503,7 +616,7 @@ class SameSceneForcePosClosedTests(_Case):
         self.act(session, "/warp 2 100 200")
         self.assertIsNone(getattr(session, "gm_last_warp_target", None))
 
-    def test_the_outcome_word_is_the_one_gt127_will_read(self):
+    def test_the_force_pos_outcome_word_is_the_one_gt127_will_read(self):
         # pf-adversary D6: the word was only ever asserted against itself, so
         # renaming it to `withheld_xxxxx` left the suite green. Its two
         # siblings are pinned as literals in this repo for exactly that
@@ -1497,6 +1610,14 @@ class EventNameContractTests(_Case):
         "EVENT_WARP_WITHHELD_FORCE_POS_CLOSED": (
             "gm_chat_action_warp_withheld_same_scene_force_pos_closed_r306"
         ),
+        # `COO-DECISION 20260904_2045` item 1's head closure.  Its own name
+        # rather than a reuse of the line above, for the reason this table
+        # exists: an attended tester greps a console line to learn WHICH
+        # closure held their command, and these two send them to two
+        # different tickets.
+        "EVENT_WARP_WITHHELD_TYPED_COORDS_CLOSED": (
+            "gm_chat_action_warp_withheld_typed_coordinates_closed_coo_2045"
+        ),
         # Round `w8hnu9`, the say action path.  pf-adversary measured that
         # without these three rows, renaming any of them left all 3941 tests
         # green -- the same missing pin that let GT-128 ship a console grep
@@ -2125,7 +2246,10 @@ class ContractTests(_Case):
         # comment on test_a_cross_scene_warp_with_coordinates_now_fires_a_
         # live_teleport above for why (1, 2) itself would now be refused.
         session = FakeSession(position=FakePosition(scene_id=2, z=30.0))
-        action = self.act(session, "/warp 278 -13270 22794")
+        # Below `2045`'s head gate, held open: the subject is the SHAPE
+        # `runtime.py` appends, which only exists once a frame is composed.
+        with self.open_the_typed_coordinates_gate():
+            action = self.act(session, "/warp 278 -13270 22794")
         self.assertIsInstance(action, tuple)
         self.assertEqual(len(action), 4)
         self.assertEqual(

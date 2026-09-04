@@ -202,6 +202,38 @@ WARP_CROSS_SCENE_LIVE_TELEPORT_AUTHORIZED = True
 # it back to True, and the tests pin both the value and this citation.
 WARP_SAME_SCENE_FORCE_POS_AUTHORIZED = False
 
+# COO-DECISION 2026-09-04T20:45+07:00 item 1 (pf_bridge/notes_to_chief/
+# 20260904_2045_COO-DECISION-warp-with-coords-must-close-for-real-745-R2-
+# continues-LANE-GM.md), which corrects the wording of `1848` item 2(b) and
+# restores the intent of `1744` item 3 as NOW.md spells it: EVERY `/warp <n>
+# <x> <y>` shape -- the one with TYPED COORDINATES, whichever scene it names
+# -- is refused BEFORE ANY FRAME IS COMPOSED, prints a console line, and
+# leaves ZERO BYTES on the wire.
+#
+# WHY A SECOND FLAG RATHER THAN WIDENING THE ONE ABOVE.  Round `741zlx`'s
+# adversary finding 10, reported to COO in `1930` and ruled on here, measured
+# what the previous closure actually did: `WARP_SAME_SCENE_FORCE_POS_
+# AUTHORIZED` shuts the SAME-SCENE ForcePos half only.  A CROSS-SCENE
+# `/warp 2 100 200` never reaches it -- it is routed one branch earlier into
+# the live TeleportVital half and SENDS A REAL 73-BYTE FRAME carrying the
+# coordinates the GM typed.  What `#745` withdrew on that path was the
+# durable ROW WRITE, not the frame.  So "coordinates are closed" was true of
+# one shape and false of the other, and the flag above cannot be widened to
+# say it without also shutting bare `/warp <n>`, which R306 passed five times
+# and Panya has ruled untouchable.
+#
+# WHAT THIS GATE IS ABOUT is the TYPED COORDINATES themselves, not a frame
+# shape: R306 measured a coordinate-bearing warp closing the owner's client
+# with `ErrorData=28317`, and no capture has been diffed against either
+# coordinate-bearing composer since.  Bare `/warp <n>` aims at the
+# destination's own pinned marker spawn and is untouched by this flag.
+#
+# A named boolean, same discipline as both neighbours: the RE result that
+# diffs a real coordinate-bearing capture flips it back to True, and
+# `tests/test_gm_warp_typed_coordinates_closed.py` pins both the value and
+# this citation.
+WARP_TYPED_COORDINATES_AUTHORIZED = False
+
 
 class WarpExecutorError(ValueError):
     """A `warp` command cannot be executed via `ForcePos`/`TeleportVital` as

@@ -130,6 +130,19 @@ def _synthetic_chat_pc(legacy, payload: bytes) -> bytes:
 
 class ChatCommandDispatchWiringTests(unittest.TestCase):
     def setUp(self):
+        # `COO-DECISION 20260904_2045` item 1 put a HEAD GATE in front of
+        # every `/warp <n> <x> <y>`: with it shipped shut, a coordinate warp
+        # composes nothing at all, and this file uses that shape as its
+        # "a command that produces a frame" fixture.  Held open here so each
+        # test keeps asking its own question instead of re-asserting the
+        # closure.  THE SHIPPED ANSWER IS NOT ASSERTED IN THIS FILE -- it is
+        # `tests/test_gm_warp_typed_coordinates_closed.py` and
+        # `test_gm_chat_command_action.py::TypedCoordinatesClosedTests`.
+        _coordinate_gate = mock.patch.object(
+            warp_executor, "WARP_TYPED_COORDINATES_AUTHORIZED", True
+        )
+        _coordinate_gate.start()
+        self.addCleanup(_coordinate_gate.stop)
         # Rate-limit history is process-global (gm/dispatch.py's own
         # thread-safety/test-isolation tradeoff), and this file's whole
         # subject goes through it: 20 calls / 5 s keyed by account name,
