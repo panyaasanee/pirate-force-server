@@ -199,10 +199,12 @@ def compose_sparse_speed_update(
     BY this: it was already waiting on chief's read points (see `NOW.md`).
 
     DEFENCE IN DEPTH, NOT THE WALL.  The wall is
-    `attr_wire.make_update_attr_frame`, which since `COO-DECISION
-    20260904_0345` item 1 refuses any block short of `all_field_x()` -- this
-    function's `{7: value}` would raise there even if this refusal were
-    deleted.  The raise here is the earlier, better-named half of the same
+    `attr_wire.make_update_attr_frame`, which refuses any block that is not
+    login-shaped (`COO-DECISION 20260904_0345` item 1 put the wall there;
+    `COO-DECISION 20260904_0545` item 1/2 changed the SET it enforces from
+    all 55 rows to the rows production login itself sets bits for) -- this
+    function's `{7: value}` would raise there either way: one row is not the
+    login shape any more than it was the full table.  The raise here is the earlier, better-named half of the same
     answer; a reader who deletes one still hits the other.
 
     Raises `SpeedWireError` unconditionally.  The value checks below still
@@ -238,13 +240,13 @@ def compose_sparse_speed_update(
     if not math.isfinite(fvalue):
         raise SpeedWireError(f"speed value must be finite, got {value!r}")
     raise SpeedWireError(
-        "sparse /speed frames are closed: a one-row 0x309A block zeroes the "
-        f"other {len(attr_wire.all_field_x()) - 1} rows on the client "
-        "(RE-222 Q0; GT-218 measured HP 0/1 and cash 0 in one frame), so no "
-        "value is safe on this shape -- COO-DECISION 20260904_0345 item 2. "
-        "A speed change now goes through attr_wire.build_named_field_update "
-        "on a full (b'') block, which needs chief's two read points "
-        "(COO-DECISION 20260904_0216) first"
+        "sparse /speed frames are closed: a one-row 0x309A block zeroes every "
+        "other row on the client (RE-222 Q0; GT-218 measured HP 0/1 and cash 0 "
+        "in one frame), so no value is safe on this shape -- COO-DECISION "
+        "20260904_0345 item 2. A speed change now goes through "
+        "gm/login_mask.build_login_shaped_frame on a login-shaped block "
+        "(COO-DECISION 20260904_0545 item 1/2), which needs chief's read "
+        "points first"
     )
 
 
