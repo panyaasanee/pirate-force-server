@@ -382,6 +382,22 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         # behaviour, and the test below proves that for every hit in the
         # file rather than taking this comment's word for it.
         "world_bg3001_identity.py": {"trade"},
+        # ADDED round md7pjz (LANE-UI, COO-DECISION 20260904_1244 item 3).
+        # ui_social_wire.py/ui_party_wire.py/ui_trade_wire.py name
+        # `TradeInviteVital` -- a proven wire class from
+        # `PF_SERIALIZER_FIELDS.tsv`/`PF_VITAL_NAMES.json` (NAMES-FOLD-002,
+        # tier PROVEN) -- because that IS the class's real name, not a
+        # guess. These modules are pure encode/decode of that class's
+        # proven field shape only: no cart, price, inventory, or trade
+        # outcome logic exists anywhere in them (every nonclaim in
+        # ui_trade_wire.py says so explicitly), and none of the three
+        # files is wired into runtime.py or vital_walk.py at all yet.
+        # `TradeCmdVital` -- the class that would actually execute a
+        # trade -- is explicitly named as OUT of scope in
+        # ui_trade_wire.py's own module docstring and has no module here.
+        "ui_social_wire.py": {"trade"},
+        "ui_party_wire.py": {"trade"},
+        "ui_trade_wire.py": {"trade"},
     }
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
