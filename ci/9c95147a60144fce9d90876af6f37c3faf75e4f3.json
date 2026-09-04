@@ -1,1 +1,1 @@
-{"sha":"9c95147a60144fce9d90876af6f37c3faf75e4f3","conclusion":"failure","event":"push","ref":"refs/heads/claude/charming-mendel-0foax0","run_id":"33866527719","utc":"2026-09-04T11:09:13Z"}
+{"sha":"9c95147a60144fce9d90876af6f37c3faf75e4f3","conclusion":"failure","event":"pull_request","ref":"refs/pull/751/merge","run_id":"33866571235","utc":"2026-09-04T11:09:46Z"}
