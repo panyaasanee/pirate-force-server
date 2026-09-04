@@ -297,9 +297,17 @@ class TheOneFragmentThatIsAboutThisServer(unittest.TestCase):
     no send path at all."""
 
     def test_every_decoded_line_says_whether_this_build_can_send_at_all(self):
+        # `unwired` until 2026-09-04; `wired` since chief's round `t7bsfx`
+        # landed the call site (the sibling test below is what forced the
+        # constant to move).  What this test is FOR is unchanged and is not
+        # the word itself: every decoded line must carry the fragment, for
+        # every opaque value, so a grader can never read `issued=yes` off a
+        # line that says nothing about whether this build can send at all.
         for value in (0x0002, 0x0003, 0xA099, 0x1234):
             with self.subTest(value=value):
-                self.assertIn("sent=unwired", hooklog.console_line(_body(value)))
+                line = hooklog.console_line(_body(value))
+                self.assertIn(f"sent={hooklog.SEND_PATH_STATE}", line)
+                self.assertIn(hooklog.SEND_PATH_STATE, ("unwired", "wired"))
 
     def test_the_state_is_the_repositorys_and_goes_red_when_a_call_site_lands(self):
         # `unwired` is only true while nothing can call the record composer.

@@ -1,6 +1,15 @@
 """LANE-A / M2: the first provisioning trial's two records, composed and
-ready for a send path -- and called by no send path anywhere in this
-repository.
+ready for a send path.
+
+~~"and called by no send path anywhere in this repository"~~ IS STRUCK as of
+2026-09-04 (chief, round `t7bsfx`/R342, PR #760): `runtime.py` now calls
+`encode_trial_records` once, in scene 126, behind the attended-only flag
+`PF_M2_SURVEY_TRIAL`, per COO-DECISION 20260904_1845 item 1 -- which is the
+CORE-REQUEST this file's own docstring asked for below.  The guard test that
+backed the old claim was not deleted: it now names that one caller, and
+`tests/test_m2_survey_trial.py::RuntimeCallSiteTests` holds the other half
+(one call, inside the branch the flag opens, both numbers read from the gate
+module).
 
 COO-DECISION 20260904_1345 item 3(b) ordered this built now that GT-228
 (R308, PASS) measured real island XYZ: "send `NavigationEx_
@@ -35,8 +44,9 @@ client reads the field as -- RE-227 nonclaim 3 and `navigationex_survey_
 record`'s own docstring both hold: nothing proves this u16 means anything
 to the client beyond an opaque value it copies back unchanged.
 
-CALLED FROM NO SEND PATH ANYWHERE IN THIS REPOSITORY.  Two things are still
-missing before that could change, and neither is this module's to supply:
+BOTH OF THE TWO THINGS BELOW LANDED ON 2026-09-04 (see the strike above);
+they are kept here because they say what the call site had to supply and on
+what terms:
 
     1. The wire `msg_id` for `NavigationEx_AddSurveyDataVtial`.  RE-227
        never proved a number for it (see `navigationex_survey_record`'s own
@@ -124,23 +134,25 @@ def encode_trial_records(
     own required arguments, passed through unchanged -- this function adds
     no default for ``msg_id`` either, for the same reason: printing a wire
     id here that RE-227 never proved would be the mistake its own nonclaims
-    section exists to prevent.  CALLED FROM NO SEND PATH ANYWHERE IN THIS
-    REPOSITORY; see the module docstring.
+    section exists to prevent.  Its one caller (runtime.py, behind the
+    attended-only flag `PF_M2_SURVEY_TRIAL`) passes 0xC4AF as a TRIAL value
+    with a console line naming it; see the module docstring's strike.
 
     ``player_scene_id`` HAS NO DEFAULT ON PURPOSE, AND THE REASON IS A
     MEASURED ONE (pf-adversary, round `16uvmp`).  `world_m2_survey_plan`
     has carried `plan_is_for_scene()` since it was written and nothing has
-    ever called it, while the call site this module is waiting for is
+    ever called it, while the call site this module was waiting for is
     described only as "when the player enters the sea scene".  Wire that
     without the guard and a player who reaches scene 17 -- the scene row
     3021 actually teleports to, see `world_m2_sea_destination` -- gets both
     records provisioned with SCENE-126 coordinates.  Land within 500 units
     of one of those triples in scene 17's own frame and the client pops the
     captain report; confirming it now composes a full deliverable arrival
-    (this round made the confirm resolve), so the cost of the missing guard
-    changed this round from a refusal to a teleport.  Requiring the caller
-    to say where the player is makes the check impossible to forget rather
-    than easy to remember.
+    (round `16uvmp` made the confirm resolve), so the cost of the missing
+    guard changed from a refusal to a teleport.  Requiring the caller to
+    say where the player is makes the check impossible to forget rather
+    than easy to remember.  Chief's call site (round `t7bsfx`) asks the
+    same question a second time, on its own side, before it gets here.
     """
     if not plan.plan_is_for_scene(player_scene_id):
         return ()

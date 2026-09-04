@@ -1239,8 +1239,8 @@ guard(SRC_ZERO_HP_SITES == 0 and V141_ZERO_HP_SITES == 0
 # no longer true of the path a player's hit takes, and this note is here
 # because a census that quietly changes MEANING stops being a census just as
 # surely as one that quietly widens (pf-adversary, round 9jrsei, D6).
-guard(SRC_VITAL_STREAM_SITES == 26,
-      "src/ sends the VitalData carrier (make_runtime_vitals) at 26 call sites")
+guard(SRC_VITAL_STREAM_SITES == 27,
+      "src/ sends the VitalData carrier (make_runtime_vitals) at 27 call sites")
 guard(_count(r"make_runtime_remote_actors\(",
              _src.get("stats_progression_hypothesis.py", "")) == 0
       and _count(r"make_runtime_vitals\(",

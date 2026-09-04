@@ -11,11 +11,13 @@ letter, in the same breath, forbids sending it for real:
     เปิดได้เฉพาะเมื่อ XYZ มาจาก GT-228
 
 So this module builds the record and tests it byte-for-byte against RE-227's
-own pinned field list, and IS CALLED FROM NO SEND PATH ANYWHERE IN THIS
-REPOSITORY.  Grep confirms it: nothing under `runtime.py`, `app.py`, or any
-`lane_hooks/` module imports this file.  The day GT-228 measures real island
-XYZ, wiring this in is a runtime.py call site -- chief's, by CORE-REQUEST,
-same as every other send path in this project -- not an edit here.
+own pinned field list.  ~~"and IS CALLED FROM NO SEND PATH ANYWHERE IN THIS
+REPOSITORY"~~ IS STRUCK as of 2026-09-04 (chief, round `t7bsfx`/R342, PR
+#760): GT-228 measured the island XYZ, and the runtime.py call site the
+paragraph anticipated now exists -- reaching this file transitively through
+LANE-A's provisioning-trial module (not named as a string here, so this file
+stays outside that module's own "who may name me" guard), behind the flag
+`PF_M2_SURVEY_TRIAL`, per COO-DECISION 20260904_1845 item 1.
 
 NESTED RECORD FIELD LAYOUT (RE-227, verbatim field order and offsets;
 nested-record serializer span `[0x0072e590,0x0072e691)` SHA
@@ -48,11 +50,22 @@ span alone would be exactly the "guessing an opcode" this project's lanes
 are forbidden to do.  What IS already proven and already used by this same
 codebase for the same *kind* of frame -- one nested vital record pushed as
 the sole element of a client's VitalData collection -- is
-`current/pf_login_game_server_v141.py`'s own `make_runtime_vital(msg_id,
-vital_version, vital_payload)` (`damage_model_hypothesis.py` builds on the
-same function for a different vital).  `encode_add_survey_data_outer`
-below reuses that frozen function rather than re-deriving the envelope by
-hand: it is the proven "push one record" shape, not a new guess.
+`current/pf_login_game_server_v141.py`'s own `make_runtime_vitals`, the
+PLURAL composer, called with a one-element list.  `encode_add_survey_data_
+outer` below reuses that frozen function rather than re-deriving the
+envelope by hand: it is the proven "push records" shape, not a new guess.
+
+~~an earlier version of this paragraph named the SINGULAR
+`make_runtime_vital`~~ IS STRUCK (chief, round `t7bsfx`/R342, pf-adversary
+D1).  The two composers agree byte-for-byte except that the plural one
+appends the trailing `0B 00` derived-class change mask, and this repository
+records THREE independent incidents of the singular envelope raising
+`GSCN_RunTimeProtocolRes ErrorData=28317` on the real client -- v141:706-710
+(the frozen composer's own comment), `delete_actor_hypothesis.py:28-33`
+(attended GT-010, 2026-08-18), `gm/state_wire.py:104-116` (GT-107/RE-113) --
+and `gm/chat_command_action.py:1281` records that error CLOSING the client
+in R306.  `tests/test_navigationex_survey_record.py` now pins the two bytes
+as a byte fact, so this cannot regress quietly.
 
 `msg_id` IS A REQUIRED CALLER-SUPPLIED ARGUMENT, ON PURPOSE, WITH NO
 DEFAULT.  The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
@@ -132,20 +145,38 @@ def encode_survey_record(legacy, fields: SurveyRecordFields) -> bytes:
 def encode_add_survey_data_outer(
     legacy, msg_id: int, vital_version: int, fields: SurveyRecordFields,
 ) -> tuple[bytes, bytes]:
-    """The full outbound frame: `legacy.make_runtime_vital` (the same
-    frozen, already-proven "one record into the VitalData collection"
-    envelope this codebase already uses for a different vital) wrapped
-    around ``encode_survey_record(legacy, fields)``.
+    """The full outbound frame: `legacy.make_runtime_vitals` (the frozen,
+    already-proven VitalData-collection envelope, WITH the trailing
+    derived-class change mask) wrapped around one
+    ``encode_survey_record(legacy, fields)``.
 
     Returns ``(pc, frame)``, same shape as every other frozen composer in
     this project.  ``msg_id`` has no default -- see the module docstring
     for why the numeric wire id is not committed as a fact here.
 
-    CALLED FROM NO SEND PATH.  Nothing in `runtime.py`, `app.py`, or any
-    `lane_hooks/` module imports this function.  COO-DECISION 20260904_0747
-    item 3(b) forbids wiring it to send until GT-228 measures real island
-    XYZ; wiring it in afterward is a runtime.py call site chief adds by
-    CORE-REQUEST, same as every other lane send path in this project.
+    ~~CALLED FROM NO SEND PATH~~ IS STRUCK (2026-09-04, PR #760): GT-228
+    measured the XYZ that COO-DECISION 20260904_0747 item 3(b) made the
+    condition, and chief added the runtime.py call site it named, behind
+    the attended-only flag.  It is still called from exactly one place.
     """
     record = encode_survey_record(legacy, fields)
-    return legacy.make_runtime_vital(msg_id, vital_version, record)
+    # PLURAL, not `make_runtime_vital`.  Chief, round `t7bsfx`/R342, after
+    # pf-adversary D1 measured the difference on this very frame: the two
+    # composers agree byte-for-byte except that the plural one appends the
+    # trailing `0B 00` derived-class change mask, and THREE independently
+    # documented incidents in this repository say the singular envelope is
+    # what raises `GSCN_RunTimeProtocolRes ErrorData=28317` on the real
+    # client -- `current/pf_login_game_server_v141.py:706-710` (the frozen
+    # composer's own comment: "omitting it makes the client over-read the
+    # collection response"), `delete_actor_hypothesis.py:28-33` (attended
+    # GT-010 falsified the singular composition live on 2026-08-18), and
+    # `gm/state_wire.py:104-116` (GT-107/RE-113, fixed the same one-line
+    # way).  `gm/chat_command_action.py:1281` records that error CLOSING
+    # the client in R306, which would spend GT-233's whole attended round
+    # on a STOP that looks exactly like a wrong `msg_id`.
+    #
+    # The docstring above called this envelope "the proven 'push one
+    # record' shape".  It is -- for a collection whose mask is present.
+    # One record still goes into the collection; the list is the shape the
+    # proof was for.
+    return legacy.make_runtime_vitals([(msg_id, vital_version, record)])

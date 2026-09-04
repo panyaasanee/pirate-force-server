@@ -1288,6 +1288,12 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 # runtime poll.  Cleared when the session leaves that scene,
                 # so re-entering the sea re-arms it exactly once more.
                 self.m2_survey_trial_scene_attempted = None
+                # True when the records went out while the client had not
+                # yet confirmed the scene the label claimed (pf-adversary
+                # D2).  Re-arms the trial exactly once, when the client does
+                # confirm, so a warp the client ignored does not spend the
+                # whole attended round on frames sent into the wrong scene.
+                self.m2_survey_trial_sent_unconfirmed = False
                 # WORLD-CENSUS-001 observability.  ``world_census_actor_count``
                 # is the number that actually went onto the wire this session,
                 # not the number that was asked for.
@@ -11493,6 +11499,13 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # it is a courtesy line about a click, so every frame the click
             # itself is owed keeps first claim on the wire, byte-for-byte
             # unchanged, and the notice rides alongside instead of ahead.
+            # ~~"LAST in the sum on purpose"~~ IS STRUCK for this block as
+            # of round `t7bsfx`/R342 (pf-adversary D13): the M2 survey trial
+            # is appended after it.  The REASON above still holds -- the
+            # notice must come after every frame the click itself owes --
+            # and the trial owes the click nothing, so nothing moved that
+            # this comment was protecting.  Two blocks in one return may not
+            # both claim to be last; this one no longer does.
             # Empty for every nested_id but 0x1B40, and empty for the UI-B
             # button (subcode 1) by the module's own standing-down rule,
             # which exists so `GT-194`'s evidence cannot move under the
@@ -11550,19 +11563,53 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 and m2_survey_scene != self.m2_survey_trial_scene_attempted
             ):
                 self.m2_survey_trial_scene_attempted = None
+                self.m2_survey_trial_sent_unconfirmed = False
+            # THE SCENE LABEL IS NOT EVIDENCE, AND THIS BLOCK SAYS SO OUT
+            # LOUD (pf-adversary D2).  `_gm_warp_resync_selected_scene`
+            # relabels the row at QUEUE time and sets
+            # `scene_label_is_server_guess`; the client ignores ForcePos
+            # (RE-129) and its first report repeats the old point.  So a
+            # `/warp 126` the client never acted on would otherwise print
+            # "sent, scene=126" while the player stands in Port Royal, and
+            # GT-233's negative would be uninterpretable.  Two answers,
+            # neither of which is "refuse to fire": the console line carries
+            # whether the label was a guess and what the client has actually
+            # confirmed, and a send made while unconfirmed is re-armed ONCE
+            # when the client does confirm this scene -- so the tester gets
+            # the records after the arrival is real, not only before it.
+            m2_survey_confirmed = getattr(self, "client_confirmed_scene", None)
+            m2_survey_guess = bool(
+                getattr(self, "scene_label_is_server_guess", False)
+            )
+            m2_survey_reconfirmed = (
+                self.m2_survey_trial_sent_unconfirmed
+                and m2_survey_confirmed == m2_survey_scene
+            )
             if (
                 self.foundation.selected is not None
                 and self.teleport_sent
                 and self.runtime_ack_sent
                 and parsed.outer_id == legacy.GSCN_RUNTIME_PROTOCOL_REQ
                 and m2_survey_scene == m2_survey_trial.M2_SEA_SCENE_ID
-                and self.m2_survey_trial_scene_attempted is None
+                # The plan's own predicate, not a second literal: the XYZ
+                # in these records is expressed in ONE scene's frame, and
+                # sending it into another is a miss of thousands of units
+                # whose symptom is the same as every other failure here
+                # (pf-adversary D6).
+                and m2_survey_trial.plan_frame_matches(m2_survey_scene)
+                and (
+                    self.m2_survey_trial_scene_attempted is None
+                    or m2_survey_reconfirmed
+                )
             ):
                 self.m2_survey_trial_scene_attempted = m2_survey_scene
                 trial_state = m2_survey_trial.trial_opening()
+                trial_refused = False
                 if trial_state != m2_survey_trial.TRIAL_OPEN:
+                    self.m2_survey_trial_sent_unconfirmed = False
                     print(m2_survey_trial.console_line(
                         trial_state, m2_survey_scene,
+                        confirmed=m2_survey_confirmed, guess=m2_survey_guess,
                     ))
                     self.events.append(
                         f"m2_survey_trial_not_this_boot_{trial_state}"
@@ -11576,14 +11623,38 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL,
                                 vital_version=m2_survey_trial
                                 .NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION_TRIAL,
+                                # LANE-A made this argument mandatory in
+                                # round `16uvmp` for the same reason this
+                                # call site checks `plan_frame_matches`
+                                # above: a scene-126 triple provisioned to
+                                # a player in scene 17 can pop a captain
+                                # report whose confirm now composes a real
+                                # teleport.  Both checks stay -- theirs
+                                # cannot be forgotten, mine names the
+                                # refusal on the console.
+                                player_scene_id=m2_survey_scene,
                             )
                         )
+                        # The wire value for each record, in the same order
+                        # the encoder produced them (both read the plan's
+                        # `planned_records()`).  Paired here rather than
+                        # labelled from the dock-table id, because the label
+                        # is the ONE per-record string the attended capture
+                        # is matched against and 153/154 never appear on the
+                        # wire -- LANE-A's own warning, and pf-adversary D3
+                        # measured the first draft failing it.
+                        trial_surveys = [
+                            record.fields.survey_id for record in
+                            world_m2_provisioning_trial.trial_survey_records()
+                        ]
                     except Exception as error:  # noqa: BLE001 - a trial that
                         # cannot compose must cost this player nothing: the
                         # refusal is named on the console and the dispatch
                         # goes out without it, same shape every other lane
                         # hook in this file uses.
                         trial_records = ()
+                        trial_surveys = []
+                        trial_refused = True
                         print(m2_survey_trial.refusal_line(
                             m2_survey_scene, type(error).__name__,
                         ))
@@ -11591,26 +11662,64 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "m2_survey_trial_refused_"
                             f"{type(error).__name__}"
                         )
-                    if trial_records:
-                        m2_survey_actions = [
-                            (
-                                f"M2_SURVEY_TRIAL_DEST{destination_id}",
-                                pc, frame, 0.0,
-                            )
-                            for destination_id, pc, frame in trial_records
-                        ]
-                        print(m2_survey_trial.console_line(
-                            m2_survey_trial.TRIAL_OPEN, m2_survey_scene,
-                            len(m2_survey_actions),
+                    if len(trial_surveys) != len(trial_records):
+                        # The pairing above is only as good as the two
+                        # functions agreeing; if they ever do not, sending
+                        # records under labels that belong to other records
+                        # is worse than sending nothing.
+                        trial_records = ()
+                        trial_refused = True
+                        print(m2_survey_trial.refusal_line(
+                            m2_survey_scene, "label_pairing_mismatch",
                         ))
                         self.events.append(
-                            f"m2_survey_trial_sent_{len(m2_survey_actions)}"
+                            "m2_survey_trial_refused_label_pairing_mismatch"
                         )
-                    elif trial_state == m2_survey_trial.TRIAL_OPEN:
-                        # Armed, composed nothing.  Reachable for one reason
-                        # only -- the plan has no destinations, i.e. LANE-A's
-                        # MEASURED_XYZ is empty -- and it must not read as
-                        # "the flag was off".
+                    if trial_records:
+                        # INITIAL + REAPPLY, not one frame.  `world_
+                        # population.py:184-188` records the schedule the
+                        # shipped census branch uses and why: "the V138
+                        # nearest-20 runtime pass was an initial-plus-reapply
+                        # pass, not a single frame, so a caller that sends
+                        # one frame is not reproducing what was accepted".
+                        # These records ride the same dispatch as the
+                        # arrival census, i.e. before model readiness by
+                        # that block's own definition (pf-adversary D4).
+                        for survey_id, (dock_id, pc, frame) in zip(
+                            trial_surveys, trial_records,
+                        ):
+                            m2_survey_actions.append((
+                                f"M2_SURVEY_TRIAL_SURVEY{survey_id}"
+                                f"_DOCK{dock_id}_INITIAL",
+                                pc, frame, 0.0,
+                            ))
+                            m2_survey_actions.append((
+                                f"M2_SURVEY_TRIAL_SURVEY{survey_id}"
+                                f"_DOCK{dock_id}_REAPPLY",
+                                pc, frame,
+                                world_population.INITIAL_REAPPLY_MS / 1000.0,
+                            ))
+                        self.m2_survey_trial_sent_unconfirmed = (
+                            m2_survey_confirmed != m2_survey_scene
+                        )
+                        print(m2_survey_trial.console_line(
+                            m2_survey_trial.TRIAL_OPEN, m2_survey_scene,
+                            len(trial_records),
+                            confirmed=m2_survey_confirmed,
+                            guess=m2_survey_guess,
+                        ))
+                        self.events.append(
+                            f"m2_survey_trial_sent_{len(trial_records)}"
+                        )
+                    elif not trial_refused:
+                        # Armed, composed nothing, and nothing raised.  One
+                        # reason reaches here -- the plan has no
+                        # destinations, i.e. LANE-A's MEASURED_XYZ is empty
+                        # -- and it must not read as "the flag was off".
+                        # Guarded by `trial_refused` because the first draft
+                        # printed this line AFTER an exception line and sent
+                        # the operator to inspect a plan that was fine
+                        # (pf-adversary D5).
                         print(m2_survey_trial.refusal_line(
                             m2_survey_scene, "no_records",
                         ))

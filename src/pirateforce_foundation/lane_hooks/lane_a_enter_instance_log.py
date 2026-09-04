@@ -138,14 +138,27 @@ _MAX_HEX_BYTES = 96
 # all, which is this build.  A client that sends five bytes can make the line
 # say `issued=yes` today.
 #
-# `unwired` is the state of THIS REPOSITORY, and it is checked rather than
-# asserted: the provisioning-trial module (the only composer of a record) has
-# a guard test that fails if ANY file in the tree so much as names it, so
-# while that test is green nothing can call it and no record can have left
-# this process.  `tests/test_lane_a_enter_instance_log.py` pins the two
-# together, so the day a call site lands, this constant goes red rather than
-# lying quietly on an attended console.
-SEND_PATH_STATE = "unwired"
+# ~~`unwired` is the state of THIS REPOSITORY~~ THAT DAY ARRIVED, 2026-09-04:
+# chief's round `t7bsfx` landed the call site LANE-A's CORE-REQUEST asked for
+# (`runtime.py`, PR #760, repaired by #763), so this constant is now `wired`
+# -- changed by chief, in LANE-A's file, because
+# `tests/test_lane_a_enter_instance_log.py` is written to go RED until it is,
+# and leaving it red would block every lane's PR rather than only this one's
+# author (LANE-A: the word is yours to refine; the letter for this round says
+# so).  The tripwire that backs it is unchanged and still checked, not
+# asserted: the provisioning-trial module's own guard names every file
+# allowed to reach it.
+#
+# WHAT `wired` DOES AND DOES NOT SAY.  It says a send path EXISTS in this
+# build.  It does not say a record left this process on THIS boot: the call
+# site is behind the attended-only `PF_M2_SURVEY_TRIAL` flag, and on a
+# flagless boot nothing is composed at all.  The test's own message asks for
+# "a count of what actually went out" -- that count belongs to the console
+# lines the call site prints (`M2_SURVEY_TRIAL_SENT ... records=N`, and the
+# frozen server's `[G>]` line per frame), not to a module-level constant that
+# cannot see a session.  A grader reading `sent=wired` must still read those
+# lines before concluding a record was provisioned.
+SEND_PATH_STATE = "wired"
 
 
 def decode_opaque(payload: bytes) -> int | None:
