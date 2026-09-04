@@ -1,0 +1,52 @@
+-- 012_ground_drops_taken_marker.sql
+-- LANE-DB / the ground-drop persistence door -- the read-half unblock.
+--
+-- WHAT THIS FILE DOES.  One column, `taken_at`, added to the existing
+-- `ground_drops` table (`migrations/010_ground_drops.sql`).  NULL means
+-- "still on the ground"; a non-NULL ISO-8601 UTC timestamp (the same
+-- `_now()` format every other timestamp column in this database uses)
+-- means "picked up", and records WHEN, for free, without a second column.
+-- No existing row's `taken_at` is written by this file -- `ALTER TABLE
+-- ... ADD COLUMN` with no explicit default gives every row NULL, which is
+-- the correct value for a drop that predates this column: nothing in the
+-- table before this migration runs is "taken", because there was no way
+-- to mark one taken before now.
+--
+-- WHY THIS ROUND, AND WHY THE REQUEST DROVE IT.  `notes_to_chief/
+-- 20260904_1650_LANE-B-TO-LANE-DB-ground-drops-need-a-taken-marker.md`:
+-- LANE-B's write half and in-memory read half are both live, but the
+-- persistence read half (`SQLiteStore.list_ground_drops_for_scene`) can
+-- only answer "what was ever dropped here", not "what is still down" --
+-- `migrations/010_ground_drops.sql`'s own docstring already said a
+-- restore built on that alone reintroduces every picked-up item at every
+-- boot, which is item duplication, not persistence.  LANE-B's own
+-- `mob_ground_persistence.restore_scene_ground` already refuses by name
+-- (`REFUSE_TAKEN_DOOR_IS_ABSENT`) until this door exists; that refusal
+-- was measured and printed, not assumed.
+--
+-- WHY A MARKER COLUMN AND NOT A DELETE.  `COO-DECISION 20260901_0253`
+-- ("no ledger row may be removed") stands, unchanged by this round --
+-- `migrations/010_ground_drops.sql` already carries the same rule for
+-- this exact table.  Marking is the only shape that both answers "is it
+-- still down" AND never removes the row that answers "was this ever
+-- dropped here" -- the same ledger, two questions, one column.
+--
+-- WHY NO BACKUP MECHANISM IS ADDED BY THIS FILE.  `COO-DECISION
+-- 20260901_1112` point 3 requires an automatic pre-apply snapshot for a
+-- migration that touches EXISTING ROWS (backfill/UPDATE/rebuild).  This
+-- file writes no `UPDATE` and rebuilds no table -- it is one `ALTER
+-- TABLE ... ADD COLUMN` with no default expression, the same shape and
+-- same reasoning `010_ground_drops.sql` already gave for skipping a
+-- migration-local backup.  The automatic snapshot itself already exists
+-- server-wide (`SQLiteStore.migrate_with_backup`, `persistence_backup.
+-- should_snapshot`) and fires on ANY pending migration, this one
+-- included, the day chief wires a boot path to call it instead of
+-- `migrate()` -- there is nothing left for this file to add.
+--
+-- WHY NOT A SECOND TABLE.  A `ground_drops_taken(scene_fold, drop_key)`
+-- side table would need its own `UNIQUE` to stay idempotent, and every
+-- read of "still on the ground" would need a `LEFT JOIN ... WHERE
+-- taken.drop_key IS NULL` instead of one `WHERE taken_at IS NULL` on the
+-- table the answer already lives in.  One column on the row it describes
+-- is the simpler shape and the one LANE-B's letter asked for by name.
+ALTER TABLE ground_drops ADD COLUMN taken_at TEXT;

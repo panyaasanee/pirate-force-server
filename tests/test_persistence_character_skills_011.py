@@ -104,12 +104,17 @@ class _StoreFixture(unittest.TestCase):
 
 class TheMigrationItselfTests(_StoreFixture):
 
-    def test_011_is_on_disk_and_is_the_newest_version(self):
+    def test_011_is_on_disk_with_no_duplicate_version_number(self):
+        # No longer "is the newest version": `012_ground_drops_taken_marker.
+        # sql` (LANE-DB, round `p6x3ee`) landed after this file was written --
+        # same relaxation `test_persistence_ground_drops_010.py` already made
+        # for 010 once 011 passed it. This test's job is that 011 exists and
+        # no version number repeats, not which one is newest.
         self.assertTrue(ELEVEN.exists(), ELEVEN)
         versions = sorted(
             int(p.name[:3]) for p in MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")
         )
-        self.assertEqual(versions[-1], 11)
+        self.assertIn(11, versions)
         self.assertEqual(len(versions), len(set(versions)))
 
     def test_the_ledger_records_version_11(self):
