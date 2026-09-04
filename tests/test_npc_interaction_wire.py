@@ -373,7 +373,16 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     # a purchase outcome is decided here.
     ALLOWED_HITS = {
         "columbus_quest_dispatch.py": {"quest"},
-        "runtime.py": {"quest"},
+        # ADDED round cool-johnson-7qcsux (chief, R339, CORE-REQUEST
+        # pf_bridge/notes_to_chief/20260904_1120 LANE-UI).  runtime.py
+        # imports TRADE_INVITE_VITAL_ID from ui_trade_wire.py (already
+        # exempted below for the same reason) and dispatches
+        # TradeInviteVital -- a proven wire class name, not a guess -- to a
+        # report-only lane_hooks point that counts the frame and answers
+        # nothing. No cart, price, inventory or trade outcome logic exists
+        # in runtime.py; TradeCmdVital, the class that would actually
+        # execute a trade, has no call site here or anywhere else.
+        "runtime.py": {"quest", "trade"},
         "world_port_royal_identity.py": {"shop"},
         "trade_session_membership.py": {"trade"},
         # ADDED round 4uztfj (LANE-A): scene 126's crosswalk table holds
