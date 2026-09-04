@@ -14,11 +14,19 @@ is which), wire a patch function into the real call site
 (`legacy_bridge.character_list`, via `project_actor_wire_for_list`), and gate
 the whole thing behind one constant, `SCENE_FIELD`, that is `None` today.
 
-This file's job is therefore twofold: prove the locate/patch machinery is
-correct for BOTH candidate fields (so flipping the one constant later is
-safe), and prove that with `SCENE_FIELD` at its current value (`None`) the
-real call site's output is BYTE-IDENTICAL to what `main` sends today -- the
-scaffold must not, itself, change anything a player can observe.
+`RE-248` (`notes_to_chief/20260905_0053_RE-248-RESULT-FIELD-A-IS-SCENE-
+FIELD-B-IS-LEVEL.md`) answered the question: `FIELD_A` is the client's
+scene-name field, `FIELD_B` is character level.  `SCENE_FIELD` is now
+`FIELD_A`.
+
+This file's job is therefore threefold: prove the locate/patch machinery is
+correct for BOTH candidate fields (so the constant stays swappable if a
+future field is ever misidentified), prove that with `SCENE_FIELD` at
+`None` the real call site's output is BYTE-IDENTICAL to the plain
+`c.actor_wire` join it replaced (regression coverage for the off state,
+even though it no longer ships), and prove that with `SCENE_FIELD` at its
+shipped value (`FIELD_A`) the real call site now prints each character's
+CURRENT scene, not her frozen birth one.
 """
 import struct
 import sys
@@ -163,8 +171,14 @@ class ProjectActorWireForListTests(unittest.TestCase):
     def tearDown(self):
         scene_field_module.SCENE_FIELD = self._orig_scene_field
 
-    def test_default_scene_field_none_is_a_pure_pass_through(self):
-        self.assertIsNone(scene_field_module.SCENE_FIELD)
+    def test_shipped_scene_field_is_field_a(self):
+        # RE-248 named FIELD_A as the scene field; this is what ships.
+        self.assertEqual(scene_field_module.SCENE_FIELD, FIELD_A)
+
+    def test_scene_field_none_is_still_a_pure_pass_through(self):
+        # `None` no longer ships, but the machinery must still honor it as a
+        # true no-op -- this is what let the scaffold round land inert.
+        scene_field_module.SCENE_FIELD = None
         character = FakeCharacter(self.wire, scene_id=2)
         self.assertEqual(project_actor_wire_for_list(character), self.wire)
 
@@ -181,12 +195,13 @@ class ProjectActorWireForListTests(unittest.TestCase):
         self.assertEqual(struct.unpack_from("<H", projected, self.offset_b)[0], 3)
 
 
-class CharacterListWireIsUnchangedWhileScaffoldIsOffTests(unittest.TestCase):
-    """The acceptance criterion `COO-DECISION 20260904_2152` item 4 names:
-    with `SCENE_FIELD` at its shipped value (`None`), the real
-    `legacy_bridge.character_list` frame must be byte-identical to what the
-    plain `c.actor_wire` join it replaced would have produced -- this
-    scaffold changes no player-visible byte until the constant is flipped."""
+class CharacterListWireProjectsCurrentSceneTests(unittest.TestCase):
+    """The acceptance criterion `COO-DECISION 20260904_1947` named, now that
+    `RE-248` has settled which field is which and `SCENE_FIELD` ships as
+    `FIELD_A`: the real `legacy_bridge.character_list` frame must print each
+    character's CURRENT scene (`character_positions.scene_id`), not the
+    BIRTH scene frozen into `actor_wire` at creation -- and every other byte
+    of the frame, `FIELD_B` (character level) included, must be untouched."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -204,13 +219,13 @@ class CharacterListWireIsUnchangedWhileScaffoldIsOffTests(unittest.TestCase):
         self.session = FoundationSession(
             self.lifecycle, self.projector, "scene-field-scaffold-test"
         )
-        self.assertIsNone(scene_field_module.SCENE_FIELD)
+        self.assertEqual(scene_field_module.SCENE_FIELD, FIELD_A)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def _old_character_list_wire(self, characters):
-        """The formula `legacy_bridge.character_list` used before this round
+        """The formula `legacy_bridge.character_list` used before this fix
         -- `c.actor_wire` joined verbatim, no projection -- reproduced here
         so this test does not depend on the very code path it is grading."""
         v = self.legacy
@@ -227,17 +242,19 @@ class CharacterListWireIsUnchangedWhileScaffoldIsOffTests(unittest.TestCase):
         )
         return v.make_runtime_vital(v.SELECT_ACTOR_VITAL, 10, payload)
 
-    def test_one_character_at_birth_scene(self):
+    def test_one_character_at_birth_scene_is_still_byte_identical(self):
+        # Birth scene == current scene here (both 1), so patching FIELD_A to
+        # the current scene id writes back the same value already there --
+        # the fix is inert, not wrong, for a character who never moved.
         character, _ = self.session.create("test01", self.legacy.get_preset_actor_wire())
         actual = self.session.character_list()
         expected = self._old_character_list_wire(self.session.characters)
         self.assertEqual(actual, expected)
 
-    def test_character_moved_to_a_different_scene_is_still_byte_identical(self):
+    def test_character_moved_to_a_different_scene_now_shows_the_current_one(self):
         # This is the exact case `1947` is about: a character whose CURRENT
-        # scene differs from her BIRTH scene.  Proving byte-identity here
-        # too is what shows this round's wiring is truly inert, not merely
-        # inert for a character who never left scene 1.
+        # scene differs from her BIRTH scene.  The old formula would have
+        # printed birth scene 1 forever; the fix must print current scene 2.
         character, _ = self.session.create("test01", self.legacy.get_preset_actor_wire())
         self.store.select_character(self.session.session_id, character.selector)
         self.store.save_position(
@@ -245,14 +262,98 @@ class CharacterListWireIsUnchangedWhileScaffoldIsOffTests(unittest.TestCase):
             character.id,
             Position(2, 0, 0.0, 0.0, 0.0),
         )
-        actual = self.session.character_list()
-        expected = self._old_character_list_wire(self.session.characters)
-        self.assertEqual(actual, expected)
-        # And the DB-side fact this whole fix exists to eventually surface is
-        # really there, waiting on the constant flip: the frozen wire still
-        # says scene 1 while the position row says scene 2.
+        # `character_list()` / `_old_character_list_wire()` both return
+        # `make_runtime_vital`'s `(unframed_payload, framed_bytes)` pair --
+        # compare the unframed payload, where the byte offsets `locate_
+        # scene_field_candidates` reasons about actually live.
+        actual, _ = self.session.character_list()
+        stale, _ = self._old_character_list_wire(self.session.characters)
+        self.assertNotEqual(actual, stale, "select-screen frame still carries the frozen birth scene")
+
         moved = self.session.characters[0]
         self.assertEqual(moved.position.scene_id, 2)
+        # The underlying `actor_wire` row is untouched (never rewritten in
+        # the DB, per the module's own "what this does not do" contract) --
+        # still birth scene 1 at both candidate offsets.
         offset_a, offset_b = locate_scene_field_candidates(moved.actor_wire)
         self.assertEqual(struct.unpack_from("<H", moved.actor_wire, offset_a)[0], 1)
         self.assertEqual(struct.unpack_from("<H", moved.actor_wire, offset_b)[0], 1)
+
+        # The frame actually sent on the wire equals the stale formula's
+        # output with ONLY FIELD_A's two-byte span patched to the current
+        # scene id -- FIELD_B (level) and every other byte is byte-for-byte
+        # identical to what the old, unpatched join would have sent.  Locate
+        # that span within the FULL frame (envelope + list header +
+        # `actor_wire`, not just the wire slice `locate_scene_field_
+        # candidates` was proven against) by finding `stale`'s copy of the
+        # still-unpatched `actor_wire` -- `stale` was built from the raw
+        # `c.actor_wire` join, so it must appear there byte-for-byte -- and
+        # offsetting from there, rather than diffing, since a scene id that
+        # only changes one octet of the little-endian u16 (1 -> 2) would
+        # otherwise make a byte-diff undercount the span.
+        wire_start = stale.find(moved.actor_wire)
+        self.assertGreaterEqual(wire_start, 0, "stale frame does not contain the unpatched actor_wire")
+        offset_a, _ = locate_scene_field_candidates(moved.actor_wire)
+        field_offset = wire_start + offset_a
+
+        self.assertEqual(len(actual), len(stale))
+        self.assertEqual(
+            actual[:field_offset] + actual[field_offset + 2 :],
+            stale[:field_offset] + stale[field_offset + 2 :],
+            "a byte outside FIELD_A's span changed",
+        )
+        self.assertEqual(struct.unpack_from("<H", actual, field_offset)[0], 2)
+        self.assertEqual(struct.unpack_from("<H", stale, field_offset)[0], 1)
+
+    def _preset(self, name):
+        """Same fixture-name-swap helper `tests/test_foundation.py` uses --
+        `get_preset_actor_wire()` is a single fixed capture, so a second
+        character with a DIFFERENT (and differently-sized) name needs its
+        `wstr` name field replaced, which shifts every byte after it."""
+        actor = self.legacy.get_preset_actor_wire()
+        old = self.legacy.wstr_tag("test01")
+        self.assertEqual(actor.count(old), 1)
+        return actor.replace(old, self.legacy.wstr_tag(name), 1)
+
+    def test_two_characters_with_different_name_lengths_patch_independently(self):
+        # pf-adversary (this round): `project_actor_wire_for_list` is called
+        # PER CHARACTER before the frame join (`legacy_bridge.py:35`), so a
+        # name-length difference that shifts one character's FIELD_A offset
+        # must never affect the other character's patch.  Proven here with a
+        # live two-character list rather than argued from the call shape.
+        short, _ = self.session.create("ab", self._preset("ab"))
+        self.store.select_character(self.session.session_id, short.selector)
+        self.store.save_position(
+            self.session.session_id, short.id, Position(2, 0, 0.0, 0.0, 0.0)
+        )
+        long_name = "a-much-longer-character-name-than-the-other-one"
+        long, _ = self.session.create(long_name, self._preset(long_name))
+        self.store.select_character(self.session.session_id, long.selector)
+        self.store.save_position(
+            self.session.session_id, long.id, Position(5, 0, 0.0, 0.0, 0.0)
+        )
+
+        self.session.characters = self.store.list_characters(self.session.account_id)
+        self.assertEqual(len(self.session.characters), 2)
+        by_name = {c.name: c for c in self.session.characters}
+
+        actual, _ = self.session.character_list()
+
+        for character, expected_scene in ((by_name["ab"], 2), (by_name[long_name], 5)):
+            offset_a, offset_b = locate_scene_field_candidates(character.actor_wire)
+            wire_start = actual.find(
+                patch_scene_field(character.actor_wire, FIELD_A, expected_scene)[:offset_a]
+            )
+            self.assertGreaterEqual(
+                wire_start, 0,
+                f"could not locate {character.name!r}'s patched FIELD_A span in the joined frame",
+            )
+            field_offset = wire_start + offset_a
+            self.assertEqual(
+                struct.unpack_from("<H", actual, field_offset)[0], expected_scene,
+                f"{character.name!r} did not get its own current scene",
+            )
+            # FIELD_B (level) for THIS character is untouched -- still birth
+            # value 1, not bled over from the other character's scene id.
+            level_offset = wire_start + offset_b
+            self.assertEqual(struct.unpack_from("<H", actual, level_offset)[0], 1)

@@ -24,12 +24,13 @@ class LegacyProjector:
         self.v = legacy
 
     def character_list(self, characters):
-        # `project_actor_wire_for_list` is a scaffold (`COO-DECISION
-        # 20260904_2152` item 4): it patches the select-screen scene field
-        # IFF `persistence_scene_field_patch.SCENE_FIELD` names one, and
-        # otherwise returns `c.actor_wire` unchanged -- today it is `None`,
-        # so this is byte-identical to the plain `c.actor_wire` join it
-        # replaces (see `tests/test_persistence_scene_field_patch.py`).
+        # `project_actor_wire_for_list` patches the select-screen scene
+        # field named by `persistence_scene_field_patch.SCENE_FIELD`
+        # (`FIELD_A`, per RE-248's static IMAGE trace -- `GT-245` is the
+        # client-observable proof, not yet run) with `c.position.scene_id`
+        # so the frame shows the character's CURRENT scene instead of her
+        # frozen BIRTH one (`COO-DECISION 20260904_2152` item 4;
+        # `tests/test_persistence_scene_field_patch.py`).
         payload = (self.v.u8tag(0x0B,0)+self.v.u32tag(0x14,0)+self.v.u32tag(0x14,0)+
                    self.v.u32tag(0x1F,0)+self.v.u8tag(0x0B,0)+self.v.u8tag(0x0B,len(characters))+
                    b"".join(project_actor_wire_for_list(c) for c in characters)+self.v.u8tag(0x0B,0)+self.v.u8tag(0x0B,0))
