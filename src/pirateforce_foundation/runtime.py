@@ -7393,7 +7393,65 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             "lane_a_uia_back_refused_notice_composed"
                         )
                         uia_notice_actions = [(
-                            "LANE_A_UIA_BACK_REFUSED_LOCAL_TALK_NOTICE",
+                            # ONE LINE, round `oi2r2n` (chief, R340), the
+                            # CORE-REQUEST in pf_bridge/notes_to_chief/
+                            # 20260904_1524 (LANE-UI) restating LANE-A's
+                            # 20260903_1832 and 20260903_2231.  Chief accepted
+                            # the principle in 20260903_2010 (stamp 20:10
+                            # +07:00) on ONE precondition: that
+                            # `world_logout_button_notice.action_label` be on
+                            # main first.  It has been since LANE-A's #676
+                            # merged at 21:22 +07:00 that same evening -- see
+                            # UIA_ACTION_LABEL / UIB_ACTION_LABEL /
+                            # ACTION_LABEL_BY_BUTTON and the `action_label`
+                            # property in that module (named, not pinned by
+                            # line number: they are LANE-A's lines to move).
+                            #
+                            # The branch this sits in (`nested_id ==
+                            # LOGOUT_VITAL_ID`) does NOT split subcode, so the
+                            # hardcoded string labelled UI-B's "exit game"
+                            # click (subcode 1) as a "back" refusal, every
+                            # time.  The label is read off the notice, so a
+                            # button this call site has never heard of yields
+                            # LANE_A_LOGOUT_NOTICE_UNLABELLED_BUTTON via the
+                            # property's `.get()` rather than a KeyError.
+                            #
+                            # WHAT MOVES, MEASURED, not copied from the letter
+                            # (pf-adversary D1 caught the letter's own phrase
+                            # "the token that goes with the event log" being
+                            # repeated here -- it is wrong):
+                            #   * `GAME_LIVE.txt`'s SENT line, the attended
+                            #     console `[G>]` line, and the per-session raw
+                            #     log DO carry this label, and now carry the
+                            #     right one per button.
+                            #   * the exported EVENTS file does NOT carry it,
+                            #     and never did (world_logout_button_notice
+                            #     measured that; GT-211 says in red not to
+                            #     grep for a label there -- it is always zero).
+                            #   * `state.events` is byte-identical before and
+                            #     after: the `..._notice_composed` event three
+                            #     lines above is still ONE shared string for
+                            #     both buttons.  That answers the letter's
+                            #     nonclaim (2) -- there IS another shared
+                            #     label nearby -- and it is deliberately left
+                            #     alone: it is an internal event name, not a
+                            #     player- or tester-visible artifact, and
+                            #     splitting it is not what was asked for.
+                            #   * the bytes and the frame are untouched:
+                            #     `uia_notice.pc`/`.frame` are unchanged, and
+                            #     the frozen v141 sender's only label-dependent
+                            #     branch tests for a `V98_/V141_LOCAL_REFRESH_`
+                            #     prefix, which neither label has.
+                            #
+                            # WHAT THIS SHAPE DOES NOT PIN (pf-adversary D3):
+                            # the wiring test proves each button's SENT label
+                            # is its own row -- it does NOT prove the call site
+                            # reads `.action_label`.  A future edit that
+                            # retypes the table lookup with two hand-written
+                            # button constants AND splits on subcode is green.
+                            # Read `.action_label`; do not reintroduce a
+                            # button constant here.
+                            uia_notice.action_label,
                             uia_notice.pc,
                             uia_notice.frame,
                             0.0,
