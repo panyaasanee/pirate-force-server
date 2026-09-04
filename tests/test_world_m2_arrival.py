@@ -387,6 +387,41 @@ class TheOrderIsFailClosedOnTheHandle(unittest.TestCase):
             self.assertTrue(order.deliverable)
             self.assertEqual(order.trigger_id, trigger_id)
 
+    def test_todays_default_plan_also_delivers_for_the_value_the_trial_sends(self):
+        # Round `16uvmp`: the confirm frame of the FIRST provisioning trial
+        # carries the record's own u16, which that trial sets to the
+        # destination number (2/3), not to this plan's 0xA0xx handle.  Before
+        # this, every one of those confirms refused -- so a perfect attended
+        # run of GT-233 would have put the player nowhere and been graded as
+        # a failure of the hypothesis it was testing.
+        for trigger_id, wire_scene_id in (
+            (PRISON_EXILE_TRIGGER, 2), (SPICE_PARADISE_TRIGGER, 3),
+        ):
+            record = {r.trigger_id: r for r in plan.planned_records()}[trigger_id]
+            order = arrival.arrival_order(plan.trial_survey_id(record))
+            with self.subTest(trigger_id=trigger_id):
+                self.assertIsNone(order.refusal, order)
+                self.assertTrue(order.deliverable)
+                self.assertEqual(order.trigger_id, trigger_id)
+                self.assertEqual(order.wire_scene_id, wire_scene_id)
+                # The two readings of the same confirm land in the same
+                # place; only the console's confidence fragment differs.
+                by_handle = arrival.arrival_order(
+                    plan.handle_for_trigger_id(trigger_id)
+                )
+                self.assertEqual(order.position, by_handle.position)
+                self.assertEqual(order.teleport_fields, by_handle.teleport_fields)
+
+    def test_the_trial_value_still_refuses_when_the_plan_cannot_provision(self):
+        with _WithOnlyMeasuredXYZ({}):
+            for value in (2, 3):
+                order = arrival.arrival_order(value)
+                with self.subTest(value=value):
+                    self.assertEqual(
+                        order.refusal, arrival.ARRIVAL_REFUSED_HANDLE_NOT_ISSUED
+                    )
+                    self.assertFalse(order.deliverable)
+
     def test_a_refusal_carries_none_where_a_zero_would_be_read_as_an_answer(self):
         order = arrival.arrival_order(0x1234)
         for field in (

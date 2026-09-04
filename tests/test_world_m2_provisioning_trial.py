@@ -60,9 +60,50 @@ class TrialSurveyRecordsTests(unittest.TestCase):
             plan.MEASURED_XYZ.update(saved)
 
 
+SEA_SCENE = 126
+
+
+class TheCoordinateFrameIsCheckedNotAssumed(unittest.TestCase):
+    """pf-adversary, round `16uvmp`: `plan_is_for_scene` had no caller, and
+    the call site being waited for is described as "when the player enters the
+    sea scene".  Provisioning scene-126 triples to a player standing in scene
+    17 -- where row 3021 actually teleports -- can pop a captain report whose
+    confirm now composes a real teleport."""
+
+    def test_records_are_encoded_for_the_scene_the_coordinates_belong_to(self):
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=0x1234, vital_version=1, player_scene_id=SEA_SCENE,
+        )
+        self.assertEqual({row[0] for row in encoded}, {153, 154})
+        self.assertTrue(plan.plan_is_for_scene(SEA_SCENE))
+
+    def test_no_record_is_encoded_for_a_player_in_any_other_scene(self):
+        # 17 is the scene the one crossing a player can make today lands in;
+        # 1/2/3 are scenes a player is routinely standing in.
+        for scene_id in (1, 2, 3, 17, 0, -1):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    trial.encode_trial_records(
+                        legacy, msg_id=0x1234, vital_version=1,
+                        player_scene_id=scene_id,
+                    ),
+                    (),
+                )
+
+    def test_the_scene_argument_has_no_default(self):
+        import inspect
+
+        sig = inspect.signature(trial.encode_trial_records)
+        self.assertIs(
+            sig.parameters["player_scene_id"].default, inspect.Parameter.empty
+        )
+
+
 class EncodeTrialRecordsTests(unittest.TestCase):
     def test_each_record_matches_the_encoders_own_byte_output(self):
-        encoded = trial.encode_trial_records(legacy, msg_id=0x1234, vital_version=1)
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=0x1234, vital_version=1, player_scene_id=SEA_SCENE,
+        )
         by_trigger = {row[0]: row for row in encoded}
         self.assertEqual(set(by_trigger), {153, 154})
         for record in trial.trial_survey_records():
@@ -81,9 +122,66 @@ class EncodeTrialRecordsTests(unittest.TestCase):
         self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
 
     def test_the_two_encoded_frames_are_not_identical(self):
-        encoded = trial.encode_trial_records(legacy, msg_id=1, vital_version=1)
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=1, vital_version=1, player_scene_id=SEA_SCENE,
+        )
         frames = {frame for _tid, _pc, frame in encoded}
         self.assertEqual(len(frames), 2)
+
+
+class WhatWeSendIsWhatWeCanRecogniseTests(unittest.TestCase):
+    """The end-to-end pin round `16uvmp` added, and the defect it caught.
+
+    RE-227 item 3: the client copies the record's opaque u16 back unchanged
+    into the confirm frame.  So every u16 this trial WRITES has to be a u16
+    `world_m2_survey_plan.confirm_resolution` RECOGNISES -- otherwise the one
+    attended run of GT-233 echoes a value we sent ourselves, the plan answers
+    "not issued", `world_m2_arrival` refuses the arrival, and the console
+    prints the line that reads as a REFUTATION of the provisioning
+    hypothesis.  That is exactly the state this repository was in until this
+    test existed: the trial wrote 2/3, the plan knew only 0xA099/0xA09A, and
+    every test on both sides was green.
+    """
+
+    def test_every_survey_id_this_trial_sends_resolves_to_its_own_destination(self):
+        records = trial.trial_survey_records()
+        self.assertTrue(records)
+        for record in records:
+            with self.subTest(trigger_id=record.trigger_id):
+                resolution = plan.confirm_resolution(record.fields.survey_id)
+                self.assertTrue(
+                    resolution.issued,
+                    "a value this build puts on the wire must resolve as issued",
+                )
+                self.assertEqual(resolution.trigger_id, record.trigger_id)
+
+    def test_the_trial_reads_the_plans_decision_instead_of_making_its_own(self):
+        for planned in plan.planned_records():
+            with self.subTest(trigger_id=planned.trigger_id):
+                sent = {
+                    r.trigger_id: r.fields.survey_id
+                    for r in trial.trial_survey_records()
+                }
+                self.assertEqual(
+                    sent[planned.trigger_id], plan.trial_survey_id(planned)
+                )
+
+    def test_an_echo_of_a_trial_value_is_reported_as_the_low_confidence_match(self):
+        # It resolves, and the resolution says out loud that a single digit
+        # coming back is not evidence the record was ours.
+        for record in trial.trial_survey_records():
+            resolution = plan.confirm_resolution(record.fields.survey_id)
+            with self.subTest(trigger_id=record.trigger_id):
+                self.assertEqual(resolution.matched_as, "trial")
+                self.assertEqual(resolution.confidence, "low")
+
+    def test_a_value_this_trial_never_sends_still_refuses(self):
+        sent = {r.fields.survey_id for r in trial.trial_survey_records()}
+        for value in (0, 1, 4, 0x1234, 0xFFFF):
+            if value in sent:      # pragma: no cover - today's plan sends 2/3
+                continue
+            with self.subTest(value=value):
+                self.assertFalse(plan.confirm_resolution(value).issued)
 
 
 class NotWiredToAnySendPathTests(unittest.TestCase):
