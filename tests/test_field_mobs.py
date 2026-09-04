@@ -1016,20 +1016,41 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
 
     def test_the_collisions_this_project_actually_has_today(self) -> None:
         """Named pairs, not a count, so one appearing or disappearing says
-        WHICH.  All three are placement-index coincidences between scenes
+        WHICH.  All seven are placement-index coincidences between scenes
         (``actor_identity`` is ``0x2000 + placement + 1`` with no scene
         term); pf-adversary round jqeo2m walked strike, ledger, rehydration,
         death and loot and found every one of them scene-scoped, so these
         are reported, not exploitable.  A FOURTH appearing is a reason to
-        walk that list again, which is why this card names them."""
+        walk that list again, which is why this card names them.
+
+        ~~three pairs: 0x2058, 0x203C, 0x2047~~  ROUND am1fw8: scene 3's
+        roster (twelve placements, the largest this lane ships) brought FOUR
+        more at once -- 0x201C and 0x201E against Bg0015, 0x203B against
+        Bg0002, 0x2046 against bg0005 -- so the walk this card demands was
+        redone rather than inherited, and its finding is unchanged: the
+        death register keys ``(scene, actor_identity)``
+        (``mob_death._register`` and its own ``_require_scene``), a ledger
+        is opened per scene id (``mob_combat.open_ledger_for_scene_id``,
+        ``mob_ledger_admission.ledger_for_scene``) and a loot cell is scoped
+        to the cell's current scene.  The half of the walk that is a
+        MEASUREMENT rather than a reading is in
+        ``tests/test_field_mob_tables_bg0003.py``: scene 5's kill permission
+        does not reach scene 3's identical 0x2046, measured on the real rows
+        of both scenes.  Every colliding pair also resolves a DIFFERENT
+        template (907/150, 62/350, 61/348, 34/907), so no pair is two
+        spellings of one monster."""
         got = {
             (row["actor_identity"], row["scene_a"], row["scene_b"])
             for row in cross_scene_identity_collisions()
         }
         self.assertEqual(got, {
-            (0x2058, "Bg0002", "Bg0015"),
+            (0x201C, "Bg0003", "Bg0015"),
+            (0x201E, "Bg0003", "Bg0015"),
+            (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
+            (0x2058, "Bg0002", "Bg0015"),
         })
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(

@@ -384,6 +384,18 @@
     },
     {
       "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0003.py",
+      "count": 4,
+      "tests": [
+        "Bg0003RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte",
+        "Bg0003RegenerateTests::test_the_placement_path_resolves_a_scene_whose_two_halves_disagree",
+        "Bg0003RegenerateTests::test_the_resolver_refuses_a_scene_that_is_not_there",
+        "Bg0003RegenerateTests::test_the_resolver_refuses_rather_than_picking_between_two"
+      ],
+      "note": "round am1fw8 (LANE-B): field_mob_tables_bg0003.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, the same shape as the bg0005 entry below - scene 3's arrival census and login door were already open (LANE-A), so nothing was gated. The first re-runs tools/pf_mine_scene_mob_roster.py --scene Bg0003 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed. The other three cover the generator fix this scene forced: the clone spells scene 3 as scene/Bg0003/bg0003.placements.tsv, a capitalised directory holding a lowercase file, so the tool's <S>/<S>.placements.tsv assumption refused on Linux under BOTH spellings of the scene's own name. resolve_placement_path resolves each half case-insensitively and REFUSES rather than picking when two case-variant candidates exist; the refusal half is measured on a temporary tree, but it still reads the real clone first, so it is pinned with the group. Pinned in the same commit as the tests, per the defect shape that closed PRs in rounds ctflxc, 2vxlx2, y7koj9 and vyi2ud."
+    },
+    {
+      "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0005.py",
       "count": 2,
       "tests": [

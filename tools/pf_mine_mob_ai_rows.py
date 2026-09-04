@@ -201,17 +201,25 @@ def load_roster_modules(repo_root: Path) -> tuple:
     .roster_for_scene_id(5))`` raises ``MobAiControlError: ai_row_missing:
     placement 59 points at AI_COMBAT 201``.  Scene 5's six hostile rows want
     ``AI_COMBAT`` 111/134/201/214/250 and ``AI_WANDER`` 11/16.
+
+    ROUND am1fw8: added ``field_mob_tables_bg0003``, registered in the same
+    commit exactly as round jqeo2m's entry was, and the refusal was likewise
+    reproduced before the line was written rather than predicted from it.
+    Scene 3's twelve hostile rows want ``AI_COMBAT`` 100/123/133/140/240/250
+    and ``AI_WANDER`` 11/16 -- 250 and both wander ids are already in the
+    union from scene 5, the other five combat ids are new.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
         from pirateforce_foundation import field_mob_tables
         from pirateforce_foundation import field_mob_tables_bg0002
+        from pirateforce_foundation import field_mob_tables_bg0003
         from pirateforce_foundation import field_mob_tables_bg0005
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
     return (
-        field_mob_tables, field_mob_tables_bg0002,
+        field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
         field_mob_tables_bg0005, field_mob_tables_bg0015,
     )
 

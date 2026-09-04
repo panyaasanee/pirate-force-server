@@ -187,6 +187,59 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def resolve_placement_path(gamedata: Path, scene: str) -> Path:
+    """``gamedata/scene/<S>/<S>.placements.tsv`` -- with the case ON DISK.
+
+    ROUND am1fw8.  The bridge clone does not spell one scene one way.  Scene 3
+    ships as ``scene/Bg0003/bg0003.placements.tsv``: the directory is
+    capitalised, the file inside it is not.  Scene 1 is lower/lower, scene 2
+    is upper/upper.  The Windows bridge cannot see the difference and neither
+    could this tool while it only ever mined scenes whose two halves agreed --
+    on Linux, where the roster is actually generated, ``--scene Bg0003``
+    refused with "missing source table" and ``--scene bg0003`` refused too,
+    so scene 3 was unminable by every spelling of its own name.
+
+    So the directory and the basename are each resolved case-insensitively
+    against what is really there, and the result is REFUSED rather than
+    guessed when the answer is not exactly one path.  Two candidates means
+    the clone holds two scenes that differ only in case; picking either would
+    be picking a roster by coin flip, and that is worse than stopping.
+    """
+    exact = gamedata / "scene" / scene / ("%s.placements.tsv" % scene)
+    if exact.is_file():
+        return exact
+    wanted_dir = scene.strip().lower()
+    wanted_file = "%s.placements.tsv" % wanted_dir
+    scene_root = gamedata / "scene"
+    if not scene_root.is_dir():
+        raise MineError("missing scene root: %s" % scene_root)
+    directories = sorted(
+        entry for entry in scene_root.iterdir()
+        if entry.is_dir() and entry.name.strip().lower() == wanted_dir
+    )
+    if not directories:
+        raise MineError("missing source table: %s" % exact)
+    if len(directories) > 1:
+        raise MineError(
+            "scene %r matches %d directories case-insensitively (%s); refusing"
+            % (scene, len(directories),
+               ", ".join(entry.name for entry in directories))
+        )
+    files = sorted(
+        entry for entry in directories[0].iterdir()
+        if entry.is_file() and entry.name.strip().lower() == wanted_file
+    )
+    if not files:
+        raise MineError("missing source table: %s" % exact)
+    if len(files) > 1:
+        raise MineError(
+            "scene %r matches %d placement tables case-insensitively (%s); "
+            "refusing"
+            % (scene, len(files), ", ".join(entry.name for entry in files))
+        )
+    return files[0]
+
+
 def _key(rows: list[dict], column: str, path: Path) -> dict[str, dict]:
     keyed: dict[str, dict] = {}
     for row in rows:
@@ -215,7 +268,7 @@ class Sources:
     def __init__(self, gamedata: Path, scene: str) -> None:
         self.gamedata = gamedata
         self.scene = scene
-        self.placement_path = gamedata / "scene" / scene / ("%s.placements.tsv" % scene)
+        self.placement_path = resolve_placement_path(gamedata, scene)
         self.mobs_path = gamedata / "tables" / "CONSTDATA_TH__MOBS.tsv"
         self.standard_path = gamedata / "tables" / "CONSTDATA_TH__STANDARD_MOB.tsv"
         self.tip_path = gamedata / "tables" / "TEXTDATA_TH__MOBS_TIP.tsv"

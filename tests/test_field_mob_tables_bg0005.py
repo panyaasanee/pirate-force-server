@@ -499,15 +499,30 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "measurement, not by deleting this card.",
         )
 
-    def test_this_lane_has_armed_two_scenes_behind_that_shut_seam(
+    def test_this_lane_has_armed_three_scenes_behind_that_shut_seam(
             self) -> None:
-        """Named, so nobody arms a third without seeing the count move."""
+        """Named, so nobody arms a fourth without seeing the count move.
+
+        ~~``test_this_lane_has_armed_two_scenes_behind_that_shut_seam``,
+        pinning ``(5, 14)``.~~  RENAMED AND MOVED TO THREE, ROUND am1fw8,
+        which is this card working exactly as written rather than a card
+        being edited out of the way: scene 3's roster and composer land this
+        round, so the round that armed the third scene came here and said
+        which, and it says the same thing about it that the card forced
+        round jqeo2m to say about scene 5 -- a player standing in scene 3
+        still cannot damage anything there, because the seam is shut and
+        opening it is not this lane's to do (CORE-REQUEST
+        ``20260904_1134``, open on chief).  The set is written as a tuple
+        and not a count for the same reason as before: a scene LEAVING it
+        (the seam opening for one scene and not the others) has to be as
+        visible as one joining.
+        """
         armed_behind_the_seam = tuple(
             scene_id for scene_id in sorted(mob_scene_recompose.composer_scene_ids())
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (5, 14),
+            armed_behind_the_seam, (3, 5, 14),
             "a scene joined or left the set this lane has armed behind the "
             "lane-composed membership seam.  Scenes 1 and 2 have their own "
             "dedicated arrival branches in runtime.py and announce real "
