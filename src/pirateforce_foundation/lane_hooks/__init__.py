@@ -213,14 +213,37 @@ def fire(point: str, **kwargs: object) -> None:
     return-value contract).
     """
     for module_name, fn in _HOOKS.get(point, ()):
-        print(f"LANE_HOOK_FIRED {module_name} {point}", file=sys.stderr)
+        # Both prints are guarded, because writing to stderr is itself an
+        # I/O operation that can fail.  pf-adversary measured this round:
+        # with sys.stderr raising OSError(9) -- a server started as
+        # `python app.py 2>log` on a full volume (ENOSPC), or `2>&1 | tee`
+        # whose reader has exited -- the UNGUARDED announcement print threw
+        # straight out of fire(), past this function's whole fail-closed
+        # contract, and unwound state.dispatch() into v141's game_listener
+        # (current/pf_login_game_server_v141.py:7440), whose try has a
+        # finally and no except: the accept loop and the listening socket
+        # go with it.  That is every session, not one.
+        #
+        # It also silently un-does whatever the calling branch owed its
+        # caller.  Most fire() sites do `rx_frames += 1; fire(); return []`
+        # and owe nothing, which is why this survived; the trace-path site
+        # is the first whose branch still has a reply to build below it, so
+        # there the same failure would restore the exact "finding path..."
+        # stall CORE-REQUEST-025 exists to remove.
+        try:
+            print(f"LANE_HOOK_FIRED {module_name} {point}", file=sys.stderr)
+        except Exception:  # noqa: BLE001 - the announcement must never be the failure
+            pass
         try:
             fn(**kwargs)
         except Exception as exc:  # noqa: BLE001 - fail-closed by design, see docstring
-            print(
-                _console_safe(f"LANE_HOOK {module_name} {point} ERR {exc!r}"),
-                file=sys.stderr,
-            )
+            try:
+                print(
+                    _console_safe(f"LANE_HOOK {module_name} {point} ERR {exc!r}"),
+                    file=sys.stderr,
+                )
+            except Exception:  # noqa: BLE001 - same reason as the announcement above
+                pass
 
 
 class SceneCensusComposer(NamedTuple):
