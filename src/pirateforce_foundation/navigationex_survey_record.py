@@ -79,17 +79,43 @@ reproduces them exactly (both the 60-byte `pc` and the 70-byte compressed
 `frame` R313's letter names) -- so the rejection is NOT an encoder-vs-RE-227
 mismatch; it must live in one of the four fields this module already labels
 UNMEASURED, in `vital_version`, or somewhere RE-227's static pass never
-reached.  Closing it further needs either the RE runner's machine (this
+reached.  ROUND `f03s5f` NARROWED THAT LAST CLAUSE TO AN ADDRESS.  50351 is
+not an error code: it is `0xC4AF`, this class's own id (see
+`R313_SURVEY_DIALOG_ERRORDATA` below and `read_failure_layer`), by the same
+rule this repository already spells out for 28317 = `0x6E9D` = the outer
+envelope's id.  So the dialog says the outer collection parsed, the client
+dispatched to THIS class, and this class's own reader stopped -- and the
+one part of this class RE-227 never read field-by-field is its OUTER
+serializer `[0x00733570,0x00733614)`, given as a span and a hash only,
+while the nested record got a field list.  This round's RE ticket
+(`pf_bridge/notes_to_chief/20260905_0430_LANE-A-RE-TICKET-*`) asks for that
+span, field by field: whether the class reads a record COUNT (or any header)
+before the first record is exactly the kind of fault that produces this
+dialog while every field the record does carry is byte-correct.  Nothing
+here guesses that shape -- the composer is unchanged until the RE answer
+lands.  Closing it further needs either the RE runner's machine (this
 environment has no `GameClient.local.bin`) or another attended trial
-varying one field at a time -- not another read of this module.  As of this
-round GT-233's queue head still reads READY (set by chief before R313
-happened, per `pf_bridge/GAME_TEST_QUEUE.md`); this round's letter to chief
-(`pf_bridge/notes_to_chief/20260905_0306_LANE-A-TO-CHIEF-*`) ASKS for
-BLOCKED-ON-LAYOUT with this narrowed scope -- that edit is chief's to make,
-not made here, and is not yet true of the queue file.
+varying one field at a time -- not another read of this module.
+~~"As of this round GT-233's queue head still reads READY ... this round's
+letter ASKS for BLOCKED-ON-LAYOUT"~~ IS STRUCK: chief made that edit in
+round `s5uz94` (R347, 2026-09-05T03:3x+07:00) and `GAME_TEST_QUEUE.md`'s
+GT-233 head now reads BLOCKED-ON-LAYOUT -- read directly from the queue
+file this round, not carried over from the last one.
 
 `msg_id` IS A REQUIRED CALLER-SUPPLIED ARGUMENT, ON PURPOSE, WITH NO
-DEFAULT.  The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
+DEFAULT -- and it stays that way.  ~~"So this module never writes that
+number down as a fact"~~ IS STRUCK in round `f03s5f`: R313 supplied the
+client-observable half the paragraph below was waiting for (the client
+resolved `0xC4AF` to the class NAME on screen), so the number now has a
+home WITH its evidence, `NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID` below.
+The composer still refuses to default it -- naming a proven number and
+choosing it for every caller are two different things, and the trial's two
+numbers stay in chief's `m2_survey_trial.py` where the flag is.  The
+paragraph that follows is kept, unedited apart from that strike, because
+its reasoning is why the number was NOT written down for a fortnight and
+what would have to be true to write down the next one:
+
+The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
 ABSENT from `pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` --
 the same registry that supplied `TriggerVital = 0x1FB2` and
 `NavigationEx_EnterInstanceVital = 0xC723` elsewhere in this project
@@ -115,6 +141,49 @@ from typing import NamedTuple
 # +0x10 equals this value.
 SURVEY_RECORD_KIND = 1
 
+# The numeric wire id for `NavigationEx_AddSurveyDataVtial`.  The module
+# docstring above explains, at length, why this file refused to write this
+# number down -- a low-confidence census named it, the registry that this
+# project treats as ground truth does not carry the class at all, and
+# RE-227 never cites a numeric id.  R313 (attended, 2026-09-05) closed that
+# gap FROM THE SCREEN, both layers at once:
+#
+#   wire              -- the trial sent `msg_id=0xC4AF` (console line
+#                        `M2_SURVEY_TRIAL_SENT ... msg_id=0xC4AF`, and the
+#                        captured bytes `R313CaptureParityTests` pins).
+#   client-observable -- the client's own dialog resolved that id to the
+#                        class NAME: "NavigationEx_AddSurveyDataVtial
+#                        ErrorData=50351".  An id the client could not
+#                        resolve could not have been printed as a name.
+#
+# So the id is now proven in the way this project requires, and naming it
+# here is no longer a guess.  `encode_add_survey_data_outer` still takes
+# `msg_id` with NO default: what changed is that the number has a home with
+# its evidence attached, not that this composer picked one for its callers.
+NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID = 0xC4AF
+
+# `ErrorData` IN THE CLIENT'S "VitalData read failed" DIALOG IS A MESSAGE
+# ID, NOT AN ERROR CODE.  This repository already knew that for one number:
+# `delete_actor_hypothesis.py:32` and `mob_loot.py:159` both spell out
+# "28317 = 0x6E9D = GSCN_RunTimeProtocolRes, the class id itself".  R313's
+# number obeys the same rule and nobody had applied it yet:
+#
+#     50351 == 0xC4AF == NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID
+#
+# That matters for GT-233's diagnosis, because the R313 letter reads the
+# two numbers as two error codes ("คนละรหัสกับ 28317") and concludes from
+# their difference that the fault moved from the envelope to the record.
+# The difference does not carry that meaning on its own -- but the rule
+# does, and it happens to point the same way, more precisely: ErrorData
+# names the object whose reader stopped, so 28317 meant "the outer
+# RunTimeProtocolRes could not finish" while 50351 means "the outer
+# envelope parsed, the client dispatched to THIS class, and this class's
+# own reader is what failed".  What it does NOT say is WHICH field -- an
+# id names a place, not a cause.  `read_failure_layer` below is that rule
+# as code, so the next attended round can read a dialog number without
+# doing hex by hand at the screen.
+R313_SURVEY_DIALOG_ERRORDATA = 50351
+
 # Fixed nested-record length: 1 (tag 0x0B) + 1 (u8 value) + 3*(1+2) (three
 # u16 fields) + 3*(1+4) (three f32 fields) + 1+8 (one qword field)
 # + 1+2 (one trailing u16 field) = 2 + 9 + 15 + 9 + 3 = 38 bytes.
@@ -137,6 +206,32 @@ class SurveyRecordFields(NamedTuple):
     unmeasured_0x16: int = 0    # +0x16 u16, UNMEASURED
     unmeasured_0x28: int = 0    # +0x28 qword, UNMEASURED
     unmeasured_0x30: int = 0    # +0x30 u16, UNMEASURED
+
+
+def read_failure_layer(legacy, error_data: int) -> str:
+    """Which object's reader stopped, for an ``ErrorData`` number read off
+    the client's "VitalData read failed" dialog.
+
+    Returns one of:
+
+        ``"OUTER_ENVELOPE"``  -- the collection envelope itself
+                                 (``legacy.GSCN_RUNTIME_PROTOCOL_RES``);
+                                 the historical 28317.
+        ``"THIS_VITAL"``      -- the AddSurveyData object; R313's 50351.
+        ``"SOMETHING_ELSE"``  -- an id this module has no name for.  NOT
+                                 "unknown error": some other class failed,
+                                 and its id is the number itself.
+
+    This is a reading aid over a rule this repository already proved, not a
+    new claim: the number is an id.  It deliberately says nothing about
+    WHICH field of that object was wrong, because the client does not tell
+    us -- see the block comment above `R313_SURVEY_DIALOG_ERRORDATA`.
+    """
+    if error_data == legacy.GSCN_RUNTIME_PROTOCOL_RES:
+        return "OUTER_ENVELOPE"
+    if error_data == NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID:
+        return "THIS_VITAL"
+    return "SOMETHING_ELSE"
 
 
 def encode_survey_record(legacy, fields: SurveyRecordFields) -> bytes:

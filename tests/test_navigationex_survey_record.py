@@ -306,5 +306,90 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         )
 
 
+class ErrorDataIsAMessageIdTests(unittest.TestCase):
+    """R313's dialog number is an id, not an error code (round `f03s5f`).
+
+    The rule is this repository's own, already written down for the other
+    number every wire module here has paid for: "28317 = 0x6E9D =
+    GSCN_RunTimeProtocolRes, the class id itself"
+    (`delete_actor_hypothesis.py:32`, `mob_loot.py:159`).  Nobody had
+    applied it to 50351.  These tests do the arithmetic once, in a place
+    that goes red if either id ever moves, so the next attended round can
+    read a dialog number off the screen and know WHERE the client's reader
+    stopped without re-deriving anything.
+    """
+
+    def test_the_r313_dialog_number_is_this_vitals_own_id(self):
+        self.assertEqual(
+            survey.R313_SURVEY_DIALOG_ERRORDATA,
+            survey.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID,
+            "50351 is 0xC4AF -- if this is ever not true, the whole "
+            "'ErrorData names the object whose read failed' reading of "
+            "R313 has to be re-argued from scratch",
+        )
+
+    def test_the_precedent_number_is_the_outer_envelopes_own_id(self):
+        # Read from the frozen module, not retyped: the point is the
+        # identity, and a hand-copied 0x6E9D would prove only that this
+        # test can type.
+        self.assertEqual(28317, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+
+    def test_the_capture_itself_carries_both_ids_in_reader_order(self):
+        """Both numbers are literally in the bytes R313 sent, in the order
+        the client's reader meets them: the envelope's id first, then the
+        vital's.  Parsed out of the captured frame rather than asserted, so
+        this cannot pass on a coincidence of two constants.
+        """
+        pc = bytes.fromhex(
+            R313CaptureParityTests._R313_DOCK153_INITIAL_HEX.replace(" ", "")
+        )
+        # `make_runtime_vitals` writes, in order:
+        #   [0]      0x12          [1:3]   outer id
+        #   [3]      0x14          [4:8]   u32 0
+        #   [8:10]   08 04         [10:12] 0B 02
+        #   [12]     0x12          [13:15] record count
+        #   [15]     0x12          [16:18] msg id
+        #   [18]     0x0B          [19]    vital version
+        #   [20:]    the record, then the trailing 0B 00 change mask
+        self.assertEqual(pc[0], 0x12)
+        outer_id = struct.unpack_from("<H", pc, 1)[0]
+        self.assertEqual(outer_id, legacy.GSCN_RUNTIME_PROTOCOL_RES)
+        self.assertEqual(struct.unpack_from("<H", pc, 13)[0], 1,
+                         "the collection carries exactly one record")
+        vital_id = struct.unpack_from("<H", pc, 16)[0]
+        self.assertEqual(
+            vital_id, survey.NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID)
+        self.assertEqual(pc[18:20], bytes([0x0B, 0]),
+                         "vital_version 0, as R313's console line reports")
+        self.assertEqual(pc[20], 0x0B,
+                         "and the record starts right after it")
+
+    def test_read_failure_layer_names_the_layer_not_the_cause(self):
+        self.assertEqual(
+            "OUTER_ENVELOPE",
+            survey.read_failure_layer(legacy, 28317))
+        self.assertEqual(
+            "THIS_VITAL",
+            survey.read_failure_layer(legacy, 50351))
+        # A number this module has no name for must NOT come back as one of
+        # the two named layers -- an id it cannot place is some other
+        # class's, and saying "outer envelope" there would send an attended
+        # round after the wrong frame.
+        self.assertEqual(
+            "SOMETHING_ELSE",
+            survey.read_failure_layer(legacy, 0x1FB2))
+
+    def test_the_composer_still_refuses_to_default_the_id(self):
+        """Naming the id does not mean this module now picks it.  The
+        constant exists so the number has its evidence attached; the
+        caller still supplies it (`m2_survey_trial.py` is where the trial's
+        two numbers live, and that file is chief's).
+        """
+        import inspect
+
+        sig = inspect.signature(survey.encode_add_survey_data_outer)
+        self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
+
+
 if __name__ == "__main__":
     unittest.main()
