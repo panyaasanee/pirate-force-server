@@ -1,1 +1,1 @@
-{"sha":"fc850e9d5ffe721ae3e6a7d83ec3e3fa0506a1ee","conclusion":"failure","event":"pull_request","ref":"refs/pull/789/merge","run_id":"33920833517","utc":"2026-09-04T21:49:51Z"}
+{"sha":"fc850e9d5ffe721ae3e6a7d83ec3e3fa0506a1ee","conclusion":"failure","event":"push","ref":"refs/heads/claude/friendly-darwin-s5uz94","run_id":"33920806882","utc":"2026-09-04T21:57:58Z"}
