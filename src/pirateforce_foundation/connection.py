@@ -153,11 +153,32 @@ class AcceptedGameSocket:
         try:
             observer(data) if error is None else observer(data, error)
         except BaseException as observer_error:   # noqa: BLE001
-            print(
-                f"[FOUNDATION!] GAME send observer {hook_name} failed: "
-                f"{observer_error!r}",
-                file=sys.stderr,
-            )
+            # The report itself must never raise.  Measured by pf-adversary
+            # this round: with the owner's cp874 console, an observer error
+            # whose repr carries any character cp874 cannot encode (CJK,
+            # emoji, an accented path in a FileNotFoundError) made this very
+            # print raise UnicodeEncodeError -- AFTER the frame had already
+            # reached the wire.  UnicodeEncodeError is a ValueError, so it is
+            # outside the (ConnectionResetError, ConnectionAbortedError,
+            # BrokenPipeError, OSError) family v141's send site catches
+            # (current/pf_login_game_server_v141.py:7756); it would unwind
+            # game_listener, whose accept loop catches only socket.timeout
+            # and whose per-connection block is try/finally -- the GAME
+            # listener thread ends and no further connection is accepted
+            # until restart.  Two guards, because either alone is not enough:
+            # backslashreplace makes the text encodable on any console, and
+            # the bare except covers a stderr that is closed or detached.
+            try:
+                safe = repr(observer_error).encode(
+                    "ascii", "backslashreplace",
+                ).decode("ascii")
+                print(
+                    "[FOUNDATION!] GAME send observer %s failed: %s"
+                    % (hook_name, safe),
+                    file=sys.stderr,
+                )
+            except BaseException:   # noqa: BLE001, S110
+                pass
 
     def __enter__(self) -> "AcceptedGameSocket":
         self._raw_socket.__enter__()
