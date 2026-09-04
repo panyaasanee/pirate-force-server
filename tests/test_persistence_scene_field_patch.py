@@ -125,6 +125,23 @@ class PatchSceneFieldTests(unittest.TestCase):
         patched = patch_scene_field(self.wire, FIELD_B, 0xFFFF)
         self.assertEqual(struct.unpack_from("<H", patched, self.offset_b)[0], 0xFFFF)
 
+    def test_bool_scene_id_is_rejected_not_silently_accepted_as_zero_or_one(self):
+        # `pf-adversary` (this round): bool is an int subclass, so an
+        # unguarded range check would happily accept `True`/`False` as 1/0.
+        with self.assertRaises(TypeError):
+            patch_scene_field(self.wire, FIELD_A, True)
+        with self.assertRaises(TypeError):
+            patch_scene_field(self.wire, FIELD_A, False)
+
+    def test_non_int_scene_id_raises_type_error_not_struct_error(self):
+        # `pf-adversary` (this round): a float or numeric string used to fall
+        # straight into `struct.pack_into`, raising `struct.error` instead of
+        # a caller-checkable exception type.
+        with self.assertRaises(TypeError):
+            patch_scene_field(self.wire, FIELD_A, 5.5)
+        with self.assertRaises(TypeError):
+            patch_scene_field(self.wire, FIELD_A, "5")
+
 
 class FakeCharacter:
     """The two attributes `project_actor_wire_for_list` reads off a real

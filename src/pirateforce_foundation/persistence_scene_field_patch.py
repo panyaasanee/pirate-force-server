@@ -76,6 +76,15 @@ def locate_scene_field_candidates(actor_wire: bytes) -> tuple[int, int]:
     module has no dependency on that frozen file.  Raises `ValueError` if any
     expected tag byte along the way does not match, rather than silently
     reading past a wire shape this was never proven against.
+
+    Independently cross-checked (not merely re-derived) against
+    `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` rows for serializer VA
+    `0x005DFF60`: order 16 (`tag 0x19`, `+0x1C`) followed immediately by
+    order 17/18 (`tag 0x12`, `+0x20`/`+0x22`), a static disassembly trace
+    from a different tool entirely, agreeing on this exact structural shape.
+    That table does not name which field is the scene id (no data-flow to
+    the write's source value, only to the object pointer) -- see the narrow
+    RE ticket this round's letters reference for that open question.
     """
     if len(actor_wire) < 12 or actor_wire[0] != 0x32:
         raise ValueError("unsupported actor wire prefix (expected 0x32 identity tag)")
@@ -125,13 +134,19 @@ def patch_scene_field(actor_wire: bytes, field: str | None, scene_id: int) -> by
 
     `field` must be `None`, `FIELD_A` or `FIELD_B` -- anything else raises
     `ValueError` rather than silently doing nothing or guessing.  `scene_id`
-    must fit the wire's u16 (raises `ValueError` otherwise); this function
-    never truncates or wraps a value that does not fit.
+    must be a plain `int` (a `pf-adversary` pass, this round, found `bool`
+    silently accepted as 0/1 and `float`/`str` raising the wrong exception
+    type by falling straight into `struct.pack_into` -- both raise
+    `TypeError` here instead) that fits the wire's u16, or `ValueError` if it
+    does not fit; this function never truncates or wraps a value that does
+    not fit.
     """
     if field is None:
         return actor_wire
     if field not in (FIELD_A, FIELD_B):
         raise ValueError(f"unknown scene field selector: {field!r}")
+    if isinstance(scene_id, bool) or not isinstance(scene_id, int):
+        raise TypeError("scene_id must be a plain int, not bool/float/str")
     if not 0 <= scene_id <= 0xFFFF:
         raise ValueError("scene_id must fit the wire's u16 field")
     offset_a, offset_b = locate_scene_field_candidates(actor_wire)
