@@ -9586,3 +9586,51 @@ pf-adversary quota ของรอบนี้ (`COO 1428`): **ไม่ได�
 ซ็อกเก็ตตายระหว่างนั้น = แถวย้ายโดยไม่มีไบต์ออก และไม่มีอะไรถอยกลับ · ขอจุดเรียกเดียวใน
 `except` ที่พิมพ์ `SEND_FAILED` (v141:7752-7757) เรียก `rollback_warp_scene_on_send_failure(state, label)`
 ของสาย GM · ฟังก์ชันและเทสสี่ตัวเป็นของสายนี้ เขียนเมื่อจุดเสียบลง main
+
+### adversary ครั้งที่ 2 ของ `#745` — ตัวแก้ผ่าน แต่เจอสามรูรอบ ๆ (แก้ในรอบเดียวกัน)
+
+`pf-adversary` (เครื่องมือจริง เซสชันนี้มี Agent tool) วัดบน `main` ในกิ่ง worktree แยก
+**ตัวแก้ CRITICAL D1/D2 ของ `#745` ผ่านทั้งสี่ข้อกล่าวอ้าง** แต่เจอสามอย่างรอบ ๆ ที่ไม่ผ่าน:
+
+**1 (CRITICAL)** — `/warp <n>` ที่ถูก **withhold** ยังย้ายแถวจริง `_make_action` ถอน action เมื่อเขียนแถว
+`outcome` ไม่สำเร็จ (มันถอน staged config และล้าง parked target อยู่แล้ว และ**เรียก `verdict.undo` อยู่แล้ว**)
+แต่ `_warp_teleport_action_no_coords` คืน `undo=None` มาตลอด ⇒ วัดจริง: ไบต์ออกสาย 0 ไบต์ ·
+`character_positions` = ฉากปลายทาง · ล็อกอินครั้งถัดไปไปโผล่ในฉากที่ไคลเอนต์ไม่เคยถูกส่งไป
+= รูปตัวละครล็อกอินพัง (`CHARTER-02` ข้อ 2) และหักล้างกฎที่โมดูลเขียนไว้เอง
+("วาปที่ถูกปฏิเสธต้องไม่ทิ้งไบต์บนสาย และต้องไม่ทิ้งการเปลี่ยนแถวไว้")
+**แก้**: `warp_scene_persist.row_before_warp()` เก็บแถวก่อนเขียน · `rollback_warp_scene()` เขียนกลับ
+ผ่านประตูเดิม + คืน `selected` + **อ่านกลับ** · `_persist_warp_scene` คืน `(outcome, undo)` และ
+`_warp_teleport_action_no_coords` ส่ง `undo=` เข้า `_Verdict` · token ใหม่
+`GM_WARP_SCENE_ROLLED_BACK` / `GM_WARP_SCENE_ROLLBACK_FAILED` · event prefix แยกจากขาไป
+(`gm_chat_action_warp_scene_rollback_`) เพื่อไม่ให้ "แถวกลับแล้ว" กับ "แถวถูกเขียน" ต่างกันแค่คำท้ายชื่อ
+🔴 **ไม่ใช่หน้าต่างของ `v141`** — อันนั้นคือ `CORE-REQUEST-GM-055` ที่ส่งให้ chief แยกใบ อันนี้อยู่ในเขตสายนี้ทั้งก้อน
+
+**3 (MAJOR)** — `sys.stderr` เป็น `None` (คอนโซลหลุด · `pythonw` · harness ที่ปิดมัน) ทำให้
+`print(..., file=sys.stderr)` เขียนลง **STDOUT** โดยไม่ raise ⇒ `try/except` ที่มีอยู่มองไม่เห็น
+= เหตุการณ์ JSON artifact ของ `lane_hooks` ซ้ำอีกรอบ **แก้**: เฮลเปอร์ `_console()` เช็ก `None`
+แยกก่อนเสมอ ไม่มี fallback ไป stdout เด็ดขาด (แบบเดียวกับที่ `chat_command_action` ข้าง ๆ ทำอยู่แล้ว)
+
+**4 (MAJOR)** — stderr ที่ `write()` raise ทำให้ **ไม่มี token ออกเลยสักบรรทัด** แต่คืน `persisted`
+= ความมืดบอดที่ `#750` เกิดมาเพื่อกำจัด กลับมาทางคอนโซลเอง **แก้**: `EVENT_CONSOLE_WRITE_FAILED_PREFIX`
+ในเนมสเปซของโมดูล — บรรทัดที่หายไปมีชื่อเสมอ ถึงมองไม่เห็นก็นับได้
+
+**2 (MAJOR)** — `row_not_touched` ตอบสองคำถามด้วยคำเดียว: ฉาก 14 เป็นปลายทาง `/warp` จริง
+(`login_entry_allowed=True` มี marker) แต่ pin `persist_position_allowed=False` ⇒ `lifecycle.checkpoint`
+เรียก `save_position(write_position=False)` แล้ว**คืนอย่างสะอาดโดยไม่เขียนอะไร** และเทส `row_not_touched`
+เดิมทุกตัว stub `checkpoint` เป็น no-op ⇒ **เหตุที่เกิดได้จริงไม่เคยถูกรันเลย** **แก้**: คำใหม่
+`persist_forbidden_by_registry` (fail-closed: registry ที่อ่านไม่ได้ **ห้าม**กลายเป็นคำที่ใจดีกว่า
+เพราะทิศนั้นคือทิศที่ซ่อนบั๊ก) + เทสที่รันเหตุจริงบน store จริง
+🔴 **ไม่ได้แก้ว่าฉาก 14 ควร persist ได้หรือไม่** — เป็นคำถามของ registry ไม่ใช่ของสายนี้ ถามใน `1930`
+
+**8 (MINOR)** — การ์ดของตัวแก้ D2 เป็น substring match บนสะกดเดียว **แก้**: เปลี่ยนเป็นตรวจ
+**call graph จาก AST** (คอมเมนต์ที่ขีดฆ่าไว้เป็น `Call` ไม่ได้ · การต่อสายกลับเลี่ยงการเป็น `Call` ไม่ได้)
+
+**9 (MINOR)** — pin ค้างใน docstring ของโมดูลเอง ("scene 126 today") **แก้**: ขีดฆ่าและใส่ค่าจริง
+`{17, 126}` · ฝั่ง `world_scene_entry.py` ("today: scene 17 only") เป็นเขต chief ⇒ รายงานไม่แก้เอง
+
+ที่ยังไม่แก้รอบนี้ (`ADVERSARY_PENDING` ของรอบ `741zlx` ตาม `COO 1428` — โควตา adversary ของรอบหมดที่ 1 ครั้ง):
+**5** (`login_would_accept` อ่าน registry จากดิสก์ ไม่ใช่ boot snapshot — วันนี้เข้าไม่ถึงผ่าน router) ·
+**6** (ไม่ได้ mirror `REFUSED_NO_PINNED_SPAWN` — วันนี้ไม่มีแถวไหน spawn ว่าง) ·
+**7** (`compose_refused_*` เป็นคำที่ไม่มี input ใดไปถึง) · **10** (ถ้อยคำของข้อกล่าวอ้าง (ข) เอง:
+`/warp <n> <x> <y>` **ไม่ได้** ถูกปฏิเสธ — มันส่งเฟรมจริงพร้อมพิกัดที่ GM พิมพ์ ที่ถอนคือ**การเขียนแถว**
+เท่านั้น รายงานให้ COO ใน `1930` เพราะเป็นความเข้าใจผิดในใบสั่ง ไม่ใช่บั๊กในโค้ด)

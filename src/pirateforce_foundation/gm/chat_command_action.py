@@ -363,7 +363,13 @@ from .warp_target_record import (
     current_character_id,
     record_warp_target,
 )
-from .warp_scene_persist import persist_warp_scene
+from .warp_scene_persist import (
+    OUTCOME_PERSISTED as WARP_SCENE_OUTCOME_PERSISTED,
+    OUTCOME_ROLLED_BACK as WARP_SCENE_OUTCOME_ROLLED_BACK,
+    persist_warp_scene,
+    rollback_warp_scene,
+    row_before_warp,
+)
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -1300,6 +1306,13 @@ EVENT_WARP_TARGET_NOT_RECORDED = "gm_chat_action_warp_target_not_recorded"
 # something did: a row moved, and a headless test asserting `1430` needs a
 # line to assert on that does not depend on capturing stderr.
 EVENT_WARP_SCENE_PERSIST_PREFIX = "gm_chat_action_warp_scene_persist_"
+
+# The undo's own trail, kept SEPARATE from the forward write's prefix above
+# so a reader of `session.events` can never mistake "the row went back" for
+# "the row was written" -- the two lines would otherwise differ only by a
+# word buried at the end of a long name (pf-adversary round `741zlx`,
+# finding 1: the whole defect was two states that looked alike).
+EVENT_WARP_SCENE_ROLLBACK_PREFIX = "gm_chat_action_warp_scene_rollback_"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 # The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
 # the scene_id that was staged, so an attended run can grep one line and read
@@ -3065,10 +3078,33 @@ def _persist_warp_scene(session: object, target: object) -> str:
     The outcome word is returned as well as noted so a caller that wants to
     branch on it can, and so the pinning tests do not have to read
     `session.events` to know what this call decided.
+
+    AND IT HANDS BACK AN UNDO, WHICH IS NEW AND IS NOT OPTIONAL.  pf-adversary
+    round `741zlx` finding 1 (CRITICAL, MEASURED): `_make_action` withholds
+    this very action when the `outcome` row cannot be appended, and it already
+    runs `verdict.undo` for exactly that case -- but this handler had always
+    returned `undo=None`, so the durable write stayed while ZERO bytes went
+    out.  The pre-warp row is captured BEFORE the write, because after it
+    there is nothing left to capture, and the undo is offered only when there
+    is both a row to go back to and a write that really happened.  `None`
+    otherwise: an undo that cannot put anything back must not be advertised,
+    since `_make_action` reports `EVENT_OUTCOME_STAGE_REVERTED` on the
+    strength of it.
     """
+    previous = row_before_warp(session)
     outcome = persist_warp_scene(session, target)
     _note(session, f"{EVENT_WARP_SCENE_PERSIST_PREFIX}{outcome}")
-    return outcome
+    if outcome != WARP_SCENE_OUTCOME_PERSISTED or previous is None:
+        # Nothing durable changed (or nothing was captured to change back to),
+        # so there is nothing to undo and nothing to claim.
+        return outcome, None
+
+    def _undo() -> bool:
+        result = rollback_warp_scene(session, previous)
+        _note(session, f"{EVENT_WARP_SCENE_ROLLBACK_PREFIX}{result}")
+        return result == WARP_SCENE_OUTCOME_ROLLED_BACK
+
+    return outcome, _undo
 
 
 def _warp_teleport_action(
@@ -3225,11 +3261,21 @@ def _warp_teleport_action_no_coords(
     # carry: that shape also sends a real TeleportVital to the scene's pinned
     # spawn, so its row has to move to the spawn too or a tester who warps in
     # place and closes the client lands back at the old coordinates.
-    _persist_warp_scene(session, target)
+    # THE UNDO IS CARRIED, not discarded (pf-adversary round `741zlx`, finding
+    # 1, CRITICAL, MEASURED).  This branch has changed durable state by the
+    # time it returns, which is precisely the condition `_Verdict.undo`'s own
+    # docstring reserves the field for -- and `_make_action` already runs it
+    # for the one case that needs it (the `outcome` row could not be appended,
+    # so the action is withheld and nothing goes out).  Before this round the
+    # field stayed `None` here, so a withheld `/warp 2` left the row in the
+    # destination scene with zero bytes on the wire and the next login landed
+    # somewhere the client had never been sent.
+    _outcome, undo = _persist_warp_scene(session, target)
 
     return _Verdict(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),
         OUTCOME_COMPOSED,
+        undo=undo,
         same_scene_teleport=same_scene,
         same_scene_basis=same_scene_basis,
     )

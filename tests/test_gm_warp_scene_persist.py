@@ -603,10 +603,39 @@ class TheBranchesThatCallItTests(unittest.TestCase):
         pf-adversary measured what wiring it cost: `/warp 126 <x> <y>` wrote
         a row the next login refuses, and R306 measured that shape making the
         client close itself, so no TargetPos ever arrives to correct it.
+
+        ~~`assertNotIn("\\n    _persist_warp_scene(session, target)")` alone~~
+        -- STRUCK, pf-adversary round `741zlx` finding 8: that is a SUBSTRING
+        match on ONE exact spelling, and `_persist_warp_scene(session,
+        target=target)`, `outcome = _persist_warp_scene(session, target)` or
+        the same call indented one level inside an `if` all slip past it
+        while restoring the measured character-bricking behaviour.
+
+        The sibling guard one method up can simply forbid the NAME; this one
+        cannot, because this function's body deliberately KEEPS the struck
+        call in a comment (`#745` needed a reader to see why the wiring
+        stopped being the reasoning, and this house strikes rather than
+        deletes).  So the check is on the parsed CALL GRAPH instead of the
+        text: every `Call` node in the function, whatever its spelling,
+        keyword form or nesting.  A comment cannot be a `Call`; a re-wiring
+        cannot avoid being one.
         """
+        import ast
         import inspect
+        import textwrap
 
         source = inspect.getsource(chat_command_action._warp_teleport_action)
+        tree = ast.parse(textwrap.dedent(source))
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("_persist_warp_scene", called)
+        self.assertNotIn("persist_warp_scene", called)
+        # The struck spelling stays asserted too -- a strictly weaker claim,
+        # kept so a reader of this file can see the old guard is subsumed
+        # rather than quietly dropped.
         self.assertNotIn("\n    _persist_warp_scene(session, target)", source)
 
     def test_the_no_coords_branch_calls_the_persister(self):
