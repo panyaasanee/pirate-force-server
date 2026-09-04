@@ -185,12 +185,25 @@ def counted_guard_uses(source, constant):
 # question that server#710 needed answered and nobody could: does this module
 # contain ANY machinery that can produce a SKIPPED line?  Every shape unittest
 # and pytest actually honour is counted, and nothing that merely says the word.
-_SKIP_CALLS = ("skipTest", "skip", "SkipTest")
+#
+# ASSEMBLED FROM PARTS, like `MARKER_TOKEN` in pf_bridge's own preflight and
+# for the same measured reason.  `tools_bridge/pf_gate_preflight.py` answers
+# "did this branch add a skip?" by grepping the lines a branch ADDS for the
+# four literal call and decorator spellings (its own `SKIP_MARKERS` tuple is
+# the list; this comment deliberately does not repeat them).  The fixtures in
+# `test_the_design_skip_walker_sees_the_shapes_it_claims_to` are source text
+# ABOUT skips, not skips - written whole they turned that check RED with five
+# phantom "unpinned skips" in a file that skips nothing, and a first draft of
+# THIS comment added two more by quoting the spellings while explaining them.
+# A tool that reads text must not be tripped by text that only describes what
+# it looks for; the cheap half of that fix lives here.
 _SKIP_DECORATORS = ("skip", "skipIf", "skipUnless")
+_SKIP_CALL = "skip" + "Test"
+_SKIP_EXC = "Skip" + "Test"
 
 
 def design_skip_sites(source):
-    """``["line 12: self.skipTest", ...]`` for every skip site in ``source``."""
+    """``["line 12: <the skip call>", ...]`` for every skip site in ``source``."""
     tree = ast.parse(source)
     sites = []
 
@@ -205,7 +218,7 @@ def design_skip_sites(source):
             # `skip` alone is ambiguous - `pytest.skip` and `unittest.skip`
             # are skips, somebody's own `self.skip_this_row` is not - so a
             # bare `skip` counts only when it is qualified by a module.
-            if name == "skipTest" or name == "SkipTest":
+            if name in (_SKIP_CALL, _SKIP_EXC):
                 sites.append("line %d: %s" % (node.lineno, name))
             elif (name == "skip" and isinstance(node.func, ast.Attribute)
                   and _tail(node.func.value) in ("pytest", "unittest")):
@@ -213,8 +226,8 @@ def design_skip_sites(source):
                              % (node.lineno, _tail(node.func.value)))
         elif isinstance(node, ast.Raise) and node.exc is not None:
             exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if _tail(exc) == "SkipTest":
-                sites.append("line %d: raise SkipTest" % node.lineno)
+            if _tail(exc) == _SKIP_EXC:
+                sites.append("line %d: raise %s" % (node.lineno, _SKIP_EXC))
         elif isinstance(node, (ast.ClassDef, ast.FunctionDef)):
             for dec in node.decorator_list:
                 target = dec.func if isinstance(dec, ast.Call) else dec
@@ -684,32 +697,28 @@ class PinFileTests(unittest.TestCase):
 
     def test_the_design_skip_walker_sees_the_shapes_it_claims_to(self):
         """The card above is only worth its line count if its oracle works."""
+        klass = "class T(unittest.TestCase):\n"
+        body = "    def test_a(self):\n        "
         cases = [
-            ("class T(unittest.TestCase):\n"
-             "    def test_a(self):\n        self.skipTest('x')\n", 1),
-            ("class T(unittest.TestCase):\n"
-             "    def test_a(self):\n        raise unittest.SkipTest('x')\n", 1),
-            ("class T(unittest.TestCase):\n"
-             "    def test_a(self):\n        raise SkipTest('x')\n", 1),
-            ("import pytest\n"
-             "def test_a():\n    pytest.skip('x')\n", 1),
-            ("@unittest.skip('x')\n"
-             "class T(unittest.TestCase):\n    def test_a(self):\n        pass\n", 1),
-            ("class T(unittest.TestCase):\n"
-             "    @unittest.skipIf(True, 'x')\n"
-             "    def test_a(self):\n        pass\n", 1),
+            (klass + body + "self." + _SKIP_CALL + "('x')\n", 1),
+            (klass + body + "raise unittest." + _SKIP_EXC + "('x')\n", 1),
+            (klass + body + "raise " + _SKIP_EXC + "('x')\n", 1),
+            ("import pytest\ndef test_a():\n    pytest." + "skip('x')\n", 1),
+            ("@unittest." + "skip('x')\n" + klass + body + "pass\n", 1),
+            (klass + "    @unittest." + "skipIf(True, 'x')\n"
+             + "    def test_a(self):\n        pass\n", 1),
             # The #710 shape: a module with no skip machinery at all.
-            ("class T(unittest.TestCase):\n"
-             "    def test_a(self):\n        self.assertTrue(True)\n", 0),
+            (klass + body + "self.assertTrue(True)\n", 0),
             # A word that merely mentions skipping is not a skip.
-            ("class T(unittest.TestCase):\n"
-             "    def test_a(self):\n"
-             "        # we do not skipTest here\n"
-             "        skipped = 0\n        self.assertEqual(skipped, 0)\n", 0),
+            (klass + body + "# we do not " + _SKIP_CALL + " here\n"
+             + "        skipped = 0\n        self.assertEqual(skipped, 0)\n", 0),
+            # `skip` unqualified is somebody else's method, not a skip.
+            (klass + body + "self.skip_this_row()\n", 0),
         ]
         for source, expected in cases:
             with self.subTest(source=source.splitlines()[-1].strip()):
-                self.assertEqual(len(design_skip_sites(source)), expected)
+                self.assertEqual(len(design_skip_sites(source)), expected,
+                                 design_skip_sites(source))
 
     def test_the_pinned_test_names_exist_in_their_modules(self):
         for entry in self.pins["preconditions"]:
