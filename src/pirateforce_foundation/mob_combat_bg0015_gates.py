@@ -325,9 +325,18 @@ def owner_refused_placements_for_scene14() -> tuple[int, ...]:
 
 
 def live_cross_scene_collisions_today() -> tuple[dict, ...]:
-    """``field_mobs.cross_scene_identity_collisions()`` for the live scenes
-    -- ``()`` at HEAD, which is why registering Bg0015 would create the
-    first one rather than join an accepted class."""
+    """``field_mobs.cross_scene_identity_collisions()`` for the live scenes.
+
+    ~~``()`` at HEAD, which is why registering Bg0015 would create the first
+    one rather than join an accepted class.~~  STRUCK ROUND jqeo2m: it was
+    ``()`` only because the reporting default had fallen behind the registry
+    -- Bg0015 WAS registered (COO-DECISION 20260903_1942 item 2) and this
+    function was answering for two scenes while four were live.  The
+    prediction in the struck sentence was right and nobody saw it come true:
+    registering Bg0015 did create the first collision (0x2058), and round
+    jqeo2m's scene 5 added two more.  Three at HEAD, all named in
+    ``tests/test_field_mobs.py``.
+    """
     return field_mobs.cross_scene_identity_collisions()
 
 
