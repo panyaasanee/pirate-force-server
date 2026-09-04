@@ -12,16 +12,27 @@ recorded frame #114 with a long enough prefix to be parsed by the frozen
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import lane_hooks  # noqa: E402
 from pirateforce_foundation import world_island_dock_table as islands  # noqa: E402
 from pirateforce_foundation.lane_hooks import lane_a_island_trigger_log as hooklog  # noqa: E402
+from pirateforce_foundation.legacy_bridge import (  # noqa: E402
+    LegacyProjector, load_legacy,
+)
+from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
+from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
+from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
 
 def _hex(text: str) -> bytes:
@@ -295,6 +306,201 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         for forbidden in ("frame_pc", "queue", "send", "u16tag", "qwordtag"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(f"{forbidden}(", source)
+
+
+class TheCapturedFrameWalksTheWholeDispatcherTests(unittest.TestCase):
+    """COO-DECISION 20260904_0642 item 3, on the capture's own bytes.
+
+    Two proofs already exist and neither is this one.
+    `TheFiveCapturedFramesEachProduceOneCorrectLineTests` above drives the
+    REAL R307 bytes but stops at `console_line()` -- no dispatcher, no
+    session.  `tests/test_lane_a_trigger_vital_dispatch_wiring.py` (LANE-E
+    R333, the round that landed the call site) drives the REAL dispatcher
+    but hands it a hand-built three-byte payload `0F <id> 00` inside a
+    hand-built envelope.
+
+    The frame a client actually sends is neither: it is 69 bytes, its outer
+    header says `vital_count = 2`, and `parse_outer` hands the hook a
+    `nested_payload` that RUNS PAST the end of the TriggerVital and into the
+    position vital behind it (measured this round: 40 bytes handed over for
+    a 20-byte trigger vital).  That overrun is the whole reason the walker
+    in the module refuses to step over tag 0x12, and until this class
+    nothing drove that refusal through the real dispatch path.
+
+    `GT-228` grades a console line during an attended run on the owner's
+    machine.  A `LANE_A_TRIGGER_VITAL ... ISLAND` line printed for the wrong
+    reason would send the milestone down a wrong road for a day, so these
+    tests are as interested in the lines that must NOT appear as in the one
+    that must.
+    """
+
+    ISLAND_ID = 153  # Prison Exile Island = M2 target 1.
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStore(
+            Path(self.tmp.name) / "state.sqlite3", ROOT / "migrations",
+        )
+        self.store.migrate()
+        self.legacy = load_legacy(ROOT / "current" / "pf_login_game_server_v141.py")
+        self.projector = LegacyProjector(self.legacy)
+        self.lifecycle = CharacterLifecycle(
+            self.store,
+            Position(
+                1, 0, self.legacy.V135_PLAYER_X,
+                self.legacy.V135_PLAYER_Y, self.legacy.V135_PLAYER_Z,
+            ),
+            self.legacy.extract_avatar_attr_wire_from_actor,
+        )
+        field_mobs.load_roster()
+
+    def _logged_in_session(self, token):
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+        )
+        state = state_type(token)
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_client_login_pc(token)
+        ))
+        state.dispatch(self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC))
+        character = self.store.list_characters(state.foundation.account_id)[-1]
+        state.dispatch(self.legacy.parse_outer(
+            self.legacy._synthetic_start_game_pc(character.selector)
+        ))
+        return state
+
+    def _dispatch(self, state, frame):
+        """Feed one whole captured PC frame in and collect the console."""
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            actions = state.dispatch(self.legacy.parse_outer(frame))
+        return actions, stderr.getvalue()
+
+    @staticmethod
+    def _lane_a_lines(console):
+        return [
+            line for line in console.splitlines()
+            if line.startswith(hooklog.TOKEN)
+        ]
+
+    # The trigger-id field of FRAME_114, located rather than hardcoded: the
+    # nested payload starts right after `12 B2 1F 0B 01`, and its first tag
+    # is the 0x0F the serializer row pins as field order 1.
+    _ID_AT = 21
+
+    def test_the_field_this_class_edits_is_where_it_thinks_it_is(self):
+        self.assertEqual(FRAME_114[self._ID_AT - 1], hooklog.TRIGGER_ID_TAG)
+        self.assertEqual(
+            int.from_bytes(FRAME_114[self._ID_AT:self._ID_AT + 2], "little"), 40,
+        )
+
+    def _with_trigger_id(self, trigger_id):
+        return (
+            FRAME_114[:self._ID_AT]
+            + trigger_id.to_bytes(2, "little")
+            + FRAME_114[self._ID_AT + 2:]
+        )
+
+    def test_the_captured_frame_prints_its_prop_line_and_answers_nothing(self):
+        state = self._logged_in_session("capfr114")
+        rx_before = state.rx_frames
+        actions, console = self._dispatch(state, FRAME_114)
+        lines = self._lane_a_lines(console)
+        self.assertEqual(actions, [], "0x1FB2 is log-only: no bytes go out")
+        self.assertEqual(state.rx_frames, rx_before + 1)
+        self.assertEqual(len(lines), 1, console)
+        self.assertIn("id=40 name=Black Braid Landmine PROP", lines[0])
+        self.assertIn("no_responder bytes_out=0", lines[0])
+
+    def test_an_island_id_in_the_captured_frame_shape_says_island(self):
+        # The proof COO-DECISION 0642 item 3 asks for, standing on main:
+        # a real 69-byte TriggerVital whose ONLY edit is the two id bytes
+        # (0x28 -> 0x99) reaches the hook through runtime.py's dispatcher
+        # and names the island, still sending nothing.  This is the exact
+        # byte string `GT-228`'s search criterion (ข) tells the tester to
+        # grep the capture for: `0F 99 00 0B 04`.
+        state = self._logged_in_session("capisl2")
+        frame = self._with_trigger_id(self.ISLAND_ID)
+        self.assertIn(b"\x0f\x99\x00\x0b\x04", frame)
+        actions, console = self._dispatch(state, frame)
+        lines = self._lane_a_lines(console)
+        self.assertEqual(actions, [])
+        self.assertEqual(len(lines), 1, console)
+        self.assertIn("id=153 name=Prison Exile Island ISLAND", lines[0])
+        self.assertIn("scene=2 ", lines[0])
+        self.assertIn("no_responder bytes_out=0", lines[0])
+
+    def test_the_other_target_island_reads_the_same_way(self):
+        state = self._logged_in_session("capisl3")
+        actions, console = self._dispatch(state, self._with_trigger_id(154))
+        lines = self._lane_a_lines(console)
+        self.assertEqual(actions, [])
+        self.assertEqual(len(lines), 1, console)
+        self.assertIn("id=154 name=Spice Paradise Island ISLAND", lines[0])
+
+    def test_the_payload_handed_over_runs_past_the_trigger_vital(self):
+        # Measured, not assumed -- this is the fact the next two tests
+        # depend on, and if `parse_outer` ever stops overrunning, they stop
+        # proving anything and this one says so.
+        parsed = self.legacy.parse_outer(FRAME_114)
+        self.assertEqual(len(NESTED_PAYLOADS[114]), 20)
+        self.assertGreater(len(bytes(parsed.nested_payload)), 20)
+        self.assertTrue(bytes(parsed.nested_payload).startswith(NESTED_PAYLOADS[114]))
+
+    def test_a_second_vital_cannot_donate_a_trigger_id_to_the_first(self):
+        # The false-ISLAND guard, driven end to end.  Here the TriggerVital
+        # body carries NO 0x0F at all and the position vital behind it
+        # carries `0F 99 00` -- the island byte string.  A walker that
+        # stepped over 0x12 would read 153 out of the neighbouring vital and
+        # print the very line `GT-228` would grade as "the island fired".
+        # It must print UNPARSED with the hex instead, and no island name.
+        head = FRAME_114[:20]
+        body_after_id = FRAME_114[self._ID_AT + 2:40]
+        second_vital = FRAME_114[40:] + b"\x0f\x99\x00"
+        frame = head + body_after_id + second_vital
+        self.assertNotIn(b"\x0f\x28\x00", frame)
+        self.assertIn(b"\x0f\x99\x00", frame)
+        state = self._logged_in_session("capfalse")
+        actions, console = self._dispatch(state, frame)
+        lines = self._lane_a_lines(console)
+        self.assertEqual(actions, [])
+        self.assertEqual(len(lines), 1, console)
+        self.assertIn("UNPARSED", lines[0])
+        self.assertNotIn("ISLAND", lines[0])
+        self.assertNotIn("153", lines[0].split("hex=")[0])
+
+    def test_five_captured_frames_print_five_lines_and_send_nothing(self):
+        # The R307 round's own measurement, replayed through the dispatcher:
+        # five frames in, zero answers out.  Whole-session, not per-frame --
+        # a hook that answered every fifth frame would still pass the single
+        # frame test above.
+        state = self._logged_in_session("capfive")
+        rx_before = state.rx_frames
+        console = ""
+        for frame_no, (trigger_id, _name) in EXPECTED_NAMES.items():
+            actions, out = self._dispatch(state, self._with_trigger_id(trigger_id))
+            with self.subTest(frame=frame_no):
+                self.assertEqual(actions, [])
+            console += out
+        lines = self._lane_a_lines(console)
+        self.assertEqual(len(lines), 5, console)
+        self.assertEqual(state.rx_frames, rx_before + 5)
+        for _frame_no, (trigger_id, name) in EXPECTED_NAMES.items():
+            self.assertTrue(
+                any(f"id={trigger_id} name={name} " in line for line in lines),
+                f"no line for id={trigger_id}: {lines}",
+            )
+
+    def test_the_console_lines_the_attended_grader_reads_are_ascii(self):
+        state = self._logged_in_session("capascii")
+        for trigger_id in (self.ISLAND_ID, 154, 40):
+            _actions, console = self._dispatch(
+                state, self._with_trigger_id(trigger_id),
+            )
+            with self.subTest(trigger_id=trigger_id):
+                console.encode("ascii")
+                console.encode("cp874")
 
 
 if __name__ == "__main__":
