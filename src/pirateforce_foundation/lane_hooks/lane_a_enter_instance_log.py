@@ -58,13 +58,27 @@ frame with this nested id arrived and its five bytes matched the shape
 RE-227 pinned".  It does NOT mean the value is an island id, a scene id, or
 anything else with meaning yet.  The `issued=` / `provisioned=` pair beside
 it comes from `world_m2_survey_plan` and is about THIS SERVER, not about the
-client: `provisioned=0` means this build could not have provisioned a single
-proximity record (no island XYZ has been measured yet), so an `issued=no`
+client: ~~`provisioned=0` means this build could not have provisioned a
+single proximity record (no island XYZ has been measured yet)~~ -- GT-228
+(PASS, R308) has since measured both, so today the pair reads
+`provisioned=2` -- so an `issued=no`
 next to it says the captain report that produced this confirm popped without
 anything from us -- which is the one reading of this line that would refute
 RE-227's provisioning hypothesis instead of supporting it.  (Not during
 GT-228, whose STOP rule forbids pressing confirm: no confirm, no frame, no
 line.  This is what the FIRST confirm frame this server ever sees will say.)
+
+AND `match=trial confidence=low` IS THE FRAGMENT NOT TO OVER-READ (round
+`16uvmp`).  The first provisioning trial writes the destination number
+(2/3) into the record rather than the plan's own 0xA0xx handle -- COO-DECISION
+20260904_1345 item 1 -- so that is the value a confirm on that trial echoes,
+and the plan now resolves it.  It appends `match=trial confidence=low` when
+it does, because a single digit coming back is CONSISTENT with our record
+having been the source and is not evidence of it; a handle echo, which no
+other namespace in this exchange could produce, appends nothing and is the
+strong reading.  Before this the plan recognised only the handle, so a
+perfect attended run of `GT-233` would have printed `issued=no` -- the
+refutation line above -- for a confirm produced by our own record.
 It does NOT mean the confirm sequence that produced it has been seen live on
 a real client (RE-227's own reachability proof for this branch is synthetic;
 see the dispatch-wiring test's own docstring).  `UNPARSED` means the payload

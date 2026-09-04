@@ -47,6 +47,48 @@ here sends a record (the encoder stays unimported, see "NOT a send path"
 below) and nothing here has been client-confirmed to work -- that is
 `GT-233`'s job, not this dict's.
 
+THE VALUE THE FIRST TRIAL ACTUALLY PUTS IN THE RECORD IS NOT THE HANDLE
+-----------------------------------------------------------------------
+COO-DECISION 20260904_1345 item 1 ordered the FIRST provisioning trial to
+carry "the destination scene number" as the record's opaque u16 -- a trial
+value, explicitly not a conclusion -- and the provisioning-trial module
+builds its records that way: 2 for Prison Exile, 3 for Spice Paradise.
+(THAT MODULE IS NOT NAMED ANYWHERE IN THIS FILE, deliberately: its own guard
+test greps the whole repository for its identifier and a mention here would
+be indistinguishable from an import, exactly as `world_m2_arrival`'s
+docstring already explains for the record encoder.)  This
+module allocates a DIFFERENT u16 for the same destinations (`handle`,
+0xA099/0xA09A), and until round `16uvmp` `confirm_resolution()` recognised
+ONLY the handle.
+
+    MEASURED, AND IT WOULD HAVE COST THE ONE ATTENDED RUN.  RE-227's item 3
+    is that the client copies the record's u16 back unchanged, so on the
+    trial the confirm frame carries 2 or 3 -- and `confirm_resolution(2)`
+    answered "not issued", `world_m2_arrival.arrival_order(2)` refused with
+    `ARRIVAL_REFUSED_HANDLE_NOT_ISSUED`, and the console printed
+    `issued=no`, which `lane_hooks/lane_a_enter_instance_log`'s own
+    docstring reads as "the captain report popped WITHOUT a record from us"
+    -- the one line that REFUTES the provisioning hypothesis.  A perfect
+    `GT-233` run would have been graded as its own refutation.
+
+So `trial_survey_id()` below is the single place that says what the trial
+provisions, the trial module reads it instead of deciding again, and
+`confirm_resolution()` resolves both values and reports WHICH one matched.
+The two are not of equal strength and the resolution says so:
+
+    matched_as="handle"  0xA099/0xA09A.  High confidence: a u16 no other
+                         namespace in this exchange uses, so seeing it come
+                         back is evidence it came from our record.
+    matched_as="trial"   2/3.  LOW confidence, and the console says
+                         `confidence=low` for exactly this reason: single
+                         digits are values a client could plausibly send for
+                         reasons of its own, so a match on one is NOT by
+                         itself evidence that the record was ours.  What it
+                         does buy is that the arrival half resolves the
+                         destination instead of refusing it, which is the
+                         difference between a trial that answers the
+                         question and a trial that cannot.
+
 WHICH COORDINATE FRAME, WHICH IS THE QUESTION A RECORD CANNOT DUCK
 ------------------------------------------------------------------
 A triple is meaningless without the space it is expressed in, and this route
@@ -317,13 +359,23 @@ class PlannedRecord(NamedTuple):
 class ConfirmResolution(NamedTuple):
     """What a confirm frame's echoed u16 is, as far as THIS BUILD can say.
 
-    ``issued`` is True only when the value equals the handle of a record this
-    build could actually provision -- which needs measured XYZ.  Since
-    GT-228 (PASS, R308), ``MEASURED_XYZ`` carries both M2 destinations, so
-    ``issued`` is True for the two real handles (see ``handle_for_trigger_id``
-    for trigger ids 153/154) and still False for every other u16 -- a
-    destination with no measured XYZ would still refuse, but there is none
-    left today.
+    ~~``issued`` is True only when the value equals the handle of a record
+    this build could actually provision~~ -- corrected in round `16uvmp`:
+    ``issued`` is True when the value is EITHER that handle OR the u16 the
+    first provisioning trial actually writes into the record
+    (``trial_survey_id``), because both are values this build can put on the
+    wire and RE-227 says the client copies back whichever one it was given.
+    Either way it needs measured XYZ: a build that cannot provision a record
+    cannot have issued anything for that destination.  Since GT-228 (PASS,
+    R308), ``MEASURED_XYZ`` carries both M2 destinations, so ``issued`` is
+    True for the two handles AND the two trial values, and still False for
+    every other u16.
+
+    ``matched_as``  ``"handle"``, ``"trial"``, or None when not issued.
+    ``confidence``  ``"high"`` for a handle, ``"low"`` for a trial value,
+                    None when not issued.  See the module docstring's "THE
+                    VALUE THE FIRST TRIAL ACTUALLY PUTS IN THE RECORD" for
+                    why a single-digit match is not evidence of provenance.
     """
 
     handle: int
@@ -331,6 +383,8 @@ class ConfirmResolution(NamedTuple):
     trigger_id: int | None
     scene_name_tip_id: int | None
     wire_scene_id_status: str | None
+    matched_as: str | None = None
+    confidence: str | None = None
 
 
 def handle_for_trigger_id(trigger_id: int) -> int | None:
@@ -501,15 +555,44 @@ def blocked_rows() -> tuple[tuple[int, str], ...]:
     return tuple(blocked)
 
 
-def confirm_resolution(handle: int) -> ConfirmResolution:
-    """Whether an echoed u16 is a handle THIS BUILD issued, and for what.
+def trial_survey_id(record: PlannedRecord) -> int:
+    """The opaque u16 the FIRST provisioning trial writes into ``record``.
 
-    ``issued`` is True only for a handle in ``planned_records()``.  A handle
-    that is merely ALLOCATED to a destination (see ``trigger_id_for_handle``)
-    but not provisionable resolves as not issued, with every downstream field
-    None: a build that cannot send a record cannot have issued its handle.
+    COO-DECISION 20260904_1345 item 1: "the first trial's u16 opaque value =
+    the destination scene number ... a trial value, not a conclusion".  This
+    is the one place that says so; the provisioning-trial module (unnamed
+    here on purpose, see the module docstring) reads it
+    rather than deciding a second time, and `confirm_resolution` resolves
+    what it returns -- so the value this build SENDS and the value it can
+    RECOGNISE cannot drift apart again.  (They had: see the module
+    docstring.)
+
+    NOT the handle, and not interchangeable with it: ``handle`` is this
+    module's own allocation and carries high confidence on an echo, this
+    value is a single digit and carries low.  Never raises.
     """
-    for record in planned_records():
+    return record.scene_name_tip_id
+
+
+def confirm_resolution(handle: int) -> ConfirmResolution:
+    """Whether an echoed u16 is a value THIS BUILD issued, and for what.
+
+    ``issued`` is True for a value in ``planned_records()`` -- either the
+    record's ``handle`` or its ``trial_survey_id``, with ``matched_as`` and
+    ``confidence`` saying which and how strongly.  A handle that is merely
+    ALLOCATED to a destination (see ``trigger_id_for_handle``) but not
+    provisionable resolves as not issued, with every downstream field None:
+    a build that cannot send a record cannot have issued anything for it.
+
+    THE HANDLE IS TRIED FIRST, and that order is load-bearing rather than
+    stylistic: it is the higher-confidence reading, so a u16 that could be
+    read either way is reported as the one that carries evidence.  Nothing
+    in today's data can be read both ways (handles are 0xA0xx, trial values
+    are single digits), and a test pins the precedence anyway so a later
+    widening of the plan cannot quietly downgrade a real handle match.
+    """
+    records = planned_records()
+    for record in records:
         if record.handle == handle:
             return ConfirmResolution(
                 handle=handle,
@@ -517,6 +600,19 @@ def confirm_resolution(handle: int) -> ConfirmResolution:
                 trigger_id=record.trigger_id,
                 scene_name_tip_id=record.scene_name_tip_id,
                 wire_scene_id_status=record.wire_scene_id_status,
+                matched_as="handle",
+                confidence="high",
+            )
+    for record in records:
+        if trial_survey_id(record) == handle:
+            return ConfirmResolution(
+                handle=handle,
+                issued=True,
+                trigger_id=record.trigger_id,
+                scene_name_tip_id=record.scene_name_tip_id,
+                wire_scene_id_status=record.wire_scene_id_status,
+                matched_as="trial",
+                confidence="low",
             )
     return ConfirmResolution(
         handle=handle,
@@ -524,6 +620,8 @@ def confirm_resolution(handle: int) -> ConfirmResolution:
         trigger_id=None,
         scene_name_tip_id=None,
         wire_scene_id_status=None,
+        matched_as=None,
+        confidence=None,
     )
 
 
@@ -547,7 +645,19 @@ def console_annotation(handle: int) -> str:
     whatever run produces one.  `provisioned=0` beside such a line means the
     captain report popped without a record from us, which refutes RE-227's
     provisioning hypothesis rather than supporting it.
+
+    A LOW-CONFIDENCE MATCH SAYS SO IN THE LINE, and this is the fragment an
+    attended grader must not over-read: `issued=yes match=trial
+    confidence=low` means the echoed u16 equals the value the trial put in
+    the record -- a single digit -- so it is consistent with our record
+    having been the source and is NOT evidence that it was.  A handle match
+    adds no fragment at all, because that is the plain reading the rest of
+    this annotation was written for and the string it produces is pinned by
+    tests elsewhere.
     """
     resolution = confirm_resolution(handle)
     issued = "yes" if resolution.issued else "no"
-    return f"issued={issued} provisioned={provisionable_count()}"
+    match = ""
+    if resolution.matched_as == "trial":
+        match = f" match=trial confidence={resolution.confidence}"
+    return f"issued={issued}{match} provisioned={provisionable_count()}"

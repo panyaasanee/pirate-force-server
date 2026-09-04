@@ -86,6 +86,61 @@ class EncodeTrialRecordsTests(unittest.TestCase):
         self.assertEqual(len(frames), 2)
 
 
+class WhatWeSendIsWhatWeCanRecogniseTests(unittest.TestCase):
+    """The end-to-end pin round `16uvmp` added, and the defect it caught.
+
+    RE-227 item 3: the client copies the record's opaque u16 back unchanged
+    into the confirm frame.  So every u16 this trial WRITES has to be a u16
+    `world_m2_survey_plan.confirm_resolution` RECOGNISES -- otherwise the one
+    attended run of GT-233 echoes a value we sent ourselves, the plan answers
+    "not issued", `world_m2_arrival` refuses the arrival, and the console
+    prints the line that reads as a REFUTATION of the provisioning
+    hypothesis.  That is exactly the state this repository was in until this
+    test existed: the trial wrote 2/3, the plan knew only 0xA099/0xA09A, and
+    every test on both sides was green.
+    """
+
+    def test_every_survey_id_this_trial_sends_resolves_to_its_own_destination(self):
+        records = trial.trial_survey_records()
+        self.assertTrue(records)
+        for record in records:
+            with self.subTest(trigger_id=record.trigger_id):
+                resolution = plan.confirm_resolution(record.fields.survey_id)
+                self.assertTrue(
+                    resolution.issued,
+                    "a value this build puts on the wire must resolve as issued",
+                )
+                self.assertEqual(resolution.trigger_id, record.trigger_id)
+
+    def test_the_trial_reads_the_plans_decision_instead_of_making_its_own(self):
+        for planned in plan.planned_records():
+            with self.subTest(trigger_id=planned.trigger_id):
+                sent = {
+                    r.trigger_id: r.fields.survey_id
+                    for r in trial.trial_survey_records()
+                }
+                self.assertEqual(
+                    sent[planned.trigger_id], plan.trial_survey_id(planned)
+                )
+
+    def test_an_echo_of_a_trial_value_is_reported_as_the_low_confidence_match(self):
+        # It resolves, and the resolution says out loud that a single digit
+        # coming back is not evidence the record was ours.
+        for record in trial.trial_survey_records():
+            resolution = plan.confirm_resolution(record.fields.survey_id)
+            with self.subTest(trigger_id=record.trigger_id):
+                self.assertEqual(resolution.matched_as, "trial")
+                self.assertEqual(resolution.confidence, "low")
+
+    def test_a_value_this_trial_never_sends_still_refuses(self):
+        sent = {r.fields.survey_id for r in trial.trial_survey_records()}
+        for value in (0, 1, 4, 0x1234, 0xFFFF):
+            if value in sent:      # pragma: no cover - today's plan sends 2/3
+                continue
+            with self.subTest(value=value):
+                self.assertFalse(plan.confirm_resolution(value).issued)
+
+
 class NotWiredToAnySendPathTests(unittest.TestCase):
     def test_no_python_file_anywhere_in_this_repository_imports_this_module(self):
         # Same discipline as navigationex_survey_record's own guard: this

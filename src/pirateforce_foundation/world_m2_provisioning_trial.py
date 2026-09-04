@@ -94,7 +94,15 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
         TrialSurveyRecord(
             trigger_id=record.trigger_id,
             fields=SurveyRecordFields(
-                survey_id=record.scene_name_tip_id,
+                # `plan.trial_survey_id(record)`, not `record.scene_name_tip_id`
+                # spelled again here: the value this trial SENDS and the value
+                # `plan.confirm_resolution` can RECOGNISE on the echo have to be
+                # one decision in one place.  Round `16uvmp` measured what two
+                # copies cost -- the plan recognised only its own 0xA0xx handle,
+                # so a perfect attended run of GT-233 would have echoed 2/3,
+                # resolved as "not issued", refused the arrival, and printed the
+                # one console line that reads as a refutation of RE-227.
+                survey_id=plan.trial_survey_id(record),
                 x=record.x,
                 y=record.y,
                 z=record.z,
