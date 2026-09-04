@@ -29,20 +29,34 @@ is called ONLY from the pickup that already published the removal, and why
 expiry here is the same lazy per-row sweep the cell already runs rather than a
 clear.
 
-TWO LAYERS, AND ONLY ONE OF THEM IS LIVE TODAY.  In memory
-(:class:`WorldGround`) the ground survives a RELOGIN, which is what R309
-measured and what this round makes true.  It does not survive a server
-RESTART: that needs the `ground_drops` table `COO-DECISION 2026-09-03T18:43
-+07:00` ordered, and :func:`persist_generation` below is this lane's call site
-for its write half -- live as soon as a caller hands it a store.  THE READ
-HALF IS REFUSED BY NAME AND ON PURPOSE (:data:`REFUSE_TAKEN_DOOR_IS_ABSENT`):
-that door can say what was ever dropped and cannot yet say what is STILL ON
-THE GROUND, so restoring from it would put every picked-up item back on the
-floor at every boot -- duplication, dressed as persistence.  The door needs a
-`taken` marker (a marker, NOT a delete -- `COO-DECISION 2026-09-01T02:53`);
+TWO LAYERS.  In memory (:class:`WorldGround`) the ground survives a RELOGIN,
+which is what R309 measured and what this file makes true.  Surviving a
+server RESTART needs the `ground_drops` table `COO-DECISION 2026-09-03T18:43
++07:00` ordered: :func:`persist_generation` below is this lane's call site
+for the write half -- live as soon as a caller hands it a store -- and
+:func:`restore_scene_ground` is the read half, this lane's own
+"rehydrate from the durable store" (`COO-DECISION 20260905_0247` item 2).
+
+~~THE READ HALF IS REFUSED BY NAME AND ON PURPOSE
+(:data:`REFUSE_TAKEN_DOOR_IS_ABSENT`): that door can say what was ever
+dropped and cannot yet say what is STILL ON THE GROUND, so restoring from it
+would put every picked-up item back on the floor at every boot --
+duplication, dressed as persistence.  The door needs a `taken` marker (a
+marker, NOT a delete -- `COO-DECISION 2026-09-01T02:53`);
 `pf_bridge/notes_to_chief/20260904_1650_LANE-B-TO-LANE-DB-ground-drops-need-a-
 taken-marker.md` is the ticket, and the day those two methods exist
-:func:`restore_scene_ground` starts answering with no edit here.
+:func:`restore_scene_ground` starts answering with no edit here.~~ IS STRUCK,
+round yqbwri: that day is THIS round.  LANE-DB landed `mark_ground_drop_taken`
+and `list_ground_drops_still_on_the_ground` on `main`
+(`pf_bridge/notes_to_chief/20260904_1935_LANE-DB-REPLY-*`), and neither
+function below needed an edit to start working -- `restore_door_is_open`
+probes for both by name, exactly as designed.  What is NOT yet true in
+production: `runtime.py`'s kill site still calls `sustain_a_kill` without a
+`store=`, so `ground_drops` stays empty on a running server until chief adds
+that keyword, and nothing yet calls `restore_scene_ground` at a session's
+scene-arrival seam either (`pf_bridge/notes_to_chief/20260904_1652` item 3,
+still chief's -- both are call sites in `runtime.py`, this lane's file
+boundary, not a gap in this module).
 """
 from __future__ import annotations
 
@@ -724,19 +738,34 @@ def restore_door_is_open(store: Any) -> bool:
 def restore_scene_ground(store: Any, scene: Any, *, world: Any = None) -> str:
     """Put a scene's durable floor back into the world.  NEVER RAISES.
 
-    Returns ``""`` when it restored, and a refusal NAME otherwise -- today
-    always :data:`REFUSE_TAKEN_DOOR_IS_ABSENT` on a real ``SQLiteStore``.
+    Returns ``""`` when it restored, and a refusal NAME otherwise.
+
+    ~~"today always :data:`REFUSE_TAKEN_DOOR_IS_ABSENT` on a real
+    ``SQLiteStore``"~~ IS STRUCK, round yqbwri (``COO-DECISION
+    20260905_0247`` item 2 -- this function IS "``rehydrate_from_store``",
+    under the name this module already gave it; no second one is needed).
+    LANE-DB landed both ``mark_ground_drop_taken`` and
+    ``list_ground_drops_still_on_the_ground`` on ``main`` this round
+    (``pf_bridge/notes_to_chief/20260904_1935_LANE-DB-REPLY-*``), so
+    :func:`restore_door_is_open` is ``True`` for a real ``SQLiteStore`` now
+    and this function restores for real --
+    ``tests/test_mob_ground_persistence.py::TheDurableDoorTests::
+    test_the_real_store_is_the_marker_now_landed_not_a_stand_in`` proves it
+    against ``self.store``, not a stub.
 
     ~~"the write side above is live and filling the table now, so the day the
-    marker lands there is a floor to restore FROM"~~ IS STRUCK, pf-adversary
-    pass 2 D6, MEASURED: ``runtime.py``'s kill site calls ``sustain_a_kill``
-    WITHOUT a ``store=``, so :func:`persist_generation` has no production
-    caller and ``ground_drops`` is empty on a running server.  The write side
-    is wired on THIS side of the seam and waiting for one keyword at chief's
-    call site (`pf_bridge/notes_to_chief/20260904_1652` item 3).  Saying
-    otherwise here while ``sustain_a_kill``'s own docstring said "absent, the
-    floor is memory only" left two files in one lane disagreeing about one
-    fact.
+    marker lands there is a floor to restore FROM"~~ IS STILL STRUCK,
+    pf-adversary pass 2 D6, MEASURED and RE-MEASURED this round:
+    ``runtime.py``'s kill site still calls ``sustain_a_kill`` WITHOUT a
+    ``store=``, so :func:`persist_generation` has no production caller and
+    ``ground_drops`` stays EMPTY on a running server today -- restoring
+    from an empty table restores nothing, which is correct behaviour, not
+    this function's failure.  So the READ half this function is
+    (``rehydrate_from_store``) now WORKS; what is still missing is (a)
+    chief's ``store=`` keyword at the kill site so there is a floor to read
+    back, and (b) chief's one-line call to THIS function at the point a
+    session learns its own scene (`pf_bridge/notes_to_chief/20260904_1652`
+    item 3, still outstanding -- this round's letter repeats the ask).
 
     A SECOND THING THIS HALF WILL BREAK ON THE DAY IT WORKS, named here
     because it is the design question pass 2 ended on: rows rebuilt from the

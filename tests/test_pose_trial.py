@@ -475,5 +475,92 @@ class DispatchTests(unittest.TestCase):
             control_printed)
 
 
+class TrialListTests(unittest.TestCase):
+    """The comma-separated cycling gate ``COO-DECISION 20260905_0248`` added
+    for the production ``_dispatch_mob_combat`` hit path -- see
+    ``tests/test_pose_trial_production_hit_wiring.py`` for that path driven
+    end to end.  This class is unit-level: ``pose_trial`` functions only.
+    """
+
+    def test_unset_or_blank_is_unset(self):
+        for environ in ({}, {"PF_POSE_TRIAL": ""}, {"PF_POSE_TRIAL": "  "}):
+            with self.subTest(environ=environ):
+                self.assertEqual(
+                    pose_trial.trial_list_opening(environ),
+                    (pose_trial.TRIAL_UNSET, None),
+                )
+
+    def test_a_bare_value_is_a_one_element_list(self):
+        self.assertEqual(
+            pose_trial.trial_list_opening({"PF_POSE_TRIAL": "280"}),
+            (pose_trial.TRIAL_ARMED, (280,)),
+        )
+
+    def test_the_ticket_sweep_list_parses_in_order(self):
+        raw = ",".join(str(v) for v in pose_trial.TICKET_SWEEP_ORDER)
+        self.assertEqual(
+            pose_trial.trial_list_opening({"PF_POSE_TRIAL": raw}),
+            (pose_trial.TRIAL_ARMED, pose_trial.TICKET_SWEEP_ORDER),
+        )
+
+    def test_hex_tokens_mix_with_decimal_tokens(self):
+        self.assertEqual(
+            pose_trial.parse_trial_list("0x118,284"), (280, 284),
+        )
+
+    def test_a_bad_token_anywhere_malforms_the_whole_list_not_just_one_id(
+            self):
+        for raw in ("280,", ",280", "280,,284", "280, fast", "280 284",
+                    "auto,280", "280,4294967296"):
+            with self.subTest(raw=raw):
+                self.assertIsNone(pose_trial.parse_trial_list(raw))
+                self.assertEqual(
+                    pose_trial.trial_list_opening({"PF_POSE_TRIAL": raw}),
+                    (pose_trial.TRIAL_MALFORMED, None),
+                )
+
+    def test_whitespace_around_tokens_is_not_malformed(self):
+        self.assertEqual(
+            pose_trial.parse_trial_list(" 280 , 284 "), (280, 284),
+        )
+
+
+class SelectorForHitTests(unittest.TestCase):
+    """``pose_trial.selector_for_hit``: what one accepted production hit
+    should compose, if anything."""
+
+    def test_unset_sends_nothing(self):
+        self.assertEqual(
+            pose_trial.selector_for_hit(1, {}), (None, None),
+        )
+
+    def test_malformed_sends_nothing_but_names_the_hit(self):
+        selector, line = pose_trial.selector_for_hit(
+            3, {"PF_POSE_TRIAL": "fast"},
+        )
+        self.assertIsNone(selector)
+        self.assertEqual(line, "POSE_TRIAL_REFUSED malformed hit=3")
+
+    def test_armed_cycles_one_value_per_hit_and_wraps(self):
+        environ = {"PF_POSE_TRIAL": "280,284,288"}
+        got = [
+            pose_trial.selector_for_hit(hit, environ) for hit in range(1, 8)
+        ]
+        self.assertEqual(got, [
+            (280, "POSE_TRIAL sent=280 hit=1"),
+            (284, "POSE_TRIAL sent=284 hit=2"),
+            (288, "POSE_TRIAL sent=288 hit=3"),
+            (280, "POSE_TRIAL sent=280 hit=4"),
+            (284, "POSE_TRIAL sent=284 hit=5"),
+            (288, "POSE_TRIAL sent=288 hit=6"),
+            (280, "POSE_TRIAL sent=280 hit=7"),
+        ])
+
+    def test_every_line_is_ascii(self):
+        for environ in ({"PF_POSE_TRIAL": "280,284"}, {"PF_POSE_TRIAL": "x"}):
+            _selector, line = pose_trial.selector_for_hit(1, environ)
+            self.assertTrue(line.isascii())
+
+
 if __name__ == "__main__":
     unittest.main()
