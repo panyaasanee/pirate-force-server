@@ -88,6 +88,39 @@ class BackfillMissingClassIdsTests(unittest.TestCase):
             f"fingerprint-{tag}", build_wire, self.home,
         )
 
+    def test_a_database_that_predates_migration_006_does_not_crash_the_boot(self):
+        """`KA1A-R314-RESULTS` (`pf_bridge/notes_to_chief/
+        20260905_0233_...boot-crash-class-id-backfill.md`): `app.py`'s only
+        call site for this function sits after an `if/else` that does not
+        call `store.migrate_with_backup()` on every boot path (a read-only
+        `--scene-load-scenario` boot in particular).  On a database that has
+        never run migration 006, `class_id` does not exist as a column yet,
+        and this function used to raise `sqlite3.OperationalError: no such
+        column: class_id` straight out of
+        `store.list_character_ids_missing_class_id` -- taking the whole boot
+        down with it on a path this lane does not control (`app.py` is
+        chief's write zone, not this lane's).  Simulated here by dropping
+        the column back off an otherwise fully migrated database, since this
+        store has no "migrate to version N" entry point to stop short with.
+        """
+        character = self._make("predates006", _resolvable_avatar_wire())
+        with self.store.connect() as db:
+            db.execute("ALTER TABLE characters DROP COLUMN class_id")
+        report = backfill.backfill_missing_class_ids(
+            self.store, backups_root=self.backups_root,
+        )
+        self.assertEqual(report.outcomes, ())
+        self.assertIsNone(report.snapshot_path)
+        self.assertFalse(self.backups_root.exists())
+        # The character row itself was never touched -- this is a clean
+        # no-op, not a partial write against a schema this pass could not
+        # understand.
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=?", (character.id,),
+            ).fetchone()
+        self.assertIsNotNone(row)
+
     def test_empty_database_does_nothing_and_takes_no_snapshot(self):
         report = backfill.backfill_missing_class_ids(
             self.store, backups_root=self.backups_root,
