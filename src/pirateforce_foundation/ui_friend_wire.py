@@ -60,6 +60,7 @@ def decode_request_be_friend_payload(
         field1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         field2, offset = wire.read_untagged_wstring(payload, offset)
         field3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return RequestBeFriendFields(field1, field2, field3)
@@ -78,6 +79,7 @@ def decode_remove_friend_payload(payload: bytes) -> RemoveFriendFields | None:
         field1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         field3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return RemoveFriendFields(field1, field2, field3)

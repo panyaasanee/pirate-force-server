@@ -48,6 +48,22 @@ class PartyInviteWireTests(unittest.TestCase):
     def test_empty_buffer_fails_closed(self):
         self.assertIsNone(party.decode_party_invite_payload(b""))
 
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        # COO-DECISION 20260904_1745 item 2, from a pf-adversary finding on
+        # round qwhlua: a payload whose first bytes match this class's
+        # field shape exactly, followed by unexplained trailer bytes, used
+        # to decode successfully anyway. A class this project's field
+        # model does not fully cover must surface as UNPARSED, not as a
+        # false "decoded".
+        clean = party.encode_party_invite_payload(
+            party.PartyInviteFields(1, 2, "hello")
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    party.decode_party_invite_payload(clean + extra)
+                )
+
     def test_malformed_wstring_field_fails_closed_not_raises(self):
         # pf-adversary (round md7pjz-recovery): the module's fail-closed
         # contract promised every decode_* returns None on malformed input,
@@ -85,6 +101,14 @@ class PartyCmdWireTests(unittest.TestCase):
         good = party.encode_party_cmd_payload(party.PartyCmdFields(1, 2))
         corrupted = good[:2] + bytes([0x99]) + good[3:]
         self.assertIsNone(party.decode_party_cmd_payload(corrupted))
+
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        clean = party.encode_party_cmd_payload(party.PartyCmdFields(1, 2))
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    party.decode_party_cmd_payload(clean + extra)
+                )
 
 
 if __name__ == "__main__":

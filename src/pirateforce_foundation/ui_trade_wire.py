@@ -55,6 +55,7 @@ def decode_trade_invite_payload(payload: bytes) -> TradeInviteFields | None:
         field1, offset = wire.read_u8tag(payload, 0, _TAG_FIELD1_U8)
         field2, offset = wire.read_u64tag(payload, offset, _TAG_FIELD2_U64)
         field3, offset = wire.read_untagged_wstring(payload, offset)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return TradeInviteFields(field1, field2, field3)

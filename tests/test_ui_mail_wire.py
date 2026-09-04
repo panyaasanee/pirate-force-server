@@ -61,6 +61,14 @@ class SendMailWireTests(unittest.TestCase):
         payload[-2] = 0x99  # the trailing u8 field's tag byte
         self.assertIsNone(mail.decode_send_mail_payload(bytes(payload)))
 
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        # COO-DECISION 20260904_1745 item 2 -- see test_ui_party_wire.py's
+        # equivalent test for the full rationale.
+        clean = mail.encode_send_mail_payload(self._fields())
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(mail.decode_send_mail_payload(clean + extra))
+
 
 class GetMailContentWireTests(unittest.TestCase):
     def test_round_trip(self):
@@ -78,6 +86,16 @@ class GetMailContentWireTests(unittest.TestCase):
         # 9 (u64) + 9 (u64) + 2 (u8) = 20 bytes before the wstring starts.
         self.assertEqual(payload[20:24], (8).to_bytes(4, "little"))
 
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        clean = mail.encode_get_mail_content_payload(
+            mail.GetMailContentFields(10, 20, 1, "hi")
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    mail.decode_get_mail_content_payload(clean + extra)
+                )
+
 
 class DeleteMailWireTests(unittest.TestCase):
     def test_round_trip(self):
@@ -94,6 +112,14 @@ class DeleteMailWireTests(unittest.TestCase):
             mail.DeleteMailFields(0, 0, 0)
         )
         self.assertEqual(len(payload), 9 + 9 + 2)
+
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        clean = mail.encode_delete_mail_payload(
+            mail.DeleteMailFields(44, 55, 6)
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(mail.decode_delete_mail_payload(clean + extra))
 
 
 if __name__ == "__main__":

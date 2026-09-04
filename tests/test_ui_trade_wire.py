@@ -33,6 +33,18 @@ class TradeInviteWireTests(unittest.TestCase):
         )
         self.assertIsNone(trade.decode_trade_invite_payload(payload[:-1]))
 
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        # COO-DECISION 20260904_1745 item 2 -- see test_ui_party_wire.py's
+        # equivalent test for the full rationale.
+        clean = trade.encode_trade_invite_payload(
+            trade.TradeInviteFields(1, 2, "hello")
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    trade.decode_trade_invite_payload(clean + extra)
+                )
+
     def test_shares_wire_shape_with_party_invite_but_not_the_type(self):
         # Same tag sequence (u8, u64, untagged wstring) as PartyInviteVital
         # -- confirm the BYTES are identical for identical field values,
