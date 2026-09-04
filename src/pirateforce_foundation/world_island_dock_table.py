@@ -180,7 +180,7 @@ class DestinationRow(NamedTuple):
     """One travel-destination trigger row, as the client's tables describe it.
 
     ``trigger_id``          the id that appears in a 0x1FB2 frame's 0x0F tag.
-                            🔴 FALSIFIED for M2's own two targets by GT-228
+                            FALSIFIED for M2's own two targets by GT-228
                             (R308, PASS, 2026-09-04T13:22+07:00): real
                             captures show Prison Exile Island contact firing
                             id 2 and Spice Paradise Island contact firing

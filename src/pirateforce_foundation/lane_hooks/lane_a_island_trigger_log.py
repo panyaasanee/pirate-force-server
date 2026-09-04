@@ -52,7 +52,7 @@ contacts) and id **3** at Spice Paradise Island (2/2 contacts) -- NOT 153 or
 154, which is what `world_island_dock_table`'s own dock rows use and what
 this hook used to key off of.  No 0x1FB2 frame carrying 153 or 154 has ever
 been captured; the two id spaces (dock-table `trigger_id` vs this frame's
-0x0F tag) may simply not be the same namespace at all (nonclaim ①/② of the
+0x0F tag) may simply not be the same namespace at all (nonclaims 1/2 of the
 R308 letter -- this is not proven, only accepted as the PRIMARY hypothesis
 per COO-DECISION item 1).
 
