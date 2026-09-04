@@ -103,6 +103,16 @@ from .warp_executor import WarpTarget
 #: artifact of `tools/pf_runtimeres_death_headless_replay.py --json`.
 CONSOLE_TOKEN = "GM_WARP_SCENE_PERSISTED"
 
+#: `COO-DECISION 20260904_1646` item 2, answering `20260904_1620`: a tester
+#: reads the CONSOLE, not `session.events` -- an event trail already named
+#: every one of these outcomes, and GT-172 F-3 stayed unmeasurable from the
+#: screen because "wrote" and "wrote-failed-silently" looked identical there.
+#: Printed once for every reachable outcome below OTHER than
+#: `OUTCOME_PERSISTED` and `OUTCOME_NOT_A_TARGET` -- the latter is not a
+#: failed warp, it is this function called with something that was never a
+#: warp target at all, and there is no scene id to name.
+FAIL_CONSOLE_TOKEN = "GM_WARP_SCENE_PERSIST_FAILED"
+
 # The outcome words.  One per reachable state, never collapsed into a single
 # "failed": this module exists BECAUSE "the row did not move" and "the row
 # moved to the wrong place" had looked identical to a tester, and a report
@@ -202,7 +212,7 @@ def persist_warp_scene(session: object, target: object) -> str:
         # A session shape with no write door is not an error to raise; it is
         # a replay tool, a test double, or a connection that has not reached
         # the game stage.  Named, and the warp still goes out.
-        return OUTCOME_NO_SESSION_DOOR
+        return _fail(target, OUTCOME_NO_SESSION_DOOR)
 
     selected = getattr(foundation, "selected", None)
     character_id = getattr(selected, "id", None)
@@ -210,11 +220,11 @@ def persist_warp_scene(session: object, target: object) -> str:
         # `checkpoint` itself raises RuntimeError for a None selection; this
         # branch answers the same state with a word instead, and additionally
         # covers the read-back below, which needs an int id it can look up.
-        return OUTCOME_NO_CHARACTER
+        return _fail(target, OUTCOME_NO_CHARACTER)
 
     if not login_would_accept(target.scene_id):
         # See the module docstring: writing here is what bricks a character.
-        return OUTCOME_LOGIN_WOULD_REFUSE
+        return _fail(target, OUTCOME_LOGIN_WOULD_REFUSE)
 
     try:
         position = warp_destination_position(target, getattr(selected, "position", None))
@@ -222,7 +232,7 @@ def persist_warp_scene(session: object, target: object) -> str:
         # Type name only, never the message: a message can embed the
         # coordinates a GM typed, and console lines are not the place for
         # operator-controlled text (`_one_line`'s reasoning next door).
-        return f"{OUTCOME_COMPOSE_REFUSED_PREFIX}{type(error).__name__}"
+        return _fail(target, f"{OUTCOME_COMPOSE_REFUSED_PREFIX}{type(error).__name__}")
 
     try:
         checkpoint(position)
@@ -233,26 +243,27 @@ def persist_warp_scene(session: object, target: object) -> str:
         # after the store call returns, but a partially-applied double could
         # have done either, and putting the snapshot back is correct for both.
         _restore_selected(foundation, selected)
-        return f"{OUTCOME_WRITE_REFUSED_PREFIX}{type(error).__name__}"
+        return _fail(target, f"{OUTCOME_WRITE_REFUSED_PREFIX}{type(error).__name__}")
 
     if not _restore_selected(foundation, selected):
         # The durable row moved and the in-memory row could not be put back,
         # so `runtime.py`'s cross-scene machinery is now keyed on a row this
         # module changed.  Reported as its own outcome rather than folded
         # into success: the write landed, but not on the terms above.
-        return OUTCOME_SELECTED_NOT_RESTORED
+        return _fail(target, OUTCOME_SELECTED_NOT_RESTORED)
 
     stored = _row_position(foundation, character_id)
     if stored is None:
-        return OUTCOME_READBACK_UNAVAILABLE
+        return _fail(target, OUTCOME_READBACK_UNAVAILABLE)
     for column in _COMPARED_COLUMNS:
         if getattr(stored, column, None) != getattr(position, column):
             # The write door returned cleanly and the row is not the row this
             # call asked for.  Today the one reachable cause is the
             # `is_position_persist_allowed` gate inside `lifecycle.checkpoint`,
             # which skips the column write for a pinned-False scene while
-            # still proving ownership.  Whatever the cause: no token.
-            return OUTCOME_ROW_NOT_TOUCHED
+            # still proving ownership.  Whatever the cause: no PERSISTED token
+            # -- but the tester watching the console still gets the FAILED one.
+            return _fail(target, OUTCOME_ROW_NOT_TOUCHED)
 
     try:
         # From the ROW that came back, not from the value passed in.
@@ -262,6 +273,26 @@ def persist_warp_scene(session: object, target: object) -> str:
         # deliverable; the line about it is not.
         pass
     return OUTCOME_PERSISTED
+
+
+def _fail(target: WarpTarget, reason: str) -> str:
+    """Print `FAIL_CONSOLE_TOKEN` and hand the reason word straight back.
+
+    `COO-DECISION 20260904_1646` item 2: every reachable non-persisted
+    outcome below `persist_warp_scene`'s target-shape check gets this line,
+    named with the SAME reason word the caller already receives as the
+    return value -- one source of truth, not a second vocabulary to keep in
+    sync.  `target.scene_id` is always readable here: every call site sits
+    past the `isinstance(target, WarpTarget)` guard at the top of
+    `persist_warp_scene`.
+    """
+    try:
+        print(f"{FAIL_CONSOLE_TOKEN} scene={target.scene_id} reason={reason}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 - see CONSOLE_TOKEN's print, same rule:
+        # a closed or replaced stderr must not turn a named outcome back
+        # into a raise, nor undo whatever the outcome already cost or saved.
+        pass
+    return reason
 
 
 def _restore_selected(foundation: object, snapshot: object) -> bool:
