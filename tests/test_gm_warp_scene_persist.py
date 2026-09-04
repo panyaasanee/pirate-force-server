@@ -1003,6 +1003,39 @@ class TheBootRegistryDoorTests(unittest.TestCase):
             ].login_entry_allowed
         )
 
+    def test_identity_is_the_only_signal_that_grades_the_wire(self):
+        """pf-adversary, this round, D1, MEASURED.
+
+        `use_boot_scene_registry(load_scene_registry())` is a THIRD disk read
+        and leaves `vlk8rq` finding 3 fully open -- yet it installs cleanly,
+        prints a console line byte-for-byte identical to the correct wiring,
+        and reports source `boot`.  Every state-shaped signal this module
+        ships is satisfied by the non-fix.  `login_registry_is` is the one
+        that is not, which is why the `runtime.py` wiring test will grade on
+        it and on nothing weaker.
+        """
+        booted = world_scene_travel.load_scene_registry()
+        a_third_read = world_scene_travel.load_scene_registry()
+        self.assertIsNot(booted, a_third_read, "the fixture proves nothing")
+
+        # the wrong wiring: everything state-shaped says it worked
+        _install_quietly(a_third_read)
+        self.assertEqual(
+            warp_scene_persist.REGISTRY_SOURCE_BOOT,
+            warp_scene_persist.login_registry_source(),
+        )
+        self.assertFalse(warp_scene_persist.login_registry_is(booted))
+
+        # the right wiring: the same signals, plus the one that matters
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        _install_quietly(booted)
+        self.assertTrue(warp_scene_persist.login_registry_is(booted))
+
+    def test_identity_answers_false_before_anything_is_installed(self):
+        registry = world_scene_travel.load_scene_registry()
+        self.assertFalse(warp_scene_persist.login_registry_is(registry))
+        self.assertFalse(warp_scene_persist.login_registry_is(None))
+
     def test_the_source_word_says_boot_and_the_console_line_says_none_replaced(self):
         registry = world_scene_travel.load_scene_registry()
         self.assertIsNone(warp_scene_persist.login_registry_source())
@@ -1045,6 +1078,25 @@ class TheBootRegistryDoorTests(unittest.TestCase):
             warp_scene_persist.REGISTRY_SOURCE_BOOT,
             warp_scene_persist.login_registry_source(),
         )
+
+    def test_a_second_install_wins_and_says_so(self):
+        """pf-adversary, this round, D6.
+
+        Nothing refuses or escalates a second install, so the only record
+        that it happened is `replaced=boot` on the console.  Pinned here so
+        the tell cannot be dropped as noise: in a process that builds two
+        runtimes, connections of the first are predicted against the
+        second's registry, and this line is how anyone would find out.
+        """
+        first = world_scene_travel.load_scene_registry()
+        second = world_scene_travel.load_scene_registry()
+        _install_quietly(first)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_scene_persist.use_boot_scene_registry(second)
+        self.assertIn("replaced=boot", stream.getvalue())
+        self.assertTrue(warp_scene_persist.login_registry_is(second))
+        self.assertFalse(warp_scene_persist.login_registry_is(first))
 
     # ---- refused, and today's behaviour kept ---------------------------
 
@@ -1171,35 +1223,56 @@ class TheBootRegistryDoorTests(unittest.TestCase):
                 )
             )
 
-    def test_a_registry_whose_rows_have_no_length_still_installs(self):
-        """`SceneRegistry` is a bare dataclass: `destinations` is whatever a
-        caller passed.  The home probe proves that thing is ITERABLE, not
-        that it is `Sized` -- and the console count is a decoration while the
-        install is the deliverable, so a `len()` that raises must not become
-        the exception this function promises never to throw.
+    def test_rows_that_cannot_be_counted_without_being_spent_are_refused(self):
+        """pf-adversary, this round, D4, MEASURED -- and the fix went the
+        wrong way first.
+
+        `SceneRegistry` is a bare dataclass, so `destinations` can be a
+        GENERATOR, and the home probe CONSUMES it.  The first version of this
+        guard only stopped the `len()` from raising, so a generator probed
+        clean, installed, reported `scenes=unknown` on a line that otherwise
+        says the door worked -- and then `destination` re-iterated an
+        exhausted iterator, so `login_would_accept` answered False for EVERY
+        scene for the life of the process.  That is verbatim the outage the
+        probe exists to prevent, reported as a success.
+
+        So the size check runs BEFORE the probe, and its answer is a
+        REFUSAL: an object whose rows cannot be measured without being spent
+        is not one this module can predict a login from.
         """
         real = world_scene_travel.load_scene_registry()
-
-        class IterableWithNoLength:
-            def __init__(self, rows):
-                self._rows = rows
-
-            def __iter__(self):
-                return iter(self._rows)
-
-        registry = replace(
-            real, destinations=IterableWithNoLength(real.destinations),
-        )
+        registry = replace(real, destinations=(t for t in real.destinations))
         stream = io.StringIO()
         with redirect_stderr(stream):
             outcome = warp_scene_persist.use_boot_scene_registry(registry)
         self.assertEqual(
-            warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED, outcome
+            warp_scene_persist.OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX
+            + warp_scene_persist.OUTCOME_BOOT_REGISTRY_UNSIZED_ROWS,
+            outcome,
         )
-        self.assertIn("scenes=unknown", stream.getvalue())
+        self.assertIn(
+            warp_scene_persist.BOOT_REGISTRY_REFUSED_CONSOLE_TOKEN,
+            stream.getvalue(),
+        )
+        # and the refusal left the shipped behaviour intact rather than a
+        # process that answers False for every scene it will ever be asked
+        self.assertIsNone(warp_scene_persist.login_registry_source())
         self.assertTrue(
             warp_scene_persist.login_would_accept(DESTINATION_SCENE)
         )
+
+    def test_every_row_shape_a_real_registry_uses_still_installs(self):
+        """The refusal above must not cost a registry anyone could boot on."""
+        real = world_scene_travel.load_scene_registry()
+        for shape in (tuple, list, set, frozenset):
+            with self.subTest(shape=shape.__name__):
+                warp_scene_persist.reset_login_registry_snapshot_for_tests()
+                self.assertEqual(
+                    warp_scene_persist.OUTCOME_BOOT_REGISTRY_INSTALLED,
+                    _install_quietly(
+                        replace(real, destinations=shape(real.destinations))
+                    ),
+                )
 
     def test_a_closed_console_does_not_undo_an_install_that_is_correct(self):
         registry = world_scene_travel.load_scene_registry()

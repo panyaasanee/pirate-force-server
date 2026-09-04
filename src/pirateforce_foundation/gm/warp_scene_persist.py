@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from collections import abc
 
 from .. import world_scene_travel
 from ..model import Position
@@ -204,6 +205,9 @@ OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY = (
     "boot_registry_refused_not_a_registry"
 )
 OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX = "boot_registry_refused_unusable_"
+#: The one unusable reason that is not an exception type name: rows that
+#: cannot be counted without being consumed (pf-adversary, this round, D4).
+OUTCOME_BOOT_REGISTRY_UNSIZED_ROWS = "unsized_rows"
 
 #: Which of the two registries this process is answering from.  Read by tests
 #: and by `login_registry_source()`; never by a decision in this module -- the
@@ -386,13 +390,57 @@ def login_registry_source() -> str | None:
         return _LOGIN_REGISTRY_SOURCE
 
 
+def login_registry_is(candidate: object) -> bool:
+    """Whether the registry this module answers from IS `candidate`.
+
+    IDENTITY, not equality, and that is the entire point (pf-adversary, this
+    round, D1, MEASURED).  `use_boot_scene_registry` prints the same line --
+    `GM_WARP_BOOT_REGISTRY_INSTALLED scenes=17 replaced=none` -- for the
+    correct wiring and for `use_boot_scene_registry(load_scene_registry())`,
+    which is a THIRD independent disk read and leaves `vlk8rq` finding 3
+    completely open.  Every other signal this module ships (the token, the
+    source word, the scene count, `replaced=`) is a function of state, so
+    none of them can tell the fix from the non-fix.  This one is a function
+    of identity, so it can.
+
+    It exists for the `runtime.py` wiring test that lands with chief's call
+    site: `login_registry_is(scene_entry_registry)` is the assertion that
+    grades the wire, and nothing weaker does.
+
+    FALSE WHEN NOTHING IS HELD, for either argument.  A bare
+    `_LOGIN_REGISTRY_SNAPSHOT is candidate` answers TRUE for
+    `login_registry_is(None)` on an untouched module -- "no registry" and
+    "the registry you asked about" are not the same fact, and a grading
+    helper that conflates them would pass a wire that was never made.
+    """
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        if _LOGIN_REGISTRY_SNAPSHOT is None:
+            return False
+        return _LOGIN_REGISTRY_SNAPSHOT is candidate
+
+
 def use_boot_scene_registry(registry: object) -> str:
     """Answer every later warp from the registry the RUNTIME booted with.
 
-    `CORE-REQUEST-GM-056`, accepted by chief on 2026-09-05T00:45+07:00: the
-    call site is one line in `runtime.py` immediately after
+    `CORE-REQUEST-GM-056`, accepted by chief on 2026-09-05T00:45+07:00.  The
+    call site is in `runtime.py` immediately after
     `scene_entry_registry = world_scene_travel.load_scene_registry()` at
     `runtime.py:706` -- not dispatch, not login, and nothing on a hot path.
+
+    IT IS TWO LINES, NOT ONE, and the acceptance letter's "one line" was
+    wrong (pf-adversary, this round, D2, MEASURED).  `runtime.py` imports
+    five modules from `.gm` and `warp_scene_persist` is not among them, so
+    the call alone raises `NameError` on the first `make_state_class` -- at
+    `app.py:834`, i.e. the server does not boot at all, in the module whose
+    stated reason for NEVER RAISES is that a failure here costs the server.
+    Chief needs `from .gm import warp_scene_persist` alongside the existing
+    `.gm` imports as well as the call.
+
+    AND THE ARGUMENT MUST BE `scene_entry_registry` ITSELF, never a fresh
+    `world_scene_travel.load_scene_registry()`.  A fresh read installs
+    cleanly, prints the identical console line, and leaves the defect fully
+    open -- see `login_registry_is`, which is the only signal that can tell
+    the two apart.
 
     WHAT THIS CLOSES.  `_login_registry_snapshot` above takes a SECOND, LATER,
     INDEPENDENT read of `scenarios/world_scene_registry_001.json`, while the
@@ -403,9 +451,20 @@ def use_boot_scene_registry(registry: object) -> str:
     durable row into a scene the running login still refuses (the module
     docstring's "bricks a character").  MEASURED in round `vlk8rq`, finding
     3, and struck in `_login_registry_snapshot`'s own docstring, which names
-    this function as the thing that actually closes it.  Once installed there
-    is ONE registry object in the process and the disagreement has nowhere
-    left to live.
+    this function as the thing that actually closes it.  Once installed, the
+    LOGIN PREDICTION in this module and the login path itself read one and
+    the same object, and that disagreement has nowhere left to live.
+
+    SCOPED DELIBERATELY, and the wider sentence that stood here is struck
+    (pf-adversary, this round, D5): ~~once installed there is ONE registry
+    object in the process~~ is FALSE.  `lifecycle.py:121` takes a third,
+    independent read at `CharacterLifecycle` construction, and that is the
+    one gating the actual durable write (`lifecycle.py:201`/`:252`, through
+    `is_position_persist_allowed(..., self._scene_registry)`).  This door
+    unifies this module with the runtime's `scene_entry_registry`; it does
+    NOT unify `lifecycle`.  The bricking direction is a `login_entry_allowed`
+    question and this does close that -- but nobody should read the closing
+    sentence of this ticket as more than it is.
 
     NEVER RAISES, and never for a smaller reason than the others in this file:
     this runs inside chief's boot factory, so an exception here does not cost
@@ -448,6 +507,22 @@ def use_boot_scene_registry(registry: object) -> str:
             OUTCOME_BOOT_REGISTRY_REFUSED_NOT_A_REGISTRY
         )
 
+    # SIZED BEFORE PROBED, and the order is the whole point (pf-adversary,
+    # this round, D4, MEASURED).  `SceneRegistry` is a bare dataclass, so
+    # `destinations` can be a GENERATOR -- and the home probe below CONSUMES
+    # it.  A generator therefore passed the probe, installed, and then made
+    # `destination` re-iterate an exhausted iterator, so `login_would_accept`
+    # answered False for EVERY scene for the life of the process: verbatim
+    # the outage the probe's own paragraph claims to close, reported as a
+    # successful install.  Refusing anything that cannot be measured without
+    # being consumed closes it BEFORE the probe can spend it.  Every shape a
+    # real registry uses -- tuple, list, set, frozenset -- is `Sized`.
+    if not isinstance(getattr(registry, "destinations", None), abc.Sized):
+        return _boot_registry_refused(
+            f"{OUTCOME_BOOT_REGISTRY_REFUSED_UNUSABLE_PREFIX}"
+            f"{OUTCOME_BOOT_REGISTRY_UNSIZED_ROWS}"
+        )
+
     try:
         world_scene_travel.destination(
             world_scene_travel.HOME_SCENE_ID, registry,
@@ -472,22 +547,17 @@ def use_boot_scene_registry(registry: object) -> str:
         _LOGIN_REGISTRY_SOURCE = REGISTRY_SOURCE_BOOT
         _LOGIN_REGISTRY_SNAPSHOT_TAKEN = True
 
-    # COUNTED OUTSIDE THE LOCK, AND DEFENSIVELY.  Two separate reasons:
-    #
-    #   * `len()` runs `__len__`, which is arbitrary caller code, and this
-    #     lock is contended by every warp on every connection -- nothing that
-    #     can block or re-enter this module belongs inside it;
-    #   * `SceneRegistry` is a bare `@dataclass` with no `__post_init__`, so
-    #     `SceneRegistry(destinations=<anything>)` constructs, and the home
-    #     probe above only proves that thing is ITERABLE and carries scene 1,
-    #     not that it is `Sized`.  A generator passes the probe and then makes
-    #     `len()` raise -- after the install has already happened, and while
-    #     this function's whole contract is that it never raises.
-    #
-    # The count is a console decoration; the install is the deliverable.
+    # COUNTED OUTSIDE THE LOCK.  `len()` runs `__len__`, which is arbitrary
+    # caller code, and this lock is contended by every warp on every
+    # connection -- nothing that can block or re-enter this module belongs
+    # inside it.  Still guarded, but no longer as the place a non-`Sized`
+    # `destinations` is handled: that is refused above, before the probe, so
+    # this cannot be reached by the generator shape D4 measured.
     try:
         scenes = len(registry.destinations)
-    except Exception:  # noqa: BLE001 - see above; never costs the install
+    except Exception:  # noqa: BLE001 - a raising `__len__` on an object that
+        # answered `isinstance(..., Sized)`; the count is console decoration
+        # and must never cost an install that is otherwise correct.
         scenes = "unknown"
 
     if not _console(
