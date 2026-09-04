@@ -93,6 +93,7 @@ def decode_send_mail_payload(payload: bytes) -> SendMailFields | None:
         f7, offset = wire.read_untagged_wstring(payload, offset)
         f8, offset = wire.read_untagged_wstring(payload, offset)
         f9, offset = wire.read_u8tag(payload, offset, _TAG_U8)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return SendMailFields(f1, f2, f3, f4, f5, f6, f7, f8, f9)
@@ -115,6 +116,7 @@ def decode_get_mail_content_payload(
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
         f4, offset = wire.read_untagged_wstring(payload, offset)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return GetMailContentFields(f1, f2, f3, f4)
@@ -133,6 +135,7 @@ def decode_delete_mail_payload(payload: bytes) -> DeleteMailFields | None:
         f1, offset = wire.read_u64tag(payload, 0, _TAG_U64)
         f2, offset = wire.read_u64tag(payload, offset, _TAG_U64)
         f3, offset = wire.read_u8tag(payload, offset, _TAG_U8)
+        wire.require_exhausted(payload, offset)
     except wire.WireDecodeError:
         return None
     return DeleteMailFields(f1, f2, f3)

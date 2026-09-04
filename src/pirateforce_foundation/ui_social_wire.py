@@ -50,6 +50,17 @@ raising -- the same convention as
 ``world_logout_button_notice.py``'s ``classify_parsed``. The only
 exceptions are ``KeyboardInterrupt``/``SystemExit``/``GeneratorExit``,
 which are never meant to be caught by a frame parser.
+
+TRAILING BYTES ARE ALSO A DECODE FAILURE (COO-DECISION ``20260904_1745``
+item 2, from a ``pf-adversary`` finding on round ``qwhlua``): a payload
+that matches this class's fixed field shape for its first ``c`` bytes but
+carries ``n - c`` unexplained bytes afterwards is not a full decode of that
+payload, even though every field read so far succeeded. Every sibling
+module's ``decode_*`` calls ``require_exhausted`` as its last step inside
+the same ``try`` block so that case returns ``None`` (``UNPARSED``) like
+any other malformed input, instead of quietly reporting a partial match as
+if it were a complete one -- a class this project's field model does not
+yet fully cover must surface as unproven, not as a false "decoded".
 """
 
 from __future__ import annotations
@@ -141,3 +152,15 @@ def read_untagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
         # only ever catches WireDecodeError).
         raise WireDecodeError("malformed UTF-16LE payload") from error
     return text, end
+
+
+def require_exhausted(buf: bytes, offset: int) -> None:
+    """Raise ``WireDecodeError`` if bytes remain after ``offset`` -- see the
+    module docstring's "TRAILING BYTES ARE ALSO A DECODE FAILURE" note.
+    Every sibling module's ``decode_*`` calls this as its last parse step."""
+
+    if offset != len(buf):
+        raise WireDecodeError(
+            "trailing bytes after full field match: consumed=%d/%d"
+            % (offset, len(buf))
+        )

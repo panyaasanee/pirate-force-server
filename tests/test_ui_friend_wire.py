@@ -45,6 +45,18 @@ class RequestBeFriendWireTests(unittest.TestCase):
             friend.decode_request_be_friend_payload(payload[:-1])
         )
 
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        # COO-DECISION 20260904_1745 item 2 -- see test_ui_party_wire.py's
+        # equivalent test for the full rationale.
+        clean = friend.encode_request_be_friend_payload(
+            friend.RequestBeFriendFields(1, "hi", 1)
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    friend.decode_request_be_friend_payload(clean + extra)
+                )
+
 
 class RemoveFriendWireTests(unittest.TestCase):
     def test_round_trip(self):
@@ -71,6 +83,16 @@ class RemoveFriendWireTests(unittest.TestCase):
         self.assertNotEqual(decoded.field1_u64, decoded.field2_u64)
         self.assertEqual(decoded.field1_u64, 0xAAAA)
         self.assertEqual(decoded.field2_u64, 0xBBBB)
+
+    def test_trailing_bytes_after_a_full_match_fail_closed(self):
+        clean = friend.encode_remove_friend_payload(
+            friend.RemoveFriendFields(1, 2, 0)
+        )
+        for extra in (b"\xaa", b"\xaa" * 37):
+            with self.subTest(extra_len=len(extra)):
+                self.assertIsNone(
+                    friend.decode_remove_friend_payload(clean + extra)
+                )
 
 
 if __name__ == "__main__":

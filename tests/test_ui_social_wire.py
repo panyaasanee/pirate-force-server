@@ -97,6 +97,22 @@ class UntaggedWstringTests(unittest.TestCase):
             wire.read_untagged_wstring(malformed, 0)
 
 
+class RequireExhaustedTests(unittest.TestCase):
+    def test_exact_offset_passes(self):
+        wire.require_exhausted(b"\x01\x02\x03", 3)  # must not raise
+
+    def test_empty_buffer_at_offset_zero_passes(self):
+        wire.require_exhausted(b"", 0)  # must not raise
+
+    def test_one_trailing_byte_fails_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.require_exhausted(b"\x01\x02\x03", 2)
+
+    def test_many_trailing_bytes_fail_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.require_exhausted(b"\x01" * 40, 3)
+
+
 class U8U32TagReaderTests(unittest.TestCase):
     def test_read_u8tag_wrong_tag_fails_closed(self):
         with self.assertRaises(wire.WireDecodeError):

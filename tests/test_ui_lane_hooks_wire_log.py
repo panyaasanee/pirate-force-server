@@ -142,24 +142,29 @@ class DecodeAndConsoleLineTests(unittest.TestCase):
                     self.assertIn(str(value), console)
 
     def test_trailing_bytes_after_a_full_match_are_never_silently_dropped(self):
-        # pf-adversary (this round): none of the ui_*_wire.py decode_*
-        # functions check that a match consumed the WHOLE payload -- a
-        # match against the first `c` bytes returns success even with
-        # `n - c` bytes of unexplained trailer following. A bare "decoded
-        # field... bytes_out=0" line would read identically to a real,
-        # fully-matched frame. `consumed=<c>/<n>` with c < n is how a
-        # partial match stays visibly partial.
+        # pf-adversary (round qwhlua) found the original gap: none of the
+        # ui_*_wire.py decode_* functions checked that a match consumed the
+        # WHOLE payload, so a match against the first `c` bytes returned
+        # success even with `n - c` bytes of unexplained trailer following.
+        # That round's fix lived at this log layer only (report `c` as
+        # `consumed=<c>/<n>`). COO-DECISION 20260904_1745 item 2 ordered the
+        # follow-up: fix it at the decoder itself
+        # (``ui_social_wire.require_exhausted``) so a trailing-byte payload
+        # is no longer decodable at all -- it now prints UNPARSED, the same
+        # as any other malformed input, instead of a misleadingly specific
+        # partial "decoded" line.
         for _mod, point, hook_fn, encode, _decode, fields in _CASES:
             with self.subTest(point=point):
                 clean = encode(fields)
                 trailing = clean + b"\xaa" * 37
                 stderr = io.StringIO()
                 with contextlib.redirect_stderr(stderr):
-                    hook_fn(session=object(), payload=trailing)
+                    result = hook_fn(session=object(), payload=trailing)
+                self.assertIsNone(result, "hooks never return a value")
                 console = stderr.getvalue()
-                self.assertNotIn("UNPARSED", console)
-                self.assertIn(f"consumed={len(clean)}/{len(trailing)}", console)
-                self.assertNotIn(f"consumed={len(trailing)}/{len(trailing)}", console)
+                self.assertIn("UNPARSED", console)
+                self.assertIn(f"len={len(trailing)}", console)
+                self.assertNotIn("decoded", console)
 
     def test_garbage_of_every_wrong_length_is_unparsed_never_raises(self):
         for _mod, point, hook_fn, _encode, _decode, _fields in _CASES:
