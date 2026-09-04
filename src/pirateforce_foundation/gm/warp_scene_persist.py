@@ -94,6 +94,7 @@ came back, never from the value that was passed in.
 from __future__ import annotations
 
 import sys
+import threading
 
 from .. import world_scene_travel
 from ..model import Position
@@ -141,6 +142,14 @@ OUTCOME_NOT_A_TARGET = "not_a_target"
 OUTCOME_NO_SESSION_DOOR = "no_session_door"
 OUTCOME_NO_CHARACTER = "no_character"
 OUTCOME_LOGIN_WOULD_REFUSE = "login_would_refuse"
+# NOT a policy word, and deliberately not folded into the one above it
+# (pf-adversary, round `vlk8rq`, finding 5).  "the registry says this scene
+# refuses logins" and "this process could not read the registry at all" are
+# two different facts, and last round's finding 2 in this same module was
+# exactly one word answering two questions.  An operator reading
+# `login_would_refuse` goes to look at scene policy; this one sends them to
+# the file.
+OUTCOME_LOGIN_REGISTRY_UNREADABLE = "login_registry_unreadable"
 OUTCOME_COMPOSE_REFUSED_PREFIX = "compose_refused_"
 OUTCOME_WRITE_REFUSED_PREFIX = "write_refused_"
 OUTCOME_READBACK_UNAVAILABLE = "readback_unavailable"
@@ -168,6 +177,26 @@ OUTCOME_ROLLED_BACK = "rolled_back"
 OUTCOME_NOTHING_TO_ROLL_BACK = "nothing_to_roll_back"
 OUTCOME_ROLLBACK_REFUSED_PREFIX = "rollback_refused_"
 OUTCOME_ROLLBACK_NOT_CONFIRMED = "rollback_not_confirmed"
+
+# `rollback_warp_scene_on_send_failure`'s own word for "this call was not
+# about a warp at all" -- the v141 send loop calls it after EVERY queued
+# action, not only a warp, so most calls must be free.  Named separately
+# from `OUTCOME_NOT_A_TARGET` above (that one guards a WarpTarget shape;
+# this one guards an action LABEL) so a reader of either return value can
+# tell which guard actually fired without reading the caller.
+OUTCOME_NOT_A_WARP = "not_a_warp"
+
+#: The ONLY action label `rollback_warp_scene_on_send_failure` acts on.  A
+#: LITERAL COPY of
+#: `chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL`,
+#: not an import of it: `chat_command_action` already imports THIS module
+#: (`rollback_warp_scene`, `row_before_warp`), so importing the label back
+#: would be circular.  `tests/test_gm_warp_scene_rollback.py` pins the two
+#: strings equal, so a rename of one without the other fails a test instead
+#: of quietly making this function a permanent no-op.
+SEND_FAILURE_WARP_ACTION_LABEL = (
+    "LANE_GM_CHAT_WARP_CROSS_SCENE_NO_COORDS_TELEPORT_VITAL"
+)
 
 #: Event names, one per outcome, in this module's own namespace so a reader of
 #: `session.events` can tell a warp-persist line from `/speed`'s.
@@ -217,6 +246,96 @@ def warp_destination_position(target: object, current: object) -> Position:
     )
 
 
+_LOGIN_REGISTRY_SNAPSHOT: object | None = None
+_LOGIN_REGISTRY_SNAPSHOT_TAKEN = False
+# The read below happens on a game-listener thread, one per connection, and
+# two connections can warp at the same moment.  The first draft set the
+# "taken" flag BEFORE the load and held no lock, so a second connection
+# arriving mid-read saw `TAKEN=True, SNAPSHOT=None`, was told
+# `login_would_refuse`, and LOST ITS DURABLE ROW -- reproduced with a slow
+# loader (pf-adversary, round `vlk8rq`, finding 4, MEASURED).  The per-call
+# read this replaced could not do that.
+_LOGIN_REGISTRY_SNAPSHOT_LOCK = threading.Lock()
+
+
+def reset_login_registry_snapshot_for_tests() -> None:
+    """Drop the snapshot below, so the next call re-reads the registry.
+
+    For tests only, and named so it says that.  Same shape and same reason as
+    `gm/dispatch.reset_rate_limit_state_for_tests`: process-global state that
+    is correct for a server and wrong for a suite where one case writes a
+    throwaway registry and the next expects the shipped one.
+    """
+    global _LOGIN_REGISTRY_SNAPSHOT, _LOGIN_REGISTRY_SNAPSHOT_TAKEN
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        _LOGIN_REGISTRY_SNAPSHOT = None
+        _LOGIN_REGISTRY_SNAPSHOT_TAKEN = False
+
+
+def _login_registry_snapshot():
+    """The scene registry this process will answer from, read ONCE.
+
+    `ADVERSARY_PENDING #745-R2` item 5, ordered fixed by `COO-DECISION
+    20260904_2045` item 4: `login_would_accept` asked
+    `world_scene_travel.destination` with no registry argument, and that
+    helper re-reads `scenarios/world_scene_registry_001.json` FROM DISK on
+    every call with no cache.  Two things follow from that, and the second is
+    why COO called it fail-open:
+
+      * the answer this module gives can DISAGREE with the answer the login
+        path gave, whenever the file changes mid-run -- and this module
+        exists precisely to predict that login;
+      * the disagreement runs both ways.  A scene edited to
+        `login_entry_allowed` after boot would let this module write a row
+        the running login path still refuses, which is the exact state the
+        module docstring calls bricking a character.
+
+    Read once and held, so this module answers every warp of a process from
+    ONE read instead of one per warp.
+
+    !! ~~so the prediction is made against the same registry the server booted
+    with ... the difference is one warp early in a process's life, not a disk
+    edit.~~ BOTH CLAUSES ARE FALSE AND ARE STRUCK IN THE ROUND THAT WROTE
+    THEM (pf-adversary, round `vlk8rq`, finding 3, MEASURED).  The login path
+    this module predicts does NOT read this file when it runs: it uses the
+    `scene_entry_registry` object `runtime.py` loads once at factory
+    construction and threads into `world_scene_entry.resolve_entry`.  This is
+    a SECOND, LATER, INDEPENDENT read of the same file -- so it agrees with
+    the login path exactly when the file has not changed, and differs from it
+    precisely when it has, which is the one case the struck sentence claimed
+    was excluded.  Measured: boot with scene N allowed, edit the file to shut
+    it, and this snapshot says False while the running login still says True
+    (and the harmful direction is the same sentence reversed).
+
+    WHAT ACTUALLY CLOSES IT is being handed the runtime's own registry object
+    rather than taking a read of our own -- `runtime.py` is chief's zone, so
+    that is `CORE-REQUEST-GM-056`, and until it lands this function is the
+    narrower of two wrong answers, not a right one.  What this version does
+    buy over the per-call read it replaced: one answer per process instead of
+    one per warp, so a warp cannot disagree with the warp before it.
+
+    FAILS CLOSED, and remembers that it failed: an unreadable registry
+    leaves the snapshot `None`, `login_would_accept` returns False for every
+    scene, and no row is written on a guess.  It does NOT retry on the next
+    warp -- a retry would put the disk read back on the hot path this exists
+    to take it off.
+    """
+    global _LOGIN_REGISTRY_SNAPSHOT, _LOGIN_REGISTRY_SNAPSHOT_TAKEN
+    with _LOGIN_REGISTRY_SNAPSHOT_LOCK:
+        if not _LOGIN_REGISTRY_SNAPSHOT_TAKEN:
+            try:
+                _LOGIN_REGISTRY_SNAPSHOT = (
+                    world_scene_travel.load_scene_registry()
+                )
+            except Exception:  # noqa: BLE001 - unreadable registry fails closed
+                _LOGIN_REGISTRY_SNAPSHOT = None
+            # SET LAST, INSIDE THE LOCK.  A second thread that arrives while
+            # the read is in flight waits for the answer instead of being
+            # handed `None` and told the scene refuses logins.
+            _LOGIN_REGISTRY_SNAPSHOT_TAKEN = True
+        return _LOGIN_REGISTRY_SNAPSHOT
+
+
 def login_would_accept(scene_id: object) -> bool:
     """Whether a persisted row in this scene would survive the next login.
 
@@ -235,8 +354,12 @@ def login_would_accept(scene_id: object) -> bool:
     """
     if isinstance(scene_id, bool) or type(scene_id) is not int:
         return False
+    registry = _login_registry_snapshot()
+    if registry is None:
+        # The snapshot could not be read at all; see its docstring.
+        return False
     try:
-        target = world_scene_travel.destination(scene_id)
+        target = world_scene_travel.destination(scene_id, registry)
     except Exception:  # noqa: BLE001 - KeyError for an unpinned scene,
         # ValueError for one outside the wire range; both fail closed.
         return False
@@ -274,6 +397,18 @@ def persist_warp_scene(session: object, target: object) -> str:
         # branch answers the same state with a word instead, and additionally
         # covers the read-back below, which needs an int id it can look up.
         return _fail(target, OUTCOME_NO_CHARACTER, session)
+
+    if _login_registry_snapshot() is None:
+        # THE REGISTRY, NOT THE SCENE (pf-adversary, round `vlk8rq`, finding
+        # 5).  `login_would_accept` returns False for both, and this module
+        # spent last round learning what one word answering two questions
+        # costs: an operator reading `login_would_refuse` goes and looks at
+        # scene policy, when what happened is that this process could not read
+        # `scenarios/world_scene_registry_001.json` at all -- and, because the
+        # snapshot deliberately does not retry, will not for the rest of its
+        # life.  Still fail-closed, still no row written; only the word and
+        # the console line change.
+        return _fail(target, OUTCOME_LOGIN_REGISTRY_UNREADABLE, session)
 
     if not login_would_accept(target.scene_id):
         # See the module docstring: writing here is what bricks a character.
@@ -436,6 +571,61 @@ def rollback_warp_scene(session: object, previous: object) -> str:
     if not _console(f"{ROLLBACK_CONSOLE_TOKEN} scene={stored.scene_id}"):
         _note_console_loss(session, OUTCOME_ROLLED_BACK)
     return OUTCOME_ROLLED_BACK
+
+
+def rollback_warp_scene_on_send_failure(session: object, label: object) -> str:
+    """`CORE-REQUEST-GM-055`'s hookup.  Undo a warp row whose frame never
+    left the wire at all.
+
+    THE WINDOW THIS CLOSES.  `persist_warp_scene` writes the destination row
+    at FRAME-COMPOSE time (`chat_command_action._persist_warp_scene`, called
+    from `_warp_teleport_action_no_coords`), and the socket write for that
+    same action happens roughly 2,200 lines later, in `current/pf_login_
+    game_server_v141.py`'s own action-send loop -- chief's zone, where this
+    lane may not put a call (`AGENTS.md` section 7).  If the socket dies in
+    that gap (`ConnectionResetError`, `ConnectionAbortedError`,
+    `BrokenPipeError`, `OSError` -- the loop's own `except` clause, which
+    already prints `SEND_FAILED {label} {e!r}` before `break`), the row now
+    names a scene the client was NEVER SENT TO, and nothing before this
+    function put it back.  That is the same character-bricking shape
+    `rollback_warp_scene`'s docstring closes for the audit-append window,
+    one send-loop iteration later and entirely outside this lane's own call
+    stack -- which is why chief calls IN rather than this lane calling OUT.
+
+    ONE ARGUMENT NARROWS THE BLAST RADIUS TO ONE LABEL.  The send loop calls
+    this after EVERY queued action fails to go out, not only a warp's, so a
+    `say`, a `/speed` frame or a staged-login write must cost this function
+    NOTHING.  `label != SEND_FAILURE_WARP_ACTION_LABEL` returns
+    `OUTCOME_NOT_A_WARP` before touching `session` at all -- no read, no
+    write, no console line -- because a wrong-label call is not evidence of
+    anything this module is about.
+
+    WHERE `previous` COMES FROM, AND WHY IT IS SAFE TO TRUST HERE.
+    `persist_warp_scene` restores `foundation.selected` to the PRE-WARP
+    snapshot immediately after the durable write succeeds (module docstring:
+    "the durable row moves; the in-memory row does not" -- it stays the last
+    position the client is KNOWN to have reported).  Nothing between then and
+    a `SEND_FAILED` on the very same action changes it: the client cannot
+    have reported a new position for a frame that never reached it.  So
+    `foundation.selected.position`, read HERE, is exactly the row
+    `_persist_warp_scene` captured with `row_before_warp` before the write --
+    without this function needing a second parameter chief's call site would
+    otherwise have to thread through 2,200 lines of unrelated code to supply.
+
+    NEVER RAISES, same house rule as `rollback_warp_scene`: this runs inside
+    the send loop's own `except` block, on the game-listener thread, and a
+    raise here must not mask the `SEND_FAILED` handling already in flight.
+    Delegates every write, restore, read-back and console line to
+    `rollback_warp_scene`, so a `session` shape this module cannot act on
+    reports the SAME named outcomes (`no_session_door`,
+    `rollback_refused_*`, ...) a caller of that function already knows.
+    """
+    if label != SEND_FAILURE_WARP_ACTION_LABEL:
+        return OUTCOME_NOT_A_WARP
+    foundation = getattr(session, "foundation", None)
+    selected = getattr(foundation, "selected", None)
+    previous = getattr(selected, "position", None)
+    return rollback_warp_scene(session, previous)
 
 
 def _rollback_failed(previous: Position, reason: str, session: object) -> str:

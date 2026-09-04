@@ -145,7 +145,12 @@ STANDALONE_BASENAME = Path(
 COMMAND_EXERCISES: dict[str, tuple[str, ...]] = {
     "warp": (
         "/warp 1 100 200",  # same scene as the session -> ForcePos half
-        "/warp 2 100 200",  # different scene -> stages the GM-gated map
+        # ~~different scene -> stages the GM-gated map~~ -- since
+        # `COO-DECISION 20260831_1441` this fires a LIVE cross-scene
+        # TeleportVital instead, and since `20260904_2045` item 1 it is shut
+        # at the head of `_warp_action` unless `setUp`'s gate patch is held
+        # open (which it is, for this file only).
+        "/warp 2 100 200",  # different scene -> live cross-scene composer
         "/warp 2",  # no coordinates -> stages too
     ),
     "npc": ("/npc on 1001", "/npc off 1001"),
@@ -342,6 +347,22 @@ class _Case(unittest.TestCase):
 
     def setUp(self):
         gm_dispatch.reset_rate_limit_state_for_tests()
+        # `COO-DECISION 20260904_2045` item 1 shut every typed-coordinate
+        # `/warp` at the head of `_warp_action`.  Held open here for the SAME
+        # reason `UNPROVEN_TEST_VERSION` above is patched in and in the same
+        # words: a door that is only tested with the corridor behind it shut
+        # proves little.  Two of the three `/warp` exercises in
+        # `COMMAND_EXERCISES` carry coordinates, and without this they stop at
+        # the head gate and never reach either composer -- which is exactly
+        # the vacuity this file exists to refuse (pf-adversary, round
+        # `vlk8rq`, finding 1, MEASURED: all four tests of
+        # `ChatCommandsCannotWriteTheStandaloneMapTests` went from walking the
+        # cross-scene composer to not walking it at all).
+        _coordinate_gate = mock.patch.object(
+            warp_executor, "WARP_TYPED_COORDINATES_AUTHORIZED", True
+        )
+        _coordinate_gate.start()
+        self.addCleanup(_coordinate_gate.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)

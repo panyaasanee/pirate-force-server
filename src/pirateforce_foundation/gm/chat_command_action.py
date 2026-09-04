@@ -1292,6 +1292,15 @@ EVENT_WARP_NO_POSITION = "gm_chat_action_warp_no_current_position"
 EVENT_WARP_WITHHELD_FORCE_POS_CLOSED = (
     "gm_chat_action_warp_withheld_same_scene_force_pos_closed_r306"
 )
+# COO-DECISION `20260904_2045` item 1: EVERY typed-coordinate `/warp` shape
+# is shut, at ONE point, above every branch.  Its own event name for the same
+# reason the line above has one -- an attended tester greps a console line to
+# find out WHICH closure held a command, and "the same-scene ForcePos frame
+# shape" and "coordinates, in any shape" are two different answers that would
+# send them to two different tickets.
+EVENT_WARP_WITHHELD_TYPED_COORDS_CLOSED = (
+    "gm_chat_action_warp_withheld_typed_coordinates_closed_coo_2045"
+)
 # The warp went out but its destination could not be parked for the position
 # reader (a session that refuses attributes).  NOT a refusal -- the frame is
 # real -- so it is deliberately outside `EVENT_WARP_REFUSED_PREFIX`, whose
@@ -1576,6 +1585,13 @@ OUTCOME_WARP_NO_POSITION = f"{OUTCOME_REFUSED_PREFIX}warp_no_current_position"
 OUTCOME_WARP_WITHHELD_FORCE_POS_CLOSED = (
     f"{OUTCOME_WITHHELD_PREFIX}same_scene_force_pos_frame_shape"
 )
+# COO `2045` item 1's audit word.  `withheld_`, same reading as its
+# neighbour: the command parsed and came from an allowlisted GM, and this
+# lane chose not to send it.  Named after WHAT WAS TYPED (coordinates), not
+# after a frame shape, because the closure spans two composers.
+OUTCOME_WARP_WITHHELD_TYPED_COORDS_CLOSED = (
+    f"{OUTCOME_WITHHELD_PREFIX}typed_coordinates"
+)
 OUTCOME_SAY_VERSION_CODEC_MISMATCH = (
     f"{OUTCOME_REFUSED_PREFIX}say_version_codec_mismatch"
 )
@@ -1711,6 +1727,12 @@ _NO_BYTES_BLOCKERS_SOURCE = {
         "R306 closed the client with ErrorData=28317 on this 45-byte"
         " ForcePos; COO shut the same-scene coordinate warp until the frame"
         " shape is diffed against a real capture -- bare /warp <n> still works"
+    ),
+    OUTCOME_WARP_WITHHELD_TYPED_COORDS_CLOSED: (
+        "COO-DECISION 2045 item 1 shut EVERY typed-coordinate /warp above"
+        " every composer after R306 closed the client with ErrorData=28317;"
+        " no frame is built and no row is touched -- bare /warp <n> still"
+        " works"
     ),
     OUTCOME_SAY_VERSION_CODEC_MISMATCH: (
         "the confirmed vital_version is not the codec's; composing"
@@ -2786,6 +2808,21 @@ def _warp_action(
     below, because pf-adversary D11 measured it describing the PREVIOUS
     round's behaviour on both halves -- and it is the paragraph a reviewer
     reads first):
+      * FIRST, ABOVE EVERY ROUTING DECISION (`COO-DECISION 20260904_2045`
+        item 1): ANY `warp <n> x y` -- any scene, any shape -- is refused
+        while `warp_executor.WARP_TYPED_COORDINATES_AUTHORIZED` ships False.
+        ONE READ SITS ABOVE IT and can answer first: a connection with no
+        readable position is refused `refused_warp_no_current_position` two
+        lines up, because without a current scene this function cannot tell
+        the shapes apart at all (pf-adversary, round `vlk8rq`, finding 8 --
+        zero bytes either way, but an attended tester greps the console to
+        pick a ticket, so the exception is written down rather than implied).
+        No
+        composer runs, no target is parked, no row is written, no login-scene
+        entry is staged; the console names the closure and zero bytes leave.
+        The three bullets below therefore describe where a coordinate warp
+        WOULD go if that flag were flipped back, and are reached today only
+        by a test that patches it.
       * `warp <n> x y` INSIDE the scene the connection is already in is the
         ForcePos half, and it is CLOSED -- `warp_executor.
         WARP_SAME_SCENE_FORCE_POS_AUTHORIZED` ships False after R306
@@ -2857,6 +2894,36 @@ def _warp_action(
         # only, same reasoning as every other refusal here.
         _note(session, f"{EVENT_WARP_REFUSED_PREFIX}{type(error).__name__}")
         return _Verdict(None, f"{OUTCOME_REFUSED_PREFIX}warp_{type(error).__name__}")
+
+    if has_coordinates and not warp_executor.WARP_TYPED_COORDINATES_AUTHORIZED:
+        # COO-DECISION `20260904_2045` item 1.  THE ONE POINT, and it is here
+        # rather than in any branch below on purpose: below this line
+        # `/warp <n> <x> <y>` forks three ways -- cross-scene live
+        # TeleportVital (which COMPOSED AND SENT a real 73-byte frame with
+        # the GM's typed coordinates until this round: round `741zlx`
+        # adversary finding 10, MEASURED, reported in `1930`), same-scene
+        # ForcePos (already shut by `WARP_SAME_SCENE_FORCE_POS_AUTHORIZED`),
+        # and staging (which writes a login-scene entry).  A closure written
+        # per branch would be three closures to keep in step, and finding 10
+        # is exactly what happens when one of them is missed.
+        #
+        # ABOVE `_no_coords_live_target`, `same_scene_with_basis`, both
+        # composers, `_park_warp_target`, the durable scene write of
+        # `warp_scene_persist` (spelled without its private wrapper's name on
+        # purpose -- `test_gm_warp_scene_persist.py::TheBranchesThatCallIt
+        # Tests` greps this very function's source for that identifier to
+        # prove the ForcePos half never persists) and `_stage_action`.  So a
+        # refused coordinate warp leaves NO bytes, NO
+        # parked target, NO staged entry and NO row change -- the four things
+        # a later reader could otherwise mistake for a warp that happened.
+        # The two reads above this line are the command's own text and the
+        # connection's current position; neither writes anything.
+        #
+        # `has_coordinates` is the WHOLE condition on the typed side: the
+        # scene comparison deliberately does not appear, because "which scene
+        # did they name" is what split the old closure in two.
+        _note(session, EVENT_WARP_WITHHELD_TYPED_COORDS_CLOSED)
+        return _Verdict(None, OUTCOME_WARP_WITHHELD_TYPED_COORDS_CLOSED)
 
     if (
         target_scene_id != position.scene_id

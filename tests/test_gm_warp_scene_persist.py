@@ -530,6 +530,14 @@ class SessionShapesThatCannotWriteTests(unittest.TestCase):
 class LoginWouldAcceptTests(unittest.TestCase):
     """Fails closed for everything it cannot answer for."""
 
+    def setUp(self):
+        # The snapshot below is process-global; a case that installs its own
+        # registry must not leave it behind for the next one.
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
     def test_a_marker_backed_scene_is_accepted(self):
         self.assertTrue(warp_scene_persist.login_would_accept(DESTINATION_SCENE))
 
@@ -546,6 +554,150 @@ class LoginWouldAcceptTests(unittest.TestCase):
     def test_a_non_int_scene_id_is_refused_rather_than_raising(self):
         for value in (None, "2", 2.0, True):
             self.assertFalse(warp_scene_persist.login_would_accept(value))
+
+
+class TheRegistryIsReadOnceTests(unittest.TestCase):
+    """`ADVERSARY_PENDING #745-R2` item 5, fixed per `COO 2045` item 4.
+
+    The defect was not that the read was slow.  It was that this module
+    predicts what the RUNNING login path will do, and it was asking a FILE
+    that can change under the running process -- so its prediction and the
+    login it predicts could disagree, in the direction that writes a row a
+    login then refuses (the module docstring's "bricks a character").
+    """
+
+    def setUp(self):
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    def test_the_disk_is_read_once_no_matter_how_many_warps_ask(self):
+        real = world_scene_travel.load_scene_registry
+        calls = []
+
+        def counted(*args, **kwargs):
+            calls.append(1)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(
+            world_scene_travel, "load_scene_registry", counted
+        ):
+            for _ in range(5):
+                warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+        self.assertEqual(1, len(calls))
+
+    def test_a_registry_that_changes_mid_run_does_not_change_the_answer(self):
+        self.assertTrue(warp_scene_persist.login_would_accept(DESTINATION_SCENE))
+        # The same file now says this scene refuses logins.  A per-call disk
+        # read would follow it; the snapshot answers as the server booted.
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("the snapshot re-read the registry")
+            ),
+        ):
+            self.assertTrue(
+                warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+            )
+
+    def test_a_second_thread_arriving_mid_read_is_not_told_the_scene_refuses(self):
+        """pf-adversary round `vlk8rq`, finding 4, MEASURED.
+
+        The first draft set the "taken" flag BEFORE the load and held no
+        lock, so a second connection warping while the read was in flight saw
+        `TAKEN=True, SNAPSHOT=None`, was answered False, and LOST ITS DURABLE
+        ROW under a word that blames scene policy.  `persist_warp_scene` runs
+        on a per-connection listener thread, so this is a real pair of
+        callers, not a hypothetical one.
+        """
+        import threading
+        import time
+
+        real = world_scene_travel.load_scene_registry
+
+        def slow(*args, **kwargs):
+            time.sleep(0.3)
+            return real(*args, **kwargs)
+
+        answers = {}
+
+        def ask(name):
+            answers[name] = warp_scene_persist.login_would_accept(
+                DESTINATION_SCENE
+            )
+
+        with mock.patch.object(world_scene_travel, "load_scene_registry", slow):
+            first = threading.Thread(target=ask, args=("first",))
+            first.start()
+            time.sleep(0.1)
+            second = threading.Thread(target=ask, args=("second",))
+            second.start()
+            first.join()
+            second.join()
+        self.assertEqual({"first": True, "second": True}, answers)
+
+    def test_an_unreadable_registry_refuses_every_scene(self):
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("no registry")),
+        ):
+            self.assertFalse(
+                warp_scene_persist.login_would_accept(DESTINATION_SCENE)
+            )
+        # And it does not go back to the disk on the next warp: the retry is
+        # the hot-path read this change exists to remove.
+        self.assertFalse(warp_scene_persist.login_would_accept(DESTINATION_SCENE))
+
+
+class AnUnreadableRegistryGetsItsOwnWordTests(RealDatabaseTests):
+    """pf-adversary round `vlk8rq`, finding 5.
+
+    `login_would_accept` fails closed for two different reasons and the
+    caller used to report both as `login_would_refuse` -- the same
+    one-word-two-questions defect this module closed LAST round as finding 2.
+    An operator reading the console has to be able to tell "this scene is
+    pinned shut" from "this process cannot read the registry and, by design,
+    will not retry".
+    """
+
+    def setUp(self):
+        super().setUp()
+        warp_scene_persist.reset_login_registry_snapshot_for_tests()
+        self.addCleanup(
+            warp_scene_persist.reset_login_registry_snapshot_for_tests
+        )
+
+    def test_the_word_names_the_registry_not_the_scene(self):
+        session = self._session("registry01")
+        # Built BEFORE the registry is taken away: the target is the frame's
+        # own, composed while the file was readable, which is the real
+        # sequence -- the read this test breaks is the one that happens at
+        # persist time, not at compose time.
+        target = _target(DESTINATION_SCENE)
+        with mock.patch.object(
+            world_scene_travel,
+            "load_scene_registry",
+            lambda *a, **k: (_ for _ in ()).throw(OSError("no registry")),
+        ):
+            stream = io.StringIO()
+            with redirect_stderr(stream):
+                outcome = warp_scene_persist.persist_warp_scene(
+                    session, target
+                )
+        self.assertEqual(
+            warp_scene_persist.OUTCOME_LOGIN_REGISTRY_UNREADABLE, outcome
+        )
+        self.assertNotEqual(
+            warp_scene_persist.OUTCOME_LOGIN_WOULD_REFUSE, outcome
+        )
+        self.assertIn(warp_scene_persist.FAIL_CONSOLE_TOKEN, stream.getvalue())
+        self.assertIn(
+            warp_scene_persist.OUTCOME_LOGIN_REGISTRY_UNREADABLE,
+            stream.getvalue(),
+        )
 
 
 class TheRowIsBuiltFromTheFrameTests(unittest.TestCase):
