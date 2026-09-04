@@ -34,6 +34,21 @@ not claim it means "MP").  ``n_PASSIVE`` is carried as the client's own raw
 value precisely so nobody downstream mistakes a raw column for a decoded
 classification.
 
+[UPDATE, this round]: ``cooldown_seconds()`` and ``stamina_cost()`` join
+``level_learn()`` as named accessors for ``n_CD``/``n_STAMINA_COST`` -- the
+"ค่า MP/CD/ระยะ" (MP/CD/range values) half of LANE-CS's queue item 1 that the
+starting-kit catalog carried in ``skill_raw_context()`` since round `iazmrv`
+but never gave a named reader.  Neither has a caller outside this module's
+own tests today, same as ``level_learn()`` before it: the catalog answers
+reads, it does not yet gate anything, because no lane calls
+``resolve_skill_damage`` in production yet either (see ``damage_by_skill.py``).
+``n_TARGET`` is deliberately NOT given an accessor here: unlike ``n_CD``/
+``n_STAMINA_COST`` its raw values (0 for every non-99 id, 1 for 99) have no
+unit or direction this project has RE'd, so naming it "range" or "target
+mode" would be exactly the invented-meaning mistake this section warns
+against for ``n_PASSIVE`` -- ``skill_raw_context()`` still carries it
+verbatim for a future round that does RE it.
+
     ROUND 6o11t1 CHECKED THE OBVIOUS SHORTCUT AND IT IS A TRAP.
     ``n_PASSIVE`` is not boolean -- table-wide it takes 6 distinct values (0:
     1 row, 1: 118, 2: 1016, 3: 910, 4: 84, 5: 36), which is suspicious given
@@ -172,6 +187,22 @@ def skill_raw_context(skill_id: int) -> dict[str, str]:
 
 def level_learn(skill_id: int) -> int:
     return int(skill_raw_context(skill_id)["n_LEVEL_LEARN"])
+
+
+def cooldown_seconds(skill_id: int) -> int:
+    """The client's own ``n_CD`` column, unmodified.  Named ``_seconds``
+    because the two known values in this catalog (skill 99's 25, movement's
+    1) are consistent with a seconds unit, not because any table or report
+    in this project states the unit -- treat the name as a guess about UNIT
+    only, never about what the column measures beyond "cooldown"."""
+    return int(skill_raw_context(skill_id)["n_CD"])
+
+
+def stamina_cost(skill_id: int) -> int:
+    """The client's own ``n_STAMINA_COST`` column, unmodified.  See the
+    module docstring: this is the closest cost field the table has, named as
+    the table names it -- this function does not claim it means "MP"."""
+    return int(skill_raw_context(skill_id)["n_STAMINA_COST"])
 
 
 def is_known_skill_id(skill_id: int) -> bool:

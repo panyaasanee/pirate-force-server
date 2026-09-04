@@ -1,6 +1,7 @@
 """LANE-CS: starting-skill-kit catalog, pinned to the committed client tables."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import subprocess
 import sys
@@ -63,6 +64,69 @@ class SkillCatalogTests(unittest.TestCase):
         for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
             with self.subTest(skill_id=skill_id):
                 self.assertEqual(skill_catalog.level_learn(skill_id), 1)
+
+    def test_cooldown_seconds_matches_the_raw_column_per_skill(self):
+        # Real values from the committed table (not invented): the basic
+        # attack (99) and the two movement skills (110/111) each carry a
+        # non-zero n_CD, every Basic Training carries 0.
+        expected = {
+            99: 25, 110: 1, 111: 1,
+            40000: 0, 41000: 0, 42000: 0, 43000: 0, 44000: 0,
+        }
+        for skill_id, cd in expected.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(skill_catalog.cooldown_seconds(skill_id), cd)
+                self.assertEqual(
+                    skill_catalog.cooldown_seconds(skill_id),
+                    int(skill_catalog.skill_raw_context(skill_id)["n_CD"]))
+
+    def test_stamina_cost_matches_the_raw_column_per_skill(self):
+        # Real values from the committed table: only Strive Jump (110) costs
+        # stamina among these 8 -- the basic attack (99) costs 0.
+        expected = {
+            99: 0, 110: 22, 111: 0,
+            40000: 0, 41000: 0, 42000: 0, 43000: 0, 44000: 0,
+        }
+        for skill_id, cost in expected.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(skill_catalog.stamina_cost(skill_id), cost)
+                self.assertEqual(
+                    skill_catalog.stamina_cost(skill_id),
+                    int(skill_catalog.skill_raw_context(skill_id)["n_STAMINA_COST"]))
+
+    def test_no_accessor_exists_for_n_target_yet(self):
+        # n_TARGET has no RE'd unit or direction (module docstring, this
+        # round) -- guards against a future edit quietly adding a named
+        # accessor for it, the same trap test_raw_context_exposes_no_invented_
+        # type_field pins for the type column.
+        #
+        # AST-shaped, not name-based (pf-adversary this round: a first draft
+        # only checked four guessed function names -- hasattr(skill_catalog,
+        # "target"/"target_field"/"range"/"target_mode") -- and a mutation
+        # test proved a differently-named accessor such as target_type()
+        # sailed straight past it while this test kept reporting green).
+        # Instead this walks the module's AST for the string literal
+        # "n_TARGET" and requires it to appear in exactly the one place the
+        # module is allowed to name it: the ``_CONTEXT_COLUMNS`` raw-column
+        # allowlist tuple.  A future accessor of any name that indexes
+        # ``skill_raw_context(...)["n_TARGET"]`` -- or the raw dict directly
+        # -- adds a second occurrence of that literal and turns this red,
+        # regardless of what the function is called.
+        source = (
+            ROOT / "src/pirateforce_foundation/skill_catalog.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        occurrences = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and node.value == "n_TARGET"
+        ]
+        self.assertEqual(
+            len(occurrences), 1,
+            "the string literal \"n_TARGET\" appears %d times in "
+            "skill_catalog.py, expected exactly 1 (inside _CONTEXT_COLUMNS) "
+            "-- a new occurrence means something now reads/exposes n_TARGET "
+            "by name; re-check it isn't an invented-meaning accessor before "
+            "widening this count" % len(occurrences))
 
     def test_raw_context_exposes_no_invented_type_field(self):
         # Guards against a future edit quietly adding a
