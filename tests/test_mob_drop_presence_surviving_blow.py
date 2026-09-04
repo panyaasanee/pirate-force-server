@@ -353,13 +353,40 @@ class NothingSendsThisYetAndTheEvidenceSaysSoTests(SurvivingBlowTestBase):
     """pf-adversary D8: a reader who greps this module on `main` and finds a
     hit must be able to tell "shipped" from "composed, nothing sends it"."""
 
-    def test_the_call_site_status_says_composed_not_sent(self):
-        self.assertEqual(
-            mob_drop_presence.GROUND_SURVIVING_BLOW_CALL_SITE_STATUS,
-            "composed_not_sent_no_call_site",
-            "when a call site is authorised and lands, this becomes 'sent' "
-            "in the same commit -- and this test is what notices if it does "
-            "not")
+    def test_the_call_site_status_is_re_derived_from_runtime_py(self):
+        """pf-adversary pass 2, N1: a hand-typed status compared against its
+        own literal is a token compared with itself.
+
+        It was MEASURED: pasting the real call into `runtime.py` left this
+        file 23/23 green with the status still reading
+        `composed_not_sent_no_call_site`, and the lane's own letter proposed
+        that string as a pre-boot gate for an attended round.  So the status
+        is now derived from `runtime.py`'s AST, the way this lane's sibling
+        test already does it for `DROP_PRESENCE_WIRING`: whichever way the
+        two drift apart, this fails.
+        """
+        import ast
+
+        tree = ast.parse(
+            (ROOT / "src/pirateforce_foundation/runtime.py").read_text(
+                encoding="utf-8"))
+        called = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "reannounce_ground_after_a_surviving_blow"
+            for node in ast.walk(tree))
+        status = mob_drop_presence.GROUND_SURVIVING_BLOW_CALL_SITE_STATUS
+        if called:
+            self.assertEqual(
+                status, "sent",
+                "runtime.py calls this composer, so the module's status must "
+                "say sent -- and the withheld wiring text and this round's "
+                "letters need revisiting in the same commit")
+        else:
+            self.assertEqual(
+                status, "composed_not_sent_no_call_site",
+                "nothing in runtime.py calls this composer, so the module "
+                "may not claim otherwise")
 
     def test_the_wiring_text_is_withheld_not_pasteable(self):
         withheld = mob_drop_presence.WITHHELD_GROUND_SURVIVING_BLOW_WIRING

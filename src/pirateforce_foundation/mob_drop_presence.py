@@ -999,8 +999,10 @@ flag: production_allowed is True and this behaviour is on for every boot.
 # ``origin/main`` this round, the non-fatal branch of ``mob_combat.strike``
 # (mob_combat.py:2849) returns exactly ``(announce_frame, bar_frame)`` and
 # runtime.py's hit dispatch reaches ``return actions`` with no ground call
-# at all -- every ground re-emit on that file sits inside ``if
-# step.death_due:``.  So what is on main today re-draws the floor ON THE
+# at all -- every ground re-emit ON THAT DISPATCH sits inside ``if
+# step.death_due:``.  (Not "in that file": the scene-boundary flush near
+# runtime.py:7133 publishes ground outside the hit path entirely.
+# pf-adversary, pass 2, N8.)  So what is on main today re-draws the floor ON THE
 # KILL, which is the "it comes back" half; the "it vanished" half, the
 # window between one kill and the next, still has nothing.
 #
@@ -1014,27 +1016,35 @@ flag: production_allowed is True and this behaviour is on for every boot.
 # :data:`GROUND_SURVIVING_BLOW_CALL_SITE_STATUS` and
 # :data:`WITHHELD_GROUND_SURVIVING_BLOW_WIRING`: the wiring ask was drafted
 # this round and then WITHDRAWN by this lane, in the same round, on its own
-# adversarial measurement.  The reason, measured by driving the real
-# ``mob_combat.strike``/``commit_step`` against
-# the first row of Bg0002's shipped roster (max_hp 3857) and counting
-# (spelled without the roster module's name on purpose: that module's own
-# test pins the list of files in src/ that MENTION its name as its
-# importers, and this module does not import it -- naming it in prose here
-# would put a false entry on a pinned list)
-# blows until ``step.death_due`` flipped:
+# adversarial measurement.  The reason: a call site there fires once per
+# BLOW, and a kill is many blows.
 #
-#     attacker level 50 ->   8 blows/kill ->   7 extra ground publications
-#     attacker level 10 ->  33 blows/kill ->  32 extra publications
-#     attacker level  1 -> 133 blows/kill -> 132 extra publications
+# THE NUMBER THAT MATTERS IS THE ONE THIS SERVER CAN PRODUCE, and the first
+# number this comment carried was not it.  runtime.py builds exactly one
+# attacker -- ``mob_combat.pin_attacker()`` (level 7, ability_str 132),
+# ``runtime.py:303``, passed at ``runtime.py:5044`` for every attack; no
+# other attacker is constructed anywhere in that file.  Driven against
+# Bg0002's shipped roster with THAT attacker (``pin_document``, this round):
 #
-# At ~57 B for a one-row floor and ~+30 B per further row, a level-1
-# character killing ONE mob over a five-row floor is ~23.6 KB of repeated
-# ground frames and hundreds of console lines for that single kill.  The COO
+#     mobs at max_hp 3857, damage 964/blow -> 5 blows/kill -> 4 extra
+#     mobs at max_hp 3138, damage 966/blow -> 4 blows/kill -> 3 extra
+#
+# So the amplification on today's production path is 3-4 extra ground
+# publications per kill (~180 B per blow over a five-row floor), NOT the
+# 7-132 an earlier draft of this comment quoted from attacker levels 1/10/50
+# -- none of which this server can build (pf-adversary, pass 2, and it is
+# right: a decision input that is 30x off in the direction of the answer the
+# lane already preferred is not evidence, whatever the conclusion).
+#
+# The withholding stands on the smaller number, because the bar it runs into
+# is structural rather than a threshold: the COO
 # ruling of 2026-08-30T17:42+07:00 barred any REPEATED resend -- capped or
 # movement-driven -- until an attended round fires EXACTLY ONE extra resend
-# after a drop and measures whether the label comes back.  The 2026-09-03
-# ratification of option (b) names the event ("a blow that does not kill")
-# and nowhere names a 132:1 amplification, so this lane will not read it as
+# after a drop and measures whether the label comes back.  THREE IS NOT ONE,
+# which is why the smaller number changes nothing about the answer.  The
+# 2026-09-03 ratification of option (b) names the event ("a blow that does
+# not kill") and nowhere names an amplification at all, so this lane will
+# not read it as
 # permission for one.  The decision is the COO's, not this lane's, and the
 # ask is in pf_bridge/notes_to_chief/20260905_0146_LANE-B-ASK-COO-*.
 #
@@ -1079,9 +1089,13 @@ GROUND_SURVIVING_BLOW_REFUSED_TOKEN = (
 #: because that confusion has already cost this project a round once.
 #: It is a STRING, not a bool, and it is read by a test rather than by the
 #: code: nothing here is gated on it, because the honest gate is that no
-#: caller exists.  When a call site is authorised and landed, this becomes
-#: ``"sent"`` in the same commit that lands it, and the test that pins it
-#: fails until it does.
+#: caller exists.  ITS TEST WALKS ``runtime.py``'s AST rather than comparing
+#: this literal with itself -- pf-adversary pass 2 MEASURED that a
+#: hand-typed status stays green while a real call site is pasted in, and
+#: this lane had proposed grepping this very string as an attended round's
+#: pre-boot gate.  So the test fails in BOTH directions now: a landed call
+#: site with this still saying "composed_not_sent_no_call_site", and a
+#: "sent" written here with nothing calling it.
 GROUND_SURVIVING_BLOW_CALL_SITE_STATUS = "composed_not_sent_no_call_site"
 
 #: The blow killed: the per-kill call site already re-emits this same
@@ -1144,11 +1158,12 @@ def reannounce_ground_after_a_surviving_blow(
     worth exactly what it was measured at, and because it is one more thing
     a call site has to answer for.
 
-    NO TICKET GREPS THESE TOKENS.  ``GT-223`` criterion (8) is EYES ONLY (a
-    short video, human eyes, its own text forbids inferring it from the
-    console), and no other entry in ``GAME_TEST_QUEUE.md`` mentions this
-    module's names.  This function's console lines are for an operator
-    reading a boot, not evidence any ticket collects.
+    NO TICKET GREPS THESE TWO TOKENS.  ``GT-223`` criterion (8) is EYES ONLY
+    (a short video, human eyes, its own text forbids inferring it from the
+    console).  Other names in THIS MODULE are grepped -- ``GT-242``'s RECHECK
+    runs ``findstr`` for ``MOB_DROP_PRESENCE`` and for the 0x4B98 token above
+    -- but nothing collects the surviving-blow pair.  This function's console
+    lines are for an operator reading a boot, not evidence a ticket gathers.
     """
     try:
         death_due = step.death_due
