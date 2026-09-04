@@ -12,7 +12,7 @@ a real row because of it.
 DROPS_QUEST IS ABSENT ON PURPOSE.  Only 311 of the 2478 DROPS_QUEST
 sets the mobs reference exist client-side, so ~87 pct of that model is
 missing and any DROPS_QUEST row written here would be invention.
-21 roster row(s) name one; they are carried without it.
+51 roster row(s) name one; they are carried without it.
 
 ``drop_model_type`` is copied for information and is NOT a claim.  In
 particular a nonzero value is NOT SUFFICIENT to make an item model
@@ -45,7 +45,7 @@ from __future__ import annotations
 # tables below are their UNION: a drop-set id and an item id mean the
 # same thing in every scene, so this is a superset of each scene's own
 # table and never a merge of disagreeing rows.
-SCENES = ('bg0001', 'Bg0002')
+SCENES = ('bg0001', 'Bg0002', 'Bg0003', 'bg0005', 'Bg0015')
 # ~~SCENE~~, kept as the first mined scene so an existing reader does
 # not break; SCENES is what this module is actually about now.
 SCENE = 'bg0001'
@@ -64,7 +64,7 @@ SOURCE_DIGESTS = {
     'TEXTDATA_TH__ITEM_QUEST_TIP': '2818474f4e9c3ce983d74edcb9dc8f7207e1a351c04bb7146de5aacdc098b346',
 }
 NON_ASCII_NAMES_ESCAPED = 0
-MONEY_SLOTS_IN_CARRIED_SETS = 5
+MONEY_SLOTS_IN_CARRIED_SETS = 11
 
 # set id -> ((slot_index, item_id, rate_percent, qty_min, qty_max), ...)
 # Per-slot INDEPENDENT percentage rates, in table order.  item_id 0 is
@@ -77,6 +77,20 @@ DROPS_NORMAL = {
         (4, 2600751, 0.5, 1, 1),
         (5, 0, 1.0, 1, 1),
         (6, 0, 0.0, 0, 1),
+    ),
+    2701002: (
+        (1, 2400046, 10.0, 1, 1),
+        (2, 2400047, 5.0, 1, 1),
+        (3, 2400519, 2.0, 1, 3),
+        (4, 2400522, 2.0, 1, 3),
+        (5, 2400525, 2.0, 1, 3),
+        (6, 2600701, 0.5, 1, 1),
+        (7, 2406957, 1.0, 1, 1),
+        (8, 2406958, 1.0, 1, 1),
+        (9, 2406959, 1.0, 1, 1),
+        (10, 2600091, 0.5, 1, 1),
+        (11, 2600751, 1.0, 1, 1),
+        (12, 0, 1.0, 1, 1),
     ),
     2701003: (
         (1, 2400046, 10.0, 1, 1),
@@ -91,6 +105,35 @@ DROPS_NORMAL = {
         (10, 2600091, 0.5, 1, 1),
         (11, 2600751, 1.0, 1, 1),
         (12, 0, 1.0, 1, 1),
+    ),
+    2701004: (
+        (1, 2400046, 10.0, 1, 1),
+        (2, 2400047, 5.0, 1, 1),
+        (3, 2400519, 2.0, 3, 5),
+        (4, 2400522, 2.0, 3, 5),
+        (5, 2400525, 2.0, 3, 5),
+        (6, 2600701, 0.5, 1, 1),
+        (7, 2406957, 0.5, 1, 1),
+        (8, 2406958, 0.5, 1, 1),
+        (9, 2406959, 0.5, 1, 1),
+        (10, 2600091, 0.5, 1, 1),
+        (11, 2600751, 0.5, 1, 1),
+        (12, 0, 1.0, 1, 1),
+    ),
+    2701010: (
+        (1, 2400046, 10.0, 1, 1),
+        (2, 2400047, 5.0, 1, 1),
+        (3, 2400521, 1.0, 5, 7),
+        (4, 2400524, 1.0, 5, 7),
+        (5, 2400527, 1.0, 5, 7),
+        (6, 2600703, 0.5, 1, 1),
+        (7, 2406957, 0.5, 1, 1),
+        (8, 2406958, 0.5, 1, 1),
+        (9, 2406959, 0.5, 1, 1),
+        (10, 2600093, 0.5, 1, 1),
+        (11, 2600753, 0.5, 1, 1),
+        (12, 0, 1.0, 1, 1),
+        (13, 0, 1.0, 1, 1),
     ),
 }
 
@@ -116,6 +159,24 @@ DROPS_EQUIPMENT = {
         (15, 2205601, 100),
         (17, 0, 100),
     )),
+    5400002: (50.0, 1, 1, (
+        (1, 2200202, 100),
+        (2, 2200402, 100),
+        (3, 2200602, 100),
+        (4, 2200802, 100),
+        (5, 2201002, 100),
+        (6, 2201202, 100),
+        (7, 2204002, 100),
+        (8, 2204202, 100),
+        (9, 2204402, 100),
+        (10, 2204602, 100),
+        (11, 2204802, 100),
+        (12, 2205002, 50),
+        (13, 2205202, 50),
+        (14, 2205402, 50),
+        (15, 2205602, 50),
+        (17, 0, 100),
+    )),
     5400003: (50.0, 1, 1, (
         (1, 2200222, 100),
         (2, 2200422, 100),
@@ -134,11 +195,53 @@ DROPS_EQUIPMENT = {
         (15, 2205620, 30),
         (17, 0, 100),
     )),
+    5400004: (30.0, 1, 1, (
+        (1, 2200223, 100),
+        (2, 2200423, 100),
+        (3, 2200623, 100),
+        (4, 2200823, 100),
+        (5, 2201023, 100),
+        (6, 2201223, 100),
+        (7, 2204027, 100),
+        (8, 2204227, 100),
+        (9, 2204427, 100),
+        (10, 2204622, 100),
+        (11, 2204822, 100),
+        (12, 2205020, 30),
+        (13, 2205220, 30),
+        (14, 2205420, 30),
+        (15, 2205620, 30),
+        (17, 0, 100),
+    )),
 }
 
 DROPS_SPECIALLY = {
+    2802205: (0.0, 1, 1, (
+        (1, 2414005, 100),
+    )),
+    2802208: (0.0, 1, 1, (
+        (1, 2414008, 100),
+    )),
+    2802211: (0.0, 1, 1, (
+        (1, 2414011, 100),
+    )),
+    2802214: (0.0, 1, 1, (
+        (1, 2414014, 100),
+    )),
+    2802215: (0.0, 1, 1, (
+        (1, 2414015, 100),
+    )),
+    2802219: (0.0, 1, 1, (
+        (1, 2414019, 100),
+    )),
     2802234: (0.0, 1, 1, (
         (1, 2414034, 100),
+    )),
+    2802235: (0.0, 1, 1, (
+        (1, 2414035, 100),
+    )),
+    2802250: (0.0, 1, 1, (
+        (1, 2414050, 100),
     )),
     2802264: (0.0, 1, 1, (
         (1, 2414064, 100),
@@ -148,56 +251,109 @@ DROPS_SPECIALLY = {
 # item id -> (table_code, low_id, display_name, drop_model_type)
 ITEMS = {
     2200201: (22, 201, 'Dagger', 1),
+    2200202: (22, 202, 'Sharp Dagger', 1),
     2200222: (22, 222, 'Soldier Sword', 1),
+    2200223: (22, 223, 'Uranium Sword', 1),
     2200401: (22, 401, 'Guard Hammer', 1),
+    2200402: (22, 402, 'Red Hammer', 1),
     2200422: (22, 422, 'Obtuse Hammer', 1),
+    2200423: (22, 423, 'Red leaves Hammer', 1),
     2200601: (22, 601, 'Shield', 1),
+    2200602: (22, 602, 'Shield', 1),
     2200622: (22, 622, 'Obtuse Shield', 1),
+    2200623: (22, 623, 'Red Leaves Shield', 1),
     2200801: (22, 801, 'Sky Stone', 1),
+    2200802: (22, 802, 'Mountain Pumice', 1),
     2200822: (22, 822, 'Ground Horse Timepiece', 1),
+    2200823: (22, 823, 'Morning Ground', 1),
     2201001: (22, 1001, 'Fist Gun', 1),
+    2201002: (22, 1002, 'Strength Gun', 1),
     2201022: (22, 1022, 'Pirate Short Tube', 1),
+    2201023: (22, 1023, 'Rebellion Short Tube', 1),
     2201201: (22, 1201, 'Wood Stick', 1),
+    2201202: (22, 1202, 'Gray Stick', 1),
     2201222: (22, 1222, 'Green Wisp', 1),
+    2201223: (22, 1223, 'Morning Sun', 1),
     2204001: (22, 4001, 'Exile Headdress', 2),
+    2204002: (22, 4002, 'Ocean Headdress', 2),
     2204026: (22, 4026, 'Misty Headdress', 2),
+    2204027: (22, 4027, 'Soft Headdress', 2),
     2204201: (22, 4201, 'Exile Armor', 2),
+    2204202: (22, 4202, 'Ocean Armor', 2),
     2204226: (22, 4226, 'Misty Armor', 2),
+    2204227: (22, 4227, 'Soft Armor', 2),
     2204401: (22, 4401, 'Exile Legging', 2),
+    2204402: (22, 4402, 'Ocean Legging', 2),
     2204426: (22, 4426, 'Misty Legging', 2),
+    2204427: (22, 4427, 'Soft Legging', 2),
     2204601: (22, 4601, 'Exile Glove', 2),
+    2204602: (22, 4602, 'Ocean Glove', 2),
     2204621: (22, 4621, 'Misty Glove', 2),
+    2204622: (22, 4622, 'Soft Glove', 2),
     2204801: (22, 4801, 'Exile Sandal', 2),
+    2204802: (22, 4802, 'Ocean Sandal', 2),
     2204821: (22, 4821, 'Misty Sandal', 2),
+    2204822: (22, 4822, 'Soft Sandal', 2),
     2205001: (22, 5001, 'Blue Necklace', 3),
+    2205002: (22, 5002, 'Gold Necklace', 3),
     2205020: (22, 5020, 'Moonstar Necklace', 3),
     2205201: (22, 5201, 'Blue Ring', 3),
+    2205202: (22, 5202, 'Gold Ring', 3),
     2205220: (22, 5220, 'Moonstar Ring', 3),
     2205401: (22, 5401, 'Blue Talisman', 3),
+    2205402: (22, 5402, 'Gold Talisman', 3),
     2205420: (22, 5420, 'Moonstar Talisman', 3),
     2205601: (22, 5601, 'Blue Wristband', 3),
+    2205602: (22, 5602, 'Gold Wristband', 3),
     2205620: (22, 5620, 'Moonstar Wristband', 3),
     2400046: (24, 46, 'Blood Cubic Crystal', 11),
     2400047: (24, 47, 'Energy Cubic Crystal', 10),
     2400519: (24, 519, 'Coarse Red Crystal Maintain', 0),
+    2400521: (24, 521, 'Coarse Red Crystal Maintain', 0),
     2400522: (24, 522, 'Coarse Blue Crystal Maintain', 0),
+    2400524: (24, 524, 'Coarse Blue Crystal Maintain', 0),
     2400525: (24, 525, 'Coarse Green Crystal Maintain', 0),
+    2400527: (24, 527, 'Coarse Green Crystal Maintain', 0),
     2406957: (24, 6957, 'Light Color Red Crystal', 0),
     2406958: (24, 6958, 'Light Color Blue Crystal', 0),
     2406959: (24, 6959, 'Light Color Green Crystal', 0),
+    2414005: (24, 14005, 'Red Flame Demon Wolf', 0),
+    2414008: (24, 14008, 'Jungle Tiger', 0),
+    2414011: (24, 14011, 'Ned King Kong', 0),
+    2414014: (24, 14014, 'Hell King Kong', 0),
+    2414015: (24, 14015, 'Ward Kingkong', 0),
+    2414019: (24, 14019, 'Toxic Vine', 0),
     2414034: (24, 14034, 'Desert Eagle', 0),
+    2414035: (24, 14035, 'Blood red eagle', 0),
+    2414050: (24, 14050, 'Fire Euglena', 0),
     2414064: (24, 14064, 'Fighting Fish soldier', 0),
     2600091: (26, 91, 'Damage Piece', 0),
+    2600093: (26, 93, 'Illegible Piece', 0),
     2600701: (26, 701, 'Wrought iron Relic', 0),
+    2600703: (26, 703, 'Smelt iron Relic', 0),
     2600751: (26, 751, 'Nutrition Soda', 0),
+    2600753: (26, 753, 'Nutrition Bunopang', 0),
 }
 
 # set id -> the MOBS template ids that reference it, in roster order
 REFERENCED_BY = {
     2701001: (31, 34, 35),
+    2701002: (61, 62, 65, 60, 194, 515, 907),
     2701003: (103,),
+    2701004: (148, 150, 144, 146, 523, 525),
+    2701010: (343, 345, 348, 350, 353, 355),
+    2802205: (348,),
+    2802208: (60,),
+    2802211: (150,),
+    2802214: (353,),
+    2802215: (65,),
+    2802219: (61,),
     2802234: (31,),
+    2802235: (144,),
+    2802250: (343,),
     2802264: (34, 35),
     5400001: (31, 34, 35),
-    5400003: (103,),
+    5400002: (61, 62, 65, 60, 194, 515, 907),
+    5400003: (103, 148, 150, 144, 146, 523, 525),
+    5400004: (343, 345, 348, 350, 353, 355),
 }

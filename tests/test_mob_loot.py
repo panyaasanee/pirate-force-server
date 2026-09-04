@@ -2087,12 +2087,24 @@ class MobLootTests(unittest.TestCase):
                         self.assertIn(item, field_drop_tables.ITEMS)
 
     def test_the_table_carries_exactly_the_sets_the_roster_names(self):
+        # ROUND (next after 59iqwi): ~~self.roster (Bg0002 alone)~~ STRUCK.
+        # `field_drop_tables` mines the UNION of every scene named in its own
+        # ``SCENES`` tuple (widened this round to include Bg0003/bg0005/
+        # Bg0015, the reserve item this lane's own round file named --
+        # `COO-DECISION 20260904_1450` items 1-2's scene-3/5/14 kill rulings
+        # made their rosters' loot reachable for the first time).  ``wanted``
+        # has to walk the same union or every set the newly mined scenes
+        # contribute reads as an unexplained extra -- which is exactly what
+        # this test measured before this round widened the table, and it is
+        # the assertion this round makes false rather than deletes: it stays,
+        # struck, as the record of what "exactly Bg0002" meant.
         wanted = set()
-        for mob in self.roster:
-            for set_id in (mob.drops_normal, mob.drops_equipment,
-                           mob.drops_specially):
-                if set_id:
-                    wanted.add(set_id)
+        for scene in field_drop_tables.SCENES:
+            for mob in load_roster(scene=scene):
+                for set_id in (mob.drops_normal, mob.drops_equipment,
+                               mob.drops_specially):
+                    if set_id:
+                        wanted.add(set_id)
         carried = (
             set(field_drop_tables.DROPS_NORMAL)
             | set(field_drop_tables.DROPS_EQUIPMENT)
@@ -2106,7 +2118,14 @@ class MobLootTests(unittest.TestCase):
         # the second set.  Its drop sets stay carried -- they are mined
         # data, not a claim that something drops them today.  The difference
         # is asserted by name so an UNEXPLAINED extra set still fails.
-        orc_chief_sets = {2701003, 5400003}
+        # ROUND (next after 59iqwi): ~~{2701003, 5400003}~~ narrowed to
+        # ``{2701003}`` -- MEASURED, not assumed, when this round's wider
+        # ``wanted`` (five scenes, not one) was run against the widened
+        # table: 5400003 is no longer an unexplained extra, because one of
+        # the newly mined scenes' SHIPPED rosters (Bg0003/bg0005/Bg0015)
+        # really does name it.  2701003 stays the Orc Chief's alone -- no
+        # newly mined scene ships template 103.
+        orc_chief_sets = {2701003}
         self.assertEqual(carried - wanted, orc_chief_sets)
         self.assertEqual(wanted - carried, set())
         # BOTH directions.  pf-adversary killed the first draft of this
@@ -2183,29 +2202,44 @@ class MobLootTests(unittest.TestCase):
         ]
         self.assertIn(0.0, rates)
 
-    def test_no_id_this_lane_can_emit_has_ever_been_on_a_wire(self):
-        """The true, stronger version of what this test used to check.
+    def test_one_id_this_lane_can_emit_was_once_on_a_wire_two_never_were(self):
+        """~~test_no_id_this_lane_can_emit_has_ever_been_on_a_wire~~ STRUCK.
 
-        It was named for "the two ids that travelled" and then asserted that
-        2200201 is called Dagger -- an id that never travelled -- because
-        neither id that DID travel is in this table at all.  Green for the
-        wrong reason, and it hid the fact worth stating: the label evidence is
-        about the PIPE, and every id this lane can send is new to the client.
+        Renamed and re-asserted this round rather than left green for the
+        wrong reason: it used to check the intersection was EMPTY, and that
+        stopped being true the moment scene 3/5/14 (Bg0003/bg0005/Bg0015)
+        were mined into ``field_drop_tables`` -- Bg0015's roster ships
+        DROPS_EQUIPMENT set 5400004, which names 2200423 (EQUIPMENT_BASE
+        423, "Red leaves Hammer"), the SAME id GT-045 measured drawing a
+        name label on a real client.  ``mob_loot.MOB_LOOT_NONCLAIMS`` #3 was
+        corrected in the same round; this test is what keeps that
+        correction honest against a re-widening or a re-narrowing of the
+        table.  The other two ids GT-045/round-1104 ever measured on a wire
+        (2200003, 2600001) remain absent, which is still worth asserting by
+        name rather than folded into a single equality.
 
-        The 43 below is len(field_drop_tables.ITEMS), the PRODUCTION EMIT
-        UNIVERSE (field_drop_tables.py:149-193) -- a different count from the
-        externally-specified 43-ID AUDIT SET Codex's GDL-IMG-017 checkpoint
-        finding names for the client-side ground-drop asset-decode chain.
-        The two currently share a number by coincidence; do not read one for
-        the other, and do not change this literal without re-deriving
+        The 83 below is len(field_drop_tables.ITEMS), the PRODUCTION EMIT
+        UNIVERSE (field_drop_tables.py:149-193), up from 43 before this
+        round's widening -- a different count from the externally-specified
+        43-ID AUDIT SET Codex's GDL-IMG-017 checkpoint finding names for the
+        client-side ground-drop asset-decode chain.  The two have shared a
+        number by coincidence before and do not now; do not read one for the
+        other, and do not change this literal without re-deriving
         len(field_drop_tables.ITEMS) first.
         """
         travelled = set(mob_loot.IDS_ON_THE_WIRE_GT045_V3) | set(
             mob_loot.IDS_ON_THE_WIRE_ROUND_1104)
-        self.assertEqual(travelled & set(field_drop_tables.ITEMS), set())
+        self.assertEqual(travelled & set(field_drop_tables.ITEMS), {2200423})
+        self.assertNotIn(2200003, field_drop_tables.ITEMS)
+        self.assertNotIn(2600001, field_drop_tables.ITEMS)
+        self.assertEqual(len(field_drop_tables.ITEMS), 83)
+        nonclaims_text = " ".join(MOB_LOOT_NONCLAIMS)
         self.assertIn(
-            "NOT ONE OF THE 43 IDS THIS LANE CAN EMIT",
-            " ".join(MOB_LOOT_NONCLAIMS))
+            "NOT ONE OF THE 43 IDS THIS LANE CAN EMIT HAS EVER BEEN ON A "
+            "CLIENT'S WIRE.~~ STRUCK", nonclaims_text)
+        self.assertIn("5400004", nonclaims_text)
+        self.assertIn(
+            "83 is the PRODUCTION EMIT UNIVERSE today", nonclaims_text)
         self.assertTrue(
             any(row[3] != 0 for row in field_drop_tables.ITEMS.values()),
             "the model column is still carried as a table fingerprint")

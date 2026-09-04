@@ -31,9 +31,14 @@ re-reads:
   ``test_every_scene_three_row_is_covered_by_the_1450_letter_and_no_other``,
   which measures the same two things from the other side: every real row
   names THAT letter, and no row reaches a ruling written for another scene.
-* ``test_loot_is_the_third_shut_door_and_it_refuses_by_name`` -- scene 3's
+* ~~``test_loot_is_the_third_shut_door_and_it_refuses_by_name`` -- scene 3's
   ``DROPS_NORMAL`` set 2701002 was never mined into ``field_drop_tables``,
-  so even past a ruling, a kill here drops nothing.
+  so even past a ruling, a kill here drops nothing.~~ STRUCK, round (next
+  after 59iqwi): the drop-table miner widened to the union of scenes 3, 5
+  and 14 (this lane's own reserve item), and scene 3's DROPS_NORMAL set
+  2701002 is now mined.  What replaces it is
+  ``test_loot_is_no_longer_the_third_shut_door``, proving a kill here rolls
+  real items instead of refusing ``unknown_drop_set``.
 
 THE COLLISION MEASUREMENT.  Scene 3's twelve placements bring FOUR new
 cross-scene ``actor_identity`` collisions at once (0x201C and 0x201E against
@@ -477,37 +482,54 @@ class Bg0003CollisionWalkTests(unittest.TestCase):
             own,
         )
 
-    def test_loot_is_the_third_shut_door_and_it_refuses_by_name(
-            self) -> None:
-        """Scene 3's drop sets were never mined -- named, not discovered.
+    def test_loot_is_no_longer_the_third_shut_door(self) -> None:
+        """~~test_loot_is_the_third_shut_door_and_it_refuses_by_name~~ STRUCK.
 
-        ``field_drop_tables`` carries bg0001 and Bg0002 only, and all twelve
-        of scene 3's rows point at ``DROPS_NORMAL`` set 2701002, which is
-        not in it.  So the loot leg of the collision walk cannot be reached
-        by a scene-3 kill at all: it refuses with ``unknown_drop_set``
-        BEFORE any key is issued, which is why no scene-3 drop can land in
-        another scene's cell.  That is a real answer for the walk and a
-        THIRD shut door for this scene at the same time (after the
-        membership seam and the missing death ruling); it is pinned here so
-        the day a ruling and an open seam arrive, this test is what says
-        loot still has to be mined -- rather than a player killing something
-        and getting nothing with no explanation.
+        Scene 3's drop sets were never mined; that was true when this test
+        was named for it and it is FALSE now, MEASURED rather than assumed:
+        round (next after 59iqwi) widened ``tools/pf_mine_scene_drop_tables.
+        py`` to the union of every scene this lane ships a roster for, which
+        includes Bg0003 (this scene), Bg0005 and Bg0015, answering exactly
+        the reserve item this lane's own round file named ("drop of scene
+        3/5/14 ... DROPS_NORMAL 2701002 never dug into field_drop_tables").
+        This is the flip side of that struck test: every scene-3 row's
+        ``DROPS_NORMAL`` set (2701002) is now IN ``field_drop_tables``, so a
+        kill here no longer refuses with ``unknown_drop_set`` before a key
+        is issued -- the loot leg of the collision walk is reachable now.
+        The collision walk itself (a scene-3 drop cannot land in scene 5's
+        cell) is still true and still asserted below, by the same scene-key
+        argument the struck test made -- it no longer needs an unreachable
+        door to be true, because ``DropLedgerCell`` scopes by scene key on
+        its own.
         """
         import random
 
-        refusals = set()
-        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
-            with self.assertRaises(mob_loot.MobLootContractError) as caught:
-                mob_loot.roll_drops(mob, random.Random(1))
-            refusals.add(caught.exception.args[0])
-        self.assertEqual(refusals, {"unknown_drop_set"})
-        self.assertNotIn(
+        self.assertIn(
             EXPECTED_SCENE.lower(),
             {scene.lower() for scene in field_drop_tables.SCENES},
         )
-        # The scene key a drop WOULD be filed under is this scene's own, so
-        # the collision cannot put a scene-3 drop in scene 5's list once the
-        # tables are mined.
+        # A roll that drops nothing is not a bug (mob_drop_presence's own
+        # fixtures note it is roughly one kill in three), so this searches
+        # seeds rather than trusting a single one -- the same shape
+        # tests/test_mob_drop_presence.py's PresenceTestBase uses, for the
+        # same reason: a hard-coded seed that happens to roll nothing is a
+        # test that goes red the day a drop table is edited, not a proof.
+        rolled_any_item = False
+        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
+            for seed in range(60):
+                roll = mob_loot.roll_drops(mob, random.Random(seed))
+                self.assertNotIn("unknown_drop_set", roll.refusals)
+                if roll.items:
+                    rolled_any_item = True
+                    break
+        self.assertTrue(
+            rolled_any_item,
+            "twelve scene-3 mobs, 60 seeds each, rolled nothing placeable "
+            "at all -- either the table mining regressed or the odds need "
+            "a wider search, and either way this is worth failing loudly on")
+        # The scene key a drop is filed under is this scene's own, so the
+        # collision cannot put a scene-3 drop in scene 5's list even though
+        # both scenes' loot is now reachable.
         self.assertNotEqual(
             mob_loot.scene_key(EXPECTED_SCENE), mob_loot.scene_key("bg0005"))
 

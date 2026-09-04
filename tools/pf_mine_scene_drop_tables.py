@@ -562,6 +562,9 @@ def main(argv: list) -> int:
     sys.path.insert(0, str(args.roster))
     from pirateforce_foundation import field_mob_tables
     from pirateforce_foundation import field_mob_tables_bg0002
+    from pirateforce_foundation import field_mob_tables_bg0003
+    from pirateforce_foundation import field_mob_tables_bg0005
+    from pirateforce_foundation import field_mob_tables_bg0015
 
     # ROUND 8ftmbx: THE UNION OF THE SCENES THIS LANE SHIPS, NOT ONE OF THEM.
     # Until this round the tool mined bg0001 alone, and that was fine while
@@ -578,7 +581,20 @@ def main(argv: list) -> int:
     # (pf-adversary, D8: an earlier draft of this comment cited a duplicate
     # check in _render that did not exist, and the real behaviour was
     # first-writer-wins in silence.  The check exists now, in mine().)
-    roster_modules = (field_mob_tables, field_mob_tables_bg0002)
+    #
+    # ROUND (next after 59iqwi), `COO-DECISION 20260904_1450` items 1-2 and
+    # the reserve item this lane's own round file named ("drop of scene
+    # 3/5/14, DROPS_NORMAL 2701002 never dug into field_drop_tables"): scenes
+    # 3, 5 and 14 (Bg0003, Bg0005, Bg0015 -- SCENE_CLINE_TYPE in each module
+    # names the number the letters use) got a kill ruling and a roster this
+    # same week and every one of them already references drop-set ids
+    # (2701002 among them) this file has never mined.  A widened UNION is the
+    # whole change: the id rule, the four controls and the refuse-on-empty
+    # check above are untouched and apply identically to the wider roster.
+    roster_modules = (
+        field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
+        field_mob_tables_bg0005, field_mob_tables_bg0015,
+    )
     by_scene = {module.SCENE: module for module in roster_modules}
     scenes = args.scene if args.scene else [
         module.SCENE for module in roster_modules]
