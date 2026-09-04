@@ -113,11 +113,12 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
 
 
 def encode_trial_records(
-    legacy, msg_id: int, vital_version: int,
+    legacy, msg_id: int, vital_version: int, player_scene_id: int,
 ) -> tuple[tuple[int, bytes, bytes], ...]:
     """``(trigger_id, pc, frame)`` for every record in
     ``trial_survey_records()``, encoded through ``navigationex_survey_
-    record.encode_add_survey_data_outer``.
+    record.encode_add_survey_data_outer`` -- or ``()`` when the player is
+    not standing in the scene these coordinates are expressed in.
 
     ``legacy``, ``msg_id`` and ``vital_version`` are exactly that function's
     own required arguments, passed through unchanged -- this function adds
@@ -125,7 +126,24 @@ def encode_trial_records(
     id here that RE-227 never proved would be the mistake its own nonclaims
     section exists to prevent.  CALLED FROM NO SEND PATH ANYWHERE IN THIS
     REPOSITORY; see the module docstring.
+
+    ``player_scene_id`` HAS NO DEFAULT ON PURPOSE, AND THE REASON IS A
+    MEASURED ONE (pf-adversary, round `16uvmp`).  `world_m2_survey_plan`
+    has carried `plan_is_for_scene()` since it was written and nothing has
+    ever called it, while the call site this module is waiting for is
+    described only as "when the player enters the sea scene".  Wire that
+    without the guard and a player who reaches scene 17 -- the scene row
+    3021 actually teleports to, see `world_m2_sea_destination` -- gets both
+    records provisioned with SCENE-126 coordinates.  Land within 500 units
+    of one of those triples in scene 17's own frame and the client pops the
+    captain report; confirming it now composes a full deliverable arrival
+    (this round made the confirm resolve), so the cost of the missing guard
+    changed this round from a refusal to a teleport.  Requiring the caller
+    to say where the player is makes the check impossible to forget rather
+    than easy to remember.
     """
+    if not plan.plan_is_for_scene(player_scene_id):
+        return ()
     return tuple(
         (record.trigger_id,) + encode_add_survey_data_outer(
             legacy, msg_id, vital_version, record.fields,

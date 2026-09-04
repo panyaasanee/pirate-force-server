@@ -68,6 +68,17 @@ RE-227's provisioning hypothesis instead of supporting it.  (Not during
 GT-228, whose STOP rule forbids pressing confirm: no confirm, no frame, no
 line.  This is what the FIRST confirm frame this server ever sees will say.)
 
+    THAT REFUTATION READING NEEDS `sent=`, AND ONLY `sent=` (pf-adversary,
+    round `16uvmp`).  It was written when this line's only possible state was
+    "we have no send path", and it survived the strike-through above at the
+    new number: on a build reading `sent=unwired`, an `issued=no` refutes
+    NOTHING, because no record left this process for the client to have
+    ignored -- it says a client sent us five bytes we do not recognise.  The
+    refutation is available only on a run whose outbound hex actually carries
+    the two `AddSurveyData` frames, i.e. `sent=` naming a count.  A grader who
+    reads `issued=no` beside `sent=unwired` as evidence against RE-227 has
+    graded a frame this server never sent.
+
 AND `match=trial confidence=low` IS THE FRAGMENT NOT TO OVER-READ (round
 `16uvmp`).  The first provisioning trial writes the destination number
 (2/3) into the record rather than the plan's own 0xA0xx handle -- COO-DECISION
@@ -116,6 +127,26 @@ _EXPECTED_LEN = 5
 # 4,000,072-character console line.
 _MAX_HEX_BYTES = 96
 
+# THE ONE FRAGMENT ON THIS LINE THAT IS ABOUT WHAT THIS SERVER DID.
+#
+# pf-adversary (round `16uvmp`) asked the question this line could not answer:
+# what on it distinguishes "we provisioned a record and the client echoed it"
+# from "we have never sent anything and a client sent us a 2"?  Nothing did.
+# `issued=`, `provisioned=` and `arrival_plan=` are all computed from
+# `world_m2_survey_plan.MEASURED_XYZ` and the scene registry -- CAPABILITY, not
+# event -- so every one of them reads the same on a build with no send path at
+# all, which is this build.  A client that sends five bytes can make the line
+# say `issued=yes` today.
+#
+# `unwired` is the state of THIS REPOSITORY, and it is checked rather than
+# asserted: the provisioning-trial module (the only composer of a record) has
+# a guard test that fails if ANY file in the tree so much as names it, so
+# while that test is green nothing can call it and no record can have left
+# this process.  `tests/test_lane_a_enter_instance_log.py` pins the two
+# together, so the day a call site lands, this constant goes red rather than
+# lying quietly on an attended console.
+SEND_PATH_STATE = "unwired"
+
 
 def decode_opaque(payload: bytes) -> int | None:
     """The opaque u16 RE-227 pinned at survey-record `+0x12`, copied
@@ -161,6 +192,7 @@ def console_line(payload: bytes) -> str:
     return (
         f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
         f" {_arrival_annotation()}"
+        f" sent={SEND_PATH_STATE}"
         " no_responder bytes_out=0"
     )
 

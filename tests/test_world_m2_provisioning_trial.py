@@ -60,9 +60,50 @@ class TrialSurveyRecordsTests(unittest.TestCase):
             plan.MEASURED_XYZ.update(saved)
 
 
+SEA_SCENE = 126
+
+
+class TheCoordinateFrameIsCheckedNotAssumed(unittest.TestCase):
+    """pf-adversary, round `16uvmp`: `plan_is_for_scene` had no caller, and
+    the call site being waited for is described as "when the player enters the
+    sea scene".  Provisioning scene-126 triples to a player standing in scene
+    17 -- where row 3021 actually teleports -- can pop a captain report whose
+    confirm now composes a real teleport."""
+
+    def test_records_are_encoded_for_the_scene_the_coordinates_belong_to(self):
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=0x1234, vital_version=1, player_scene_id=SEA_SCENE,
+        )
+        self.assertEqual({row[0] for row in encoded}, {153, 154})
+        self.assertTrue(plan.plan_is_for_scene(SEA_SCENE))
+
+    def test_no_record_is_encoded_for_a_player_in_any_other_scene(self):
+        # 17 is the scene the one crossing a player can make today lands in;
+        # 1/2/3 are scenes a player is routinely standing in.
+        for scene_id in (1, 2, 3, 17, 0, -1):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    trial.encode_trial_records(
+                        legacy, msg_id=0x1234, vital_version=1,
+                        player_scene_id=scene_id,
+                    ),
+                    (),
+                )
+
+    def test_the_scene_argument_has_no_default(self):
+        import inspect
+
+        sig = inspect.signature(trial.encode_trial_records)
+        self.assertIs(
+            sig.parameters["player_scene_id"].default, inspect.Parameter.empty
+        )
+
+
 class EncodeTrialRecordsTests(unittest.TestCase):
     def test_each_record_matches_the_encoders_own_byte_output(self):
-        encoded = trial.encode_trial_records(legacy, msg_id=0x1234, vital_version=1)
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=0x1234, vital_version=1, player_scene_id=SEA_SCENE,
+        )
         by_trigger = {row[0]: row for row in encoded}
         self.assertEqual(set(by_trigger), {153, 154})
         for record in trial.trial_survey_records():
@@ -81,7 +122,9 @@ class EncodeTrialRecordsTests(unittest.TestCase):
         self.assertIs(sig.parameters["msg_id"].default, inspect.Parameter.empty)
 
     def test_the_two_encoded_frames_are_not_identical(self):
-        encoded = trial.encode_trial_records(legacy, msg_id=1, vital_version=1)
+        encoded = trial.encode_trial_records(
+            legacy, msg_id=1, vital_version=1, player_scene_id=SEA_SCENE,
+        )
         frames = {frame for _tid, _pc, frame in encoded}
         self.assertEqual(len(frames), 2)
 

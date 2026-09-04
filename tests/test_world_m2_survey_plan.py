@@ -387,6 +387,28 @@ class TrialSurveyIdResolutionTests(unittest.TestCase):
             self.assertEqual(resolution.matched_as, "handle")
             self.assertEqual(resolution.trigger_id, records[1].trigger_id)
 
+    def test_the_low_range_guard_covers_only_half_the_accepted_set_and_says_so(self):
+        # pf-adversary, round `16uvmp`: `HandleAllocationTests` asserts that no
+        # HANDLE may be confusable with a trigger id or a low id -- "which is
+        # what makes 'did this echo come from us?' a real question" -- and it
+        # inspects `handle` only.  The trial values this round started
+        # accepting are 2 and 3: both inside that forbidden low range, and
+        # both real `Trigger_TIP` rows (Edmund Hidden Treasure / Seafood
+        # Cargo).  That is not a bug to fix here -- COO-DECISION 20260904_1345
+        # item 1 chose the value and rules the Trigger_TIP names a different
+        # namespace until proven otherwise -- but it must be VISIBLE, because
+        # it is precisely why the trial reading carries `confidence=low`.
+        for record in plan.planned_records():
+            with self.subTest(trigger_id=record.trigger_id):
+                self.assertNotIn(record.handle, range(0, 512))
+                self.assertIn(plan.trial_survey_id(record), range(0, 512))
+                self.assertEqual(
+                    plan.confirm_resolution(plan.trial_survey_id(record)).confidence,
+                    "low",
+                    "a value inside the range the handle guard forbids must "
+                    "never be reported as a strong match",
+                )
+
     def test_no_two_destinations_can_claim_the_same_value(self):
         # The property that makes a resolution safe to teleport on: every
         # u16 this build can issue maps to exactly ONE destination.  A
