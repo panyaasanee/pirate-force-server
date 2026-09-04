@@ -88,18 +88,137 @@ def guard_normalise(text):
     ).lower()
 
 
+def fstring_code_text(token_string):
+    """One f-string token read the way a PEP 701 tokenizer reads it.
+
+    Returns None when `token_string` is not an f-string.  This exists so the
+    guard reaches the SAME verdict on every interpreter it runs on.  Up to
+    Python 3.11 an f-string is one `tokenize.STRING` token, so ALL of
+    `f"a_{x}"` vanished with the plain string literals; from 3.12 (PEP 701)
+    the literal halves come back as `FSTRING_MIDDLE` and the replacement
+    fields as ordinary tokens, none of which is `tokenize.STRING`, so both
+    stayed in.  The gate pins 3.14 and that is the reading this repository is
+    held to (`.github/workflows/gate-windows.yml`), so the 3.11 side is the
+    one brought up to it -- never the other way round, which would blind the
+    guard to `f"drops_quest_{set_id}"` and to `f"{shop.settle_trade()}"` on
+    the interpreter that ships.
+
+    Two rules keep the two readings from drifting, both learned from
+    pf-adversary breaking the first version of this function:
+      * literal halves are kept RAW, undecoded.  `f"\\N{TRADE MARK SIGN}"`
+        carries the word `trade` on the gate, and decoding it to a glyph here
+        would hide it.  Braces become spaces, because a 3.12+ tokenizer
+        splits its `FSTRING_MIDDLE` runs on them.
+      * a replacement field is CODE, so it goes back through
+        `module_code_text` -- which drops the string literals inside it, the
+        same as the gate's tokenizer does.  Reading them would put mined data
+        rows (`row['Gold Shop']`) in front of a guard whose whole contract is
+        that string literals are not behaviour.
+
+    Measured, not argued: on the 179 top-level modules of the package plus
+    the eight shapes pf-adversary used to break the first version of this
+    function, `guard_hits_in_module` returns byte-identical verdicts under
+    3.11-with-this and a real PEP 701 interpreter (3.13).  Named gap, so it
+    cannot grow unnoticed: a 3.14 t-string (`t"..."`) is not a
+    `tokenize.STRING` token there and is one here, so it would be read on the
+    gate and dropped here.  There are none in this package today and no 3.14
+    on this clone to measure with; the day one appears, this function needs
+    the same treatment for `t` as it gives `f`.
+    """
+    quote_at = min(
+        (token_string.find(q) for q in ("'", '"') if q in token_string),
+        default=-1,
+    )
+    if quote_at < 1 or "f" not in token_string[:quote_at].lower():
+        return None
+    body = token_string[quote_at:]
+    for quote in ('"""', "'''", '"', "'"):
+        if body.startswith(quote):
+            body = body[len(quote):]
+            if body.endswith(quote):
+                body = body[: -len(quote)]
+            break
+    parts = []
+    literal = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if body[index:index + 2] in ("{{", "}}"):
+            literal.append(" ")
+            index += 2
+            continue
+        if char == "{":
+            close = _closing_brace(body, index)
+            parts.append("".join(literal))
+            literal = []
+            parts.append(module_code_text(body[index + 1:close]))
+            index = close + 1
+            continue
+        if char == "}":
+            literal.append(" ")
+            index += 1
+            continue
+        literal.append(char)
+        index += 1
+    parts.append("".join(literal))
+    return " ".join(part for part in parts if part)
+
+
+def _closing_brace(body, opened_at):
+    """Index of the `}` that closes `body[opened_at]`, or the end of `body`.
+
+    Depth-counted and quote-aware, because a replacement field may hold a
+    dict display and, from 3.12, a string in the same quote as the f-string.
+    """
+    depth = 0
+    quote = None
+    index = opened_at
+    while index < len(body):
+        char = body[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if body.startswith(quote, index):
+                index += len(quote)
+                quote = None
+                continue
+        elif char in "'\"":
+            quote = body[index:index + 3] if body.startswith(
+                char * 3, index
+            ) else char
+            index += len(quote)
+            continue
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return len(body)
+
+
 def module_code_text(source):
     """The module's code tokens only -- no comments, no string literals.
 
-    Falls back to the raw source if the file will not tokenise, because a
+    An f-string is read as code on every interpreter: see `fstring_code_text`.
+    Falls back to the raw source if the text will not tokenise, because a
     guard that goes quiet on a syntax error is worse than one that shouts.
     """
     try:
-        kept = [
-            token.string
-            for token in tokenize.generate_tokens(io.StringIO(source).readline)
-            if token.type not in (tokenize.COMMENT, tokenize.STRING)
-        ]
+        kept = []
+        for token_info in tokenize.generate_tokens(
+            io.StringIO(source).readline
+        ):
+            if token_info.type == tokenize.COMMENT:
+                continue
+            if token_info.type == tokenize.STRING:
+                inner = fstring_code_text(token_info.string)
+                if inner:
+                    kept.append(inner)
+                continue
+            kept.append(token_info.string)
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return source
     return " ".join(kept)
@@ -542,25 +661,17 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             # when the dispatch was REFUSED, so it cannot be evidence of
             # quest state being implemented.
             #
-            # 🔴 IF `test_every_symbol_exemption_is_still_earned` IS RED ON
-            # THIS ENTRY ON YOUR MACHINE, READ THIS BEFORE TOUCHING ANYTHING:
-            # on Python <=3.11, an f-string tokenizes as ONE `STRING` token,
-            # so `module_code_text()` (which strips `tokenize.STRING`) makes
-            # this entire f-string invisible -- these two symbols match
-            # nothing and the "still earned" check goes red. On Python
-            # >=3.12 (PEP 701), the static text before `{reason}` is its own
-            # `FSTRING_MIDDLE` token, which is NOT `tokenize.STRING`, so it
-            # reads as code and DOES match. `.github/workflows/gate-windows.yml`
-            # pins `python-version: '3.14'` -- that is the interpreter this
-            # exemption is written for, and where the guard test this
-            # exemption serves (`test_no_foundation_module_implements_quest_
-            # or_shop_behavior`) is the one that actually failed and forced
-            # this entry (pirate-force-server#748, closed gate-red on 3.14;
-            # recovered as #754). A red "still earned" check on THESE TWO
-            # SYMBOLS ONLY, on a <=3.11 interpreter, is this known gap, not a
-            # regression -- do not delete the entries or weaken the check to
-            # silence it. If the gate itself (3.14) goes red on this test,
-            # that is real and needs fixing.
+            # These two entries used to be red off the 3.14 gate and green on
+            # it: up to Python 3.11 the whole f-string was one
+            # `tokenize.STRING` token that `module_code_text()` dropped, so
+            # they matched nothing, while PEP 701 (3.12+) splits the static
+            # text out as `FSTRING_MIDDLE` and it matched. The gate pins 3.14
+            # (`.github/workflows/gate-windows.yml`), which is why the entries
+            # exist at all -- #748 died gate-red on exactly this, recovered as
+            # #754. `fstring_code_text` now gives every interpreter the
+            # 3.14 reading (COO-DECISION 20260904_2153), so a red "still
+            # earned" here is a real regression again, on any Python. Do not
+            # delete the entries or weaken the check to silence it.
             "columbus_quest3021_dispatch_refused_",
             "columbus_quest3205_dispatch_attempted",
             "columbus_quest3205_dispatch_refused_",
@@ -697,6 +808,13 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             # buy clearance for the function that implements it.
             "prose_cover.py": '"""DROPS_QUEST IS ABSENT ON PURPOSE."""\n\n\n'
                               "def drops_quest(set_id, rng):\n    return 1\n",
+            # An event token spelled inside an f-string.  Visible from Python
+            # 3.12 (PEP 701) and invisible before it, so the guard used to
+            # read one thing here and another on the 3.14 gate -- the split
+            # that made pirate-force-server#748 pass locally and die on the
+            # gate.  `fstring_code_text` closed it; this row keeps it shut.
+            "fstring_token.py": "def emit(events, reason):\n"
+                                '    events.append(f"shop_open_{reason}")\n',
         }
         with tempfile.TemporaryDirectory() as tmp:
             for name, source in planted.items():
@@ -752,6 +870,60 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             self.assertEqual(
                 self._offenders_in(tmp), {"loud.py": {"shop": ["shop_buy"]}},
             )
+
+    def test_an_fstring_reaches_the_same_guard_verdict_on_any_version(self):
+        """One verdict for `f"..."`, whichever interpreter runs the guard.
+
+        Before this, `module_code_text` dropped the whole f-string up to
+        Python 3.11 and kept its halves from 3.12 (PEP 701), so the guard was
+        a different guard here than on the 3.14 gate -- the split that let
+        pirate-force-server#748 pass here and die there.
+
+        Every row is asserted as a guard VERDICT (`guard_hits_in_module`),
+        never as the text a reader happens to build: the two tokenizers space
+        and split their pieces differently, and pinning that spacing is how
+        the first version of this test came out green on 3.11 and red on
+        3.12+ (pf-adversary D1, this round).  The verdict is what the guard
+        acts on, so the verdict is what has to match.
+        """
+        rows = [
+            # The shape that forced the runtime.py exemption entries.
+            ('e.append(f"columbus_quest3021_dispatch_refused_{reason}")',
+             {"quest": {"columbus_quest3021_dispatch_refused_"}}),
+            # A call inside a field is behaviour and must be seen.
+            ('x = f"shop_{npc.settle_trade()}_done"',
+             {"shop": {"shop_"}, "trade": {"settle_trade"}}),
+            # Doubled braces are literal text; the word survives them.
+            ('x = f"{{price}}_paid"', {"price": {"price"}}),
+            # Nested field: the format spec carries its own field.
+            ('x = f"reward_{amount:>{width}}"', {"reward": {"reward_"}}),
+            # Escapes are NOT decoded -- `\\N{...}` spells a word on the gate.
+            ('x = f"\\N{TRADE MARK SIGN}"', {"trade": {"trade"}}),
+            # A string literal inside a field is prose here as on the gate.
+            ("x = f\"{row['Gold Shop']}\"", {}),
+            # An escape that GLUES a word to the next letter must not be
+            # decoded either: the gate reads `shop`, so this reads `shop`.
+            ('x = f"shop\\x73omething_{a}"', {"shop": {"shop"}}),
+            # A backslash inside a replacement field is PEP 701 syntax, legal
+            # only from 3.12.  The 3.11 reader must still see the call --
+            # the first version of this function handed it to `ast.parse`,
+            # got a SyntaxError and dropped the whole token in silence
+            # (pf-adversary D2).
+            ('x = f"{ m[\'a\\tb\'].settle_trade() }"',
+             {"trade": {"settle_trade"}}),
+            # Prefix-order and quoting variants.
+            ("x = rf'''trade_{y}'''", {"trade": {"trade_"}}),
+            ('x = F"quest_{y}"', {"quest": {"quest_"}}),
+            # No field at all -- still an f-string, still code.
+            ('x = f"drops_quest"', {"quest": {"drops_quest"}}),
+            # A plain string is still prose, f-prefix or not.
+            ('x = "shop_open"', {}),
+        ]
+        for source, expected in rows:
+            with self.subTest(source=source):
+                self.assertEqual(guard_hits_in_module(source), expected)
+        self.assertIsNone(fstring_code_text('"shop_open"'))
+        self.assertIsNone(fstring_code_text('b"shop_open"'))
 
     def test_a_guard_word_reached_by_getattr_is_named(self):
         """The one string-literal hole worth closing by hand.
