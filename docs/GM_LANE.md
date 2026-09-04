@@ -9433,3 +9433,44 @@ with `.CONSUMED.txt` stubs.
 `external/PF_PROTOCOL_REGISTRY.tsv` · `external/PF_SERIALIZER_FIELDS.tsv` ·
 `notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv` มีจริงทั้งหมด ·
 **ไม่มี** client image / capture corpus / canonical DB / `gh` / หน้าจอ
+
+## รอบ q3cde9 (2026-09-04T16:12+07:00) — วาปสดเขียนฉากลง DB เองแล้ว
+
+`PANYA-DECISION 20260904_1430` (จ่ายงานมาที่สายนี้โดย `COO-DECISION 20260904_1452`):
+`/warp <n>` สดต้องเขียน `character_positions` **ในจังหวะที่ประกอบ/ส่ง TeleportVital**
+ไม่ใช่รอเฟรมเดินถัดไป
+
+**เดิม (ขีดฆ่า ไม่ลบ):** ~~การเขียนตำแหน่งลงฐานข้อมูลเป็นสมบัติของเฟรมเดิน
+(`runtime.py` สาย TargetPos -> `foundation.checkpoint`) เท่านั้น `/warp` ไม่เขียนอะไรเลย~~
+วัดจริงในรอบ R309: วาปไปฉาก 2 จอเปลี่ยน -> ปิดเกมด้วย X โดยไม่เดิน -> แถวยัง `scene_id=1`
+-> ล็อกอินใหม่กลับ Port Royal (`GT-172` F-3)
+
+**ใหม่:** `gm/warp_scene_persist.py` · `persist_warp_scene(session, target)`
+เรียกจากสองสาขา TeleportVital ของ `gm/chat_command_action.py` หลังเฟรมมีอยู่จริงแล้ว
+(`_warp_teleport_action` และ `_warp_teleport_action_no_coords`)
+
+- แถวที่เขียนมาจาก `WarpTarget` ของเฟรมเอง (ค่าบนสายจริง binary32) ไม่ใช่อ่านทะเบียนซ้ำ
+  · `scene_seq` = `SCENE_SEQUENCE` ตัวเดียวกับที่เฟรมถือ · `heading` ยกมาจากแถวเดิม
+  (TeleportVital ไม่ถือ heading การเดาค่า = หมุนตัวละครที่ไม่มีใครสั่งให้หมุน)
+- **ผ่านประตูเขียนที่มีอยู่แล้วเท่านั้น** `FoundationSession.checkpoint` ->
+  `lifecycle.checkpoint` -> `store.save_position` — ไม่แตะ `store.py` ไม่เขียน SQL เอง
+  (`COO 1452` ข้อ 2)
+- **อ่านกลับหลังเขียน** ผ่าน `store.get_character` แล้วค่อยพิมพ์
+  `GM_WARP_SCENE_PERSISTED scene=<n>` (stderr) — เพราะ `lifecycle.checkpoint` ของฉากที่พิน
+  `persist_position_allowed=False` **คืนค่าปกติโดยไม่เขียนแถวเลย** ถ้าไม่อ่านกลับ
+  token นี้จะโกหกทับแถวเดิม (รูปเดียวกับที่ `GM_WARP_POSITION_CONFIRMED` เคยจ่ายมาแล้วครั้งหนึ่ง)
+- 🔴 **ไม่ต่อกับสาขา ForcePos** โดยตั้งใจ: `RE-129` วัดว่า handler ของ ForcePos ฝั่งไคลเอนต์คือ
+  `mov al,1; ret 4` (ไม่สนใจเฟรม) การเขียนแถวตรงนั้นคือย้ายแถวไปยังจุดที่รู้อยู่แล้วว่าไคลเอนต์ไม่ได้ไป
+
+**[สมมติของสาย GM - รอ COO ยืนยัน]** เขียนไม่สำเร็จ **ไม่** ระงับการวาป (ต่างจากลำดับ DB-FIRST ของ
+`/speed`) เหตุผลและทางเลือกอยู่ในใบ `20260904_16xx_LANE-GM-ASK-COO-*`
+
+### nonclaim
+
+1. **GM ข้ามขั้นไหน**: ใช้ `/warp` (คำสั่ง GM) เพื่อย้ายฉากโดยไม่ต้องเดินทางจริง —
+   รอบนี้ทำให้แถวตามจอทัน ไม่ได้พิสูจน์ว่าเดินทางไปฉากนั้นเองได้
+2. **ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้**: วาปด้วย `/warp <n>` แล้วปิดเกมทันทีโดยไม่เดิน
+   แล้วล็อกอินกลับมาโผล่ **ฉากปลายทาง** แทนฉากเดิม (เกณฑ์ผ่านตามคำ Panya ใน `1452` ข้อ 5)
+   — ยังไม่ได้เทสบนจอ ต้องมีใบ attended ของ chief ก่อนถึงจะเรียกว่า PASS
+3. ไม่อ้างว่า `GT-172` F-3 ปิดแล้ว · ไม่อ้างว่า M2/M3/M4/P-2/P-3 ขยับ ·
+   ไม่มีบัญชีใดได้หรือเสียสถานะ GM · `/warp <n> <x> <y>` และ `/speed` ยังปิดตามเดิม
