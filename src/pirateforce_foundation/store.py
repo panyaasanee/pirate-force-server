@@ -1268,16 +1268,41 @@ class SQLiteStore:
         lock as the write.
 
         Raises `KeyError` for a character that does not exist or has been
-        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a value
-        this schema may not hold.  Nothing is written when anything is refused.
+        soft-deleted, `persistence_typed_attrs.TypedAttrError` for a value
+        this schema may not hold, and `persistence_vitals.SchemaDriftError`
+        if this database predates migration 006 (see below).  Nothing is
+        written when anything is refused.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same gap `read_typed_attributes` was patched against
+        (`pf_bridge/notes_to_chief/20260905_0436_...read-crash-general-
+        fix.md`) -- confirmed live by `pf-adversary` on that same round via
+        `ALTER TABLE ... DROP COLUMN` against this exact method, which raised
+        a raw `sqlite3.OperationalError` out of the `UPDATE` below with no
+        column named. Unlike the read side, a write cannot silently narrow
+        its projection and drop the requested column -- writing nothing while
+        returning success would be exactly the kind of unannounced loss
+        `COO-DECISION 20260901_1059` forbids, so a missing column here is a
+        named failure, not an omission. This reuses the SAME check
+        (`persistence_vitals.verify_schema` / `SchemaDriftError`) every other
+        vitals-writing method in this file already calls right after `BEGIN
+        IMMEDIATE`, for the same set of columns (`persistence_vitals.
+        required_columns()` is built from `typed_attrs.TYPED_COLUMNS`, which
+        is every column this method can be asked to write) -- one guard,
+        already proven, not a second one invented for this method alone. A
+        database that has run migration 006 is unaffected: `verify_schema` is
+        a `PRAGMA table_info` read, nothing it checks changes what gets
+        written.
         """
         from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
 
         checked = typed_attrs.validate_all(values)
         assignments = ",".join(f"{column}=?" for column in checked)
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
@@ -1333,16 +1358,34 @@ class SQLiteStore:
         who is allowed to still write it.
 
         Raises `KeyError` for a character that does not exist or has been
-        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a
-        value this schema may not hold -- validated before any SQL runs,
-        same as `write_typed_attributes`.
+        soft-deleted, `persistence_typed_attrs.TypedAttrError` for a value
+        this schema may not hold -- validated before any SQL runs, same as
+        `write_typed_attributes` -- and `persistence_vitals.SchemaDriftError`
+        if this database predates migration 006.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same exposure `write_typed_attributes` was patched against this same
+        round (`pf-adversary` reproduced it live here too, via `ALTER TABLE
+        ... DROP COLUMN`, before this guard existed): the `UPDATE` below
+        names a column from `typed_attrs.TYPED_COLUMNS`, which does not exist
+        on such a database, and raised a raw `sqlite3.OperationalError` with
+        no column named. Unreachable today -- the one boot path that skips
+        migration installs a read-only session with no write path at all,
+        and the one unconditional caller on that path only iterates ids that
+        are already empty there -- but nothing in this method itself enforced
+        that, so a future caller outside today's exact call graph would hit
+        the same raw crash. Same guard as every other vitals-writing method
+        in this file, called right after `BEGIN IMMEDIATE`; a database that
+        has run migration 006 is unaffected.
         """
         from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
 
         checked = typed_attrs.validate_all({column: value})
         (validated_column,) = checked
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
