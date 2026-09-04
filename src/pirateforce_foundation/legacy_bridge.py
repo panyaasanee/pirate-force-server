@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from .inventory import make_backpack_attr
+from .persistence_scene_field_patch import project_actor_wire_for_list
 from .player_wire import (
     make_actor_attr_with_name_and_class,
     make_actor_attr_with_name_class_and_faction,
@@ -23,9 +24,15 @@ class LegacyProjector:
         self.v = legacy
 
     def character_list(self, characters):
+        # `project_actor_wire_for_list` is a scaffold (`COO-DECISION
+        # 20260904_2152` item 4): it patches the select-screen scene field
+        # IFF `persistence_scene_field_patch.SCENE_FIELD` names one, and
+        # otherwise returns `c.actor_wire` unchanged -- today it is `None`,
+        # so this is byte-identical to the plain `c.actor_wire` join it
+        # replaces (see `tests/test_persistence_scene_field_patch.py`).
         payload = (self.v.u8tag(0x0B,0)+self.v.u32tag(0x14,0)+self.v.u32tag(0x14,0)+
                    self.v.u32tag(0x1F,0)+self.v.u8tag(0x0B,0)+self.v.u8tag(0x0B,len(characters))+
-                   b"".join(c.actor_wire for c in characters)+self.v.u8tag(0x0B,0)+self.v.u8tag(0x0B,0))
+                   b"".join(project_actor_wire_for_list(c) for c in characters)+self.v.u8tag(0x0B,0)+self.v.u8tag(0x0B,0))
         return self.v.make_runtime_vital(self.v.SELECT_ACTOR_VITAL, 10, payload)
 
     def create_success(self, character):
