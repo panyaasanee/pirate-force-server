@@ -138,27 +138,81 @@ _MAX_HEX_BYTES = 96
 # all, which is this build.  A client that sends five bytes can make the line
 # say `issued=yes` today.
 #
-# ~~`unwired` is the state of THIS REPOSITORY~~ THAT DAY ARRIVED, 2026-09-04:
-# chief's round `t7bsfx` landed the call site LANE-A's CORE-REQUEST asked for
-# (`runtime.py`, PR #760, repaired by #763), so this constant is now `wired`
-# -- changed by chief, in LANE-A's file, because
-# `tests/test_lane_a_enter_instance_log.py` is written to go RED until it is,
-# and leaving it red would block every lane's PR rather than only this one's
-# author (LANE-A: the word is yours to refine; the letter for this round says
-# so).  The tripwire that backs it is unchanged and still checked, not
-# asserted: the provisioning-trial module's own guard names every file
-# allowed to reach it.
+# ~~CHIEF, 2026-09-04 (`#763`): the call site landed, so the constant was
+# flipped `unwired` -> `wired` rather than left red.~~ -- SUPERSEDED (LANE-A
+# round `xf6eoi`, recovering round `m1wqqy`): the constant is gone entirely,
+# for the reason below.  Nothing chief wrote there was wrong; the fragment it
+# corrected was answering the wrong question in either state.
 #
-# WHAT `wired` DOES AND DOES NOT SAY.  It says a send path EXISTS in this
-# build.  It does not say a record left this process on THIS boot: the call
-# site is behind the attended-only `PF_M2_SURVEY_TRIAL` flag, and on a
-# flagless boot nothing is composed at all.  The test's own message asks for
-# "a count of what actually went out" -- that count belongs to the console
-# lines the call site prints (`M2_SURVEY_TRIAL_SENT ... records=N`, and the
-# frozen server's `[G>]` line per frame), not to a module-level constant that
-# cannot see a session.  A grader reading `sent=wired` must still read those
-# lines before concluding a record was provisioned.
-SEND_PATH_STATE = "wired"
+# ~~`unwired` is the state of THIS REPOSITORY, and it is checked rather than
+# asserted: the provisioning-trial module (the only composer of a record) has
+# a guard test that fails if ANY file in the tree so much as names it, so
+# while that test is green nothing can call it and no record can have left
+# this process.  `tests/test_lane_a_enter_instance_log.py` pins the two
+# together, so the day a call site lands, this constant goes red rather than
+# lying quietly on an attended console.~~ -- CORRECTED (pf-adversary,
+# `ADVERSARY_PENDING` item 1, round `16uvmp`, closed round `m1wqqy`).  The
+# call site landed (round `t7bsfx`/R342, `runtime.py`'s
+# `m2_survey_trial_scene_attempted` block, on `main` since `#760`), and this
+# tripwire fired exactly as designed -- `tests/test_lane_a_enter_instance_
+# log.py` went red naming this constant.  A single repository-wide
+# unwired/wired constant answered the wrong question even before that,
+# though: "can a send path be reached at all" is a fact about the source
+# tree, checked once at import time, while what a grader reading an
+# attended console actually needs is "did a frame leave THIS SESSION" --
+# a fact about one connection's own history, which no source-level check
+# can answer (a send path can be wired and a given session still never
+# have reached it).  `sent_state()` below answers that instead, read from
+# the same `session.events` log the call site itself appends to on the
+# send path -- a counter incremented on the send path, not a guess about
+# whether one exists.
+_SENT_EVENT_PREFIX = "m2_survey_trial_sent_"
+
+
+def sent_state(session: object) -> str:
+    """How many M2 survey-trial records THIS SESSION *composed and queued*
+    for send, read from ``session.events`` -- the same list `runtime.py`'s
+    call site appends ``m2_survey_trial_sent_<count>`` to right where it
+    builds the outbound action list (never from this repository's source,
+    which can only say a send path COULD exist).
+
+    WHAT THIS DOES NOT CLAIM (pf-adversary, round `m1wqqy`).  The event is
+    appended the moment `m2_survey_actions` is composed, before the return
+    value reaches whatever this codebase's dispatch chain does with it on
+    the way to a socket write -- this module has not traced that chain, so
+    "sent" here means "reached the outbound action list," not "confirmed on
+    the wire."  Still the one useful fact this hook can report: every other
+    fragment on this line is CAPABILITY (could this build send at all), and
+    this is the only one that is EVENT (did this session's own dispatch
+    actually build a frame).
+
+    ``"unknown"`` when ``session`` carries no readable ``events`` list --
+    deliberately not ``"0"``: a caller this hook cannot introspect must not
+    be reported the same as a session that tried and sent nothing.  NEVER
+    RAISES: a malformed *entry* in ``events`` (wrong type, wrong shape) is
+    skipped; a container whose own iteration protocol raises is caught too
+    (pf-adversary, round `m1wqqy`: a `list` subclass with a hostile
+    `__iter__` propagated out of this function before this guard existed,
+    and `lane_hooks.fire()`'s outer catch-all would have printed an ERR
+    line instead of any `LANE_A_ENTER_INSTANCE` line at all -- exactly the
+    "prints nothing" failure this hook exists to prevent).
+    """
+    events = getattr(session, "events", None)
+    if not isinstance(events, (list, tuple)):
+        return "unknown"
+    total = 0
+    try:
+        for event in events:
+            if not isinstance(event, str) or not event.startswith(_SENT_EVENT_PREFIX):
+                continue
+            try:
+                total += int(event[len(_SENT_EVENT_PREFIX):])
+            except ValueError:  # pragma: no cover - events are this repo's own
+                continue
+    except Exception:  # noqa: BLE001 - iterating a hostile events container
+        # must not take this line down; see the docstring's "NEVER RAISES".
+        return "unknown"
+    return str(total)
 
 
 def decode_opaque(payload: bytes) -> int | None:
@@ -179,12 +233,16 @@ def decode_opaque(payload: bytes) -> int | None:
     return int.from_bytes(payload[1:3], "little")
 
 
-def console_line(payload: bytes) -> str:
+def console_line(payload: bytes, session: object = None) -> str:
     """The exact ASCII line this hook prints for ``payload``.  Never raises.
 
-    Split out from the hook so a test can assert the line without standing
-    up a session or capturing stderr, same split as the trigger-vital
-    sibling module.
+    ``session`` is optional (defaults to ``None``, which reads as
+    ``sent=unknown`` -- see `sent_state`) so every existing caller that
+    only ever cared about the decoded opaque value keeps working
+    unchanged; the real hook (`_on_enter_instance` below) always passes its
+    own ``session`` through.  Split out from the hook so a test can assert
+    the line without standing up a session or capturing stderr, same split
+    as the trigger-vital sibling module.
     """
     opaque = decode_opaque(payload)
     if opaque is None:
@@ -202,15 +260,17 @@ def console_line(payload: bytes) -> str:
     # client thinks the number means.  ~~With no measured island XYZ that
     # reads `issued=no provisioned=0`, which is the line that tells a
     # grader a captain report popped WITHOUT a record from this server.~~
-    # CORRECTED (pf-adversary second pass, this round): GT-228 measured both,
-    # so it reads `provisioned=2`, and no fragment here can tell a grader
-    # anything about a record leaving this server -- only `sent=` below can,
-    # and today it says `unwired`.  See this module's docstring section on
-    # the refutation reading.
+    # CORRECTED (pf-adversary second pass, round `16uvmp`): GT-228 measured
+    # both, so it reads `provisioned=2`, and no fragment here can tell a
+    # grader anything about a record leaving this server -- only `sent=`
+    # below can.  ~~today it says `unwired`~~ -- CORRECTED again
+    # (`ADVERSARY_PENDING` item 1, closed round `m1wqqy`): `sent=` now
+    # reports how many records THIS SESSION actually sent, read off
+    # `session.events` by `sent_state()`.
     return (
         f"{TOKEN} opaque=0x{opaque:04x} {_annotation(opaque)}"
         f" {_arrival_annotation()}"
-        f" sent={SEND_PATH_STATE}"
+        f" sent={sent_state(session)}"
         " no_responder bytes_out=0"
     )
 
@@ -279,13 +339,16 @@ def _arrival_annotation() -> str:
 # tree and makes that audit refuse to grade every hook point in the repo.
 @hook("vital_inbound_navigationex_enter_instance_vital")
 def _on_enter_instance(session: object = None, payload: object = b"", **_ignored) -> None:
-    # `session` is accepted and unused, same posture as the sibling hook:
-    # the call site passes it the way every other vital_inbound_* point
-    # does, and taking it here keeps that call site identical to the one it
-    # copies from.  **_ignored absorbs any further kwarg that call site
-    # grows later -- a TypeError here would be caught by fire() and would
-    # print nothing at all, which is the one outcome this hook exists to
-    # prevent.
+    # ~~`session` is accepted and unused, same posture as the sibling
+    # hook~~ -- CORRECTED (`ADVERSARY_PENDING` item 1, round `16uvmp`,
+    # closed round `m1wqqy`): `console_line` now reads `session.events` for
+    # the `sent=` fragment, so it is passed through rather than dropped.
+    # The call site passes it the way every other vital_inbound_* point
+    # does, so this needed no change there -- only here, and only because
+    # this hook now has a use for it.  **_ignored absorbs any further kwarg
+    # that call site grows later -- a TypeError here would be caught by
+    # fire() and would print nothing at all, which is the one outcome this
+    # hook exists to prevent.
     if isinstance(payload, (bytes, bytearray, memoryview)):
         raw = bytes(payload)
     else:
@@ -295,4 +358,4 @@ def _on_enter_instance(session: object = None, payload: object = b"", **_ignored
             file=sys.stderr,
         )
         return
-    print(console_line(raw), file=sys.stderr)
+    print(console_line(raw, session), file=sys.stderr)

@@ -288,61 +288,102 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         self.assertEqual(hooklog.decode_opaque(bytes(memoryview(body))), 0x42)
 
 
+class _FakeSession:
+    """Just enough of `runtime.py`'s session shape for `sent_state` to read:
+    an ``events`` list, the same one the M2 survey-trial call site appends
+    ``m2_survey_trial_sent_<count>`` to."""
+
+    def __init__(self, events=()):
+        self.events = list(events)
+
+
 class TheOneFragmentThatIsAboutThisServer(unittest.TestCase):
     """`sent=`, added in round `16uvmp` after pf-adversary asked what on this
     line distinguishes "we sent a record and the client echoed it" from "we
     have never sent anything and a client sent us a 2".  Nothing did: every
     other fragment is computed from measured XYZ and the scene registry, so a
     client's five bytes could make the line read `issued=yes` on a build with
-    no send path at all."""
+    no send path at all.
 
-    def test_every_decoded_line_says_whether_this_build_can_send_at_all(self):
-        # `unwired` until 2026-09-04; `wired` since chief's round `t7bsfx`
-        # landed the call site (the sibling test below is what forced the
-        # constant to move).  What this test is FOR is unchanged and is not
-        # the word itself: every decoded line must carry the fragment, for
-        # every opaque value, so a grader can never read `issued=yes` off a
-        # line that says nothing about whether this build can send at all.
+    ROUND `16uvmp` LEFT THIS ANSWERED WITH A REPOSITORY-WIDE CONSTANT
+    (``SEND_PATH_STATE``, "unwired"/"wired"), and flagged it as
+    `ADVERSARY_PENDING` item 1: a source-level check answers "could a send
+    path be reached at all", not "did a frame leave THIS SESSION" -- the
+    question a grader actually needs answered, and one no source check can
+    answer (a call site can be wired and a given session still never have
+    reached it).  The tripwire fired exactly as designed the round chief's
+    call site landed (`test_the_state_is_the_repositorys_and_goes_red_
+    when_a_call_site_lands`, which lived here and is retired now that its
+    one job -- catching that moment -- is done).  `sent_state()`, closed
+    this round (`m1wqqy`), answers the real question instead: a count read
+    from `session.events`, the same list the call site itself appends to
+    on the send path.
+    """
+
+    def test_no_session_reads_as_unknown_not_as_a_guess(self):
         for value in (0x0002, 0x0003, 0xA099, 0x1234):
             with self.subTest(value=value):
-                line = hooklog.console_line(_body(value))
-                self.assertIn(f"sent={hooklog.SEND_PATH_STATE}", line)
-                self.assertIn(hooklog.SEND_PATH_STATE, ("unwired", "wired"))
+                self.assertIn("sent=unknown", hooklog.console_line(_body(value)))
 
-    def test_the_state_is_the_repositorys_and_goes_red_when_a_call_site_lands(self):
-        # `unwired` is only true while nothing can call the record composer.
-        # That is exactly what the composer's own guard test asserts, so the
-        # two are pinned together here: land a call site and this test fails,
-        # naming the constant that would otherwise have kept saying `unwired`
-        # on an attended console.
-        # EVERY guarded name here is built by concatenation, never written
-        # whole.  Both composer modules hold grep tripwires that fail if any
-        # other file in the tree so much as names them, and the correct
-        # response to that (pf-adversary, this round) is to keep this file out
-        # of their sight -- NOT to add this path to their exclusion sets,
-        # which would blind a live-import tripwire for the sake of a test.
-        composer = "world_m2_provisioning" + "_trial"
-        encoder_test = "tests/test_" + "navigationex_survey" + "_record.py"
-        excluded = {
-            f"src/pirateforce_foundation/{composer}.py",
-            f"tests/test_{composer}.py",
-            encoder_test,
-            "tests/test_lane_a_enter_instance_log.py",
-        }
-        importers = []
-        for path in ROOT.rglob("*.py"):
-            if ".git" in path.parts or "__pycache__" in path.parts:
-                continue
-            rel = str(path.relative_to(ROOT)).replace("\\", "/")
-            if rel in excluded:
-                continue
-            if composer in path.read_text(encoding="utf-8", errors="replace"):
-                importers.append(rel)
-        self.assertEqual(
-            hooklog.SEND_PATH_STATE, "unwired" if not importers else "wired",
-            f"a send path exists now ({importers}) -- SEND_PATH_STATE must stop "
-            "saying unwired, and must become a count of what actually went out",
-        )
+    def test_a_session_with_no_sent_events_reads_as_zero(self):
+        session = _FakeSession(events=["some_other_event", "m2_survey_trial_refused_no_records"])
+        line = hooklog.console_line(_body(0x1234), session)
+        self.assertIn("sent=0", line)
+
+    def test_a_session_that_sent_records_reports_the_real_count(self):
+        session = _FakeSession(events=["m2_survey_trial_sent_2"])
+        line = hooklog.console_line(_body(0x1234), session)
+        self.assertIn("sent=2", line)
+
+    def test_multiple_sends_in_one_session_sum(self):
+        # Two arrivals in the sea scene within one connection -- measured
+        # possible because `m2_survey_trial_scene_attempted` resets on a
+        # scene change, so a player who leaves scene 126 and comes back can
+        # trigger the trial a second time.
+        session = _FakeSession(events=["m2_survey_trial_sent_2", "m2_survey_trial_sent_2"])
+        line = hooklog.console_line(_body(0x1234), session)
+        self.assertIn("sent=4", line)
+
+    def test_an_object_with_no_events_attribute_reads_as_unknown(self):
+        line = hooklog.console_line(_body(0x1234), object())
+        self.assertIn("sent=unknown", line)
+
+    def test_an_events_attribute_that_is_not_a_list_or_tuple_reads_as_unknown(self):
+        class _Weird:
+            events = "not a list"
+
+        line = hooklog.console_line(_body(0x1234), _Weird())
+        self.assertIn("sent=unknown", line)
+
+    def test_a_non_string_or_malformed_event_is_never_a_crash(self):
+        session = _FakeSession(events=[123, None, "m2_survey_trial_sent_not_a_number", "m2_survey_trial_sent_1"])
+        line = hooklog.console_line(_body(0x1234), session)
+        self.assertIn("sent=1", line)
+
+    def test_a_container_whose_own_iteration_raises_still_reads_as_unknown(self):
+        # pf-adversary, round `m1wqqy`: malformed ENTRIES were already
+        # guarded; a container whose `__iter__` itself raises was not, and
+        # would have propagated out of this line entirely -- caught by
+        # `lane_hooks.fire()`'s outer handler instead, which prints an ERR
+        # line rather than any `LANE_A_ENTER_INSTANCE` line at all.
+        class _HostileEvents(list):
+            def __iter__(self):
+                raise RuntimeError("boom")
+
+        session = _FakeSession()
+        session.events = _HostileEvents(["m2_survey_trial_sent_2"])
+        line = hooklog.console_line(_body(0x1234), session)
+        self.assertIn("sent=unknown", line)
+
+    def test_the_hook_itself_passes_the_real_session_through(self):
+        import contextlib
+        import io
+
+        session = _FakeSession(events=["m2_survey_trial_sent_2"])
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            hooklog._on_enter_instance(session=session, payload=_body(0x0002))
+        self.assertIn("sent=2", stderr.getvalue())
 
     def test_an_unparsed_line_makes_no_claim_about_sending_either(self):
         line = hooklog.console_line(b"\x99\x99")

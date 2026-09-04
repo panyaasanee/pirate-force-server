@@ -99,6 +99,30 @@ class TheCoordinateFrameIsCheckedNotAssumed(unittest.TestCase):
         )
 
 
+class TrialSceneRefusalReasonTests(unittest.TestCase):
+    """`trial_scene_refusal_reason`, closed round `m1wqqy` for
+    `ADVERSARY_PENDING` item 3 (round `16uvmp`): `encode_trial_records`
+    itself stays `()` on a scene refusal -- its one caller (`runtime.py`)
+    only ever checked truthiness -- but the WHY is no longer unreachable."""
+
+    def test_the_sea_scene_has_no_refusal(self):
+        self.assertIsNone(trial.trial_scene_refusal_reason(SEA_SCENE))
+
+    def test_a_different_scene_names_the_wrong_scene_reason(self):
+        self.assertEqual(
+            trial.trial_scene_refusal_reason(17),
+            plan.PLAN_SCENE_REFUSED_WRONG_SCENE,
+        )
+
+    def test_it_is_the_same_reason_the_plans_own_guard_gives(self):
+        for scene_id in (SEA_SCENE, 17, "126", None, 126.0):
+            with self.subTest(scene_id=scene_id):
+                self.assertEqual(
+                    trial.trial_scene_refusal_reason(scene_id),
+                    plan.scene_guard_reason(scene_id),
+                )
+
+
 class EncodeTrialRecordsTests(unittest.TestCase):
     def test_each_record_matches_the_encoders_own_byte_output(self):
         encoded = trial.encode_trial_records(
