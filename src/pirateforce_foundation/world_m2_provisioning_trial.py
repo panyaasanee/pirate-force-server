@@ -143,6 +143,7 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
 
 def encode_trial_records(
     legacy, msg_id: int, vital_version: int, player_scene_id: int,
+    outer_leading_byte: int | None = None,
 ) -> tuple[tuple[int, bytes, bytes], ...]:
     """``(trigger_id, pc, frame)`` for every record in
     ``trial_survey_records()``, encoded through ``navigationex_survey_
@@ -172,12 +173,23 @@ def encode_trial_records(
     say where the player is makes the check impossible to forget rather
     than easy to remember.  Chief's call site (round `t7bsfx`) asks the
     same question a second time, on its own side, before it gets here.
+    ``outer_leading_byte`` IS FORWARDED, NOT INVENTED HERE (round
+    `f03s5f`, pf-adversary pass 2).  The composer grew that argument
+    because `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` and RE-086 both
+    record a `0x0B` field of length 1, gate ALWAYS, on this class's own
+    outer serializer, and R313's frame carried none.  A first version of
+    that change left this function unable to pass it, which would have
+    let an attended round set the flag, send byte-identical bytes, get
+    the same dialog, and report "the byte did not help" without ever
+    having sent it.  `None` -- the default, and what chief's call site
+    passes today -- keeps R313's exact bytes.
     """
     if not plan.plan_is_for_scene(player_scene_id):
         return ()
     return tuple(
         (record.trigger_id,) + encode_add_survey_data_outer(
             legacy, msg_id, vital_version, record.fields,
+            outer_leading_byte=outer_leading_byte,
         )
         for record in trial_survey_records()
     )

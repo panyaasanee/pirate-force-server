@@ -21,7 +21,12 @@ stays outside that module's own "who may name me" guard), behind the flag
 
 NESTED RECORD FIELD LAYOUT (RE-227, verbatim field order and offsets;
 nested-record serializer span `[0x0072e590,0x0072e691)` SHA
-`5b714541671c8731a3b88df657089f97645ad1a6d2dc7ec9f06ee7ee271aa8f2`):
+`5b714541671c8731a3b88df657089f97645ad1a6d2dc7ec9f06ee7ee271aa8f2`) --
+and INDEPENDENTLY, from a different RE round, `pf_bridge/archive/
+notes_to_chief_2026-08/20260827_0115_RE-086-RESULT-*.md` gives the same
+span the same field-for-field shape (found in this round's pass 2; the
+serializer-fields table has NO rows for this nested span, so RE-086's
+prose is the only corroboration that exists and it agrees tag-for-tag):
 
     `0B` byte  @ record `+0x10`  -- PROVEN: the contact tick selects a
                                     record only when this byte == 1
@@ -80,7 +85,9 @@ byte is what the client reads first, the reader consumes the record's
 kind byte as the outer field and then meets `12` where it wants `0B` --
 it stops inside this class, which is exactly the dialog R313 got.  That
 is a HYPOTHESIS, not a finding: the field's existence is measured, the
-mis-read is inference, and no value for the byte is measured anywhere.
+mis-read is inference, and no value for the byte is measured anywhere for
+THIS class -- though the same construct elsewhere in this repository has an
+accepted-on-the-wire precedent, see `OUTER_PRESENCE_PRESENT` below.
 
 THE ENVELOPE AROUND ALL OF THAT IS NOT GUESSED EITHER.  What IS already
 proven and already used by this same
@@ -124,11 +131,16 @@ encoder's own output, and comparing them cannot fail unless someone edits
 the encoder.  ~~"so the rejection is NOT an encoder-vs-RE-227 mismatch"~~
 IS STRUCK (pf-adversary, round `f03s5f`, D2): the bytes the client rejected
 ARE this encoder's output, so parity with them is evidence that the encoder
-is the rejected thing, not that it is exonerated.  The only check that this
-encoder implements RE-227's list is `_hand_built_record` in the test file --
-a second construction from the same author's same reading of the same
-letter.  Two layers agreeing is consistency, not proof, and if RE-227's
-layout was read wrong BOTH go green together.  `pf_bridge/NOW.md` (03:47
+is the rejected thing, not that it is exonerated.  ~~"The only check that this encoder
+implements RE-227's list is `_hand_built_record` -- a second construction
+from the same author's same reading of the same letter"~~ IS STRUCK
+(pf-adversary pass 2): the archived RE-086 letter cited above gives the
+nested record's wire shape field-for-field as well, from a DIFFERENT RE
+round than RE-227, and it agrees tag-for-tag with what
+`encode_survey_record` emits.  So the record layout has two independent
+static sources; what remains unchecked by anything in this tree is this
+class's OUTER shape, where the two sources disagree with what we send by
+one byte.  `pf_bridge/NOW.md` (03:47
 entry) already absorbed the struck claim as "ตัวผิดอาจไม่ใช่ layout"; this
 round's letter to COO asks for that line to be corrected rather than
 leaving a green test suite steering the next attended round.
@@ -197,6 +209,16 @@ SURVEY_RECORD_KIND = 1
 # `msg_id` with NO default: what changed is that the number has a home with
 # its evidence attached, not that this composer picked one for its callers.
 NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID = 0xC4AF
+
+# The value a presence byte takes for a nested object that IS present,
+# by this repository's own accepted-on-the-wire precedent: v141's
+# `make_v137_marker1_transport_probe` sends `0B 01` before the present
+# TeleportVital target and `0B 00` for the absent ones.  Named here so a
+# caller passing `outer_leading_byte` has somewhere to point instead of
+# typing a bare 1, and so the reasoning travels with the number.  It is a
+# PRECEDENT, not a measurement of this class's own field -- nothing in
+# `PF_SERIALIZER_FIELDS.tsv` gives the value.
+OUTER_PRESENCE_PRESENT = 1
 
 # `ErrorData` IN THE CLIENT'S "VitalData read failed" DIALOG IS A MESSAGE
 # ID, NOT AN ERROR CODE.  This repository already knew that for one number:
@@ -312,25 +334,46 @@ def encode_add_survey_data_outer(
     6377-6388, span/SHA identical to the one RE-227 cites for this class's
     OUTER serializer) records, for `NavigationEx_AddSurveyDataVtial`, a
     ``0x0B``-tagged field of length 1 at ``STACK@0x00733570+0x18`` with
-    ``gate_condition ALWAYS`` -- on the write side AND on the read side,
-    at two different file offsets.  Everything R313 sent went out with no
-    such byte between the envelope's ``0B <vital_version>`` and the
-    record's own ``0B 01``.
+    ``gate_condition ALWAYS``, in both directions.  Everything R313 sent
+    went out with no such byte between the envelope's ``0B
+    <vital_version>`` and the record's own ``0B 01``.
 
     Left ``None``, this function emits exactly the bytes R313 sent, so
     nothing on the wire changes by upgrading to this signature.  Given an
     int, it emits ``0B <value>`` after the vital header and before the
-    record -- the position the table's own offsets put it in.
+    record.
 
-    WHAT IS MEASURED AND WHAT IS NOT.  The field's existence, tag, length
-    and ALWAYS gate are measured (that table, that SHA).  Its VALUE is not:
-    the table names no constant, and no capture of an original-server
-    AddSurveyData exists in this project.  So this composer refuses to
-    pick one -- `None` keeps today's bytes, and a caller who wants to try
-    a value has to write it down and own it, the same way the pose trial
-    cycles a list of ids rather than defaulting to a guess.  An attended
-    round is what decides between 0 and 1; this function only makes both
-    reachable without editing code at the client's side of the round.
+    WHY BEFORE THE RECORD, HONESTLY.  ~~"the position the table's own
+    offsets put it in"~~ IS STRUCK (pf-adversary pass 2): sorted by the
+    table's own order column the WRITE side puts the byte first, but the
+    READ side -- the direction a client uses on a server frame -- lists the
+    nested call first and the byte second.  Every control checked
+    (`UpdateNPCAppearVital`, `EnterInstanceVital`, `TriggerVital`,
+    `TeleportVital`, `GSCN_RunTimeProtocolRes`) is R/W-symmetric for this
+    shape and this class is not, which nobody has explained.  Leading is
+    what RE-086's prose describes ("sends a presence byte THEN calls the
+    nested object's vtable slot +0x10") and what the TeleportVital
+    precedent below does, so leading is what this composer can build --
+    an appended byte would need a second argument and a reason to expect
+    it, and neither exists yet.
+
+    THE VALUE HAS A MEASURED PRECEDENT, AND IT IS 1
+    (`OUTER_PRESENCE_PRESENT`).  ~~"an attended round is what decides
+    between 0 and 1"~~ IS STRUCK (pf-adversary pass 2): they are not
+    symmetric candidates.  For the same construct -- a presence byte
+    guarding a nested object -- `current/pf_login_game_server_v141.py`'s
+    `make_v137_marker1_transport_probe`, a frame the real client ACCEPTED,
+    sends ``0B 01`` before the present nested target and ``0B 00`` for the
+    absent ones, and RE-090 (via RE-086) pins TeleportVital's own
+    `STACK@...+0x14/+0x1C` `0x0B` fields ahead of its nested subcall the
+    same way.  So 0 is this protocol's "no object follows" value: a frame
+    with ``0B 00`` followed by 38 bytes of record is predicted to fail by
+    this repository's own frozen composer, and an attended round should
+    not spend a pass on it.
+
+    This composer still has NO default: the precedent is strong evidence
+    for 1, not a measurement of THIS class's field, and the caller who
+    sends bytes should be the one that writes the number down.
 
     ~~CALLED FROM NO SEND PATH~~ IS STRUCK (2026-09-04, PR #760): GT-228
     measured the XYZ that COO-DECISION 20260904_0747 item 3(b) made the
@@ -339,6 +382,20 @@ def encode_add_survey_data_outer(
     """
     record = encode_survey_record(legacy, fields)
     if outer_leading_byte is not None:
+        # Range-checked because 0-vs-1 is the whole question this argument
+        # exists to ask: `256` silently encoding as `0B 00` would send the
+        # value that means "no object follows" while the console line said
+        # 256 (pf-adversary pass 2).  `bool` is rejected for the same
+        # reason -- `True` is not a wire value anybody meant to type.
+        if isinstance(outer_leading_byte, bool) or not isinstance(
+                outer_leading_byte, int):
+            raise TypeError(
+                "outer_leading_byte must be an int in 0..255 or None, not "
+                f"{type(outer_leading_byte).__name__}")
+        if not 0 <= outer_leading_byte <= 255:
+            raise ValueError(
+                "outer_leading_byte must fit one byte (0..255); got "
+                f"{outer_leading_byte}")
         record = legacy.u8tag(0x0B, outer_leading_byte) + record
     # PLURAL, not `make_runtime_vital`.  Chief, round `t7bsfx`/R342, after
     # pf-adversary D1 measured the difference on this very frame: the two

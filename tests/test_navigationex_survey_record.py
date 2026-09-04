@@ -371,14 +371,57 @@ class OuterLeadingByteTests(unittest.TestCase):
                 self.assertEqual(got[22:], base[20:])
                 self.assertEqual(len(frame), len(legacy.frame_pc(got)))
 
-    def test_the_record_is_still_the_re227_record_unchanged(self):
+    def test_the_record_is_still_the_re227_record_at_the_right_offset(self):
         got, _ = survey.encode_add_survey_data_outer(
             legacy, msg_id=0xC4AF, vital_version=0, fields=self._FIELDS,
             outer_leading_byte=1,
         )
         record = survey.encode_survey_record(legacy, self._FIELDS)
-        self.assertIn(record, got)
         self.assertEqual(len(record), survey.RECORD_LEN)
+        # By index, not `assertIn`: a position-blind check would pass if the
+        # record moved (pf-adversary pass 2).  Header 20 bytes + the two
+        # outer bytes, then the record, then the trailing change mask.
+        self.assertEqual(got[22:22 + survey.RECORD_LEN], record)
+        self.assertEqual(got[22 + survey.RECORD_LEN:], bytes([0x0B, 0]))
+
+    def test_the_value_with_a_precedent_is_named_and_it_is_one(self):
+        """`0` and `1` are not symmetric candidates (pf-adversary pass 2).
+
+        For the same construct -- a presence byte guarding a nested object
+        -- v141's `make_v137_marker1_transport_probe` is a frame the real
+        client ACCEPTED, and it sends `0B 01` before the present target and
+        `0B 00` for the absent ones.  Read out of the frozen module here
+        rather than asserted from prose, so the precedent goes red if that
+        composer ever changes shape.
+        """
+        self.assertEqual(survey.OUTER_PRESENCE_PRESENT, 1)
+        pc, _ = legacy.make_v137_marker1_transport_probe()
+        # The vital header ends at 20 (`0B 04` there is TeleportVital's
+        # vital_version 4, not a payload byte); the payload then opens with
+        # `0B 02`, the change mask, and `0B 01`, the presence byte for a
+        # target that IS there.
+        self.assertEqual(pc[18:20], bytes([0x0B, 4]))
+        self.assertEqual(pc[20:24], bytes([0x0B, 2, 0x0B, 1]))
+
+    def test_a_value_that_does_not_fit_a_byte_is_refused_not_truncated(self):
+        """256 silently encoding as `0B 00` would send the value that means
+        "no object follows" while the console line said 256, in a trial
+        where 0-vs-1 is the entire question (pf-adversary pass 2).
+        """
+        for bad in (256, -1, 1 << 20):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    survey.encode_add_survey_data_outer(
+                        legacy, msg_id=0xC4AF, vital_version=0,
+                        fields=self._FIELDS, outer_leading_byte=bad,
+                    )
+        for bad in (True, False, 1.0, "1", b"\x01"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(TypeError):
+                    survey.encode_add_survey_data_outer(
+                        legacy, msg_id=0xC4AF, vital_version=0,
+                        fields=self._FIELDS, outer_leading_byte=bad,
+                    )
 
 
 class ErrorDataIsAMessageIdTests(unittest.TestCase):
