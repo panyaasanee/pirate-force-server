@@ -146,8 +146,7 @@ class EncodeAddSurveyDataOuterTests(unittest.TestCase):
 class NotWiredToAnySendPathTests(unittest.TestCase):
     def test_no_python_file_anywhere_in_this_repository_imports_this_module(self):
         # A grep guard, not a claim about intent: proves the nonclaim in
-        # this module's own docstring stays true as the tree grows.  Only
-        # this test file and the module's own file may reference it.
+        # this module's own docstring stays true as the tree grows.
         #
         # pf-adversary (this round): the first draft of this guard scanned
         # only `src/`, which is exactly where this project's OTHER real
@@ -159,22 +158,41 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         # repository (this file's own module and this test file excepted)
         # is what actually backs the docstring's "ANYWHERE IN THIS
         # REPOSITORY" claim.
+        #
+        # GT-228 (R308, PASS, 2026-09-04) measured real island XYZ, which is
+        # the exact condition this guard's own assertion message names as
+        # the day this changes -- COO-DECISION 20260904_1345 item 3(b) then
+        # ordered the trial composer that reads this encoder,
+        # `world_m2_provisioning_trial.py`.  That module is still not a send
+        # path itself (it opens no socket, calls no `sendall`; see its own
+        # `NotWiredToAnySendPathTests` in `test_world_m2_provisioning_trial
+        # .py`), so it and its test file join the exclusion below -- the
+        # first widening of this guard since it was written, and the reason
+        # is on the record rather than a silent loosening.
+        # Excluded by RELATIVE PATH, not basename (pf-adversary, this round):
+        # a basename-only exclusion is evaded by any file anywhere in the
+        # tree -- a duplicate, a scratch copy under tools/ -- that happens to
+        # share one of these names, even one that opens a real socket.
+        excluded = {
+            "src/pirateforce_foundation/navigationex_survey_record.py",
+            "tests/test_navigationex_survey_record.py",
+            "src/pirateforce_foundation/world_m2_provisioning_trial.py",
+            "tests/test_world_m2_provisioning_trial.py",
+        }
         hits = []
         for path in ROOT.rglob("*.py"):
             if ".git" in path.parts:
                 continue
-            if path.name in (
-                "navigationex_survey_record.py",
-                "test_navigationex_survey_record.py",
-            ):
+            rel = str(path.relative_to(ROOT))
+            if rel.replace("\\", "/") in excluded:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
             if "navigationex_survey_record" in text:
-                hits.append(str(path.relative_to(ROOT)))
+                hits.append(rel)
         self.assertEqual(
             hits, [],
             "navigationex_survey_record must not be imported by any send "
-            f"path until GT-228 measures real island XYZ; found: {hits}",
+            f"path (world_m2_provisioning_trial.py excepted); found: {hits}",
         )
 
 
