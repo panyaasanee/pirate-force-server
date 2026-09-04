@@ -1141,12 +1141,48 @@ class SQLiteStore:
 
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, matching `get_character`.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same gap `list_character_ids_missing_class_id` was patched against
+        (`pf_bridge/notes_to_chief/
+        20260905_0233_...boot-crash-class-id-backfill.md`).  This is the
+        general-purpose typed-attribute reader, so it is the one a direct
+        caller (a test, a tool, a future call site) reaches with no guard of
+        its own.  [CORRECTED - pf-adversary, this round] an earlier draft of
+        this paragraph named `persistence_attr_compose.live_typed_values_for`
+        as the boot-wired caller that makes this urgent; that function has
+        NO callers anywhere in `src/` today (dead code), and the function
+        that IS actually wired at boot (`live_named_attr_values.
+        source_for_store`, via `lane_hooks.register_live_attr_values_source`)
+        already wraps this call in its own `try/except Exception`, with a
+        SECOND layer in `lane_hooks.current_named_attr_values` on top of
+        that -- so that specific path was already crash-safe before this
+        guard existed. The guard is still correct and still worth having:
+        it closes the hole for every OTHER caller of this method, including
+        `live_typed_values_for` if it ever gains one, and it matches the
+        precedent `list_character_ids_missing_class_id` already set rather
+        than leaving one general-purpose reader unguarded next to it. A
+        database missing one of `TYPED_COLUMNS` has no way to truthfully
+        report a value for it -- the column does not exist -- so it is
+        treated exactly like a column that exists but is NULL: omitted
+        from the result, never guessed. A database that HAS run migration
+        006 sees every column in `PRAGMA table_info` and this guard never
+        changes its projection, so behaviour there is unchanged byte for
+        byte.
         """
         from . import persistence_typed_attrs as typed_attrs
 
         columns = list(typed_attrs.TYPED_COLUMNS)
-        projection = ",".join(columns)
         with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            columns = [c for c in columns if c in existing]
+            # `id` is always in the projection (migration 001, never absent)
+            # so a database missing EVERY typed column still gets valid SQL
+            # instead of `SELECT  FROM ...` -- `columns` alone can be empty.
+            projection = ",".join(["id"] + columns)
             row = db.execute(
                 f"SELECT {projection} FROM characters "
                 "WHERE id=? AND deleted_at IS NULL",
@@ -1175,14 +1211,26 @@ class SQLiteStore:
         landing in it makes one half raise `KeyError` while the other still
         returns.  One connection, one row, closes the window; the character's
         name comes from the SAME `SELECT`, not a second query.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, same
+        as `read_typed_attributes` (see that method's docstring, corrected
+        this round by pf-adversary, for exactly which callers this defends
+        and which were already safe without it): a missing column is
+        treated as absent, matching NULL, never crashing and never guessed.
+        Already-migrated databases are unaffected byte for byte.
         """
         from . import persistence_typed_attrs as typed_attrs
 
         columns = list(typed_attrs.TYPED_COLUMNS)
-        projection = ",".join(columns)
         with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            columns = [c for c in columns if c in existing]
+            projection = ",".join(columns + ["name"])
             row = db.execute(
-                f"SELECT {projection},name FROM characters "
+                f"SELECT {projection} FROM characters "
                 "WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
             ).fetchone()

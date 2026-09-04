@@ -2165,5 +2165,134 @@ class ReadTypedAttributesAndNameTests(unittest.TestCase):
             self.store.read_typed_attributes_and_name(character.id)
 
 
+class ReadTypedAttributesPreMigration006Tests(unittest.TestCase):
+    """`read_typed_attributes` / `read_typed_attributes_and_name` against a
+    database that never ran migration 006 -- the same boot-crash class
+    `KA1A-R314-RESULTS` reported (`pf_bridge/notes_to_chief/
+    20260905_0233_...boot-crash-class-id-backfill.md`) and
+    `ListCharacterIdsMissingClassIdTests.
+    test_a_database_missing_the_class_id_column_reports_empty_not_a_crash`
+    already guards for the boot-time backfill loop.
+
+    That guard does not cover these two methods: they are the
+    general-purpose typed-attribute readers `persistence_attr_compose.
+    live_typed_values_for` calls through the boot-installed
+    `lane_hooks.register_live_attr_values_source` source -- reachable the
+    moment ANYTHING composes an attribute block for a character, which on a
+    `--scene-load-scenario` boot (chief's deliberate `migrate_with_backup()`-
+    skipping design, `tests/test_startup_stale_lease_recovery.py::
+    test_the_scene_load_branch_is_the_one_deliberate_exception`) happens far
+    earlier than the backfill loop the original report caught. Before this
+    guard, the bare `SELECT <all 21 typed columns> ...` raised
+    `sqlite3.OperationalError: no such column: ...` for the first column
+    missing from the table -- these tests drop several, not just
+    `class_id`, to prove the fix is not scoped to one column.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "state.sqlite3"
+        self.store = SQLiteStore(self.path, MIGRATIONS)
+        self.store.migrate()
+        self.home = Position(1, 0, 100.0, 200.0, 300.0, heading=0.0)
+        self.account_id = self.store.ensure_account("pre-006-typed-read")
+        self.character = self.store.create_character(
+            self.account_id, "PreMigration", "premigration",
+            "fingerprint-pre-006", _build_wire, self.home,
+        )
+        self.store.write_typed_attributes(
+            self.character.id, {"class_id": 2, "level": 5},
+        )
+        # Drop several columns migration 006 added -- not just `class_id`
+        # -- to prove the fix is not scoped to one column.  SQLite's
+        # `ALTER TABLE ... DROP COLUMN` (3.35+) is enough to simulate a
+        # database that predates 006 without hand-building one.
+        with self.store.connect() as db:
+            db.execute("ALTER TABLE characters DROP COLUMN class_id")
+            db.execute("ALTER TABLE characters DROP COLUMN hp_current")
+            db.execute("ALTER TABLE characters DROP COLUMN experience")
+
+    def test_read_typed_attributes_omits_missing_columns_instead_of_crashing(self):
+        result = self.store.read_typed_attributes(self.character.id)
+        self.assertNotIn("class_id", result)
+        self.assertNotIn("hp_current", result)
+        self.assertNotIn("experience", result)
+        # A column that still exists and still has a value is unaffected.
+        self.assertEqual(result["level"], 5)
+
+    def test_read_typed_attributes_and_name_omits_missing_columns_too(self):
+        result, name = self.store.read_typed_attributes_and_name(
+            self.character.id,
+        )
+        self.assertNotIn("class_id", result)
+        self.assertNotIn("hp_current", result)
+        self.assertNotIn("experience", result)
+        self.assertEqual(result["level"], 5)
+        self.assertEqual(name, "PreMigration")
+
+    def test_unknown_character_still_raises_keyerror_missing_columns_or_not(self):
+        with self.assertRaises(KeyError):
+            self.store.read_typed_attributes(999999)
+        with self.assertRaises(KeyError):
+            self.store.read_typed_attributes_and_name(999999)
+
+    def test_every_typed_column_missing_reports_empty_not_a_crash(self):
+        """The edge the empty-projection guard is for: a database so far
+        pre-006 that NONE of `TYPED_COLUMNS` exist yet -- `columns` inside
+        the method is `[]`, and the SQL projection must still be valid.
+        """
+        from pirateforce_foundation import persistence_typed_attrs as typed_attrs
+
+        with self.store.connect() as db:
+            for column in typed_attrs.TYPED_COLUMNS:
+                have = {
+                    row["name"] for row in db.execute(
+                        "PRAGMA table_info(characters)"
+                    )
+                }
+                if column in have:
+                    db.execute(f"ALTER TABLE characters DROP COLUMN {column}")
+        self.assertEqual(
+            self.store.read_typed_attributes(self.character.id), {},
+        )
+        result, name = self.store.read_typed_attributes_and_name(
+            self.character.id,
+        )
+        self.assertEqual(result, {})
+        self.assertEqual(name, "PreMigration")
+
+    def test_an_already_migrated_database_is_unaffected_byte_for_byte(self):
+        """The guard must be a no-op for every database that HAS run
+        migration 006 -- the overwhelming majority of this store's actual
+        callers. A SEPARATE store (this class's `self.store` has three
+        columns dropped in `setUp`, on purpose, for the other tests here)
+        with nothing dropped proves the omitted-column set for a normal row
+        is exactly what it was before this guard existed (only genuinely-
+        NULL columns, never a column the table actually has).
+        """
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        store = SQLiteStore(Path(tmp.name) / "state.sqlite3", MIGRATIONS)
+        store.migrate()
+        account_id = store.ensure_account("fully-migrated-006")
+        normal = store.create_character(
+            account_id, "Normal", "normal",
+            "fingerprint-normal-006", _build_wire, self.home,
+        )
+        store.write_typed_attributes(normal.id, {"class_id": 4})
+        result = store.read_typed_attributes(normal.id)
+        self.assertEqual(result["class_id"], 4)
+        # `hp_current`/`hp_max`/`level`/`speed_walk` get birth defaults
+        # (migration 009); the other 17 typed columns, `experience` among
+        # them, stay NULL until something adjudicated writes them.
+        self.assertNotIn("experience", result)
+        result_and_name, name = store.read_typed_attributes_and_name(
+            normal.id,
+        )
+        self.assertEqual(result_and_name, result)
+        self.assertEqual(name, "Normal")
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
