@@ -172,12 +172,21 @@ strength, which an earlier draft of this docstring got wrong by calling them
     COO to resolve -- not a widening this module assumes.  `client_confirmed`
     in the report is that field, printed as it stands.
 
-WHY IT REFUSES EVERY HANDLE TODAY, AND WHY THAT IS NOT A BUG
+~~WHY IT REFUSES EVERY HANDLE TODAY, AND WHY THAT IS NOT A BUG~~
+WHAT IT ANSWERS NOW THAT GT-228 HAS REPORTED
 -------------------------------------------------------------
 `arrival_order()` starts by asking `world_m2_survey_plan.confirm_resolution`
-whether the handle is one this build issued, and with `MEASURED_XYZ` empty
-that is False for every possible u16.  So every call today returns a refusal
-of `ARRIVAL_REFUSED_HANDLE_NOT_ISSUED`.
+whether the handle is one this build issued.  ~~With `MEASURED_XYZ` empty
+that is False for every possible u16, so every call today returns a refusal
+of `ARRIVAL_REFUSED_HANDLE_NOT_ISSUED`.~~
+
+That day arrived: GT-228 reported PASS (R308) and `MEASURED_XYZ` carries
+both M2 destinations, so **`arrival_readiness()` is 2/2 and both targets
+compose a real, deliverable order** -- Prison Exile at wire scene 2 and
+Spice Paradise at wire scene 3, each with the door's own teleport tuple and
+spawn position.  It happened with no code change here, exactly as the
+paragraph below promised, which is why that promise is left standing rather
+than rewritten:
 
 That is fail-closed ON DATA, not behind a flag, and it is the same shape the
 rest of this chain already has: the day GT-228 fills two lines of
@@ -186,6 +195,15 @@ composing real orders, with no code change and no switch to remember.  It
 also means this module cannot be the thing that moves a player early -- it
 has no send path of its own, and even its ANSWER is closed until the
 provisioning half opens in an attended round.
+
+BOTH VALUES A CONFIRM CAN CARRY REACH THE SAME PLACE (round `16uvmp`).  The
+first provisioning trial writes the destination number (2/3) into the record
+instead of the plan's 0xA0xx handle, so that is what its confirm echoes;
+`confirm_resolution` resolves both and this module reads its `trigger_id`,
+so an order composed from either value is the same order.  The difference
+is confidence, and it stays on the plan's console fragment where a grader
+reads it (`match=trial confidence=low`), not in the order: a destination is
+a destination or it is a refusal.
 
 IT SENDS NOTHING, AND IT WRITES NOTHING
 ----------------------------------------

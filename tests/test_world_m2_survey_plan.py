@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -329,6 +330,108 @@ class ConfirmResolutionTests(unittest.TestCase):
             self.assertEqual(resolution.trigger_id, trigger_id)
 
 
+class TrialSurveyIdResolutionTests(unittest.TestCase):
+    """Round `16uvmp`: the value the first provisioning trial actually writes
+    into a record resolves too, and says how strongly."""
+
+    def test_a_trial_value_resolves_to_its_destination_at_low_confidence(self):
+        for trigger_id, expected in ((153, 2), (154, 3)):
+            with self.subTest(trigger_id=trigger_id):
+                record = {r.trigger_id: r for r in plan.planned_records()}[trigger_id]
+                value = plan.trial_survey_id(record)
+                self.assertEqual(value, expected)
+                resolution = plan.confirm_resolution(value)
+                self.assertTrue(resolution.issued)
+                self.assertEqual(resolution.trigger_id, trigger_id)
+                self.assertEqual(resolution.matched_as, "trial")
+                self.assertEqual(resolution.confidence, "low")
+
+    def test_a_handle_still_resolves_at_high_confidence(self):
+        for trigger_id in (153, 154):
+            resolution = plan.confirm_resolution(plan.handle_for_trigger_id(trigger_id))
+            with self.subTest(trigger_id=trigger_id):
+                self.assertEqual(resolution.matched_as, "handle")
+                self.assertEqual(resolution.confidence, "high")
+
+    def test_a_value_that_is_neither_carries_no_match_and_no_confidence(self):
+        resolution = plan.confirm_resolution(0x1234)
+        self.assertFalse(resolution.issued)
+        self.assertIsNone(resolution.matched_as)
+        self.assertIsNone(resolution.confidence)
+
+    def test_a_trial_value_of_an_unmeasured_destination_is_not_issued(self):
+        # Fail-closed on DATA, same as the handle half: 155 (Slave Market)
+        # is a real dock row with a real tip id, and GT-228 measured no XYZ
+        # for it, so neither of its two values is ours.
+        with _WithOnlyMeasuredXYZ({153: (0.0, 0.0, 0.0)}):
+            row = islands.destination_for_trigger_id(155)
+            self.assertFalse(plan.confirm_resolution(row.scene_name_tip_id).issued)
+            self.assertFalse(
+                plan.confirm_resolution(plan.handle_for_trigger_id(155)).issued
+            )
+
+    def test_the_handle_reading_wins_when_a_value_could_be_read_either_way(self):
+        # Today nothing is ambiguous (handles are 0xA0xx, trial values are
+        # single digits), so the precedence is pinned against a SYNTHETIC
+        # collision rather than left to be discovered if the plan widens or
+        # the documented `SURVEY_HANDLE_BASE = 0` rollback is taken.
+        records = plan.planned_records()
+        collision = records[1].handle
+        forced = [
+            records[0]._replace(scene_name_tip_id=collision),
+            records[1],
+        ]
+        with mock.patch.object(plan, "planned_records", lambda: tuple(forced)):
+            resolution = plan.confirm_resolution(collision)
+            self.assertTrue(resolution.issued)
+            self.assertEqual(resolution.matched_as, "handle")
+            self.assertEqual(resolution.trigger_id, records[1].trigger_id)
+
+    def test_the_low_range_guard_covers_only_half_the_accepted_set_and_says_so(self):
+        # pf-adversary, round `16uvmp`: `HandleAllocationTests` asserts that no
+        # HANDLE may be confusable with a trigger id or a low id -- "which is
+        # what makes 'did this echo come from us?' a real question" -- and it
+        # inspects `handle` only.  The trial values this round started
+        # accepting are 2 and 3: both inside that forbidden low range, and
+        # both real `Trigger_TIP` rows (Edmund Hidden Treasure / Seafood
+        # Cargo).  That is not a bug to fix here -- COO-DECISION 20260904_1345
+        # item 1 chose the value and rules the Trigger_TIP names a different
+        # namespace until proven otherwise -- but it must be VISIBLE, because
+        # it is precisely why the trial reading carries `confidence=low`.
+        # BRANCHED ON THE BASE, like the older guard it is about: the
+        # docstring's rollback (`SURVEY_HANDLE_BASE = 0`) puts the handles IN
+        # the low range on purpose, and a test written to make a gap visible
+        # must not be the thing that forbids the documented repair
+        # (pf-adversary, second pass this round -- it measured this test going
+        # red under the rollback).
+        for record in plan.planned_records():
+            with self.subTest(trigger_id=record.trigger_id):
+                if plan.SURVEY_HANDLE_BASE:
+                    self.assertNotIn(record.handle, range(0, 512))
+                self.assertIn(plan.trial_survey_id(record), range(0, 512))
+                self.assertEqual(
+                    plan.confirm_resolution(plan.trial_survey_id(record)).confidence,
+                    "low",
+                    "a value inside the range the handle guard forbids must "
+                    "never be reported as a strong match",
+                )
+
+    def test_no_two_destinations_can_claim_the_same_value(self):
+        # The property that makes a resolution safe to teleport on: every
+        # u16 this build can issue maps to exactly ONE destination.  A
+        # widening of the plan that broke it would send a confirming player
+        # to the wrong island, so it fails here first.
+        issued: dict[int, int] = {}
+        for record in plan.planned_records():
+            for value in (record.handle, plan.trial_survey_id(record)):
+                self.assertNotIn(
+                    value, issued,
+                    f"u16 {value} is claimed by both trigger {issued.get(value)} "
+                    f"and trigger {record.trigger_id}",
+                )
+                issued[value] = record.trigger_id
+
+
 class ConsoleAnnotationTests(unittest.TestCase):
     def test_todays_annotation_reflects_gt_228s_two_real_records(self):
         # 0x1234 is not a handle either destination was ever given, so it
@@ -359,6 +462,31 @@ class ConsoleAnnotationTests(unittest.TestCase):
             self.assertEqual(
                 plan.console_annotation(0x1234), "issued=no provisioned=1"
             )
+
+    def test_a_trial_value_annotates_itself_as_the_weak_match_it_is(self):
+        # The fragment an attended grader reads.  `confidence=low` is the
+        # whole point: without it, `issued=yes` on a single digit reads as
+        # proof the record came from us.
+        self.assertEqual(
+            plan.console_annotation(2),
+            "issued=yes match=trial confidence=low provisioned=2",
+        )
+        # A handle match adds nothing, so the string other tests pin is
+        # unchanged by this round.
+        self.assertEqual(
+            plan.console_annotation(plan.handle_for_trigger_id(153)),
+            "issued=yes provisioned=2",
+        )
+
+    def test_the_trial_fragment_still_names_nothing_the_client_believes(self):
+        # RE-227 nonclaim 3 applies to the new fragment exactly as it does
+        # to the old one -- `match=trial` says where the value came from on
+        # OUR side and nothing about what it means to the client.
+        text = plan.console_annotation(2).lower()
+        for forbidden in ("island", "scene", "trigger", "prison", "spice"):
+            self.assertNotIn(forbidden, text)
+        text.encode("ascii")
+        self.assertNotIn("+", text)
 
     def test_the_annotation_is_ascii_and_carries_no_truncation_marker(self):
         # `+` is how the sibling line marks truncated hex; an annotation that

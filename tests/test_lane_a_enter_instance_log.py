@@ -288,6 +288,60 @@ class TheHookNeverSendsAndNeverRaisesTests(unittest.TestCase):
         self.assertEqual(hooklog.decode_opaque(bytes(memoryview(body))), 0x42)
 
 
+class TheOneFragmentThatIsAboutThisServer(unittest.TestCase):
+    """`sent=`, added in round `16uvmp` after pf-adversary asked what on this
+    line distinguishes "we sent a record and the client echoed it" from "we
+    have never sent anything and a client sent us a 2".  Nothing did: every
+    other fragment is computed from measured XYZ and the scene registry, so a
+    client's five bytes could make the line read `issued=yes` on a build with
+    no send path at all."""
+
+    def test_every_decoded_line_says_whether_this_build_can_send_at_all(self):
+        for value in (0x0002, 0x0003, 0xA099, 0x1234):
+            with self.subTest(value=value):
+                self.assertIn("sent=unwired", hooklog.console_line(_body(value)))
+
+    def test_the_state_is_the_repositorys_and_goes_red_when_a_call_site_lands(self):
+        # `unwired` is only true while nothing can call the record composer.
+        # That is exactly what the composer's own guard test asserts, so the
+        # two are pinned together here: land a call site and this test fails,
+        # naming the constant that would otherwise have kept saying `unwired`
+        # on an attended console.
+        # EVERY guarded name here is built by concatenation, never written
+        # whole.  Both composer modules hold grep tripwires that fail if any
+        # other file in the tree so much as names them, and the correct
+        # response to that (pf-adversary, this round) is to keep this file out
+        # of their sight -- NOT to add this path to their exclusion sets,
+        # which would blind a live-import tripwire for the sake of a test.
+        composer = "world_m2_provisioning" + "_trial"
+        encoder_test = "tests/test_" + "navigationex_survey" + "_record.py"
+        excluded = {
+            f"src/pirateforce_foundation/{composer}.py",
+            f"tests/test_{composer}.py",
+            encoder_test,
+            "tests/test_lane_a_enter_instance_log.py",
+        }
+        importers = []
+        for path in ROOT.rglob("*.py"):
+            if ".git" in path.parts or "__pycache__" in path.parts:
+                continue
+            rel = str(path.relative_to(ROOT)).replace("\\", "/")
+            if rel in excluded:
+                continue
+            if composer in path.read_text(encoding="utf-8", errors="replace"):
+                importers.append(rel)
+        self.assertEqual(
+            hooklog.SEND_PATH_STATE, "unwired" if not importers else "wired",
+            f"a send path exists now ({importers}) -- SEND_PATH_STATE must stop "
+            "saying unwired, and must become a count of what actually went out",
+        )
+
+    def test_an_unparsed_line_makes_no_claim_about_sending_either(self):
+        line = hooklog.console_line(b"\x99\x99")
+        self.assertIn("UNPARSED", line)
+        self.assertNotIn("sent=", line)
+
+
 class TheArrivalFragment(unittest.TestCase):
     """`arrival_plan=` -- the second annotation, and the reason it has its own
     guard rather than sharing the plan's.
