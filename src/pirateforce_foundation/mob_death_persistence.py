@@ -799,15 +799,25 @@ def seed_the_session_state(
             print(describe_seeded(outcome))
         return (seeded, ledger)
     applied = 0
+    # `mutated` is a LOCAL, never the `ledger` parameter: `seed_register`
+    # above never reassigns `register` either, for the same reason -- a
+    # `with_balance` that raises on the SECOND OR LATER admitted row must
+    # roll back to the ledger the caller handed in, not to a ledger already
+    # carrying the earlier rows' mutations (pf-adversary, this round: a
+    # reassigned `ledger` made the `except` branch's own "the caller gets
+    # back exactly what it handed in" claim false, and fed a partially-
+    # zeroed ledger straight into `mob_death.repopulation_entries`, which is
+    # the exact crash this function exists to prevent).
     try:
-        carried = set(ledger.identities())
+        mutated = ledger
+        carried = set(mutated.identities())
         for record in outcome.admitted:
             if record.actor_identity not in carried:
                 continue
-            standing = ledger.balance_of(record.actor_identity)
+            standing = mutated.balance_of(record.actor_identity)
             if standing.current_hp == mob_death.HP_WHEN_DEAD:
                 continue
-            ledger = ledger.with_balance(mob_combat.MobBalance(
+            mutated = mutated.with_balance(mob_combat.MobBalance(
                 record.actor_identity, standing.max_hp,
                 mob_death.HP_WHEN_DEAD))
             applied += 1
@@ -826,7 +836,7 @@ def seed_the_session_state(
         return (register, ledger)
     if announce and _worth_saying(outcome):
         print("%s ledger_zeroed=%d" % (describe_seeded(outcome), applied))
-    return (seeded, ledger)
+    return (seeded, mutated)
 
 
 #: The pasteable call site, kept next to the function it names so that the

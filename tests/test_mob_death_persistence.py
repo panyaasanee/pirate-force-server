@@ -737,6 +737,75 @@ class TheLedgerMovesWithTheRegisterTests(unittest.TestCase):
         self.assertIn(graves.WORLD_SEED_REFUSED_TOKEN, line)
         self.assertIn(graves.REFUSE_LEDGER_REFUSED_THE_ROW, line)
 
+    def test_a_second_admitted_grave_that_fails_still_costs_the_ledger_nothing(self):
+        # pf-adversary, this round (re-review of the second pass): the loop
+        # below used to reassign the `ledger` PARAMETER on every successful
+        # `with_balance`, so a failure on the SECOND OR LATER row returned a
+        # ledger already carrying the first row's mutation -- "the caller
+        # gets back exactly what it handed in" was false whenever more than
+        # one grave was admitted. `test_a_ledger_that_refuses_costs_the_
+        # register_its_seed_too` above can't catch this: its `Angry` ledger
+        # raises out of `identities()`, before the loop's first iteration,
+        # so the reassignment never had a chance to run.
+        register = mob_death.DeathRegister()
+        first, second = self.roster[0], self.roster[1]
+        for victim in (first, second):
+            record = mob_death.DeathRecord(
+                victim.actor_identity, KILLER, victim.max_hp, victim.scene)
+            step = a_step(record, register, base_generation=register.generation)
+            with contextlib.redirect_stdout(io.StringIO()):
+                register = mob_death.commit_death(register, step)
+        before = mob_death.DeathRegister()
+        real = mob_combat.open_ledger(self.roster, scene=BG1)
+
+        class RaisesOnTheSecondRow(mob_combat.CombatLedger):
+            # `CombatLedger.with_balance` returns a bare `CombatLedger(...)`,
+            # not `type(self)(...)` -- so delegating to `super().with_balance`
+            # on a success would hand the loop a plain `CombatLedger` for its
+            # NEXT iteration and this override would never see row two. Build
+            # the replacement the same way the base method does, but keep it
+            # this subclass, so the raise-on-the-second-call still applies to
+            # the object the loop is actually holding by then.
+            def with_balance(self, balance):
+                calls.append(balance.actor_identity)
+                if len(calls) == 2:
+                    raise RuntimeError("no")
+                self.balance_of(balance.actor_identity)
+                return RaisesOnTheSecondRow(
+                    tuple(
+                        balance if row.actor_identity == balance.actor_identity
+                        else row
+                        for row in self.balances),
+                    self.generation + 1,
+                    self.scene,
+                )
+
+        calls: list = []
+        angry = RaisesOnTheSecondRow(real.balances)
+        (result_register, result_ledger), line = quiet(
+            graves.seed_the_session_state, before, angry, BG1)
+        self.assertEqual(len(calls), 2)
+        self.assertIs(result_register, before)
+        self.assertIs(result_ledger, angry)
+        self.assertEqual(
+            result_ledger.balance_of(first.actor_identity).current_hp,
+            first.max_hp)
+        self.assertEqual(
+            result_ledger.balance_of(second.actor_identity).current_hp,
+            second.max_hp)
+        self.assertIn(graves.WORLD_SEED_REFUSED_TOKEN, line)
+        self.assertIn(graves.REFUSE_LEDGER_REFUSED_THE_ROW, line)
+        # `repopulation_entries` requires an exact `mob_combat.CombatLedger`
+        # (the mock subclass above is not one); rebuild a plain ledger from
+        # what this call actually returned to prove it is really the
+        # untouched, fully-alive ledger the real call site would have kept.
+        plain = mob_combat.CombatLedger(
+            result_ledger.balances, result_ledger.generation,
+            result_ledger.scene)
+        entries = mob_death.repopulation_entries(
+            self.legacy, self.roster, result_register, ledger=plain)
+        self.assertEqual(len(entries), len(self.roster))
+
     def test_a_repeat_changes_nothing_and_says_nothing(self):
         self._kill_in_a_first_session()
         ledger = mob_combat.open_ledger(self.roster, scene=BG1)
