@@ -1,1 +1,1 @@
-{"sha":"910eb34a970d4063ba71e162d692e1cb88cc5844","conclusion":"failure","event":"push","ref":"refs/heads/claude/magical-hawking-elvg52","run_id":"33818842135","utc":"2026-09-04T00:00:35Z"}
+{"sha":"910eb34a970d4063ba71e162d692e1cb88cc5844","conclusion":"failure","event":"pull_request","ref":"refs/pull/710/merge","run_id":"33818947500","utc":"2026-09-04T00:05:47Z"}
