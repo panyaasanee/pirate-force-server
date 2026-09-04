@@ -719,13 +719,15 @@ class ItIsFailClosedTests(unittest.TestCase):
 
 
 class DispatchTodayTests(unittest.TestCase):
-    """Question 4: what the missing rows cost, on the real dispatcher.
-
-    THESE TESTS PIN A DEFECT, NOT A FIX, and they are written to turn RED
-    the day ``CORE-REQUEST 20260903_1641`` lands the two rows in
-    ``vital_walk._LENGTHS_BY_LEGACY_NAME`` -- deliberately, so the round
-    that lands them has to come back here and rewrite the assertions as the
-    behaviour the request promised.
+    """Question 4: what the missing rows used to cost, on the real
+    dispatcher -- UPDATED round `9vec2s`, CORE-REQUEST 20260903_1641 item 1
+    landed (the two rows now reach ``vital_walk`` through
+    ``body_length_table``'s call to ``world_click_vitals.body_lengths``,
+    see ``NothingCallsThisYetTests`` above).  As promised by this class's
+    own previous docstring, the assertions below are rewritten as the
+    behaviour the request promised, not deleted -- three of the five tests
+    in this class did not depend on the missing rows at all and are
+    unchanged.
     """
 
     def setUp(self):
@@ -782,20 +784,26 @@ class DispatchTodayTests(unittest.TestCase):
         index = sorted(state.population_indices)[0]
         return 0x2000 + 1 + index
 
-    def test_lane_e_still_declares_neither_click_id(self):
-        """THE TRIPWIRE, and it lives with the rest of the tripwires.
+    def test_lane_e_now_declares_both_click_ids(self):
+        """WAS THE TRIPWIRE for the defect this class used to pin.
 
-        The premise of this whole class: while ``vital_walk`` declares no
-        length for either click id, a frame carrying one cannot be walked
-        by anybody.  The day ``CORE-REQUEST 20260903_1641`` lands, this
-        goes red first and the two tests below go red with it -- which is
-        the point.  A draft kept this in the "nothing calls this" class,
-        where a red would have read as a wiring bug.
+        ``vital_walk`` now declares a length for both click ids (via
+        ``world_click_vitals.body_lengths``), so a frame carrying one CAN be
+        walked.  The two tests below, previously pinning the cost of this
+        being false, now pin the promised behaviour instead.
         """
         legacy = self.legacy
         declared = vital_walk.body_length_table(legacy)
-        self.assertNotIn(legacy.TARGET_VITAL, declared)
-        self.assertNotIn(legacy.CHOOSE_NPC, declared)
+        self.assertIn(legacy.TARGET_VITAL, declared)
+        self.assertIn(legacy.CHOOSE_NPC, declared)
+        self.assertEqual(
+            declared[legacy.TARGET_VITAL],
+            click.body_lengths(legacy)[legacy.TARGET_VITAL],
+        )
+        self.assertEqual(
+            declared[legacy.CHOOSE_NPC],
+            click.body_lengths(legacy)[legacy.CHOOSE_NPC],
+        )
 
     def test_a_click_that_leads_the_frame_reaches_mains_branch_today(self):
         """The control: without it, "silence" below could be any cause.
@@ -838,23 +846,21 @@ class DispatchTodayTests(unittest.TestCase):
             self.legacy.parse_outer(_frame(self.legacy, vitals)))
         self.assertEqual(read.identities, (identity,))
 
-    def test_the_position_in_a_click_frame_is_thrown_away_today(self):
-        """THE COST, on the frame shape v141's own builder writes.
+    def test_the_position_in_a_click_frame_is_now_promoted(self):
+        """WAS THE COST, on the frame shape v141's own builder writes --
+        NOW THE FIX, measured on the real dispatcher rather than a patched
+        table.
 
         ``v141:6300-6315`` composes ``TargetVital`` + ``ChooseNPC`` + a
-        TRAILING ``TargetPosVital``.  The click is answered (it leads), and
-        the position in the same frame reaches nobody: the frozen parser
-        reads only the first vital's body, and ``vital_walk``'s promotion --
-        which exists to rescue exactly this -- refuses the frame because the
-        two click ids have no declared length.  That is the R303 freeze
-        (a player 173 units from a drop refused as 9250 away) on the frame
-        shape a click produces.
-
-        With the two rows added the same frame promotes the position and
-        still answers the click; that measurement is in the round file and
-        in the CORE-REQUEST, made by patching LANE-E's table, which is why
-        it is NOT asserted here: a patched table is a mock, and this class
-        only states what main does today.
+        TRAILING ``TargetPosVital``.  Before this round, the click was
+        answered (it leads) but the position in the same frame reached
+        nobody: the frozen parser reads only the first vital's body, and
+        ``vital_walk``'s promotion -- which exists to rescue exactly this --
+        refused the frame because the two click ids had no declared length.
+        That was the R303 freeze (a player 173 units from a drop refused as
+        9250 away) on the frame shape a click produces.  With the two rows
+        landed, the same frame promotes the position (``last_target_pos``
+        moves, ``VITAL_WALK_PROMOTED`` prints) and still answers the click.
         """
         state = self._started_session("click_frame_position")
         identity = self._an_actor_in_this_scene(state)
@@ -866,15 +872,23 @@ class DispatchTodayTests(unittest.TestCase):
             _target_pos_vital(self.legacy, 21482.5, 9433.3, 498.0),
         ])
         self.assertTrue(replies)
-        self.assertEqual(state.last_target_pos, before)
-        self.assertIn("%s reason=unknown_vital_id"
-                      % (vital_walk.VITAL_WALK_REFUSED_TOKEN,), console)
+        self.assertNotEqual(state.last_target_pos, before)
+        x, y, z = state.last_target_pos[:3]
+        self.assertAlmostEqual(x, 21482.5, places=1)
+        self.assertAlmostEqual(y, 9433.3, places=1)
+        self.assertAlmostEqual(z, 498.0, places=1)
+        self.assertIn(
+            "%s vital=0x%04X" % (
+                vital_walk.VITAL_WALK_PROMOTED_TOKEN,
+                self.legacy.TARGET_POS_VITAL,
+            ),
+            console,
+        )
+        self.assertNotIn(vital_walk.VITAL_WALK_REFUSED_TOKEN, console)
 
     def test_the_refusal_is_the_missing_rows_and_not_something_else(self):
-        """Same frame, two rows added: the walk closes and names the click.
-
-        Driven on the module's own merged table rather than on the
-        dispatcher, so nothing here depends on patching LANE-E's module.
+        """Same frame, on both tables: the walk closes and names the click,
+        on ``vital_walk``'s own table now, not only LANE-A's merged one.
         """
         state = self._started_session("click_frame_rows")
         identity = self._an_actor_in_this_scene(state)
@@ -884,18 +898,20 @@ class DispatchTodayTests(unittest.TestCase):
             _target_pos_vital(self.legacy, 21482.5, 9433.3, 498.0),
         ])
         parsed = self.legacy.parse_outer(pc)
-        self.assertFalse(
-            vital_walk.walk_nested_vitals(self.legacy, parsed).walked)
+        directly = vital_walk.walk_nested_vitals(self.legacy, parsed)
         walked = click._walk_with_click_lengths(self.legacy, parsed)
-        self.assertTrue(walked.walked)
-        self.assertEqual(
-            [vital.nested_id for vital in walked.vitals],
-            [self.legacy.TARGET_VITAL, self.legacy.CHOOSE_NPC,
-             self.legacy.TARGET_POS_VITAL])
-        x, y, z = self.legacy.parse_target_pos_vital(walked.vitals[-1])[:3]
-        self.assertAlmostEqual(x, 21482.5, places=1)
-        self.assertAlmostEqual(y, 9433.3, places=1)
-        self.assertAlmostEqual(z, 498.0, places=1)
+        for label, result in (("vital_walk", directly), ("click", walked)):
+            with self.subTest(table=label):
+                self.assertTrue(result.walked)
+                self.assertEqual(
+                    [vital.nested_id for vital in result.vitals],
+                    [self.legacy.TARGET_VITAL, self.legacy.CHOOSE_NPC,
+                     self.legacy.TARGET_POS_VITAL])
+                x, y, z = self.legacy.parse_target_pos_vital(
+                    result.vitals[-1])[:3]
+                self.assertAlmostEqual(x, 21482.5, places=1)
+                self.assertAlmostEqual(y, 9433.3, places=1)
+                self.assertAlmostEqual(z, 498.0, places=1)
         self.assertEqual(
             click.read_click(self.legacy, parsed).reason,
             "leading_click_is_mains_branch")
@@ -916,6 +932,22 @@ class NothingCallsThisYetTests(unittest.TestCase):
     it, and this file must not join it).  Two independent detectors now
     run: a text scan over four trees, and an AST scan that reads call
     arguments as well as import statements.
+
+    ONE REVIEWED EDGE NOW EXISTS, round `9vec2s`: CORE-REQUEST
+    20260903_1641 item 1 landed -- ``vital_walk.body_length_table`` calls
+    ``world_click_vitals.body_lengths`` (lazily, to avoid the import cycle
+    ``world_click_vitals`` importing ``vital_walk`` back would otherwise
+    create) so a frame carrying a click id can be WALKED at all.  That is
+    narrower than "wired": nothing yet calls ``read_click``,
+    ``leading_click_is_mains_branch``, or any of this module's other
+    RESPONSE-shaped functions -- item 2 of the same CORE-REQUEST (the
+    ``runtime.py`` click gate reading ``parsed.nested_id``, first vital
+    only) is still open, deliberately, per the request's own "optional, not
+    required in the same round" wording.  Its exact line number is
+    contested by the request letter itself (pf-adversary found the
+    original citation stale); not repeated here for that reason.
+    So ``vital_walk.py`` is named here, once, as the one reviewed caller;
+    every OTHER file in the repository is still held to the original claim.
     """
 
     def test_no_file_in_the_repository_names_this_module(self):
@@ -935,6 +967,10 @@ class NothingCallsThisYetTests(unittest.TestCase):
         mine = {
             (ROOT / "src" / "pirateforce_foundation"
              / "world_click_vitals.py").resolve(),
+            # The one reviewed edge (CORE-REQUEST 20260903_1641 item 1,
+            # round 9vec2s): see this class's own docstring.
+            (ROOT / "src" / "pirateforce_foundation"
+             / "vital_walk.py").resolve(),
             Path(__file__).resolve(),
         }
         offenders = []
@@ -955,11 +991,54 @@ class NothingCallsThisYetTests(unittest.TestCase):
         package = ROOT / "src" / "pirateforce_foundation"
         offenders = []
         for path in sorted(package.rglob("*.py")):
-            if path.name == "world_click_vitals.py":
+            # vital_walk.py: the one reviewed edge, see this class's
+            # docstring -- CORE-REQUEST 20260903_1641 item 1, round 9vec2s.
+            if path.name in ("world_click_vitals.py", "vital_walk.py"):
                 continue
             if _ast_mentions(ast.parse(path.read_text(encoding="utf-8"))):
                 offenders.append(path.relative_to(ROOT).as_posix())
         self.assertEqual(offenders, [])
+
+    def test_vital_walks_one_reviewed_edge_reaches_only_body_lengths(self):
+        """The exemption above is narrow ON PURPOSE -- this measures that.
+
+        ``vital_walk.py`` earning a blanket pass from the two tests above
+        would silently cover a future, unreviewed call to
+        ``read_click``/``leading_click_is_mains_branch``/etc. landing in the
+        same file with no test ever noticing.  This reads the real source
+        and pins the ONE name it may call from this module today.
+
+        USES ``_click_vitals_names_referenced`` BELOW, NOT A BARE
+        ``ImportFrom`` SCAN (pf-adversary, round 9vec2s: the first draft of
+        this test only matched ``from .world_click_vitals import X``, and a
+        mutation adding a SECOND, differently-shaped reference --
+        ``from . import world_click_vitals as _wcv`` plus
+        ``_wcv.read_click`` -- sat right next to the legitimate import and
+        passed the whole suite, including this test, unnoticed.  This test
+        exists specifically to catch that shape and every other one
+        ``test_the_ast_helper_sees_every_import_shape_including_the_hidden``
+        already proves ``_ast_mentions`` can see.
+        """
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "vital_walk.py"
+        ).read_text(encoding="utf-8")
+        names = _click_vitals_names_referenced(ast.parse(source))
+        self.assertEqual(names, {"body_lengths"})
+
+    def test_the_narrow_scan_itself_catches_the_shape_that_broke_it(self):
+        """Proves the detector above bites, the same discipline
+        ``test_the_ast_helper_sees_every_import_shape_including_the_hidden``
+        applies to ``_ast_mentions`` -- this is that test's sibling for
+        ``_click_vitals_names_referenced``, over the exact mutation
+        pf-adversary used to break the first draft of the test above.
+        """
+        snippet = (
+            "from .world_click_vitals import body_lengths\n"
+            "from . import world_click_vitals as _wcv\n"
+            "_ = _wcv.read_click\n"
+        )
+        names = _click_vitals_names_referenced(ast.parse(snippet))
+        self.assertEqual(names, {"body_lengths", "read_click"})
 
     def test_the_ast_helper_sees_every_import_shape_including_the_hidden(self):
         """Prove the detector bites before relying on it.
@@ -1011,6 +1090,61 @@ def _ast_mentions(tree) -> bool:
         if any("world_click_vitals" in name for name in names):
             return True
     return False
+
+
+def _click_vitals_names_referenced(tree) -> set:
+    """Every name of THIS module's a caller actually reaches, by any shape.
+
+    Companion to ``_ast_mentions`` (a yes/no detector): this collects WHICH
+    names, so a caller's exemption can be pinned narrow instead of blanket.
+    Three shapes, same three ``_ast_mentions`` already proves matter:
+
+    1. ``from .world_click_vitals import X[, Y, ...]`` -- ``X``/``Y`` land
+       directly.
+    2. ``import world_click_vitals [as alias]`` / ``from . import
+       world_click_vitals [as alias]`` -- the BINDING is recorded, and every
+       ``binding.attr`` access anywhere in the tree contributes ``attr``.
+       This is the shape pf-adversary used to slip a second, unreviewed
+       reference past a first draft that only matched shape 1.
+    3. A string constant argument to any call that names this module
+       (``importlib.import_module("...world_click_vitals")``,
+       ``__import__(...)``) -- opaque by construction (the member reached
+       through it cannot be recovered from the AST alone), so it
+       contributes the sentinel ``"<opaque import>"`` rather than being
+       silently invisible.  A caller asserting an exact name set will fail
+       loudly on this sentinel instead of passing by accident.
+    """
+    names: set = set()
+    bindings: set = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "world_click_vitals":
+            for alias in node.names:
+                names.add(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module is None:
+            for alias in node.names:
+                if alias.name == "world_click_vitals":
+                    bindings.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.endswith("world_click_vitals"):
+                    bindings.add(alias.asname or alias.name.rsplit(".", 1)[-1])
+        elif isinstance(node, ast.Call):
+            for argument in node.args:
+                if (
+                    isinstance(argument, ast.Constant)
+                    and isinstance(argument.value, str)
+                    and "world_click_vitals" in argument.value
+                ):
+                    names.add("<opaque import>")
+    if bindings:
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in bindings
+            ):
+                names.add(node.attr)
+    return names
 
 
 if __name__ == "__main__":

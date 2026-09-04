@@ -153,7 +153,7 @@ env:
   # the close bound below -- PF_STALE_HOURS is untouched, on purpose, because
   # this repository's gate takes tens of minutes and a queued runner can
   # wait; only the "try `gh pr ready`" attempt moves earlier.
-  PF_STALE_MINUTES: '45'
+  PF_STALE_MINUTES: '75'
   # The job inside gate-windows.yml whose conclusion IS the gate verdict.  If
   # that job is ever renamed, this must be renamed with it, in the same commit.
   PF_GATE_JOB: 'gate'
