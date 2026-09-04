@@ -94,6 +94,36 @@ class SkillCatalogTests(unittest.TestCase):
                     skill_catalog.stamina_cost(skill_id),
                     int(skill_catalog.skill_raw_context(skill_id)["n_STAMINA_COST"]))
 
+    def test_max_skill_level_is_one_for_every_starting_kit_skill(self):
+        # Real value from the committed table for all 8 ids in this
+        # snapshot -- skill_point_cost_to_learn()'s docstring depends on
+        # this staying true (no accessor for f_SP_LEVEL2PLUS is offered
+        # because nothing in this catalog has n_LEVELS > 1 to exercise it).
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(skill_catalog.max_skill_level(skill_id), 1)
+                self.assertEqual(
+                    skill_catalog.max_skill_level(skill_id),
+                    int(skill_catalog.skill_raw_context(skill_id)["n_LEVELS"]))
+
+    def test_skill_point_cost_to_learn_matches_the_raw_column_per_skill(self):
+        # Real values from the committed table: every id costs 1 skill
+        # point to learn except VIP Strive Jump (111), which costs 0.2 --
+        # not invented, and not rounded by this test: the raw column is
+        # re-parsed the same way the accessor parses it, so a table edit
+        # that changes the fifth decimal place still fails this test.
+        expected = {
+            99: 1.0, 110: 1.0, 111: 0.2,
+            40000: 1.0, 41000: 1.0, 42000: 1.0, 43000: 1.0, 44000: 1.0,
+        }
+        for skill_id, cost in expected.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertAlmostEqual(
+                    skill_catalog.skill_point_cost_to_learn(skill_id), cost, places=5)
+                self.assertEqual(
+                    skill_catalog.skill_point_cost_to_learn(skill_id),
+                    float(skill_catalog.skill_raw_context(skill_id)["f_SP_LEVE1"]))
+
     def test_basic_training_skill_ids_is_exactly_the_five_known_ids(self):
         # pf-adversary this round: the title-suffix derivation
         # (skill_catalog._BASIC_TRAINING_SKILL_IDS, built from

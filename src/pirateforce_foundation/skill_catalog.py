@@ -42,6 +42,14 @@ but never gave a named reader.  Neither has a caller outside this module's
 own tests today, same as ``level_learn()`` before it: the catalog answers
 reads, it does not yet gate anything, because no lane calls
 ``resolve_skill_damage`` in production yet either (see ``damage_by_skill.py``).
+
+[UPDATE, round `jbe8rr`, per ``COO-DECISION 20260905_0155`` direction
+"ระบบเรียนสกิล/skill point"]: ``max_skill_level()`` and
+``skill_point_cost_to_learn()`` add named readers for ``n_LEVELS`` and
+``f_SP_LEVE1`` -- the two SKILL_CONTEXT columns a skill-point learn-request
+validator would need, checked non-blank for all 8 starting-kit ids this
+round.  Same posture as every accessor above: a read, not a gate: no learn
+validator calls either one yet.
 ``n_TARGET`` is deliberately NOT given an accessor here: unlike ``n_CD``/
 ``n_STAMINA_COST`` its raw values (0 for every non-99 id, 1 for 99) have no
 unit or direction this project has RE'd, so naming it "range" or "target
@@ -134,6 +142,7 @@ _CONTEXT_COLUMNS = (
     "n_LEVEL_LEARN", "n_PASSIVE", "n_ISCLASS", "n_CD", "n_TARGET",
     "n_EQUIPTYPE", "n_EQUIPTYPE_LHAND", "n_STAMINA_COST",
     "s_CAST_CONDITION", "s_CAST_BEHAVIOR",
+    "n_LEVELS", "f_SP_LEVE1", "f_SP_LEVEL2PLUS",
 )
 
 
@@ -229,6 +238,35 @@ def stamina_cost(skill_id: int) -> int:
     module docstring: this is the closest cost field the table has, named as
     the table names it -- this function does not claim it means "MP"."""
     return int(skill_raw_context(skill_id)["n_STAMINA_COST"])
+
+
+def max_skill_level(skill_id: int) -> int:
+    """The client's own ``n_LEVELS`` column, unmodified: how many ranks
+    ``skill_id`` has.  All 8 starting-kit ids carry ``1`` in this snapshot --
+    ``tests/test_skill_catalog.py`` pins that fact so a future row with more
+    than one rank is caught rather than silently assumed away by
+    ``skill_point_cost_to_learn``'s docstring below."""
+    return int(skill_raw_context(skill_id)["n_LEVELS"])
+
+
+def skill_point_cost_to_learn(skill_id: int) -> float:
+    """The client's own ``f_SP_LEVE1`` column: the skill-point cost to learn
+    ``skill_id`` at its first rank.  ``PANYA-DECISION 20260904_0328`` piece 5
+    is what would spend this number (a learn-request validator that checks a
+    character has enough skill points before granting a skill) -- this
+    accessor only reads the table, it does not itself gate or spend
+    anything; no such validator calls it yet, same "zero production callers"
+    posture as this catalog's other accessors.
+
+    Deliberately NOT paired with a ``cost_to_rank_up`` accessor for
+    ``f_SP_LEVEL2PLUS``: every one of the 8 starting-kit ids has
+    ``n_LEVELS == 1`` (see :func:`max_skill_level`), so ``f_SP_LEVEL2PLUS``
+    is unreachable for all of them in this catalog's scope and naming an
+    accessor for it here would claim a meaning this catalog has no id to
+    exercise it against -- ``skill_raw_context`` still carries the raw
+    column verbatim for a future catalog that covers a multi-rank skill.
+    """
+    return float(skill_raw_context(skill_id)["f_SP_LEVE1"])
 
 
 def own_class_bit(skill_id: int) -> int:
