@@ -64,16 +64,28 @@ sys.path.insert(0, str(ROOT / "src"))
 # * It reports the whole surrounding identifier, so an exemption can name one
 #   symbol instead of clearing a file.
 #
+# * An f-string is read as code -- BOTH halves, its literal text and its
+#   replacement fields (`fstring_code_text`).  This is the one exception to
+#   the line above, and it is not a choice: from Python 3.12 the tokenizer
+#   itself reads them as code, the gate pins 3.14, and a guard that reads one
+#   thing here and another there is how #748 passed locally and died on the
+#   gate.  The cost is real and is the reason it is written down: a mined data
+#   row spelled as an f-string (`f"Gold Shop row {n}"`) now reports, where the
+#   same row spelled `"Gold Shop row " + str(n)` does not.
+#
 # WHAT A GREEN RUN ENTITLES A READER TO BELIEVE -- the contract, written down
 # because the test's own name over-promises (pf-adversary's closing question):
-#   "No top-level module of `src/pirateforce_foundation` binds a CODE name
-#    containing one of GUARD_WORDS that chief has not read and exempted."
+#   "No top-level module of `src/pirateforce_foundation` binds a CODE name --
+#    or spells inside an f-string -- one of GUARD_WORDS that chief has not
+#    read and exempted."
 # It does NOT say the package implements no quest or shop behaviour.  Known,
 # deliberate gaps, each pinned by a test below rather than left silent:
 #   - subpackages (`gm/`, `lane_hooks/`, ...) are not scanned at all
 #     (`test_the_unscanned_subpackages_are_named_and_counted`);
 #   - behaviour named without any guard word (`def settle(...)`) is invisible
-#     to any word list, and always was.
+#     to any word list, and always was;
+#   - two f-string shapes read differently on the gate than here, both named
+#     in `fstring_code_text` and neither present in the package today.
 # --------------------------------------------------------------------------
 GUARD_WORDS = ("quest", "shop", "store5", "price", "reward", "trade")
 
@@ -107,23 +119,31 @@ def fstring_code_text(token_string):
     pf-adversary breaking the first version of this function:
       * literal halves are kept RAW, undecoded.  `f"\\N{TRADE MARK SIGN}"`
         carries the word `trade` on the gate, and decoding it to a glyph here
-        would hide it.  Braces become spaces, because a 3.12+ tokenizer
-        splits its `FSTRING_MIDDLE` runs on them.
+        would hide it.  A doubled brace becomes a space, because a 3.12+
+        tokenizer ends its `FSTRING_MIDDLE` token on the brace and starts a
+        new one after it -- `f"a{{b}}c"` is three tokens there, which the
+        space reproduces (the brace itself is not a word character to
+        `guard_hits`, so keeping or dropping it cannot change a verdict).
       * a replacement field is CODE, so it goes back through
         `module_code_text` -- which drops the string literals inside it, the
         same as the gate's tokenizer does.  Reading them would put mined data
         rows (`row['Gold Shop']`) in front of a guard whose whole contract is
         that string literals are not behaviour.
 
-    Measured, not argued: on the 179 top-level modules of the package plus
-    the eight shapes pf-adversary used to break the first version of this
-    function, `guard_hits_in_module` returns byte-identical verdicts under
-    3.11-with-this and a real PEP 701 interpreter (3.13).  Named gap, so it
-    cannot grow unnoticed: a 3.14 t-string (`t"..."`) is not a
-    `tokenize.STRING` token there and is one here, so it would be read on the
-    gate and dropped here.  There are none in this package today and no 3.14
-    on this clone to measure with; the day one appears, this function needs
-    the same treatment for `t` as it gives `f`.
+    Measured, not argued: over the 171 top-level modules of the package, all
+    703 tracked `.py` files, and ~124,000 generated f-strings,
+    `guard_hits_in_module` returns identical verdicts under 3.11-with-this
+    and a real PEP 701 interpreter (3.13).
+
+    Two named gaps, so neither can grow unnoticed:
+      * PEP 701-only source -- a field holding a string in the f-string's own
+        quote, `f'{d["k"].settle_trade()}'` -- is a syntax error before 3.12,
+        and 3.11's `tokenize` splits it into pieces rather than failing, so
+        no fallback fires and the call is read on the gate and missed here.
+      * a 3.14 t-string (`t"..."`) is not a `tokenize.STRING` token there and
+        is one here, so it is read on the gate and dropped here.
+    Neither shape exists in this package today, and there is no 3.14 on this
+    clone to measure with; the day either appears, this function needs it.
     """
     quote_at = min(
         (token_string.find(q) for q in ("'", '"') if q in token_string),
@@ -169,9 +189,18 @@ def _closing_brace(body, opened_at):
 
     Depth-counted and quote-aware, because a replacement field may hold a
     dict display and, from 3.12, a string in the same quote as the f-string.
+
+    Quote-awareness stops at the format spec.  After the `:` that opens one --
+    the first colon that is not inside `()`, `[]` or `{}` -- only braces are
+    structural and a quote is an ordinary fill character.  Reading `'` there
+    as an opening quote is what made `f"{a:'>5}{settle_trade()}'"` swallow its
+    own closing brace and hide a real call from the guard on 3.11 while the
+    3.14 gate saw it (pf-adversary D1, second pass, this round).
     """
     depth = 0
+    brackets = 0
     quote = None
+    in_spec_at = None
     index = opened_at
     while index < len(body):
         char = body[index]
@@ -182,19 +211,30 @@ def _closing_brace(body, opened_at):
             if body.startswith(quote, index):
                 index += len(quote)
                 quote = None
-                continue
+            else:
+                index += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        elif in_spec_at is not None and depth == in_spec_at:
+            # inside the format spec: quotes are fill characters, not code
+            pass
         elif char in "'\"":
             quote = body[index:index + 3] if body.startswith(
                 char * 3, index
             ) else char
             index += len(quote)
             continue
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
+        elif char in "([":
+            brackets += 1
+        elif char in ")]":
+            brackets = max(brackets - 1, 0)
+        elif char == ":" and depth == 1 and brackets == 0:
+            in_spec_at = depth
         index += 1
     return len(body)
 
@@ -924,6 +964,57 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
                 self.assertEqual(guard_hits_in_module(source), expected)
         self.assertIsNone(fstring_code_text('"shop_open"'))
         self.assertIsNone(fstring_code_text('b"shop_open"'))
+
+    def test_the_fstring_reader_is_driven_directly_not_only_by_the_gate(self):
+        """The rows above are inert on the interpreter that gates.  These are not.
+
+        From 3.12 an f-string is FSTRING_START/MIDDLE/END, none of which is
+        `tokenize.STRING`, so `module_code_text` never calls
+        `fstring_code_text` there at all: `_closing_brace` is reached ZERO
+        times on 3.13 over the whole package.  pf-adversary proved the
+        consequence by replacing this function's body with `return None` --
+        12 tests fail on 3.11 and all 30 stay green on 3.13 (D2, second
+        pass).  The gate runs one interpreter, 3.14, so every row above is a
+        check that cannot fail where CI looks.
+
+        These assertions call the reader directly, so they discriminate on
+        any interpreter.  Each row is a mutant pf-adversary found surviving.
+        """
+        # The format-spec fill character.  Reading `'` here as an opening
+        # quote swallowed the field's own closing brace and hid a real call
+        # from the guard on 3.11 while the 3.14 gate reported it (D1).
+        self.assertEqual(_closing_brace("{a:'>5}{settle_trade()}'", 0), 6)
+        self.assertEqual(
+            guard_hits_in_module('def f(a):\n    return f"{a:\'>5}'
+                                 '{settle_trade()}\'"\n'),
+            {"trade": {"settle_trade"}},
+        )
+        # Quote-awareness outside a spec: a brace inside a string is not
+        # structural.  Deleting the branch left every test green before (D4).
+        self.assertEqual(_closing_brace("{d['}']}x", 0), 7)
+        # A colon inside brackets does not open a format spec.
+        self.assertEqual(_closing_brace("{f(x, ':')}", 0), 10)
+        # A nested field inside the spec closes back into the spec.
+        self.assertEqual(_closing_brace("{a:>{width}}", 0), 11)
+        # Unbalanced input terminates at the end of the body.
+        self.assertEqual(_closing_brace("{a", 0), 2)
+        # The doubled-brace rule.  The `{{price}}` row above passes even
+        # without it (the raw-source fallback puts `price` back); this one
+        # does not -- delete the rule and the slice tokenizes as a dict
+        # display whose key is a dropped string literal (D4).
+        self.assertEqual(
+            guard_hits_in_module('x = f"{{\'quest\': 1}}"\n'),
+            {"quest": {"quest"}},
+        )
+        # ...and driven directly, so the row above cannot be the only witness
+        # on 3.12+, where `guard_hits_in_module` never reaches this reader.
+        self.assertIn("quest", fstring_code_text('f"{{\'quest\': 1}}"'))
+        # Literal halves and fields, read directly.
+        self.assertEqual(
+            fstring_code_text('f"drops_quest_{set_id}"').split(),
+            ["drops_quest_", "set_id"],
+        )
+        self.assertIsNone(fstring_code_text('"drops_quest"'))
 
     def test_a_guard_word_reached_by_getattr_is_named(self):
         """The one string-literal hole worth closing by hand.
