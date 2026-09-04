@@ -181,31 +181,62 @@ class FriendMailPartyTradeDispatchWiringTests(unittest.TestCase):
                 )
                 self.assertNotIn("UNPARSED", stderr.getvalue())
 
-    def test_a_subscribed_frame_fires_and_receives_the_payload_verbatim(self):
-        vital_id, point = _FRIEND_MAIL_PARTY_TRADE_DISPATCH[0]
-        body = b"\x12\x34\x56"
-        seen = []
+    def test_each_class_fires_only_its_own_point_with_the_verbatim_payload(self):
+        # Exhaustive over all 8, not just a sample: proves the explicit
+        # elif chain in runtime.py did not cross-wire any class onto a
+        # sibling's hook point (e.g. a copy-paste leaving
+        # COMMUNITY_SEND_MAIL_VITAL_ID firing
+        # "vital_inbound_community_get_mail_content_vital").
+        # Every point gets its own always-on probe up front, so "did class A
+        # cross-fire class B's point" is answered by ONE shared table of
+        # subscribers, not by re-registering (and un-registering) eight
+        # times per iteration -- which would risk two probes stacking on
+        # the same point across iterations if cleanup ran late.
+        seen_by_point = {
+            point: [] for _vid, point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH
+        }
+        registered = []
+        for _vid, point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH:
+            def _make_probe(point=point):
+                def _probe(session=None, payload=None):
+                    seen_by_point[point].append((session, payload))
+                return _probe
+            registered.append(lane_hooks.hook(point)(_make_probe()))
+        try:
+            for vital_id, point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH:
+                with self.subTest(point=point):
+                    for bucket in seen_by_point.values():
+                        bucket.clear()
+                    body = bytes(
+                        [vital_id & 0xFF, (vital_id >> 8) & 0xFF, 0x99]
+                    )
+                    state = self._login_and_start(f"fmpt-sub-{vital_id:04x}")
+                    stderr = io.StringIO()
+                    with contextlib.redirect_stderr(stderr):
+                        actions = state.dispatch(self.legacy.parse_outer(
+                            _synthetic_pc(self.legacy, vital_id, body)
+                        ))
 
-        @lane_hooks.hook(point)
-        def _probe(session=None, payload=None):
-            seen.append((session, payload))
-
-        self.addCleanup(lane_hooks._withdraw, _probe.__module__)
-
-        state = self._login_and_start("fmpt-sub")
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            actions = state.dispatch(self.legacy.parse_outer(
-                _synthetic_pc(self.legacy, vital_id, body)
-            ))
-
-        self.assertEqual(actions, [])
-        self.assertEqual(len(seen), 1)
-        session, payload = seen[0]
-        self.assertIs(session, state)
-        self.assertEqual(payload, body)
-        self.assertIsInstance(payload, bytes)
-        self.assertIn("LANE_HOOK_FIRED", stderr.getvalue())
+                    self.assertEqual(actions, [])
+                    own_hits = seen_by_point[point]
+                    self.assertEqual(
+                        len(own_hits), 1, f"{point} must fire exactly once",
+                    )
+                    session, payload = own_hits[0]
+                    self.assertIs(session, state)
+                    self.assertEqual(payload, body)
+                    self.assertIsInstance(payload, bytes)
+                    for other_point, bucket in seen_by_point.items():
+                        if other_point == point:
+                            continue
+                        self.assertEqual(
+                            bucket, [],
+                            f"{vital_id:#06x} must not fire {other_point}",
+                        )
+                    self.assertIn("LANE_HOOK_FIRED", stderr.getvalue())
+        finally:
+            for fn in registered:
+                lane_hooks._withdraw(fn.__module__)
 
     def test_a_raising_hook_neither_kills_the_session_nor_leaks_an_answer(self):
         vital_id, point = _FRIEND_MAIL_PARTY_TRADE_DISPATCH[-1]
