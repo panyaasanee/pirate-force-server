@@ -20,14 +20,109 @@ None of these tests upgrades a status. They fail if the claim drifts.
 
 from __future__ import annotations
 
+import io
 import re
 import sys
+import tokenize
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+
+# --------------------------------------------------------------------------
+# The cross-lane quest/shop guard's reader.  Chief owns this block
+# (COO-DECISION 20260904_1647); it is not any one lane's to edit.
+#
+# WHAT WENT WRONG, MEASURED, TWICE:
+# 1. `\bquest\b` never matched `quest_id` and `\btrade\b` never matched
+#    `settle_trade`, because `_` is a word character to `re`.  LANE-UI proved
+#    it by planting a `settle_trade` in a Foundation module and watching the
+#    guard stay green (pf_bridge/notes_to_chief/20260904_1600).
+# 2. The first fix for that, in this same round, was itself defeated three
+#    ways by pf-adversary before it was pushed: a word cleared file-level
+#    skipped the symbol check entirely (so `runtime.py` accepted a working
+#    `settle_trade`); `settleTrade` and `QUESTS` slipped the word edge; and a
+#    docstring sentence saying a table is ABSENT bought blanket clearance for
+#    a function that implements it.
+#
+# WHAT THIS READER DOES NOW, and why each piece exists:
+# * It reads CODE TOKENS ONLY -- comments and string literals are dropped
+#   before matching.  A comment cannot implement a shop, and the mined data
+#   rows this package is full of ('Gold Shop', 'Merchant marine Trade Ship')
+#   are string literals.  That single change deleted five of the six
+#   file-level exemptions this guard used to need, and it is what makes a
+#   `def drops_quest(...)` in a module whose docstring merely NAMES
+#   DROPS_QUEST go red (pf-adversary D6).
+# * It splits camelCase before lowercasing, so `TradeCmdVital` and
+#   `settleTrade` are seen.  `.lower()` alone destroyed the only boundary
+#   those names have.
+# * It allows a trailing plural `s` and trailing digits, so `QUESTS`,
+#   `trades` and `dispatch_columbus_quest3021` are seen -- but still no other
+#   trailing letter, which is what keeps "question" and "request" out.
+# * It reports the whole surrounding identifier, so an exemption can name one
+#   symbol instead of clearing a file.
+#
+# WHAT A GREEN RUN ENTITLES A READER TO BELIEVE -- the contract, written down
+# because the test's own name over-promises (pf-adversary's closing question):
+#   "No top-level module of `src/pirateforce_foundation` binds a CODE name
+#    containing one of GUARD_WORDS that chief has not read and exempted."
+# It does NOT say the package implements no quest or shop behaviour.  Known,
+# deliberate gaps, each pinned by a test below rather than left silent:
+#   - subpackages (`gm/`, `lane_hooks/`, ...) are not scanned at all
+#     (`test_the_unscanned_subpackages_are_named_and_counted`);
+#   - behaviour named without any guard word (`def settle(...)`) is invisible
+#     to any word list, and always was.
+# --------------------------------------------------------------------------
+GUARD_WORDS = ("quest", "shop", "store5", "price", "reward", "trade")
+
+_CAMEL_ACRONYM = re.compile(r"(.)([A-Z][a-z]+)")
+_CAMEL_HUMP = re.compile(r"([a-z0-9])([A-Z])")
+
+
+def guard_normalise(text):
+    """camelCase -> snake_case, then lowercase.  Run this before matching."""
+    return _CAMEL_HUMP.sub(
+        r"\1_\2", _CAMEL_ACRONYM.sub(r"\1_\2", text)
+    ).lower()
+
+
+def module_code_text(source):
+    """The module's code tokens only -- no comments, no string literals.
+
+    Falls back to the raw source if the file will not tokenise, because a
+    guard that goes quiet on a syntax error is worse than one that shouts.
+    """
+    try:
+        kept = [
+            token.string
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type not in (tokenize.COMMENT, tokenize.STRING)
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source
+    return " ".join(kept)
+
+
+def guard_hits(text):
+    """Map each guard word present to the full identifiers it appears inside.
+
+    `text` must already be through `guard_normalise`.
+    """
+    found = {}
+    for word in GUARD_WORDS:
+        symbols = set(re.findall(
+            rf"[a-z0-9_]*(?<![a-z0-9]){word}s?[0-9]*(?![a-z])[a-z0-9_]*", text
+        ))
+        if symbols:
+            found[word] = symbols
+    return found
+
+
+def guard_hits_in_module(source):
+    """Every guard hit among a module's code names, exemptions not applied."""
+    return guard_hits(guard_normalise(module_code_text(source)))
 
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
@@ -371,47 +466,140 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
     # There is still no call site in runtime.py for either guard -- see the
     # module's own CORE-REQUEST -- so nothing about store state, pricing or
     # a purchase outcome is decided here.
-    ALLOWED_HITS = {
-        "columbus_quest_dispatch.py": {"quest"},
-        # ADDED round cool-johnson-7qcsux (chief, R339, CORE-REQUEST
-        # pf_bridge/notes_to_chief/20260904_1120 LANE-UI).  runtime.py
-        # imports TRADE_INVITE_VITAL_ID from ui_trade_wire.py (already
-        # exempted below for the same reason) and dispatches
-        # TradeInviteVital -- a proven wire class name, not a guess -- to a
-        # report-only lane_hooks point that counts the frame and answers
-        # nothing. No cart, price, inventory or trade outcome logic exists
-        # in runtime.py; TradeCmdVital, the class that would actually
-        # execute a trade, has no call site here or anywhere else.
-        "runtime.py": {"quest", "trade"},
-        "world_port_royal_identity.py": {"shop"},
-        "trade_session_membership.py": {"trade"},
-        # ADDED round 4uztfj (LANE-A): scene 126's crosswalk table holds
-        # three rows whose MINED MOBS_TIP NAME is "Merchant marine Trade
-        # Ship".  It is mined data in a name column, not a promise of trade
-        # behaviour, and the test below proves that for every hit in the
-        # file rather than taking this comment's word for it.
-        "world_bg3001_identity.py": {"trade"},
+    # REPLACED round `oi2r2n` (chief, R340) -- COO-DECISION 20260904_1647.
+    #
+    # The old map was `{filename: {word}}`: clearing a word for a whole file.
+    # Five of its six entries existed only because the guard matched COMMENTS
+    # and MINED DATA STRINGS -- 'Gold Shop' in an NPC title column, "trade"
+    # in a module docstring.  The reader above no longer looks at either, so
+    # those five entries are simply gone, and with them the hole pf-adversary
+    # opened this round: a `def shop_buy(...)` in world_port_royal_identity.py
+    # was invisible while the file was cleared for "shop".
+    #
+    # What is left is per SYMBOL, and every symbol below is a name bound in
+    # CODE.  Each is a PASS-THROUGH: a module name, a mined column or table
+    # name, or a proven wire class name.  None of them decides a price, a
+    # reward, a shop inventory, a trade outcome or quest state.  A new name
+    # in any of these files -- `def settle_trade`, `settleTrade`, `QUESTS` --
+    # is not on this list and goes red.
+    #
+    # 🔴 An exemption is a name chief has READ.  It is never granted to make
+    # a red run green; the fix for a red run is to rename the symbol
+    # (AGENTS.md section 7, the rule this round added).
+    ALLOWED_SYMBOLS = {
+        # The quest module itself.  It is the one place quest dispatch lives,
+        # by the design the npc_interaction rows describe: a one-shot wire
+        # effect that stores nothing.  Naming it here rather than clearing
+        # the file means a `def settle_trade` inside it still goes red.
+        "columbus_quest_dispatch.py": {
+            "columbus_quest_bornagain_id",
+            "columbus_quest_bornagain_label_th_translit",
+            "columbus_quest_bornagain_marker_id",
+            "columbus_quest_id",
+            "columbus_quest_op_dispatch",
+            "dispatch_columbus_quest3021",
+            "dispatch_columbus_quest3205",
+            "quest_fields",
+            "quest_id",
+        },
+        # LANE-B's refusal machinery plus the mined table names it refuses BY
+        # NAME.  `_roll_quest` returns REFUSAL_QUEST_NOT_IMPLEMENTED and
+        # touches `drops` nowhere (loot_roll.py:989-1013, re-read by
+        # pf-adversary this round); `TABLE_DROPS_QUEST` appears at :627 inside
+        # a `raise LootTableError(...)`.  2478 DROPS_QUEST sets are referenced
+        # by mobs and 311 exist client-side, so a roll here would be
+        # invention.  🔴 The exemption rests on that premise and only LANE-B
+        # can keep it true -- chief wrote to them rather than editing their
+        # module (pf_bridge/notes_to_chief/20260904_1708).
+        "loot_roll.py": {
+            "_roll_quest",
+            "drops_quest",
+            "item_table_quest",
+            "refusal_quest_not_implemented",
+            "table_drops_quest",
+        },
+        # Dispatch names, event-log tokens and imported module names.  The
+        # quest behaviour they reach lives in columbus_quest_dispatch.py; the
+        # trade names are the eight opcode ids CORE-REQUEST 1120 wired as
+        # report-only branches (chief, R339) -- TradeCmdVital, the class that
+        # would execute a trade, still has no call site anywhere in this
+        # repository.  `make_v112_monster_shop_population_state` is a v141
+        # legacy symbol this server calls; the word is inside somebody else's
+        # frozen name.
+        "runtime.py": {
+            "_dispatch_columbus_quest3021",
+            "_friend_mail_party_trade_dispatch",
+            "_friend_mail_party_trade_dispatch_ids",
+            "columbus_quest3021_conversation_sent",
+            "columbus_quest3021_dispatch_attempted",
+            # f-string prefixes: `f"columbus_quest3021_dispatch_refused_
+            # {reason}"` / the 3205 sibling, appended to `self.events` only
+            # inside `except columbus_quest_dispatch.ColumbusDispatchRefused`
+            # (runtime.py:6156-6160, :6457). The guard extracts the static
+            # text before `{reason}`, trailing underscore included. This is
+            # the refusal telemetry, the direct sibling of loot_roll.py's
+            # already-allowed `refusal_quest_not_implemented`: it fires only
+            # when the dispatch was REFUSED, so it cannot be evidence of
+            # quest state being implemented.
+            #
+            # 🔴 IF `test_every_symbol_exemption_is_still_earned` IS RED ON
+            # THIS ENTRY ON YOUR MACHINE, READ THIS BEFORE TOUCHING ANYTHING:
+            # on Python <=3.11, an f-string tokenizes as ONE `STRING` token,
+            # so `module_code_text()` (which strips `tokenize.STRING`) makes
+            # this entire f-string invisible -- these two symbols match
+            # nothing and the "still earned" check goes red. On Python
+            # >=3.12 (PEP 701), the static text before `{reason}` is its own
+            # `FSTRING_MIDDLE` token, which is NOT `tokenize.STRING`, so it
+            # reads as code and DOES match. `.github/workflows/gate-windows.yml`
+            # pins `python-version: '3.14'` -- that is the interpreter this
+            # exemption is written for, and where the guard test this
+            # exemption serves (`test_no_foundation_module_implements_quest_
+            # or_shop_behavior`) is the one that actually failed and forced
+            # this entry (pirate-force-server#748, closed gate-red on 3.14;
+            # recovered as #754). A red "still earned" check on THESE TWO
+            # SYMBOLS ONLY, on a <=3.11 interpreter, is this known gap, not a
+            # regression -- do not delete the entries or weaken the check to
+            # silence it. If the gate itself (3.14) goes red on this test,
+            # that is real and needs fixing.
+            "columbus_quest3021_dispatch_refused_",
+            "columbus_quest3205_dispatch_attempted",
+            "columbus_quest3205_dispatch_refused_",
+            "columbus_quest_actions",
+            "columbus_quest_dispatch",
+            "dispatch_columbus_quest3021",
+            "dispatch_columbus_quest3205",
+            "make_v112_monster_shop_population_state",
+            "parse_quest_operate_vital",
+            "quest_fields",
+            "quest_operate_vital",
+            "trade_invite_vital_id",
+            "trade_invite_vital_name",
+            "ui_trade_wire",
+        },
+        # `TradeInviteVital` in snake_case -- the PROVEN wire class name -- and
+        # its pure encode/decode pair.  Round md7pjz-recovery withdrew a
+        # file-level exemption here after finding `\btrade\b` never matched
+        # these at all; the reader above does match them, and they are the
+        # exact strings that round argued were legitimate.  Naming an opcode
+        # is not settling a trade.
+        "ui_trade_wire.py": {
+            "_trade_invite_fields",
+            "decode_trade_invite_payload",
+            "encode_trade_invite_payload",
+            "trade_invite_vital_id",
+            "trade_invite_vital_version",
+        },
+        # An imported module name.
+        "world_m2_columbus_trigger_readiness.py": {"columbus_quest_dispatch"},
+        # Mined QUESTDATA_TH__QUEST row 3021 columns, read into a report
+        # string (`console_line`) and an internal consistency check
+        # (`_self_check`).  Neither decides a destination; the module's own
+        # docstring line 133 says it implements none of this.
+        "world_m2_sea_destination.py": {
+            "destination_quest_id",
+            "destination_quest_row_var2",
+        },
     }
-    # REVISED round md7pjz-recovery (LANE-UI): an earlier round (COO-DECISION
-    # 20260904_1244 item 3) added file-level ALLOWED_HITS entries for
-    # ui_social_wire.py/ui_party_wire.py/ui_trade_wire.py, arguing the "trade"
-    # hits were the proven wire class name `TradeInviteVital`. A fresh
-    # pf-adversary pass (run because the original round's adversary result
-    # never came back before the session ended) found that argument does not
-    # hold: `\btrade\b` never matches "TradeInviteVital" at all (no word
-    # boundary between "trade" and "invite" -- it is one identifier), so the
-    # regex was never catching the class name in the first place. The actual
-    # hits were free prose in module docstrings/comments, and a demonstration
-    # in an isolated worktree showed the resulting file-level exemption is
-    # blind to real trade-settlement-shaped code added anywhere else in the
-    # same three files under cover of the word "trade" -- unlike the other
-    # two exemptions above, which are proven narrow by a companion test
-    # (data-row structure), nothing here checked that the hits stayed inside
-    # a comment. Fixed at the source instead of writing a third companion
-    # test: the three files' docstrings no longer use the bare word "trade"
-    # (they cite the class name `TradeInviteVital` or say "exchange"
-    # instead), so no exemption is needed and the guard is back to full
-    # strength on all three files.
 
     # A data row of world_port_royal_identity._RESOLVED_ROWS, e.g.
     #     (82, 833, 'M070_000_002_N', 'Brin', 'Gold Shop', 105),
@@ -439,7 +627,12 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         )
         hits = [
             line for line in path.read_text(encoding="utf-8").splitlines()
-            if re.search(r"\bshop\b", line.lower())
+            # FIXED round `oi2r2n`: this line used the same `\bword\b`
+            # the round exists to remove, so `shop_buy` and `SHOP_STOCK`
+            # were not even collected as hits and this test passed off the
+            # data rows (pf-adversary D3, MEASURED with a planted
+            # `def shop_buy`).  It reads the same normaliser the guard does.
+            if "shop" in guard_hits(guard_normalise(line))
         ]
         self.assertTrue(hits)
         for line in hits:
@@ -450,18 +643,200 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             title = line.rsplit("', '", 1)[-1].split("'", 1)[0]
             self.assertIn("shop", title.lower())
 
-    def test_no_foundation_module_implements_quest_or_shop_behavior(self):
+    FOUNDATION = ROOT / "src/pirateforce_foundation"
+
+    def _offenders_in(self, directory):
+        """The guard itself, over any directory.  ONE implementation.
+
+        Shared with `test_the_guard_catches_what_it_was_blind_to` so that a
+        regression in the gate is caught by the test that plants offenders,
+        not merely by a test of the helper.  pf-adversary D1 MEASURED the
+        previous shape: reverting the guard loop to `\\bword\\b` left both new
+        tests green and a planted `settle_trade` invisible, because they
+        exercised `guard_hits` directly and nothing exercised the gate.
+        """
         offenders = {}
-        # Whole words only: "request" is not a quest, and "store" alone is the
-        # name of the SQLite persistence module.
-        words = ("quest", "shop", "store5", "price", "reward", "trade")
-        for path in sorted((ROOT / "src/pirateforce_foundation").glob("*.py")):
-            text = path.read_text(encoding="utf-8").lower()
-            hits = {word for word in words if re.search(rf"\b{word}\b", text)}
-            hits -= self.ALLOWED_HITS.get(path.name, set())
-            if hits:
-                offenders[path.name] = sorted(hits)
+        for path in sorted(Path(directory).glob("*.py")):
+            allowed = self.ALLOWED_SYMBOLS.get(path.name, set())
+            unexplained = {}
+            source = path.read_text(encoding="utf-8")
+            for word, symbols in guard_hits_in_module(source).items():
+                left = sorted(s for s in symbols if s not in allowed)
+                if left:
+                    unexplained[word] = left
+            if unexplained:
+                offenders[path.name] = unexplained
+        return offenders
+
+    def test_no_foundation_module_implements_quest_or_shop_behavior(self):
+        self.assertEqual(self._offenders_in(self.FOUNDATION), {})
+
+    def test_the_guard_catches_what_it_was_blind_to(self):
+        """The gate, driven over planted modules.  Not the helper -- the gate.
+
+        Every row is a shape that reached `main` unseen at some point, or that
+        pf-adversary planted this round and watched pass.  They are written
+        into a temporary directory and run through the SAME `_offenders_in`
+        the real guard uses, so a regression in the gate cannot pass this.
+        """
+        planted = {
+            # LANE-UI's original demonstration.
+            "plain_snake.py": "def settle_trade(a, b):\n    return a\n",
+            # pf-adversary D4: `.lower()` destroys the only boundary a camel
+            # name has, so the guard used to read `tradecmdvital`.
+            "camel.py": "class TradeCmdVital:\n    def settleTrade(self):\n"
+                        "        return 1\n",
+            # pf-adversary D4: plurals and trailing digits.
+            "plural.py": "QUESTS = {}\nSHOPS = {}\n",
+            "digits.py": "def settle_trade2(a):\n    return a\n",
+            # pf-adversary D2: this shape passed while the file was cleared
+            # for the whole word at file level.
+            "runtime_shaped.py": "def settle_trade(seller, buyer, cost):\n"
+                                 "    seller.gold += cost\n",
+            # pf-adversary D6: a docstring saying the table is ABSENT used to
+            # buy clearance for the function that implements it.
+            "prose_cover.py": '"""DROPS_QUEST IS ABSENT ON PURPOSE."""\n\n\n'
+                              "def drops_quest(set_id, rng):\n    return 1\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, source in planted.items():
+                (Path(tmp) / name).write_text(source, encoding="utf-8")
+            offenders = self._offenders_in(tmp)
+        for name in planted:
+            with self.subTest(module=name):
+                self.assertIn(
+                    name, offenders,
+                    "the guard is blind to this shape again",
+                )
+
+    def test_the_guard_still_lets_through_what_the_word_edge_protects(self):
+        """The other half: over-matching would make the guard unusable noise.
+
+        `request` is not a quest, `in question` is not a quest, and `store` on
+        its own is the name of the SQLite persistence module -- which is why
+        the word list carries `store5` and not `store`.
+        """
+        benign = {
+            "a.py": "def handle_request(r):\n    return r\n",
+            "b.py": "def resolve(x):\n    # the chain in question\n"
+                    "    return x\n",
+            "c.py": "from .store import SQLiteStore\n",
+            "d.py": "def restore5d(x):\n    return x\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, source in benign.items():
+                (Path(tmp) / name).write_text(source, encoding="utf-8")
+            self.assertEqual(self._offenders_in(tmp), {})
+
+    def test_comments_and_data_strings_are_not_code(self):
+        """The contract that deleted five file-level exemptions, pinned.
+
+        A word in a comment or in a mined data string is not behaviour, and
+        treating it as one is what forced whole files to be cleared -- which
+        is what let real behaviour in beside it.  The same word as a bound
+        NAME in the same file must still go red.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "quiet.py").write_text(
+                '"""This module holds no shop and settles no trade."""\n'
+                "# price, reward, quest -- all prose\n"
+                "ROWS = [(82, 833, 'Brin', 'Gold Shop', 105)]\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(self._offenders_in(tmp), {})
+            (Path(tmp) / "loud.py").write_text(
+                '"""This module holds no shop."""\n'
+                "def shop_buy(npc_id):\n    return npc_id\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                self._offenders_in(tmp), {"loud.py": {"shop": ["shop_buy"]}},
+            )
+
+    def test_a_guard_word_reached_by_getattr_is_named(self):
+        """The one string-literal hole worth closing by hand.
+
+        Dropping string literals means `getattr(mod, "settle_trade")` would
+        be invisible (pf-adversary D4).  Rather than re-scan every string --
+        which is what put mined data rows in front of this guard in the first
+        place -- only the second argument of a `getattr` call is read.
+        """
+        for source, expected in (
+            ('getattr(mod, "settle_trade")', True),
+            ("getattr(mod, 'accept_quest')", True),
+            ('getattr(mod, "position")', False),
+        ):
+            with self.subTest(source=source):
+                names = re.findall(
+                    r"""getattr\([^,]+,\s*['"]([A-Za-z0-9_]+)['"]""", source
+                )
+                hit = any(guard_hits(guard_normalise(n)) for n in names)
+                self.assertEqual(hit, expected)
+
+    def test_no_foundation_module_reaches_a_guard_word_by_getattr(self):
+        offenders = {}
+        for path in sorted(self.FOUNDATION.glob("*.py")):
+            names = re.findall(
+                r"""getattr\([^,]+,\s*['"]([A-Za-z0-9_]+)['"]""",
+                path.read_text(encoding="utf-8"),
+            )
+            named = sorted(n for n in names if guard_hits(guard_normalise(n)))
+            if named:
+                offenders[path.name] = named
         self.assertEqual(offenders, {})
+
+    def test_the_unscanned_subpackages_are_named_and_counted(self):
+        """The guard's scope, measured instead of assumed.
+
+        `glob("*.py")` is not recursive, so every subpackage of
+        `pirateforce_foundation` has been outside this guard since it was
+        written -- 46 modules at the time pf-adversary measured it (D5).
+        Widening the scan is a cross-lane change chief did not make on his
+        own; naming the gap is the honest half he can. This test fails when
+        a NEW subpackage appears, so the gap cannot grow unnoticed, and it
+        prints the count so nobody reads a green run as full coverage.
+        """
+        known = {"data", "gm", "lane_hooks", "world_data"}
+        present = {
+            child.name for child in self.FOUNDATION.iterdir()
+            if child.is_dir() and not child.name.startswith("__")
+        }
+        self.assertEqual(
+            present, known,
+            "a subpackage appeared or vanished -- this guard does not scan "
+            "any of them; re-argue the scope before changing this set",
+        )
+        unscanned = sum(
+            1 for child in self.FOUNDATION.rglob("*.py")
+            if child.parent != self.FOUNDATION
+        )
+        self.assertGreater(unscanned, 0)
+
+    def test_every_symbol_exemption_is_still_earned(self):
+        """An exemption that no longer matches anything is a hole.
+
+        A per-symbol list rots in a way a per-file one cannot: rename
+        `destination_quest_id` and the entry stays behind, pre-approving
+        nothing today and whatever re-uses the name tomorrow.  Every entry
+        must still be a live CODE hit in the module it is written under --
+        the same text the guard reads, so an entry cannot be kept alive by a
+        comment (pf-adversary D6/D7: the previous version scanned raw source
+        and its docstring claimed a per-word check the data shape could not
+        support).
+        """
+        for name, symbols in sorted(self.ALLOWED_SYMBOLS.items()):
+            path = self.FOUNDATION / name
+            with self.subTest(module=name):
+                self.assertTrue(path.exists(), "exemption names a dead module")
+                live = set()
+                for found in guard_hits_in_module(
+                    path.read_text(encoding="utf-8")
+                ).values():
+                    live |= found
+                self.assertEqual(
+                    sorted(set(symbols) - live), [],
+                    "exemption no longer matches any code name here",
+                )
 
     def test_the_ocean_panels_trade_hits_are_all_mined_npc_name_data(self):
         """The premise of the newest exemption above, checked not argued.
@@ -477,7 +852,8 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         )
         hits = [
             line for line in path.read_text(encoding="utf-8").splitlines()
-            if re.search(r"\btrade\b", line.lower())
+            # FIXED round `oi2r2n`, same defect as its sibling above.
+            if "trade" in guard_hits(guard_normalise(line))
         ]
         self.assertTrue(hits)
         for line in hits:
@@ -488,7 +864,10 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
                     "the word is outside every quoted data field",
                 )
                 without_data = re.sub(r"'[^']*'", "''", line)
-                self.assertNotRegex(without_data.lower(), r"\btrade\b")
+                self.assertNotIn(
+                    "trade", guard_hits(guard_normalise(without_data)),
+                    "the word is doing something outside the data field",
+                )
 
     def test_store5_open_packet_is_a_harness_with_no_product_list(self):
         pc, _ = self.v.make_trade_zoom_store5()
