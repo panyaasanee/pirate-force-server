@@ -21,11 +21,57 @@ THIS MODULE IS THE OTHER HALF OF THAT HOOKUP, AND IT DOES NOT WAIT FOR IT.
 Everything below is written and tested against a plain fake session, the
 same way `warp_target_record.py` and `warp_scene_persist.py` are; the
 letter's own words (translated) are "writable and testable in full without
-your hookup".  chief's one line at the
-`connection.py` layer is the ONLY thing standing between this module and a
-live send failure actually reaching it; until that line lands, these
-functions simply never get called by anything outside this lane's own
-tests and `chat_command_action.py`'s own compose-time call below.
+your hookup".  ~~chief's one line at the `connection.py` layer is the ONLY
+thing standing between this module and a live send failure actually
+reaching it; until that line lands, these functions simply never get
+called by anything outside this lane's own tests and `chat_command_
+action.py`'s own compose-time call below.~~  STRUCK by chief's own R348
+(`pf_bridge/notes_to_chief/FROM_CHIEF_R348_TO_ALL_20260905_0505.md`): that
+one line landed on main in server `#795` (`AcceptedGameSocket.sendall`
+now offers `state.on_game_frame_sent` / `state.on_game_frame_send_failed`
+if present -- see `connection.py`), and it was NOT the only thing standing
+in the way.  A SECOND, separate gap sits on the other side of that opt-in
+check: `state` in R348's own words is "no class in `src/` [that] declares
+`on_game_frame_sent`/`on_game_frame_send_failed`" -- `getattr(self.state,
+hook_name, None)` in `connection.py:150` finds nothing and returns without
+ever reaching this module.  `park_warp_send` IS being called for real (the
+one production call site, `chat_command_action._warp_teleport_action_no_
+coords`), so a live send failure today still leaves the row parked FOREVER
+with no observer to ever clear or roll it back -- worse than doing nothing,
+because a tester reading `warp_send_watch.SESSION_ATTRIBUTE` off a session
+that outlived one connection (it does not; sessions do not outlive their
+socket) would have no reason to suspect it.  Closing that second gap means
+adding two forwarding methods to the state class whose `self` the call
+`connection_bindings.bind(self)` (`runtime.py:1599`) sits inside -- that
+`self` already carries `self.foundation` and `self.events`, the exact
+shape this module's functions read -- but `runtime.py` is chief's file
+this lane may not edit (`AGENTS.md` section 7), so the exact two-method
+body is handed over by letter (`CORE-REQUEST-GM-058`) rather than written
+here.
+
+R348 asks a second, harder question before that hookup is safe to arm:
+"who accepts the offer, on which thread, under which lock" -- `sendall`'s
+critical section (`current/pf_login_game_server_v141.py:7754` the action
+loop, `:7427` `heartbeat_worker` every 2.0s once `teleport_sent`) is the
+SAME `threading.Lock` on both call sites, so `_offer_send_outcome` -- and
+therefore this module's two entry points, once wired -- can run on EITHER
+thread, synchronously, while that lock is held.  ONE HALF OF THAT QUESTION
+IS ANSWERED HERE, BY MEASUREMENT, NOT ARGUMENT
+(`tests/test_gm_warp_send_watch.py::CrossThreadObserverTests`): the
+`sqlite3.ProgrammingError` R348 named as the risk of "a consumer that
+writes sqlite on another thread's connection" does not reach this module's
+own database path, because `store.py`'s `SQLiteStore.connect()` opens and
+closes a BRAND NEW connection inside the one call that uses it
+(`store.py:285-305`) -- there is no connection object held across threads
+for either `rollback_warp_scene` or `rollback_warp_scene_on_send_failure`
+to collide on, on ANY thread that calls them.  Measured by calling both
+observers from a background thread against the real store and reading the
+row back on the main thread afterwards; see that test class for the
+un-guessed half (`send_lock` hold time: a real rollback opens a real
+connection and can block up to `PRAGMA busy_timeout=5000`'s five seconds
+while holding the SAME lock the other thread needs for its own next send --
+this module does not have an answer for that half, and does not pretend
+to; see `CORE-REQUEST-GM-058`).
 
 THE CELL, AND WHY IT LIVES ON THE SESSION.  `park_warp_send` records the
 exact frame bytes a persisted no-coords warp just composed, the moment
@@ -72,10 +118,31 @@ connection, yes or no.
 
 NEVER RAISES, ANYWHERE IN THIS FILE.  Every entry point here can run on the
 game-listener thread, most of them inside a `sendall` failure's own
-exception handling (`connection.py`'s proposed `_offer_send_outcome`,
-itself written to swallow and report whatever an observer raises) -- a
-raise from a diagnostic must never mask or replace the send failure that
-triggered it.
+exception handling (~~`connection.py`'s proposed `_offer_send_outcome`~~
+STRUCK -- landed on main in server `#795`, no longer proposed; itself
+written to swallow and report whatever an observer raises) -- a raise from
+a diagnostic must never mask or replace the send failure that triggered it.
+
+CALLERS MUST SERIALIZE PER CONNECTION -- NOT THIS MODULE'S JOB, BUT NOT
+OPTIONAL EITHER.  Neither `park_warp_send` nor `on_game_frame_send_failed`
+takes a lock of its own: `_parked_record` (read) and `clear_warp_send_watch`
+(write) are two separate attribute accesses, not one atomic operation, so
+two truly concurrent callers for the SAME session can both read a non-empty
+park before either clears it and both attempt the rollback (measured while
+drafting `tests/test_gm_warp_send_watch.py::CrossThreadObserverTests`,
+which deliberately does NOT exercise that shape -- see its own docstring).
+This module gets away with having no lock of its own only because its one
+real caller-to-be, `connection.py`'s `_offer_send_outcome`, is only ever
+reached from inside `sendall()`, and every `sendall()` call for a given
+connection is already made under that SAME connection's own `send_lock`
+(`current/pf_login_game_server_v141.py:7754`, `:7427`) -- a per-connection
+`threading.Lock`, not a global one, shared by the action loop and
+`heartbeat_worker` for that one connection.  A caller outside that
+discipline (a future hookup that offers frames without holding the sending
+connection's own lock, or a lock shared incorrectly across connections)
+would reintroduce the double-rollback race this paragraph names.  Naming
+that requirement here is this module's whole contribution to `CORE-REQUEST-
+GM-058`'s open threading question; enforcing it is the caller's.
 
 NONCLAIM.  Nothing in this file sends a byte, opens a socket, or touches
 `runtime.py` / `app.py` / `current/pf_login_game_server_v141.py` / the

@@ -37,6 +37,7 @@ from __future__ import annotations
 import io
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -858,6 +859,128 @@ class DoubleWarpTests(RealDatabaseTests):
             session, warp_scene_persist.SEND_FAILURE_WARP_ACTION_LABEL,
         )
         self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+
+
+class CrossThreadObserverTests(RealDatabaseTests):
+    """R348's own question, answered by measurement rather than argument.
+
+    `pf_bridge/notes_to_chief/FROM_CHIEF_R348_TO_ALL_20260905_0505.md`:
+    "hook ยิงบนสองเธรด ... consumer ที่ตั้งใจไว้เขียน sqlite บนคอนเนกชันของ
+    อีกเธรด -> ProgrammingError บนเธรด heartbeat แล้วถูกกลืนเป็นบรรทัด
+    stderr" -- `_offer_send_outcome` (`connection.py`) is called on whichever
+    thread's `sendall()` this connection's `send_lock` just let through
+    (`current/pf_login_game_server_v141.py:7754` the action loop, `:7427`
+    `heartbeat_worker`), and it swallows anything the observer raises,
+    exactly the shape that would hide a `sqlite3.ProgrammingError` as one
+    quiet stderr line.
+
+    THIS CLASS DOES NOT GUESS WHETHER THAT ERROR CAN HAPPEN.  It calls both
+    of this module's observers from a REAL background thread, against the
+    REAL `SQLiteStore` this fixture already builds, and reads the row back
+    on the MAIN thread afterwards -- the one difference that would matter if
+    a connection object were being shared across threads.  `sqlite3.
+    ProgrammingError` is not caught anywhere below: if `store.py`'s
+    `SQLiteStore.connect()` ever stopped opening a fresh connection per call
+    (`store.py:285-305`) and started reusing one across threads, this test
+    would fail with THAT exception surfacing on `thread.join()`, not with a
+    silently wrong row.
+
+    WHAT THIS DOES NOT ANSWER, ON PURPOSE (see the module docstring's own
+    words): whether holding `send_lock` for the duration of a real rollback's
+    disk I/O is an acceptable delay to the OTHER thread's next send. That
+    question is a `send_lock` liveness question, not a correctness one, and
+    it is out of this file's reach without the hookup this module still does
+    not have (`CORE-REQUEST-GM-058`).
+    """
+
+    def _run_in_thread(self, target, *args):
+        """Run `target(*args)` on a background thread; re-raise here.
+
+        `unittest` does not fail a test for an exception raised on a thread
+        it did not create -- Python just prints it and the test passes,
+        which is exactly backwards for a test whose entire point is "does
+        this raise on another thread".  The result/exception is carried back
+        across the thread boundary in a plain list, the same one-slot
+        hand-off `chat_command_action._note` and this module's own `_note`
+        already use for `session.events`, so nothing new is being trusted
+        here.
+        """
+        outcome: list = []
+
+        def _wrapped():
+            try:
+                outcome.append(("ok", target(*args)))
+            except BaseException as error:  # noqa: BLE001 - re-raised below
+                outcome.append(("error", error))
+
+        thread = threading.Thread(target=_wrapped)
+        thread.start()
+        thread.join(timeout=10)
+        self.assertTrue(outcome, "background thread did not finish in time")
+        kind, value = outcome[0]
+        if kind == "error":
+            raise value
+        return value
+
+    def test_send_failed_from_a_background_thread_does_not_raise_and_rolls_back(
+        self,
+    ):
+        session = self._session("thread01")
+        before = self._row(session)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
+        with redirect_stderr(stream):
+            outcome = self._run_in_thread(
+                warp_send_watch.on_game_frame_send_failed,
+                session, bytes(verdict.action[2]), ConnectionResetError(),
+            )
+
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        # Read back on the MAIN thread -- the one difference that would
+        # matter if the write had actually landed on a connection object
+        # tied to the background thread instead of one opened and closed
+        # inside that single call.
+        after = self._row(session)
+        self.assertEqual(after.scene_id, before.scene_id)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_send_sent_from_a_background_thread_clears_the_park(self):
+        session = self._session("thread02")
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        outcome = self._run_in_thread(
+            warp_send_watch.on_game_frame_sent,
+            session, bytes(verdict.action[2]),
+        )
+        self.assertEqual(outcome, warp_send_watch.OUTCOME_CLEARED_OWN_FRAME)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        # Confirming a send is not a write -- the row is still the warp's.
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
+    # NOT TESTED HERE, ON PURPOSE: two observer calls racing the SAME park
+    # concurrently, with no lock of this module's own.  Every real caller
+    # (`current/pf_login_game_server_v141.py:7754` the action loop, `:7427`
+    # `heartbeat_worker`) reaches `sendall()` only from inside that
+    # connection's own `send_lock`, so `_offer_send_outcome` -- and these two
+    # functions once wired -- can never truly overlap for one connection; a
+    # test that called them concurrently WITHOUT that lock would be timing a
+    # race this module was never asked to survive alone, and (measured while
+    # drafting this class) is not even deterministic: the read-then-clear in
+    # `on_game_frame_send_failed` is not atomic, so two truly-unlocked
+    # callers can both see the record before either clears it and both
+    # report `rolled_back` -- a real finding about calling this module
+    # without the lock its one production call site always holds, not a bug
+    # in the module.  Recorded here rather than shipped as a flaky test;
+    # `CORE-REQUEST-GM-058` states the lock requirement explicitly so a
+    # future caller cannot reach this module any other way.
 
 
 if __name__ == "__main__":  # pragma: no cover
