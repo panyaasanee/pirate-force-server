@@ -144,6 +144,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
+from . import mob_ground_persistence
 from . import mob_loot
 
 
@@ -382,8 +383,26 @@ def _current_frame_cap() -> int:
     return mob_loot.DROP_MAX_ELEMENTS_PER_FRAME
 
 
-def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
+def sustain_a_kill(
+    cell: Any, legacy: Any, drops: Any = (), *,
+    store: Any = None, world: Any = None,
+) -> PresenceStep:
     """The one call a kill's dispatch makes after the death schedule.
+
+    ROUND 59iqwi ADDS ONE THING TO THIS CALL AND CHANGES NOTHING ELSE ABOUT
+    IT: the rows this kill put on the ground are also handed to
+    :func:`mob_ground_persistence.remember_generation`, so they belong to the
+    WORLD's floor for the scene and not only to the cell of the session that
+    made them (`COO-DECISION 2026-09-03T10:48+07:00`; KA1A's R309 measured the
+    session-only version as a crystal that vanished across a relogin).  It is
+    a REPORT, not a gate: this function's frames, refusals, counts and return
+    type are untouched by it, and a world that raised could not cost the
+    player their drop (``remember_generation`` never raises, and its outcome
+    only reaches the console).
+
+    ``store`` is optional and is the durable half (`COO-DECISION
+    2026-09-03T18:44+07:00`, the `commit_ground_drop` call site).  Absent, the
+    floor is memory only: a relogin sees the drop, a server restart does not.
 
     Replaces BOTH halves of what the call site does today: the per-kill
     generation (``mob_loot.drop_frames(legacy, drops)``) and the prune loop
@@ -418,6 +437,17 @@ def sustain_a_kill(cell: Any, legacy: Any, drops: Any = ()) -> PresenceStep:
         lifetime = float(cell.lifetime_seconds)
     except Exception as error:                     # pragma: no cover - typed
         return _refusal(REFUSE_CELL_RAISED, repr(error))
+
+    # THE WORLD LEARNS ABOUT THIS KILL'S ROWS BEFORE ANYTHING IS COMPOSED, and
+    # the order is the argument: the rows are on the ground the moment
+    # ``loot_a_kill`` returned them, so a publication that refuses below (an
+    # unmined item, a serializer handle that moved) must not also lose them
+    # for the next session.  One bounded console line, always, because "the
+    # floor was told" and "this seam never ran" are the two states an attended
+    # round has to be able to tell apart by grep (G-OBS).
+    print(mob_ground_persistence.describe_remembered(
+        mob_ground_persistence.remember_generation(
+            drops, world=world, store=store)))
 
     # ONE snapshot, then everything is derived from it.  Reading ``cell.ledger``
     # twice is not the same as reading it once: the property sweeps expired

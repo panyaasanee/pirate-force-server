@@ -209,6 +209,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from . import mob_ground_persistence
 from . import mob_pickup
 from . import mob_pickup_persist
 
@@ -1515,6 +1516,20 @@ def dispatch_inbound_pickup_request(
         return _refused_after_read(read, "session_has_no_bag_cell", echo)
     if drop_ledger_cell is None:
         return _refused_after_read(read, "session_has_no_ground_cell", echo)
+    # THE DUPLICATION GUARD OF ROUND 59iqwi, and it is here rather than inside
+    # the transaction because the transaction is authority over ONE cell.  A
+    # row that fell in this scene now belongs to the world, so two logins
+    # standing here are seeded from one floor and one key can sit in two
+    # cells; each cell would then hand out its own copy of the object.  This
+    # refuses the second click BY ITS OWN NAME, and it can only fire on a row
+    # this session's cell still holds that another session has already taken
+    # -- an ordinary double-click inside one session is still
+    # ``drop_already_taken`` out of the transaction below, unchanged.
+    if mob_ground_persistence.another_session_already_took(
+            drop_ledger_cell, read.fields.object_ref_u32):
+        return _refused_after_read(
+            read, mob_ground_persistence.REFUSE_TAKEN_BY_ANOTHER_SESSION,
+            echo, legacy, drop_ledger_cell)
     try:
         result = mob_pickup_persist.pickup_and_persist(
             store, sid, character_id, bag_cell, drop_ledger_cell, legacy,
@@ -1534,6 +1549,17 @@ def dispatch_inbound_pickup_request(
         legacy, drop_ledger_cell, result, echo)
     delta = _the_delta_that_matches_the_floor(
         result.outcome, ground_after, read.fields.object_ref_u32, echo)
+    # THE WORLD'S FLOOR LEARNS THE ROW IS GONE, round 59iqwi.  AFTER the take
+    # and after the removal publication, never before: `COO-DECISION
+    # 2026-09-01T02:53+07:00` removes a row when a publisher has said so, and
+    # this is the one call site in the project that has both facts in hand.
+    # It cannot refuse a click -- ``forget_taken`` never raises and its answer
+    # is not read here -- because the pickup has already succeeded by this
+    # line; the worst a failure costs is a stale row the next seeded cell
+    # refuses by name, which is a message, not a duplicated item.
+    mob_ground_persistence.forget_taken(
+        getattr(drop_ledger_cell, "current_scene", None),
+        read.fields.object_ref_u32, store=store)
     return PickupRequestOutcome(
         True, ACCEPTED, read, result, delta, ground_after, rows_left)
 

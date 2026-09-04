@@ -21,10 +21,16 @@ through lane A's own composer helper and the real membership builder.
 WHAT IS STILL SHUT, measured here rather than left to a PR body nobody
 re-reads:
 
-* ``test_no_scene_three_row_has_a_death_ruling_yet_and_that_refuses`` -- no
+* ~~``test_no_scene_three_row_has_a_death_ruling_yet_and_that_refuses`` -- no
   COO letter sanctions killing anything in this scene, so all twelve refuse
   with ``target_outside_the_sanctioned_scope``.  A player can now swing and
-  see nothing die.  The letter asking for the ruling goes out this round.
+  see nothing die.  The letter asking for the ruling goes out this round.~~
+  STRUCK, round 59iqwi: the letter went out (``notes_to_chief/20260904_1432``)
+  and ``COO-DECISION 2026-09-04T14:50+07:00`` answered it, approving the seven
+  templates behind all twelve placements.  What replaces it is
+  ``test_every_scene_three_row_is_covered_by_the_1450_letter_and_no_other``,
+  which measures the same two things from the other side: every real row
+  names THAT letter, and no row reaches a ruling written for another scene.
 * ``test_loot_is_the_third_shut_door_and_it_refuses_by_name`` -- scene 3's
   ``DROPS_NORMAL`` set 2701002 was never mined into ``field_drop_tables``,
   so even past a ruling, a kill here drops nothing.
@@ -47,6 +53,7 @@ under scene 5's id, measured in
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -301,18 +308,59 @@ class Bg0003ShapeTests(unittest.TestCase):
 
 
 class Bg0003CannotBeKilledYetTests(unittest.TestCase):
-    """No COO letter sanctions a death in this scene.  Measured, not read."""
+    """~~No COO letter sanctions a death in this scene~~ -- ONE DOES NOW.
 
-    def test_no_scene_three_row_has_a_death_ruling_yet_and_that_refuses(
+    STRUCK AND REPLACED, round 59iqwi, `COO-DECISION 2026-09-04T14:50+07:00`
+    item 2, which asked for this flip in the same round the ruling is
+    registered and asked for it to be checked against THE ROWS THAT SHIP
+    rather than against a hand-typed list.  The class name is kept so a
+    reader who greps the old name lands on why it moved.
+    """
+
+    def test_every_scene_three_row_is_covered_by_the_1450_letter_and_no_other(
             self) -> None:
-        refusals = []
-        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
-            with self.assertRaises(mob_death.MobDeathContractError) as caught:
-                mob_death.ruling_for(mob)
-            refusals.append(str(caught.exception))
-        self.assertEqual(len(refusals), EXPECTED_HOSTILE_COUNT)
-        for reason in refusals:
-            self.assertIn("target_outside_the_sanctioned_scope", reason)
+        """All twelve, by the letter's own name, re-derived from the roster.
+
+        Both halves matter.  That every row is covered is what makes a swing
+        in scene 3 able to kill; that the covering ruling is THIS letter is
+        what stops scene 5's letter (or bg0001's, or Bg0015's) reaching a
+        scene it never mentioned -- the 0x2046 collision two tests below is
+        the measured case where that is not hypothetical.
+        """
+        rows = tuple(field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID))
+        self.assertEqual(len(rows), EXPECTED_HOSTILE_COUNT)
+        for mob in rows:
+            ruling = mob_death.ruling_for(mob)
+            self.assertIn("widen-death-scope-bg0003-seven-templates", ruling,
+                          mob.display_name)
+            self.assertIn("2026-09-04T14:50+07:00", ruling, mob.display_name)
+        # The seven the letter names, and no eighth: re-derived from the
+        # rows that ship, so a placement added to this scene tomorrow shows
+        # up here as an uncovered row rather than as a silent kill.
+        self.assertEqual(
+            {mob.template_id for mob in rows},
+            {60, 61, 62, 65, 194, 515, 907})
+
+    def test_a_scene_three_template_id_in_another_scene_is_still_refused(
+            self) -> None:
+        """The ruling is tied to Bg0003, measured from the tie's own side.
+
+        Template 907 is covered by the 1450 letter, and the SAME template id
+        carried by a row of any other scene must still refuse: the letter
+        approves seven templates IN ONE SCENE, and a ruling that had been
+        registered without its `WIDENING_RULING_SCENES` entry would pass this
+        row through with nothing raised anywhere.
+        """
+        three = {
+            mob.placement_index: mob
+            for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
+        }[58]
+        self.assertEqual(three.template_id, 907)
+        elsewhere = dataclasses.replace(three, scene="Bg0002")
+        with self.assertRaises(mob_death.MobDeathContractError) as caught:
+            mob_death.ruling_for(elsewhere)
+        self.assertIn("target_outside_the_sanctioned_scope",
+                      str(caught.exception))
 
     def test_scene_fives_kill_permission_does_not_reach_scene_threes_0x2046(
             self) -> None:
@@ -323,8 +371,13 @@ class Bg0003CannotBeKilledYetTests(unittest.TestCase):
         same wire ``actor_identity`` 0x2046 -- and scene 5's placement 69
         (``Ned apes``, template 150) is covered by ``COO-DECISION
         2026-09-04T11:48+07:00`` while scene 3's (``Sediment Wolf``,
-        template 907) is covered by nothing.  If a ruling were keyed by
-        anything the two share, this would pass the wrong one through.
+        template 907) is covered by ~~nothing~~ ``COO-DECISION
+        2026-09-04T14:50+07:00``, round 59iqwi.  The test gets HARDER rather
+        than weaker for it: while scene 3 could not be killed at all, a
+        ruling keyed by something the two share would have shown up as a kill
+        where none was allowed.  Now both sides are allowed and what has to
+        hold is that each carries its OWN letter -- a mix-up that a refusal
+        can no longer catch, and that this assertion can.
         """
         three = {
             mob.placement_index: mob
@@ -338,13 +391,16 @@ class Bg0003CannotBeKilledYetTests(unittest.TestCase):
         self.assertEqual(three.actor_identity, 0x2046)
         self.assertNotEqual(three.template_id, five.template_id)
         self.assertNotEqual(three.scene, five.scene)
-        # The sanctioned side really is sanctioned -- otherwise this test
-        # would pass just as well on a project where nothing can die.
-        self.assertIn("widen-death-scope-bg0005", mob_death.ruling_for(five))
-        with self.assertRaises(mob_death.MobDeathContractError) as caught:
-            mob_death.ruling_for(three)
-        self.assertIn("target_outside_the_sanctioned_scope",
-                      str(caught.exception))
+        # Each side really is sanctioned -- otherwise this test would pass
+        # just as well on a project where nothing can die.
+        five_ruling = mob_death.ruling_for(five)
+        three_ruling = mob_death.ruling_for(three)
+        self.assertIn("widen-death-scope-bg0005", five_ruling)
+        self.assertIn("widen-death-scope-bg0003", three_ruling)
+        # And neither letter reaches the other's monster: the identity they
+        # share is not what either ruling is keyed by.
+        self.assertNotIn("bg0003", five_ruling)
+        self.assertNotIn("bg0005", three_ruling)
 
     def test_the_other_three_new_collisions_are_different_monsters(
             self) -> None:
