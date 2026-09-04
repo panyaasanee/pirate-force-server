@@ -232,24 +232,78 @@ class Bg0005ShapeTests(unittest.TestCase):
             "out which miner is wrong before regenerating either table",
         )
 
-    def test_no_shipped_template_has_a_death_ruling_yet_and_that_refuses(
+    def test_the_six_shipped_templates_now_have_a_death_ruling_a_stray_row_still_refuses(
             self) -> None:
-        """WHAT THIS SCENE STILL CANNOT DO, pinned rather than left implicit.
+        """WHAT CHANGED THIS ROUND, pinned rather than left implicit.
 
-        None of the six templates is covered by a registered owner letter, so
-        a kill in scene 5 refuses.  That refusal is honest degradation and
-        NOT a crash: ``runtime.py:5239`` evaluates ``widened=mob_death
-        .ruling_for(mob)`` inside the ``try`` whose ``except mob_death
-        .MobDeathContractError`` appends ``mob_death_refused_..._no_death_
-        frames`` and breaks.  This test pins BOTH halves -- that the rulings
-        are missing, and that what they raise is the class that call site
-        catches -- so the day an owner letter lands, this test is the one
-        that says the scene changed.
+        COO-DECISION 2026-09-04T11:48+07:00 (notes_to_chief/20260904_1148_
+        COO-DECISION-lane-b-widen-death-scope-bg0005-six-templates-approved
+        .md) approved exactly the six templates this scene ships, under the
+        exact ruling name pinned below.  All six now resolve to that name --
+        re-derived from the shipped roster rather than hand-copied, the same
+        discipline ``mob_death.py``'s own comments hold every other ruling
+        to.
+
+        THE OTHER HALF OF THE OLD TEST'S NAME IS STILL TRUE AND STILL PINNED:
+        a row in scene 5 outside these six templates still refuses, loud and
+        safe, exactly as ``runtime.py:5239``'s ``try``/``except mob_death
+        .MobDeathContractError`` expects.  Nothing in
+        ``field_mob_tables_bg0005`` ships such a row today (``TOWN_TARGET_
+        PLACEMENTS`` and ``LEGACY_SETNUM_PLACEMENTS_PENDING_MIGRATION`` are
+        both empty), so that half is proven on a hand-built stand-in FieldMob
+        -- template 916 (the Training Iron Man dummy, ruled ONLY for
+        bg0001), stamped with ``scene="bg0005"``.  That is not a fabricated
+        monster the client will ever see; it is the same technique
+        ``mob_death.rulings_covering``'s own docstring uses to exercise the
+        scene axis no shipped row exercises, so a future ruling that widens
+        too far cannot pass this test merely because bg0005's own roster
+        happens to fit inside it.
         """
+        ruling_name = (
+            "COO-DECISION 2026-09-04T11:48+07:00 "
+            "widen-death-scope-bg0005-six-templates")
+        self.assertIn(ruling_name, mob_death.WIDENING_RULINGS)
+        self.assertEqual(
+            mob_death.WIDENING_RULINGS[ruling_name],
+            frozenset(row[1] for row in field_mob_tables_bg0005.HOSTILE_PLACEMENTS),
+        )
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[ruling_name],
+            field_mob_tables_bg0005.SCENE,
+        )
         rows = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
+        self.assertEqual(len(rows), EXPECTED_HOSTILE_COUNT)
+        seen_templates = set()
         for mob in rows:
-            with self.assertRaises(mob_death.MobDeathContractError):
-                mob_death.ruling_for(mob)
+            self.assertEqual(mob_death.ruling_for(mob), ruling_name)
+            seen_templates.add(mob.template_id)
+        self.assertEqual(
+            seen_templates,
+            frozenset(row[1] for row in field_mob_tables_bg0005.HOSTILE_PLACEMENTS),
+        )
+
+        # The stray row: same scene, a template this ruling never named.
+        a_shipped_row = rows[0]
+        stray = field_mobs.FieldMob(
+            placement_index=a_shipped_row.placement_index,
+            template_id=916,
+            x=a_shipped_row.x, y=a_shipped_row.y, z=a_shipped_row.z,
+            visual_preset=a_shipped_row.visual_preset,
+            display_name="stray-not-a-real-shipped-row",
+            level=a_shipped_row.level,
+            rank=a_shipped_row.rank,
+            ai_wander=a_shipped_row.ai_wander,
+            ai_combat=a_shipped_row.ai_combat,
+            speed_walk=a_shipped_row.speed_walk,
+            max_hp=a_shipped_row.max_hp,
+            drops_normal=a_shipped_row.drops_normal,
+            drops_equipment=a_shipped_row.drops_equipment,
+            drops_specially=a_shipped_row.drops_specially,
+            scene=EXPECTED_SCENE,
+        )
+        self.assertNotIn(stray.template_id, mob_death.WIDENING_RULINGS[ruling_name])
+        with self.assertRaises(mob_death.MobDeathContractError):
+            mob_death.ruling_for(stray)
 
 
 class Bg0005RecomposeRegistrationTests(unittest.TestCase):

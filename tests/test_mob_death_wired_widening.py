@@ -395,6 +395,8 @@ class RulingForTests(unittest.TestCase):
             "PANYA-DECISION 2026-08-27T20:10+07:00 (ADDENDUM 20:18) "
             "diag-mountain-deer-template-27": "202608272010",
             "COO-RULING-20260901-1046": "202609011046",
+            "COO-DECISION 2026-09-04T11:48+07:00 "
+            "widen-death-scope-bg0005-six-templates": "202609041148",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),
