@@ -277,7 +277,10 @@ from .second_password_bypass import (
     make_proactive_second_password_ok,
     require_second_password_mode,
 )
-from .action_ack import parse_scene006_ea7d, make_scene007_action_ack
+from .action_ack import (
+    parse_scene006_ea7d, make_scene007_action_ack,
+    make_production_hit_pose_echo,
+)
 
 
 def _active_arena_version(scenario) -> str:
@@ -5115,6 +5118,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             for line in mob_combat.describe_step(step):
                 print(line)
             actions = []
+            # ATTACK-POSE-ONE-FIELD-AB-001, routed here by COO-DECISION
+            # 20260905_0248 (GT-247 R314 measured the scenario-gated
+            # SCENE-007 route dead on a real client, which always carries
+            # TargetPos alongside ActionVital -- see action_ack.
+            # make_production_hit_pose_echo's own docstring).  UNSET or
+            # MALFORMED both return None here and add NOTHING: an unarmed
+            # boot must stay exactly what it is today.  Only an owner who
+            # armed PF_POSE_TRIAL as a comma-separated list before this
+            # boot gets one extra ActionVital echo per accepted hit,
+            # cycling one id off that list per hit.
+            pose_trial_echo = make_production_hit_pose_echo(
+                legacy, fields, performer, self.mob_combat_hit_count,
+            )
+            if pose_trial_echo is not None:
+                pose_trial_pc, pose_trial_frame = pose_trial_echo
+                actions.append((
+                    "MOB_COMBAT_POSE_TRIAL", pose_trial_pc,
+                    pose_trial_frame, 0.0,
+                ))
             if step.frames:
                 actions.append((
                     "MOB_COMBAT_ANNOUNCE", step.announce_pc,

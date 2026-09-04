@@ -3019,6 +3019,14 @@ class DropLedgerCell:
         # the console.  See :meth:`note_held_debt_announced`: a debt the
         # design holds for ever must not print for ever.
         self._held_announced: dict = {}
+        # ATTACK-POSE-ONE-FIELD-AB-001's sibling ticket, GT-242's own
+        # cousin: COO-DECISION 20260905_0247 item 1.  The generation this
+        # cell's own ``mob_drop_presence.reannounce_ground_after_a_surviving_
+        # blow`` last told a client about, or ``None`` before the first one.
+        # ``None`` rather than ``0`` (``DropLedger.generation`` starts at 0)
+        # so a cell that has never announced anything is distinguishable
+        # from one that already announced generation 0.
+        self._surviving_blow_reannounce_generation = None
 
     def _read_now_locked(self) -> float:
         """Advance the cell's clock.  Call with the lock held.
@@ -4075,6 +4083,49 @@ class DropLedgerCell:
                 return False
             self._held_announced[key] = held
             return True
+
+    def surviving_blow_reannounce_due(self, generation: Any = None) -> bool:
+        """Would :meth:`note_surviving_blow_reannounced` be the FIRST call
+        for this generation?  READ-ONLY -- does not consume the latch.
+
+        COO-DECISION 20260905_0247 item 1: at most one extra ground
+        reannounce per NEW generation of the floor, not one per surviving
+        blow that lands while the generation is unchanged -- the shape
+        this module's own withheld-wiring comment already named as "almost
+        certainly" the right one, now ruled on.  A kill this session did
+        not deal, an expiry, a pickup -- anything that bumps
+        ``DropLedger.generation`` -- makes this ``True`` again, because the
+        floor the latch was tracking no longer exists.
+
+        ``generation`` defaults to this cell's OWN current ledger
+        generation, read under this method's own lock acquisition for the
+        same reason :meth:`publication` reads scene and ledger together: a
+        caller must not compare a generation value taken before this call
+        against one read after a kill landed between the two.
+        """
+        with self._lock:
+            if generation is None:
+                generation = self._ledger.generation
+            return self._surviving_blow_reannounce_generation != generation
+
+    def note_surviving_blow_reannounced(self, generation: Any = None) -> None:
+        """Record that THIS generation has now been told to a surviving-blow
+        caller.  The caller's OWN duty, not this method's: call it only
+        AFTER a compose triggered by :meth:`surviving_blow_reannounce_due`
+        answering ``True`` has actually produced frames.  Calling it before
+        a compose is known to have succeeded would spend the one allowed
+        resend on a refusal or a raise -- the exact shape of ghost debt
+        this module's own test file already pins as a KNOWN DEFECT for the
+        sibling ``note_scene_published`` call, not one to repeat here.
+
+        Idempotent for the same generation: a second call for a generation
+        already recorded changes nothing, so a caller that (mis)calls this
+        twice for one compose cannot un-latch and re-latch the same floor.
+        """
+        with self._lock:
+            if generation is None:
+                generation = self._ledger.generation
+            self._surviving_blow_reannounce_generation = generation
 
     def publication(self) -> tuple:
         """``(scene, scene_ledger, rows_standing_elsewhere)``, ONE acquisition.
