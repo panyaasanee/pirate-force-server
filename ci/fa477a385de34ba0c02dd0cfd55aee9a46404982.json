@@ -1,1 +1,1 @@
-{"sha":"fa477a385de34ba0c02dd0cfd55aee9a46404982","conclusion":"success","event":"push","ref":"refs/heads/claude/sharp-newton-yq5gzr","run_id":"33825704671","utc":"2026-09-04T01:44:26Z"}
+{"sha":"fa477a385de34ba0c02dd0cfd55aee9a46404982","conclusion":"failure","event":"pull_request","ref":"refs/pull/717/merge","run_id":"33825773274","utc":"2026-09-04T01:45:05Z"}
