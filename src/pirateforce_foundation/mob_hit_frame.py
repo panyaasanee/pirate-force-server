@@ -450,18 +450,22 @@ def compose_player_hit_frame(
         #     if not cache.is_captured(): cache.capture_initial(block)
         # so a door on its way OUT -- including out through a REFUSAL --
         # left 55 rows in the CONNECTION's cache.
-        # `build_named_field_update` refuses a cache that does not hold
-        # EXACTLY `attr_wire.all_field_x()` -- all 55 rows, not the named
-        # subset -- so a partial seed broke every later named send on that
-        # connection.  (CORRECTED round yq5gzr, pf-adversary D4: this
-        # sentence used to say "requires exactly the 26 named_field_x()
-        # rows", wrong twice over.  `named_field_x()` returns 27 today, x=9
-        # having joined it in `5ce0d39`, and the completeness check was
-        # widened from the named set to every FIELDS row by COO-DECISION
-        # 20260904_0215 -- so quoting the named set here contradicted this
-        # module's own docstring eleven lines further down, on the single
-        # most load-bearing claim of the withdrawal.  The error text it
-        # really prints today is "it holds N of 55 FIELDS rows".)  Gate 3
+        # `build_named_field_update` refuses a cache that is not LOGIN-
+        # SHAPED -- one of the row sets production login itself sets bits
+        # for, `gm.login_mask.admitted_field_x_sets(legacy)` -- so a seed of
+        # any other shape breaks every later named send on that connection.
+        #
+        # THIS SENTENCE HAS NOW BEEN WRONG TWICE, so it says where the
+        # authority lives instead of quoting a number.  It first said
+        # "requires exactly the 26 named_field_x() rows" (pf-adversary D4,
+        # round yq5gzr): wrong twice over, since that set held 27 by then
+        # and the check had already been widened off it to every FIELDS row
+        # by COO-DECISION 20260904_0215.  The correction to "all 55" was
+        # accurate for about an hour: `#715` landed mid-round and made (b'')
+        # the login mask set (COO-DECISION 20260904_0545 item 1/2), which is
+        # NINE or ten rows, not 55.  Ask `login_mask`, do not re-type the
+        # answer here; a row count copied into a comment in this module is a
+        # claim about a set another lane owns and moves.  Gate 3
         # refuses to MAKE a cache; not writing one this door did not seed is
         # the same rule, and it was missing.  An unseeded cache is the
         # ENCODER's refusal to name, and it already names it.

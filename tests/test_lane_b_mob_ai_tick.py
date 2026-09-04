@@ -946,17 +946,37 @@ class HitFrameDoorBTests(unittest.TestCase):
         return supplied
 
     def _full_valid_baseline(self):
-        """`{x: value}` for every `attr_wire.FIELDS` row, type-correct for
-        each row's own `kind` -- NOT an adjudicated block (LANE-DB stands
-        behind none on this tree, see `_adjudicated_live_values`).
-        `RawBlockCache` is source-agnostic by its own docstring, so seeding
-        one for a card that only needs the ENCODER to survive a bad byte
-        (pf-adversary D12) needs no LANE-DB sign-off -- only shapes
-        `attr_wire.validate_field_value` itself would accept.
+        """A cache baseline `build_named_field_update` will actually accept.
+
+        WAS every `attr_wire.FIELDS` row, all 55.  CHANGED round yq5gzr, and
+        the change came from LANE-GM rather than from this lane: `#715` made
+        (b'') the LOGIN MASK SET (`COO-DECISION 20260904_0545` item 1/2), so
+        the encoder now refuses any cache that is not one of the shapes
+        production login itself sets bits for -- a 55-row cache raises
+        "refusing to build a 0x309A frame that is not login-shaped".
+        `COO-DECISION 20260904_0546` puts Door B on that same set, so this
+        helper follows it there.
+
+        DERIVED, never typed: the widest admitted shape comes from
+        `login_mask.admitted_field_x_sets(legacy)`, LANE-GM's own function.
+        Writing the nine or ten row numbers out here would pin a set this
+        lane does not own, and the pin would rot the next time they move it
+        -- which is exactly what just happened to the 55.  Values are
+        type-correct per row `kind`, the only shapes
+        `attr_wire.validate_field_value` accepts; `RawBlockCache` is
+        source-agnostic by its own docstring, so seeding one for a card that
+        needs the ENCODER to survive a bad byte (pf-adversary D12) needs no
+        sign-off from whoever will eventually seed it for real.
         """
+        from pirateforce_foundation.gm import login_mask
+        admitted = login_mask.admitted_field_x_sets(self.legacy)
+        self.assertTrue(admitted, "LANE-GM admits no login shape at all")
+        widest = max(admitted, key=len)
         values = {}
         for field in self.attr_wire.FIELDS:
             x, kind = field[0], field[5]
+            if x not in widest:
+                continue
             if kind == "wstr":
                 values[x] = "x"
             elif kind == "blob":
@@ -1455,12 +1475,32 @@ class HitFrameDoorBTests(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result, expected)
         self.assertEqual(console, "")
+        # The mask carries EXACTLY the rows the cache holds - no more, no
+        # fewer.  This loop used to assert that every one of the 55 FIELDS
+        # rows had its bit set, which was the right question while (b'')
+        # meant "the whole block"; `#715` made (b'') the LOGIN MASK SET, so
+        # the same sentence now has to be asked of that set instead.  Both
+        # directions matter and for the reason RE-222 Q0 gives: a bit that
+        # is set carries a value the client copies over its own, and a bit
+        # that is NOT set is a ZERO on the client rather than "unchanged" -
+        # so a mask wider than the cache is as wrong as one narrower.
         _body, basic_mask, actor_mask = self.attr_wire.encode_block(
             self.legacy, self.identity[0], self.identity[1], expected_values)
         for field in self.attr_wire.FIELDS:
             mask = basic_mask if field[1] == "basic" else actor_mask
-            self.assertTrue(mask & field[2],
-                            "row %r is missing from the block" % (field[6],))
+            with self.subTest(row=field[6]):
+                if field[0] in expected_values:
+                    self.assertTrue(
+                        mask & field[2],
+                        "row %r is in the cache but missing from the block"
+                        % (field[6],))
+                else:
+                    self.assertFalse(
+                        mask & field[2],
+                        "row %r is NOT in the login-shaped cache but the "
+                        "block sets its bit anyway -- an unset row the "
+                        "client is told about is a zero on their screen"
+                        % (field[6],))
         # The cache now remembers what was actually sent
         # (`RawBlockCache.record_sent`, called by `build_named_field_update`
         # on success) -- the next command on this connection builds on real
@@ -1547,14 +1587,15 @@ class HitFrameDoorBTests(unittest.TestCase):
         #     if not cache.is_captured(): cache.capture_initial(block)
         # so a door standing DOWN still left 55 rows in the CONNECTION's
         # RawBlockCache -- and `build_named_field_update` refuses a cache
-        # that does not hold exactly `all_field_x()`, so a partial seed
-        # broke every later named send on that connection.  (CORRECTED
-        # round yq5gzr, pf-adversary D4: this used to say "the 26
-        # `named_field_x()` rows".  That set holds 27 today and is not what
-        # the completeness check reads -- it reads all 55 FIELDS rows,
-        # widened by COO-DECISION 20260904_0215.  Present-tense prose, no
-        # quoted error message, so it was a live false claim rather than
-        # history.)
+        # whose shape is not one `gm.login_mask` admits, so a seed of the
+        # wrong shape broke every later named send on that connection.
+        # (CORRECTED TWICE in round yq5gzr.  It said "the 26
+        # `named_field_x()` rows" (pf-adversary D4) - that set held 27 by
+        # then and was not what the check read.  The correction to "exactly
+        # `all_field_x()`, all 55" was true for about an hour: `#715` landed
+        # mid-round and made (b'') the LOGIN MASK SET, nine or ten rows.
+        # The lesson is in `mob_hit_frame.py` at the same spot - name the
+        # authority, never re-type a count another lane owns and moves.)
         #
         # THAT RATIONALE EXPIRED IN THE SAME COMMIT THAT WROTE IT
         # (pf-adversary D3 round f2qyxx -> D2 round yq5gzr, MEASURED).  The
