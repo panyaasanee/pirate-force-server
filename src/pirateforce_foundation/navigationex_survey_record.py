@@ -80,7 +80,10 @@ byte is what the client reads first, the reader consumes the record's
 kind byte as the outer field and then meets `12` where it wants `0B` --
 it stops inside this class, which is exactly the dialog R313 got.  That
 is a HYPOTHESIS, not a finding: the field's existence is measured, the
-mis-read is inference, and no value for the byte is measured anywhere.  What IS already proven and already used by this same
+mis-read is inference, and no value for the byte is measured anywhere.
+
+THE ENVELOPE AROUND ALL OF THAT IS NOT GUESSED EITHER.  What IS already
+proven and already used by this same
 codebase for the same *kind* of frame -- one nested vital record pushed as
 the sole element of a client's VitalData collection -- is
 `current/pf_login_game_server_v141.py`'s own `make_runtime_vitals`, the
@@ -113,7 +116,7 @@ to THIS class, and this class's own reader stopped.  An id names a PLACE,
 not a cause: it does not say which field, and it does not distinguish the
 record's content from this class's own outer shape.
 
-🔴 WHAT `R313CaptureParityTests` CAN AND CANNOT SHOW.  It pins that this
+*** WHAT `R313CaptureParityTests` CAN AND CANNOT SHOW.  It pins that this
 encoder reproduces R313's captured bytes exactly.  That is a no-drift pin
 and nothing more: `git diff` between the commit R313 booted and this one
 touches no executable line of this module, so the "capture" IS this
