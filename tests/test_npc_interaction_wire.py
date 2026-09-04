@@ -541,6 +541,26 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
             # already-allowed `refusal_quest_not_implemented`: it fires only
             # when the dispatch was REFUSED, so it cannot be evidence of
             # quest state being implemented.
+            #
+            # 🔴 IF `test_every_symbol_exemption_is_still_earned` IS RED ON
+            # THIS ENTRY ON YOUR MACHINE, READ THIS BEFORE TOUCHING ANYTHING:
+            # on Python <=3.11, an f-string tokenizes as ONE `STRING` token,
+            # so `module_code_text()` (which strips `tokenize.STRING`) makes
+            # this entire f-string invisible -- these two symbols match
+            # nothing and the "still earned" check goes red. On Python
+            # >=3.12 (PEP 701), the static text before `{reason}` is its own
+            # `FSTRING_MIDDLE` token, which is NOT `tokenize.STRING`, so it
+            # reads as code and DOES match. `.github/workflows/gate-windows.yml`
+            # pins `python-version: '3.14'` -- that is the interpreter this
+            # exemption is written for, and where the guard test this
+            # exemption serves (`test_no_foundation_module_implements_quest_
+            # or_shop_behavior`) is the one that actually failed and forced
+            # this entry (pirate-force-server#748, closed gate-red on 3.14;
+            # recovered as #754). A red "still earned" check on THESE TWO
+            # SYMBOLS ONLY, on a <=3.11 interpreter, is this known gap, not a
+            # regression -- do not delete the entries or weaken the check to
+            # silence it. If the gate itself (3.14) goes red on this test,
+            # that is real and needs fixing.
             "columbus_quest3021_dispatch_refused_",
             "columbus_quest3205_dispatch_attempted",
             "columbus_quest3205_dispatch_refused_",
