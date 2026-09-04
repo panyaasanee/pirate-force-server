@@ -9634,3 +9634,37 @@ pf-adversary quota ของรอบนี้ (`COO 1428`): **ไม่ได�
 **7** (`compose_refused_*` เป็นคำที่ไม่มี input ใดไปถึง) · **10** (ถ้อยคำของข้อกล่าวอ้าง (ข) เอง:
 `/warp <n> <x> <y>` **ไม่ได้** ถูกปฏิเสธ — มันส่งเฟรมจริงพร้อมพิกัดที่ GM พิมพ์ ที่ถอนคือ**การเขียนแถว**
 เท่านั้น รายงานให้ COO ใน `1930` เพราะเป็นความเข้าใจผิดในใบสั่ง ไม่ใช่บั๊กในโค้ด)
+
+### `CORE-REQUEST-GM-055` — ฟังก์ชันเขียนเสร็จล่วงหน้าแล้ว รอจุดเสียบของ chief (รอบ `2bikkx`)
+
+`gm/warp_scene_persist.rollback_warp_scene_on_send_failure(session, label)` เขียนแล้วในรอบนี้
+**ก่อน** จุดเสียบของ chief ลง main ไม่ใช่หลัง (ต่างจากที่ใบ `1924` เขียนไว้ว่าจะทำ "เมื่อจุดเสียบลง
+main") — เหตุผล: ฟังก์ชันไม่ต้องรอจุดเสียบเพื่อพิสูจน์ตัวเอง มันมีแค่สองพฤติกรรม (label ตรง → รีวาป,
+label อื่น → ไม่แตะอะไร) ที่เทสได้เต็มรูปแบบผ่าน real store/session ตอนนี้เลย ส่วนที่รอจริงคือบรรทัด
+`import` + เรียกหนึ่งบรรทัดในเขต chief เท่านั้น
+
+- **guard**: `label != SEND_FAILURE_WARP_ACTION_LABEL` คืน `OUTCOME_NOT_A_WARP` ทันที ไม่แตะ
+  `session` เลย (ไม่อ่าน ไม่เขียน ไม่พิมพ์คอนโซล) — จำเป็นเพราะลูปส่งของ `v141` เรียกหลัง**ทุก**
+  action ที่ส่งไม่สำเร็จ ไม่ใช่แค่ warp
+- **`SEND_FAILURE_WARP_ACTION_LABEL`** เป็น **literal copy** ของ `chat_command_action.
+  WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL` ไม่ใช่ import — `chat_command_action`
+  import โมดูลนี้อยู่แล้ว (`rollback_warp_scene`, `row_before_warp`) import ย้อนกลับจะวนลูป ·
+  เทสปักสองค่าให้เท่ากันแทน
+- **ที่มาของ `previous`**: อ่าน `foundation.selected.position` ตรง ๆ ไม่ผ่าน `row_before_warp`
+  (อันนั้นอ่าน DB ซึ่งตอนนี้เป็นฉากปลายทางไปแล้ว) — `persist_warp_scene` คืน `foundation.selected`
+  กลับเป็นค่าก่อนวาปทันทีหลังเขียน DB สำเร็จ (ดูด็อกสตริงของโมดูล: "the durable row moves; the
+  in-memory row does not") และไม่มีอะไรระหว่างนั้นกับ `SEND_FAILED` ของ action เดียวกันที่จะเปลี่ยน
+  มันได้ (ไคลเอนต์รายงานตำแหน่งใหม่ไม่ได้สำหรับเฟรมที่ไม่เคยไปถึงมัน) ⇒ ไม่ต้องมีอาร์กิวเมนต์ตัวที่สาม
+  ให้จุดเสียบของ chief ต้องลากค่าข้าม ~2,200 บรรทัด
+- **นอกเรื่อง**: delegate เขียน/คืนค่า/อ่านกลับ/คอนโซลทั้งหมดให้ `rollback_warp_scene` เดิม —
+  คำตอบเดียวกัน ไม่มีคำศัพท์ใหม่
+
+เทสใหม่ 4 ตัวใน `tests/test_gm_warp_scene_rollback.py::SendFailureHookupTests` (subclass
+`RealDatabaseTests` เพื่อใช้ store/session จริงร่วมกัน): รีวาปจบครบวงจร (frame compose →
+`SEND_FAILED` จำลอง → rollback → อ่านแถวกลับ) · label ปักตรงกับค่าจริงของ `chat_command_action` ·
+ทุก label อื่น (`ForcePos`/`say`/`/speed`/สองอาร์กิวเมนต์/ว่าง/`None`) ไม่แตะแถวไม่พิมพ์คอนโซล ·
+store ที่ raise คืนคำเดิมของ `rollback_warp_scene` มิวแทนต์มือ (ถอด guard label ออก) รันแล้วแดง 6/6
+ก่อน commit (`ADVERSARY_MANUAL`, ไม่มี Agent tool ในเซสชันนี้ — โควตา `1428` ยังไม่แตะ)
+
+🔴 **สิ่งที่ยังไม่ปิด**: มิวแทนต์ "ลบบรรทัดเรียกออกจากลูปส่ง" (ที่ใบ `1924` ข้อ 4 สัญญาไว้) เขียนไม่ได้
+จนกว่าบรรทัดเรียกนั้นจะมีอยู่จริง — เป็นงานของรอบถัดไปที่พบว่า `CORE-REQUEST-GM-055` ลง main แล้ว
