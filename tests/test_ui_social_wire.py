@@ -129,5 +129,53 @@ class U8U32TagReaderTests(unittest.TestCase):
         self.assertEqual(offset, 5)
 
 
+class U16TagTests(unittest.TestCase):
+    # Added round `wkrfl6` for ui_tracepath_wire.py -- see u16tag's own
+    # docstring for why no earlier resolved class needed a write-direction
+    # u16 helper.
+    def test_round_trip(self):
+        encoded = wire.u16tag(0x0F, 0x0165)
+        self.assertEqual(encoded[0], 0x0F)
+        value, offset = wire.read_u16tag(encoded, 0, 0x0F)
+        self.assertEqual(value, 0x0165)
+        self.assertEqual(offset, len(encoded))
+
+    def test_masks_to_16_bits(self):
+        encoded = wire.u16tag(0x0F, (1 << 16) + 7)
+        value, _ = wire.read_u16tag(encoded, 0, 0x0F)
+        self.assertEqual(value, 7)
+
+    def test_read_u16tag_wrong_tag_fails_closed(self):
+        encoded = wire.u16tag(0x0F, 1)
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_u16tag(encoded, 0, 0x99)
+
+    def test_read_u16tag_truncated_fails_closed(self):
+        with self.assertRaises(wire.WireDecodeError):
+            wire.read_u16tag(bytes([0x0F, 1]), 0, 0x0F)
+
+    def test_matches_the_gt246_capture_bytes_for_field1(self):
+        # RE-236's static bonus this round: GT-246's real captured frame
+        # opens with tag 0x0F, value 0 (little-endian 00 00).
+        encoded = wire.u16tag(0x0F, 0)
+        self.assertEqual(encoded, bytes.fromhex("0F0000"))
+
+
+class U32TagEncodeTests(unittest.TestCase):
+    # read_u32tag already existed (U8U32TagReaderTests above); u32tag is the
+    # write-direction counterpart, added round `wkrfl6` alongside u16tag.
+    def test_round_trip(self):
+        encoded = wire.u32tag(0x14, 0x12345678)
+        self.assertEqual(encoded[0], 0x14)
+        value, offset = wire.read_u32tag(encoded, 0, 0x14)
+        self.assertEqual(value, 0x12345678)
+        self.assertEqual(offset, len(encoded))
+
+    def test_masks_to_32_bits(self):
+        encoded = wire.u32tag(0x14, (1 << 32) + 9)
+        value, _ = wire.read_u32tag(encoded, 0, 0x14)
+        self.assertEqual(value, 9)
+
+
 if __name__ == "__main__":
     unittest.main()

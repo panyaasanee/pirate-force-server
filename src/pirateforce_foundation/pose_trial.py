@@ -282,6 +282,93 @@ def selector_for_reply(echoed, environ=None):
     return (sent, console_token(sent, echoed, state))
 
 
+def parse_trial_list(raw):
+    """``tuple[int, ...]`` or ``None`` for one comma-separated selector list.
+
+    ``COO-DECISION 20260905_0248`` moves the trial from ``selector_for_reply``
+    (one selector, armed for the whole process, read only by the SCENE-007
+    scenario gate) to the production ``_dispatch_mob_combat`` path, which the
+    ticket's own sweep needs to walk six ids one hit at a time:
+    ``PF_POSE_TRIAL=280,284,288,282,290,286``.
+
+    Reuses ``_parse_selector``'s per-token grammar (decimal digits only, or
+    ``0x``-prefixed hex, length-capped before ``int()`` for the D1 reason
+    given there) so a token this module already accepts alone is accepted
+    the same way inside a list.  Returns ``None`` -- the whole list is
+    malformed -- on ANY bad or empty token (a leading/trailing/doubled comma,
+    ``auto`` without provenance, anything ``_parse_selector`` itself
+    refuses) rather than dropping the bad token: an owner who meant to arm
+    six ids must not silently get five, with no line saying which one it
+    lost.
+    """
+    parts = [part.strip() for part in raw.split(",")]
+    values = []
+    for part in parts:
+        state, value = _parse_selector(part)
+        if state != TRIAL_ARMED:
+            return None
+        values.append(value)
+    return tuple(values)
+
+
+def trial_list_opening(environ=None):
+    """``(state, tuple_or_None)`` for the list-cycling gate.
+
+    Mirrors ``trial_opening``'s contract -- NEVER raises, the whole read is
+    inside the ``try`` for the same reason (this runs inside
+    ``state.dispatch()`` under the frozen, except-handler-free
+    ``game_listener``, interlock X07) -- but for a comma-separated list
+    instead of one selector.  Unset or blank is ``(TRIAL_UNSET, None)``,
+    exactly like ``trial_opening``; a single bare value (no comma) is a
+    well-formed one-element list, not a special case.
+    """
+    try:
+        source = os.environ if environ is None else environ
+        raw = source.get(POSE_TRIAL_ENV)
+        if raw is None:
+            return (TRIAL_UNSET, None)
+        text = raw.strip()
+        if text == "":
+            return (TRIAL_UNSET, None)
+        values = parse_trial_list(text)
+        if values is None:
+            return (TRIAL_MALFORMED, None)
+        return (TRIAL_ARMED, values)
+    except Exception:  # noqa: BLE001 - see trial_opening
+        return (TRIAL_MALFORMED, None)
+
+
+def selector_for_hit(hit_number, environ=None):
+    """``(selector, console line)`` for one accepted production hit, or
+    ``(None, None)``/``(None, refusal line)`` when nothing should be sent.
+
+    Unlike ``selector_for_reply`` (armed for the whole scenario-gated
+    process, one selector, falls back to the request's own echoed value so
+    SOMETHING is always composed) this gate feeds a call site that runs on
+    an ORDINARY, unflagged boot for EVERY accepted hit against a real field
+    mob (``COO-DECISION 20260905_0248``): the inherited v141 dispatch has
+    already echoed that same request's own ``+0x30`` back before
+    ``_dispatch_mob_combat`` ever runs, so unset or malformed both return
+    ``None`` for the selector -- compose and send NOTHING extra -- rather
+    than a redundant second echo of bytes main already sent.  Only an
+    explicitly armed list changes what one hit puts on the wire.
+
+    ``hit_number`` is the caller's own count of ACCEPTED hits this session
+    (``state.mob_combat_hit_count``, already incremented for the hit this
+    call answers) and is 1-indexed; it selects ``(hit_number - 1) %
+    len(values)`` off the armed list, so hit 1 is always the first id and
+    the sixth ticket sweep click lands on the sixth id, then wraps.
+    """
+    state, values = trial_list_opening(environ)
+    if state == TRIAL_UNSET:
+        return (None, None)
+    if state == TRIAL_MALFORMED:
+        return (None, "POSE_TRIAL_REFUSED malformed hit=%d" % hit_number)
+    index = (hit_number - 1) % len(values) if hit_number >= 1 else 0
+    sent = values[index]
+    return (sent, "POSE_TRIAL sent=%d hit=%d" % (sent, hit_number))
+
+
 def boot_banner(environ=None):
     """The line a boot prints when, and only when, the variable is set.
 

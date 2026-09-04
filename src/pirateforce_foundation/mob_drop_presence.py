@@ -778,11 +778,27 @@ def presence_event(step: Any) -> str:
 # the ground.  The item was never taken and never expired -- the console
 # kept printing ``MOB_DROP_PRESENCE ... carried=1 oldest_left=65.6s`` right
 # after -- the client was simply told the wrong thing by a DIFFERENT reply:
-# ``CheckSecondPwdVital 0x4B98``'s own 44-byte OK frame ends
-# ``0B 00``, an empty ground-list, and the client reads that as "the floor
-# is bare" and clears it.  This function is the correction for that one
-# named frame: call it right after that reply goes out and the client is
-# told the truth a second time.
+# ``CheckSecondPwdVital 0x4B98``'s own 44-byte OK frame ends ``0B 00``.
+#
+# [CORRECTED, COO-DECISION 20260905_0247 item 4: an earlier draft of this
+# comment asserted ``0B 00`` IS "an empty ground-list" and that the client
+# reads it as "the floor is bare" and clears it -- stated as the mechanism,
+# not as a guess.  Chief measured otherwise (server PR #781, this same
+# round): ``0B 00`` is the RuntimeRes v4 DERIVED-CLASS CHANGE MASK at zero,
+# appended by ``make_runtime_vitals`` to EVERY runtime-vitals frame this
+# server composes -- V99 show-message (39 B) and V100 music (102 B) end the
+# identical two bytes, so it names nothing about the ground list in
+# particular.  Mask 0 means the ground-list member is ABSENT from this
+# frame (``mob_loot.py:535``), not present-and-empty, and whether an
+# ABSENT member is what empties the client's floor is
+# [ASSUMPTION OF LANE B - AWAITING COO] -- ``REEMISSION_REDRAWS_THE_LABEL``
+# above stays ``None`` for the same reason.  KA1A's R309 capture still
+# shows the client clearing the crystal after this exact reply, so the
+# SYMPTOM this function answers is measured; only the WHY above is not.]
+#
+# This function is the correction for that one named frame regardless of
+# which mechanism turns out to be right: call it right after that reply
+# goes out and the client is told ground truth a second time.
 #
 # NOT THE REFUSED RESEND.  `COO-DECISION 2026-08-30T17:42+07:00` refused a
 # STANDING, repeated resend on a movement cadence -- see
@@ -1062,6 +1078,29 @@ flag: production_allowed is True and this behaviour is on for every boot.
 #        ``loot_actions`` marks a removal debt paid that nothing published --
 #        the ghost ``mob_loot.frames_after_rows_expired``'s ``will_send``
 #        exists to prevent.  Reproduced by fault injection this round.
+#
+# [ROUND yqbwri UPDATE: the amplification objection above is RESOLVED, not
+# reopened.]  ``COO-DECISION 20260905_0247`` item 1 answered the
+# ``20260905_0146`` ask cited two paragraphs up: (b) is a LATCH, at most one
+# extra publication per NEW ground generation, not one per surviving blow --
+# exactly the shape this comment's own last paragraph already guessed at
+# before there was a ruling.  Landed this round as
+# ``DropLedgerCell.surviving_blow_reannounce_due``/
+# ``note_surviving_blow_reannounced`` and wired into THIS function below,
+# pinned by ``tests/test_mob_drop_presence_surviving_blow_latch.py`` (133
+# non-fatal blows against one unchanged generation -> exactly ONE composed
+# reannounce, not 3-4 and not 133).  So calling this composer on EVERY blow,
+# killing or not, now costs at most one extra wire publication per
+# generation -- the 2026-08-30T17:42+07:00 bar is satisfied by construction,
+# and the 3-4x number above no longer blocks a call site.
+#
+# ITEMS (i) AND (ii) ABOVE ARE UNTOUCHED BY THE LATCH.  (i) has its own
+# answer this round -- ``rehydrate_from_store`` below, ``COO-DECISION
+# 20260905_0247`` item 2 -- whose call site is still chief's, same as this
+# one.  (ii) is unchanged: it lives inside ``sustain_a_kill`` itself, which
+# this function calls unmodified, and fixing it is not this latch's job.
+# See :data:`WITHHELD_GROUND_SURVIVING_BLOW_WIRING` for what still keeps the
+# call site itself withheld.
 # ---------------------------------------------------------------------------
 
 #: Printed once per surviving blow that composed a generation, empty ground
@@ -1181,6 +1220,27 @@ def reannounce_ground_after_a_surviving_blow(
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN,
             REFUSE_DEATH_DUE_UNREADABLE, death_due)))
         return ()
+    # COO-DECISION 20260905_0247 item 1: at most ONE extra reannounce per
+    # NEW ground generation, not one per surviving blow -- the shape this
+    # module's own withheld-wiring comment below already named as almost
+    # certainly right, now ruled on.  A PEEK, not a commit: a generation
+    # already told is a routine no-op, printed here as NOTHING (see the
+    # module's own D5 measurement above, "the measured cadence is TWO
+    # lines per composing call" -- a call site that fires once per blow and
+    # printed even a suppression line here would still cost the console one
+    # line per blow, the exact spam this latch exists to remove).  Silence
+    # on this path means "already told, working as designed", never "no
+    # call site" -- that silence is GROUND_SURVIVING_BLOW_CALL_SITE_STATUS's
+    # to carry, and it is a module-level constant a reader checks once, not
+    # a per-call console line.
+    try:
+        due = cell.surviving_blow_reannounce_due()
+    except Exception as error:                          # noqa: BLE001
+        _say_world_line(_console_ascii("%s reason=%s:%r" % (
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, "reannounce_raised", error)))
+        return ()
+    if not due:
+        return ()
     try:
         presence = sustain_a_kill(cell, legacy, ())
     except Exception as error:                          # noqa: BLE001
@@ -1199,6 +1259,24 @@ def reannounce_ground_after_a_surviving_blow(
             GROUND_SURVIVING_BLOW_REFUSED_TOKEN, presence.scene,
             "actions_raised", error)))
         return ()
+    # Committed only NOW, after a compose that actually produced the tuple
+    # this function is about to return -- never before a compose is known
+    # to have succeeded, or a refusal/raise would spend the one allowed
+    # resend on a floor the client was never actually told about (the
+    # sibling ghost this file's own known-defect test already pins for
+    # ``note_scene_published``, not repeated here for this latch).
+    # A commit failure here is logged, not treated as a reason to withhold
+    # frames the compose above already proved good: the worst this can do
+    # is leave the latch unset (so the NEXT blow re-sends the same
+    # generation once more) -- an extra resend, not a lost one, and this
+    # module's whole reason to exist is never to lose a floor to a bookkeeping
+    # exception under it.
+    try:
+        cell.note_surviving_blow_reannounced()
+    except Exception as error:                          # noqa: BLE001
+        _say_world_line(_console_ascii("%s scene=%r reason=%s:%r" % (
+            GROUND_SURVIVING_BLOW_REFUSED_TOKEN, presence.scene,
+            "latch_commit_raised", error)))
     _say_world_line(_console_ascii("%s scene=%r items=%d" % (
         GROUND_SURVIVING_BLOW_TOKEN, presence.scene, presence.live)))
     return actions
@@ -1226,16 +1304,38 @@ queued and before the death branch:
   actions.extend(mob_drop_presence.reannounce_ground_after_a_surviving_blow(
       self.mob_loot_cell, legacy, step))~~   WITHHELD, round hlwgri.
 
-WHY THE TEXT ABOVE IS NOT SAFE TO PASTE EVEN IF THE CADENCE QUESTION IS
-SETTLED: "after the bar append and before ``if step.death_due:``" names two
-different indentation levels.  The append sits inside ``if len(step.frames)
-> 1:``; ``if step.death_due:`` is two levels out.  ``CombatStep.frames``
-returns a 1-tuple on a killing blow, so at the inner reading the fatal-blow
-guard in this module can never fire, and at the outer reading a swing at a
-mob already on the HP floor (``no_room`` True, therefore ``death_due``
-False) publishes the whole floor for a blow that did nothing.  A future
-authorised wiring ask has to name ONE line number and answer the no_room
-case; this one did neither.
+[ROUND yqbwri: the CADENCE reason above is SETTLED, not still open.]
+COO-DECISION 20260905_0247 item 1 ruled (b) is a latch -- at most one extra
+publication per NEW ground generation -- and this function now enforces
+that itself (DropLedgerCell.surviving_blow_reannounce_due/
+note_surviving_blow_reannounced), pinned by
+tests/test_mob_drop_presence_surviving_blow_latch.py.  Calling this
+composer unconditionally on every blow therefore costs at most one extra
+wire publication per generation, not the 3-4 measured against an unlatched
+call site, so the 2026-08-30T17:42+07:00 bar no longer withholds a call
+site on cadence grounds.
+
+STILL WITHHELD, for the reason below, which the latch does not touch --
+this text remains struck, not a live wiring ask:
+
+WHY THE TEXT ABOVE IS NOT SAFE TO PASTE AS WRITTEN: "after the bar append
+and before ``if step.death_due:``" names two different indentation levels.
+The append sits inside ``if len(step.frames) > 1:``; ``if step.death_due:``
+is two levels out.  ``CombatStep.frames`` returns a 1-tuple on a killing
+blow, so at the inner reading the fatal-blow guard in this module can never
+fire, and at the outer reading a swing at a mob already on the HP floor
+(``no_room`` True, therefore ``death_due`` False) publishes the whole floor
+for a blow that did nothing.  A future authorised wiring ask still has to
+name ONE line number and answer the no_room case; this one does neither.
+
+ALSO UNRESOLVED BY THE LATCH, and chief's to weigh before pasting anything:
+``runtime.py`` still never rehydrates a session's ``mob_loot_cell`` from the
+world floor (``rehydrate_from_store`` below, COO-DECISION 20260905_0247 item
+2, answers what the function should read; its call site is chief's, same as
+this one), and ``sustain_a_kill`` still pays ``cell.note_scene_published``
+before this function's own caller knows whether ``loot_actions`` will
+succeed -- unchanged from round hlwgri, and this latch does not fix it
+either.
 """
 
 # ---------------------------------------------------------------------------
