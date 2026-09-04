@@ -549,6 +549,17 @@ def compose_player_hit_frame(
         from . import lane_hooks as resolved_hooks_module  # noqa: PLC0415
     login_byte_hook = getattr(
         resolved_hooks_module, attr_wire.LOGIN_BYTES_READ_POINT, None)
+    # THIRD PASS-THROUGH, added out of zone by LANE-GM round `y6j1mn` and
+    # declared by letter (`20260904_10xx_LANE-GM-TO-LANE-B-*`): `COO-DECISION
+    # 20260904_0846` item 1 gave x=9 a THIRD source -- the session's CURRENT
+    # scene at send time -- and `attr_wire.live_full_block_values` now reads
+    # it through `attr_wire.CURRENT_SCENE_READ_POINT`.  Without this line the
+    # shim below would shadow that point for this door alone and every
+    # compose here would stand down with `no_current_scene_read_point`, which
+    # is a refusal about the SHIM rather than about the world.  Exactly the
+    # same shape as the login-byte pass-through above, for the same reason.
+    current_scene_hook = getattr(
+        resolved_hooks_module, attr_wire.CURRENT_SCENE_READ_POINT, None)
 
     class _same_live_hooks:
         """A `hooks=` stand-in: answers the named point with the `live`
@@ -560,6 +571,9 @@ def compose_player_hit_frame(
     if login_byte_hook is not None:
         setattr(_same_live_hooks, attr_wire.LOGIN_BYTES_READ_POINT,
                 staticmethod(login_byte_hook))
+    if current_scene_hook is not None:
+        setattr(_same_live_hooks, attr_wire.CURRENT_SCENE_READ_POINT,
+                staticmethod(current_scene_hook))
 
     try:
         values = attr_wire.live_full_block_values(
