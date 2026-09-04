@@ -62,11 +62,14 @@ client: `provisioned=0` means this build could not have provisioned a single
 proximity record (no island XYZ has been measured yet), so an `issued=no`
 next to it says the captain report that produced this confirm popped without
 anything from us -- which is the one reading of this line that would refute
-RE-227's provisioning hypothesis instead of supporting it.  It does NOT mean
-the confirm sequence that produced it has been seen live on a real client
-(RE-227's own reachability proof for this branch is synthetic; see the
-dispatch-wiring test's own docstring).  `UNPARSED` means the payload did not match the fixed
-shape -- wrong length, wrong leading tag, or a wrong trailer -- and the raw
+RE-227's provisioning hypothesis instead of supporting it.  (Not during
+GT-228, whose STOP rule forbids pressing confirm: no confirm, no frame, no
+line.  This is what the FIRST confirm frame this server ever sees will say.)
+It does NOT mean the confirm sequence that produced it has been seen live on
+a real client (RE-227's own reachability proof for this branch is synthetic;
+see the dispatch-wiring test's own docstring).  `UNPARSED` means the payload
+did not match the fixed shape -- wrong length, wrong leading tag, or a wrong
+trailer -- and the raw
 hex is printed so the next round works from bytes rather than from this
 module's opinion of them.
 """
@@ -75,7 +78,6 @@ from __future__ import annotations
 import sys
 
 from . import hook
-from .. import world_m2_survey_plan as plan
 
 
 production_allowed = True
@@ -149,12 +151,22 @@ def console_line(payload: bytes) -> str:
 
 
 def _annotation(opaque: int) -> str:
-    """`world_m2_survey_plan.console_annotation`, but this function's caller
-    is a console line whose whole contract is "never raises".  A plan that
-    somehow raises must cost the annotation, not the evidence line -- and it
-    must say so out loud rather than vanish, hence `issued=err`.
+    """`world_m2_survey_plan.console_annotation`, behind a guard that covers
+    the IMPORT as well as the call.
+
+    The import is inside the function on purpose.  pf-adversary measured what
+    a module-scope import costs here: give `world_island_dock_table`'s pinned
+    TSV one extra byte, or empty `world_bg3001_identity`'s rows, and this
+    hook drops out of `lane_hooks._discover()` with `IMPORT_FAILED` -- no
+    registration, no line, and on an attended console "no confirm frame
+    arrived" and "the subscriber never loaded" look identical.  That is the
+    exact reading GT-228 is allowed to PASS on, so the annotation must never
+    be able to take the evidence line down with it.  A plan that cannot be
+    imported or that raises costs the annotation and says so: `issued=err`.
     """
     try:
+        from .. import world_m2_survey_plan as plan
+
         return plan.console_annotation(opaque)
     except Exception:
         return "issued=err provisioned=err"

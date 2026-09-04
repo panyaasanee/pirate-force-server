@@ -1,11 +1,16 @@
-"""LANE-A / M2: the survey plan is fail-closed on measured XYZ, and its
-handles are the server's own.
+"""LANE-A / M2: the survey plan is fail-closed on measured XYZ, its handles
+are the server's own, and its geometry can never take a hook down with it.
 
 The plan module exists to be EMPTY today and correct the day GT-228 reports.
 Both halves need a test: an empty plan that would stay empty after the
 measurement lands would be worthless, so every "nothing is provisionable"
 assertion here has a sibling that injects a measurement and proves the same
 function then answers differently.
+
+Several tests below exist because pf-adversary measured the mutation they
+now catch: a handle formula nothing pinned, a radius compared only against
+itself, constants no test read, and an import-time raise that deleted the
+hook's evidence line rather than the annotation.
 """
 from __future__ import annotations
 
@@ -44,10 +49,65 @@ class _WithMeasuredXYZ:
         return False
 
 
+class _WithAnchors:
+    """Context manager replacing the identity module's island rows.
+
+    Clears the plan's anchor cache on the way in AND on the way out, so a
+    test that shifts the plane cannot leave a shifted one behind.
+    """
+
+    def __init__(self, rows):
+        self._rows = rows
+        self._saved = None
+
+    def __enter__(self):
+        self._saved = bg3001.shippable_placements
+        bg3001.shippable_placements = lambda: self._rows
+        plan._ANCHORS = None
+        return plan
+
+    def __exit__(self, *_exc):
+        bg3001.shippable_placements = self._saved
+        plan._ANCHORS = None
+        return False
+
+
+def _island_rows(z_shift: float = 0.0):
+    import dataclasses
+
+    rows = []
+    for placement in bg3001.shippable_placements():
+        if getattr(placement.identity, "outfit", None) == "MAP_ISLAND_01":
+            placement = dataclasses.replace(placement, z=placement.z + z_shift)
+        rows.append(placement)
+    return tuple(rows)
+
+
+class TheConstantsOtherThingsRestOnTests(unittest.TestCase):
+    """Every one of these was a surviving mutation before it was written."""
+
+    def test_the_contact_radius_is_re_227s_number(self):
+        # Not "whatever the module says": 500 is the wire fact the whole
+        # third-component argument is built on.
+        self.assertEqual(plan.CLIENT_CONTACT_RADIUS, 500)
+
+    def test_the_blocking_reason_names_the_ticket_that_lifts_it(self):
+        self.assertEqual(plan.XYZ_SOURCE_TICKET, "GT-228")
+        self.assertEqual(plan.BLOCKED_XYZ_UNMEASURED, "XYZ_UNMEASURED_PENDING_GT-228")
+        self.assertIn(plan.XYZ_SOURCE_TICKET, plan.BLOCKED_XYZ_UNMEASURED)
+
+    def test_the_coordinate_frame_is_the_scene_the_ticket_is_run_in(self):
+        self.assertEqual(plan.XYZ_FRAME_SCENE_ID, 126)
+        self.assertTrue(plan.plan_is_for_scene(126))
+        # Columbus's destination is scene 17, and a record in this frame is
+        # meaningless to a player standing there.
+        self.assertFalse(plan.plan_is_for_scene(17))
+
+
 class FailClosedOnMeasurementTests(unittest.TestCase):
     def test_no_xyz_is_measured_yet(self):
         # The state of M2 in one assertion.  When GT-228 lands and this test
-        # fails, the fix is to delete it and keep the two below.
+        # fails, the fix is to delete it and keep the ones below.
         self.assertEqual(plan.MEASURED_XYZ, {})
 
     def test_nothing_is_provisionable_and_every_target_says_why(self):
@@ -60,6 +120,12 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
                 for trigger_id in plan.PLANNED_TRIGGER_IDS
             ),
         )
+
+    def test_the_accessor_answers_from_the_table_not_from_none(self):
+        self.assertIsNone(plan.xyz_for_trigger_id(153))
+        with _WithMeasuredXYZ({153: (1.5, -2.5, 3.5)}):
+            self.assertEqual(plan.xyz_for_trigger_id(153), (1.5, -2.5, 3.5))
+            self.assertIsNone(plan.xyz_for_trigger_id(154))
 
     def test_planned_and_blocked_partition_the_planned_ids(self):
         # Not a restatement of the two above: this is the invariant that
@@ -80,6 +146,7 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
             record = records[0]
             self.assertEqual(record.trigger_id, 153)
             self.assertEqual((record.x, record.y, record.z), (100.5, -20.25, 3.0))
+            self.assertEqual(record.frame_scene_id, plan.XYZ_FRAME_SCENE_ID)
             self.assertEqual(plan.provisionable_count(), 1)
         # ...and off again once the injection is gone, i.e. the plan reads
         # the dict rather than a snapshot taken at import time.
@@ -105,6 +172,15 @@ class FailClosedOnMeasurementTests(unittest.TestCase):
 
 
 class HandleAllocationTests(unittest.TestCase):
+    def test_the_handles_of_m2s_two_targets_are_these_exact_numbers(self):
+        # Pins the VALUE, not just the round trip: a mutated formula that is
+        # still injective (base + ordinal*7 + 3, say) passes every other test
+        # in this class and fails this one.
+        self.assertEqual(plan.handle_for_trigger_id(153), 0xA099)
+        self.assertEqual(plan.handle_for_trigger_id(154), 0xA09A)
+        self.assertEqual(plan.trigger_id_for_handle(0xA099), 153)
+        self.assertEqual(plan.trigger_id_for_handle(0xA09A), 154)
+
     def test_every_destination_gets_a_distinct_handle_inside_u16(self):
         handles = [
             plan.handle_for_trigger_id(row.trigger_id)
@@ -116,11 +192,18 @@ class HandleAllocationTests(unittest.TestCase):
             self.assertGreaterEqual(handle, 0)
             self.assertLessEqual(handle, 0xFFFF)
 
-    def test_a_handle_round_trips_back_to_its_destination(self):
-        for row in islands.DESTINATION_ROWS:
-            with self.subTest(trigger_id=row.trigger_id):
-                handle = plan.handle_for_trigger_id(row.trigger_id)
-                self.assertEqual(plan.trigger_id_for_handle(handle), row.trigger_id)
+    def test_a_handle_does_not_move_when_the_dock_table_is_reordered(self):
+        # pf-adversary measured an ordinal-based allocation silently
+        # renumbering every handle when a row moved, with the whole suite
+        # green.  The handle is a function of the destination, so:
+        saved = islands.DESTINATION_ROWS
+        before = plan.handle_for_trigger_id(153)
+        try:
+            islands.DESTINATION_ROWS = tuple(reversed(saved))
+            self.assertEqual(plan.handle_for_trigger_id(153), before)
+            self.assertEqual(plan.trigger_id_for_handle(before), 153)
+        finally:
+            islands.DESTINATION_ROWS = saved
 
     def test_ids_that_are_not_destinations_have_no_handle(self):
         # 40 is a sea prop (Black Braid Landmine), 165 is an ocean-travel row
@@ -129,16 +212,24 @@ class HandleAllocationTests(unittest.TestCase):
             with self.subTest(trigger_id=trigger_id):
                 self.assertIsNone(plan.handle_for_trigger_id(trigger_id))
 
-    def test_the_handle_range_does_not_collide_with_the_ids_it_must_be_told_apart_from(self):
-        # The whole reason the base is 0xA000 and not 152: a handle must not
-        # be confusable with a trigger id, a scene id or a placement index,
-        # or "did this echo come from us" has no answer.
+    def test_the_handle_range_matches_whichever_base_is_configured(self):
+        # Both configurations the docstring names, so the documented rollback
+        # (base = 0, handle = trigger id) does not walk into a red suite.
         handles = {
             plan.handle_for_trigger_id(row.trigger_id)
             for row in islands.DESTINATION_ROWS
         }
-        collidable = set(islands.TRIGGER_NAMES) | set(range(0, 512))
-        self.assertEqual(handles & collidable, set())
+        trigger_ids = set(islands.TRIGGER_NAMES)
+        if plan.SURVEY_HANDLE_BASE:
+            # The distinctive range: no handle may be confusable with a
+            # trigger id, a scene id or a placement index.
+            self.assertEqual(handles & (trigger_ids | set(range(0, 512))), set())
+        else:
+            # The rollback: the handle IS the trigger id, deliberately.
+            self.assertEqual(
+                handles,
+                {row.trigger_id for row in islands.DESTINATION_ROWS},
+            )
 
     def test_an_unknown_handle_resolves_to_nothing(self):
         self.assertIsNone(plan.trigger_id_for_handle(0x0000))
@@ -214,11 +305,12 @@ class ConsoleAnnotationTests(unittest.TestCase):
 
 
 class TheThirdComponentTests(unittest.TestCase):
-    """GT-228's HUD shows two numbers; the record needs three.
+    """The HUD shows two numbers; a record needs three.
 
-    These tests hold the argument that the missing one is a bounded cost
-    rather than a blocker -- and hold it to the identity module's own rows,
-    so a plane averaged from somewhere else cannot creep in.
+    These tests hold the argument that the missing one is a bounded cost --
+    and hold each number to what it is actually a measurement OF, because the
+    first draft called a four-row spread a whole-scene range and pf-adversary
+    measured that as wrong by a factor of 4500.
     """
 
     def test_the_anchors_are_the_identity_modules_own_island_rows(self):
@@ -227,66 +319,51 @@ class TheThirdComponentTests(unittest.TestCase):
             for p in bg3001.shippable_placements()
             if getattr(p.identity, "outfit", None) == "MAP_ISLAND_01"
         )
-        self.assertEqual(list(plan.CALIBRATION_ANCHORS), expected)
-        self.assertEqual(len(plan.CALIBRATION_ANCHORS), 4)
+        self.assertEqual(list(plan.calibration_anchors()), expected)
+        self.assertEqual(len(plan.calibration_anchors()), 4)
 
-    def test_every_island_in_the_sailing_scene_sits_on_one_plane(self):
-        # The measurement the third component rests on: 0.068 units across
-        # the whole scene.  A tenth of a unit is the generous bound.
-        self.assertLess(plan.ISLAND_PLANE_Z_SPREAD, 0.1)
-        for _name, _x, _y, z in plan.CALIBRATION_ANCHORS:
-            self.assertAlmostEqual(z, plan.ISLAND_PLANE_Z, delta=0.1)
-
-    def test_no_island_row_at_all_is_a_refusal_not_an_average_over_nothing(self):
-        saved = bg3001.shippable_placements
-        try:
-            bg3001.shippable_placements = lambda: ()
-            with self.assertRaises(RuntimeError):
-                plan._island_plane_or_raise()
-        finally:
-            bg3001.shippable_placements = saved
+    def test_those_four_rows_agree_on_a_plane_the_scene_itself_does_not(self):
+        self.assertLess(plan.island_plane_z_spread(), 0.1)
+        for _name, _x, _y, z in plan.calibration_anchors():
+            self.assertAlmostEqual(z, plan.island_plane_z(), delta=0.1)
+        # ...and the scene is NOT flat: its shippable placements span far
+        # more than that, which is why the spread may never be described as
+        # a property of the scene.
+        scene_z = [p.z for p in bg3001.shippable_placements()]
+        self.assertGreater(max(scene_z) - min(scene_z), 300.0)
 
     def test_the_plane_moves_when_the_identity_modules_rows_move(self):
-        # The mutation that separates a derivation from a literal: shift the
-        # identity module's island rows by a known amount, re-import, and the
-        # plane must shift with them.  A hardcoded 123.6 passes every other
-        # test in this class and fails this one.
-        import dataclasses
-        import importlib
+        # The mutation that separates a derivation from a literal.
+        before = plan.island_plane_z()
+        with _WithAnchors(_island_rows(z_shift=10.0)):
+            self.assertAlmostEqual(plan.island_plane_z(), before + 10.0, places=6)
+            self.assertAlmostEqual(plan.island_plane_z_spread(), 0.068, delta=0.01)
+        self.assertAlmostEqual(plan.island_plane_z(), before, places=6)
 
-        saved = bg3001.shippable_placements
-        shift = 10.0
-
-        def shifted():
-            rows = []
-            for placement in saved():
-                if getattr(placement.identity, "outfit", None) == "MAP_ISLAND_01":
-                    placement = dataclasses.replace(placement, z=placement.z + shift)
-                rows.append(placement)
-            return tuple(rows)
-
-        try:
-            before = plan.ISLAND_PLANE_Z
-            bg3001.shippable_placements = shifted
-            importlib.reload(plan)
-            self.assertAlmostEqual(plan.ISLAND_PLANE_Z, before + shift, places=6)
-            self.assertAlmostEqual(plan.ISLAND_PLANE_Z_SPREAD, 0.068, delta=0.01)
-        finally:
-            bg3001.shippable_placements = saved
-            importlib.reload(plan)
-        self.assertAlmostEqual(plan.ISLAND_PLANE_Z, before, places=6)
-        self.assertEqual(plan.MEASURED_XYZ, {})
+    def test_no_island_row_at_all_is_a_refusal_not_an_average_over_nothing(self):
+        with _WithAnchors(()):
+            with self.assertRaises(RuntimeError):
+                plan.calibration_anchors()
+            with self.assertRaises(RuntimeError):
+                plan.island_plane_z()
 
     def test_a_wrong_third_component_costs_bounded_reach_not_the_contact(self):
         radius = float(plan.CLIENT_CONTACT_RADIUS)
-        # The spread we actually measured: indistinguishable from perfect.
+        # Each error named for what it measures, with the cost it actually
+        # carries -- no proxy standing in for a range it is not.
         self.assertAlmostEqual(
-            plan.horizontal_reach_for_z_error(plan.ISLAND_PLANE_Z_SPREAD),
+            plan.horizontal_reach_for_z_error(plan.island_plane_z_spread()),
             radius,
             places=4,
         )
-        # An error the size of this scene's whole prop height range.
-        self.assertGreater(plan.horizontal_reach_for_z_error(100.0), 0.97 * radius)
+        # island-actor plane (123.6) against the marker table's player plane
+        # (90) -- the error that actually applies.
+        self.assertGreater(plan.horizontal_reach_for_z_error(33.6), 498.0)
+        # the full z range of scene 126's placements: still reaches, but this
+        # is 79% of the radius, not 98%.
+        worst = plan.horizontal_reach_for_z_error(307.7)
+        self.assertGreater(worst, 0.78 * radius)
+        self.assertLess(worst, 0.80 * radius)
         # Monotone, and zero once the error alone exceeds the radius.
         self.assertGreater(
             plan.horizontal_reach_for_z_error(10.0),
@@ -299,7 +376,7 @@ class TheThirdComponentTests(unittest.TestCase):
         triple = plan.record_xyz_from_hud(3050, 232)
         self.assertEqual(triple[0], 3050.0)
         self.assertEqual(triple[1], 232.0)
-        self.assertEqual(triple[2], plan.ISLAND_PLANE_Z)
+        self.assertEqual(triple[2], plan.island_plane_z())
         for value in triple:
             self.assertIsInstance(value, float)
 

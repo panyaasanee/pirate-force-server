@@ -17,9 +17,9 @@ working hypothesis:
     3. the player confirms, and the client sends `NavigationEx_
        EnterInstanceVital` (0xC723) with THAT SAME u16 copied unchanged.
 
-Round `qz4p8n` built the two ends: the record encoder (never called from any
-send path -- COO-DECISION 0747 item 3(b) forbids sending one until real
-island XYZ is measured) and the log-only walker for step 3
+Round `qz4p8n` built the two ends: the record encoder (called from no send
+path -- COO-DECISION 0747 item 3(b) forbids sending one until real island XYZ
+is measured) and the log-only walker for step 3
 (`lane_hooks/lane_a_enter_instance_log.py`, on main as part of `#720`).
 
 What sat between them, unwritten, is the part that is neither bytes nor a
@@ -35,80 +35,138 @@ ours by construction, not by interpretation.
 WHY IT PROVISIONS NOTHING TODAY, AND WHY THAT IS THE DELIVERABLE
 ----------------------------------------------------------------
 `MEASURED_XYZ` below is EMPTY.  No destination in this project has a measured
-position in the sea the player sails, so `planned_records()` returns `()` and
+position in the sea, so `planned_records()` returns `()` and
 `provisionable_count()` is 0.  Every function here is fail-closed around that
 fact rather than around a flag: no XYZ, no record, no handle issued, and
 `confirm_resolution()` answers "not issued by us" for every possible u16.
 
-The day `GT-228` reports the two coordinate triples, this file changes by
-DATA ONLY -- two lines in `MEASURED_XYZ` -- and the plan becomes non-empty on
-its own.  That is the point of writing it now, while the measurement is
-outstanding, instead of writing it in the same round that has to also wire a
-send path.
+The day `GT-228` reports, this file changes by DATA ONLY -- two lines in
+`MEASURED_XYZ` -- and the plan becomes non-empty on its own.
 
-WHY GT-228 IS THE SOURCE, MEASURED THIS ROUND RATHER THAN ASSERTED
+WHICH COORDINATE FRAME, WHICH IS THE QUESTION A RECORD CANNOT DUCK
 ------------------------------------------------------------------
+A triple is meaningless without the space it is expressed in, and this route
+touches two scenes: `GT-228` is run in **scene 126** (that is where R307 put
+the ship on this build, and the ticket's screenshots are named `S126-*`),
+while `columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID` is **17** and
+`world_m2_sea_destination` establishes row 3021 teleporting the player there.
+A record provisioned with scene-126 coordinates for a player standing in
+scene 17 misses the client's 500-unit test by thousands of units, and the
+symptom -- "the captain report never popped" -- is the same symptom as a
+rejected handle or a record that never arrived.
+
+So the frame is written down rather than assumed: `XYZ_FRAME_SCENE_ID`, and
+every `PlannedRecord` carries it.  `MEASURED_XYZ` is in that frame and in no
+other; a measurement taken anywhere else needs its own frame and a caller
+that checks (`plan_is_for_scene()`), not a silent insertion here.
+
+WHERE THE COORDINATES CAN AND CANNOT COME FROM, MEASURED, NOT ASSERTED
+-----------------------------------------------------------------------
 NOW.md says the XYZ "must not be guessed, GT-228 reading the HUD on contact
-is the source".  The obvious cheaper objection -- "the client ships placement
-files with XYZ in them, read it from there" -- has been half-answered before:
-LANE-A round `zk50rd` (2026-09-04 05:25) measured `Bg3001` (scene 126, the
-ocean PANEL) and found four island actors, none of them M2's two targets.
+is the source".  The cheaper objection -- "the client ships tables with XYZ
+in them, read it from there" -- deserves the tables actually being opened.
+Three have now been, all in a `pf_bridge` clone against `gamedata/`:
 
-WHICH SCENE THE PLAYER SAILS IN IS ITSELF TWO ANSWERS, and both had to be
-opened.  `GT-228` is written to be run in scene 126 -- that is where R307 put
-the ship on THIS build, and the ticket's own screenshots are named `S126-*`.
-The other candidate is the block of "character becomes a ship" scenes that
-GT-106's attended result reached through Port Royal's Columbus.  Only the
-first had ever been checked.  This round opened the second, in a `pf_bridge`
-clone, against `gamedata/`:
+1. `Bg3001.placements.tsv` (scene 126's cast), round `zk50rd`: four island
+   ACTORS, and neither M2 target is among them.
+2. The ship-scene placement files.  `Bg1001`..`Bg1007` -- the folder names
+   scenes 17..23 use, and NOT a bijection: scenes 186/187/188 name three of
+   the same folders (`lane_a_ground_preserve` already says so by name) --
+   ship 8/8/8/10/13/20/12 placements WITH XYZ.  All seven scenes carry
+   `n_CLINE_TYPE = 4294967295`, so their Mob-Set numbers resolve through no
+   CLINE block and this project's crosswalk cannot name a single one of
+   those placements.  Stated at its true strength: that no-cast value is the
+   client-wide norm, 252 of 271 scenes (a count `world_m2_sea_destination`
+   already carries), so this is "the seven sea scenes are inside the norm",
+   not a property discovered about them; and it closes the CLINE path only,
+   which is the only crosswalk this project has.
+3. `CONSTDATA_TH__MARKER.tsv` (sha256 723c713a...67dc, 390 rows, 11 of them
+   for scene 126) -- opened this round after pf-adversary caught the first
+   two being written up as if they were the whole world.  It does not carry
+   island positions either, BUT it answers a different question the ticket
+   was about to spend attended minutes on:
 
-    scene 17..23 = Bg1001..Bg1007, `n_SCENE_TYPE 4` -- the "character becomes
-    a ship" scenes (the crosswalk letter of 2026-08-27 10:50, and GT-106's
-    attended result putting the player into scene 17 through Port Royal's
-    Columbus).  Their placement files DO carry XYZ, 8/8/8/10/13/20/12 rows:
+       n_ID 17, n_SCENE 126: n_X 3050, n_Y 232, n_Z 90
 
-        Bg1001  8 placements, sets Mob_set_1..6
-        Bg1002  8            sets Mob_set_1..5,7
-        Bg1003  8            sets Mob_set_1..5
-        Bg1004 10 / Bg1005 13 / Bg1006 20 / Bg1007 12
+   and `GT-228` records the ship's spawn HUD, from R307, as `X 3,050 Y 232`.
+   An exact match on both numbers.  The HUD's pair is world x and y in the
+   marker table's own frame -- read off a committed table, not calibrated by
+   eye -- and the player plane in scene 126 is `n_Z 90` (10 of the 11 rows;
+   the eleventh, id 216 at z 190, sits 0.6 units from the Jellyfish King
+   placement, so the markers are placed on real objects rather than on a
+   grid).
 
-    and every one of those seven scenes carries `n_CLINE_TYPE = 4294967295`
-    (0xFFFFFFFF) in `CONSTDATA_TH__SCENE_NAME.tsv` -- the no-cast marker.
-    The Mob-Set numbers in those files therefore resolve through NO CLINE
-    block, so no committed table names a single one of those placements.
+   NONCLAIM: one exact two-number agreement at one point.  It does not prove
+   the HUD never scales or offsets elsewhere in the scene, and the contact
+   readings GT-228 takes are still the only source for where the ISLANDS
+   are.  It does mean the ticket no longer has to establish which axes the
+   HUD shows.
 
-    => one candidate sea holds positions with no names; the other (`Bg3001`,
-    the scene GT-228 is actually run in) holds names that are not M2's
-    targets.  Neither can supply "the XYZ of island 2 and island 3".  GT-228
-    stays the source not because a letter says so but because both cheaper
-    sources were opened and measured empty.
+Re-derive:
 
-Re-derive (both in a `pf_bridge` clone):
-
+    awk -F'\t' 'NR==1 || $2==126' gamedata/tables/CONSTDATA_TH__MARKER.tsv
     awk -F'\t' 'NR==1 || ($1>=17 && $1<=23) {print $1"\t"$2"\t"$7"\t"$9}' \
         gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv
     for s in Bg1001 Bg1002 Bg1003 Bg1004 Bg1005 Bg1006 Bg1007; do \
         awk -F'\t' 'NR>1{print $2"\t"$6"\t"$7"\t"$8}' \
             gamedata/scene/$s/$s.placements.tsv; done
 
-THE HANDLE RANGE, AND THE ONE LINE TO CHANGE IF IT IS WRONG
------------------------------------------------------------
-`SURVEY_HANDLE_BASE` is 0xA000 and the handle for a destination is
-`base + its ordinal in the dock table`.  The value is arbitrary ON PURPOSE:
-RE-227 proves the field is copied unchanged and proves nothing else, so a
-distinctive range far from any id this project already traffics in (trigger
-ids 152..164, scene ids 1..16, placement indices) makes "did this echo come
-from us?" a real question with a real answer, instead of a coincidence that
-0x0099 is both a trigger id and a plausible client-side number.
+THE THIRD COMPONENT, WHICH THE HUD DOES NOT SHOW
+------------------------------------------------
+The HUD gives two numbers; a record needs three.  It does not have to give
+the third.  The four island ACTORS of scene 126 sit on one plane --
+
+    Mad Sand Island     123.57250213623047
+    Pirate Lair         123.57240295410156
+    Blood Blade Island  123.61100006103516
+    Lonely Island       123.64060211181641
+
+-- a spread of 0.068 units ACROSS THOSE FOUR ROWS (not across the scene: its
+37 shippable placements span z 86.0 to 393.7, and an earlier draft of this
+file said "across the whole scene", which pf-adversary measured as wrong by a
+factor of 4500).  The player's own plane, from the marker table above, is 90.
+
+What makes a wrong third component survivable is not the tightness of that
+plane but the shape of the client's test: a SQUARED distance against 500
+(RE-227), so an error of `d` leaves a horizontal reach of
+`sqrt(500^2 - d^2)`.  The numbers that matter, each named for what it is:
+
+    d = 0.068  (spread across the four island actors)      499.99999
+    d = 33.6   (island-actor plane 123.6 vs player plane 90)   498.87
+    d = 307.7  (the full z range of scene 126's placements)    394.13
+
+So the plane this module offers costs nothing at the distance that actually
+applies, and even the worst-case error inside this scene still reaches 394 of
+500 -- 79%, not the 98% an earlier draft claimed for it.
+
+    NONCLAIM: nothing proves M2's two targets are placed in scene 126 at all
+    (round `zk50rd` measured that neither is in its cast), so
+    `island_plane_z()` is "where THIS scene puts an island", offered as a
+    default third component, not as their measured z.
+
+THE HANDLE, AND THE ROLLBACK THAT IS ACTUALLY TWO EDITS
+-------------------------------------------------------
+`handle_for_trigger_id(t)` is `SURVEY_HANDLE_BASE + t` -- a function of the
+DESTINATION, not of its row position, so reordering the dock table cannot
+silently move a handle (pf-adversary measured that an ordinal-based version
+did exactly that while every test here stayed green).  With the base at
+0xA000 a handle is readable as its own destination in hex (153 -> 0xA099) and
+cannot be confused with a trigger id, a scene id or a placement index, which
+is what makes "did this echo come from us?" a real question.
 
     NONCLAIM, AND THE FAILURE IT WOULD PRODUCE: nothing proves the client
-    ACCEPTS an arbitrary value here.  If it validates the u16 against a table
-    of its own, an 0xA0xx record would be dropped and the captain report
-    would never pop -- which looks exactly like "the record never arrived".
-    If a capture ever shows that, `SURVEY_HANDLE_BASE` is the single line to
-    change (to `152`, making the handle the trigger id), and every function
-    here follows.  That is why the base is a constant and not arithmetic
-    spread across the file.
+    ACCEPTS a value of the server's choosing here.  RE-227 proves it is
+    copied back unchanged and nothing more.  If the client validates the u16
+    against a table of its own, an 0xA0xx record is dropped and the captain
+    report never pops -- indistinguishable, on the console, from "the record
+    never arrived".
+    THE ROLLBACK IS TWO EDITS, and the second one is why it is written here
+    rather than left to be discovered under time pressure: set
+    `SURVEY_HANDLE_BASE = 0`, which makes the handle the trigger id exactly;
+    and `HandleAllocationTests.test_the_handle_range_does_not_collide_...`
+    in `tests/test_world_m2_survey_plan.py` asserts the two configurations
+    separately, so it stays green across the change instead of forbidding
+    the very value the rollback prescribes.
 
 WHAT THIS MODULE DOES NOT CLAIM
 -------------------------------
@@ -120,7 +178,7 @@ WHAT THIS MODULE DOES NOT CLAIM
   `wire_scene_id_status` from the dock table -- "PROVEN" for Prison Exile
   Island (2), "CANDIDATE" for Spice Paradise Island (3) -- and a caller that
   turns a confirm into a scene change must read that field, not the number
-  beside it.  This module refuses to collapse the two.
+  beside it.
 * NOT a send path.  Nothing here composes, queues, or returns bytes, and the
   record encoder is deliberately not imported (its own grep guard requires
   that no other file in this repository so much as names it).
@@ -131,173 +189,68 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from . import world_bg3001_identity as bg3001
 from . import world_island_dock_table as islands
 
 
-# The opaque u16 handles this server issues.  Arbitrary by design; see the
-# docstring's "one line to change" note before touching it.
+# The opaque u16 handles this server issues: `SURVEY_HANDLE_BASE + trigger id`.
 #
 # [LANE-A ASSUMPTION - awaiting COO confirmation, letter 20260904_1036]: that
-# the client accepts a handle of the server's own choosing at all.  RE-227
-# proves only that the value is copied back unchanged.  Rollback if a capture
-# shows otherwise: set this to 152, making the handle the trigger id.
+# the client accepts a handle of the server's own choosing at all.  See the
+# docstring's "THE HANDLE" section for the failure this would produce and for
+# the two-edit rollback (this line to 0, plus the guard test that already
+# covers both configurations).
 SURVEY_HANDLE_BASE = 0xA000
 
-# The record kind byte and the proximity radius are the CLIENT's, from RE-227,
-# and are recorded here only so a reader of the plan does not have to open the
-# encoder to know what the plan is a plan FOR.
+# RE-227: the client's contact tick compares squared distance against this.
 CLIENT_CONTACT_RADIUS = 500
 
 # The ticket that measures the coordinates below, on the owner's machine.
 XYZ_SOURCE_TICKET = "GT-228"
 
-# The reason string every M2 destination is blocked with today.  One string,
-# so the round file, the console and the tests cannot drift apart about it.
-BLOCKED_XYZ_UNMEASURED = "XYZ_UNMEASURED_PENDING_GT-228"
+# The scene `MEASURED_XYZ` is expressed in, and the ONLY one it may hold
+# coordinates for.  126 because that is the scene GT-228 is run in; a
+# measurement from scene 17 (Columbus's destination) is a different frame and
+# needs its own table, not a row here.
+XYZ_FRAME_SCENE_ID = 126
+
+# The reason string every M2 destination is blocked with today.  Built from
+# the ticket constant rather than spelling the number twice.
+BLOCKED_XYZ_UNMEASURED = f"XYZ_UNMEASURED_PENDING_{XYZ_SOURCE_TICKET}"
 
 # Destination trigger ids this lane plans records for.  M2's pass bar names
 # two islands; widening the plan later is this one line.
 PLANNED_TRIGGER_IDS: tuple[int, ...] = islands.M2_TARGET_TRIGGER_IDS
 
-# trigger id -> (x, y, z) in scene 126, the scene GT-228 is run in.
+# trigger id -> (x, y, z) in the frame named by `XYZ_FRAME_SCENE_ID`.
 #
 # EMPTY, AND THAT IS THE CURRENT TRUTH OF M2.  GT-228 fills it; nothing else
-# may.  Neither the ocean panel's island actors (round `zk50rd`: not M2's
-# targets) nor the sea scenes' own placements (this round: no committed table
-# names them) can supply a row here.
+# may.  None of the three committed tables opened for it (see the docstring)
+# carries a position for either M2 target.
 MEASURED_XYZ: dict[int, tuple[float, float, float]] = {}
 
-
-# ---------------------------------------------------------------------------
-# THE THIRD COMPONENT, WHICH GT-228 CANNOT READ
-#
-# `GT-228` reads the ship's HUD at the moment of contact, and that HUD shows
-# TWO numbers (the ticket's own example, from R307's spawn: `X 3,050 Y 232`).
-# The record needs THREE floats.  Written as it stood this morning, the
-# ticket could not have produced a usable triple at all.
-#
-# It does not have to.  Every island actor scene 126 ships sits on
-# ONE plane, and the four of them are already resolved, in this repository,
-# by `world_bg3001_identity` -- so the number below is derived at import from
-# the same pinned rows rather than copied out of a note:
-#
-#     Mad Sand Island      z = 123.57250213623047
-#     Pirate Lair          z = 123.57240295410156
-#     Blood Blade Island   z = 123.61100006103516
-#     Lonely Island        z = 123.64060211181641
-#
-# a spread of 0.068 units across the whole scene.  And the size of the
-# mistake a wrong third component can cause is bounded, which is the part
-# that makes this safe rather than convenient: the client's contact test is
-# a SQUARED distance against 500 (RE-227), so a z error of `d` leaves a
-# horizontal reach of `sqrt(500^2 - d^2)` -- 499.99999 for d = 0.07, 499.0
-# for d = 30, 489.9 even for d = 100.  A third component off by the entire
-# height range of this scene's props still costs 2% of the radius.
-#
-# NONCLAIM, and it is the one that matters: nothing proves M2's two targets
-# are placed in this scene at all (LANE-A round `zk50rd` measured that
-# neither is in its cast), so `ISLAND_PLANE_Z` is "where THIS scene puts an
-# island", offered as the default third component, not as their measured z.
-# Nothing proves the HUD's two numbers are world x and y either -- see
-# `CALIBRATION_ANCHORS`.
-# ---------------------------------------------------------------------------
-
+# The outfit the client ships every island actor of scene 126 under.
 _ISLAND_OUTFIT = "MAP_ISLAND_01"
 
-
-def _island_plane() -> tuple[tuple[str, float, float, float], ...]:
-    """Scene 126's island actors, from the pinned identity module."""
-    anchors = []
-    for placement in bg3001.shippable_placements():
-        identity = placement.identity
-        if getattr(identity, "outfit", None) != _ISLAND_OUTFIT:
-            continue
-        anchors.append(
-            (identity.name, placement.x, placement.y, placement.z)
-        )
-    return tuple(sorted(anchors))
-
-
-# (name, x, y, z) of every island actor in the scene GT-228 is run in.
-#
-# WHAT THEY ARE FOR.  They are the only objects in that scene whose world
-# position this project already knows AND which a player can sail up to.  A
-# HUD reading taken beside one of them is therefore a calibration point: it
-# says what the HUD's two numbers ARE.  Until one exists, converting a HUD
-# reading into a record is an assumption, and `record_xyz_from_hud` says so
-# in its own docstring rather than hiding it behind a plausible-looking
-# tuple.
-CALIBRATION_ANCHORS: tuple[tuple[str, float, float, float], ...]
-
-
-def _island_plane_or_raise() -> tuple[tuple[str, float, float, float], ...]:
-    """``_island_plane()``, refusing an empty answer.
-
-    The identity module resolves its rows behind its own pinned sha, so no
-    island actor at all means that pin moved and took them with it.
-    Refusing at import is the posture `world_island_dock_table` already
-    takes when its own source drifts: a plane averaged over nothing would be
-    a number with no source, which is the one thing this module exists to
-    avoid.
-    """
-    anchors = _island_plane()
-    if not anchors:
-        raise RuntimeError(
-            "world_m2_survey_plan: world_bg3001_identity resolved no "
-            f"{_ISLAND_OUTFIT} placement -- the island plane has no source"
-        )
-    return anchors
-
-
-CALIBRATION_ANCHORS = _island_plane_or_raise()
-
-# The plane those anchors sit on, and the spread across them.  Derived, not
-# typed in: if the identity module's rows ever move, this moves with them.
-ISLAND_PLANE_Z: float = (
-    sum(anchor[3] for anchor in CALIBRATION_ANCHORS) / len(CALIBRATION_ANCHORS)
-)
-ISLAND_PLANE_Z_SPREAD: float = (
-    max(anchor[3] for anchor in CALIBRATION_ANCHORS)
-    - min(anchor[3] for anchor in CALIBRATION_ANCHORS)
-)
-
-
-def horizontal_reach_for_z_error(z_error: float) -> float:
-    """How far the client's contact test still reaches horizontally when the
-    record's third component is wrong by ``z_error``.
-
-    `sqrt(CLIENT_CONTACT_RADIUS^2 - z_error^2)`, and 0.0 once the error alone
-    exceeds the radius.  This is the function that makes "we cannot read the
-    third number off the HUD" a bounded cost instead of a blocker.
-    """
-    squared = float(CLIENT_CONTACT_RADIUS) ** 2 - float(z_error) ** 2
-    if squared <= 0.0:
-        return 0.0
-    return squared ** 0.5
-
-
-def record_xyz_from_hud(hud_x: float, hud_y: float) -> tuple[float, float, float]:
-    """A record triple from GT-228's two HUD numbers, with this scene's
-    island plane as the third.
-
-    ASSUMES the HUD's pair is world (x, y).  Nothing proves that -- both
-    numbers are also within the range of this scene's world y and z -- and
-    `CALIBRATION_ANCHORS` exists so one attended reading beside a named
-    island settles it.  A caller writing the result into `MEASURED_XYZ`
-    before that reading exists is making the assumption, not reading a
-    measurement, and the round file that does it has to say so.
-    """
-    return (float(hud_x), float(hud_y), ISLAND_PLANE_Z)
+# Cache for the derived island plane.  Populated on first use, never at
+# import: this module is imported by a log-only hook whose whole job is to
+# print one evidence line, and an import-time raise there would delete that
+# line silently rather than loudly (pf-adversary D2 measured the hook
+# dropping out of `lane_hooks._discover()` entirely).
+_ANCHORS: tuple[tuple[str, float, float, float], ...] | None = None
 
 
 class PlannedRecord(NamedTuple):
     """One proximity record this server would provision, if it had the XYZ.
 
-    ``handle``   the opaque u16 the server issues and the client copies back.
-    ``x/y/z``    the measured position, from ``MEASURED_XYZ`` only.
+    ``handle``          the opaque u16 the server issues and the client
+                        copies back.
+    ``x/y/z``           the measured position, from ``MEASURED_XYZ`` only.
+    ``frame_scene_id``  the scene those coordinates are expressed in.  A
+                        record is only meaningful to a player standing in
+                        that scene.
     ``wire_scene_id_status``  carried from the dock table so a caller cannot
-                 use ``scene_name_tip_id`` as a wire id without seeing it.
+                        use ``scene_name_tip_id`` as a wire id without seeing
+                        it.
     """
 
     trigger_id: int
@@ -305,6 +258,7 @@ class PlannedRecord(NamedTuple):
     x: float
     y: float
     z: float
+    frame_scene_id: int
     scene_name_tip_id: int
     wire_scene_id_status: str
     min_level: int
@@ -328,19 +282,16 @@ class ConfirmResolution(NamedTuple):
     wire_scene_id_status: str | None
 
 
-_ORDINAL_BY_TRIGGER_ID: dict[int, int] = {
-    row.trigger_id: index
-    for index, row in enumerate(islands.DESTINATION_ROWS)
-}
-
-
 def handle_for_trigger_id(trigger_id: int) -> int | None:
     """The u16 handle this server issues for a destination, or None if the id
-    is not a destination row at all.  Never raises."""
-    ordinal = _ORDINAL_BY_TRIGGER_ID.get(trigger_id)
-    if ordinal is None:
+    is not a destination row at all.
+
+    A function of the destination itself, never of its position in the dock
+    table.  Never raises.
+    """
+    if islands.destination_for_trigger_id(trigger_id) is None:
         return None
-    return SURVEY_HANDLE_BASE + ordinal
+    return SURVEY_HANDLE_BASE + trigger_id
 
 
 def trigger_id_for_handle(handle: int) -> int | None:
@@ -351,15 +302,101 @@ def trigger_id_for_handle(handle: int) -> int | None:
     ``confirm_resolution()`` for that; it is the one that requires measured
     XYZ.
     """
-    for trigger_id, ordinal in _ORDINAL_BY_TRIGGER_ID.items():
-        if SURVEY_HANDLE_BASE + ordinal == handle:
-            return trigger_id
-    return None
+    candidate = handle - SURVEY_HANDLE_BASE
+    if islands.destination_for_trigger_id(candidate) is None:
+        return None
+    return candidate
 
 
 def xyz_for_trigger_id(trigger_id: int) -> tuple[float, float, float] | None:
-    """The measured position for a destination, or None while unmeasured."""
+    """The measured position for a destination, or None while unmeasured.
+
+    In the frame named by ``XYZ_FRAME_SCENE_ID``.
+    """
     return MEASURED_XYZ.get(trigger_id)
+
+
+def calibration_anchors() -> tuple[tuple[str, float, float, float], ...]:
+    """``(name, x, y, z)`` of every island actor scene 126 ships.
+
+    Derived from `world_bg3001_identity`'s pinned rows on first call and
+    cached, so importing this module can never fail on their account.
+    Refuses an empty answer: the identity module resolves its rows behind its
+    own sha pin, so no island actor at all means that pin moved and took them
+    with it, and a plane averaged over nothing would be a number with no
+    source.
+    """
+    global _ANCHORS
+    if _ANCHORS is None:
+        # Imported here rather than at module scope for the same reason the
+        # cache exists: nothing in this module's import path may be able to
+        # take the hook's evidence line down with it.
+        from . import world_bg3001_identity as bg3001
+
+        anchors = tuple(sorted(
+            (placement.identity.name, placement.x, placement.y, placement.z)
+            for placement in bg3001.shippable_placements()
+            if getattr(placement.identity, "outfit", None) == _ISLAND_OUTFIT
+        ))
+        if not anchors:
+            raise RuntimeError(
+                "world_m2_survey_plan: world_bg3001_identity resolved no "
+                f"{_ISLAND_OUTFIT} placement -- the island plane has no source"
+            )
+        _ANCHORS = anchors
+    return _ANCHORS
+
+
+def island_plane_z() -> float:
+    """The z every island actor of scene 126 sits on (their mean; they agree
+    to 0.068 units).  Derived, never typed in."""
+    anchors = calibration_anchors()
+    return sum(anchor[3] for anchor in anchors) / len(anchors)
+
+
+def island_plane_z_spread() -> float:
+    """How far apart those four island actors' z values are.  0.068 units --
+    a fact about FOUR ROWS, not about the scene, whose 37 shippable
+    placements span 86.0 to 393.7."""
+    anchors = calibration_anchors()
+    return max(a[3] for a in anchors) - min(a[3] for a in anchors)
+
+
+def horizontal_reach_for_z_error(z_error: float) -> float:
+    """How far the client's contact test still reaches horizontally when the
+    record's third component is wrong by ``z_error``.
+
+    `sqrt(CLIENT_CONTACT_RADIUS^2 - z_error^2)`, and 0.0 once the error alone
+    exceeds the radius.  This is the function that makes "the HUD shows two
+    numbers, not three" a bounded cost instead of a blocker -- see the
+    docstring for the three errors worth naming and what each of them costs.
+    """
+    squared = float(CLIENT_CONTACT_RADIUS) ** 2 - float(z_error) ** 2
+    if squared <= 0.0:
+        return 0.0
+    return squared ** 0.5
+
+
+def record_xyz_from_hud(hud_x: float, hud_y: float) -> tuple[float, float, float]:
+    """A record triple from GT-228's two HUD numbers, with scene 126's island
+    plane as the third.
+
+    The pair is taken as world x and y in the marker table's frame, which is
+    what `CONSTDATA_TH__MARKER.tsv` row 17 agreeing exactly with the ticket's
+    recorded spawn HUD (`3050`, `232`) says it is -- one agreement at one
+    point, not a proof that the HUD never scales elsewhere.  The third
+    component is `island_plane_z()`, which is where THIS scene puts an island
+    and not a measurement of M2's targets.  The result belongs to scene
+    `XYZ_FRAME_SCENE_ID` and to no other scene.
+    """
+    return (float(hud_x), float(hud_y), island_plane_z())
+
+
+def plan_is_for_scene(scene_id: int) -> bool:
+    """Whether a player in ``scene_id`` is in the frame the plan's
+    coordinates are expressed in.  A caller that provisions records without
+    asking this is sending a triple into the wrong space."""
+    return scene_id == XYZ_FRAME_SCENE_ID
 
 
 def planned_records() -> tuple[PlannedRecord, ...]:
@@ -385,6 +422,7 @@ def planned_records() -> tuple[PlannedRecord, ...]:
                 x=float(x),
                 y=float(y),
                 z=float(z),
+                frame_scene_id=XYZ_FRAME_SCENE_ID,
                 scene_name_tip_id=row.scene_name_tip_id,
                 wire_scene_id_status=row.wire_scene_id_status,
                 min_level=row.min_level,
@@ -448,9 +486,13 @@ def console_annotation(handle: int) -> str:
 
         `issued=no provisioned=0`
 
-    Reading it during GT-228: `provisioned=0` with a confirm line present
-    means the client popped its captain report WITHOUT a record from us, and
-    the provisioning hypothesis of RE-227 is not what made it pop.
+    WHERE IT CAN BE READ, honestly: not during `GT-228` as that ticket is
+    written -- its STOP rule forbids pressing confirm, so no
+    EnterInstanceVital is sent and this line cannot appear there at all.  It
+    is what the FIRST confirm frame this server ever receives will say, from
+    whatever run produces one.  `provisioned=0` beside such a line means the
+    captain report popped without a record from us, which refutes RE-227's
+    provisioning hypothesis rather than supporting it.
     """
     resolution = confirm_resolution(handle)
     issued = "yes" if resolution.issued else "no"
