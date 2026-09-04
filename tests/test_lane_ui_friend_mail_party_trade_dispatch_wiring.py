@@ -151,16 +151,25 @@ class FriendMailPartyTradeDispatchWiringTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(protocol_name_id(name), vital_id)
 
-    def test_no_point_has_a_subscriber_yet(self):
-        # This round only opens the call site (letter 1120's own scope: "not
-        # business logic").  LANE-UI's hook modules land in a later round --
-        # this test exists so that round's PR has to touch (and read) this
-        # file, the same discipline the NavigationEx sibling test's own
-        # history documents.
+    def test_every_point_now_has_exactly_one_subscriber(self):
+        # UPDATED, LANE-UI round p7m2wq's own next round (chief letter
+        # 20260904_1522): the four report-only `lane_hooks/lane_ui_*_wire_
+        # log.py` modules now subscribe onto all eight points opened here --
+        # see tests/test_ui_lane_hooks_wire_log.py for their own decode/
+        # UNPARSED/ascii-safety coverage. This test only pins the count at
+        # this call site's own vantage point, the same way the NavigationEx
+        # sibling test tracks its one point.
+        from pirateforce_foundation.lane_hooks import (  # noqa: PLC0415
+            lane_ui_friend_wire_log, lane_ui_mail_wire_log,
+            lane_ui_party_wire_log, lane_ui_trade_wire_log,
+        )
+
+        assert lane_ui_party_wire_log and lane_ui_friend_wire_log
+        assert lane_ui_mail_wire_log and lane_ui_trade_wire_log
         registered = lane_hooks.registered_points()
         for _vital_id, point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH:
             with self.subTest(point=point):
-                self.assertEqual(registered.get(point, 0), 0)
+                self.assertEqual(registered.get(point, 0), 1)
 
     def test_each_class_dispatches_counts_and_answers_nothing(self):
         for vital_id, point in _FRIEND_MAIL_PARTY_TRADE_DISPATCH:
@@ -179,7 +188,20 @@ class FriendMailPartyTradeDispatchWiringTests(unittest.TestCase):
                     state.rx_frames, rx_before + 1,
                     "the frame must be counted, not dropped as unmatched",
                 )
-                self.assertNotIn("UNPARSED", stderr.getvalue())
+                # UPDATED, same round as test_every_point_now_has_exactly_
+                # one_subscriber above: `b"\x00\x01"` is arbitrary and was
+                # never claimed to be a well-formed payload for any of the
+                # eight classes' own field shapes -- the old "never
+                # UNPARSED" claim only held because no subscriber existed to
+                # print that word at all. Now that each point has a real
+                # decode-and-log subscriber (tests/test_ui_lane_hooks_wire_
+                # log.py covers decode success on well-formed payloads),
+                # this garbage payload is honestly UNPARSED, and the
+                # property this test still owns is that the hook fired and
+                # dispatch answered nothing regardless.
+                console = stderr.getvalue()
+                self.assertIn("LANE_HOOK_FIRED", console)
+                self.assertIn("UNPARSED", console)
 
     def test_each_class_fires_only_its_own_point_with_the_verbatim_payload(self):
         # Exhaustive over all 8, not just a sample: proves the explicit
