@@ -76,14 +76,16 @@ class VitalRowTests(unittest.TestCase):
             {0x51E9, 0x8C77, 0x5A19, 0x8D30, 0x9F2C, 0x162E, 0x6CEC},
         )
 
-    def test_the_two_vitals_with_no_codec_are_named_as_such(self):
-        # These two are the cheapest real P-3 work available without the
-        # image, so the catalogue must not lose them among the five that do
-        # have codecs.
-        self.assertEqual(
-            {row.name for row in vitals_without_a_codec()},
-            {"GM_ForbidToTalkResultVital", "Activity_CheatCodeVital"},
-        )
+    def test_no_gm_surface_vital_lacks_a_codec_anymore(self):
+        # Round sexjmq closed the last two (gm/forbid_to_talk_wire.py,
+        # gm/activity_cheat_code_wire.py) -- the backlog item
+        # rounds/GM_20260904_1316_zjbjys_*.md named as buildable straight
+        # from the registry + PF_SERIALIZER_FIELDS.tsv without any RE
+        # answer.  A codec existing is NOT "the button works" (see
+        # test_a_codec_is_not_the_same_claim_as_a_working_button below) --
+        # this only says every vital on the surface can now be read or
+        # written by this repo.
+        self.assertEqual(vitals_without_a_codec(), ())
 
     def test_every_named_handler_module_actually_exists(self):
         # The "answers today" column is a claim about THIS repo, so it is
