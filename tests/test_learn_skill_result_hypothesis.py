@@ -15,19 +15,24 @@ loop [0x00755D30,0x00755E1E) sha256 35eaeb47..; nested READ loop
     (u32 tag 0x14, u16 tag 0x12, u32 tag 0x14), then u8 tag 0x0B.
 
 This file proves the server-side encoder emits exactly that order and nothing
-else -- tag bytes asserted literally at their byte positions, count edges 0/1/3,
-round-trip through the module's own strict decoder, the frozen v141
-``make_runtime_vitals`` envelope byte-for-byte, all fifteen per-step hash pins
-in module and scenario file, and the dispatch path: five frames per accepted
-trigger, database byte-identical, every refusal family silent with a named
-event, and containment with no scenario.
+else -- tag bytes asserted literally at their byte positions, count edges
+0/1/3/4, round-trip through the module's own strict decoder, the frozen v141
+``make_runtime_vitals`` envelope byte-for-byte, all eighteen per-step hash
+pins in module and scenario file, and the dispatch path: six frames per
+accepted trigger, database byte-identical, every refusal family silent with a
+named event, and containment with no scenario.
 
 NOT tested here, because it is not claimed: any MEANING for the three record
 members (they are opaque declared triples named by wire position only) or the
 trailing u8; the inbound CLearnSkillVital 0x36AA direction, which has no
 handler and no learn rule anywhere in this tree; anything about the original
 server; and whether any client accepts or shows anything for one of these
-frames -- that is an attended GT ticket, queued and not run.
+frames -- that is an attended GT ticket, queued and not run.  The sixth
+step (``COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0``) sends class_id=1's real
+starting-kit skill ids instead of a probe value, but still does not claim
+which wire position (if any) the client reads as "skill id" -- only that,
+if the skill window renders anything for this frame, an attended tester can
+compare it against the 4 known-real ids.
 """
 from __future__ import annotations
 
@@ -384,7 +389,7 @@ class FailClosedTests(_LegacyCase):
                 )
 
     def test_an_unknown_step_index_is_refused(self):
-        for index in (-1, 5, 99, True, None, "0", 1.0):
+        for index in (-1, 6, 99, True, None, "0", 1.0):
             with self.assertRaises(ValueError) as raised:
                 make_learn_skill_result_step_response(self.legacy, index)
             self.assertIn("unknown_step_label", str(raised.exception))
@@ -487,17 +492,44 @@ class ComposedResponseTests(_LegacyCase):
         self.assertEqual(
             [len(LEARN_SKILL_RESULT_STEP_RECORDS[label])
              for label in LEARN_SKILL_RESULT_STEP_ORDER],
-            [0, 1, 1, 3, 3],
+            [0, 1, 1, 3, 3, 4],
         )
         self.assertEqual(
             [LEARN_SKILL_RESULT_STEP_TRAILING[label]
              for label in LEARN_SKILL_RESULT_STEP_ORDER],
-            [0, 0, 1, 0, 1],
+            [0, 0, 1, 0, 1, 0],
         )
         multi = LEARN_SKILL_RESULT_STEP_RECORDS["COUNT3_TRAIL0"]
         self.assertIn(LearnSkillResultRecord(0, 0, 0), multi)
         self.assertIn(
             LearnSkillResultRecord(0xFFFFFFFF, 0xFFFF, 0xFFFFFFFF), multi,
+        )
+
+    def test_the_real_skill_id_step_uses_class1s_starting_kit(self):
+        # GT-116's own precondition character is class_id=1/level=1 -- the
+        # class already proven (round tp9rpy et al.) to open the skill
+        # window.  This step's records must be exactly that class's 4
+        # starting-kit ids (class_catalog.starting_skill_ids(1)), each
+        # repeated in all three wire positions, real data, not a probe.
+        from pirateforce_foundation.class_catalog import starting_skill_ids
+
+        real_ids = starting_skill_ids(1)
+        self.assertEqual(real_ids, (111, 40000, 99, 110))
+        records = LEARN_SKILL_RESULT_STEP_RECORDS[
+            "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
+        ]
+        self.assertEqual(
+            records,
+            tuple(
+                LearnSkillResultRecord(skill_id, skill_id, skill_id)
+                for skill_id in real_ids
+            ),
+        )
+        self.assertEqual(
+            LEARN_SKILL_RESULT_STEP_TRAILING[
+                "COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0"
+            ],
+            0,
         )
 
 
@@ -799,11 +831,11 @@ class DispatchTests(unittest.TestCase):
 
     # ----- happy path ------------------------------------------------------
 
-    def test_one_request_sweeps_the_five_steps_in_the_pinned_order(self):
+    def test_one_request_sweeps_the_six_steps_in_the_pinned_order(self):
         state = self._state("learn01")
         session_id = state.foundation.session_id
         actions = state.dispatch(self._trigger())
-        self.assertEqual(len(actions), 5)
+        self.assertEqual(len(actions), 6)
         self.assertEqual(
             [action[0] for action in actions],
             [
@@ -823,6 +855,7 @@ class DispatchTests(unittest.TestCase):
                 "HYP_PF_033_LEARN_SKILL_RESULT_COUNT1_TRAIL1",
                 "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL0",
                 "HYP_PF_033_LEARN_SKILL_RESULT_COUNT3_TRAIL1",
+                "HYP_PF_033_LEARN_SKILL_RESULT_COUNT4_REAL_SKILL_IDS_CLASS1_TRAIL0",
             ],
         )
         self.assertEqual(state.learn_skill_result_sweep_count, 1)
@@ -909,7 +942,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(
             delays,
             [LEARN_SKILL_RESULT_FIRST_DELAY_SECONDS]
-            + [LEARN_SKILL_RESULT_SPACING_SECONDS] * 4,
+            + [LEARN_SKILL_RESULT_SPACING_SECONDS] * 5,
         )
         self.assertEqual(
             delays[0], self.pinned["dispatch"]["first_frame_delay_seconds"],
@@ -929,11 +962,11 @@ class DispatchTests(unittest.TestCase):
 
     # ----- repeatability ---------------------------------------------------
 
-    def test_two_requests_give_ten_frames_with_no_accumulated_state(self):
+    def test_two_requests_give_twelve_frames_with_no_accumulated_state(self):
         state = self._state("learn-repeat")
         first = state.dispatch(self._trigger("probe1"))
         second = state.dispatch(self._trigger("probe1"))
-        self.assertEqual([len(first), len(second)], [5, 5])
+        self.assertEqual([len(first), len(second)], [6, 6])
         self.assertEqual(first, second)
         self.assertEqual(state.learn_skill_result_sweep_count, 2)
         self.assertEqual(state.events.count(SWEEP_EVENT), 2)
