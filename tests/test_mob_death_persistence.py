@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from pirateforce_foundation import mob_death                          # noqa: E402
 from pirateforce_foundation import mob_death_persistence as graves    # noqa: E402
 from pirateforce_foundation import field_mobs                         # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy          # noqa: E402
 
 #: The scene tags are the folder registry's own spelling, which is what
 #: `world_scene_folder.scene_folder_for_scene_id` hands the call site and what
@@ -40,9 +41,30 @@ BG1 = "bg0001"
 BG2 = "Bg0002"
 
 #: The monster R309 actually killed, and the ceiling it actually stood at.
+#: A REAL ROW of Bg0002's mined roster, and every identity in this file is
+#: one: `roster_key_of` refuses anything else, and a test that reached for a
+#: made-up number would be testing a path production cannot take.
 SOLDIER = 0x203D
 SOLDIER_MAX_HP = 3138
 KILLER = 0x750059
+
+#: Three more real Bg0002 rows, for the tests that need a handful.
+BG2_ROWS = (0x2033, 0x203B, 0x203C)
+#: A real bg0001 row (a Training Iron Man).
+IRON_MAN = 0x2068
+#: A LIVE cross-scene identity collision, straight out of the mined tables:
+#: 0x203C is a row of Bg0002 AND a row of bg0005.  Two graves, not one.
+COLLIDING = 0x203C
+BG5 = "bg0005"
+
+#: Identities the world's books must refuse.  0x4329 is a diag multi-object
+#: (`mob_diag_multi_object` stamps it with bg0001's own scene tag); 0x201F is
+#: the sanctioned first target, WITHDRAWN from the bg0001 roster by
+#: COO-DECISION 2026-08-29T00:41.  pf-adversary measured both of these ending
+#: up in the book and then refusing bg0001's arrival census for the life of
+#: the process.
+DIAG_OBJECT = 0x4329
+WITHDRAWN = 0x201F
 
 
 def a_record(identity=SOLDIER, scene=BG2, killer=KILLER,
@@ -112,27 +134,32 @@ class TheGraveBookTests(unittest.TestCase):
 
     def test_the_cap_refuses_the_newest_and_keeps_every_older_grave(self):
         small = graves.WorldDeaths(graves_per_scene=2)
-        self.assertEqual(small.bury(a_record(identity=0x2001)), (True, ""))
-        self.assertEqual(small.bury(a_record(identity=0x2002)), (True, ""))
-        self.assertEqual(small.bury(a_record(identity=0x2003)),
+        first, second, third = BG2_ROWS
+        self.assertEqual(small.bury(a_record(identity=first)), (True, ""))
+        self.assertEqual(small.bury(a_record(identity=second)), (True, ""))
+        self.assertEqual(small.bury(a_record(identity=third)),
                          (False, graves.REFUSE_SCENE_IS_FULL))
-        # The failure this cap must NOT have: an older corpse standing back
-        # up because a newer one needed the room.
-        self.assertTrue(small.is_buried(BG2, 0x2001))
-        self.assertTrue(small.is_buried(BG2, 0x2002))
-        self.assertFalse(small.is_buried(BG2, 0x2003))
+        # Which corpse the cap sacrifices, stated as measured rather than as
+        # the docstring first argued it: the OLDER graves survive and the
+        # NEWEST one -- the corpse the player is looking at -- is the one
+        # that will stand back up.  The roster gate is what puts this out of
+        # production's reach, not this policy.
+        self.assertTrue(small.is_buried(BG2, first))
+        self.assertTrue(small.is_buried(BG2, second))
+        self.assertFalse(small.is_buried(BG2, third))
 
     def test_forget_is_the_respawn_door_and_removes_only_one_grave(self):
-        self.world.bury(a_record(identity=0x2001))
-        self.world.bury(a_record(identity=0x2002))
-        self.assertTrue(self.world.forget(BG2, 0x2001))
-        self.assertFalse(self.world.forget(BG2, 0x2001))
+        first, second, _third = BG2_ROWS
+        self.world.bury(a_record(identity=first))
+        self.world.bury(a_record(identity=second))
+        self.assertTrue(self.world.forget(BG2, first))
+        self.assertFalse(self.world.forget(BG2, first))
         self.assertEqual(
             tuple(r.actor_identity for r in self.world.buried_in(BG2)),
-            (0x2002,))
+            (second,))
 
     def test_clear_empties_every_scene(self):
-        self.world.bury(a_record(scene=BG1))
+        self.world.bury(a_record(identity=IRON_MAN, scene=BG1))
         self.world.bury(a_record(scene=BG2))
         self.world.clear()
         self.assertEqual(self.world.buried_in(BG1), ())
@@ -238,7 +265,7 @@ class SeedingASessionRegisterTests(unittest.TestCase):
         self.assertEqual(self.empty.records, ())
 
     def test_the_seeded_register_keeps_generation_equal_to_its_length(self):
-        for identity in (0x2001, 0x2002, 0x2003):
+        for identity in BG2_ROWS:
             graves.remember_death(
                 a_record(identity=identity), world=self.world, announce=False)
         seeded = graves.seed_register(
@@ -254,16 +281,18 @@ class SeedingASessionRegisterTests(unittest.TestCase):
         self.assertIs(twice.register, once)
 
     def test_only_the_named_scenes_graves_cross_over(self):
+        # 0x203C is genuinely a row of BOTH Bg0002 and bg0005: the live
+        # collision the register's (scene, identity) key exists for.
         graves.remember_death(
-            a_record(identity=SOLDIER, scene=BG2),
+            a_record(identity=COLLIDING, scene=BG2),
             world=self.world, announce=False)
         graves.remember_death(
-            a_record(identity=SOLDIER, scene=BG1),
+            a_record(identity=COLLIDING, scene=BG5),
             world=self.world, announce=False)
         seeded = graves.seed_register(
             self.empty, BG2, world=self.world).register
-        self.assertTrue(seeded.is_dead(SOLDIER, BG2))
-        self.assertFalse(seeded.is_dead(SOLDIER, BG1))
+        self.assertTrue(seeded.is_dead(COLLIDING, BG2))
+        self.assertFalse(seeded.is_dead(COLLIDING, BG5))
         self.assertEqual(len(seeded.records), 1)
 
     def test_a_seeded_row_keeps_its_own_scene_spelling_not_the_callers(self):
@@ -368,7 +397,7 @@ class TheKillPathWritesToTheWorldTests(unittest.TestCase):
         # carries a HIGHER one than the empty register a session starts on,
         # so this is the check that the seam does not wedge the next kill.
         graves.remember_death(
-            a_record(identity=0x2001), world=self.world, announce=False)
+            a_record(identity=BG2_ROWS[0]), world=self.world, announce=False)
         seeded = graves.seed_register(
             mob_death.DeathRegister(), BG2, world=self.world).register
         self.assertEqual(seeded.generation, 1)
@@ -376,7 +405,7 @@ class TheKillPathWritesToTheWorldTests(unittest.TestCase):
         step = a_step(record, seeded, base_generation=seeded.generation)
         with contextlib.redirect_stdout(io.StringIO()):
             after = mob_death.commit_death(seeded, step)
-        self.assertTrue(after.is_dead(0x2001, BG2))
+        self.assertTrue(after.is_dead(BG2_ROWS[0], BG2))
         self.assertTrue(after.is_dead(SOLDIER, BG2))
         self.assertEqual(after.generation, len(after.records))
 
@@ -427,6 +456,150 @@ class WhatARelogNowSeesTests(unittest.TestCase):
         self.assertIn("mob_death_persistence", graves.DEATH_SEED_WIRING)
         graves.DEATH_SEED_WIRING.encode("ascii")
         self.assertTrue(hasattr(graves, "seed_the_session_register"))
+
+
+class TheRosterGateTests(unittest.TestCase):
+    """The refusals pf-adversary (round amz1w5) measured the need for.
+
+    THE FAILURE THESE PIN, in the adversary's own measurement: one diag
+    multi-object kill puts `0x4329` in the world's books tagged `bg0001`;
+    every LATER login into bg0001 is seeded with it; `repopulation_entries`
+    refuses a register row that is not a roster key; the arrival census
+    raises inside its own fail-closed catch and ships NO frame; and the
+    player logs into an empty town for the life of the PROCESS, not the
+    session.  A grave is only ever dug for a row of the scene's mined table.
+    """
+
+    def setUp(self) -> None:
+        self.world = graves.WorldDeaths()
+
+    def test_a_diag_multi_object_identity_never_gets_a_grave(self):
+        self.assertEqual(
+            self.world.bury(a_record(identity=DIAG_OBJECT, scene=BG1)),
+            (False, graves.REFUSE_IDENTITY_NOT_IN_THE_ROSTER))
+        self.assertEqual(self.world.buried_in(BG1), ())
+
+    def test_an_identity_withdrawn_from_a_roster_never_gets_a_grave(self):
+        self.assertEqual(
+            self.world.bury(a_record(identity=WITHDRAWN, scene=BG1)),
+            (False, graves.REFUSE_IDENTITY_NOT_IN_THE_ROSTER))
+
+    def test_a_scene_with_no_mined_table_is_refused_by_its_own_name(self):
+        self.assertEqual(
+            self.world.bury(a_record(scene="Bg0004")),
+            (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
+
+    def test_the_rosters_own_spelling_is_required_not_merely_folded(self):
+        # The book folds case for its KEY, but every consumer downstream
+        # compares `record.scene` with `==`: runtime's rehydrate guard,
+        # `live_roster`, `repopulation_entries`.  A row spelled the other
+        # way would be seeded and then silently skipped by all three, with a
+        # green console line over a monster still standing at full HP.
+        self.assertEqual(
+            self.world.bury(a_record(scene="bg0002")),
+            (False, graves.REFUSE_SCENE_SPELLING_IS_NOT_THE_ROSTERS))
+        self.assertEqual(self.world.bury(a_record(scene=BG2)), (True, ""))
+
+    def test_a_row_that_got_into_the_book_anyway_is_skipped_at_the_seed(self):
+        # Second line of defence, and it is not decorative: `bury` is not the
+        # only way rows could ever reach these dicts (a shrunken table in a
+        # later build would do it), and ONE bad row costs a scene its whole
+        # census for every session in the process.
+        rogue = a_record(identity=DIAG_OBJECT, scene=BG1)
+        self.world._graves.setdefault(          # noqa: SLF001
+            BG1, __import__("collections").OrderedDict())[DIAG_OBJECT] = rogue
+        outcome = graves.seed_register(
+            mob_death.DeathRegister(), BG1, world=self.world)
+        self.assertEqual(outcome.admitted, ())
+        self.assertEqual(outcome.skipped, 1)
+        self.assertIn("skipped=1", graves.describe_seeded(outcome))
+
+    def test_the_arrival_census_still_composes_after_a_kill_and_a_seed(self):
+        # THE WHOLE POINT, at the layer this file can measure: a fresh
+        # session's register, seeded from the world, must not make
+        # `repopulation_entries` refuse.  The adversary's control was the
+        # same call raising `register_row_disagrees_with_roster`.
+        legacy = load_legacy(ROOT / "current/pf_login_game_server_v141.py")
+        roster = field_mobs.load_roster(BG2)
+        victim = roster[0]
+        register = mob_death.DeathRegister()
+        record = mob_death.DeathRecord(
+            victim.actor_identity, KILLER, victim.max_hp, victim.scene)
+        with contextlib.redirect_stdout(io.StringIO()):
+            mob_death.commit_death(
+                register, a_step(record, register), world=self.world)
+        seeded = graves.seed_register(
+            mob_death.DeathRegister(), BG2, world=self.world).register
+        entries = mob_death.repopulation_entries(legacy, roster, seeded)
+        self.assertEqual(len(entries), len(roster))
+
+
+class TheWriteSeamHasAnOptOutTests(unittest.TestCase):
+    """`commit_death` must not force every caller to touch process state."""
+
+    def setUp(self) -> None:
+        self.world = graves.install_world_deaths(graves.WorldDeaths())
+
+    def tearDown(self) -> None:
+        graves.install_world_deaths(graves.WorldDeaths())
+
+    def test_a_caller_may_name_its_own_book_and_leave_the_process_alone(self):
+        mine = graves.WorldDeaths()
+        register = mob_death.DeathRegister()
+        record = a_record()
+        mob_death.commit_death(
+            register, a_step(record, register), world=mine, announce=False)
+        self.assertTrue(mine.is_buried(BG2, SOLDIER))
+        self.assertFalse(self.world.is_buried(BG2, SOLDIER))
+
+    def test_announce_false_reaches_all_the_way_down_from_commit_death(self):
+        register = mob_death.DeathRegister()
+        record = a_record()
+        _after, line = quiet(
+            mob_death.commit_death, register, a_step(record, register),
+            world=graves.WorldDeaths(), announce=False)
+        self.assertEqual(line, "")
+
+    def test_by_default_a_kill_still_says_so_on_the_console(self):
+        register = mob_death.DeathRegister()
+        record = a_record()
+        _after, line = quiet(
+            mob_death.commit_death, register, a_step(record, register))
+        self.assertIn(graves.WORLD_REMEMBERED_TOKEN, line)
+
+
+class TheConsoleDoesNotRepeatItselfTests(unittest.TestCase):
+    """The seed runs on every dispatch, so a no-op must be silent."""
+
+    def setUp(self) -> None:
+        self.world = graves.WorldDeaths()
+        graves.forget_announced_scenes()
+
+    def tearDown(self) -> None:
+        graves.forget_announced_scenes()
+
+    def test_an_empty_scene_says_so_once_and_then_stops(self):
+        _r, first = quiet(graves.seed_the_session_register,
+                          mob_death.DeathRegister(), BG2, world=self.world)
+        _r, second = quiet(graves.seed_the_session_register,
+                           mob_death.DeathRegister(), BG2, world=self.world)
+        self.assertIn(graves.WORLD_SEEDED_TOKEN, first)
+        self.assertEqual(second, "")
+
+    def test_a_scene_whose_graves_are_already_held_is_silent(self):
+        graves.remember_death(a_record(), world=self.world, announce=False)
+        register, first = quiet(
+            graves.seed_the_session_register, mob_death.DeathRegister(), BG2,
+            world=self.world)
+        _again, second = quiet(
+            graves.seed_the_session_register, register, BG2, world=self.world)
+        self.assertIn("admitted=1", first)
+        self.assertEqual(second, "")
+
+    def test_a_refusal_is_never_swallowed_by_the_quiet_rule(self):
+        _r, line = quiet(graves.seed_the_session_register,
+                         object(), BG2, world=self.world)
+        self.assertIn(graves.WORLD_SEED_REFUSED_TOKEN, line)
 
 
 class TheLaneGateTests(unittest.TestCase):

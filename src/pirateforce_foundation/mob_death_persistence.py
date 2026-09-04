@@ -49,6 +49,22 @@ world's books that no client was ever told about is worse than the bug this
 file closes: the player watches a monster they never killed refuse every
 hit.
 
+WHAT THIS BOOK IS AUTHORITATIVE OVER  [LANE-B ASSUMPTION - AWAITING COO].
+pf-adversary asked the sharp version of the question below and it deserves a
+straight answer rather than an implied one: ``WorldGround`` grew an atomic
+``claim`` the moment two sessions could see one floor, and this book has no
+operation a second killer can lose.  THE ANSWER, AND IT IS A CHOICE, NOT AN
+OVERSIGHT: this book is authoritative over "was this monster dead when a
+session opened this scene" and over nothing else.  It is READ at a scene open
+and it is ADVISORY everywhere else -- it does not gate a strike, a roll or a
+drop.  Making it authoritative over the KILL would change what a second
+player standing in the scene sees happen in front of them (a monster that
+stops answering their attacks mid-fight), which is a game-design ruling and
+not a lane's call.  The letter asking for that ruling is
+``pf_bridge/notes_to_chief/20260904_2005_LANE-B-ASK-COO-what-is-the-
+worlds-grave-book-authoritative-over.md``; until it is
+answered this file does the smaller, strictly-not-worse thing.
+
 WHAT THIS FILE DOES NOT MAKE TRUE, AND IT IS THE SAME GAP THE GROUND HAS.
 Two players standing in one scene each hold their own ``DeathRegister``, and
 this book is only READ where a session opens a roster.  So a player already
@@ -77,6 +93,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from . import field_mobs
 from . import mob_death
 
 #: Shippable with no scenario flag: a player gets this by default or not at
@@ -102,6 +119,19 @@ REFUSE_SCENE_IS_UNREADABLE = "scene_is_unreadable"
 REFUSE_SCENE_IS_FULL = "scene_grave_cap_reached"
 REFUSE_WORLD_RAISED = "world_raised"
 REFUSE_REGISTER_REFUSED_THE_ROW = "register_refused_the_row"
+#: The scene has no mined mob table, so nothing in it can be a field mob's
+#: grave.  See :func:`roster_key_of` for why this is a refusal and not a
+#: best effort.
+REFUSE_SCENE_HAS_NO_MINED_ROSTER = "scene_has_no_mined_roster"
+#: The identity is not a row of that scene's mined roster -- a diag object, a
+#: withdrawn identity, a fabricated number.  THE REFUSAL THAT KEEPS THIS
+#: WHOLE FILE FROM BEING A LIABILITY; see :func:`roster_key_of`.
+REFUSE_IDENTITY_NOT_IN_THE_ROSTER = "identity_not_in_the_mined_roster"
+#: The record spells the scene differently from the roster's own tag.  Kept
+#: apart from ``scene_has_no_mined_roster`` on purpose: "there is no such
+#: scene" and "there is, and you spelled it the other way" send an operator
+#: to two different files.
+REFUSE_SCENE_SPELLING_IS_NOT_THE_ROSTERS = "scene_spelling_is_not_the_rosters"
 
 #: How many distinct graves one scene may hold.  A GUARD, NOT A GAME RULE: a
 #: scene's roster is finite (the largest mined table in this tree is far
@@ -109,14 +139,22 @@ REFUSE_REGISTER_REFUSED_THE_ROW = "register_refused_the_row"
 #: cannot reach this.  It is here so that a caller feeding this module
 #: fabricated identities in a loop cannot grow the dict without bound.
 #:
-#: THE NEWEST IS REFUSED, NOT THE OLDEST RETIRED, and that is the opposite
-#: choice from ``mob_ground_persistence.ROWS_PER_SCENE_CAP``.  Retiring the
-#: oldest row of a FLOOR forgets an item nobody came back for; retiring the
-#: oldest GRAVE stands a monster the player has already killed back up on
-#: their screen -- the exact defect this file exists to close, re-introduced
-#: at the far end of a counter.  So the cap refuses to bury the newest and
-#: says so by name, and the failure stays "one more grave was not kept"
-#: instead of "a corpse you were looking at came back to life".
+#: UNREACHABLE BY CONSTRUCTION, not merely by expectation: :func:`roster_key_of`
+#: refuses any identity outside the scene's mined roster, and an identity can
+#: only be buried once, so a scene's graves are bounded by its roster (12 rows
+#: at the widest table in this tree) whatever a caller does.
+#:
+#: ~~THE NEWEST IS REFUSED, NOT THE OLDEST RETIRED... the failure stays "one
+#: more grave was not kept" instead of "a corpse you were looking at came back
+#: to life".~~ -- STRUCK, pf-adversary round ``amz1w5``, and the strike is
+#: kept because the reasoning was wrong and somebody will think it again: the
+#: grave the cap refuses is the one the player JUST dug, whose corpse is on
+#: their screen right now, so "not kept" and "came back to life" are the same
+#: sentence for it.  BOTH eviction policies resurrect something; only which
+#: corpse differs.  Refusing the newest is still the choice here, for the one
+#: honest reason left -- it leaves every grave already established stable
+#: rather than reshuffling the book under a player who is standing in it --
+#: and the roster gate above is what makes the question moot in production.
 GRAVES_PER_SCENE_CAP = 4096
 
 
@@ -133,6 +171,79 @@ def _scene_key(scene: Any) -> str:
     if type(scene) is not str or not scene:
         raise ValueError("a scene tag is non-empty text, got %r" % (scene,))
     return scene.casefold()
+
+
+_ROSTER_CACHE: dict = {}
+_ROSTER_CACHE_LOCK = threading.RLock()
+
+
+def roster_key_of(record: Any) -> tuple[str, str]:
+    """``("", reason)`` unless this record is a row of a mined roster.
+
+    THE GATE THAT KEEPS THIS FILE FROM BEING A LIABILITY, and it was added
+    after pf-adversary (round ``amz1w5``) MEASURED the failure it prevents,
+    on the real rosters, in one process:
+
+        A diag multi-object kill (``mob_diag_multi_object`` stamps its
+        identities with ``field_mob_tables.SCENE``, so ``0x4329``/``0x432A``/
+        ``0x432C`` arrive here tagged ``bg0001``) puts an identity in the
+        world's books that bg0001's mined roster does not contain.  Every
+        LATER login into bg0001 -- including a character that has never seen
+        a diag config -- would be seeded with it, and
+        ``mob_death.repopulation_entries`` refuses a register row whose scene
+        is one of the roster's but whose identity is not a roster key
+        (``REFUSE_REGISTER_ROW_DISAGREES_WITH_ROSTER``).  The arrival census
+        raises inside its own fail-closed catch, ships NO frame, and the
+        player logs into an empty town -- for the life of the process, not
+        the session.  ``0x201F``, the sanctioned first target withdrawn from
+        the bg0001 roster, does the same thing.
+
+    So a grave is only ever dug for an identity the scene's own mined table
+    ships, spelled with the table's own ``SCENE`` tag.  The exact-spelling
+    half closes a second measured hole: the book folds case for its KEY but
+    stores the record verbatim, and every consumer downstream
+    (``runtime.py``'s rehydrate guard, ``live_roster``,
+    ``repopulation_entries``) compares ``record.scene`` with ``==``.  A
+    record spelled ``bg0002`` would be seeded, silently skipped by all
+    three, and the console would print a green line over a monster still
+    standing at full HP.
+
+    The roster is read through ``field_mobs``' own public readers and cached
+    per scene: a mined table is a frozen constant in this tree, and re-typing
+    twelve rows on every kill would put a roster load on the listener
+    thread's hot path for a number that cannot change while the process runs.
+    """
+    if type(record) is not mob_death.DeathRecord:
+        return ("", REFUSE_NOT_A_RECORD)
+    try:
+        fold = _scene_key(record.scene)
+    except ValueError:
+        return ("", REFUSE_SCENE_IS_UNREADABLE)
+    with _ROSTER_CACHE_LOCK:
+        cached = _ROSTER_CACHE.get(fold)
+        if cached is None:
+            cached = ("", frozenset())
+            for scene in field_mobs.live_scenes():
+                if scene.casefold() != fold:
+                    continue
+                try:
+                    roster = field_mobs.load_roster(scene)
+                except Exception:                       # noqa: BLE001
+                    break
+                cached = (
+                    scene,
+                    frozenset(mob.actor_identity for mob in roster),
+                )
+                break
+            _ROSTER_CACHE[fold] = cached
+    tag, identities = cached
+    if not tag:
+        return ("", REFUSE_SCENE_HAS_NO_MINED_ROSTER)
+    if record.scene != tag:
+        return ("", REFUSE_SCENE_SPELLING_IS_NOT_THE_ROSTERS)
+    if record.actor_identity not in identities:
+        return ("", REFUSE_IDENTITY_NOT_IN_THE_ROSTER)
+    return (fold, "")
 
 
 @dataclass(frozen=True)
@@ -174,6 +285,13 @@ class SeedOutcome:
     admitted: tuple = ()
     buried: int = 0
     reason: str = ""
+    #: Graves the book held for this scene that the roster gate turned away.
+    #: Should always be zero -- `bury` refuses them at the door -- and it is
+    #: counted and PRINTED anyway, because the day it is not zero is the day
+    #: a mined table shrank under a book that was filled before it did, and
+    #: that day must arrive as a number in a console line and not as a town
+    #: that silently stopped composing its census.
+    skipped: int = 0
 
     @property
     def seeded(self) -> bool:
@@ -216,13 +334,16 @@ class WorldDeaths:
         overwrite: the first burial holds the killer and the ceiling that
         were true when the monster actually died, and a re-commit (a retry
         that reached here twice) must not rewrite them.
+
+        THE ROSTER GATE IS HERE AND NOT ONLY IN :func:`remember_death`,
+        because what must be true is a property of the BOOK -- "this book
+        cannot hold a row that will refuse a scene's census" -- and a
+        property of a container that only its polite callers maintain is not
+        a property.
         """
-        if type(record) is not mob_death.DeathRecord:
-            return (False, REFUSE_NOT_A_RECORD)
-        try:
-            fold = _scene_key(record.scene)
-        except ValueError:
-            return (False, REFUSE_SCENE_IS_UNREADABLE)
+        fold, reason = roster_key_of(record)
+        if reason:
+            return (False, reason)
         with self._lock:
             graves = self._graves.setdefault(fold, collections.OrderedDict())
             if record.actor_identity in graves:
@@ -321,10 +442,15 @@ def remember_death(
 
     It prints its own bounded ASCII line (G-OBS) rather than handing one back
     for the caller to print, the way ``mob_drop_presence`` does at its own
-    call sites: ``mob_death.py`` has never printed anything and the round
+    call sites.  ~~``mob_death.py`` has never printed anything and the round
     that made it start would have to answer for every test in this tree that
-    reads a kill's stdout.  ``announce=False`` is for tests that assert on
-    the outcome instead.
+    reads a kill's stdout.~~ -- STRUCK, pf-adversary round ``amz1w5``, and the
+    strike is the honest half: a burial IS wired into ``commit_death``, so
+    ``mob_death.py`` DOES print now, at one line per accepted kill.  That
+    sentence described a hazard and then did not close it.  What closes it is
+    that ``commit_death`` grew ``announce=`` and ``world=`` keywords of its
+    own, so the escape below is reachable from the call site that actually
+    needed it -- which is what the sentence should have said the first time.
     """
     try:
         book = world if isinstance(world, WorldDeaths) else world_deaths()
@@ -413,8 +539,20 @@ def seed_register(
     if not buried:
         return SeedOutcome(fold, register, (), 0)
     admitted = []
+    skipped = 0
     seeded = register
     for record in buried:
+        # THE ROSTER GATE, A SECOND TIME.  `bury` already refuses a row the
+        # scene's mined table does not ship, so nothing here should ever be
+        # skipped -- and it is checked again anyway, because the cost of
+        # being wrong is asymmetric and measured: ONE row outside the roster
+        # makes `repopulation_entries` refuse the WHOLE census for every
+        # later session in the process, and the arrival frame is not sent at
+        # all.  A cheap second read against a cached frozenset is the right
+        # price for "the seam can never be the thing that empties a town".
+        if roster_key_of(record)[1]:
+            skipped += 1
+            continue
         try:
             if seeded.is_dead(record.actor_identity, record.scene):
                 continue
@@ -429,7 +567,7 @@ def seed_register(
                 fold, register, (), len(buried),
                 reason=REFUSE_REGISTER_REFUSED_THE_ROW)
         admitted.append(record)
-    return SeedOutcome(fold, seeded, tuple(admitted), len(buried))
+    return SeedOutcome(fold, seeded, tuple(admitted), len(buried), "", skipped)
 
 
 def describe_seeded(outcome: SeedOutcome) -> str:
@@ -438,12 +576,54 @@ def describe_seeded(outcome: SeedOutcome) -> str:
         return "%s scene=%r buried=%d reason=%s" % (
             WORLD_SEED_REFUSED_TOKEN, outcome.scene, outcome.buried,
             outcome.reason)
-    return "%s scene=%r admitted=%d buried=%d identities=%s" % (
+    return "%s scene=%r admitted=%d buried=%d skipped=%d identities=%s" % (
         WORLD_SEEDED_TOKEN, outcome.scene, len(outcome.admitted),
-        outcome.buried,
+        outcome.buried, outcome.skipped,
         ",".join("0x%X" % row.actor_identity for row in outcome.admitted)
         or "none",
     )
+
+
+#: Scene keys whose "the seam ran and there was nothing to take" line has
+#: already been printed once in this process.  Bounded by the number of
+#: scenes that exist, which is seventeen.
+_ANNOUNCED_EMPTY: set = set()
+_ANNOUNCED_LOCK = threading.RLock()
+
+
+def _worth_saying(outcome: SeedOutcome) -> bool:
+    """Whether this outcome earns a console line.
+
+    THE CALL SITE RUNS ON EVERY ATTACK, so "print every time" is not
+    available: it would put one line per swing on a cp874 console and bury
+    the lines that matter.  "Print only when something changed" is not
+    available either -- the module's own reason for always printing stands:
+    "this scene has no graves" and "the seam never ran" are different facts
+    and an attended round greps for exactly that difference.
+
+    So: every admission and every refusal says so, and the FIRST empty seed
+    of each scene says so too.  After that, a scene whose graves are already
+    in the register is silent, which is the only state that repeats.
+    """
+    with _ANNOUNCED_LOCK:
+        if outcome.reason or outcome.admitted or outcome.skipped:
+            # A scene that has just said something has, by saying it, also
+            # said "the seam ran here" -- so the no-op that follows it does
+            # not have to say it again.  Recorded HERE and not only on the
+            # empty branch, or every scene with graves would print one
+            # redundant empty line after its real one.
+            _ANNOUNCED_EMPTY.add(outcome.scene)
+            return True
+        if outcome.scene in _ANNOUNCED_EMPTY:
+            return False
+        _ANNOUNCED_EMPTY.add(outcome.scene)
+        return True
+
+
+def forget_announced_scenes() -> None:
+    """Let the empty-seed line be printed again.  A TEST SEAM, named as one."""
+    with _ANNOUNCED_LOCK:
+        _ANNOUNCED_EMPTY.clear()
 
 
 def seed_the_session_register(
@@ -460,9 +640,16 @@ def seed_the_session_register(
     third name only so that the edit asked of a file this lane does not own
     is one statement that cannot half-happen.  Returns the caller's own
     register unchanged on every refusal.
+
+    IDEMPOTENT AND CHEAP ON EVERY CALL, because :data:`DEATH_SEED_WIRING`
+    asks for it OUTSIDE the scene-change branch and that branch's condition
+    is false on the path this whole round exists to fix.  A repeat call for a
+    scene whose graves the register already holds does one dict lookup per
+    grave, admits nothing, returns the caller's own object, and (see
+    :func:`_worth_saying`) says nothing.
     """
     outcome = seed_register(register, scene, world=world)
-    if announce:
+    if announce and _worth_saying(outcome):
         print(describe_seeded(outcome))
     return outcome.register
 
@@ -471,18 +658,45 @@ def seed_the_session_register(
 #: letter and the code cannot drift apart (the same device
 #: ``mob_drop_presence.GROUND_REANNOUNCE_WIRING`` uses for its own request).
 DEATH_SEED_WIRING = (
-    "runtime.py, _sync_combat_scene_state, as the FIRST statement inside\n"
-    "`if folder != self.mob_combat_scene_folder:` -- before\n"
-    "`ledger = mob_combat.open_ledger(roster, scene=folder)`, because the\n"
-    "loop right after it rehydrates the ledger's zeros FROM this register\n"
-    "and a seed that lands after the loop would leave the ledger at full HP\n"
-    "with the register saying dead: mob_death's own\n"
-    "REFUSE_LEDGER_DISAGREES_WITH_REGISTER, and a corpse that answers hits\n"
-    "with live damage numbers.\n"
+    "runtime.py, _sync_combat_scene_state, immediately after\n"
+    "`if folder is None: return None` and BEFORE\n"
+    "`if folder != self.mob_combat_scene_folder:`.\n"
     "\n"
     "    self.mob_death_register = (\n"
     "        mob_death_persistence.seed_the_session_register(\n"
     "            self.mob_death_register, folder))\n"
     "\n"
     "import: `from . import mob_death_persistence`\n"
+    "\n"
+    "OUTSIDE THE BRANCH, NOT INSIDE IT, and this is the whole request.\n"
+    "~~as the FIRST statement inside `if folder !=\n"
+    "self.mob_combat_scene_folder:`~~ -- STRUCK, pf-adversary round amz1w5,\n"
+    "MEASURED: runtime.py seeds `self.mob_combat_scene_folder` from the BOOT\n"
+    "roster's own scene in __init__, so for a character whose stored scene is\n"
+    "scene 1 the condition is false on its very first evaluation and that\n"
+    "branch NEVER RUNS.  The seed would have fired for scene 2 -- where R309\n"
+    "happened -- and never for bg0001, the scene the game boots into: GT-223\n"
+    "green in one town and the identical corpse standing up in the other.\n"
+    "The seam belongs at the scene OPEN, and the branch is a scene CHANGE.\n"
+    "\n"
+    "BEFORE THE BRANCH ALSO KEEPS THE ORDER THE REHYDRATE LOOP NEEDS: that\n"
+    "loop fills the ledger's zeros FROM this register, so a seed landing\n"
+    "after it would leave the ledger at full HP with the register saying\n"
+    "dead -- mob_death's own REFUSE_LEDGER_DISAGREES_WITH_REGISTER, and a\n"
+    "corpse that answers hits with live damage numbers.\n"
+    "\n"
+    "IT DOES NOT JOIN THE ATOMIC TRIO at the end of that branch (ledger,\n"
+    "mob_ai_register, mob_combat_scene_folder, built into locals so that a\n"
+    "raise from open_register cannot leave them on two different scenes --\n"
+    "pf-adversary round pk14rf).  It does not need to and it must not: this\n"
+    "statement adds the CURRENT folder's graves and removes nothing, so it\n"
+    "does not move the session between scenes, and there is no half-changed\n"
+    "state it can leave.  If open_register raises after it, the register\n"
+    "carries graves whose `scene` is not the folder the ledger stayed on --\n"
+    "which every consumer keys on scene and therefore ignores, and which the\n"
+    "next successful open consumes correctly.\n"
+    "\n"
+    "SAFE TO CALL ON EVERY DISPATCH, which is what being outside the branch\n"
+    "costs: the function is idempotent, returns the caller's own object when\n"
+    "it admits nothing, and prints nothing on a repeat (see _worth_saying).\n"
 )

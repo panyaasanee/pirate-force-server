@@ -2290,8 +2290,20 @@ def kill(
     )
 
 
-def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
+def commit_death(
+    current: DeathRegister, step: DeathStep, *,
+    world: Any = None, announce: bool = True,
+) -> DeathRegister:
     """Compare-and-swap: accept a kill only against the register it was read from.
+
+    ``world`` and ``announce`` reach :func:`mob_death_persistence.
+    remember_death` and nothing else.  They are keyword-only and defaulted so
+    that no existing call site changes, and they EXIST because pf-adversary
+    (round ``amz1w5``) measured the alternative: with the burial hardwired,
+    a diag path, a hypothesis module or a test had no way to commit a kill
+    without writing to a structure that outlives the process's every session,
+    and this function's own promise -- it is a pure value operation on a
+    register -- would have quietly stopped being true.
 
     The mirror of ``mob_combat.commit_step``, and it exists for the same
     reason.  Two kills computed from the same register both return a register
@@ -2361,10 +2373,20 @@ def commit_death(current: DeathRegister, step: DeathStep) -> DeathRegister:
     # second line rather than the first: this function's callers dispatch
     # frames on the answer, and a bookkeeping failure must cost the world a
     # grave, never the player their kill.
+    #
+    # THE OUTCOME IS DELIBERATELY NOT ACTED ON, and pf-adversary was right
+    # to ask why (round ``amz1w5``, D4).  There is no action available: a
+    # refused burial cannot cost the player the kill this function has
+    # already accepted and whose frames the caller is about to send.  What a
+    # refusal DOES is degrade this scene to the behaviour it had before this
+    # seam existed -- the monster stands back up on the next relogin -- and
+    # it arrives as a named console line from `remember_death` itself, which
+    # is the only place it can arrive without lying to somebody.
     try:
         from . import mob_death_persistence
 
-        mob_death_persistence.remember_death(step.record)
+        mob_death_persistence.remember_death(
+            step.record, world=world, announce=announce)
     except Exception:                                   # noqa: BLE001
         pass
     return step.register
