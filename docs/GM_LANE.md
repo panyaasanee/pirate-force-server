@@ -9314,7 +9314,8 @@ x=9 ที่เป็น**เป้าที่ผู้เรียกเล�
 🔴 **ไม่ใช่ตาราง หน้า/ปุ่ม/opcode ที่ `0245` สั่ง** และไม่แกล้งเป็น: ตารางนั้นต้องอ่านจาก client image
 ซึ่งโคลนนี้ไม่มี · สิ่งที่สร้างได้จาก artifact ที่คอมมิตแล้วมีสามส่วน
 1. `GM_VITALS` — vital พื้นผิว GM เจ็ดตัว พร้อมคำตอบว่ารีโปนี้มี codec ให้ตัวไหน (derive ใหม่ ไม่ใช่จำ)
-   `0x8D30 GM_ForbidToTalkResultVital` และ `0x6CEC Activity_CheatCodeVital` **ไม่มี codec เลย**
+   ~~`0x8D30 GM_ForbidToTalkResultVital` และ `0x6CEC Activity_CheatCodeVital` **ไม่มี codec เลย**~~
+   **แก้แล้วรอบ `sexjmq`** (ดูท้ายไฟล์) — ทั้งเจ็ดตัวมี codec ครบแล้ว (codec ≠ ปุ่มทำงาน)
 2. `log_types()` — 97 แถวของ `TEXTDATA_TH__GMTOOL` พร้อม `LOG_TYPES_ARE_NOT_BUTTONS` กันอ่านผิด
    (คัดลอกเข้ารีโป พิน sha `8ede7f80...` เช็คตอน import แบบเดียวกับ `scene_catalog.py`)
 3. `BUTTONS` — **ว่างโดยเจตนา** · `total_is_unknown()` คืน True ⇒ ห้ามรอบไหนเขียน "ปุ่ม x/y ทำงานแล้ว"
@@ -9330,3 +9331,105 @@ x=9 ที่เป็น**เป้าที่ผู้เรียกเล�
 ### nonclaim
 GM ข้ามขั้นไหน: **ไม่มี** — รอบนี้ไม่บูตเซิร์ฟเวอร์ ไม่บูตเกม ไม่มีบัญชีใดได้/เสียสถานะ GM
 ไม่มีไบต์ออกจากประตูไหนที่ยังไม่เคยออก · ไม่อ้างว่า P-2/P-3/M2/M3/M4/Door B/`GT-218` ขยับ
+
+## รอบ `sexjmq` (2026-09-04T14:48+07:00) -- two codecs close the last row of P-3's GM_VITALS
+
+`rounds/GM_20260904_1316_zjbjys_*.md` backlog item 1: "codec ของ `0x8D30
+GM_ForbidToTalkResultVital` และ `0x6CEC Activity_CheatCodeVital` ทำได้ทันทีจาก
+registry + ตาราง serializer ที่พิสูจน์แล้ว ไม่ต้องรอ RE ใด ๆ" — mailbox this round
+consumed two chief letters (`1307` GM-053 sequencing, superseded by `1409` before
+this round started; `1409` numbers the `0x430E10` RE ticket as `RE-238` and asks
+this lane to paste the body into `CLIENT_RE_QUEUE.md`, done) but produced no new
+build work, so the queue's own rule F (no two empty rounds in a row -- this round
+was not empty either way) sent this lane to its own backlog item 1.
+
+### `gm/forbid_to_talk_wire.py` (new) -- GM_ForbidToTalkResultVital (0x8D30, server->client)
+
+Three fields, `external/PF_SERIALIZER_FIELDS.tsv` rows 6283-6288, span
+`[0x007297C0,0x00729821)` sha256 `20b2f1df...c51bfc`: `tag 0x0B @+0x14` (u8),
+`tag 0x14 @+0x18` (u32), tagged wide string `@+0x1C`. Follows `gm/state_wire.py`'s
+shape exactly (encode via the `legacy` seam: `legacy.u8tag`/`legacy.u32tag`/
+`legacy.wstr_tag`/`legacy.make_runtime_vitals`), plus a standalone decode
+function (no `legacy` dependency) so the round-trip is tested on file, the
+reference-codec role `gm/teleport_wire.py` and `gm/cheat_wire.py` already hold.
+
+### `gm/activity_cheat_code_wire.py` (new) -- Activity_CheatCodeVital (0x6CEC, client->server)
+
+Six fields, rows 4345-4356, span `[0x006A0450,0x006A04F2)` sha256
+`ba19699b...5df3205`: `tag 0x14 @+0x14` (u32), then five tagged wide strings at
+`+0x18/+0x34/+0x50/+0x6C/+0x88`. Decode-only, no encoder -- same posture
+`gm/command_wire.py` holds for the inbound `GM_RunGMCommandVital`: this
+repository receives this message, it never sends one.
+
+### the correction both modules rest on, and it is not an analogy this round made up
+
+`PF_SERIALIZER_FIELDS.tsv`'s tag column calls every one of these string fields
+`UNTAGGED_WSTRING16LE_LEN32LE` (4+N bytes). `gm/command_wire.py`'s and
+`gm/cheat_wire.py`'s 2026-09-02 corrections already established that column is
+wrong for the shared wide-string helper (target `0x0089A810` W / `0x0089A880`
+R): the client's own helper pushes a type tag byte (`0x48`) before the length,
+so the real shape is 5+N bytes. What makes this round's use of that correction
+NOT a second inference by analogy: `PF_A2_STRING_WIRE_TAG_DELTA.tsv`
+(sha256 `e1f4f987...08b3a2`, the SAME table `command_wire.py`/`cheat_wire.py`
+already cite) carries **this message's own rows directly** -- 4347-4356 for
+Activity_CheatCodeVital, 6287/6288 for GM_ForbidToTalkResultVital -- each one
+naming `corrected_tag=0x48`, `corrected_full_wire_len=5+N_bytes`, and the exact
+`push_0x48` instruction VA. Ten rows in, ten rows confirmed; nothing here is
+"probably also 0x48 because a different message on the same helper was."
+
+`legacy.wstr_tag` (`current/pf_login_game_server_v141.py:590-592`) already
+emits exactly this shape (`b"\x48" + struct.pack("<I", len(b)) + b`) -- reused
+directly in `forbid_to_talk_wire.py`'s encoder rather than re-derived, the
+"reuse the shipped encoder" instruction both GM-003's founding letter and this
+lane's own brief give.
+
+### `gm/gmui_catalog.py` -- both `GM_VITALS` rows updated, one test rewritten
+
+`handler_module` for both rows moves from `None` to the new module names.
+`tests/test_gm_gmui_catalog.py::VitalRowTests::test_the_two_vitals_with_no_
+codec_are_named_as_such` asserted the OLD fact (two vitals with no codec) --
+rewritten to `test_no_gm_surface_vital_lacks_a_codec_anymore` asserting
+`vitals_without_a_codec() == ()`. `assert_backed`/`test_every_named_handler_
+module_actually_exists` re-import both new modules at test time, so a rename
+or deletion turns this red rather than leaving a stale row.
+
+🔴 **A codec is still not a button.** `BUTTONS` stays empty (`total_is_unknown()`
+is still `True`) -- P-3's page/button/opcode table is unchanged by this round;
+what changed is that every vital ON THE SURFACE can now be read or written by
+this repository at all, the precondition a future button row would need, not
+the button itself.
+
+### ค้นก่อนถอด
+
+`external/00_SEARCH_HERE_FIRST.md`, `gamedata/00_SEARCH_HERE_FIRST.md` --
+**ค้นแล้ว: ไม่เจอ** ความหมายของฟิลด์ทั้งสองข้อความ (คำถามนี้เป็นคนละชั้นจาก layout ที่พิสูจน์แล้ว
+ในตาราง serializer ซึ่งเจอครบ) · `notes_to_chief/reference_codex_attr/` --
+**ค้นแล้ว: เจอ** `PF_A2_STRING_WIRE_TAG_DELTA.tsv` มีแถวของทั้งสองข้อความตรง ๆ (ข้างบน)
+
+### กล่องจดหมาย
+
+Consumed `1307` (superseded by `1409` before this round began -- no open question
+left, LANE-GM's own preference for path (ข) recorded for the record) and `1409`
+(RE ticket numbered `RE-238`, body pasted into `CLIENT_RE_QUEUE.md`, all
+`RE-0x430E10` references replaced). Both moved to `notes_to_chief/consumed/`
+with `.CONSUMED.txt` stubs.
+
+### nonclaim
+
+1. **GM ข้ามขั้นไหน**: **ไม่มี** -- neither new module is wired into `dispatch.py`
+   or `runtime.py`; no account gains or loses GM status; no byte leaves a door
+   that did not already leave it.
+2. **ผู้เทสจะทำอะไรได้ที่เมื่อวานทำไม่ได้**: **ไม่มีอะไรบนจอ** -- this round adds two
+   codecs and re-derives a catalogue fact from them; nothing boots, nothing
+   sends, nothing renders differently for a tester today.
+3. Does not claim `RE-238` is answered, does not claim P-2/P-3/M2/M3/M4 moved,
+   does not claim what either message's fields MEAN (see both modules'
+   `[สมมติของสาย GM - รอ RE]` blocks) -- only that the wire SHAPE is now provably
+   readable/writable, sourced from committed artifacts already in this repo.
+4. `BUTTONS` is still empty; P-3's own count is unchanged by this round.
+
+### ยืนยันก่อนเริ่ม
+`pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` มีจริง ·
+`external/PF_PROTOCOL_REGISTRY.tsv` · `external/PF_SERIALIZER_FIELDS.tsv` ·
+`notes_to_chief/reference_codex_attr/PF_A2_STRING_WIRE_TAG_DELTA.tsv` มีจริงทั้งหมด ·
+**ไม่มี** client image / capture corpus / canonical DB / `gh` / หน้าจอ
