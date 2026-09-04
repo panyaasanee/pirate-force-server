@@ -213,6 +213,39 @@ jobs:
           # NOT the verdict.  The verdict is the `gate` job's conclusion, read
           # from the API below.  This is kept only for the log.
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          # WHICH EVENT STARTED gate-windows.yml FOR THIS TREE -- 'push' or
+          # 'pull_request' (gate-windows.yml:25/37).  THE ONE THING THIS RUN
+          # MAY NOT DO ON A 'push' EVENT IS ACT: gate-windows.yml's checkout
+          # has no `ref:`, so on `push` it tests the BARE BRANCH HEAD, and on
+          # `pull_request` it tests `refs/pull/N/merge` -- the branch WITH
+          # `main` merged in, the only tree AGENTS.md section 7 (0053/0149)
+          # accepts as "ran the full suite".  Both runs finish independently
+          # and `concurrency: cancel-in-progress: false` (above) lets them
+          # race; whichever finishes first used to decide, event be damned.
+          # [COO-DECISION 20260904_0550/0812/0848, chief R334 0812/0855
+          # RETRACTED]: measured on server #696/#697 (2026-09-03 ~20:36/20:47
+          # UTC) that in those two cases the RED `pull_request` run happened
+          # to finish 3-4 minutes before the GREEN `push` run and so closed
+          # both PRs first, with the `push` run's `decide` seeing `state !=
+          # open` and exiting quietly -- but that ordering is runner-queue
+          # timing, not a rule, and on a day the `push` runner is queued
+          # first, its `decide` would merge a branch whose merge-with-main
+          # tree was never run at all.
+          #
+          # [chief R335 audit, 2026-09-04, full method and coverage in the
+          # round file]: THIS ALREADY HAPPENED, SIX TIMES, SINCE 2026-09-01.
+          # #605, #578, #581, #590, #606, #668 were every one of them merged
+          # by a GREEN `push`-triggered run 18-28 SECONDS after that run
+          # finished, while the `pull_request`-triggered run for the exact
+          # same head commit was still queued or running -- and every one of
+          # those six `pull_request` runs came back RED 1-14 minutes later,
+          # after the merge had already landed on `main`.  #668 is the
+          # confirmed one: #670 ("R324b: main is red on the tick gate
+          # landing") is this project's own cleanup PR for the breakage #668
+          # caused.  This is not a hypothetical this fix pre-empts; it is a
+          # bug this fix closes that had already put untested-tree code on
+          # `main` six times before anyone noticed the mechanism.
+          EVENT: ${{ github.event.workflow_run.event }}
         run: |
           set -euo pipefail
 
@@ -262,6 +295,27 @@ jobs:
           echo "verdict=${VERDICT}"
           if [ "$VERDICT" = "quiet" ]; then
             echo "'${GATE}' carries no verdict about this tree - every PR left untouched, reaper will follow up"
+            exit 0
+          fi
+
+          # -- 1b. ONLY a 'pull_request' run may act on that verdict ---------
+          # [COO-DECISION 20260904_0550 item 3 / 0848, chief R334 0812 RETRACTED
+          # by 0855]: this run's tree depends on which event started it. A
+          # 'push' event checks out the bare branch head; a 'pull_request'
+          # event checks out `refs/pull/N/merge`, the branch WITH `main`
+          # merged in -- the only tree AGENTS.md section 7 (0053/0149) accepts
+          # as "ran the full suite". Both fire for the same commit and race
+          # independently (concurrency above serialises them but does not
+          # cancel either), so a 'push' run finishing first with GREEN, while
+          # the 'pull_request' run for the SAME commit is still pending or is
+          # RED, must never be allowed to merge or close anything: the tree it
+          # tested is not the tree the house rules require, whichever run
+          # happens to finish first. `finish` and `reap` below are unaffected
+          # -- they act on 'schedule'/'workflow_dispatch' events, judged by
+          # gate JOBS looked up fresh at their own run time, not by which
+          # push/pull_request run woke them.
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "this gate run was triggered by '${EVENT}', not 'pull_request' - REPORT ONLY, no merge, no close (see COO-DECISION 20260904_0550/0848). The pull_request-triggered run for this same commit is the one that may act."
             exit 0
           fi
 
@@ -546,17 +600,25 @@ jobs:
             [ "$BASE_REF" = "$DEFAULT_BRANCH" ] || { echo "  base is not ${DEFAULT_BRANCH} - skipped"; continue; }
             case "$HEAD_REF" in claude/*) : ;; *) echo "  not a claude/ branch - skipped"; continue ;; esac
             case "$BODY" in *"$PF_MARKER"*) : ;; *) echo "  body has no marker '${PF_MARKER}' - skipped, ON PURPOSE (a human must add it; see #86 2026-08-27)"; continue ;; esac
-            # Verdict for THIS head only.  Any live run = decide will handle it; do not race.
+            # Verdict for THIS head only.  Any live PULL_REQUEST-triggered run
+            # = decide will handle it; do not race.  ONLY 'pull_request' runs
+            # count here -- same reason as the EVENT gate in the `decide` job
+            # above (COO-DECISION 20260904_0550/0848): a 'push' run tests the
+            # bare branch head, not the refs/pull/N/merge tree AGENTS.md
+            # section 7 requires, and this loop used to break on the FIRST
+            # green run it found regardless of which event produced it, so a
+            # green 'push' run could finish this PR even while the
+            # 'pull_request' run for the same commit was red or still queued.
             RUNS=$(api "repos/${REPO}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")
-            LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.name == "gate-windows" and .status != "completed")] | length')
+            LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.name == "gate-windows" and .event == "pull_request" and .status != "completed")] | length')
             if [ "$LIVE" != "0" ]; then echo "  a gate run is still live - left to decide"; continue; fi
             GREEN=no
-            for RID in $(printf '%s' "$RUNS" | jq -r '.workflow_runs[] | select(.name == "gate-windows") | .id'); do
+            for RID in $(printf '%s' "$RUNS" | jq -r '.workflow_runs[] | select(.name == "gate-windows" and .event == "pull_request") | .id'); do
               C=$(api "repos/${REPO}/actions/runs/${RID}/jobs?per_page=100" \
                     | jq -r --arg n "$PF_GATE_JOB" '[.jobs[] | select(.name == $n)] | if length == 0 then "absent" else .[0].conclusion end')
               [ "$C" = "success" ] && { GREEN=yes; break; } || true
             done
-            [ "$GREEN" = "yes" ] || { echo "  no green gate on head ${HEAD_SHA} - left alone (red is decide's/reap's call, not finish's)"; continue; }
+            [ "$GREEN" = "yes" ] || { echo "  no green pull_request-triggered gate on head ${HEAD_SHA} - left alone (red is decide's/reap's call, not finish's)"; continue; }
             # mergeable is computed asynchronously.
             MERGEABLE=null
             for attempt in 1 2 3 4 5 6; do
@@ -727,12 +789,16 @@ jobs:
             fi
 
             RUNS=$(api "repos/${REPO}/actions/runs?head_sha=${HEAD_SHA}&per_page=100")
-            LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.status != "completed")] | length')
-            if [ "$LIVE" != "0" ]; then echo "  a run is still live - left alone, decide will handle it"; continue; fi
+            LIVE=$(printf '%s' "$RUNS" | jq '[.workflow_runs[] | select(.name == "gate-windows" and .event == "pull_request" and .status != "completed")] | length')
+            if [ "$LIVE" != "0" ]; then echo "  a pull_request-triggered gate run is still live - left alone, decide will handle it"; continue; fi
 
             # Did the GATE JOB pass on this head?  Not the workflow: the job.
+            # ONLY the 'pull_request'-triggered run counts (COO-DECISION
+            # 20260904_0550/0848) -- see the same guard in `decide` and
+            # `finish` above for why a 'push' run's green must never finish
+            # or reap a pull request here.
             GREEN=no
-            for RID in $(printf '%s' "$RUNS" | jq -r '.workflow_runs[] | select(.name == "gate-windows") | .id'); do
+            for RID in $(printf '%s' "$RUNS" | jq -r '.workflow_runs[] | select(.name == "gate-windows" and .event == "pull_request") | .id'); do
               C=$(api "repos/${REPO}/actions/runs/${RID}/jobs?per_page=100" \
                     | jq -r --arg n "$PF_GATE_JOB" '[.jobs[] | select(.name == $n)] | if length == 0 then "absent" else .[0].conclusion end')
               echo "  run ${RID}: job ${PF_GATE_JOB} = ${C}"
