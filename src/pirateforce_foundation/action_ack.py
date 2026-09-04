@@ -81,9 +81,6 @@ def _say(line):
     ``BrokenPipeError`` -- both measured by pf-adversary (D10) -- and the
     frozen ``game_listener`` above this call has no except handlers
     (interlock X07), so either one would kill the thread over a log line.
-    The pre-existing ``GROUND_VITALS_PRESERVE_REFUSED`` print has the same
-    exposure and is left exactly as it was: widening it is a separate change
-    with its own argument, not something to smuggle in here.
     """
     if line is None:
         return
@@ -93,9 +90,17 @@ def _say(line):
         pass
 
 
-def make_scene007_action_ack(legacy, fields, performer_identity: int,
-                             refusals=None, *, environ=None):
-    """Build one ActionVital; only performer differs from the audited request.
+def build_action_vital_echo(legacy, fields, performer_identity: int,
+                            action_selector: int, refusals=None):
+    """``(pc, frame)``: one ActionVital echo, only performer and ``+0x30``
+    (``action_selector``) differing from the audited request in ``fields``.
+
+    Factored out of ``make_scene007_action_ack`` (COO-DECISION 20260905_0248)
+    so the production ``_dispatch_mob_combat`` hit path
+    (``make_production_hit_pose_echo``) composes through the SAME encoder as
+    the SCENE-007 scenario gate instead of a second one -- the shape PR #782
+    named for this lane's other composers ("composes exactly what the
+    per-kill site composes, same encoder, not a second path").
 
     ``refusals``: optional list the caller may pass to learn that the ground
     preserving composer refused and the original bytes were shipped instead.
@@ -103,28 +108,10 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
     collects -- the events list, the DB and --export-events all look
     identical on both paths -- and "the absence of a console line" is not
     evidence.  pf-adversary raised this as D6 this round.
-
-    ``environ``: the mapping the ``ATTACK-POSE-ONE-FIELD-AB-001`` trial gate
-    reads instead of the process environment.  For tests only; the runtime
-    call site does not pass it, and with it absent the gate reads
-    ``os.environ`` exactly as an attended boot does.  "Only performer
-    differs" above stays literally true on every unarmed boot: see
-    ``pose_trial.selector_for_reply``, which returns the request's own
-    ``+0x30`` and no console line while ``PF_POSE_TRIAL`` is unset.
     """
     # PF-HYPOTHESIS-LEDGER: HYP-PF-002 frozen
     if not 0 < performer_identity <= 0xFFFFFFFFFFFFFFFF:
         raise ValueError("selected performer identity is outside uint64")
-    # ATTACK-POSE-ONE-FIELD-AB-001 (COO-DECISION 20260904_2141).  The ONE
-    # field the trial may move, and it moves nowhere unless an owner armed
-    # PF_POSE_TRIAL in this process.  The line is computed here and PRINTED
-    # AT THE EXITS below, after a frame exists: an earlier version printed
-    # here, and pf-adversary pointed out (D5) that the composer below can
-    # propagate anything that is not MobLootContractError, which would leave
-    # the attended log claiming a selector for a frame that was never sent.
-    action_selector, pose_line = pose_trial.selector_for_reply(
-        fields["action_u32_30"], environ,
-    )
     payload = (
         legacy.qwordtag(0x32, performer_identity)
         + legacy.qwordtag(0x32, fields["field_qword_20"])
@@ -167,14 +154,93 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
     # inside this very handler (gm/chat_command_action.py:1391,
     # lane_hooks/__init__.py:180, persistence_canon_gate.py:229).  The reason
     # name is not lost: it rides the event below, which --export-events keeps.
+    # [ROUND yqbwri, pf-adversary]: this print used to be a bare ``print()``,
+    # reachable only through ``make_scene007_action_ack`` -- the SCENE-007
+    # scenario gate ``GT-247``'s own R314 result measured DEAD on a real
+    # client (``is_scene_remote_hostile_target`` never admits an ActionVital
+    # that also carries TargetPos).  This function is now ALSO called from
+    # ``make_production_hit_pose_echo``, wired into the always-live
+    # ``_dispatch_mob_combat`` -- so the exposure ``_say``'s own docstring
+    # names (a closed stdout or a broken pipe killing the listener thread
+    # over a log line) is reachable from production for the first time,
+    # during the exact attended sweep this ticket exists to run.  Routed
+    # through ``_say`` for that reason; the type-name-only content is
+    # unchanged.
     try:
-        composed = preserve_ground_in_runtime_res_vitals(legacy, vitals)
+        return preserve_ground_in_runtime_res_vitals(legacy, vitals)
     except MobLootContractError as exc:
-        print("GROUND_VITALS_PRESERVE_REFUSED " + type(exc).__name__)
+        _say("GROUND_VITALS_PRESERVE_REFUSED " + type(exc).__name__)
         if refusals is not None:
             # args[0] is this lane's own reason NAME (mob_loot.py:1082), an
             # ASCII constant -- safe to carry, unlike the message.
             refusals.append(str(exc.args[0]) if exc.args else "UNNAMED")
-        composed = legacy.make_runtime_vitals(vitals)
+        return legacy.make_runtime_vitals(vitals)
+
+
+def make_scene007_action_ack(legacy, fields, performer_identity: int,
+                             refusals=None, *, environ=None):
+    """Build one ActionVital; only performer differs from the audited request.
+
+    ``environ``: the mapping the ``ATTACK-POSE-ONE-FIELD-AB-001`` trial gate
+    reads instead of the process environment.  For tests only; the runtime
+    call site does not pass it, and with it absent the gate reads
+    ``os.environ`` exactly as an attended boot does.  "Only performer
+    differs" above stays literally true on every unarmed boot: see
+    ``pose_trial.selector_for_reply``, which returns the request's own
+    ``+0x30`` and no console line while ``PF_POSE_TRIAL`` is unset.
+    """
+    # ATTACK-POSE-ONE-FIELD-AB-001 (COO-DECISION 20260904_2141).  The ONE
+    # field the trial may move, and it moves nowhere unless an owner armed
+    # PF_POSE_TRIAL in this process.  The line is computed here and PRINTED
+    # AT THE EXIT below, after a frame exists: an earlier version printed
+    # here, and pf-adversary pointed out (D5) that the composer below can
+    # propagate anything that is not MobLootContractError, which would leave
+    # the attended log claiming a selector for a frame that was never sent.
+    action_selector, pose_line = pose_trial.selector_for_reply(
+        fields["action_u32_30"], environ,
+    )
+    composed = build_action_vital_echo(
+        legacy, fields, performer_identity, action_selector, refusals,
+    )
     _say(pose_line)
     return composed
+
+
+def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
+                                  hit_number: int, *, environ=None):
+    """``(pc, frame)`` for one extra ActionVital echo on an accepted
+    production mob-combat hit, or ``None`` -- compose and send NOTHING.
+
+    ``ATTACK-POSE-ONE-FIELD-AB-001``, routed by ``COO-DECISION 20260905_0248``
+    to the ORDINARY, unflagged ``_dispatch_mob_combat`` path instead of the
+    SCENE-007 scenario gate above: ``GT-247``'s own R314 result measured that
+    route dead twice over (``is_scene_remote_hostile_target`` wants
+    ``vital_count == 1`` and the real client's ActionVital always carries
+    TargetPos alongside it; separately, the head of ``main`` cannot even
+    boot ``--scene-load-scenario`` right now -- ``COO-DECISION
+    20260905_0250``).
+
+    Returns ``None`` on an unset or malformed ``PF_POSE_TRIAL`` -- the
+    inherited v141 dispatch already echoed this exact request's own
+    ``+0x30`` back before ``_dispatch_mob_combat`` ever ran (see that
+    method's own docstring: it is called UNCONDITIONALLY and ADDITIVELY
+    after ``super().dispatch(parsed)``), so an unarmed or misconfigured
+    boot must ship NOTHING beyond what main already sends today -- not a
+    second, byte-identical echo of the same frame.
+
+    ``hit_number``: the caller's own count of accepted hits this session
+    (``state.mob_combat_hit_count``, already incremented for the hit this
+    call answers), 1-indexed, and the only state this function or
+    ``pose_trial.selector_for_hit`` carries across hits -- the list index
+    is derived from it, not from any counter this module keeps itself.
+    """
+    action_selector, pose_line = pose_trial.selector_for_hit(
+        hit_number, environ,
+    )
+    if pose_line is not None:
+        _say(pose_line)
+    if action_selector is None:
+        return None
+    return build_action_vital_echo(
+        legacy, fields, performer_identity, action_selector,
+    )

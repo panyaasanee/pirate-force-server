@@ -561,6 +561,42 @@ class TheDurableDoorTests(unittest.TestCase):
             ground.restore_scene_ground(store, "bg0002", world=empty), "")
         self.assertEqual(empty.standing("bg0002"), ())
 
+    def test_the_real_store_is_the_marker_now_landed_not_a_stand_in(self):
+        """LANE-B round yqbwri, COO-DECISION 20260905_0247 item 2.
+
+        `test_the_restore_half_works_the_day_the_marker_lands` above used a
+        hand-built stub on purpose, so it would not flip the day LANE-DB's
+        `mark_ground_drop_taken`/`list_ground_drops_still_on_the_ground`
+        landed on `main`.  That day is this round: `self.store` (a real
+        `SQLiteStore`) now carries both.  This is `COO-DECISION
+        20260905_0247`'s "``rehydrate_from_store(store, scene_id)``" --
+        already built, under the name this module already gave it, and
+        working the moment the door it was waiting for opened.  No second
+        function is added; this proves the existing one is the answer.
+        """
+        real = self.store
+        self.assertTrue(ground.restore_door_is_open(real))
+        ground.persist_generation(real, (a_drop(0x00100010), a_drop(0x00100011)))
+        real.mark_ground_drop_taken("bg0002", 0x00100011)
+
+        world = ground.WorldGround(clock=_Clock())
+        self.assertEqual(
+            ground.restore_scene_ground(real, "bg0002", world=world), "")
+        self.assertEqual(
+            [row.drop_key for row in world.standing("bg0002")],
+            [0x00100010],
+            "the taken row must not come back; only the standing one does",
+        )
+
+        cell = mob_loot.DropLedgerCell(clock=_Clock(), scene="bg0002")
+        outcome = ground.seed_cell(cell, world=world)
+        self.assertFalse(outcome.reason)
+        self.assertEqual(
+            [row.drop_key for row in cell.publication()[1].drops],
+            [0x00100010],
+            "the durable floor must reach a fresh session's own cell too",
+        )
+
 
 class TheKillSeamTests(unittest.TestCase):
     """`mob_drop_presence.sustain_a_kill` fills the world, and only reports."""

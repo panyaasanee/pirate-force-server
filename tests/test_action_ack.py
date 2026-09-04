@@ -253,4 +253,98 @@ class ActionAckPreserveOptInTests(ActionAckTests):
    ack_mod.preserve_ground_in_runtime_res_vitals=original
   self.assertNotIn("GROUND_VITALS_PRESERVE_REFUSED",buf.getvalue())
 
+class ProductionHitPoseEchoTests(unittest.TestCase):
+ """``make_production_hit_pose_echo``, unit-level: COO-DECISION 20260905_0248's
+ production ``_dispatch_mob_combat`` composer, factored through the same
+ ``build_action_vital_echo`` this file's SCENE-007 tests already exercise.
+ ``tests/test_pose_trial_production_hit_wiring.py`` drives the real
+ dispatcher end to end; this class is the composer alone, fields supplied
+ directly."""
+ def setUp(self):
+  self.v=load_legacy(ROOT/"current/pf_login_game_server_v141.py")
+  self.fields={"field_qword_20":0x203D,"field_qword_28":0,"action_u32_30":0xEA7D,
+   "field_u32_34":0,"heading_f32_38":1.25,"x_f32_3c":2.5,"y_f32_40":3.5,
+   "z_f32_44":4.5,"field_u8_48":0,"field_u16_4a":1,"field_u8_4c":0}
+ def test_unset_returns_none_and_prints_nothing(self):
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   result=make_production_hit_pose_echo(self.v,self.fields,7,1,environ={})
+  self.assertIsNone(result)
+  self.assertEqual(buf.getvalue(),"")
+ def test_armed_composes_through_the_shared_encoder(self):
+  from pirateforce_foundation.action_ack import (
+   make_production_hit_pose_echo, build_action_vital_echo)
+  import io,contextlib
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   pc,frame=make_production_hit_pose_echo(
+    self.v,self.fields,7,3,environ={"PF_POSE_TRIAL":"280,284"})
+  self.assertEqual(buf.getvalue().strip(),"POSE_TRIAL sent=280 hit=3")
+  expected_pc,expected_frame=build_action_vital_echo(self.v,self.fields,7,280)
+  self.assertEqual((pc,frame),(expected_pc,expected_frame))
+  self.assertEqual(frame,self.v.frame_pc(pc))
+ def test_malformed_returns_none_but_still_prints_the_refusal(self):
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   result=make_production_hit_pose_echo(
+    self.v,self.fields,7,5,environ={"PF_POSE_TRIAL":"nope"})
+  self.assertIsNone(result)
+  self.assertEqual(buf.getvalue().strip(),"POSE_TRIAL_REFUSED malformed hit=5")
+ def test_a_ground_preserve_refusal_ships_original_bytes_through_this_path_too(self):
+  # pf-adversary (round yqbwri): GROUND_VITALS_PRESERVE_REFUSED used to be
+  # reachable only through the SCENE-007 scenario gate, which GT-247's own
+  # R314 result measured dead on a real client.  This function is the NEW,
+  # always-live route to the same except branch in build_action_vital_echo
+  # -- this pins that a refusal on THIS path still ships the fallback bytes
+  # and still says so, exactly as the scenario path's own test above pins.
+  import io,contextlib
+  from pirateforce_foundation import action_ack as ack_mod
+  from pirateforce_foundation.mob_loot import (
+   MobLootContractError,REFUSE_VITALS_COMPOSER_MOVED,
+   RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN)
+  def refuse(legacy,vitals): raise MobLootContractError(REFUSE_VITALS_COMPOSER_MOVED,"forced")
+  original=ack_mod.preserve_ground_in_runtime_res_vitals
+  ack_mod.preserve_ground_in_runtime_res_vitals=refuse
+  try:
+   buf=io.StringIO()
+   with contextlib.redirect_stdout(buf):
+    pc,frame=ack_mod.make_production_hit_pose_echo(
+     self.v,self.fields,7,1,environ={"PF_POSE_TRIAL":"280"})
+  finally:
+   ack_mod.preserve_ground_in_runtime_res_vitals=original
+  self.assertEqual(len(pc),86)
+  self.assertTrue(pc.endswith(RUNTIME_RES_EMPTY_DERIVED_TAIL_PIN))
+  printed=buf.getvalue()
+  self.assertIn("POSE_TRIAL sent=280 hit=1",printed)
+  self.assertIn("GROUND_VITALS_PRESERVE_REFUSED MobLootContractError",printed)
+ def test_a_dead_console_during_that_refusal_does_not_kill_the_call(self):
+  # THE FIX pf-adversary's finding asked for: this except branch used to be
+  # a bare print(), which raises ValueError/BrokenPipeError on a closed or
+  # broken stdout -- and the frozen listener thread has zero except
+  # handlers to catch it.  Wiring this composer into the always-live
+  # _dispatch_mob_combat made that reachable from production for the first
+  # time.  Now routed through _say, same as every other console line this
+  # module prints.
+  import contextlib
+  from pirateforce_foundation import action_ack as ack_mod
+  from pirateforce_foundation.mob_loot import (
+   MobLootContractError,REFUSE_VITALS_COMPOSER_MOVED)
+  def refuse(legacy,vitals): raise MobLootContractError(REFUSE_VITALS_COMPOSER_MOVED,"forced")
+  original=ack_mod.preserve_ground_in_runtime_res_vitals
+  ack_mod.preserve_ground_in_runtime_res_vitals=refuse
+  class _DeadStdout:
+   def write(self,_text): raise BrokenPipeError("pipe closed")
+   def flush(self): pass
+  try:
+   with contextlib.redirect_stdout(_DeadStdout()):
+    pc,frame=ack_mod.make_production_hit_pose_echo(
+     self.v,self.fields,7,1,environ={"PF_POSE_TRIAL":"280"})
+  finally:
+   ack_mod.preserve_ground_in_runtime_res_vitals=original
+  self.assertEqual(len(pc),86)
+
 if __name__=="__main__": unittest.main()
