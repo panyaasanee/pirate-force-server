@@ -168,6 +168,72 @@ class TheLatchCapsOneResendPerGenerationTests(LatchTestBase):
             self.cell, self.legacy, _Step(False))
         self.assertEqual(third, ())
 
+    def test_an_expiry_nothing_else_has_swept_yet_still_reopens_the_latch(
+            self):
+        # pf-adversary (round yqbwri, second pass): every OTHER generation
+        # read on DropLedgerCell sweeps first; the first cut of this latch
+        # did not, so an expiry nothing else had yet swept looked like "no
+        # change" and the reannounce meant to catch it never fired.
+        self.kill()
+        first = reannounce_ground_after_a_surviving_blow(
+            self.cell, self.legacy, _Step(False))
+        self.assertTrue(first)
+        self.assertFalse(self.cell.surviving_blow_reannounce_due())
+        self.clock.advance(mob_loot.DROP_LIFETIME_SECONDS + 1.0)
+        self.assertTrue(
+            self.cell.surviving_blow_reannounce_due(),
+            "an expiry must reopen the latch even before anything else "
+            "has swept this cell",
+        )
+        self.console.lines.clear()
+        # The floor really is empty after the expiry, so the compose has
+        # nothing to encode -- loot_actions() correctly returns () for a
+        # zero-row generation (test_a_bare_floor_is_checked_and_said_not_
+        # silent already pins this for the sibling case).  What this test
+        # is about is that the compose ran and consumed the latch, not
+        # that it had bytes to send.
+        second = reannounce_ground_after_a_surviving_blow(
+            self.cell, self.legacy, _Step(False))
+        self.assertEqual(second, ())
+        said = self.console.with_token(GROUND_SURVIVING_BLOW_TOKEN)
+        self.assertEqual(len(said), 1, self.console.lines)
+        self.assertIn("items=0", said[0])
+        self.assertFalse(
+            self.cell.surviving_blow_reannounce_due(),
+            "a real compose (even of an empty floor) must consume the latch",
+        )
+
+    def test_a_scene_switch_with_no_kill_is_due_for_the_new_scene(self):
+        # pf-adversary (round yqbwri, second pass): DropLedger.generation
+        # counts the WHOLE cross-scene ledger, so walking to a different
+        # scene without a kill leaves it unchanged even though this cell
+        # has never told a client about the new scene's floor -- Way-1
+        # scene semantics keep more than one scene's ground standing at
+        # once, so this is not a hypothetical.
+        self.kill()
+        told = reannounce_ground_after_a_surviving_blow(
+            self.cell, self.legacy, _Step(False))
+        self.assertTrue(told)
+        self.assertFalse(self.cell.surviving_blow_reannounce_due())
+        self.cell.enter_scene("bg0003")
+        self.assertTrue(
+            self.cell.surviving_blow_reannounce_due(),
+            "a different scene's floor has never been told and must be due",
+        )
+
+    def test_returning_to_a_told_scene_at_the_same_generation_stays_told(
+            self):
+        self.kill()
+        reannounce_ground_after_a_surviving_blow(
+            self.cell, self.legacy, _Step(False))
+        self.cell.enter_scene("bg0003")
+        self.assertTrue(self.cell.surviving_blow_reannounce_due())
+        self.cell.enter_scene(SCENE)
+        self.assertFalse(
+            self.cell.surviving_blow_reannounce_due(),
+            "this scene's floor at this generation was already told once",
+        )
+
     def test_a_fatal_blow_never_consumes_the_survivor_latch(self):
         # The death branch is refused BY NAME before the latch is even
         # consulted (test_mob_drop_presence_surviving_blow.py already pins
@@ -256,6 +322,36 @@ class DropLedgerCellLatchMethodTests(unittest.TestCase):
         # suppressed.
         cell = mob_loot.DropLedgerCell(clock=self.clock)
         self.assertTrue(cell.surviving_blow_reannounce_due(0))
+
+    def test_a_cell_with_no_scene_is_a_key_of_its_own(self):
+        # A cell built with no scene (scene=None) must not be confused with
+        # one at a real scene whose key happens to render the same way --
+        # this pins that the None-scene case has its own slot in the key.
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        cell.note_surviving_blow_reannounced()
+        self.assertFalse(cell.surviving_blow_reannounce_due())
+        cell.enter_scene("bg0002")
+        self.assertTrue(
+            cell.surviving_blow_reannounce_due(),
+            "a real scene must not inherit the no-scene cell's latch",
+        )
+
+    def test_two_different_scenes_at_the_same_generation_are_different_keys(
+            self):
+        # DropLedger.generation is one counter for the WHOLE cell, shared
+        # across every scene it ever points at.  Two scenes that have
+        # never had a kill both sit at generation 0 -- a latch keyed on
+        # the bare generation could not tell them apart.
+        cell = mob_loot.DropLedgerCell(clock=self.clock, scene="bg0002")
+        self.assertEqual(cell.publication_and_sweep()[1].generation, 0)
+        cell.note_surviving_blow_reannounced()
+        self.assertFalse(cell.surviving_blow_reannounce_due())
+        cell.enter_scene("bg0003")
+        self.assertEqual(cell.publication_and_sweep()[1].generation, 0)
+        self.assertTrue(
+            cell.surviving_blow_reannounce_due(),
+            "generation 0 in a different scene is not the same floor",
+        )
 
 
 if __name__ == "__main__":
