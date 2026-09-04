@@ -967,18 +967,70 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
     # ``test_bg0015_is_measurable_...`` below for why that stays an
     # explicit, test-only argument rather than joining the default set.
 
-    def test_default_set_is_the_two_live_known_scenes_only(self) -> None:
-        # Bg0015 is deliberately NOT in the default: COO-DECISION
-        # 2026-08-26T12:46+07:00 keeps field_mob_tables_bg0015 unimported
-        # anywhere under src/pirateforce_foundation/, so this function's own
-        # module-level default cannot reference it either.
-        # ROUND 8ftmbx: ~~four bg0001 x Bg0002 pairs~~ -> none.  All four
-        # were bg0001 rows COO-DECISION 2026-08-29T00:41+07:00 withdrew.  The
-        # report is not broken by having nothing to report; that is what a
-        # report does when there is nothing there, and the tests below still
-        # exercise it on data that does collide.
-        collisions = cross_scene_identity_collisions()
-        self.assertEqual(collisions, ())
+    def test_default_set_is_every_registered_scene(self) -> None:
+        """~~test_default_set_is_the_two_live_known_scenes_only~~
+
+        RENAMED AND TURNED AROUND, round jqeo2m, because the name and the
+        assertion had both become false and the falsehood was the dangerous
+        kind: a GREEN test pinning ``count=0`` on an instrument whose whole
+        job is to report collisions, while three existed.
+
+        ~~Bg0015 is deliberately NOT in the default: COO-DECISION
+        2026-08-26T12:46+07:00 keeps field_mob_tables_bg0015 unimported
+        anywhere under src/pirateforce_foundation/.~~ That gate was lifted by
+        COO-DECISION 20260903_1942 item 2, which registered Bg0015; the
+        default tuple simply never followed, and round jqeo2m -- which
+        registered scene 5 and thereby created two of the three collisions --
+        is where that was measured and fixed.
+
+        The default is DERIVED from ``_SCENE_TABLE_MODULES`` now, so this
+        test asserts the derivation rather than a count: it cannot go stale
+        again the next time a scene is registered, and a collision appearing
+        or disappearing shows up in the two cards below that name the pairs.
+        """
+        modules = list(field_mobs._SCENE_TABLE_MODULES.values())
+        self.assertEqual(
+            set(field_mobs._KNOWN_SCENE_TABLE_MODULES_FOR_REPORTING),
+            set(modules),
+        )
+        # Compared as SETS: the derived default is ordered by scene name and
+        # the registry by insertion, so the pair ORDER of the report differs
+        # while the findings are the same set.  What this card is about is
+        # which scenes get compared, not the order the lines print in.
+        # The PAIR is unordered here too: which scene lands in ``scene_a``
+        # follows the order the modules were handed in, so comparing the two
+        # calls on ordered pairs would fail on a difference that is not a
+        # finding.  The ordered spelling IS pinned, for the default call
+        # only, in test_the_collisions_this_project_actually_has_today.
+        def _key(rows):
+            return {
+                (row["actor_identity"], frozenset(
+                    (row["scene_a"], row["scene_b"])))
+                for row in rows
+            }
+
+        self.assertEqual(
+            _key(cross_scene_identity_collisions()),
+            _key(cross_scene_identity_collisions(modules)),
+        )
+
+    def test_the_collisions_this_project_actually_has_today(self) -> None:
+        """Named pairs, not a count, so one appearing or disappearing says
+        WHICH.  All three are placement-index coincidences between scenes
+        (``actor_identity`` is ``0x2000 + placement + 1`` with no scene
+        term); pf-adversary round jqeo2m walked strike, ledger, rehydration,
+        death and loot and found every one of them scene-scoped, so these
+        are reported, not exploitable.  A FOURTH appearing is a reason to
+        walk that list again, which is why this card names them."""
+        got = {
+            (row["actor_identity"], row["scene_a"], row["scene_b"])
+            for row in cross_scene_identity_collisions()
+        }
+        self.assertEqual(got, {
+            (0x2058, "Bg0002", "Bg0015"),
+            (0x203C, "Bg0002", "bg0005"),
+            (0x2047, "Bg0015", "bg0005"),
+        })
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(
             self) -> None:
@@ -1222,8 +1274,16 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # ROUND 8ftmbx: ~~count=4~~ -> count=0; the four were withdrawn
         # bg0001 rows.  The line still has to be PRINTED, which is what
         # test_describe_reports_zero_by_name_not_by_absence is about.
+        # ROUND jqeo2m: ~~count=0~~ -- and this hand-typed literal is exactly
+        # how a green test came to pin a false zero for several rounds while
+        # the default module tuple fell behind the registry.  DERIVED from
+        # the collisions the same call returns now; the pairs themselves are
+        # named in test_the_collisions_this_project_actually_has_today, which
+        # is where a real change should show up.
         self.assertEqual(
-            lines[0], "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=0")
+            lines[0],
+            "FIELD_MOB_CROSS_SCENE_IDENTITY_COLLISIONS count=%d"
+            % len(collisions))
         self.assertEqual(len(lines), 1 + len(collisions))
         for line in lines:
             self.assertTrue(line.isascii())

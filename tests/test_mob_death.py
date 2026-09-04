@@ -1706,10 +1706,38 @@ class MobDeathTests(unittest.TestCase):
         # WIDENED_BG0001_RULING, template 34 by WIDENED_BG0002_RULING), so
         # this still drives the collision all the way through kill() rather
         # than only through the register's own API.
+        # ROUND jqeo2m: real cross-scene collisions DO exist again -- three
+        # of them -- and this guard used to read "there are none".  It was
+        # green for the wrong reason: the reporting default had fallen
+        # behind ``_SCENE_TABLE_MODULES``, so the instrument answered zero
+        # while Bg0015's registration had already created 0x2058 and scene
+        # 5's added 0x203C and 0x2047.
+        #
+        # The guard's own instruction was "build this test on that pair
+        # instead of on a stand-in", and this round CANNOT: driving the
+        # collision through ``kill()`` needs BOTH sides authorised by a
+        # landed ruling, and every real pair today has at least one side
+        # nobody has authorised killing (Carlos 924, and all six bg0005
+        # templates).  So the constructed pair stays, and the guard is
+        # rewritten to say the thing that is actually true and to expire
+        # itself: the day a ruling lands that makes a real pair usable, this
+        # fails and the next round builds the card on it.  DERIVED, never a
+        # hand-typed list.
+        def _has_a_ruling(template_id):
+            return any(
+                template_id in templates
+                for templates in mob_death.WIDENING_RULINGS.values()
+            )
+
+        usable = [
+            row for row in field_mobs.cross_scene_identity_collisions()
+            if _has_a_ruling(row["template_a"]) and _has_a_ruling(
+                row["template_b"])
+        ]
         self.assertEqual(
-            field_mobs.cross_scene_identity_collisions(), (),
-            "a real cross-scene collision exists again: build this test on "
-            "that pair instead of on a stand-in")
+            usable, [],
+            "a real cross-scene collision now has an owner ruling on BOTH "
+            "sides: build this test on that pair instead of on a stand-in")
         bg0001_mob = self.mob
         bg0002_real = [m for m in self.bg0002_roster if m.template_id == 34][0]
         bg0002_mob = field_mobs.FieldMob(

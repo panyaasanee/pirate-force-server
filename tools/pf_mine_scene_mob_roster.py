@@ -670,11 +670,28 @@ def verify_frozen(gamedata: Path, legacy_path: Path) -> tuple[int, int]:
     one control this whole tool's credibility rests on, by its own docstring
     -- could not be run at all, and the two scenes mined since were mined
     without it.  Nothing caught it because no test calls this function and
-    the flag is off by default.  Unpacked positionally with ``*_`` now, so a
-    NINTH element cannot break it a second time; ``tests/
-    test_pf_mine_scene_mob_roster_verify_frozen.py`` calls it directly so the
-    next time it does break, a test says so instead of a lane finding out by
-    typing the flag.
+    the flag is off by default.
+
+    It reads the first six columns BY INDEX now, so appending a ninth
+    element cannot break it a second time.  Two corrections to what the
+    first draft of this paragraph claimed, both from pf-adversary in this
+    same round -- a docstring describing code that is not there is the exact
+    defect this block exists to complain about:
+
+    * it does NOT unpack with ``*_``; it indexes ``row[0]``..``row[5]``.
+      That is safe against an APPEND and NOT against a COLUMN REORDER, which
+      the old fixed-arity unpack would at least have raised on.  A reorder
+      would surface as row mismatches against the frozen table rather than
+      silently, so this is the weaker guard of the two -- deliberately, and
+      saying so is the point;
+    * the caller is ``tests/test_field_mob_tables_bg0005.py::
+      Bg0005RegenerateTests::test_verify_frozen_runs_at_all_and_reproduces_
+      bg0001``.  There is no
+      ``tests/test_pf_mine_scene_mob_roster_verify_frozen.py`` and there
+      never was.  That caller is gated on the bridge clone
+      (``[precondition:bridge_gamedata]``), so it does NOT execute on the
+      Windows gate -- the same condition that let this bug live through two
+      scenes, and not something this round fixes.
     """
     import ast
 

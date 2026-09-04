@@ -77,13 +77,21 @@ CONTROL_TARGET = 0x2000 + field_mobs.CONTROL_PLACEMENT_INDEX + 1
 # roster; the scene gaining one is progress, not a regression).  DERIVED now,
 # from the same two readers the test itself calls, so the next scene this lane
 # arms simply moves the choice along instead of turning this file red.
-TABLELESS_SCENE_ID = next(
+#
+# pf-adversary, same round: a bare ``next(...)`` raises ``StopIteration`` at
+# COLLECTION time if every addressed scene ever goes live -- a module-level
+# error with no name on it, in a file about named refusals.  ``None`` and a
+# skip in ``setUp`` would hide it; a default plus an explicit assertion in
+# the one test that reads it says which condition ended, so the round that
+# mines the last tableless scene gets a sentence instead of a traceback.
+_TABLELESS_CANDIDATES = tuple(
     scene_id
     for scene_id, _folder in world_scene_folder._FOLDER_BY_SCENE_ID
     if world_scene_folder.scene_folder_for_scene_id(scene_id) is not None
     and world_scene_folder.scene_folder_for_scene_id(scene_id)
     not in field_mobs.live_scenes()
 )
+TABLELESS_SCENE_ID = _TABLELESS_CANDIDATES[0] if _TABLELESS_CANDIDATES else None
 # No registry row addresses this id; world_scene_folder answers None.
 UNADDRESSED_SCENE_ID = 9999
 
@@ -411,6 +419,13 @@ class SceneScopedCombatWiringTests(unittest.TestCase):
     # ----- addressed scene, no mined table: truthfully empty -------------
 
     def test_an_addressed_tableless_scene_answers_over_an_empty_roster(self):
+        self.assertIsNotNone(
+            TABLELESS_SCENE_ID,
+            "every addressed scene now has a mined roster, so this test has "
+            "no subject left -- that is a milestone, not a failure, but it "
+            "needs a round to decide what replaces this card rather than "
+            "letting the module raise StopIteration at collection time",
+        )
         state = self._state("ssc_tableless")
         self._move_to_scene(state, TABLELESS_SCENE_ID)
         folder = world_scene_folder.scene_folder_for_scene_id(
