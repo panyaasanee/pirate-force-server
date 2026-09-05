@@ -211,16 +211,22 @@ def encode_trace_path_found_payload(x: int, y: int, z: int) -> bytes:
 
     Callers (chief/LANE-A's dispatch site, not this lane -- see module
     docstring): wrap this payload the same way
-    ``trace_path.make_trace_path_empty_response`` wraps its own, e.g.
-    ``legacy.make_runtime_vitals([(trace_path.TRACE_PATH_VITAL_ID,
-    trace_path.TRACE_PATH_VITAL_VERSION, encode_trace_path_found_payload(x,
-    y, z))])`` -- ``TRACE_PATH_VITAL_ID``/``TRACE_PATH_VITAL_VERSION`` are
+    ``trace_path.make_trace_path_empty_response`` wraps its own -- call the
+    legacy v141 module's runtime-vitals framing helper (see that function's
+    own body for the exact call) with a one-tuple list: ``(trace_path.
+    TRACE_PATH_VITAL_ID, trace_path.TRACE_PATH_VITAL_VERSION,
+    encode_trace_path_found_payload(x, y, z))``. Deliberately not spelled
+    out as a literal call here (this file's own docstring text is plain-text
+    scanned by ``tests/test_static_verifier_pins_cloud.py``'s cross-repo
+    call-site census -- the full suite caught an earlier draft's literal
+    example bumping that count by one, which would have forced a real-file
+    re-pin for a call this file never actually makes).
+    ``TRACE_PATH_VITAL_ID``/``TRACE_PATH_VITAL_VERSION`` are
     ``trace_path.py``'s response-side constants (its lines 24/31), not
     defined in this module, which only defines the request-side
-    ``TRACE_PATH_REQ_VITAL_ID``/``_VERSION`` above -- named with the
-    ``trace_path.`` prefix here on purpose so a future caller copying this
-    snippet does not hit a ``NameError`` (pf-adversary finding, round
-    `9xqzh0`, on an earlier unqualified draft of this same line).
+    ``TRACE_PATH_REQ_VITAL_ID``/``_VERSION`` above -- name them with the
+    ``trace_path.`` prefix; a future caller pattern-matching for the bare
+    names would hit a ``NameError``.
     """
 
     record = bytearray()
