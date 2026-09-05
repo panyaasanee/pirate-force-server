@@ -15,11 +15,16 @@ rows mix real tags with ten ``CALL_UNCLASSIFIED``/``PE_IMPORT_*`` entries
 per direction and are therefore NOT implemented here.
 
 Grepped first, per ``AGENTS.md`` section 7's mandatory search: no hit for
-``TreasureHunt`` in ``CLIENT_RE_QUEUE.md``, ``GAME_TEST_QUEUE.md``,
-``notes_to_chief/`` (outside the unrelated ``reference_codex_attr/`` static
-census files), or ``archive/`` (one unrelated drop-transport checkpoint) --
-this catalog group has no open RE/GT ticket and no prior wire module in
-``src/``.
+``TreasureHunt`` in ``CLIENT_RE_QUEUE.md`` or ``GAME_TEST_QUEUE.md``. Hits
+elsewhere are all about a different, unrelated class family
+(``ActorTreasureHuntExcavatingInfoAttr``/a ``TreasurePointAttr``) rejected
+as a false lead in a separate ground-drop-transport investigation, not
+about either wire class implemented here: ``notes_to_chief/reference_codex_
+attr/`` (static census files), ``notes_to_chief/reference_codex_audit/
+Pirate_Force_Codex_Audit_Recommendations.md``, ``notes_to_chief/consumed/
+20260831_2329_CODEX-CHECKPOINT-P06-DROP-TRANSPORT.md``, and the matching
+``archive/`` copy of that same checkpoint. This catalog group has no open
+RE/GT ticket and no prior wire module in ``src/``.
 
 Tag widths used below are each independently confirmed elsewhere in this
 project, not invented here: ``0x12`` = u16 (``CLIENT_RE_QUEUE.md:54``,
