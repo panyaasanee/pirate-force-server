@@ -918,6 +918,62 @@ class DoubleWarpTests(RealDatabaseTests):
         )
         self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
 
+    def test_a_first_warp_with_no_row_carries_row_and_label_as_one_pair(self):
+        """pf-adversary D5 (round `w7gah1`, MEASURED): the row and the label
+        used to carry forward on two INDEPENDENT `is not None` conditions,
+        even though they describe the SAME moment.  That is not symmetric on
+        a first-ever warp: `previous_position` is routinely `None` (no
+        `character_positions` row exists yet) while `previous_selected_
+        scene_id` is almost always a real int (the character has to be
+        SOMEWHERE to compose a warp) -- the two conditions do not fail
+        together.
+
+        Before the fix, a SECOND unconfirmed warp on the same connection
+        carried the label from `standing` (the TRUE original scene) but read
+        a FRESH `previous_position` off the row the first warp's own write
+        had already created -- the FIRST warp's destination, not "no row at
+        all".  `on_game_frame_send_failed` then saw a real `Position` and
+        rolled the durable row back to the FIRST warp's destination while
+        restoring the in-memory label to the character's real original
+        scene: two different scenes for what must be one undo.
+        """
+        session = self._session("double12")
+        route = self._gm_route(session)
+        with mock.patch.object(
+            chat_command_action, "row_before_warp", return_value=None,
+        ):
+            route(f"/warp {DESTINATION_SCENE}")
+        first_park = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertIsNone(first_park.previous_position)
+        original_label = first_park.previous_selected_scene_id
+        self.assertIsInstance(original_label, int)
+        # The mocked "no previous row" did not stop the real write: the
+        # first warp's destination really is in the database now, which is
+        # exactly the row a buggy carry-forward would read for the second
+        # park.
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
+        second = route("/warp 3")
+        second_park = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertIsNone(
+            second_park.previous_position,
+            "the pair must carry forward together: the true original had "
+            "NO row, and a fresh read off the first warp's own destination "
+            "row is not that fact",
+        )
+        self.assertEqual(second_park.previous_selected_scene_id, original_label)
+
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            warp_send_watch.on_game_frame_send_failed(
+                session, bytes(second[2]), OSError("connection reset"),
+            )
+        # The delegate path restored the label to the true original and then
+        # rolled the durable row back to THAT scene -- never to the first
+        # warp's destination, which the buggy pairing would have named.
+        self.assertEqual(self._row(session).scene_id, original_label)
+        self.assertNotEqual(self._row(session).scene_id, DESTINATION_SCENE)
+
 
 class CrossThreadObserverTests(RealDatabaseTests):
     """R348's own question, answered by measurement rather than argument.
