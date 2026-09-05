@@ -42,7 +42,7 @@ SCENE_SEQUENCE = 0
 WIRED_SCENES = (
     "bg0003", "bg0004", "bg0005", "bg0006", "bg0007", "bg0008",
     "bg0009", "bg0010", "bg0011", "bg0015", "bg1001", "bg3001", "bg3007",
-    "bg4001",
+    "bg3008", "bg4001",
 )
 
 # bg0001 and bg0002 are wired too but are not in the loop above: bg0002's
@@ -95,6 +95,11 @@ CENSUS_SOURCE_COMPOSERS = {
     # is (MOBS.n_LEVEL_MIN -> STANDARD_MOB), and its levels really do vary
     # (1, 110, 120), which the cross-scene loop asserts.
     "bg3007_roster": "world_population_bg3007",
+    # ADDED round 9zj630 (LANE-A): scene 305, the Pale Silver Sea - the
+    # third ocean panel.  Same mined level column as every scene above
+    # (MOBS.n_LEVEL_MIN -> STANDARD_MOB), and its levels really do vary
+    # (1, 110, 120), which the cross-scene loop asserts.
+    "bg3008_roster": "world_population_bg3008",
 }
 
 # A live census source that deliberately sends no level, and why.  Empty on

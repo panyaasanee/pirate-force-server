@@ -189,6 +189,10 @@ ATLANTIS = 126
 # The Dark Fog Sea, scene 304: this lane's fourteenth composer (round
 # `yob0a2`), admitted by the third arm rather than by its registry door.
 DARK_FOG_SEA = 304
+# The Pale Silver Sea, scene 305: the fifteenth composer (round `9zj630`),
+# the OTHER scene of the same decreed pair and admitted by the SAME third
+# arm, which is why it is asked the same way 304 is below.
+PALE_SILVER_SEA = 305
 # ~~36~~ 37 since COO-DECISION 20260902_2146 shape 1 (round `gx7xtp`) put
 # the Thai-named Mob-Set 56 back on the roster.  Left as a literal rather
 # than read off the census module: this constant exists so a silent change
@@ -416,9 +420,20 @@ class TheAdmissionCheckIsTheGateTests(unittest.TestCase):
         # is again the state where NO arm says yes.  ``tests/
         # test_lane_a_scene_census_bg3007.py`` drives the third arm's own
         # gate directly, including with the arm patched to False.
+        #
+        # SCENE 305 JOINS THEM, round ``9zj630``, on the same terms and NOT
+        # as an exemption bought to make this test green.  It is the other
+        # scene of the same decreed pair, admitted by the same third arm,
+        # so "shut its door" is the same no-op it is for 304 - and the
+        # compensating check exists in the same shape: ``tests/
+        # test_lane_a_scene_census_bg3008.py::test_it_declines_the_moment_
+        # the_arm_says_no`` drives THIS scene's composer with the third arm
+        # patched to False and asserts it sends nothing.  If that test is
+        # ever deleted or weakened, 305 must come back out of this tuple:
+        # a scene may sit here only while something else refuses it.
         for scene_id in lane_a.scenes_this_lane_composes_for():
             with self.subTest(scene=scene_id):
-                if scene_id in (ATLANTIS, DARK_FOG_SEA):
+                if scene_id in (ATLANTIS, DARK_FOG_SEA, PALE_SILVER_SEA):
                     refusing, _ = _registry_without_scene(
                         Path(self._work.name), scene_id)
                 else:
