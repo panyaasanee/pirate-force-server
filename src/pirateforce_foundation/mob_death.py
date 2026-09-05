@@ -180,7 +180,7 @@ raise :class:`MobDeathContractError` with a NAMED reason.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import re
 import struct
@@ -1368,6 +1368,13 @@ REFUSE_TYPE_NOT_TYPED_RECORD = "type_not_typed_record"
 REFUSE_IDENTITY_NOT_POSITIVE = "identity_not_positive"
 REFUSE_SCENE_NOT_TEXT = "scene_not_text"
 REFUSE_TIMER_NOT_FINITE = "timer_not_finite"
+#: A grave's ``buried_at`` is either absent (``None``, "this record carries no
+#: clock and therefore never respawns") or a finite, non-negative reading of a
+#: MONOTONIC clock.  Negative is refused rather than accepted-and-ignored: a
+#: negative reading is a caller that handed this lane a delta or a wall-clock
+#: offset, and a grave whose age is computed from one would open early -- the
+#: monster standing back up over the player who has not finished looting it.
+REFUSE_CLOCK_NOT_A_READING = "clock_not_a_monotonic_reading"
 REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE = "timer_wrong_side_of_the_gate"
 REFUSE_LIVE_HP_WITH_A_DEATH_TIMER = "live_hp_with_a_death_timer"
 REFUSE_DEAD_HP_WITHOUT_A_DEATH_TIMER = "dead_hp_without_a_death_timer"
@@ -1436,6 +1443,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_IDENTITY_NOT_POSITIVE,
     REFUSE_SCENE_NOT_TEXT,
     REFUSE_TIMER_NOT_FINITE,
+    REFUSE_CLOCK_NOT_A_READING,
     REFUSE_TIMER_WRONG_SIDE_OF_THE_GATE,
     REFUSE_LIVE_HP_WITH_A_DEATH_TIMER,
     REFUSE_DEAD_HP_WITHOUT_A_DEATH_TIMER,
@@ -1508,6 +1516,30 @@ def _require_scene(value: Any, label: str) -> str:
     return value
 
 
+def _require_clock_reading(value: Any) -> float | None:
+    """``None``, or a finite non-negative monotonic reading.  Nothing else.
+
+    ``bool`` is rejected explicitly for the reason ``WorldDeaths.__init__``
+    gives at its own door: ``isinstance(True, int)`` is True in this
+    language, and ``buried_at=True`` would be a grave one second old on
+    every clock in the process -- one that respawns the moment the delay
+    passes 1.0, with nothing raised anywhere.
+    """
+    if value is None:
+        return None
+    if type(value) is bool or type(value) not in (int, float):
+        raise MobDeathContractError(
+            REFUSE_CLOCK_NOT_A_READING,
+            "buried_at must be None or a number, not %r" % (type(value),))
+    reading = float(value)
+    if not math.isfinite(reading) or reading < 0.0:
+        raise MobDeathContractError(
+            REFUSE_CLOCK_NOT_A_READING,
+            "buried_at must be a finite, non-negative monotonic reading; "
+            "got %r" % (reading,))
+    return reading
+
+
 def _require_timer(value: Any) -> float:
     """The timer AS THE CLIENT WILL READ IT, not as Python holds it.
 
@@ -1564,18 +1596,54 @@ class DeathRecord:
     The key stays ``(scene, actor_identity)`` all the same: what makes a
     collision possible is the identity RULE (``0x2000 + placement + 1``,
     no scene term), not today's count of it.
+
+    ``buried_at`` WAS ADDED BY ROUND ``qamp70`` AND IT IS THE ONLY THING A
+    RESPAWN CAN BE MEASURED AGAINST.  ``mob_death_persistence``'s docstring
+    states the gap in its own words -- "a dead monster is dead until
+    something respawns it, and NOTHING IN THIS TREE RESPAWNS ONE TODAY" --
+    and the round that closes it needs the one fact no structure here
+    recorded: HOW OLD this grave is.  It is a reading of a MONOTONIC clock
+    (never the wall clock: a grave's age must not move because somebody
+    corrected the machine's date, and ``mob_loot`` times the floor off the
+    same clock for the same reason).
+
+    THIS MODULE NEVER FILLS IT IN, AND THAT IS THE PIN, NOT AN OMISSION.
+    ``tests/test_mob_death.py::test_nothing_is_installed_by_importing_this_
+    module`` refuses ``time`` in this file's imports beside ``socket``,
+    ``random`` and ``sqlite3`` -- this lane composes frames from values and
+    must give the same answer twice -- so :func:`kill` leaves the field
+    ``None`` and :func:`mob_respawn.sweep_the_session_register` dates a grave
+    the first time it sees one.  The field lives HERE rather than in a side
+    table in that module for the reason ``scene`` lives here: a grave with
+    its age kept somewhere else is two books that can disagree about one
+    monster, which is the failure this whole area is built to avoid.
+
+    ``compare=False, repr=False`` ON PURPOSE, and the reason is the one this
+    class's own header gives for being a sorted value: two registers built
+    from the same kills must compare equal IN ANY PROCESS.  A monotonic
+    reading is the one field of this record that is different in every
+    process and on every run, so including it in ``__eq__`` would make that
+    promise false for every caller and every test that has ever compared a
+    record it built against one this lane composed -- and would do it
+    silently, since nothing here raises on inequality.  The clock is
+    METADATA ABOUT a grave, not part of WHICH grave it is; ``__hash__``,
+    ``repr`` and the ``(scene, actor_identity)`` sort key stay exactly what
+    they were.  Read it as an attribute (:func:`mob_respawn.age_of` does),
+    never off a repr.
     """
 
     actor_identity: int
     killer_identity: int
     max_hp: int
     scene: str = DEFAULT_SCENE
+    buried_at: float | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         _require_identity(self.actor_identity, "actor identity")
         _require_identity(self.killer_identity, "killer identity")
         _require_int(self.max_hp, "max hp", 1, 0xFFFFFFFF)
         _require_scene(self.scene, "scene")
+        _require_clock_reading(self.buried_at)
         if self.actor_identity == self.killer_identity:
             raise MobDeathContractError(
                 REFUSE_OUTCOME_NAMES_ANOTHER_MONSTER,
@@ -2354,6 +2422,16 @@ def kill(
                 mob.actor_identity, mob.scene),
         )
     _require_int(hold_ms, "hold ms", 0, 60_000)
+    # NO CLOCK IS READ HERE, AND THAT IS A PROPERTY OF THIS MODULE RATHER
+    # THAN AN OMISSION.  ``tests/test_mob_death.py::
+    # test_nothing_is_installed_by_importing_this_module`` refuses ``time``
+    # in this file's imports alongside ``socket``, ``random`` and
+    # ``sqlite3``: this lane composes frames from values and must give the
+    # same answer twice.  So the record leaves here with ``buried_at=None``
+    # and :func:`mob_respawn.sweep_the_session_register` dates it the first
+    # time it sees it -- see that module's own paragraph on what the delay is
+    # measured FROM, which is a consequence of this pin and is stated there
+    # rather than hidden.
     record = DeathRecord(
         mob.actor_identity, outcome.attacker_identity, mob.max_hp, mob.scene)
     dying_pc, dying_frame = dying_frames(
