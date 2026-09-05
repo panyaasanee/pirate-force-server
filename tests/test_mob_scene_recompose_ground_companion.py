@@ -250,7 +250,26 @@ class WiringAskTests(unittest.TestCase):
         call ``ground_companion_actions`` yet -- and its own docstring said
         to flip it in the same PR that adds the call.  This is that PR.
 
-        IT PINS ORDER, NOT JUST PRESENCE, and that is not decoration.
+        WHAT IT DOES AND DOES NOT PIN -- CORRECTED AFTER pf-adversary
+        MEASURED IT (round r045nx, D3).  An earlier version of this docstring
+        claimed "a name scan would pass on every broken arrangement of those
+        two", implying this test would not.  MEASURED FALSE: of five mutants
+        run against the fixed code, this test caught ZERO.  It passed on a
+        bare call whose result is thrown away, on `legacy` replaced by None,
+        on the cell replaced by None, on an unreachable guard, and -- the
+        sharpest one -- on `actions[-1:-1] = list(...)`, which sits
+        lexically after the bar append and satisfies the ordering assertion
+        below while emitting the drop frame BEFORE the bar on the wire.
+        Every one of those five is killed by
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py``, which drives the
+        real dispatcher.  THAT file is this fix's behavioural pin; this test
+        is a redundant SOURCE-SHAPE check that broken code can satisfy, and
+        it is worth keeping only because it fails loudly if the wiring is
+        deleted or re-anchored, which is a different failure mode.  Anyone
+        rewriting the bg0002 test must not assume this one covers it.
+
+        IT PINS SOURCE-LEVEL ORDER, NOT JUST PRESENCE, and that is not
+        decoration.
         ``GROUND_COMPANION_WIRING`` names an anchor inside the
         ``if recompose_record.composed:`` arm, which is right about WHEN the
         companion is due and wrong about WHERE it may be emitted: taken
@@ -269,9 +288,9 @@ class WiringAskTests(unittest.TestCase):
         ``ground_companion_due`` flag set ONLY inside the composed arm (the
         ask's scoping), and the extend itself AFTER the
         ``actions.append(("MOB_COMBAT_BAR", ...))`` statement, in the same
-        block (the ask's intent).  A name scan would pass on every broken
-        arrangement of those two, which is the shape that let a dead-code
-        mutant through twice in this project already.
+        block (the ask's intent).  Both halves are checked below -- but as
+        SOURCE SHAPE only; see the correction paragraph above for the five
+        mutants this check does not catch.
         """
         import ast
 

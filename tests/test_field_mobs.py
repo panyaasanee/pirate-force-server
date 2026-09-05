@@ -907,6 +907,20 @@ class FieldMobTests(unittest.TestCase):
             # is this round's one-line wiring ask
             # (``mob_death_persistence.DEATH_SEED_WIRING``), not a landed
             # call site.
+            # ROUND tz2rgc (lane A) adds world_scene_registry.py: the
+            # per-scene world book (COO-DECISION 20260905_1152 item 2(2)).
+            # It NAMES ``field_mobs`` in one comment only, to record why a
+            # ledger's scene tag has to be checked before its identities
+            # are: identities are ``0x2000 + placement + 1`` with no scene
+            # term, so eight of the fifteen live-scene pairs share one, and
+            # pf-adversary MEASURED one scene's remembered health being
+            # written into another scene's ledger before that check existed.
+            # It imports NOTHING from this module, and nothing in field_mobs
+            # changed for it.  IT DISPATCHES NOTHING: its read half's call
+            # site is this round's one-line wiring ask
+            # (``world_scene_registry.WORLD_REGISTRY_SEED_WIRING``) and its
+            # write half is LANE-B's own call site (COO-DECISION
+            # 20260905_1153) -- neither has landed.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "lane_a_click_hp.py",
              "mob_ai_control.py",
@@ -919,7 +933,8 @@ class FieldMobTests(unittest.TestCase):
              "mob_scene_recompose.py",
              "player_hostile_pairing.py", "runtime.py",
              "scene_door_walk.py",
-             "world_census_level.py"],
+             "world_census_level.py",
+             "world_scene_registry.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
             ROOT / "src/pirateforce_foundation/runtime.py"

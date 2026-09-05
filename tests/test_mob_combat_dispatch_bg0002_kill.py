@@ -606,6 +606,12 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         self.assertTrue(
             self._ground_bit_is_set(self._ground(actions)[0][1]),
         )
+        # THE APPEND, NOT THE COMPOSITION.  ground_companion_actions prints
+        # its console token even when it refuses, so the token alone cannot
+        # tell a real publication from a bare call whose result was thrown
+        # away -- pf-adversary measured exactly that mutant surviving the
+        # whole suite.  The runtime event carries the appended count.
+        self.assertIn("ground_companion_after_bar_appended_1", state.events)
 
         # And the next burst -- the kill -- is what puts it back, with the
         # death frames measured NOT to be the carrier.
