@@ -37,6 +37,7 @@ SOURCE_DIGESTS = {
 
 # n_ID -> (s_WANDER, n_FACTION, n_OFFESIVE, n_AGGRO)
 AI_WANDER_ROWS = {
+    2: ('IDLE;9;15\\nRUN;0;1', 4, 0, 0),
     11: ('RUN;1;2\\nIDLE;10;30', 6, 1, 1200),
     16: ('RUN;1;2\\nIDLE;10;30', 6, 0, 0),
     21: ('RUN;1;2\\nIDLE;10;30', 12, 1, 3000),
@@ -59,6 +60,10 @@ AI_COMBAT_ROWS = {
          'CHASE(4)\\nCHASE(3)\\nCHASE(2)\\nCHASE(1)'),
     140: ('DISTANCE_ENEMY>(500);HP_I<(0.5);BUFF_I(4981,0,0);RATE(8)\\nDISTANCE_ENEMY>(500);RATE(20)\\nGO(0)',
          'CHASE(3)\\nCHASE(2)\\nCHASE(1)'),
+    162: ('HP_I<(0.5);BUFF_I(4984,0,0);RATE(15)\\nDISTANCE_ENEMY>(400);BUFF_I(4980,0,0);RATE(40)\\nRATE(20)\\nHP_I<(0.5);RATE(7)\\nGO(0)',
+         'CHASE(3)\\nCHASE(2)\\nCHASE(1)\\nCHASE(3)\\nCHASE(1)'),
+    200: ('RATE(10)\\nDISTANCE_ENEMY<(400);RATE(60)\\nGO(0)',
+         'CHASE(1)\\nCHASE(1)\\nCHASE(2)'),
     201: ('RATE(10)\\nDISTANCE_ENEMY<(400);BUFF_I(4982,0,0);RATE(50)\\nHP_I<(0.8);BUFF_I(4982,0,0);RATE(20)\\nDISTANCE_ENEMY<(400);RATE(40)\\nGO(0)',
          'CHASE(1)\\nCHASE(3)\\nCHASE(3)\\nCHASE(1)\\nCHASE(2)'),
     214: ('DOONCE(0)\\nBUFF_I(4984,0,0);RATE(10)\\nDISTANCE_ENEMY>(500);BUFF_I(4980,0,0);RATE(60)\\nDISTANCE_ENEMY<(500);BUFF_I(4982,0,0);RATE(15)\\nRATE(25)\\nDISTANCE_ENEMY<(400);BUFF_I(4981,0,0);RATE(15)\\nRATE(5)\\nGO(0)',
@@ -83,6 +88,8 @@ AI_COMBAT_ROWS = {
          'CHASE(3)\\nCHASE(2)\\nCHASE(1)\\nCHASE(1)'),
     352: ('BUFF_I(4986,0,0);DISTANCE_ENEMY<(800);RATE(20)\\nBUFF_I(4981,0,0);BUFF_I(4983,0,0);HP_I<(0.7);RATE(30)\\nBUFF_I(4980,0,0);DISTANCE_ENEMY>(400);RATE(80)\\nDISTANCE_ENEMY<(275);RATE(80)\\nGO(0)',
          'CHASE(4)\\nCHASE(3)\\nCHASE(2)\\nCHASE(1)\\nCHASE(1)'),
+    471: ('BUFF_I(4981,0,0);RATE(15);HP_I<(0.8)\\nRATE(50)\\nGO(0)',
+         'CHASE(3)\\nCHASE(2)\\nCHASE(1)'),
     472: ('DISTANCE_ENEMY>(400);BUFF_I(4988,0,0);RATE(35)\\nHP_I<(0.6);DISTANCE_ENEMY<(500);RATE(25);BUFF_I(4983,0,0)\\nBUFF_I(4982,0,0);DISTANCE_ENEMY>(400);RATE(50)\\nBUFF_I(4982,0,0);RATE(20)\\nBUFF_I(4986,0,0);RATE(20)\\nBUFF_I(4981,0,0);RATE(35);HP_I<(0.8)\\nBUFF_I(4981,0,0);RATE(25)\\nBUFF_I(4985,0,0);RATE(25);HP_I<(0.4)\\nRATE(50)\\nGO(0)',
          'CHASE(10)\\nCHASE(9)\\nCHASE(8)\\nCHASE(4)\\nCHASE(7)\\nCHASE(6)\\nCHASE(3)\\nCHASE(5)\\nCHASE(2)\\nCHASE(1)'),
 }
@@ -98,6 +105,8 @@ AI_COMBAT_PARALLEL = {
     133: True,
     134: True,
     140: True,
+    162: True,
+    200: True,
     201: True,
     214: True,
     240: True,
@@ -110,15 +119,20 @@ AI_COMBAT_PARALLEL = {
     333: True,
     350: True,
     352: True,
+    471: True,
     472: True,
 }
 
 # (placement_index, ai_wander_id, ai_combat_id) -- the join this module exists
 # to make checkable without the bridge clone present.
 PLACEMENT_AI_LINKS = [
+    (21, 11, 134),
     (22, 16, 301),
+    (23, 16, 162),
     (24, 11, 323),
+    (26, 16, 200),
     (27, 11, 102),
+    (27, 11, 201),
     (27, 16, 140),
     (28, 16, 140),
     (29, 11, 273),
@@ -140,13 +154,18 @@ PLACEMENT_AI_LINKS = [
     (46, 16, 301),
     (47, 16, 301),
     (50, 16, 214),
+    (51, 16, 200),
     (51, 16, 301),
+    (52, 16, 200),
     (58, 16, 100),
     (58, 16, 350),
     (59, 11, 201),
     (59, 16, 350),
     (60, 16, 350),
     (61, 16, 352),
+    (66, 16, 250),
+    (67, 16, 250),
+    (69, 2, 471),
     (69, 11, 134),
     (69, 11, 332),
     (69, 16, 100),

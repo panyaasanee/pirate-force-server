@@ -218,6 +218,22 @@ def load_roster_modules(repo_root: Path) -> tuple:
     AI_COMBAT 300``.  Scene 4's seven hostile rows want ``AI_COMBAT``
     214/250/300/332 and ``AI_WANDER`` 11/16 -- 214, 250 and both wander ids
     are already in the union from scenes 5 and 3, and 300/332 are new.
+
+    ROUND 4m2kx7: added ``field_mob_tables_bg0008``, and this entry is like
+    round n8kq4r's and NOT like the three above it -- Bg0008 is NOT
+    registered in ``field_mobs._SCENE_TABLE_MODULES`` in this commit and
+    cannot be, so widening the union here changes nothing a player can reach
+    today.  It is done AHEAD of the registration on purpose, because the
+    registration is blocked on a signature this lane cannot write (no
+    ``mob_death.WIDENING_RULINGS`` letter covers any of scene 8's seven
+    templates), and the AI rows are the half that is blocked on nobody.
+    MEASURED, not predicted, before this line was written: with scene 8's
+    nine rows fed to ``mob_ai_control.open_register`` against the unwidened
+    table, the register refuses -- ``AI_COMBAT`` 162/200/471 and
+    ``AI_WANDER`` 2 are absent.  Scene 8's nine hostile rows want
+    ``AI_COMBAT`` 134/162/200/201/250/471 and ``AI_WANDER`` 2/11/16; 134,
+    201, 250 and wander 11/16 are already in the union from scenes 5, 3 and
+    4, and the other four ids are new.
     """
     sys.path.insert(0, str(repo_root / "src"))
     try:
@@ -226,13 +242,14 @@ def load_roster_modules(repo_root: Path) -> tuple:
         from pirateforce_foundation import field_mob_tables_bg0003
         from pirateforce_foundation import field_mob_tables_bg0004
         from pirateforce_foundation import field_mob_tables_bg0005
+        from pirateforce_foundation import field_mob_tables_bg0008
         from pirateforce_foundation import field_mob_tables_bg0015
     finally:
         sys.path.pop(0)
     return (
         field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
         field_mob_tables_bg0004, field_mob_tables_bg0005,
-        field_mob_tables_bg0015,
+        field_mob_tables_bg0008, field_mob_tables_bg0015,
     )
 
 

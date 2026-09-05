@@ -45,7 +45,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import (  # noqa: E402
     field_mob_ai_tables, field_mob_tables, field_mob_tables_bg0002,
-    field_mobs, mob_aggro, mob_ai_control, mob_death,
+    field_mob_tables_bg0008, field_mobs, mob_aggro, mob_ai_control,
+    mob_death,
 )
 from pirateforce_foundation.mob_ai_control import (  # noqa: E402
     MobAiControlError, MobAiRegister, MobAiRow, MobAiStep, commit_step,
@@ -70,6 +71,8 @@ AI_WANDER_DUMMY_ROW = 21
 # Round n8kq4r: Bg0015's row, mined for the first time -- see the class-level
 # note on test_the_links_table_agrees_with_the_roster.
 AI_WANDER_BG0015_ROW = 22
+# ROUND 4m2kx7: the wander row four of Bg0008's nine placements point at.
+AI_WANDER_BG0008_ROW = 2
 MINED_AGGRO_RADIUS = 1200
 # ROUND 8ftmbx: ~~(58, 63, 132)~~ -> ().  All three were bg0001 rows
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew, and what the town still ships
@@ -201,9 +204,34 @@ class MinedRowTests(unittest.TestCase):
         # an extra" cannot pass) AND every one of them is checked against
         # the derived dropped set above (so a NEW extra with no ruling
         # behind it fails here rather than being absorbed).
-        self.assertEqual([row[0] for row in extras], [87, 92, 93, 94, 95, 96])
+        # ROUND 4m2kx7: and the extras are no longer the two RULING lists
+        # alone.  ``tools/pf_mine_mob_ai_rows.py``'s union now carries
+        # ``field_mob_tables_bg0008``, whose nine placements (21, 23, 26, 27,
+        # 51, 52, 66, 67, 69) are mined but whose scene is NOT registered in
+        # ``field_mobs._SCENE_TABLE_MODULES`` -- no ``mob_death``
+        # ``WIDENING_RULINGS`` letter covers any of its seven templates, so
+        # registering it would put nine unkillable monsters in a map.  That
+        # is the same state round n8kq4r's struck note describes for Bg0015
+        # before it was registered, and the same remedy applies: when scene 8
+        # is registered its nine indices move to the DERIVED side and come
+        # off this literal.  They are asserted against the roster module
+        # itself rather than hand-typed twice, so this cannot go stale the
+        # way the struck note above did.
+        unregistered_scene_eight = sorted(
+            row[0] for row in field_mob_tables_bg0008.HOSTILE_PLACEMENTS)
+        self.assertEqual(
+            unregistered_scene_eight, [21, 23, 26, 27, 51, 52, 66, 67, 69])
+        self.assertNotIn(
+            field_mob_tables_bg0008.SCENE, field_mobs._SCENE_TABLE_MODULES)
+        self.assertEqual(
+            [row[0] for row in extras],
+            unregistered_scene_eight + [87, 92, 93, 94, 95, 96])
         for row in extras:
-            self.assertIn(row[0], dropped)
+            self.assertIn(
+                row[0],
+                dropped | set(unregistered_scene_eight),
+                "extra link %r has neither a ruling behind it nor a place "
+                "in an unregistered scene's roster" % (row,))
         # Index 87 is in the LINKS TABLE TWICE -- Bg0002 ships a placement
         # 87 too, with its own AI ids -- and only the Bg0015 one is an
         # extra.  Measured, not assumed: the Bg0002 row is on the derived
@@ -221,7 +249,13 @@ class MinedRowTests(unittest.TestCase):
         # note on ``test_the_links_table_agrees_with_the_roster``).  It is
         # mined and correct, but nothing on the live roster reads it today
         # -- Bg0015 is not in ``field_mobs._SCENE_TABLE_MODULES``.
-        self.assertEqual(sorted(rows), [AI_WANDER_OFFENSIVE_ROW,
+        # ~~four rows~~ five from round 4m2kx7: AI_WANDER 2 is what four of
+        # Bg0008's nine placements want.  Mined and correct, and like row 22
+        # was before Bg0015 was registered, nothing on the LIVE roster reads
+        # it today -- scene 8 is not in ``field_mobs._SCENE_TABLE_MODULES``
+        # and cannot be until a death ruling covers its templates.
+        self.assertEqual(sorted(rows), [AI_WANDER_BG0008_ROW,
+                                        AI_WANDER_OFFENSIVE_ROW,
                                         AI_WANDER_PASSIVE_ROW,
                                         AI_WANDER_DUMMY_ROW,
                                         AI_WANDER_BG0015_ROW])
