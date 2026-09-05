@@ -223,7 +223,25 @@ def test_transcribed_provenance_has_not_been_edited_silently():
         "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md"
     )
     assert gate.PAIR_RELATION_ZERO_GATE_SPAN == (0x0043C531, 0x0043C547)
-    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == "ActorAttr+0x98 bit 0x04000000"
+    # CORRECTED by RE-263.  The previous pin read "ActorAttr+0x98 bit
+    # 0x04000000", which says a bit lives inside the value at +0x98.  It does
+    # not: +0x98 is a one-byte uint8_enum and 0x04000000 is the presence bit
+    # in the mask word at +0x1B4.  A test that pins a wrong transcription is
+    # worse than no test -- it makes the error load-bearing -- so the pin
+    # moves with the correction rather than being relaxed.
+    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == (
+        "ActorAttr+0x98 (u8), presence bit +0x1B4 & 0x04000000"
+    )
+    assert gate.PAIR_RELATION_ZERO_GATE_CMP_LOCAL_VA == 0x0043C531
+    assert gate.PAIR_RELATION_ZERO_GATE_CMP_TARGET_VA == 0x0043C53A
+    assert gate.ACTOR_ATTR_0X98_PRESENCE_GATE == "+0x1B4 & 0x04000000"
+    assert gate.ACTOR_ATTR_0X98_CONSTRUCTOR_DEFAULT == 0
+    assert gate.ACTOR_ATTR_0X98_DEFAULT_WRITER_VA == 0x00464D69
+    assert gate.LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS == (0x00443FE9, 0x00443FF2)
+    assert gate.RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA == 0x00444018
+    assert gate.PAIR_RELATION_ZERO_GATE_ROUTE_VERDICT == (
+        "RE-263 BOUNDED-NEGATIVE: not a second route"
+    )
     assert gate.PAIR_RELATION_ZERO_GATE_STATUS == "PROVEN_ROLE_ONLY"
     assert gate.PAIR_RELATION_ZERO_GATE_SOURCE == (
         "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
