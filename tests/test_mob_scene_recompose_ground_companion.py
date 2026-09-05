@@ -242,18 +242,23 @@ class WiringAskTests(unittest.TestCase):
         # cp874 (Thai), and the gate's tripwire scope is cp874, not ASCII.
         wiring.encode("cp874")
 
-    def test_runtime_py_does_not_call_it_yet(self):
-        """HONEST STATE, RE-DERIVED FROM SOURCE, NOT ASSERTED IN PROSE.
+    def test_runtime_py_calls_it_from_inside_the_composed_arm(self):
+        """FLIPPED BY THE CHIEF ROUND THAT TOOK THE ASK (r045nx / R354).
 
-        This is the mirror image of
-        ``tests/test_mob_drop_presence.py``'s
-        ``test_the_wiring_ask_is_fulfilled_re_derived_from_runtime_py``: that
-        one proves a wiring ask WAS taken; this one proves this one has NOT
-        been, so nobody can claim "WIRED" for this fix without this test
-        having to be updated first (this lane's own rule: WIRED means
-        observed, not named).  The day ``runtime.py`` adds the call this
-        test should be flipped to assert the opposite, in the same PR that
-        adds it.
+        This test used to assert the opposite -- that ``runtime.py`` did NOT
+        call ``ground_companion_actions`` yet -- and its own docstring said
+        to flip it in the same PR that adds the call.  This is that PR.
+
+        It does NOT merely scan for the name.  A bare name scan is exactly
+        the shape that let a dead-code mutant pass twice in this project
+        (chief round 5e00uw, D2/D3; round rs8uyz, D1), so this re-derives
+        the ANCHOR from the syntax tree: the call must sit in the body of
+        an ``if recompose_record.composed:`` statement, with no ``return``
+        ahead of it in that same block.  Moving the call out to the sibling
+        level after the if/else -- the anchor the ask's own first draft got
+        wrong -- makes this test red, which is the whole point: that
+        placement would fire the companion on the no-anchor fallback arm
+        too, which runs in ordinary play.
         """
         import ast
 
@@ -261,19 +266,58 @@ class WiringAskTests(unittest.TestCase):
             ROOT / "src" / "pirateforce_foundation" / "runtime.py"
         ).read_text(encoding="utf-8")
         tree = ast.parse(source)
-        called = set()
+
+        def _calls_it(block):
+            for stmt in block:
+                for node in ast.walk(stmt):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    name = getattr(node.func, "attr", None)
+                    if name == "ground_companion_actions":
+                        return True
+            return False
+
+        anywhere = _calls_it(tree.body) or any(
+            _calls_it([node]) for node in tree.body)
+        self.assertTrue(
+            anywhere,
+            "runtime.py no longer calls ground_companion_actions -- the "
+            "CORE-REQUEST was taken in round r045nx/R354 and removing the "
+            "call silently restores the R316 defect (another monster's "
+            "loot wiped off the screen by a bar recompose)")
+
+        anchored = []
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
+            if not isinstance(node, ast.If):
                 continue
-            name = getattr(node.func, "attr", None) or getattr(
-                node.func, "id", None)
-            if name:
-                called.add(name)
-        self.assertNotIn(
-            "ground_companion_actions", called,
-            "runtime.py now calls ground_companion_actions -- this test "
-            "should be flipped to assert that (and the CORE-REQUEST in the "
-            "PR that did it marked fulfilled), not left failing")
+            test = node.test
+            if not isinstance(test, ast.Attribute):
+                continue
+            if test.attr != "composed":
+                continue
+            value = test.value
+            if getattr(value, "id", None) != "recompose_record":
+                continue
+            if not _calls_it(node.body):
+                continue
+            before = []
+            for stmt in node.body:
+                if _calls_it([stmt]):
+                    break
+                before.append(stmt)
+            self.assertFalse(
+                any(isinstance(s, ast.Return) for s in before),
+                "the ground-companion call is below a return inside the "
+                "composed arm -- it can never run")
+            anchored.append(node)
+
+        self.assertEqual(
+            len(anchored), 1,
+            "expected exactly one `if recompose_record.composed:` block "
+            "carrying the ground-companion call; found "
+            f"{len(anchored)}.  A call outside that block would also fire "
+            "on the degraded and no-anchor arms, which is what the wiring "
+            "ask explicitly forbids")
 
 
 if __name__ == "__main__":

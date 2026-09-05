@@ -5252,6 +5252,24 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             bar_pc, bar_frame = (
                                 recompose_record.pc, recompose_record.frame,
                             )
+                            # CORE-REQUEST from LANE-A (#818,
+                            # mob_scene_recompose.GROUND_COMPANION_WIRING):
+                            # a bar recompose carries no ground-drop field,
+                            # so the client wipes another monster's loot off
+                            # the screen the moment this frame lands (R316
+                            # third labeled finding, measured on a screen).
+                            # ground_companion_actions never raises and
+                            # returns () on a bare floor or any refusal.
+                            # Scoped to the composed arm on purpose: the
+                            # degraded and no-anchor arms are not a real
+                            # scene recompose, and the DYING/DEAD site is
+                            # self-corrected by its own loot announcement.
+                            actions.extend(
+                                mob_scene_recompose.ground_companion_actions(
+                                    getattr(self, "mob_loot_cell", None),
+                                    legacy,
+                                )
+                            )
                         else:
                             # Every non-composed state degrades to the
                             # one-entry frame, exactly as the old except
