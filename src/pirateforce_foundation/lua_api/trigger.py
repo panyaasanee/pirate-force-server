@@ -33,9 +33,10 @@ for monster vitals, for the same reason (``PANYA-DECISION 20260905_1057``:
 world state is server-process memory, not per-session, not the DB).  This is
 a SEPARATE book from LANE-A's, not a second front door to it: trigger status
 is not a monster vital or a scene roster, and the charter draws the line
-explicitly -- "A เป็นเจ้าของการเข้าเกาะ · LANE-Q เป็นเจ้าของสคริปต์ทริกเกอร์
-ตัดสินว่าอะไรเกิด" (LANE-A owns island ENTRY; LANE-Q owns the trigger SCRIPT
-deciding what happens).  No interface from LANE-A is needed to own this.
+explicitly -- LANE-A owns island ENTRY, LANE-Q owns the trigger SCRIPT
+deciding what happens (prompts/LANE-Q.md's own words, translated: "A owns
+entering the island; LANE-Q owns the trigger script that decides what
+happens").  No interface from LANE-A is needed to own this.
 
 WHAT IS **NOT** DONE THIS ROUND, SAID PLAINLY.  Nothing wires a live
 ``TriggerVital`` (0x1FB2) arrival to a specific script file yet -- that
@@ -276,8 +277,8 @@ def install_trigger_status_registry(registry: Any) -> TriggerStatusRegistry:
 #: shipped and the corpus census counted a real call site), and the
 #: conservative reading is "the original engine tolerated the typo", not
 #: "the original engine silently ignored it".  Decision left open by round
-#: ``s2fxf6`` on purpose ("คนที่ implement Trigger.* รอบหน้าเป็นคนตัดสิน");
-#: this is that decision.
+#: ``s2fxf6`` on purpose (its own round file: "whoever implements Trigger.*
+#: next round decides"); this is that decision.
 REAL_METHODS = frozenset({
     "GetTriggerStatus", "GetTeiggerStatus", "SetStatus", "NextStatus",
     "SetTriggerStatus",
