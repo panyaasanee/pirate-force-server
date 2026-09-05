@@ -427,28 +427,35 @@ class DispatchColumbusQuest3021Tests(unittest.TestCase):
         # a summary of registry readiness for all eight Columbus islands,
         # widening the fifth report's single-door question rather than
         # replacing it.
-        # THE TRIGGER-READINESS ROUND APPENDED A SEVENTH REPORT, LAST.  Same
+        # THE TRIGGER-READINESS ROUND APPENDED A SEVENTH REPORT.  Same
         # rule again: whether each island's own Columbus is PLACED in that
         # island's default cast - the half the sixth report's own docstring
         # named unmeasured.
+        # THE SEA-SCENE-CAST ROUND APPENDED AN EIGHTH REPORT, LAST.  Same
+        # rule once more: whether the sea this door opens on can carry a
+        # server-composed cast at all (n_CLINE_TYPE), which is the question
+        # neither of the two reports above asks.  Appended, never inserted -
+        # every index below is negative for exactly this reason.
         self.assertEqual(
-            lines[-8],
+            lines[-9],
             "COLUMBUS_QUEST3021_NO_VEHICLE_DISPATCH scene=17 source="
             + columbus_quest_dispatch.M2_NO_VEHICLE_TAG,
         )
-        self.assertTrue(lines[-7].startswith("WORLD_POP_STOWAWAYS "), lines)
-        self.assertTrue(lines[-6].startswith("WORLD_M2_RETURN_LEG "), lines)
+        self.assertTrue(lines[-8].startswith("WORLD_POP_STOWAWAYS "), lines)
+        self.assertTrue(lines[-7].startswith("WORLD_M2_RETURN_LEG "), lines)
         self.assertTrue(
-            lines[-5].startswith("WORLD_M2_RETURN_POPULATION "), lines)
+            lines[-6].startswith("WORLD_M2_RETURN_POPULATION "), lines)
         self.assertTrue(
-            lines[-4].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
+            lines[-5].startswith("WORLD_M2_CROSSING_HANDOFF "), lines)
         self.assertTrue(
-            lines[-3].startswith("M2_SEA_DESTINATION "), lines)
+            lines[-4].startswith("M2_SEA_DESTINATION "), lines)
         self.assertTrue(
-            lines[-2].startswith("WORLD_M2_SEA_MAP "), lines)
+            lines[-3].startswith("WORLD_M2_SEA_MAP "), lines)
         self.assertTrue(
-            lines[-1].startswith("WORLD_M2_TRIGGER_READINESS "), lines)
-        self.assertEqual(len(lines), 10, lines)
+            lines[-2].startswith("WORLD_M2_TRIGGER_READINESS "), lines)
+        self.assertTrue(
+            lines[-1].startswith("M2_SEA_CAST "), lines)
+        self.assertEqual(len(lines), 11, lines)
 
 
 class DispatchColumbusQuest3205Tests(unittest.TestCase):

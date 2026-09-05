@@ -130,14 +130,22 @@ class DispatchWiringTests(unittest.TestCase):
         cls.legacy = _legacy()
 
     def test_a_columbus_crossing_prints_the_trigger_readiness_line_last(self):
+        """"Last" was true until the sea-scene-cast round appended one more
+        report after it -- fixed at ``lines[-2]`` now.  The name is kept
+        rather than renamed (house rule: strike, do not delete), because a
+        reader hitting this assertion is the one who needs the pointer to
+        what changed; the sibling pin in
+        tests/test_world_m2_crossing_handoff.py carries the same note for
+        the three appends before this one."""
         lines = []
         columbus_quest_dispatch.dispatch_columbus_quest3021(
             emit=lines.append, legacy=self.legacy, held_indices=(),
         )
         self.assertTrue(
-            lines[-1].startswith(trig.CONSOLE_TAG + " "), lines)
-        self.assertIn("placed=8", lines[-1])
-        self.assertIn("not_placed=0", lines[-1])
+            lines[-2].startswith(trig.CONSOLE_TAG + " "), lines)
+        self.assertIn("placed=8", lines[-2])
+        self.assertIn("not_placed=0", lines[-2])
+        self.assertTrue(lines[-1].startswith("M2_SEA_CAST "), lines)
 
     def test_the_line_still_prints_when_the_call_site_has_no_legacy(self):
         lines = []
