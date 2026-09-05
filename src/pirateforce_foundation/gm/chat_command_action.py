@@ -371,6 +371,7 @@ from .warp_scene_persist import (
     row_before_warp,
 )
 from . import warp_send_watch
+from . import warp_relog_stage
 
 # The action label the serve loop logs for a real GM warp.  ASCII, screaming
 # snake case, same convention as every other label in runtime.py's action
@@ -1341,6 +1342,17 @@ EVENT_WARP_SEND_WATCH_NOT_PARKED = "gm_chat_action_warp_send_watch_not_parked"
 EVENT_WARP_SEND_WATCH_STALE_PARK_NOT_CLEARED = (
     "gm_chat_action_warp_send_watch_stale_park_not_cleared"
 )
+# `COO-DECISION 20260905_1746` item 4: the relog half of a LIVE warp whose
+# durable row was refused by login policy.  The suffix is
+# `warp_relog_stage`'s own outcome word, including the "this is not that
+# route" one -- unlike the parks above this line is written on EVERY
+# non-persisted live warp, because the question a reader of `session.events`
+# is asking here is "did anything arrange my next login", and the answer
+# "no, and here is which no" is exactly as load-bearing as the yes.  Kept
+# out of `EVENT_WARP_SCENE_PERSIST_PREFIX`'s vocabulary on purpose: that
+# prefix answers what happened to the ROW, this one what happened to the
+# next LOGIN, and they now disagree by design for scene 126.
+EVENT_WARP_RELOG_STAGE_PREFIX = "gm_chat_action_warp_relog_stage_"
 EVENT_WARP_REFUSED_PREFIX = "gm_chat_action_warp_refused_"
 # The cross-scene half of `/warp` (gm/login_scene_stage.py).  The suffix is
 # the scene_id that was staged, so an attended run can grep one line and read
@@ -3094,6 +3106,18 @@ def _warp_action(
             legacy,
             same_scene=same_scene,
             same_scene_basis=same_scene_basis,
+            # THE RELOG HALF (`COO-DECISION 20260905_1746` item 4).  These
+            # four are the SAME values `_stage_action` below is handed, from
+            # the same reads, for the same reason its own docstring gives:
+            # the account this may stage for has to be the account
+            # `handle_local_talk_chat` already authorized, out of the same
+            # allowlist file.  Passing the defaults here instead would let a
+            # listener booted with `PF_GM_ACCOUNTS_CONFIG` authorize against
+            # one allowlist and write against another.
+            token=token,
+            gm_accounts_config_path=gm_accounts_config_path,
+            login_scene_config_path=login_scene_config_path,
+            scene_registry=scene_registry,
         )
 
     if target_scene_id != position.scene_id or not has_coordinates:
@@ -3371,6 +3395,10 @@ def _warp_teleport_action_no_coords(
     *,
     same_scene: bool = False,
     same_scene_basis: str = SAME_SCENE_BASIS_FIELD,
+    token: str | None = None,
+    gm_accounts_config_path: str | None = None,
+    login_scene_config_path: str | None = None,
+    scene_registry=None,
 ) -> _Verdict:
     """GM-A: the half of `/warp` WITHOUT typed coordinates.
 
@@ -3474,6 +3502,33 @@ def _warp_teleport_action_no_coords(
             session, frame, previous_row, _selected_scene_id(session),
         ):
             _note(session, EVENT_WARP_SEND_WATCH_NOT_PARKED)
+    else:
+        # THE RELOG HALF, `COO-DECISION 20260905_1746` item 4.  The frame is
+        # already built and about to move the ship on screen; the durable row
+        # was refused.  For a sanctioned-barred scene (126 today, and only
+        # because a chief letter names it) the relog is arranged through the
+        # single-use login entry instead, so `PANYA 1329` (live) and
+        # `PANYA 1430` (still there after a relog) are both served without
+        # opening the login door `COO 20260829_1444` shut.
+        #
+        # ELSE, NOT A SECOND `if`, and the difference is the whole guard: this
+        # runs on outcomes that are NOT `persisted`, so a warp whose row DID
+        # move can never also stage an entry.  Two sources of truth for the
+        # same login is the defect this branch is shaped to make unreachable.
+        #
+        # Its return word is noted, never branched on: every one of them means
+        # the frame still goes out, and the console already carries the two
+        # lines a tester reads.  `stage_relog_entry_after_refused_persist`
+        # cannot raise, so nothing here can take down a composed command.
+        relog = warp_relog_stage.stage_relog_entry_after_refused_persist(
+            _outcome,
+            scene_id,
+            token,
+            gm_accounts_config_path=gm_accounts_config_path,
+            login_scene_config_path=login_scene_config_path,
+            scene_registry=scene_registry,
+        )
+        _note(session, f"{EVENT_WARP_RELOG_STAGE_PREFIX}{relog}")
 
     return _Verdict(
         (WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL, pc, frame, 0.0),
