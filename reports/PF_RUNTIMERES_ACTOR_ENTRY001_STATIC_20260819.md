@@ -259,9 +259,9 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
   "or_0x40_on_offset_0x70_sites": 3,
   "runtimeres_literal_occurrences_in_image": 0,
   "server_call_sites_emitting_zero_current_hp": 0,
-  "src_actor_entry_call_sites": 30,
-  "src_actor_stream_call_sites": 40,
-  "src_modules_building_actor_entries": 29,
+  "src_actor_entry_call_sites": 31,
+  "src_actor_stream_call_sites": 41,
+  "src_modules_building_actor_entries": 30,
   "src_modules_building_actor_entries_names": [
     "field_mob_hostile_bg0015.py",
     "field_mobs.py",
@@ -291,6 +291,7 @@ This *is* the `u8tag(0x0B, actor_type)` at `v141:1258`. Value 4 = `CNetNPC` was 
     "world_population_bg0015.py",
     "world_population_bg1001.py",
     "world_population_bg3001.py",
+    "world_population_bg3007.py",
     "world_population_bg4001.py"
   ],
   "src_modules_doing_both": 4,

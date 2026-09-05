@@ -44,21 +44,63 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     So the property is now structural rather than circumstantial: no route
     into scene 14 - a login, a ``via_login=False`` call site that does not
     exist yet, a direct call to this module's own factory - ships this
-    roster while the registry says the scene is shut.  One boolean in
-    ``scenarios/world_scene_registry_001.json`` is the whole gate, and
+    roster while the registry says the scene is shut.  ~~One boolean in
+    ``scenarios/world_scene_registry_001.json`` is the whole gate~~, and
     ``tests/test_lane_a_scene_census.py`` drives the refusal rather than
     reading the boolean back.
 
-HOW A SCENE GETS ADDED.  Two tables, and a scene needs a row in BOTH: a source
-in ``world_scene_travel.CENSUS_SOURCES`` (the seam's own table, which decides
-what composes the roster) and a console reader in ``_CONSOLE_LINES_OF`` below
-(the lane's evidence choice, which decides what an attended round can grep).
+    THE STRUCK SENTENCE WAS TRUE FOR ONE ARM AND IS NOW FALSE FOR THREE, and
+    pf-adversary measured it still standing here a round after it stopped
+    being true, so it is corrected rather than quietly left.  It is still
+    exactly right for scene 14 and for every scene whose only admission is
+    the registry pin.  For THREE scenes it is not the whole gate:
+
+        126  the GM lane's sanctioned single-use predicate (arm 2, round
+             ``4uztfj``) - its own table is the gate, and revoking it
+             darkens the scene again
+        304  an owner-decreed arrival point plus a live GM warp (arm 3,
+        305  round ``yob0a2``) - the decree is the gate, and it is a
+             PANYA/COO artifact rather than a boolean any lane may flip
+
+    Each arm names its own gate in its own docstring, and each is driven by
+    a test that revokes that gate rather than reading it back.  What has NOT
+    changed is the direction of every arm: all three fail closed, and none
+    of them opens a LOGIN door - ``login_entry_allowed`` is still false for
+    all three of those scenes.
+
+HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
+SEVEN REGISTRATIONS, counted round ``yob0a2`` by adding scene 304 and reading
+the red tests one at a time (pf-adversary: the round found five of the seven
+only BECAUSE tests went red, and two more were still missing when it first
+committed).  The two this file has always named come first because they are
+the ones this module reads:
+
+    1. ``world_scene_travel.CENSUS_SOURCES`` - the seam's own table, which
+       decides what composes the roster
+    2. ``_CONSOLE_LINES_OF`` below - the lane's evidence choice, which
+       decides what an attended round can grep
+    3. ``world_population_handoff.ROSTER_COMPOSERS`` - without it the seam
+       answers CLEAR and this composer declines with no frame and no reason
+       anyone can tell from the one it prints for a shut door
+    4. ``gm/identity_registry_census`` - the identity module's own registry
+    5. ``mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER`` (or a real
+       recompose composer) - LANE-B's tripwire, whose stake is the
+       one-entry world wipe; the entry must MEASURE that the scene has no
+       combat roster, not assert it
+    6. ``tests/test_world_census_level.py``'s ``WIRED_SCENES`` and
+       ``CENSUS_SOURCE_COMPOSERS`` - the level splice's own two lists
+    7. ``tools/pf_runtimeres_actor_entry_static.py`` + its report +
+       ``tests/test_runtimeres_actor_entry_static.py`` - three copies of
+       the actor-entry call-site counts, which a new composer moves by one
+
 An earlier draft claimed the answer lived in exactly one place and not here;
 that was wrong, and the second table is a gate rather than a formality - a
-census nobody can grep is a census nobody can grade.  A scene in one table and
-not the other is SKIPPED AND SAID SO, loudly, at import
+census nobody can grep is a census nobody can grade.  A scene in the first
+table and not the second is SKIPPED AND SAID SO, loudly, at import
 (``LANE_A_CENSUS_SKIPPED``): silence there is the same defect in mirror image
-as the one round 80x5ba existed to fix.
+as the one round 80x5ba existed to fix.  Rows 3-7 have no such import-time
+report; they are caught by tests, which is why this list exists rather than
+the sentence it replaces.
 
 WHY IT DELEGATES INSTEAD OF COMPOSING.  ``world_population_handoff`` already
 resolves scene -> composer, caps a caller's count against the roster size,
@@ -161,6 +203,7 @@ from .. import world_population_bg0011
 from .. import world_population_bg0015
 from .. import world_population_bg1001
 from .. import world_population_bg3001
+from .. import world_population_bg3007
 from .. import world_population_bg4001
 from .. import world_population_handoff
 from .. import world_scene_folder
@@ -368,6 +411,22 @@ _CONSOLE_LINES_OF = {
         + world_population_bg1001.actor_lines(generation)
         + world_population_bg1001.unresolved_lines()
     ),
+    # ADDED round yob0a2 (2026-09-05, LANE-A): scene 304 (Bg3007, "Dark Fog
+    # Sea"), the first of the two seas COO-DECISION 20260905_1748 names as
+    # the destinations of a crossing at scene 126's map edge.  Registered
+    # here AND in ``world_scene_travel.CENSUS_SOURCES`` in the same commit,
+    # so neither table can be true without the other for even one round.
+    # UNLIKE scenes 4, 10 and 17, this one is NOT registered-but-inert: its
+    # registry row still reads ``login_entry_allowed: false``, but round
+    # n4vqxc's pin made a bare GM ``/warp 304`` land here live, and THE
+    # THIRD ADMISSION ARM below (``scene_arrival_was_decreed_and_is_gm_
+    # reachable``) admits exactly that session - so this composer answers in
+    # production the day it lands, for a GM and for nobody else.
+    "bg3007_roster": lambda generation: (
+        (world_population_bg3007.census_console_line(generation),)
+        + world_population_bg3007.actor_lines(generation)
+        + world_population_bg3007.unresolved_lines()
+    ),
 }
 
 
@@ -462,8 +521,10 @@ def scene_is_sanctioned_for_a_gm_entry(
     the first arm admits, on this clone.  Two things keep that acceptable:
     the second arm is only reached for a scene the first one refused (one
     scene id today), and the production call sites hand this function the
-    ``scene_entry_registry`` they were already given, which both arms then
-    share.  A click is human-paced; a census is not composed in a loop.
+    ``scene_entry_registry`` they were already given, which ~~both arms
+    then share~~ THE FIRST TWO ARMS SHARE - amended round ``yob0a2``:
+    the third arm's warp half takes no registry argument and loads the pin
+    file itself, which its own docstring now states and times.  A click is human-paced; a census is not composed in a loop.
     """
     try:
         from ..gm import login_scene_admission
@@ -488,17 +549,162 @@ def scene_is_sanctioned_for_a_gm_entry(
         return False
 
 
+def scene_arrival_was_decreed_and_is_gm_reachable(
+    scene_id: int, registry: Any = None
+) -> bool:
+    """Did the OWNER pin this scene's arrival point, and can a live GM warp
+    actually land a session on it?
+
+    THE THIRD ADMISSION ARM, added round ``yob0a2`` (LANE-A) for scene 304.
+    BOTH halves are required and neither is this lane's own opinion:
+
+    * ``destination(scene_id).has_decreed_arrival`` - the registry row
+      carries a validated ``decreed_arrival`` block, which only a
+      PANYA-DECISION or a COO-DECISION puts there (126 by
+      ``20260905_1329``; 304 and 305 by ``20260905_1748``), and which
+      ``world_scene_travel``'s own loader refuses unless the marker row,
+      the scene it points back at, the spawn point and the heading all
+      agree.
+    * ``gm.warp_executor.warp_no_coords_live_target(scene_id)`` resolves -
+      the GM lane's OWN gate for "a bare ``/warp <n>`` lands here live
+      instead of staging the next login".  Not re-implemented here.
+
+    WHY BOTH, AND WHY NOT SIMPLY "A LIVE WARP CAN REACH IT".  Measured at
+    HEAD against the whole registry (19 rows): 16 scenes resolve a live
+    warp, and every one of them except 126, 304 and 305 ALREADY has
+    ``login_entry_allowed: true``, so the first arm admits it and a bare
+    live-warp arm would add nothing for them.  What it WOULD add is a
+    standing rule that any future row someone pins a spawn on becomes
+    populatable without anyone deciding so - the shape rounds ``2jdde8``,
+    ``c42axq`` and ``vwekfq`` deliberately avoided by leaving scenes 4, 10
+    and 17 registered-but-inert until a round opened them on purpose.  The
+    decree half is what keeps this arm to scenes a ruling already named.
+
+    IT STANDS ASIDE FOR ANY SCENE THE GM LANE'S SANCTION TABLE GOVERNS,
+    and this is the load-bearing half of the arm rather than a courtesy.
+    pf-adversary (this round) measured what the first draft cost: with
+    scene 126 in ``gm/login_scene_admission.SANCTIONED_BARRED_SCENES``, this
+    arm answered True for it INDEPENDENTLY of the second arm, so revoking
+    ``CORE-REQUEST-GM-038`` -- the GM lane's own on/off switch for that
+    scene -- stopped darkening its census.  A lane may not quietly take
+    another lane's revocation lever away, and "the test was amended to
+    bless it" is not an answer.  So the first thing this arm asks is
+    whether the GM lane governs the scene at all; if it does, this arm
+    declines and the SECOND arm decides, exactly as it did before this
+    round.  Scene 126 is that case today and its behaviour is byte-for-byte
+    unchanged; 304 and 305 are in no sanction table, which is why they need
+    this arm at all.
+
+    WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
+    for the same reason: this predicate gates what a session ALREADY
+    STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
+    a login, and cannot make the ordinary login path admit anything - a
+    session with no GM grant is refused at ``resolve_entry`` with
+    ``REFUSED_NOT_ALLOWED_AT_LOGIN`` and never reaches this code, and
+    ``/warp`` itself is refused for a non-GM account by
+    ``accounts.is_gm_account`` before any of this runs.
+    ``login_entry_allowed`` for 126/304/305 is untouched by this round.
+
+    ~~[ASSUMPTION OF LANE A - AWAITING COO CONFIRMATION]~~ **CONFIRMED,
+    ``COO-DECISION 20260905_2052`` item 1** (letter
+    ``pf_bridge/notes_to_chief/20260905_2052_COO-DECISION-a1946-third-
+    admission-arm-...``, answering this lane's ``20260905_1946``).  That
+    "the owner decreed where you arrive" also means "you should see what is
+    there" is now a ruling rather than this lane's reading, and the same
+    item ordered the tag removed here rather than in a PR of its own.  Two
+    halves of that ruling are load-bearing and are kept as written: this arm
+    MUST go on standing aside for the GM lane's sanction table, and the
+    whole-registry fence test below is permanent - it may not be deleted or
+    weakened.
+
+    HOW A DECREED ROW IS REVOKED, since the ruling closed that question too
+    (``COO-DECISION 20260905_2052`` item 2): ``DECREED_ARRIVAL_ROWS`` encodes
+    an OWNER's order, so the only thing that may withdraw one is a
+    COO-DECISION letter naming the row; the row then leaves the tuple and
+    the fence test is corrected in the SAME commit.  No registry flag is
+    added for this on purpose - a lever any lane could pull would let one
+    lane change the owner's order silently, which is worse than editing
+    source.  A future decreed row with no letter behind it is meant to turn
+    the fence test red; that is the correct answer, not an obstacle.
+    Deleting this function still restores the pre-round behaviour exactly -
+    an empty ocean for a GM standing in 304 - and nothing else depends on it.
+
+    WHAT "GM-ONLY" DOES AND DOES NOT MEAN HERE, stated because the sentence
+    above is easy to over-read.  This predicate asks about a SCENE, never
+    about an account: it answers the same True for any session standing in
+    scene 304, and the only reason that session is a GM today is that a GM
+    ``/warp`` is the only route that reaches the scene at all.  The day
+    chief wires the sea-edge crossing (``world_sea_edge_crossing``), an
+    ORDINARY player who sails across scene 126's edge lands here and is sent
+    this same cast.  That is the intended outcome and not a hole - but it is
+    a consequence of this arm, so it is written down rather than discovered.
+
+    WHICH REGISTRY EACH HALF READS, because they are not the same one and a
+    reader should not have to find that out from a failing test.  The decree
+    half reads the registry the CALLER passed (the production call sites
+    hand this function the ``scene_entry_registry`` they were already
+    given); the warp half asks ``warp_no_coords_live_target``, which takes
+    no registry argument and reads the pin file itself.  The asymmetry can
+    only NARROW admission, never widen it: both halves must say yes, and the
+    half a caller controls is the one that can say no.  A caller-supplied
+    registry with no row for the scene, or with the decree removed, shuts
+    this arm even though the file on disk still has both.
+
+    WHAT IT COSTS, measured in the same terms the second arm states rather
+    than assumed cheap: ``warp_no_coords_live_target`` performs its OWN read
+    of the pin file (it takes no registry argument), so a scene that reaches
+    this arm pays one extra registry load on top of whatever the first two
+    arms did - the same shape and the same order of magnitude as the second
+    arm's own ~3.2ms.  Two things keep it acceptable: this arm is only
+    reached for a scene BOTH earlier arms refused AND the GM lane does not
+    govern (two scene ids today, 304 and 305), and a census is composed once
+    per arrival, not in a loop.
+
+    Fail-closed in every direction, the same as the other two arms: a
+    registry that will not load, an import that is not there, a predicate
+    that raises - all answer False.
+    """
+    try:
+        from ..gm import login_scene_admission
+        if login_scene_admission.is_sanctioned_barred_scene(scene_id):
+            # The GM lane governs this scene: its own predicate is the
+            # answer, and this arm must not override it.  See the docstring.
+            return False
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        # Cannot tell whether the GM lane governs it, so this arm may not
+        # claim it either.
+        return False
+    try:
+        destination = world_scene_travel.destination(scene_id, registry)
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+    if not getattr(destination, "has_decreed_arrival", False):
+        return False
+    try:
+        from ..gm import warp_executor
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+    try:
+        return warp_executor.warp_no_coords_live_target(scene_id) is not None
+    except Exception:  # noqa: BLE001 - fail-closed, see the docstring
+        return False
+
+
 def scene_may_be_populated(scene_id: int, registry: Any = None) -> bool:
-    """Either admission arm.  The question ``compose`` actually asks.
+    """Any admission arm.  The question ``compose`` actually asks.
 
     Kept as its own function rather than an ``or`` inside the composer so
-    that both arms are testable by name, and so a reader who greps for
+    that every arm is testable by name, and so a reader who greps for
     ``scene_is_open_to_players`` still finds the registry pin unchanged
-    where it always was.
+    where it always was.  ORDER IS COST, NOT MEANING: the registry pin is
+    the cheapest question and answers True for every scene this lane
+    composes in production today, so the two GM arms are only reached for a
+    scene it refused.
     """
     return (
         scene_is_open_to_players(scene_id, registry)
         or scene_is_sanctioned_for_a_gm_entry(scene_id, registry)
+        or scene_arrival_was_decreed_and_is_gm_reachable(scene_id, registry)
     )
 
 
