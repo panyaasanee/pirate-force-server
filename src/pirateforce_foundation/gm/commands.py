@@ -262,8 +262,9 @@ OUTCOME_STAGED_LOGIN_SCENE_COORDS_IGNORED = "staged_login_scene_coords_ignored"
 # the only frame that could is a sparse `UpdateAttrVital` 0x309A, which
 # `GT-193`/`GT-218` measured killing a real client and `gm/attr_wire.py`'s
 # (b'') rule forbids.  So the row is written and the number appears at the
-# GM's NEXT LOGIN, when `persistence_login_vitals` reads that same column
-# back.  `row_written` says the row moved; it does not say a screen did.
+# GM's NEXT LOGIN, when the login's own vitals resolver reads that same
+# column back (named in words, not spelled: exactly one module under `src/`
+# may name that one, and it is not this one).  `row_written` says the row moved; it does not say a screen did.
 # `executed` stays False for the same reason it does for the staged scene:
 # the gameplay command did not execute, a row was written.
 OUTCOME_LV_ROW_WRITTEN = "lv_row_written"

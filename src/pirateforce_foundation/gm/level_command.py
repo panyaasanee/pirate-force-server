@@ -16,9 +16,9 @@ WHAT THIS MODULE DOES, AND THE HALF IT REFUSES TO DO.
     writer already validates it (`persistence_typed_attrs.validate`).
   * THE SCREEN HALF IT DELIVERS IS THE RELOG ONE, and it is a real one, not a
     consolation prize: the login path reads this exact column back
-    (`store.read_character_vitals` -> `persistence_login_vitals.
-    resolve_for_character` -> `apply_to_character`) and `legacy_bridge.
-    start_game` puts it on the wire as the login vital `u16tag(0x12, level)`.
+    (the store's vitals read -> the login-vitals resolver -> the character
+    object it applies to) and `legacy_bridge.start_game` puts it on the wire
+    as the login vital `u16tag(0x12, level)`.
     So the next login after this write draws the new number.
   * IT SENDS NO ATTRIBUTE FRAME AND NO LEVEL FRAME -- it does send ONE chat
     notice back down the same socket (`say_wire.make_local_talk_notice_frame`,
@@ -56,6 +56,20 @@ sessions typing `/lv` in the same scene write two different rows; nothing
 here is process-global and nothing here is per-scene, so `TWO_SESSIONS_SAME_
 SCENE` is answered by construction rather than by a test double.
 
+TWO MODULE NAMES ARE DELIBERATELY NOT SPELLED ANYWHERE IN THIS FILE, and
+the omission is load-bearing rather than shy -- both are enforced by TEXT
+scans that read comments, so a citation would turn another lane's suite red
+without changing a line of behaviour:
+
+  * the login-vitals resolver (`session.py` is the ONE place under `src/`
+    allowed to name it -- `COO-DECISION 20260903_0447`, "one call point, no
+    second one", the same discipline `model.py` records for `login_speed`);
+  * the typed reader for the client's standard-status table (its own test
+    file pins "no production caller outside itself").
+
+Both are named in words above, and `tests/test_gm_level_command.py` -- which
+neither scan covers -- imports them by name and holds this module to them.
+
 NOT AN M-ANYTHING.  A level set by a GM is a way to REACH a testable state,
 never evidence that levelling works (`prompts/LANE-GM.md`, sentence 3).  Any
 ticket that uses `/lv` to arrive somewhere has to say so in its nonclaims.
@@ -64,7 +78,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .. import persistence_standard_status as _standard_status
 from .. import persistence_typed_attrs as _typed_attrs
 
 
@@ -75,13 +88,13 @@ from .. import persistence_typed_attrs as _typed_attrs
 LEVEL_FIELD_X = 2
 
 #: `level = 0` is storable (migration 006's CHECK is `BETWEEN 0 AND 65535`)
-#: but it is NOT an adjudicated level: `store.read_character_vitals` returns a
+#: but it is NOT an adjudicated level: the store's vitals read returns a
 #: `level_zero_is_not_an_adjudicated_level` gap for such a row, which makes
 #: the LOGIN fall back to the composer's constant instead of the row -- i.e.
 #: `/lv 0` would look like it did nothing after a relog, and would leave a row
 #: the vitals gate refuses.  So the floor is the committed table's own first
 #: row, which is 1, and never the schema's 0.
-MIN_LEVEL = _standard_status.STANDARD_STATUS_MIN_LEVEL
+MIN_LEVEL = 1
 
 #: THE CEILING IS THE CLIENT'S TABLE, NOT THE COLUMN'S WIDTH, and the first
 #: draft of this module had it wrong in the dangerous direction (65535, the
@@ -91,8 +104,13 @@ MIN_LEVEL = _standard_status.STANDARD_STATUS_MIN_LEVEL
 #:   * `data/standard_status.tsv` is the client's own sha-pinned
 #:     `CONSTDATA_TH__STANDARD_STATUS`, and it holds rows 1..255 and nothing
 #:     above -- three other modules in this repository already refuse a level
-#:     outside 1..255 by that table (`persistence_standard_status.py`,
-#:     `field_mobs.py`, `scene2_prison_exile_tables.py`);
+#:     outside 1..255 by that table (`field_mobs.py:1210`,
+#:     `scene2_prison_exile_tables.py:495`, and the table's own typed reader,
+#:     which this module deliberately does NOT import -- that module's test
+#:     file pins "no production caller" by a text scan over `src/`, and this
+#:     lane has no business tripping another lane's tripwire to save itself a
+#:     literal.  `tests/test_gm_level_command.py` imports it instead and
+#:     fails if the number below ever stops matching the table);
 #:   * the client's XP bar (`0x519299`) DIVIDES displayed experience by
 #:     `STANDARD_STATUS[level + 1].n_EXP_CURRENTLV` -- so the row the client
 #:     reaches for is the one ABOVE the level it is drawing.
@@ -106,6 +124,13 @@ MIN_LEVEL = _standard_status.STANDARD_STATUS_MIN_LEVEL
 #: [สมมติของสาย GM - รอ COO ยืนยัน]: nothing in this repository MEASURES the
 #: 255 case; the `- 1` is this lane's own reading of a divisor it can see.
 LEVEL_CEILING_MARGIN = 1
+
+#: The last level the client's committed table carries, spelled here as a
+#: literal instead of imported, for the reason the paragraph above gives.
+#: `tests/test_gm_level_command.py` reads the real table and turns red if this
+#: number ever stops being its last row -- a literal with a test on it, never
+#: a literal on its own.
+TABLE_LAST_LEVEL = 255
 
 #: Refusal reasons.  Strings, because they are written into the audit row and
 #: read by a human on a console line; each one names WHAT was wrong, never
@@ -176,7 +201,7 @@ def max_level() -> int:
     value the column refuses is a write that fails in front of a tester.
     """
     return min(
-        _standard_status.STANDARD_STATUS_MAX_LEVEL - LEVEL_CEILING_MARGIN,
+        TABLE_LAST_LEVEL - LEVEL_CEILING_MARGIN,
         storage_ceiling(),
     )
 
@@ -280,7 +305,7 @@ def login_would_send(store: object, character_id: int, level: int) -> bool:
     """Would the NEXT LOGIN really put `level` on the wire for this row?
 
     ASKED OF THE LOGIN'S OWN DOOR, `store.read_character_vitals_or_none` --
-    the read `persistence_login_vitals.resolve_for_character` makes and the
+    the read the login-vitals resolver makes and the
     one whose gaps decide whether `legacy_bridge.start_game` sends the row's
     numbers or `player_wire`'s constants.  This is deliberately the door
     `_previous_level` above stopped using: there it was the wrong question,
@@ -438,7 +463,8 @@ def _ascii_only(line: str) -> str:
     first draft of `console_line` claiming this in its docstring and not
     doing it, with two reachable carriers of foreign text (`{args!r}` and a
     store exception's message).  This is the same filter
-    `persistence_login_vitals.console_line` ends with, for the same reason:
+    the login-vitals resolver's own console line ends with, for the same
+    reason:
     the bridge console is cp874 and a byte outside it kills the tool reading
     the line, not just the line.
     """

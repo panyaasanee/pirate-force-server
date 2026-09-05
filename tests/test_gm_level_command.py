@@ -204,7 +204,7 @@ class ArgumentTests(_Case):
         self.assertEqual(level_command.parse_level((" 30 ",)), 30)
 
     def test_zero_is_refused_because_the_vitals_gate_refuses_that_row(self):
-        # Not a style rule: `store.read_character_vitals` returns a
+        # Not a style rule: the store's vitals read returns a
         # `level_zero_is_not_an_adjudicated_level` gap for such a row, so a
         # `/lv 0` would leave a row the LOGIN falls back away from -- the
         # command would look like it did nothing and the tester would be
@@ -220,6 +220,22 @@ class ArgumentTests(_Case):
             level_command.parse_level((str(ceiling + 1),))
         self.assertEqual(caught.exception.reason, level_command.REFUSED_OUT_OF_RANGE)
 
+    def test_the_literal_table_top_still_matches_the_real_table(self):
+        # `level_command` may NOT import the table's typed reader: that
+        # module's own test file pins "no production caller outside itself"
+        # with a text scan over `src/`.  So the number lives there as a
+        # literal and the tie to the real table lives HERE, in a tree that
+        # scan does not read.  A table that grows past 255 turns this red
+        # instead of leaving a stale literal in a command that writes rows.
+        self.assertEqual(
+            level_command.TABLE_LAST_LEVEL,
+            persistence_standard_status.STANDARD_STATUS_MAX_LEVEL,
+        )
+        self.assertEqual(
+            level_command.MIN_LEVEL,
+            persistence_standard_status.STANDARD_STATUS_MIN_LEVEL,
+        )
+
     def test_the_ceiling_is_the_clients_table_not_the_columns_width(self):
         # pf-adversary (round `l86bt4`, D5): the first draft used the u16
         # storage maximum, 65535.  The client's own committed table stops at
@@ -227,7 +243,7 @@ class ArgumentTests(_Case):
         # left alone as well.
         self.assertEqual(
             level_command.max_level(),
-            persistence_standard_status.STANDARD_STATUS_MAX_LEVEL - 1,
+            level_command.TABLE_LAST_LEVEL - 1,
         )
         self.assertLess(
             level_command.max_level(),
