@@ -9,7 +9,7 @@ as the rest of ``tests/test_script_*``). Mirrors
 """
 import unittest
 
-from pf_preconditions import LUPA_PACKAGE, BRIDGE_LUA_SCRIPTS, SIBLING
+from pf_preconditions import LUPA_PACKAGE, LUA_CORPUS_RUNNABLE, SIBLING
 
 from pirateforce_foundation.lua_api import instance
 from pirateforce_foundation.lua_api import trigger as lua_trigger
@@ -244,9 +244,28 @@ class RealInstanceNamespaceTests(unittest.TestCase):
         self.assertEqual(other_ns["GetLastingTime"](), instance.STUB_DEFAULT)
 
 
-@LUPA_PACKAGE.skip_unless_present()
 class RealInstanceLuaIntegrationTests(unittest.TestCase):
-    """The same state machine, driven from real Lua through a ScriptHost."""
+    """The same state machine, driven from real Lua through a ScriptHost.
+
+    Decorated per-method, not once on the class (round PIN-DRIFT-FIX, LANE-Q).
+    A class-level ``skip_unless_present()`` sets ``__unittest_skip_why__`` on
+    the CLASS, and ``TestCase.run()`` uses the class's own reason for every
+    method in it whenever the class is skipped -- a method's own additional
+    decorator never gets to raise its own reason on a machine where the
+    class-level condition is already false, because ``run()`` never calls the
+    wrapped method at all. Three of the four tests here need only
+    ``LUPA_PACKAGE`` and are decorated with it directly; the fourth also reads
+    the bridge's own script corpus and is decorated with
+    ``LUA_CORPUS_RUNNABLE`` (the same composite key
+    ``tests/test_script_lua_corpus.py`` uses, per
+    ``pf_preconditions.AllOfThese``'s own docstring) instead of stacking
+    ``BRIDGE_LUA_SCRIPTS`` under this class's old ``LUPA_PACKAGE`` guard --
+    that stack was exactly the shape ``AllOfThese`` exists to replace, and the
+    stacked form is what a real gate without lupa measured as
+    ``PIN DRIFT: tests/test_script_lua_api_instance.py / precondition
+    'bridge_lua_scripts': pinned 1, observed 0`` -- the method's own reason
+    never fired because the class already skipped it under a different key.
+    """
 
     def _host(self, context=None, registry=None):
         from pirateforce_foundation import script_host
@@ -255,6 +274,7 @@ class RealInstanceLuaIntegrationTests(unittest.TestCase):
             log=calls.append, instance_context=context, instance_registry=registry)
         return host, calls
 
+    @LUPA_PACKAGE.skip_unless_present()
     def test_set_lasting_time_from_lua_actually_changes_the_registry(self):
         reg = instance.InstanceRegistry()
         ctx = instance.InstanceContext(instance_id=12)
@@ -266,6 +286,7 @@ class RealInstanceLuaIntegrationTests(unittest.TestCase):
             "LUA_INSTANCE_REAL Instance.SetLastingTime instance=12 time=45",
             calls)
 
+    @LUPA_PACKAGE.skip_unless_present()
     def test_two_hosts_sharing_one_registry_see_each_other_s_writes(self):
         # THE shared-world property this book exists for (PANYA-DECISION
         # 20260905_1057), same as lua_api.trigger's own proof: two
@@ -282,6 +303,7 @@ class RealInstanceLuaIntegrationTests(unittest.TestCase):
         self.assertEqual(reader.call("Read"), 99)
         self.assertEqual(reg.remove_key_event(1, 7), 0)
 
+    @LUPA_PACKAGE.skip_unless_present()
     def test_two_hosts_with_no_registry_given_do_not_leak_into_each_other(self):
         host_a, _ = self._host()
         host_b, _ = self._host()
@@ -290,19 +312,19 @@ class RealInstanceLuaIntegrationTests(unittest.TestCase):
         host_a.call("Bump")
         self.assertEqual(host_b.call("Read"), instance.STUB_DEFAULT)
 
-    @BRIDGE_LUA_SCRIPTS.skip_unless_present()
+    @LUA_CORPUS_RUNNABLE.skip_unless_present()
     def test_t_inscnt_fixture_from_the_real_corpus_calls_both_real_apis(self):
         # gamedata/lua/t_inscnt.lua's ScriptStart: `Instance.CallScoreCount()`
         # then `Trigger.NextStatus()` -- both real now, a worked example
         # proving this is real gating logic against the actual shipped
-        # script, not just a synthetic fixture. The enclosing class already
-        # guards on LUPA_PACKAGE, so this method only needs to add the ONE
-        # extra thing it needs on top -- the bridge's own script corpus --
-        # rather than re-stacking a second full precondition (see
-        # pf_preconditions.AllOfThese's own docstring for why stacking two
-        # skip_unless_present() decorators for one test is the wrong shape;
-        # this is not that: two DIFFERENT tests in this class have two
-        # DIFFERENT requirements, not one test needing both at once).
+        # script, not just a synthetic fixture. Needs BOTH lupa (to drive a
+        # live ScriptHost) and the bridge's own script corpus (the actual
+        # .lua file on disk) at once, so it is guarded by the ONE composite
+        # key that owns that conjunction (see the class docstring above and
+        # pf_preconditions.AllOfThese's own docstring) rather than stacking
+        # this method's own precondition under a class-level LUPA_PACKAGE
+        # guard the other three methods use -- that stack is what produced
+        # the pin drift this test's decorator now avoids.
         from pirateforce_foundation import script_host
 
         path = SIBLING / "pf_bridge" / "gamedata" / "lua" / "t_inscnt.lua"
