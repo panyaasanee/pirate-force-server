@@ -289,6 +289,34 @@ class MobCombatPoseTrialWiringTests(unittest.TestCase):
         )
         self.assertEqual((pc, frame), (expected_pc, expected_frame))
 
+    def test_no_equip_provenance_prints_once_per_connection_not_per_hit(self):
+        """CORE-REQUEST 20260905_2242 item 2, COO-DECISION 20260906_0346."""
+        os.environ.pop(POSE_TRIAL_ENV, None)
+        state = self._state("mc_pose_provenance_throttle")
+        self._clear_class_id(state)
+        self.assertEqual(
+            state.pose_no_equip_provenance_reported, [False],
+        )
+        _actions1, out1 = self._hit(state)
+        self.assertIn("POSE_NO_EQUIP_PROVENANCE", out1)
+        self.assertEqual(
+            state.pose_no_equip_provenance_reported, [True],
+        )
+        # Second hit, same connection: the refusal is the same fact as the
+        # first hit's -- still no class_id -- so it does not print again.
+        _actions2, out2 = self._hit(state)
+        self.assertNotIn("POSE_NO_EQUIP_PROVENANCE", out2)
+        self.assertEqual(
+            state.pose_no_equip_provenance_reported, [True],
+        )
+        # A different connection (a fresh session object) starts with its
+        # own slot at False -- the flag is per-connection, not global.
+        other = self._state("mc_pose_provenance_throttle_other")
+        self._clear_class_id(other)
+        self.assertEqual(other.pose_no_equip_provenance_reported, [False])
+        _actions3, out3 = self._hit(other)
+        self.assertIn("POSE_NO_EQUIP_PROVENANCE", out3)
+
     # ----- armed: one extra frame per hit, cycling the list ---------------
 
     def test_an_armed_list_echoes_one_frame_per_hit_and_wraps(self):

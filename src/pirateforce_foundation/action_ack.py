@@ -209,7 +209,7 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
 
 def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
                                   hit_number: int, *, class_id=None,
-                                  environ=None):
+                                  environ=None, provenance_reported=None):
     """``(pc, frame)`` for one extra ActionVital echo on an accepted
     production mob-combat hit, or ``None`` -- compose and send NOTHING.
 
@@ -265,15 +265,26 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
     (``session.py``'s login read) reaches this function with a real value
     and gets the production swing described above. ``class_id`` is still
     ``None`` for a character whose row never resolved one, and the refusal
-    is not silent then -- ``POSE_NO_EQUIP_PROVENANCE`` prints per hit,
-    which is what item 2 of that decision asks for -- and the frame stays
-    byte-identical to main: the inherited v141 dispatch already echoed this
-    request's own ``+0x30`` back before ``_dispatch_mob_combat`` ran. The
-    second half of that CORE-REQUEST -- a per-connection counter/flag so
-    this line prints once per session instead of once per hit -- is NOT
-    wired: this function's signature has no parameter for it yet, and that
-    parameter is this lane's own to add (``pf_bridge/notes_to_chief/
-    20260906_0350_CHIEF-REPLY-corereq-2242-*``).
+    is not silent then -- ``POSE_NO_EQUIP_PROVENANCE`` prints, gated by
+    ``provenance_reported`` below -- and the frame stays byte-identical to
+    main: the inherited v141 dispatch already echoed this request's own
+    ``+0x30`` back before ``_dispatch_mob_combat`` ran.
+
+    ``provenance_reported``: the CORE-REQUEST's second value (item 2),
+    wired under COO-DECISION 20260906_0346. A one-element list (or
+    ``None``, meaning "not tracked, print every time" -- every existing
+    caller that omits it keeps the old per-hit behavior). Element 0 is a
+    bool this function reads AND FLIPS TO ``True`` in place the first time
+    ``POSE_NO_EQUIP_PROVENANCE`` would print for this list's owner, so the
+    line prints once per connection, not once per hit; it never resets on
+    its own (relogin makes a new session object, hence a new list).
+    ``COO-DECISION 20260905_2148`` item 2's own reasoning: this module
+    stays stateless (nothing is kept between calls INSIDE it), the state
+    lives on the CALLER's session object and threads through as a plain
+    argument, same shape as ``hit_number`` above. Only the
+    ``POSE_NO_EQUIP_PROVENANCE`` refusal is throttled this way -- a
+    ``POSE_REFUSED`` line (wrong class/equip-type/not-screen-confirmed) is
+    a different fact each time and still prints every hit.
     """
     action_selector, pose_line = pose_trial.selector_for_hit(
         hit_number, environ,
@@ -286,6 +297,13 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
         # pose appear from somewhere else and conclude her list worked.
         action_selector, pose_line = combat_pose.\
             production_behavior_for_class(class_id)
+        if (action_selector is None and pose_line is not None
+                and pose_line.startswith(combat_pose.POSE_NO_EQUIP_PROVENANCE)
+                and provenance_reported is not None):
+            if provenance_reported[0]:
+                pose_line = None
+            else:
+                provenance_reported[0] = True
     _say(pose_line)
     if action_selector is None:
         return None

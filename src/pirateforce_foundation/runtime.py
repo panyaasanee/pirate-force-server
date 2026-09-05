@@ -1404,6 +1404,14 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                 self.mob_death_register = mob_death.DeathRegister()
                 self.mob_combat_hit_count = 0
                 self.mob_combat_kill_count = 0
+                # CORE-REQUEST 20260905_2242 item 2 (LANE-B), COO-DECISION
+                # 20260906_0346: a mutable, per-connection slot for
+                # POSE_NO_EQUIP_PROVENANCE -- dies with this session object
+                # (the socket), never cleared by hand. A one-element list,
+                # not a bare bool, so action_ack.py can flip it in place
+                # without this call site having to unpack and reassign a
+                # second return value from make_production_hit_pose_echo.
+                self.pose_no_equip_provenance_reported = [False]
                 # RE-157 job 2 / MOB-COMBAT-001 announced-actor guard.
                 # ``mob_combat_membership.AnnouncedActorMembership`` (or
                 # None, meaning "no census has ever committed this
@@ -5167,9 +5175,17 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # own default already handles (POSE_NO_EQUIP_PROVENANCE, no
             # frame change) -- this line only lets the real value through
             # when the row has one.
+            # CORE-REQUEST 20260905_2242 item 2, COO-DECISION 20260906_0346:
+            # the second value this call was missing -- a mutable,
+            # connection-scoped slot for POSE_NO_EQUIP_PROVENANCE, so it
+            # prints once per session instead of once per hit.  The list
+            # itself is the "thread it through the caller" shape the
+            # letter asked for (like `hit_number` above): action_ack.py
+            # flips element 0 in place, this call site never reassigns it.
             pose_trial_echo = make_production_hit_pose_echo(
                 legacy, fields, performer, self.mob_combat_hit_count,
                 class_id=selected.class_id,
+                provenance_reported=self.pose_no_equip_provenance_reported,
             )
             if pose_trial_echo is not None:
                 pose_trial_pc, pose_trial_frame = pose_trial_echo
