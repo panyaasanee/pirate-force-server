@@ -10115,3 +10115,65 @@ Panya พิมพ์แล้วเงียบ ต้องพิมพ์ซ�
 เฟรมเดียว — คำตอบระยะยาวคือคิวของ park หรือปฏิเสธไม่ให้ประกอบ warp ใบที่สองระหว่างที่ใบแรก
 ยังไม่ยืนยัน? รอบนี้เลือกทางที่**ถูกเสมอไม่ว่าเฟรมไหนออกไปบ้าง** (หอบแถวเก่าที่สุด) ซึ่งปิดช่อง
 bricking ได้ครบ แต่ไม่ได้ตอบว่าดีไซน์สุดท้ายควรเป็นอะไร — เข้า backlog ถึง COO
+
+---
+
+## รอบ `goxj0y` (2026-09-05T07:1x+07:00) — ชั้นที่สองของ `GM-057` เขียนเสร็จในเขต GM · เหลือหนึ่งบรรทัดของ chief
+
+**ที่มา**: `COO-DECISION 20260905_0547` ข้อท้าย — "PR ต่อสายชั้นสองภายในรอบถัดจากที่ `#795`
+ขึ้น main" · `#795` merge 05:47 (ตรวจสดรอบนี้ด้วย `git grep -n "def sendall"
+src/pirateforce_foundation/connection.py` บน `origin/main` = **เจอ** `connection.py:118`
+ไม่ได้เชื่อบันทึกของรอบก่อน)
+
+### ช่องว่างที่ปิด
+R348 วัดไว้ว่า **ไม่มีคลาสไหนใน `src/` ประกาศ `on_game_frame_sent` /
+`on_game_frame_send_failed`** ⇒ `getattr(self.state, hook_name, None)` (`connection.py:150`)
+คืน `None` ทุกครั้ง และ `gm/warp_send_watch.py` ไม่เคยถูกเรียกจากซ็อกเก็ตจริงเลย ทั้งที่
+`park_warp_send` ถูกเรียกใน production แล้ว ⇒ send ที่ล้มวันนี้ทิ้งแถวไว้ที่ฉากปลายทางที่
+ไคลเอนต์ไม่เคยไปถึง และ park ค้างตลอดอายุคอนเนกชัน
+
+### ของใหม่ — `warp_send_watch.install_send_outcome_observers(session)`
+ตัวติดตั้ง forward สองตัวลง session หนึ่งตัว **ทั้งก้อนอยู่ในเขต GM**:
+- คืนคำเดียวจากสาม `installed` / `refused_already_present` / `refused_not_writable` · ไม่โยน
+- **ปฏิเสธถ้ามีชื่อใดชื่อหนึ่งอยู่แล้ว** — instance attribute จะ shadow เมธอดของคลาส ถ้า chief
+  เลือกรูป A (สองเมธอดตาม `CORE-REQUEST-GM-058`) ตัวติดตั้งที่ทับได้คือตัวที่ปลดอาวุธ hookup
+  ของเขาเงียบ ๆ
+- **ครึ่งเดียวไม่เหลือค้าง** — ชื่อที่สองเขียนไม่ลง ชื่อแรกถูกถอนคืน (คอนเนกชันที่มีแต่ฝั่ง success
+  จะ *เคลียร์* park ที่มันย้อนคืนไม่ได้ = แย่กว่าไม่มีเลย)
+- **ถือ session แบบ weak** — closure ที่จับแน่นแล้วเก็บบน session เองคือ reference cycle
+  ที่ต้องรอ `gc` เดินรอบเต็ม แต่ `lane_hooks` เก็บ live session เป็น weakref
+  (`lane_hooks/__init__.py:945`) เพื่อให้ session ที่ตายเลิกตอบ `current_session_scene_id` ทันที
+  · session ที่ weakref ไม่ได้ (`__slots__` ไม่มี `__weakref__`) ตกไป strong ref แทนที่จะปฏิเสธ
+- ค่าคงที่ `SENT_OBSERVER_ATTRIBUTE` / `FAILED_OBSERVER_ATTRIBUTE` สะกดชื่อ hook ไว้ที่เดียว
+  และมีเทสเทียบกับ **ซอร์สของ `connection.py` จริง** เพราะไฟล์นั้นไม่ใช่ของสายนี้ ถ้า chief
+  เปลี่ยนชื่อ ตัวติดตั้งที่เขียนชื่อเก่าจะติดตั้งสองแอตทริบิวต์ที่ไม่มีใครอ่าน และเทสอื่นทุกใบยังเขียว
+
+### หลักฐาน (headless ทั้งหมด)
+`tests/test_gm_warp_send_watch.py` +11 เทส สองคลาส:
+- `InstallSendOutcomeObserverTests` — arity ตรงกับที่ `connection.py` เรียก (`observer(data)` /
+  `observer(data, error)`) · ไม่ shadow เมธอดของ chief · ครึ่งเดียวถูกถอน · weakref ไม่หน่วงอายุ
+  session · session ที่ weakref ไม่ได้ยังติดตั้งได้ · forward ที่ session ตายแล้วตอบ
+  `nothing_parked` ไม่โยน
+- `LiveSocketFacadeTests` — **ผ่าน facade จริง**: `GameConnectionBindings` จริง +
+  `AcceptedGameSocket` จริง + raw socket ปลอมที่ `sendall` โยน + `SQLiteStore` จริง + เฟรม
+  `/warp` ที่ประกอบผ่าน router จริง ⇒ send ล้ม = แถวกลับฉาก 1 · `ConnectionResetError` ยัง
+  propagate (facade ไม่กลืน) · send สำเร็จ = แถวคาปลายทาง park เคลียร์ · เฟรม**อื่น**ล้มก่อน
+  (v141 `break` ทั้งลิสต์) = ยังย้อนแถวให้
+- 🔴 **control**: `test_without_the_install_the_same_failure_leaves_the_row_wrong` ปัก
+  **พฤติกรรมของ main วันนี้** ไว้ตั้งใจ (ไม่ติดตั้ง = แถวผิด + park ค้าง) — ถ้าใบนี้แดงวันไหน
+  แปลว่า hookup ลงที่อื่นแล้ว และอีกสามใบข้าง ๆ เลิกวัดสิ่งที่มันอ้าง
+- มิวแทนต์ 3 ตัวแดงครบ: installer ไม่ติดตั้ง (10 failed) · ชื่อ hook ดริฟต์จาก `connection.py`
+  (3 failed) · ไม่ถอนครึ่งที่ติดไปแล้ว (1 failed)
+
+### ที่ยังไม่ปิด
+- **หนึ่งบรรทัดที่ `runtime.py:1599`** (ต่อท้าย `connection_bindings.bind(self)`) — ของ chief
+  ใบ `20260905_0719_LANE-GM-CORE-REQUEST-GM-058-ADDENDUM-one-call-installer.md` · จนกว่า
+  รูป A หรือ B จะลง main **ชั้นที่สองยังไม่ทำงานใน production**
+- **liveness ของ `send_lock`** ระหว่าง rollback จริง (sqlite `busy_timeout=5000` ห้าวินาที vs
+  `heartbeat_worker` ทุก 2.0 วิ) — ยังไม่ตอบ ส่งต่อ chief ตั้งแต่ `GM-058` ไม่เดาแทน
+
+### nonclaim
+ไม่มีอะไรผ่านจอ · ไม่มีบัญชีใดได้/เสียสถานะ GM · ไม่มีขั้นตอนใดถูกข้ามด้วย GM · ไม่ประกาศ
+M2/M3/M4/P-2/P-3 ขยับ · socket ในเทสเป็นอ็อบเจกต์ปลอม ไม่มีไบต์ออกเครือข่ายจริง ·
+ไม่แตะ `runtime.py` / `connection.py` / `app.py` / `pf_login_game_server_v141.py` / canonical DB /
+`scenarios/world_*.json` / `scenarios/combat_*.json`
