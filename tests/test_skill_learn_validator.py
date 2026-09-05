@@ -79,6 +79,26 @@ class CanAffordToLearnTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             can_afford_to_learn(1.0, 99)
 
+    def test_non_positive_cost_refused_not_reported_affordable_for_free(self):
+        # No id in this catalog carries a cost <= 0 today (pinned by
+        # SkillPointsAfterLearningTests.
+        # test_the_catalog_still_has_exactly_one_fractional_cost_id below),
+        # so this exercises the guard the same way pf-adversary did: patch
+        # the table accessor for one call.  Before this round, a bare
+        # `current_skill_points >= cost` compare would have returned `True`
+        # here for any non-negative balance -- reporting a non-positive-cost
+        # skill "affordable for free" instead of refusing it.
+        with mock.patch.object(
+            skill_catalog, "skill_point_cost_to_learn", return_value=0.0
+        ):
+            with self.assertRaises(SkillLearnValidatorError):
+                can_afford_to_learn(5, 99)
+        with mock.patch.object(
+            skill_catalog, "skill_point_cost_to_learn", return_value=-1.0
+        ):
+            with self.assertRaises(SkillLearnValidatorError):
+                can_afford_to_learn(5, 99)
+
 
 class SkillPointsAfterLearningTests(unittest.TestCase):
     """The spend half `can_afford_to_learn`'s docstring names as a caller's
@@ -159,14 +179,19 @@ class SkillPointsAfterLearningTests(unittest.TestCase):
                     0,
                 )
 
-    def test_non_positive_cost_refused_not_rounded_to_zero_or_spent_negative(self):
-        # No id in this catalog carries a cost <= 0 today (pinned by
-        # test_the_catalog_still_has_exactly_one_fractional_cost_id above),
-        # so this exercises the guard the same way pf-adversary did: patch
-        # the table accessor for one call.  COO-DECISION 20260905_1245 is
-        # explicit that this decision does not touch this case -- a
-        # non-positive cost must keep refusing, never be rounded to a free
-        # `0`-point spend and never be spent as a negative balance change.
+    def test_non_positive_cost_refused_via_can_afford_to_learn(self):
+        # This does NOT isolate a cost<=0-specific guard inside
+        # skill_points_after_learning -- that check moved to
+        # can_afford_to_learn this round (see the module docstring's
+        # "[UPDATE, this round]" paragraph and
+        # CanAffordToLearnTests.test_non_positive_cost_refused_not_reported_
+        # affordable_for_free above, which is what actually proves the
+        # guard exists).  Pinned here anyway, same reasoning as
+        # test_negative_balance_refused_same_as_can_afford_to_learn below,
+        # so a future refactor that reorders the checks cannot silently
+        # start rounding a non-positive cost to a free `0`-point spend or
+        # spending it as a negative balance change for THIS function's own
+        # inputs.
         with mock.patch.object(
             skill_catalog, "skill_point_cost_to_learn", return_value=0.0
         ):
