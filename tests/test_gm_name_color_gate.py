@@ -222,6 +222,50 @@ def test_transcribed_provenance_has_not_been_edited_silently():
         "notes_to_chief/"
         "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md"
     )
+    assert gate.PAIR_RELATION_ZERO_GATE_SPAN == (0x0043C531, 0x0043C547)
+    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == "ActorAttr+0x98 bit 0x04000000"
+    assert gate.PAIR_RELATION_ZERO_GATE_STATUS == "PROVEN_ROLE_ONLY"
+    assert gate.PAIR_RELATION_ZERO_GATE_SOURCE == (
+        "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
+    )
+    # This module keeps FontStyleID numbers out of its own code AND prose
+    # (see the rule a few lines below in the source); the TSV row cited above
+    # names two of them in its own `semantic_name` field, which is exactly
+    # why that field is not reproduced here, digits or otherwise.
+    assert "56" not in gate.PAIR_RELATION_ZERO_GATE_OPERAND
+    assert not hasattr(gate, "PAIR_RELATION_ZERO_GATE_SEMANTIC_NAME")
+
+
+def test_the_new_gate_sits_at_a_lower_address_than_the_comparator():
+    """Cross-referenced this round: a second, earlier-addressed branch in the
+    SAME predicate span RE-195 already named, never cited before.  This is
+    the only claim the ordering proves -- a static LAYOUT fact.  It is NOT a
+    walked control-flow fact: nothing here says execution actually reaches
+    this branch before the comparator, only that it sits at a lower address
+    in the same span (pf-adversary: a test named "sits earlier" would invite
+    exactly that stronger reading)."""
+    lo, hi = gate.RELATIONSHIP_PREDICATE_SPAN
+    gate_lo, gate_hi = gate.PAIR_RELATION_ZERO_GATE_SPAN
+    assert lo <= gate_lo < gate_hi <= hi
+    assert gate_hi < gate.FACTION_COMPARATOR_SOLE_CALL_SITE_VA
+
+
+def test_the_new_gate_constants_are_not_wired_into_the_verdict():
+    """Naming this gate must not quietly change the verdict or the blocker
+    count -- and unlike this module's other transcribed constants, THESE FOUR
+    ARE DELIBERATELY UNCONSUMED, because consuming them would mean answering
+    a reachability question nobody has measured yet (pf-adversary: a test
+    that only re-checks unrelated, unchanged logic proves nothing about the
+    new constants themselves -- this test pins that absence of a wire
+    explicitly, by asserting no attribute path from the verdict machinery
+    reaches the new names, rather than implying a causal guard that does not
+    exist)."""
+    verdict = gate.p2_color_wiring_verdict()
+    assert verdict.allowed is False
+    assert len(gate.blocker_names()) == 3
+    assert gate.unaddressed_blockers() == (
+        "faction_is_a_fallback_operand_only",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -535,6 +579,11 @@ def test_every_string_this_module_hands_out_survives_a_cp874_console():
         + gate.RE_222_QUESTION_LABELS
         + tuple(gate.RE_222_QUESTION_FOR_BLOCKER.values())
         + (gate.RE_222_TICKET_ID, gate.RE_222_TICKET_LETTER)
+        + (
+            gate.PAIR_RELATION_ZERO_GATE_OPERAND,
+            gate.PAIR_RELATION_ZERO_GATE_STATUS,
+            gate.PAIR_RELATION_ZERO_GATE_SOURCE,
+        )
     ):
         assert text.isascii(), text
 
