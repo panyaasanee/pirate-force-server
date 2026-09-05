@@ -88,17 +88,41 @@ notes_to_chief/20260905_1932_RE-265-RESULT-COMMON-CONFIRM-OPENS-AFTER-
 SAILING-RESULT-KEY.md`) found the gate R318 actually missed: the client's
 contact tick reads `+0x14` as a key into a store loaded from the client table
 `SAILING_RESULT`, and exits BEFORE the XYZ distance test when the lookup is
-null -- exactly what a bare `+0x14=0` produces.  Both trial records now carry a REAL `n_ID` from
-`CONSTDATA_TH__SAILING_RESULT.tsv` where `n_AREA=126` (the scene these
-records are provisioned for), derived from a committed copy of that table,
-never typed in -- `world_m2_sailing_result_key.provisional_area_126_keys()`,
-one DISTINCT id per record (pf-adversary, round `wjprxa`, D1: reusing one id
-for both records would have spent GT-233's single no-backup attended shot
-on one candidate instead of two -- see that function's own docstring).  The
-table does not name which of its 18 `n_AREA=126` rows belongs to which
-island -- see that module's own docstring -- so this is COO's own fallback
-reading, marked PROVISIONAL, not a claim that the client cares which row it
-is.
+null -- exactly what a bare `+0x14=0` produces.  Both trial records now carry
+a REAL candidate from `CONSTDATA_TH__SAILING_RESULT.tsv` (the scene these
+records are provisioned for is `n_AREA=126`), derived from a committed copy
+of that table, never typed in.
+
+THE TWO CANDIDATES NOW DISCRIMINATE A COLUMN, NOT A ROW (round `tk4hr7`+1,
+LANE-A, COO-DECISION `20260905_2349` item 1, GT-233 v3 option (ข) --
+SUPERSEDES the row-discriminating design below this paragraph replaced).
+RE-265 measured that `+0x14` is a key into a `SAILING_RESULT`-derived store,
+but never measured WHICH COLUMN of that table the store is keyed by
+(pf-adversary, round `tk4hr7`, D3): the retired design assumed `n_ID` and
+only ever tested "which row", which cannot come back positive if the store
+is actually keyed by `n_AREA` (or anything else) instead.
+`world_m2_sailing_result_key.column_discriminating_keys()` gives the two
+records one candidate per named hypothesis instead: the lowest `n_ID` among
+the 18 `n_AREA=126` rows (dock 153 / Prison Exile), and `n_AREA` itself,
+`126` (dock 154 / Spice Paradise) -- a resolved lookup on either record is
+now evidence about which COLUMN the client reads, and a silent result on
+BOTH means the column is still unknown, not that the whole
+`SAILING_RESULT`-key theory is wrong (no-backup attended shot, COO-DECISION
+`20260905_1348`; see the `GT-233` v3 ticket for the exact sentence).  This
+also closes D8: the retired design's two lowest `n_ID`s (`1`, `2`) put
+island 3's key exactly equal to island 2's `+0x12` (`survey_id`, `2`/`3` for
+the two docks); the new pair (`1`, `126`) matches neither dock's `+0x12`.
+
+~~"one DISTINCT id per record" (pf-adversary, round `wjprxa`, D1: reusing
+one id for both records would have spent GT-233's single no-backup attended
+shot on one candidate instead of two)~~ IS STRUCK along with the function it
+described (`provisional_area_126_keys`) -- the reasoning was sound for
+"which row" but never addressed "which column", which is the question
+COO-DECISION `20260905_2349` actually asks this trial to answer.  The table
+still does not name which of its 18 `n_AREA=126` rows belongs to which
+island -- see that module's own docstring -- so the `n_ID` candidate is
+still COO's own fallback reading, marked PROVISIONAL, not a claim that the
+client cares which row it is.
 """
 from __future__ import annotations
 
@@ -139,19 +163,23 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
     both M2 islands).  Empty if `MEASURED_XYZ` is ever emptied again -- this
     function has no opinion of its own, it only reads the plan's.
 
-    Each record's `+0x14` gets a DISTINCT `world_m2_sailing_result_key`
-    candidate, not the same one repeated (pf-adversary, round `wjprxa`, D1:
-    COO-DECISION `20260905_1947` item 2 says to use EVERY `n_AREA=126` row
-    when the table does not name an island, and `GT-233`'s flip carries
-    `COO-DECISION 20260905_1348`'s standing "no backup boot" rule, so the
-    two records this trial sends are the only two attempts the one attended
-    shot gets -- see `world_m2_sailing_result_key.provisional_area_126_keys`
-    for the full reasoning).  Ordered the same way `planned_records()`
-    already is (`world_m2_survey_plan.PLANNED_TRIGGER_IDS`: 153 then 154),
-    so which island got which candidate is reproducible, not incidental.
+    Each record's `+0x14` gets a DIFFERENT `world_m2_sailing_result_key`
+    COLUMN HYPOTHESIS, not a different row of the same column
+    (COO-DECISION `20260905_2349` item 1, GT-233 v3 option (ข); see
+    `world_m2_sailing_result_key.column_discriminating_keys` for the full
+    reasoning, and this module's own docstring for why the row-
+    discriminating design it replaces could never come back positive if the
+    client keys its store by `n_AREA` instead of `n_ID`).  Ordered the same
+    way `planned_records()` already is
+    (`world_m2_survey_plan.PLANNED_TRIGGER_IDS`: 153 then 154), so dock 153
+    (Prison Exile) always gets the `n_ID` candidate and dock 154 (Spice
+    Paradise) always gets the `n_AREA` candidate -- reproducible, not
+    incidental, and load-bearing for reading GT-233's result (a pop on one
+    record and not the other says which column, only because which record
+    tested which hypothesis is fixed).
     """
     records = plan.planned_records()
-    keys = sailing_result.provisional_area_126_keys(len(records))
+    keys = sailing_result.column_discriminating_keys(len(records))
     return tuple(
         TrialSurveyRecord(
             trigger_id=record.trigger_id,
@@ -171,8 +199,10 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
                 # RE-265 + COO-DECISION 20260905_1947 item 2: a real
                 # SAILING_RESULT key, not a bare zero -- see the module
                 # docstring's "RECORD +0x14 IS NO LONGER A BARE ZERO".  A
-                # DISTINCT key per record -- see this function's own
-                # docstring for why the two must not match.
+                # DIFFERENT COLUMN HYPOTHESIS per record (n_ID here,
+                # n_AREA there), not a different row of the same column --
+                # see this function's own docstring and COO-DECISION
+                # 20260905_2349 item 1.
                 unmeasured_0x14=key,
             ),
         )
