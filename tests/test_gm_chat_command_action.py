@@ -819,8 +819,11 @@ class SameSceneBareWarpTests(_Case):
         # opens here: the ForcePos constant only.  A command that started
         # sending on the strength of the WARP gate would be a real defect,
         # which is why this loop keeps running with it open.
+        # `/lv` LEFT THIS LIST on round `l86bt4`, the same way `say` left it
+        # on `w8hnu9`: PANYA-ORDER 2026-09-06 01:55 gave it a row write and a
+        # notice, so it sends something for its own reasons and is pinned in
+        # `tests/test_gm_level_command.py`.
         for text, name in (
-            ("/lv 5", "lv"),
             ("/item 1001 2", "item"),
             ("/npc on 7", "npc"),
             ("/spawn 42", "spawn"),
@@ -1771,6 +1774,15 @@ class EventNameContractTests(_Case):
         # decision and the COO letter it waits on.
         "EVENT_SPEED_NO_STORE": "gm_chat_action_speed_no_store",
         "EVENT_SPEED_NO_CHARACTER_ID": "gm_chat_action_speed_no_character_id",
+        # `/lv`'s trail (PANYA-ORDER 2026-09-06 01:55, round `l86bt4`).  Every
+        # branch of that command is named -- it has no silent one, because a
+        # tester cannot otherwise tell "the level did not change" from "the
+        # level changed and this client has not been told yet".
+        "EVENT_LV_REFUSED_PREFIX": "gm_chat_action_lv_refused_",
+        "EVENT_LV_WITHHELD_CANONICAL_DB": "gm_chat_action_lv_withheld_canonical_db",
+        "EVENT_LV_ROW_WRITTEN": "gm_chat_action_lv_row_written",
+        "EVENT_LV_NOTICE_COMPOSED_PREFIX": "gm_chat_action_lv_notice_composed_",
+        "EVENT_LV_NOTICE_FAILED_PREFIX": "gm_chat_action_lv_notice_failed_",
         "EVENT_SPEED_PERSIST_REFUSED_PREFIX": (
             "gm_chat_action_speed_persist_refused_"
         ),
@@ -1852,6 +1864,13 @@ class EventNameContractTests(_Case):
         # and an attended run has to tell them apart from the console alone.
         "TYPO_REFUSED_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
+        ),
+        # `/lv`'s two, for the same reason the two above are two: an attended
+        # run greps the serve loop's action lines to tell "the row was
+        # written" from "nothing was written" without decoding bytes.
+        "LV_SET_NOTICE_ACTION_LABEL": "LANE_GM_CHAT_LV_SET_LOCAL_TALK_NOTICE",
+        "LV_REFUSED_NOTICE_ACTION_LABEL": (
+            "LANE_GM_CHAT_LV_REFUSED_LOCAL_TALK_NOTICE"
         ),
     }
 
@@ -1979,7 +1998,7 @@ class ConsoleTokenTests(_Case):
         session = FakeSession(self.GM_ACCOUNT, FakePosition())
         err, out = io.StringIO(), io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
-            self.act(session, "/lv 30")
+            self.act(session, "/spawn 30")
         return out.getvalue(), err.getvalue()
 
     def test_the_token_is_the_literal_string_it_has_always_been(self):

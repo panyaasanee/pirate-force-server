@@ -5,12 +5,13 @@ THE DEFECT THIS FILE PINS, measured through the real dispatcher this round
 
     /warp 2 100 200 -> console: `LANE_GM_CHAT_ACTION warp route=action`
     /say hello      -> console: `LANE_GM_CHAT_ACTION say route=action`
-    /lv 10          -> console: `LANE_GM_CHAT_ACTION lv route=action`
     /item 1001 5    -> console: `LANE_GM_CHAT_ACTION item route=action`
     /npc on 5       -> console: `LANE_GM_CHAT_ACTION npc route=action`
     /spawn 7        -> console: `LANE_GM_CHAT_ACTION spawn route=action`
 
-and, in every one of those six, NOT ONE BYTE went to the client.  The route
+and, in every one of those (six then; `/lv` has since grown a row write
+and left the table -- see `tests/test_gm_level_command.py`), NOT ONE BYTE
+went to the client.  The route
 line is printed before any handler runs -- it has always meant "this route
 was reached" and nothing more -- so the last thing the console said about a
 command that did nothing was a line that reads like success.  A REFUSED
@@ -205,7 +206,7 @@ class _Case(unittest.TestCase):
             yield
 
 
-class TheSixSilentCommandsTests(_Case):
+class TheFiveSilentCommandsTests(_Case):
     """Each accepted command that sends nothing prints exactly one line.
 
     ~~SIX~~ -- pf-adversary D11, round `07kjfd`: a shipped boot now has a
@@ -223,7 +224,10 @@ class TheSixSilentCommandsTests(_Case):
     CASES = (
         ("/warp 2 100 200", "warp", "withheld_force_pos_vital_version"),
         ("/say hello", "say", "withheld_gm_global_message_vital_version"),
-        ("/lv 10", "lv", "refused_no_wire_path"),
+        # `/lv` LEFT THIS TABLE on round `l86bt4` (PANYA-ORDER 2026-09-06
+        # 01:55): it writes `characters.level` and answers with a
+        # `LV SET RELOG` notice, so it is neither silent nor byte-free any
+        # more.  Its own file is `tests/test_gm_level_command.py`.
         ("/item 1001 5", "item", "refused_no_wire_path"),
         ("/npc on 5", "npc", "refused_no_wire_path"),
         ("/spawn 7", "spawn", "refused_no_wire_path"),
@@ -263,7 +267,7 @@ class TheSixSilentCommandsTests(_Case):
         gm_dispatch.reset_rate_limit_state_for_tests()
         _, say_err = self.act("/say hello")
         gm_dispatch.reset_rate_limit_state_for_tests()
-        _, lv_err = self.act("/lv 10")
+        _, lv_err = self.act("/item 1001 5")
         self.assertIn("RE-129", warp_err)
         self.assertNotIn("RE-129", say_err)
         self.assertIn("gm/say_wire.py", say_err)
@@ -275,7 +279,7 @@ class TheSixSilentCommandsTests(_Case):
         # The new line is an ADDITION.  `LANE_GM_CHAT_ACTION` is what an
         # attended GT-127 run greps for, and a round that "cleaned it up"
         # would fail that drill from the tester's chair, not here.
-        _, err = self.act("/lv 10")
+        _, err = self.act("/item 1001 5")
         self.assertEqual(
             len(self.lines(err, chat_command_action.CONSOLE_TOKEN)), 1, err
         )
@@ -304,8 +308,8 @@ class TheIdentityFieldsOnEveryCommandTests(_Case):
         self.assertIn(marker, line)
         return line.split(marker, 1)[1].split(" ", 1)[0]
 
-    def test_every_one_of_the_six_carries_the_row_it_was_typed_on(self):
-        for typed, name, _why in TheSixSilentCommandsTests.CASES:
+    def test_every_one_of_the_five_carries_the_row_it_was_typed_on(self):
+        for typed, name, _why in TheFiveSilentCommandsTests.CASES:
             with self.subTest(typed=typed):
                 gm_dispatch.reset_rate_limit_state_for_tests()
                 session = FakeSession(position=FakePosition())
@@ -324,7 +328,7 @@ class TheIdentityFieldsOnEveryCommandTests(_Case):
     def test_a_connection_with_nothing_selected_says_none_on_this_line_too(self):
         session = FakeSession()
         session.foundation.selected = None
-        _, err = self.act("/lv 10", session=session)
+        _, err = self.act("/item 1001 5", session=session)
         said = self.lines(err, TOKEN)
         self.assertEqual(len(said), 1, err)
         self.assertEqual(self.field(said[0], "character_id"), "none")
@@ -338,7 +342,7 @@ class TheIdentityFieldsOnEveryCommandTests(_Case):
             position=FakePosition(), character_id=101,
             identity_lo=202, identity_hi=303,
         )
-        _, err = self.act("/lv 10", session=session)
+        _, err = self.act("/item 1001 5", session=session)
         line = self.lines(err, TOKEN)[0]
         self.assertIn(f"account='{self.GM_ACCOUNT}'", line)
         self.assertEqual(self.field(line, "character_id"), "101")
@@ -380,7 +384,7 @@ class TheServerSideDropLineTests(_Case):
     def test_the_rate_limiter_no_longer_eats_a_command_in_silence(self):
         seen = []
         for _ in range(gm_dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW + 3):
-            _, err = self.act("/lv 10")
+            _, err = self.act("/item 1001 5")
             seen.append(err)
         dropped = [e for e in seen if self.lines(e, self.DROPPED)]
         self.assertEqual(len(dropped), 3, "".join(seen))
@@ -396,8 +400,8 @@ class TheServerSideDropLineTests(_Case):
         # The two refusal printers are keyed on disjoint reason sets; a
         # refusal that earned one of them must never earn the other.
         for _ in range(gm_dispatch.RATE_LIMIT_MAX_CALLS_PER_WINDOW):
-            self.act("/lv 10")
-        _, err = self.act("/lv 10")
+            self.act("/item 1001 5")
+        _, err = self.act("/item 1001 5")
         self.assertEqual(len(self.lines(err, self.DROPPED)), 1, err)
         self.assertEqual(
             len(self.lines(err, chat_command_action.COMMAND_REFUSED_CONSOLE_TOKEN)),
@@ -419,7 +423,7 @@ class TheServerSideDropLineTests(_Case):
         # The founding rule, re-checked against the printer added this round:
         # this lane never says a word about a non-GM's chat.
         session = self.session(token="DECKHAND")
-        _, err = self.act("/lv 10", session=session)
+        _, err = self.act("/item 1001 5", session=session)
         self.assertEqual(err, "", err)
 
     def test_an_ordinary_sentence_from_a_gm_is_still_silent(self):
@@ -431,7 +435,7 @@ class TheServerSideDropLineTests(_Case):
         # `log_gm_command` raises OSError below the is_gm check.
         blocker = self.tmp / "not_a_dir"
         blocker.write_text("", encoding="utf-8")
-        _, err = self.act("/lv 10", log_path=str(blocker / "sub" / "log.ndjson"))
+        _, err = self.act("/item 1001 5", log_path=str(blocker / "sub" / "log.ndjson"))
         line = self.lines(err, self.DROPPED)
         self.assertEqual(len(line), 1, err)
         self.assertIn("why=command_log_write_failed_", line[0])
@@ -503,7 +507,7 @@ class ItNeverPrintsWhatWasTypedTests(_Case):
             chat_command_action._print_no_bytes_way_out(
                 session,
                 "GM_ONE\nGM_CHAT_WARP_REFUSED account='x'",
-                "lv",
+                "item",
                 chat_command_action.OUTCOME_NO_WIRE_PATH,
             )
         printed = err.getvalue()
@@ -651,7 +655,7 @@ class ThingsThatMustStaySilentTests(_Case):
         self.assertEqual(err, "")
 
     def test_a_non_gm_account_gets_no_line_either(self):
-        action, err = self.act("/lv 10", session=self.session(token="DECKHAND"))
+        action, err = self.act("/item 1001 5", session=self.session(token="DECKHAND"))
         self.assertIsNone(action)
         self.assertEqual(self.lines(err, TOKEN), [], err)
 
@@ -1299,7 +1303,7 @@ class TheAuditFailurePathTests(_Case):
             "log_gm_command_outcome",
             side_effect=OSError("read-only capture directory"),
         ):
-            action, err = self.act("/lv 10", session=session)
+            action, err = self.act("/item 1001 5", session=session)
         self.assertIsNone(action)
         said = self.lines(err, TOKEN)
         self.assertEqual(len(said), 1, err)
@@ -1313,7 +1317,7 @@ class TheAuditFailurePathTests(_Case):
     def test_the_word_on_the_line_is_the_word_in_the_file(self):
         # The other half of the same property: when the row DOES land, the
         # console and the ndjson say the same thing.
-        _, err = self.act("/lv 10")
+        _, err = self.act("/item 1001 5")
         said = self.lines(err, TOKEN)[0]
         rows = [
             json.loads(line)
@@ -1374,7 +1378,7 @@ class TheLineNeverAltersDispatchTests(_Case):
             with contextlib.redirect_stdout(out):
                 action = chat_command_action.make_gm_chat_command_action(
                     session,
-                    make_chat_payload("/lv 10"),
+                    make_chat_payload("/item 1001 5"),
                     self.legacy,
                     config_path=str(self.config_path),
                     log_path=str(self.log_path),
@@ -1400,7 +1404,7 @@ class TheLineNeverAltersDispatchTests(_Case):
         with contextlib.redirect_stderr(Hostile()):
             action = chat_command_action.make_gm_chat_command_action(
                 session,
-                make_chat_payload("/lv 10"),
+                make_chat_payload("/item 1001 5"),
                 self.legacy,
                 config_path=str(self.config_path),
                 log_path=str(self.log_path),
@@ -1413,7 +1417,7 @@ class TheLineNeverAltersDispatchTests(_Case):
         )
         # The command's own event trail is intact: the console failing is not
         # allowed to look like the route refusing.
-        self.assertIn("gm_chat_action_accepted_lv", session.events)
+        self.assertIn("gm_chat_action_accepted_item", session.events)
 
     def test_it_does_not_withhold_an_action_that_was_going_out(self):
         # The backstop runs on the same pass as a SENT command; a mutant
@@ -1450,7 +1454,7 @@ class TheConsoleEncodingTests(_Case):
             chat_command_action._print_no_bytes_way_out(
                 session,
                 "GM中文",  # CJK: not in cp874
-                "lv",
+                "item",
                 chat_command_action.OUTCOME_NO_WIRE_PATH,
             )
             stream.flush()
@@ -1582,7 +1586,7 @@ class TheGuardsOfTheNewPrinterItselfTests(_Case):
                 chat_command_action._print_no_bytes_way_out(
                     session,
                     self.GM_ACCOUNT,
-                    "lv",
+                    "item",
                     chat_command_action.OUTCOME_NO_WIRE_PATH,
                 )
         finally:
@@ -1628,7 +1632,7 @@ class TheGuardsOfTheNewPrinterItselfTests(_Case):
             chat_command_action._print_no_bytes_way_out(
                 session,
                 self.GM_ACCOUNT,
-                "lv",
+                "item",
                 chat_command_action.OUTCOME_NO_WIRE_PATH,
             )
         printed = err.getvalue()

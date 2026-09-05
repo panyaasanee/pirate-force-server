@@ -197,6 +197,26 @@ SPEED_DENIED_NOTICE_TEXT = "SPEED DENIED"
 # the screen answers the first two by wording and the third by silence.
 TYPO_REFUSED_NOTICE_TEXT = "TYPO REFUSED"
 
+# THE THIRD AND FOURTH SENTENCES, `/lv`'s, and they are found INSIDE the same
+# pinned 12-character length for the same reason the second one was -- the
+# length is the measured property, not the wording.
+#
+# `LV SET RELOG` is the only on-screen answer `/lv <n>` has, and every word of
+# it is load-bearing: the row IS set, and the number the client DRAWS does not
+# change until the next login, because the frame that would change it live is
+# the sparse `UpdateAttrVital` that `GT-193`/`GT-218` measured killing a
+# client.  A sentence reading only "LV SET" would have a GM staring at an
+# unchanged level bar deciding the command is broken.
+LV_SET_NOTICE_TEXT = "LV SET RELOG"
+
+# `LV NO CHANGE` covers EVERY refusal of `/lv` that is not a typo (the typo
+# layer above already answers those): out of range, no selected character, the
+# canonical-DB gate, a store that refused the write.  One word for all of them
+# on purpose -- the screen says "nothing was written", and WHICH refusal it
+# was is on the server console and in the audit row, where a number and an
+# exception type can be read without being squeezed into 12 characters.
+LV_REFUSED_NOTICE_TEXT = "LV NO CHANGE"
+
 NOTICE_TEXT_EXACT_LENGTH = 12
 
 # Every captured GT-006 frame on this shared serializer has carried an empty

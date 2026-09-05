@@ -450,8 +450,12 @@ class SayCoverageHonestyTests(_Case):
             f"{chat_command_action.EVENT_NO_WIRE_PATH_PREFIX}say", session.events
         )
 
-    def test_the_other_four_commands_still_report_no_wire_path(self):
-        for line in ("/npc on 5", "/item 3 1", "/lv 4", "/spawn 9"):
+    def test_the_other_three_commands_still_report_no_wire_path(self):
+        # THREE, not four: `/lv` left this list on round `l86bt4`
+        # (PANYA-ORDER 2026-09-06 01:55) when it grew a row write and an
+        # on-screen notice.  It is pinned in `tests/test_gm_level_command.py`
+        # now, the same way `say` moved into this file.
+        for line in ("/npc on 5", "/item 3 1", "/spawn 9"):
             with self.subTest(line=line):
                 session = FakeSession()
                 with self.open_the_version_gate():
