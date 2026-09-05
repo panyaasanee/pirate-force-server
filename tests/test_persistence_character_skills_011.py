@@ -196,7 +196,7 @@ class TheTableShapeTests(_StoreFixture):
 
     def test_an_unknown_source_value_is_refused_by_the_check(self):
         # 'learned' used to be the unrecognised value this test picked --
-        # `migrations/015_character_skills_learned_source.sql` (LANE-DB,
+        # `migrations/014_character_skills_learned_source.sql` (LANE-DB,
         # round `qul9wo`) widened the CHECK list to admit it, so this test
         # now picks a value that stays outside the list either way, to keep
         # testing "the CHECK still refuses an unrecognised source" rather
