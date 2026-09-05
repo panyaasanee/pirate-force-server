@@ -604,9 +604,19 @@ class ComposerContractTests(unittest.TestCase):
         ]
         self.assertEqual(len(hostility), 1)
         self.assertIn("scene_id=%d" % VOLCANO, hostility[0])
+        # The world-registry reading, added round tz2rgc (COO-DECISION
+        # 20260905_1152 item 2(2)): one line per arrival naming what this
+        # process remembers about the scene being entered, so that "the same
+        # world after a relogin" is a comparison of two printed readings
+        # rather than an inference from a screenshot.
+        world = [
+            line for line in result.console_lines
+            if line.startswith("WORLD_REGISTRY_VIEW ")
+        ]
+        self.assertEqual(len(world), 1, result.console_lines)
         self.assertEqual(
             len(result.console_lines),
-            1 + 1 + ROSTER_COUNT + len(unshipped) + 1)
+            1 + 1 + ROSTER_COUNT + len(unshipped) + 1 + 1)
 
     def test_every_console_line_is_ascii(self):
         # The bridge console is cp874; a non-ASCII line raises inside the
