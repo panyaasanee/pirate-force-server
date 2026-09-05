@@ -73,6 +73,7 @@ from .gm.warp_target_record import (
     take_warp_target_with_reason,
 )
 from .gm.warp_executor import WarpTarget
+from .gm import warp_send_watch
 
 from .model import Position
 from .inventory import (
@@ -1597,6 +1598,21 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.scene_hostile_target_captured = False
                 if connection_bindings is not None:
                     connection_bindings.bind(self)
+                    # CORE-REQUEST-GM-058, form B (LANE-GM addendum
+                    # 20260905_0719; installer landed on main in #801).
+                    # `bind` is the call that makes THIS object the
+                    # `AcceptedGameSocket.state` that `connection.py:150`
+                    # reads `on_game_frame_sent` /
+                    # `on_game_frame_send_failed` off, so installing on the
+                    # next line leaves no window for a frame to be sent
+                    # before both forwards exist.  Never raises; answers
+                    # `installed` / `refused_already_present` /
+                    # `refused_not_writable`, and the answer is deliberately
+                    # not consulted here -- a refusal is this connection
+                    # keeping whatever it already had, which is the safe
+                    # direction, and a session that cannot carry the
+                    # observers must still be able to log in.
+                    warp_send_watch.install_send_outcome_observers(self)
             except BaseException as error:
                 try:
                     self.foundation.close_connection()
