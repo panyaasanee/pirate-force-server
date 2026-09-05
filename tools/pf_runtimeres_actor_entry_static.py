@@ -983,15 +983,22 @@ guard("make_remote_actor_entry" in _v141,
 # sequence covered -- an n_SCENE_TYPE 8 ocean panel whose cast is ships and
 # islands.  Same shape as every sibling: one entry builder, one carrier.
 # Its registry door is NOT opened by that round.
-guard(SRC_ACTOR_ENTRY_SITES == 29,
-      "src/ builds actor entries at exactly 29 call sites (4 spawns + the "
+# ROUND vwekfq (lane A): 29 -> 30.  world_population_bg1001.py, scene 17's
+# ("one ship at sea") census - the identity/census pair COO-DECISION
+# `20260905_0848_...` approved as this round's main task, condition (c):
+# actor/census only.  Same shape as every sibling: one entry builder, one
+# carrier.  Its registry door stays shut and it is deliberately NOT in
+# world_population_handoff.ROSTER_COMPOSERS yet (see that module's own
+# PENDING_CROSSING_SAFETY_REVIEW comment).
+guard(SRC_ACTOR_ENTRY_SITES == 30,
+      "src/ builds actor entries at exactly 30 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002, bg0015, bg0004, "
-      "bg0010, bg0005, bg0006, bg0008, bg0003, bg0007, bg0009, bg0011 and "
-      "bg4001 and bg3001 censuses + the jqxe6v Bg0015 hostile-splice "
-      "proof's civilian entry)")
+      "bg0010, bg0005, bg0006, bg0008, bg0003, bg0007, bg0009, bg0011, "
+      "bg4001, bg3001 and bg1001 censuses + the jqxe6v Bg0015 "
+      "hostile-splice proof's civilian entry)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
@@ -1006,9 +1013,10 @@ guard(SRC_ACTOR_ENTRY_SITES == 29,
 # is additive, not a choice between them: lane B's +1 and lane A's +1 are
 # two different call sites, re-counted from src/ after the merge rather
 # than either side's number being kept.
-guard(SRC_ACTOR_STREAM_SITES == 39,
-      "src/ sends the actor-entry carrier at exactly 39 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 28
+# ROUND vwekfq (lane A): 39 -> 40, world_population_bg1001.py's own carrier.
+guard(SRC_ACTOR_STREAM_SITES == 40,
+      "src/ sends the actor-entry carrier at exactly 40 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 29
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
           "field_mobs.py",
@@ -1031,9 +1039,10 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 28
           "world_population_bg0010.py",
           "world_population_bg0011.py",
           "world_population_bg0015.py",
+          "world_population_bg1001.py",
           "world_population_bg3001.py",
           "world_population_bg4001.py"),
-      "27 named src/ modules build actor entries %s"
+      "29 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames

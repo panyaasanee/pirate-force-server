@@ -88,6 +88,7 @@ from typing import NamedTuple
 
 from . import world_m2_survey_plan as plan
 from .navigationex_survey_record import (
+    OUTER_PRESENCE_PRESENT,
     SurveyRecordFields,
     encode_add_survey_data_outer,
 )
@@ -143,7 +144,7 @@ def trial_survey_records() -> tuple[TrialSurveyRecord, ...]:
 
 def encode_trial_records(
     legacy, msg_id: int, vital_version: int, player_scene_id: int,
-    outer_leading_byte: int | None = None,
+    outer_leading_byte: int | None = OUTER_PRESENCE_PRESENT,
 ) -> tuple[tuple[int, bytes, bytes], ...]:
     """``(trigger_id, pc, frame)`` for every record in
     ``trial_survey_records()``, encoded through ``navigationex_survey_
@@ -181,8 +182,29 @@ def encode_trial_records(
     that change left this function unable to pass it, which would have
     let an attended round set the flag, send byte-identical bytes, get
     the same dialog, and report "the byte did not help" without ever
-    having sent it.  `None` -- the default, and what chief's call site
-    passes today -- keeps R313's exact bytes.
+    having sent it.
+
+    ~~"`None` -- the default, and what chief's call site passes today --
+    keeps R313's exact bytes"~~ IS STRUCK, round `vwekfq` (LANE-A): RE-256
+    (`pf_bridge/notes_to_chief/
+    20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+    measured this byte directly for this class -- a pointer-presence
+    boolean, ``1`` for one record present, ``0`` for none, never a record
+    count -- which resolves the layout/version half of GT-233's gate.  This
+    function is the one place in this repository that builds a REAL
+    GT-233 trial record for an actual send (`runtime.py`'s call site, one
+    caller, behind `PF_M2_SURVEY_TRIAL`), so it is the caller RE-256's
+    BUILD_IMPACT line means: a real send must not choose ``None`` any
+    more.  The default is now `OUTER_PRESENCE_PRESENT` (``1``) -- every
+    record this function returns is a record that IS present (the early
+    `return ()` above is how "no record" is expressed; it never reaches an
+    `outer_leading_byte` question at all, so there is no live call path
+    where `0` is the right default here).  `runtime.py`'s call site does
+    not pass this argument explicitly and so now gets the corrected byte
+    automatically, with no edit to `runtime.py` itself.  `None` is kept as
+    a still-valid explicit override (chiefly for tests that want to
+    reproduce R313's original, pre-RE-256 bytes on purpose), never as
+    something a real send falls back to.
     """
     if not plan.plan_is_for_scene(player_scene_id):
         return ()

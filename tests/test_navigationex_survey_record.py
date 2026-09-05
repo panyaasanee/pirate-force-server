@@ -304,6 +304,16 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
             "tests/test_navigationex_survey_record.py",
             "src/pirateforce_foundation/world_m2_provisioning_trial.py",
             "tests/test_world_m2_provisioning_trial.py",
+            # WIDENED round `vwekfq` (LANE-A).  Condition (d) of
+            # COO-DECISION `20260905_0848_...` requires a test pinning that
+            # scene 17's roster does not perturb GT-233's own bytes; the
+            # only faithful way to check that is to call the SAME encoder
+            # this test file calls (`world_m2_provisioning_trial.
+            # encode_trial_records`) and compare against a hash captured
+            # before this round's changes existed.  Read-only: it opens no
+            # socket, calls no `sendall`, and asserts nothing about wiring -
+            # same shape as this file's own exclusion two lines above.
+            "tests/test_lane_a_scene17_roster_does_not_touch_gt233.py",
         }
         hits = []
         for path in ROOT.rglob("*.py"):

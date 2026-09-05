@@ -46,10 +46,33 @@ being true at 2026-09-05T02:07+07:00, when GT-233 ran: the client answered
 the trial frame with its own dialog box reading
 ``NavigationEx_AddSurveyDataVtial ErrorData=50351``, and 50351 == 0xC4AF ==
 this class's own id.  The client resolved the number we sent into the class
-NAME on screen, which is an observation of the id INDEPENDENT of the name
-hash below -- the exact upgrade the last paragraph of this section asked
-for.  The full two-layer pin lives in the record module for this vital;
-grep ``src/`` for ``R313_SURVEY_DIALOG_ERRORDATA`` to land on it.
+NAME on screen, which is an observation of the id independent of the name
+hash below.
+
+Three things this does NOT say, each struck from an earlier draft of this
+paragraph by pf-adversary (D9/D10, R350):
+
+  * It is NOT "the exact upgrade the last paragraph of this section asked
+    for".  That paragraph asked for a captain's report window.  R313 never
+    got one -- the ship never reached the island -- and what arrived was an
+    error dialog instead.  Same class named by the same id, so it answers
+    the same question; a DIFFERENT event from the one that was predicted,
+    and no reader should come away thinking M2 moved on screen.  It did
+    not.
+  * It is NOT a "two-layer pin" in the G5 sense, and this file no longer
+    calls it one.  There is ONE observation: one dialog box, one boot,
+    2026-09-05T02:07+07:00.  The other half of that pair is OUR OWN
+    TRANSMISSION -- the stimulus, not a second witness, and it cannot
+    disagree with itself.  One observation plus one argument (the name
+    hash) is what we have, and it is enough to act on; it is not two
+    independent layers.
+  * The control that WOULD make it independent has not been run: send a
+    deliberately WRONG id and see whether the dialog still names this
+    class.  Until someone does, "50351 identifies our id" rests on the
+    reasonable assumption that the client echoes the id it failed on.
+
+The record module for this vital carries the detail; grep ``src/`` for
+``R313_SURVEY_DIALOG_ERRORDATA`` to land on it.
 
 (That module is named here by a grep target rather than by filename ON
 PURPOSE, the same reason the composer is unnamed four paragraphs up.  Its
@@ -57,9 +80,15 @@ own test file's ``NotWiredToAnySendPathTests`` scans every .py file in this
 repository for that module's name as a RAW SUBSTRING, so a prose
 cross-reference from a send path reads as a wiring violation.  Measured
 this round: naming it cost one full-suite run.  The guard is right and this
-sentence was wrong -- adding this file to its exclusion list instead would
-have blinded it to exactly the module it most needs to watch, since THIS is
-a send path.)
+sentence was wrong.  Adding this file to the guard's exclusion list instead
+would have been the wrong trade: an exclusion entry is permanent and blanket,
+it would have been bought to permit one line of PROSE, and this module -- a
+gate plus the two numbers a real outgoing frame carries -- is exactly the
+kind of file that guard is watching for, even though it composes nothing and
+sends nothing itself.  (pf-adversary D8 on R350: an earlier wording of this
+parenthesis said "THIS is a send path", which contradicts the second
+paragraph of this docstring 58 lines above.  Both cannot be true, and the
+paragraph above is the one that is.)
 
 What that does NOT prove: the field LAYOUT inside the record.  50351 is the
 outer object's id, and the client rejected the frame anyway, so the id is
@@ -119,7 +148,9 @@ off from the other side, and by a route this paragraph did not predict: it
 guessed a captain's report window would be the independent observation, and
 what actually arrived was an ERROR dialog naming the same class.  Either one
 is the client resolving our id; the flag and the console line stay exactly as
-they are, because the LAYOUT they exist to vary is still unproven.
+they are, because the LAYOUT they exist to vary is still unproven -- and
+because one dialog box is one observation, not a closed case (see the three
+strikes at the top of this section).
 
 ``NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_VERSION`` -- ALSO A TRIAL VALUE
 --------------------------------------------------------------------
@@ -263,7 +294,27 @@ def console_line(
             # the id itself so a tester reading `ErrorData=50351` on screen
             # can match it to the line without converting hex in their head.
             # Derived from the id, never restated: a typo in the four hex
-            # digits moves this number too, so the two can never disagree.
+            # digits moves this number too.
+            #
+            # WHAT THIS TOKEN IS NOT, AND WHY THAT MATTERS (pf-adversary
+            # D11, R350).  It is a RENDERING OF A BUILD CONSTANT, printed on
+            # every armed boot, whether the frame is never sent, sent and
+            # accepted, or rejected with some completely different
+            # ErrorData.  It is not an observation and it cannot disagree
+            # with the id -- that is by construction, and it is the whole
+            # reason it must never be cited as corroboration.  A later
+            # letter reading "console said 50351 and the screen said 50351,
+            # so they agree" would be presenting two renderings of ONE
+            # constant as console/screen agreement, which is precisely the
+            # layer-mixing G5 forbids.  The name COO-DECISION 20260905_0646
+            # item 4 asked for is kept; the honest reading of it is
+            # "msg_id in decimal", and the ticket header says so too.
+            #
+            # It earns its place anyway: a tester holding a dialog box that
+            # says ErrorData=<n> can tell at a glance whether <n> is OUR id
+            # or a different number -- and a DIFFERENT number is the
+            # interesting outcome, because that is the one this line cannot
+            # manufacture.
             f" errordata_if_rejected="
             f"{NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID_TRIAL}"
             + tail

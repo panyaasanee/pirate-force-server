@@ -85,11 +85,68 @@ for either `rollback_warp_scene` or `rollback_warp_scene_on_send_failure`
 to collide on, on ANY thread that calls them.  Measured by calling both
 observers from a background thread against the real store and reading the
 row back on the main thread afterwards; see that test class for the
-un-guessed half (`send_lock` hold time: a real rollback opens a real
+~~un-guessed half (`send_lock` hold time: a real rollback opens a real
 connection and can block up to `PRAGMA busy_timeout=5000`'s five seconds
 while holding the SAME lock the other thread needs for its own next send --
 this module does not have an answer for that half, and does not pretend
-to; see `CORE-REQUEST-GM-058`).
+to; see `CORE-REQUEST-GM-058`).~~  **MEASURED, round `j2jluj`**
+(`COO-DECISION 20260905_0948` item 2(b) ordered the measurement rather than
+another letter; `SendLockLivenessTests` in this module's test file IS the
+measurement, and its numbers are re-derived there, not retyped here):
+
+    contention held by another writer   this observer's hold   outcome
+      none                                0.0023s              rolled_back
+      1.0s                                1.035s               rolled_back
+      3.0s                                3.038s               rolled_back
+      7.0s                                5.010s               rollback_refused_OperationalError
+     12.0s                                5.010s               rollback_refused_OperationalError
+
+IT STALLS, AND ONE CALL'S STALL IS BOUNDED AT ONE `busy_timeout`, NOT TWO.
+`checkpoint()` never reaches the read-back: `save_position`
+(`store.py:668-671`) is a bare `with self.connect() as db:` + `UPDATE`, an
+implicit DEFERRED transaction, and it is that `UPDATE` that waits and
+raises, so the second connection the read-back would open is never opened.
+The non-stacking therefore rests on WAL rather than on the transaction
+shape -- `connect()` sets WAL only for a file database
+(`store.py:293-294`) -- so `SendLockLivenessTests` asserts WAL is really in
+force rather than assuming it.  `heartbeat_worker` wakes every 2.0s and
+takes the SAME `send_lock`, so a worst-case hold makes it miss at most two
+beats, on a connection whose socket has just failed.
+
+THE WAIT IS NOT SHORTENED, AND THIS LANE CANNOT SHORTEN IT: `busy_timeout`
+is set in `store.py`, outside this lane's zone, and shortening it would
+trade a bounded delay on a dying connection for a durable row left naming a
+scene the client never reached.
+
+WHAT THE MEASUREMENT EXPOSED, AND WHY THIS FILE STILL DOES NOTHING ABOUT
+IT.  The last two rows are runs in which the undo DID NOT HAPPEN and the
+park was cleared anyway, so the row stays at the destination the client
+never reached with nothing left on the connection that would ever try
+again.  Round `j2jluj` built a re-park-and-retry for exactly that and
+WITHDREW IT BEFORE PUSHING, on its own two `pf-adversary` passes:
+
+  * pass 1 (D1): keeping the park removed the one thing that always retired
+    one, and on a connection whose send error was TRANSIENT the record
+    stayed armed and fired at logout, rewinding a position the player had
+    legitimately walked to since.
+  * pass 2 (D-1): the guard added for that compared
+    `foundation.selected.position` against the park's pre-warp row -- but
+    `runtime.py:6827` `_gm_warp_resync_selected_scene` rewrites
+    `selected.position.scene_id` to the DESTINATION in the same dispatch
+    that composed the warp, before any send.  So the guard answered "the
+    world moved" for every cross-scene warp, immediately, with zero client
+    frames: the retry could never complete and the give-up branch was
+    unreachable.
+
+Both are symptoms of a question this lane has not answered and will not
+guess at under a deadline: WHICH POSITION IS THE UNDO'S AUTHORITY.  Three
+different things are being read as one -- the durable `character_positions`
+row, the in-memory `foundation.selected.position`, and "did the client
+report something" -- and `runtime.py` writes the second without the first
+and derives the first FROM the second on every movement frame.  The
+question is in `notes_to_chief/20260905_1105_LANE-GM-ASK-COO-*`; until it
+has an answer this module keeps the behaviour it had on `main`, which is
+honest about losing the undo rather than wrong about restoring it.
 
 THE CELL, AND WHY IT LIVES ON THE SESSION.  `park_warp_send` records the
 exact frame bytes a persisted no-coords warp just composed, the moment

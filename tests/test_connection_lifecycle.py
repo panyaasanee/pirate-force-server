@@ -15,6 +15,7 @@ from pirateforce_foundation.connection import (
     GameConnectionBindings,
     adapt_game_listener,
 )
+from pirateforce_foundation.gm import warp_send_watch
 from pirateforce_foundation.legacy_bridge import LegacyProjector, load_legacy
 from pirateforce_foundation.lifecycle import CharacterLifecycle
 from pirateforce_foundation.model import Position
@@ -536,6 +537,38 @@ class ConnectionLifecycleTests(unittest.TestCase):
             callable(getattr(state, "on_game_frame_send_failed", None)),
             "on_game_frame_send_failed missing: a failed send can no longer"
             " roll the character row back",
+        )
+        # THE ASSERTION THAT ACTUALLY PINS THIS (pf-adversary D1 on R350).
+        #
+        # The two above are satisfied by ANY callable.  The adversary built
+        # the mutant that proves it: comment the real call out, and in its
+        # place assign two no-op lambdas to the same two names.  The whole
+        # suite -- 10,598 tests, all three guards on this hookup, LANE-GM's
+        # textual HookupWiringPinTests included -- stayed byte-identical
+        # while `/warp` send-failure rollback was completely dead in
+        # production.  GM's pin is a raw substring scan, so the commented-out
+        # line still satisfied it.
+        #
+        # This event is written by warp_send_watch._announce_install and by
+        # nothing else, so it can only appear if the REAL installer ran on
+        # THIS session.  No lambda, no stub and no comment can forge it.
+        # That is the standard this round's own trace-path tests already
+        # met (subscribe a probe, drive the real dispatcher) and that the
+        # first draft of these tests did not.
+        install_events = [
+            event for event in getattr(state, "events", [])
+            if isinstance(event, str)
+            and event.startswith(f"{warp_send_watch.EVENT_PREFIX}install_")
+        ]
+        self.assertEqual(
+            install_events,
+            [f"{warp_send_watch.EVENT_PREFIX}install_{warp_send_watch.INSTALL_OK}"],
+            "the real installer did not run on this session: expected exactly"
+            " one install announcement from warp_send_watch._announce_install."
+            f" Got {install_events!r}. Either runtime.py no longer calls"
+            " install_send_outcome_observers, or something else is supplying"
+            " those two names -- which is the mutant pf-adversary D1"
+            " described, and it disarms /warp rollback silently.",
         )
 
     def test_the_installer_never_costs_a_login_when_it_refuses(self):

@@ -374,6 +374,42 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- the pin the rename orphaned, restored -----------------------
 
+    def test_the_two_refusal_readers_answer_for_their_own_list(self) -> None:
+        """ROUND j5v7mu2, pf-adversary D4.
+
+        ``lane_withheld_placements_for_scene14`` shipped in round j5v7mu with
+        NO caller anywhere: the mutant ``raise AssertionError`` left the full
+        suite green, so the function was decoration.  It is kept rather than
+        deleted because its sibling
+        ``owner_refused_placements_for_scene14`` exists for the same reason
+        -- a reader asking "what does this scene refuse, and on whose
+        authority" needs both answers, separately -- and this is what makes
+        either answer falsifiable.
+        """
+        self.assertEqual(gates.owner_refused_placements_for_scene14(), ())
+        self.assertEqual(gates.lane_withheld_placements_for_scene14(), (87,))
+        # Read off field_mobs, not retyped: the day the ruling lifts, this
+        # answers () without anyone editing the function.
+        self.assertEqual(
+            gates.lane_withheld_placements_for_scene14(),
+            field_mobs.lane_withheld_placements(gates.BG0015_FOLDER))
+        self.assertEqual(
+            gates.owner_refused_placements_for_scene14(),
+            field_mobs.owner_refused_placements(gates.BG0015_FOLDER))
+        # AND THE TWO ARE NOT THE SAME ANSWER, which is the whole reason
+        # there are two functions.
+        self.assertNotEqual(
+            gates.owner_refused_placements_for_scene14(),
+            gates.lane_withheld_placements_for_scene14())
+        # Together they are exactly what load_roster drops for this scene.
+        dropped = (set(gates.owner_refused_placements_for_scene14())
+                   | set(gates.lane_withheld_placements_for_scene14()))
+        mined = {mob.placement_index
+                 for mob in hostile_bg0015.scene14_hostile_roster()}
+        shipped = {mob.placement_index
+                   for mob in field_mobs.load_roster(gates.BG0015_FOLDER)}
+        self.assertEqual(mined - shipped, dropped & mined)
+
     def test_the_two_scene_tag_readers_now_agree(
             self) -> None:
         # RENAMED, COO-DECISION 20260903_1942 item 2: the two readers this

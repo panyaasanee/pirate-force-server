@@ -159,6 +159,7 @@ from .. import world_population_bg0009
 from .. import world_population_bg0010
 from .. import world_population_bg0011
 from .. import world_population_bg0015
+from .. import world_population_bg1001
 from .. import world_population_bg3001
 from .. import world_population_bg4001
 from .. import world_population_handoff
@@ -350,6 +351,20 @@ _CONSOLE_LINES_OF = {
         (world_population_bg4001.census_console_line(generation),)
         + world_population_bg4001.actor_lines(generation)
         + world_population_bg4001.unresolved_lines()
+    ),
+    # ADDED round vwekfq (2026-09-05, LANE-A): scene 17, the ship at sea.
+    # Registered here AND in ``world_scene_travel.CENSUS_SOURCES`` in the
+    # same commit, so neither table can be true without the other for even
+    # one round.  This scene's registry door stays exactly as it was
+    # (``login_entry_allowed: false``, guarding the ordinary LOGIN path
+    # only - see ``world_scene_travel``'s own comment on
+    # ``SHIP_AT_SEA_SCENE_ID``), so THE ADMISSION CHECK above declines
+    # every call this composer receives in production today, the same
+    # inert-until-opened shape scene 4's and scene 10's own rows carried.
+    "bg1001_roster": lambda generation: (
+        (world_population_bg1001.census_console_line(generation),)
+        + world_population_bg1001.actor_lines(generation)
+        + world_population_bg1001.unresolved_lines()
     ),
 }
 

@@ -1605,13 +1605,25 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                     # reads `on_game_frame_sent` /
                     # `on_game_frame_send_failed` off, so installing on the
                     # next line leaves no window for a frame to be sent
-                    # before both forwards exist.  Never raises; answers
-                    # `installed` / `refused_already_present` /
-                    # `refused_not_writable`, and the answer is deliberately
-                    # not consulted here -- a refusal is this connection
-                    # keeping whatever it already had, which is the safe
-                    # direction, and a session that cannot carry the
-                    # observers must still be able to log in.
+                    # before both forwards exist.  Never raises; answers one
+                    # of FOUR words -- `installed`, `completed_half_declared`,
+                    # `refused_already_present`, `refused_not_writable`.
+                    #
+                    # The answer is deliberately not consulted HERE, and that
+                    # is not the same as nobody reading it: LANE-GM's
+                    # `_announce_install` puts every outcome on the session's
+                    # event trail AND on stderr as `GM_WARP_SEND_OBSERVERS
+                    # <outcome>`, precisely because a bare statement in this
+                    # file was once the only channel.  So this line stays a
+                    # statement, and the outcome is still legible to a test,
+                    # a lane, and anyone grepping a boot log.
+                    #
+                    # Not consulting it is the safe direction: a refusal is
+                    # this connection keeping whatever it already had, and a
+                    # session that cannot carry the observers must still be
+                    # able to log in.  (pf-adversary D12 on R350: this
+                    # comment named three outcomes and called the answer
+                    # unread.  Both were stale the moment #804 merged.)
                     warp_send_watch.install_send_outcome_observers(self)
             except BaseException as error:
                 try:
