@@ -19,9 +19,11 @@ WHAT IS PINNED HERE, AND WHY EACH ONE:
   first two - a test that only asserted ``scene_may_be_populated`` would
   stay green if someone flipped ``login_entry_allowed``, which is the one
   thing this round must NOT do;
-* the arm's whole reach is exactly {126, 304, 305} at HEAD, ENUMERATED over
-  the registry rather than asserted - a wider arm would populate scenes
-  other rounds deliberately left inert;
+* the arm's whole reach is exactly {304, 305} at HEAD, ENUMERATED over the
+  registry rather than asserted - a wider arm would populate scenes other
+  rounds deliberately left inert, and an arm that did not stand aside for
+  scene 126 would take the GM lane's own revocation lever away (measured by
+  pf-adversary this round, and pinned below);
 * the login door is still shut for 304 - the sentence "this opens no door"
   is checked, not repeated.
 """
@@ -117,19 +119,79 @@ class TheThirdAdmissionArm(unittest.TestCase):
             world_scene_travel.destination(1, self.registry)
             .has_decreed_arrival)
 
-    def test_the_arms_whole_reach_at_head_is_three_decreed_scenes(
+    def test_the_arms_whole_reach_at_head_is_the_two_ungoverned_seas(
         self,
     ) -> None:
         """ENUMERATED, not asserted.  Every scene in the registry is asked,
         so a row someone pins a decree on later shows up here as a red test
-        rather than as a scene quietly becoming populatable."""
+        rather than as a scene quietly becoming populatable.
+
+        THREE scenes carry a decree and a live warp; only TWO reach this
+        arm, because scene 126 is governed by the GM lane's sanction table
+        and this arm stands aside for it (see the next test).
+        """
         admitted = sorted(
             scene_id
             for scene_id in self.registry.ids
             if lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
                 scene_id, self.registry)
         )
-        self.assertEqual(admitted, [ATLANTIS, DARK_FOG_SEA, PALE_SILVER_SEA])
+        self.assertEqual(admitted, [DARK_FOG_SEA, PALE_SILVER_SEA])
+
+    def test_it_stands_aside_for_a_scene_the_gm_lane_governs(self) -> None:
+        """The lever pf-adversary measured this round, pinned.
+
+        A first draft of this arm answered True for scene 126 as well, which
+        made the GM lane's own revocation switch for that scene a no-op: with
+        ``single_use_entry_is_admissible`` saying no, the scene was still
+        populated.  A lane may not take another lane's lever away, so the
+        arm asks FIRST whether the GM lane governs the scene and declines if
+        it does.  Driven by revoking the sanction, not by reading the source.
+        """
+        from pirateforce_foundation.gm import login_scene_admission
+        self.assertIn(
+            ATLANTIS, login_scene_admission.SANCTIONED_BARRED_SCENES)
+        # Both halves of this arm's own test match scene 126 ...
+        self.assertTrue(
+            world_scene_travel.destination(ATLANTIS, self.registry)
+            .has_decreed_arrival)
+        self.assertIsNotNone(
+            warp_executor.warp_no_coords_live_target(ATLANTIS))
+        # ... and it declines anyway, because that scene is arm 2's.
+        self.assertFalse(
+            lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                ATLANTIS, self.registry))
+        # And the lever really is the GM lane's again: revoke it and the
+        # whole admission closes for scene 126.
+        original = login_scene_admission.single_use_entry_is_admissible
+        login_scene_admission.single_use_entry_is_admissible = (
+            lambda *a, **k: False)
+        try:
+            self.assertFalse(
+                lane_a.scene_may_be_populated(ATLANTIS, self.registry))
+        finally:
+            login_scene_admission.single_use_entry_is_admissible = original
+        self.assertTrue(lane_a.scene_may_be_populated(ATLANTIS, self.registry))
+
+    def test_a_scene_the_gm_lane_governs_cannot_be_claimed_by_this_arm(
+        self,
+    ) -> None:
+        """The standing-aside is driven by the GM lane's own table, not by a
+        hardcoded 126: put scene 304 in that table and this arm gives it up
+        too, which is what makes the rule a rule."""
+        from pirateforce_foundation.gm import login_scene_admission
+        original = login_scene_admission.is_sanctioned_barred_scene
+        login_scene_admission.is_sanctioned_barred_scene = (
+            lambda scene_id: scene_id in (ATLANTIS, DARK_FOG_SEA))
+        try:
+            self.assertFalse(
+                lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                    DARK_FOG_SEA, self.registry))
+        finally:
+            login_scene_admission.is_sanctioned_barred_scene = original
+        self.assertTrue(
+            lane_a.scene_arrival_was_decreed_and_is_gm_reachable(
+                DARK_FOG_SEA, self.registry))
 
     def test_the_arm_changes_no_answer_for_a_scene_the_first_arm_admits(
         self,

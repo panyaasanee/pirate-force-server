@@ -665,6 +665,33 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "door still shut); field_mobs names no scene 17 at all, so it has "
         "no combat roster and no strike can reach a recompose."
     ),
+    # ADDED ROUND yob0a2 (LANE-A): scene 304 (Bg3007, "Dark Fog Sea")
+    # entered ``world_scene_travel.CENSUS_SOURCES`` this round
+    # (``world_bg3007_identity`` / ``world_population_bg3007``, 50 of the
+    # scene's 66 native placements).  UNLIKE scene 17 above, this composer
+    # IS reachable in production the day it lands: the scene is in
+    # ``world_population_handoff.ROSTER_COMPOSERS`` and the census hook's
+    # third admission arm admits a GM standing there after a live
+    # ``/warp 304``.  So the tripwire's own question -- "is the one-entry
+    # world wipe live for this scene?" -- is answered here rather than left
+    # implied, and it is answered by MEASURING both halves this round
+    # (pf-adversary asked for exactly this sentence): ``field_mobs.
+    # scene_for_scene_id(304)`` returns ``None`` (scene 304 is in NEITHER of
+    # field_mobs' two tables) and ``field_mobs.roster_for_scene_id(304)`` is
+    # ``()``.  With no combat roster there is nothing to strike in scene
+    # 304, so no strike reaches a recompose and the wipe cannot happen
+    # today.  THE DAY LANE-B GIVES THIS SCENE A ROSTER ROW, this entry must
+    # be replaced by a real composer in the same round -- that is the
+    # promise this dict is built on, and scene 304 now has a live arrival
+    # census, which is the half that made scene 14's version of this
+    # acknowledgement urgent.
+    304: (
+        "Bg3007 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round yob0a2, LIVE for a GM "
+        "standing there after /warp 304; ordinary login door still shut); "
+        "field_mobs names no scene 304 at all, so it has no combat roster "
+        "and no strike can reach a recompose."
+    ),
 }
 
 

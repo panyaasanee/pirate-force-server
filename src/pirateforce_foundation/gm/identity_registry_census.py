@@ -74,6 +74,7 @@ from .. import world_bg0011_identity
 from .. import world_bg0015_identity
 from .. import world_bg1001_identity
 from .. import world_bg3001_identity
+from .. import world_bg3007_identity
 from .. import world_bg4001_identity
 
 #: Grep token for an attended tester's console.  Same shape as this lane's
@@ -155,6 +156,7 @@ for _module in (
     world_bg0015_identity,
     world_bg1001_identity,
     world_bg3001_identity,
+    world_bg3007_identity,
     world_bg4001_identity,
 ):
     _register(
