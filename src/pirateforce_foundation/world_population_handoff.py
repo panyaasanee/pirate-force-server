@@ -263,6 +263,7 @@ from . import world_population_bg0011
 from . import world_population_bg0015
 from . import world_population_bg3001
 from . import world_population_bg3007
+from . import world_population_bg3008
 from . import world_population_bg4001
 from .world_population import (
     COLLECTION_TAG,
@@ -646,6 +647,27 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg3007.dispatch_report,
         generation_type=world_population_bg3007.Bg3007PopulationGeneration,
         full_roster_count=world_population_bg3007.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND 9zj630 (2026-09-06, LANE-A), the fifteenth composer and
+    # the third ocean panel: scene 305 (Bg3008, "Pale Silver Sea"), the
+    # other sea of the pair COO-DECISION 20260905_1748 decreed.  Same shape
+    # and the same exclusions as the entry above, re-checked for THIS scene
+    # rather than inherited: no runtime.py branch is dedicated to scene 305,
+    # no crossing call site reaches it (world_sea_edge_crossing composes
+    # nothing), so this entry composes over nothing.  ITS LOGIN DOOR IS SHUT
+    # (``login_entry_allowed: false``, untouched this round); the arrival
+    # that reaches this composer is a GM ``/warp 305``, admitted by the
+    # third arm in ``lane_hooks/lane_a_scene_census.py``, which has named
+    # this scene since round dyi95m.
+    "bg3008_roster": _SceneComposer(
+        source="bg3008_roster",
+        build=world_population_bg3008.build_bg3008_population,
+        full_roster_count_source=world_population_bg3008.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg3008.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg3008.dispatch_report,
+        generation_type=world_population_bg3008.Bg3008PopulationGeneration,
+        full_roster_count=world_population_bg3008.DEFAULT_ACTOR_COUNT,
     ),
     # DELIBERATELY NOT ADDED, round ``vwekfq`` (LANE-A): scene 17's identity
     # and census pair (``world_bg1001_identity`` / ``world_population_
