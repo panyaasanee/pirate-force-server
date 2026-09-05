@@ -399,6 +399,8 @@ class RulingForTests(unittest.TestCase):
             "widen-death-scope-bg0005-six-templates": "202609041148",
             "COO-DECISION 2026-09-04T14:50+07:00 "
             "widen-death-scope-bg0003-seven-templates": "202609041450",
+            "COO-DECISION 2026-09-05T05:46+07:00 "
+            "widen-death-scope-bg0004-five-templates": "202609050546",
         }
         self.assertEqual(
             set(expected), set(mob_death.WIDENING_RULINGS),

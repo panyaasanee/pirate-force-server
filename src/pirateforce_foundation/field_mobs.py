@@ -194,6 +194,7 @@ from typing import Any
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
+from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
 from . import field_mob_tables_bg0015
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
@@ -513,6 +514,7 @@ _SCENE_TABLE_MODULES = {
     field_mob_tables.SCENE: field_mob_tables,
     field_mob_tables_bg0002.SCENE: field_mob_tables_bg0002,
     field_mob_tables_bg0003.SCENE: field_mob_tables_bg0003,
+    field_mob_tables_bg0004.SCENE: field_mob_tables_bg0004,
     field_mob_tables_bg0005.SCENE: field_mob_tables_bg0005,
     field_mob_tables_bg0015.SCENE: field_mob_tables_bg0015,
 }
@@ -525,6 +527,31 @@ BG0002_SCENE = field_mob_tables_bg0002.SCENE
 # the four hostility predicates agree on all twelve (12/12/12/12) rather
 # than needing the reading the generator warns about.
 BG0003_SCENE = field_mob_tables_bg0003.SCENE
+# ROUND r6isy5.  Scene 4 (Slave Market Island), the FIRST scene this lane
+# ships whose four hostility predicates DISAGREE, which the generator's own
+# docstring says must be read before the roster ships rather than waved
+# through: ai_combat 9, rank 7, drops_normal 7, rank_and_ai_combat 7.  The
+# reading, done here rather than left implied by the count:
+#
+#   The two extra ai_combat rows are placements 75 and 76, MOBS n_ID 640
+#   ("Crazy Rose Regina") and 641 ("Blood dragon Norman").  Both are
+#   n_RANK 0, n_DROPS_NORMAL 0, n_LEVEL_MIN 105 -- more than twice the
+#   level of every row this scene does ship (47-58) -- and 640's own
+#   s_OUTFIT is ``P_FEMALE_003_000_ARENAFIGHTER``, a PLAYER model, the one
+#   body the three-step methodology bg0001/Bg0002/Bg0015/bg0005/Bg0003 all
+#   used refuses by name.  Neither is carried.  This lane is not deciding
+#   what they are -- a rank-0 level-105 pair with combat AI and no drop
+#   table is a content question, not a roster one -- only that a monster
+#   this lane has no ruling for and no drop table for is not a monster it
+#   ships.
+#
+# SEVEN placements over FIVE templates (94, 97, 103, 519, 246).  Template
+# 103 is ALSO in Bg0002's own death ruling set {31, 34, 35, 103}: that
+# ruling is tied to Bg0002 in ``mob_death.WIDENING_RULING_SCENES``, so it
+# cannot reach a bg0004 row, and this scene's own ruling is tied the same
+# way in the other direction.  The collision is the reason the scene axis
+# exists, not a reason to rename anything.
+BG0004_SCENE = field_mob_tables_bg0004.SCENE
 # ROUND jqeo2m.  Scene 5 (Evil Port), the first scene whose ARRIVAL census
 # was already live when its roster arrived: lane A opened
 # ``login_entry_allowed`` for it in round l03cgh, so unlike scenes 2 and 14

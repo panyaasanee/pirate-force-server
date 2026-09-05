@@ -159,11 +159,44 @@ class WalkTheShippedRosterTests(unittest.TestCase):
             if one.every_door_open))
         self.assertIn(SCENE_THREE, finished)
         self.assertIn("bg0005", finished)
+        # ROUND r6isy5: scene 4 joins the class, and it joins the WHOLE-
+        # denominator half of it too (nothing refused, nothing withheld) --
+        # asserted below with the other two rather than in place of them.
+        self.assertIn("bg0004", finished)
         self.assertLessEqual(set(finished), set(self.walked))
         # Neither of the two this round reports on owes its verdict to a row
         # the owner refused to ship.
-        for scene in (SCENE_THREE, "bg0005"):
+        for scene in (SCENE_THREE, "bg0004", "bg0005"):
             self.assertEqual(self.walked[scene].owner_refused, (), scene)
+            self.assertEqual(self.walked[scene].lane_withheld, (), scene)
+
+    def test_scene_four_arrives_with_every_door_open_in_one_round(self):
+        """ROUND r6isy5, and the first time this lane has managed it.
+
+        Scene 3 needed two rounds to get from a registered roster to every
+        door (the drop leg was mined a round after the kill ruling); scene 4
+        lands with all three open on the same commit.  The drop leg is the
+        one that had to be MEASURED shut first: templates 94 and 97 name
+        ``n_DROPS_SPECIALLY`` sets 2802253/2802236, which no earlier scene's
+        roster carried, and before the miner was widened this walk reported
+        ``target=7 kill=7 drop=3`` with placements 30/31/32/42 refusing
+        ``drop:unknown_drop_set``.
+
+        THE DENOMINATOR IS WHOLE, which is the half of the claim that costs
+        something: nothing in this scene was withheld or owner-refused to
+        make the fraction come out right (pf-adversary D2 on the round that
+        first shipped this report).
+        """
+        scene_four = self.walked["bg0004"]
+        self.assertEqual(scene_four.rows_walked, 7)
+        self.assertEqual(scene_four.targetable, 7)
+        self.assertEqual(scene_four.killable, 7)
+        self.assertEqual(scene_four.dropping, 7)
+        self.assertEqual(scene_four.rows_short_of_every_door, ())
+        self.assertTrue(scene_four.ai_register)
+        self.assertTrue(scene_four.every_door_open)
+        self.assertEqual(scene_four.owner_refused, ())
+        self.assertEqual(scene_four.lane_withheld, ())
 
     def test_scene_fourteen_has_every_door_at_eleven_rows_carlos_withheld(self):
         """~~short by Carlos alone~~ IS STRUCK, and the number beside it is why.

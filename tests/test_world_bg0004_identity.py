@@ -171,19 +171,45 @@ class Bg0004TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_for_this_scene_now_exists(
         self,
     ) -> None:
-        # Unlike Bg0015 (which collides with a committed field_mob_tables_
-        # bg0015.py for the same scene), no such sibling exists here yet: a
-        # 0-hit glob this round, re-checked here so a future addition is
-        # something a red test notices instead of a silent
-        # actor_identity == 0x2000 + index + 1 collision (the shape
-        # world_bg0015_identity.COLLIDING_PLACEMENTS documents for scene 14).
-        hits = list(
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+
+        [CROSS-LANE EDIT BY LANE-B, ROUND r6isy5 - LANE-A MAY REVERT OR
+        REPLACE] The struck test asserted a 0-hit glob "so a future addition
+        is something a red test notices instead of a silent
+        actor_identity == 0x2000 + index + 1 collision".  It did exactly
+        that job: ``field_mob_tables_bg0004.py`` landed this round and this
+        card went red on the commit that added it.  What replaces it is the
+        same question answered rather than deferred -- the module exists,
+        and the collisions it brings are enumerated and walked, not silent.
+        LANE-B did not widen this test's reach; the letter is
+        ``notes_to_chief/20260905_1031_LANE-B-TO-LANE-A-scene-4-now-has-a-
+        combat-roster-your-guard-fired-as-designed.md``.
+
+        The collision walk itself lives in LANE-B's own files (this is a
+        LANE-A card and stays one): ``tests/test_field_mobs.py`` pins all
+        eleven pairs by name, and
+        ``tests/test_field_mob_tables_bg0004.py`` measures the four new ones
+        through ledger, death, loot and membership.
+        """
+        hits = sorted(
+            path.name for path in
             (ROOT / "src" / "pirateforce_foundation").glob(
                 "field_mob_tables_bg0004*"))
-        self.assertEqual(hits, [])
+        self.assertEqual(hits, ["field_mob_tables_bg0004.py"])
+        # The identity arithmetic this card was built to watch, asserted
+        # rather than assumed: every hostile placement LANE-B ships for this
+        # scene is one of this table's own placements, so the two lanes are
+        # describing the same map and not two readings of it.
+        from pirateforce_foundation import field_mob_tables_bg0004
+        ours = {row.placement_index
+                for row in identity.shippable_placements()}
+        theirs = {row[0]
+                  for row in field_mob_tables_bg0004.HOSTILE_PLACEMENTS}
+        self.assertTrue(theirs)
+        self.assertTrue(theirs <= ours, sorted(theirs - ours))
 
 
 if __name__ == "__main__":  # pragma: no cover

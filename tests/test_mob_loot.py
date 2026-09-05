@@ -2125,7 +2125,16 @@ class MobLootTests(unittest.TestCase):
         # the newly mined scenes' SHIPPED rosters (Bg0003/bg0005/Bg0015)
         # really does name it.  2701003 stays the Orc Chief's alone -- no
         # newly mined scene ships template 103.
-        orc_chief_sets = {2701003}
+        # ROUND r6isy5: ~~``orc_chief_sets = {2701003}``~~ STRUCK, and this
+        # is the sentence above going false rather than a table changing --
+        # "no newly mined scene ships template 103" was true for exactly one
+        # week.  Scene 4 (bg0004) ships template 103 at placement 69, under
+        # its own COO letter (``mob_death`` 0546 entry), so the Orc Chief's
+        # 2701003 is now named by a SHIPPED row and the difference this test
+        # measures is EMPTY.  Kept as an equality against an empty set, not
+        # relaxed to ``issubset``: an unexplained extra set must still fail,
+        # which is the whole point of the card.
+        orc_chief_sets = set()
         self.assertEqual(carried - wanted, orc_chief_sets)
         self.assertEqual(wanted - carried, set())
         # BOTH directions.  pf-adversary killed the first draft of this
@@ -2218,7 +2227,14 @@ class MobLootTests(unittest.TestCase):
         (2200003, 2600001) remain absent, which is still worth asserting by
         name rather than folded into a single equality.
 
-        The 83 below is len(field_drop_tables.ITEMS), the PRODUCTION EMIT
+        ROUND r6isy5: ~~83~~ 85.  Scene 4's roster brought the first two
+        ``n_DROPS_SPECIALLY`` set ids this lane had never mined (2802236,
+        2802253, from templates 97 and 94), and the two new item ids are
+        theirs.  The paragraph below is unchanged and still true: this
+        number is the production emit universe, NOT the 43-ID audit set,
+        and the two must not be read for each other.
+
+        The 85 below is len(field_drop_tables.ITEMS), the PRODUCTION EMIT
         UNIVERSE (field_drop_tables.py:149-193), up from 43 before this
         round's widening -- a different count from the externally-specified
         43-ID AUDIT SET Codex's GDL-IMG-017 checkpoint finding names for the
@@ -2232,7 +2248,7 @@ class MobLootTests(unittest.TestCase):
         self.assertEqual(travelled & set(field_drop_tables.ITEMS), {2200423})
         self.assertNotIn(2200003, field_drop_tables.ITEMS)
         self.assertNotIn(2600001, field_drop_tables.ITEMS)
-        self.assertEqual(len(field_drop_tables.ITEMS), 83)
+        self.assertEqual(len(field_drop_tables.ITEMS), 85)
         nonclaims_text = " ".join(MOB_LOOT_NONCLAIMS)
         self.assertIn(
             "NOT ONE OF THE 43 IDS THIS LANE CAN EMIT HAS EVER BEEN ON A "

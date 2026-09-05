@@ -676,12 +676,31 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         self.assertEqual(result.actor_identities, expected)
 
     def test_a_scene_lane_b_has_not_mined_answers_empty_not_raise(self):
-        # Scene 4 has no row in `field_mobs._SCENE_TABLE_MODULES` today.
-        # The documented, real, safe answer is an empty tuple -- never a
-        # raise, and never a silent fallback to some other scene's rows.
-        self.assertIsNone(field_mobs.scene_for_scene_id(SLAVE_MARKET))
-        result = self._compose(SLAVE_MARKET)
+        # [CROSS-LANE EDIT BY LANE-B, ROUND r6isy5 - LANE-A MAY REVERT OR
+        # REPLACE] ~~Scene 4 has no row in
+        # `field_mobs._SCENE_TABLE_MODULES` today.~~ It has one as of this
+        # round, so the EXAMPLE moved and the PROPERTY did not: what this
+        # card is about is that an unmined scene answers an empty tuple
+        # rather than raising or falling back to another scene's rows, and
+        # scene 6 (Ocean Walled City) is an unmined scene with a live lane-A
+        # census today, exactly the shape scene 4 had at round 2jdde8.  The
+        # scene-4 half is not lost -- it moved to the assertion below, where
+        # a MINED scene is now measured to answer its real roster.  Letter:
+        # `notes_to_chief/20260905_1031_LANE-B-TO-LANE-A-scene-4-now-has-a-
+        # combat-roster-your-guard-fired-as-designed.md`.
+        self.assertIsNone(field_mobs.scene_for_scene_id(OCEAN_WALLED_CITY))
+        result = self._compose(OCEAN_WALLED_CITY)
         self.assertEqual(result.actor_identities, ())
+        # And the other direction, which is what changed this round: scene 4
+        # IS mined now, and answers its own seven rows rather than ().
+        self.assertEqual(field_mobs.scene_for_scene_id(SLAVE_MARKET),
+                         "bg0004")
+        mined = self._compose(SLAVE_MARKET)
+        self.assertEqual(
+            mined.actor_identities,
+            tuple(sorted(mob.actor_identity
+                         for mob in field_mobs.roster_for_scene_id(
+                             SLAVE_MARKET))))
 
     def test_the_field_is_derived_from_the_registry_not_hardcoded(self):
         # FIXTURE-DRIVEN GUARD: a mutant that hardcodes `()`, or that reads
@@ -740,7 +759,11 @@ class ActorIdentitiesFromFieldMobRegistryTests(unittest.TestCase):
         self.assertIn("reason=RuntimeError", note[0])
         # The everyday "not (yet) registered" case prints no such line --
         # it is a real, safe answer and must not read as a failure.
-        ordinary = self._compose(SLAVE_MARKET)
+        # [CROSS-LANE EDIT BY LANE-B, ROUND r6isy5] ~~SLAVE_MARKET~~ ->
+        # OCEAN_WALLED_CITY, for the same reason as the test above: scene 4
+        # is mined as of this round and is no longer an example of a scene
+        # that is not.
+        ordinary = self._compose(OCEAN_WALLED_CITY)
         self.assertEqual(ordinary.actor_identities, ())
         self.assertFalse(any(
             line.startswith("WORLD_CENSUS_ACTOR_IDENTITIES_UNREPORTABLE ")
