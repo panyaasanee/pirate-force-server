@@ -3161,6 +3161,102 @@ class SQLiteStore:
             ).fetchall()
         return tuple(r["skill_id"] for r in after)
 
+    def grant_learned_skill(
+        self, character_id: int, skill_id: int
+    ) -> tuple[int, ...]:
+        """Persist ONE skill a character LEARNED (as opposed to one it
+        started with), idempotently, and return every distinct skill id now
+        on the row.
+
+        `migrations/015_character_skills_learned_source.sql` widens
+        `character_skills.source`'s `CHECK` to admit `'learned'`; this is
+        the only thing in the codebase that writes that value, answering
+        `pf_bridge/notes_to_chief/
+        20260905_2119_LANE-CS-CORE-REQUEST-character-skills-learned-source-
+        to-lane-db.md`.  LANE-CS's own `skill_grant_wiring.
+        learn_and_grant_skill` composes `skill_learn_wiring.
+        learn_skill_spend` (deducts skill points, real, zero production
+        caller) with a `typing.Protocol` this method's shape was written to
+        satisfy (`SkillGrantStore.grant_learned_skill`); their letter
+        proposed a `granted_at` PARAMETER, but this door computes it
+        itself with `_now()` instead, the same shape `grant_starting_
+        skills` above already uses -- a caller-supplied timestamp is one a
+        caller could get wrong or reuse across two real grants, and this
+        method's own transaction is the only place that can honestly say
+        when its own `INSERT` happened.  LANE-CS's Protocol-typed shim
+        will need its own signature adjusted to match before it can wire
+        to this concrete method -- this door's contract is authoritative
+        over the proposal's, per this lane's charter.
+
+        SAME UNIQUE(character_id, skill_id) CONSTRAINT `grant_starting_
+        skills` USES, DELIBERATELY SHARED, NOT A SEPARATE ONE PER
+        `source`.  A character who already has a skill id -- however it
+        got there -- already has it: `INSERT OR IGNORE` against the plain
+        `(character_id, skill_id)` pair is a no-op for a skill already
+        granted as `'starting_kit'`, which is the correct answer (nothing
+        in this codebase re-learns a skill already owned), not a second
+        row recording the same skill twice under two sources.
+
+        ONE SKILL PER CALL, NOT A TUPLE LIKE `grant_starting_skills`.
+        `learn_and_grant_skill`'s own docstring composes one spend with one
+        grant for one `skill_id`; a caller granting several learned skills
+        calls this once per skill, the same way `spend_skill_points` is
+        called once per spend rather than accepting a batch.
+
+        Returns every distinct skill id now on the row (this grant's own id
+        plus anything already there), read back INSIDE this method's own
+        transaction, ordered by insertion -- the same read-after-write
+        discipline `grant_starting_skills` uses, for the same reason.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted (matching `grant_starting_skills`), `TypeError` for a
+        non-int/bool `character_id` or `skill_id`, and `ValueError` for a
+        `skill_id` outside the u32 range (`0..4294967295`, the same range
+        `grant_starting_skills` validates against -- this table stores the
+        raw client skill id verbatim, per `migrations/
+        011_character_skills.sql`'s own docstring). Raises
+        `WriteLockTimeout` instead of a raw `sqlite3.OperationalError` when
+        the write lock cannot be taken, matching every other write door in
+        this file. Nothing is written when anything is refused.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(skill_id, bool) or not isinstance(skill_id, int):
+            raise TypeError("skill_id must be an int")
+        if not 0 <= skill_id <= 0xFFFFFFFF:
+            raise ValueError(
+                "skill_id %d is outside the u32 range" % skill_id
+            )
+        granted_at = _now()
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s learned-skill grant within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT OR IGNORE INTO character_skills"
+                "(character_id,skill_id,source,granted_at) VALUES (?,?,?,?)",
+                (character_id, skill_id, "learned", granted_at),
+            )
+            after = db.execute(
+                "SELECT skill_id FROM character_skills "
+                "WHERE character_id=? ORDER BY id",
+                (character_id,),
+            ).fetchall()
+        return tuple(r["skill_id"] for r in after)
+
     def list_character_skills(self, character_id: int) -> tuple[int, ...]:
         """Every skill id ever granted to this character, oldest grant first.
 
