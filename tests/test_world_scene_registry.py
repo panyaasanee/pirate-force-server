@@ -11,6 +11,8 @@ was the ledger of the session that ended.
 from __future__ import annotations
 
 import io
+import pathlib
+import threading
 import unittest
 from contextlib import redirect_stdout
 
@@ -137,40 +139,117 @@ class TheGraveDoor(unittest.TestCase):
         self.assertEqual(seeded.balance_of(SOLDIER).current_hp, CEILING)
 
 
+class TheLedgerMustBelongToThisScene(unittest.TestCase):
+    """D1, pf-adversary round `tz2rgc`: the identity check is NOT enough.
+
+    ``field_mobs`` identities are ``0x2000 + placement + 1`` with no scene
+    term, so two different monsters in two different scenes really do carry
+    the same wire identity -- measured: nine of this game's fifteen
+    live-scene pairs share at least one.  Seeding on identity alone wrote
+    one scene's remaining health under another scene's ceiling and printed a
+    green line over it.
+    """
+
+    def test_a_ledger_open_on_another_scene_is_refused_whole(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance("bg0004", SOLDIER, 12, 38728)
+        elsewhere = _ledger(scene="Bg0003")
+        seeded = world_scene_registry.seed_the_session_ledger(
+            elsewhere, "bg0004", registry=registry, announce=False)
+        self.assertIs(seeded, elsewhere)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, CEILING)
+
+    def test_the_refusal_is_named_on_the_console(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance("bg0004", SOLDIER, 12, 38728)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            world_scene_registry.seed_the_session_ledger(
+                _ledger(scene="Bg0003"), "bg0004", registry=registry)
+        self.assertIn("reason=another_scenes_ledger", buffer.getvalue())
+
+    def test_a_ledger_with_no_scene_on_it_is_refused_too(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, 900, CEILING)
+        # ``None`` is the only untagged ledger this project can build --
+        # ``CombatLedger`` itself refuses "" and a non-str at construction,
+        # which is checked here so that a future widening of that rule
+        # cannot quietly widen what this seed accepts either.
+        for tag in ("", 17):
+            with self.subTest(refused_at_construction=tag):
+                with self.assertRaises(mob_combat.MobCombatContractError):
+                    mob_combat.CombatLedger(
+                        (mob_combat.MobBalance(SOLDIER, CEILING, CEILING),),
+                        0, tag)
+        nameless = mob_combat.CombatLedger(
+            (mob_combat.MobBalance(SOLDIER, CEILING, CEILING),), 0, None)
+        seeded = world_scene_registry.seed_the_session_ledger(
+            nameless, SCENE, registry=registry, announce=False)
+        self.assertIs(seeded, nameless)
+
+    def test_the_same_scene_spelled_differently_still_seeds(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance("bg0002", SOLDIER, 900, CEILING)
+        seeded = world_scene_registry.seed_the_session_ledger(
+            _ledger(scene="Bg0002"), "BG0002", registry=registry,
+            announce=False)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, 900)
+
+
 class WhatTheSeedSkips(unittest.TestCase):
+    """Each skip must leave the REST of the scene seeded.
+
+    Every test here carries a second, good row and asserts it landed.  That
+    is not decoration: pf-adversary (round `tz2rgc`, D4) measured the first
+    draft of these three tests passing unchanged when the skip they name was
+    DELETED -- because deleting it made the whole seed collapse into the
+    `except` arm, which returns the caller's own ledger, which was the only
+    thing they asserted.  "The bad row was skipped" and "every row was
+    abandoned" have to be told apart, so the good row is the witness.
+    """
+
+    def _registry_with_a_good_row(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        self.assertTrue(registry.note_balance(SCENE, SOLDIER, 900, CEILING).noted)
+        return registry
+
+    def _ledger_of_two(self):
+        return _ledger(
+            mob_combat.MobBalance(SOLDIER, CEILING, CEILING),
+            mob_combat.MobBalance(SECOND, CEILING, CEILING))
 
     def test_an_identity_the_ledger_does_not_carry(self):
-        """A ledger still open on the scene being LEFT holds no destination row."""
-        registry = world_scene_registry.WorldSceneRegistry()
-        registry.note_balance(SCENE, SECOND, 100, CEILING)
-        elsewhere = _ledger()          # carries SOLDIER only
+        """A roster that shrank under the world's memory."""
+        registry = self._registry_with_a_good_row()
+        registry.note_balance(SCENE, 0x20FF, 100, CEILING)
         seeded = world_scene_registry.seed_the_session_ledger(
-            elsewhere, SCENE, registry=registry, announce=False)
-        self.assertIs(seeded, elsewhere)
-        self.assertNotIn(SECOND, seeded.identities())
+            self._ledger_of_two(), SCENE, registry=registry, announce=False)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, 900)
+        self.assertNotIn(0x20FF, seeded.identities())
 
     def test_a_health_above_the_ledgers_own_ceiling_is_skipped_not_clamped(self):
         """The roster table changed under the world's memory.
 
         Lowering the number to a ceiling this module guessed at would be an
         invented value on the wire; refusing the row leaves the table's own
-        answer standing, which is the honest one.
+        answer standing, which is the honest one -- and the OTHER monster in
+        the same scene is still seeded.
         """
-        registry = world_scene_registry.WorldSceneRegistry()
-        registry.note_balance(SCENE, SOLDIER, 9000, 9000)
-        smaller = _ledger(mob_combat.MobBalance(SOLDIER, 100, 100))
+        registry = self._registry_with_a_good_row()
+        registry.note_balance(SCENE, SECOND, 9000, 9000)
         seeded = world_scene_registry.seed_the_session_ledger(
-            smaller, SCENE, registry=registry, announce=False)
-        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, 100)
+            self._ledger_of_two(), SCENE, registry=registry, announce=False)
+        self.assertEqual(seeded.balance_of(SECOND).current_hp, CEILING)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, 900)
 
     def test_a_row_that_only_remembers_a_position(self):
-        registry = world_scene_registry.WorldSceneRegistry()
+        registry = self._registry_with_a_good_row()
         self.assertTrue(
-            registry.note_position(SCENE, SOLDIER, (1.0, 2.0, 3.0)).noted)
-        fresh = _ledger()
+            registry.note_position(SCENE, SECOND, (1.0, 2.0, 3.0)).noted)
         seeded = world_scene_registry.seed_the_session_ledger(
-            fresh, SCENE, registry=registry, announce=False)
-        self.assertIs(seeded, fresh)
+            self._ledger_of_two(), SCENE, registry=registry, announce=False)
+        self.assertEqual(seeded.balance_of(SECOND).current_hp, CEILING)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, 900)
 
     def test_a_health_that_already_matches_writes_nothing(self):
         registry = world_scene_registry.WorldSceneRegistry()
@@ -399,6 +478,129 @@ class TheConsoleLines(unittest.TestCase):
                       buffer.getvalue())
 
 
+class TheLockIsLoadBearing(unittest.TestCase):
+    """A book whose whole premise is one process, many sessions, must be safe
+    for many threads.  pf-adversary (round `tz2rgc`, D4) measured the
+    unlocked version losing 69,227 updates in one run of this shape; with the
+    lock it loses none.  A merge of two independent fields (health, position)
+    is exactly where a read-modify-write would drop one.
+    """
+
+    def test_two_writers_and_a_reader_never_see_a_field_go_backwards(self):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, 1, 200000)
+        registry.note_position(SCENE, SOLDIER, (0.0, 0.0, 0.0))
+        done = threading.Event()
+        reversals = []
+
+        def health():
+            for hp in range(1, 20000):
+                registry.note_balance(SCENE, SOLDIER, hp, 200000)
+            done.set()
+
+        def position():
+            step = 0
+            while not done.is_set():
+                registry.note_position(SCENE, SOLDIER, (float(step), 0.0, 0.0))
+                step += 1
+
+        def reader():
+            highest = 0
+            while not done.is_set():
+                row = registry.remembered_one(SCENE, SOLDIER)
+                if row is not None and row.current_hp is not None:
+                    if row.current_hp < highest:
+                        reversals.append(row.current_hp)
+                    highest = max(highest, row.current_hp)
+
+        threads = [threading.Thread(target=f)
+                   for f in (health, position, reader)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+        self.assertEqual(reversals, [])
+        row = registry.remembered_one(SCENE, SOLDIER)
+        self.assertEqual(row.current_hp, 19999)
+        self.assertIsNotNone(row.position)
+        # And no scene key is left behind holding nothing.
+        self.assertEqual(registry.scenes(), (SCENE,))
+
+
+class TheBoundsOnTheBook(unittest.TestCase):
+
+    def test_a_new_scene_is_refused_when_the_book_is_full(self):
+        """The per-scene cap is not a bound on the BOOK.
+
+        pf-adversary (round `tz2rgc`, D8) measured the first draft holding
+        20,000 fabricated scene keys with no refusal, under a comment that
+        claimed the opposite.
+        """
+        registry = world_scene_registry.WorldSceneRegistry(scenes=2)
+        self.assertTrue(registry.note_balance("bg0002", SOLDIER, 9, 10).noted)
+        self.assertTrue(registry.note_balance("bg0003", SOLDIER, 9, 10).noted)
+        refused = registry.note_balance("bg0004", SOLDIER, 9, 10)
+        self.assertEqual(refused.reason,
+                         world_scene_registry.REFUSE_TOO_MANY_SCENES)
+        self.assertEqual(registry.scenes(), ("bg0002", "bg0003"))
+        # A scene already in the book keeps working when the book is full.
+        self.assertTrue(registry.note_balance("bg0002", SECOND, 9, 10).noted)
+        # And nothing was left behind for the refused scene.
+        self.assertEqual(registry.remembered("bg0004"), ())
+
+    def test_a_bad_scene_cap_is_refused_at_construction(self):
+        for bad in (0, -1, True, 1.5, "many"):
+            with self.subTest(cap=bad):
+                with self.assertRaises(ValueError):
+                    world_scene_registry.WorldSceneRegistry(scenes=bad)
+
+    def test_a_vital_needs_its_ceiling(self):
+        with self.assertRaises(ValueError):
+            world_scene_registry.MobVital(SOLDIER, 900, None)
+        with self.assertRaises(ValueError):
+            world_scene_registry.MobVital(SOLDIER, None, CEILING)
+        with self.assertRaises(ValueError):
+            world_scene_registry.MobVital(SOLDIER, CEILING + 1, CEILING)
+        with self.assertRaises(ValueError):
+            world_scene_registry.MobVital(SOLDIER, position=("a", "b", "c"))
+
+
+class TheFailureIsReportedUnderItsOwnName(unittest.TestCase):
+    """D5: three different faults were printed under one borrowed name."""
+
+    def _seed_with(self, book):
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, 900, CEILING)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            returned = world_scene_registry.seed_the_session_ledger(
+                _ledger(), SCENE, registry=registry, deaths=book)
+        return returned, buffer.getvalue()
+
+    def test_a_raising_grave_book_is_not_reported_as_a_ceiling_problem(self):
+        class _Hostile:
+            @staticmethod
+            def is_buried(scene, identity):
+                raise RuntimeError("the grave book is on fire")
+
+        returned, printed = self._seed_with(_Hostile)
+        self.assertEqual(returned.balance_of(SOLDIER).current_hp, CEILING)
+        self.assertIn("reason=ledger_refused_the_row", printed)
+        self.assertIn("on fire", printed)
+        self.assertNotIn("above_the_ledger_ceiling", printed)
+        printed.encode("ascii")
+
+    def test_the_install_seam_actually_installs(self):
+        mine = world_scene_registry.WorldSceneRegistry()
+        previous = world_scene_registry.world_scene_registry()
+        try:
+            self.assertIs(
+                world_scene_registry.install_world_scene_registry(mine), mine)
+            self.assertIs(world_scene_registry.world_scene_registry(), mine)
+        finally:
+            world_scene_registry.install_world_scene_registry(previous)
+
+
 class TheWiringAsk(unittest.TestCase):
 
     def test_the_pasteable_call_site_names_the_function_it_asks_for(self):
@@ -407,6 +609,29 @@ class TheWiringAsk(unittest.TestCase):
         self.assertIn("self.mob_combat_ledger", text)
         self.assertIn("from . import world_scene_registry", text)
         text.encode("ascii")
+
+    def test_every_runtime_anchor_the_ask_names_is_really_in_runtime_today(self):
+        """D2: the first draft told chief to paste after a line that does not exist.
+
+        A letter is a claim about another file, and a substring check of the
+        letter against itself would pass on a letter naming an imaginary
+        anchor.  So the anchors are checked against runtime.py itself.
+        """
+        runtime = (pathlib.Path(__file__).resolve().parents[1]
+                   / "src" / "pirateforce_foundation" / "runtime.py").read_text(
+                       encoding="utf-8")
+        for anchor in (
+                "def _sync_combat_scene_state",
+                "if folder != self.mob_combat_scene_folder:",
+                "for record in self.mob_death_register.records:",
+                "register = mob_ai_control.open_register(roster, epoch=0)",
+        ):
+            with self.subTest(anchor=anchor[:40]):
+                self.assertIn(anchor, runtime)
+        # And the ask must keep telling the truth about what is NOT there.
+        text = world_scene_registry.WORLD_REGISTRY_SEED_WIRING
+        self.assertNotIn("seed_the_session_state", runtime)
+        self.assertIn("runtime.py contains NO", text)
 
 
 if __name__ == "__main__":

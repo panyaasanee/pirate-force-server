@@ -608,9 +608,21 @@ def _world_registry_line(scene_id: int) -> tuple[str, ...]:
     two sessions standing in one scene, or one session before and after a
     relogin on a server that never restarted, must see the same monsters,
     the same graves and the same ground.  This line is that reading, printed
-    once per arrival at the one seam this lane owns end to end, so the
-    attended tester greps `WORLD_REGISTRY_VIEW` twice and compares, rather
-    than being asked to infer a shared world from a screenshot.
+    once per arrival at the one seam this lane owns end to end.
+
+    🔴 WHAT THIS LINE IS NOT EVIDENCE OF, and the trap is worth naming
+    because the first draft of this docstring walked into it: "grep the
+    token twice and compare" is satisfied on TODAY'S BUILD by any two
+    arrivals into any scene, because both readings are `monsters=0 graves=0
+    ground=0` and zero equals zero (pf-adversary, round `tz2rgc`, D6 --
+    the `GM_WARP_POSITION_CONFIRMED` shape, a token compared against the
+    previous reading rather than an intended target).  A comparison of two
+    readings is only evidence when the FIRST one is non-zero, i.e. after
+    LANE-B's write call site exists.  The GT ticket for this feature says so
+    in its own preconditions; nobody should be asked to boot for it before
+    then.  What the line honestly gives today is that the world books are
+    reachable from the arrival path at all, and a place for the numbers to
+    appear the moment they are real.
 
     IT CHANGES NO BYTES.  It is appended to `console_lines`; the census
     frame, the actor count and the membership are exactly what they were.

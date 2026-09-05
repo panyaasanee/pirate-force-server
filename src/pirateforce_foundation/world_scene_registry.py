@@ -58,6 +58,23 @@ has no session in it -- WHICH IDENTITY STANDS AT WHAT HEALTH, WHERE -- so
 that is what this file holds, and :func:`seed_the_session_ledger` copies it
 into a session's own fresh value.
 
+THE RULING THAT NAMED THIS FEATURE BEFORE COO-DECISION 20260905_1152 DID,
+and it must be read beside it rather than instead of it.  ``runtime.py``
+(the docstring of the scene-edge resync) records ``COO-DECISION
+20260903_2245``: a wound register parallel to the death one was ratified as
+a real, queued feature, ruled **LANE-B's**, and given its seam -- "it plugs
+in HERE, at the same seam, AFTER the death rehydrate in
+``_sync_combat_scene_state`` -- not at another call site".  This module IS
+that wound register, and it is LANE-A's because ``COO-DECISION
+20260905_1152`` (two days later, under ``PANYA-DECISION 1140``) put the
+whole per-scene world registry in this lane's hands with LANE-B writing
+into it.  THE SEAM IS TAKEN UNCHANGED FROM 2245; only the owner moved.  If
+COO reads the two rulings the other way, nothing in this file changes but
+the lane tag at the top -- and the round's letter puts that question in
+front of COO rather than deciding it here.  Round trips healing a wound is
+the behaviour 2245 ratified as today's correct one; this is the change that
+ends it, not a claim it was a bug all along.
+
 ORDER AT THE CALL SITE: GRAVES FIRST, THEN VITALS.  ``mob_death_
 persistence.seed_the_session_state`` zeroes the ledger rows of monsters this
 world has buried; this seed then fills in the ones still standing.  Running
@@ -93,13 +110,31 @@ from . import mob_death_persistence
 from . import mob_ground_persistence
 from . import mob_loot
 
-#: A scene cannot hold more remembered vitals than this.  The bound exists
-#: for the reason ``WorldDeaths.GRAVES_PER_SCENE_CAP`` exists: this is
-#: process memory with no eviction clock on it, and a caller in a loop must
-#: hit a named refusal rather than grow the dictionary until the box stops.
-#: 4096 is far above the largest roster this project has mined (bg0001, 115
+#: A scene cannot hold more remembered vitals than this.  This is process
+#: memory with no eviction clock on it, and a caller in a loop must hit a
+#: named refusal rather than grow the dictionary until the box stops.  4096
+#: is far above the largest roster this project has mined (bg0001, 115
 #: placements) and far below anything that costs real memory.
 VITALS_PER_SCENE_CAP = 4096
+
+#: And a bound on how many SCENES may be remembered at once, because the
+#: per-scene cap alone is not a bound on the book -- pf-adversary (round
+#: ``tz2rgc``) measured the first draft holding 20,000 fabricated scene keys
+#: without a single refusal, under a comment claiming the cap prevented
+#: exactly that.  128 is well above this game's mined scene count (the
+#: identity modules ship six live rosters today, the folder copy names a few
+#: hundred) and it refuses by name rather than growing.
+#:
+#: 🔴 WHAT IS DELIBERATELY *NOT* HERE, and it is a real bound on this book:
+#: ``WorldDeaths.bury`` gates every row through ``roster_key_of`` -- a grave
+#: for an identity no mined table ships is refused, because such a row seeds
+#: a later login with a monster ``mob_death.repopulation_entries`` will
+#: reject.  This book has NO roster gate: it will remember a diag object's
+#: identity (``0x4329``) as happily as a mined one.  It is not reachable as
+#: a crash today (the seed writes only into identities the destination
+#: ledger already carries, so an unmined row can never leave this book) --
+#: but a future reader must not mistake the two books for equals here.
+SCENES_CAP = 128
 
 #: Named refusals.  A caller reads these; nothing here is a bare False.
 REFUSE_A_GRAVE_IS_NOT_A_VITAL = "a_grave_is_not_a_vital"
@@ -109,8 +144,9 @@ REFUSE_BAD_HP = "bad_hp"
 REFUSE_BAD_POSITION = "bad_position"
 REFUSE_SCENE_IS_FULL = "scene_is_full"
 REFUSE_NOT_A_LEDGER = "not_a_ledger"
-REFUSE_NOTHING_REMEMBERED = "nothing_remembered"
-REFUSE_ABOVE_THE_LEDGER_CEILING = "above_the_ledger_ceiling"
+REFUSE_ANOTHER_SCENES_LEDGER = "another_scenes_ledger"
+REFUSE_LEDGER_REFUSED_THE_ROW = "ledger_refused_the_row"
+REFUSE_TOO_MANY_SCENES = "too_many_scenes"
 
 _MAX_HP = 0xFFFFFFFF
 #: The client's world coordinates are floats in the tens of thousands (the
@@ -262,12 +298,17 @@ class WorldSceneRegistry:
     takes an explicit instance too, so a test never touches the process's.
     """
 
-    def __init__(self, vitals_per_scene: int = VITALS_PER_SCENE_CAP) -> None:
+    def __init__(self, vitals_per_scene: int = VITALS_PER_SCENE_CAP,
+                 scenes: int = SCENES_CAP) -> None:
         if (type(vitals_per_scene) is bool
                 or not isinstance(vitals_per_scene, int)
                 or vitals_per_scene < 1):
             raise ValueError("vitals_per_scene must be a positive int")
+        if (type(scenes) is bool or not isinstance(scenes, int)
+                or scenes < 1):
+            raise ValueError("scenes must be a positive int")
         self._cap = vitals_per_scene
+        self._scenes_cap = scenes
         self._lock = threading.RLock()
         # scene key -> {actor identity: MobVital}
         self._scenes: dict = {}
@@ -368,7 +409,17 @@ class WorldSceneRegistry:
         read-modify-write the caller could lose a race on.
         """
         with self._lock:
-            rows = self._scenes.setdefault(fold, {})
+            rows = self._scenes.get(fold)
+            if rows is None:
+                if len(self._scenes) >= self._scenes_cap:
+                    # A NEW scene when the book is full is refused; every
+                    # scene already remembered keeps working.  Refusing the
+                    # scene rather than clearing one is the same choice
+                    # `WorldDeaths` makes at its own cap: a world that
+                    # forgets a scene a player is standing in is worse than
+                    # one that refuses to learn a new one.
+                    return NoteOutcome(fold, identity, REFUSE_TOO_MANY_SCENES)
+                rows = self._scenes.setdefault(fold, {})
             standing = rows.get(identity)
             if standing is None and len(rows) >= self._cap:
                 # `rows` is non-empty here by construction (the cap is a
@@ -506,9 +557,20 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
       which the arrival census reaches from an uncovered ``else:``.  The
       grave book is re-read HERE rather than trusted from call order, so
       this seed is safe on either side of the grave seed.
-    * an identity the ledger does not carry -- a ledger still open on the
-      scene the player is LEAVING holds none of the destination's rows, and
-      writing into it would be composing another scene's world.
+    * A LEDGER OPEN ON A DIFFERENT SCENE, whole and by name, before any row
+      is considered.  THIS IS THE FIRST CHECK AND IT IS NOT A BELT: the
+      first draft of this function had only the identity check below, on the
+      stated ground that "a ledger open on the scene being LEFT holds none
+      of the destination's rows", and pf-adversary (round ``tz2rgc``)
+      MEASURED that sentence false on this game's own tables -- ``field_
+      mobs`` identities are ``0x2000 + placement + 1`` with no scene term,
+      so nine of the fifteen live-scene pairs share at least one wire
+      identity.  A Bg0003 ledger was rewritten with bg0004's memory of
+      ``0x2046``: 12 HP out of one scene's monster under the other's
+      ceiling, printed as a green seed.  ``CombatLedger.scene`` exists to
+      answer exactly this question and now it is asked.
+    * an identity the ledger does not carry -- kept as the second belt for
+      the case the scenes DO match and the roster has since shrunk.
     * a remembered health ABOVE the ledger's own ceiling -- the roster table
       changed under the world's memory (a re-mine, a different build), and
       ``MobBalance`` would refuse it.  Counted and named, never clamped:
@@ -531,6 +593,19 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
         return ledger
     if not isinstance(ledger, mob_combat.CombatLedger):
         outcome = SeedOutcome(fold, ledger, (), 0, REFUSE_NOT_A_LEDGER)
+        if announce:
+            _say(describe_seeded(outcome))
+        return ledger
+    try:
+        ledger_fold = _scene_key(ledger.scene)
+    except Exception:                                        # noqa: BLE001
+        # A ledger with no scene tag on it cannot be proved to be this
+        # scene's, and "cannot prove" is a refusal here rather than a
+        # default: the defect this check exists for wrote one scene's
+        # monster into another scene's ledger and printed a green line.
+        ledger_fold = None
+    if ledger_fold != fold:
+        outcome = SeedOutcome(fold, ledger, (), 0, REFUSE_ANOTHER_SCENES_LEDGER)
         if announce:
             _say(describe_seeded(outcome))
         return ledger
@@ -581,9 +656,16 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
             mutated = mutated.with_balance(mob_combat.MobBalance(
                 row.actor_identity, standing.max_hp, row.current_hp))
             applied.append(row.actor_identity)
-    except Exception:                                        # noqa: BLE001
-        outcome = SeedOutcome(fold, ledger, (), skipped,
-                              REFUSE_ABOVE_THE_LEDGER_CEILING)
+    except Exception as error:                               # noqa: BLE001
+        # THE REASON CARRIES THE ERROR, the way ``mob_death_persistence``'s
+        # own refusal does.  pf-adversary (round ``tz2rgc``) measured the
+        # first draft reporting a raising grave book, a ``MemoryError`` out
+        # of ``with_balance`` and a broken ``identities()`` under one
+        # borrowed name -- "above the ledger ceiling" -- which sends whoever
+        # greps it to the mob tables for a fault that was never there.
+        outcome = SeedOutcome(
+            fold, ledger, (), skipped,
+            "%s:%r" % (REFUSE_LEDGER_REFUSED_THE_ROW, error))
         if announce:
             _say(describe_seeded(outcome))
         return ledger
@@ -658,31 +740,74 @@ def _say(line: str) -> None:
 #: DEATH_SEED_WIRING`` and ``mob_scene_recompose.GROUND_COMPANION_WIRING``
 #: both use).  ``runtime.py`` is chief's file; LANE-A does not edit it.
 WORLD_REGISTRY_SEED_WIRING = (
-    "runtime.py, _sync_combat_scene_state, on the line AFTER the existing\n"
-    "`mob_death_persistence.seed_the_session_state(...)` statement that\n"
-    "DEATH_SEED_WIRING asks for (graves first, then the monsters still\n"
-    "standing).\n"
+    "TWO STATEMENTS, in runtime.py's `_sync_combat_scene_state`, and the\n"
+    "reason there are two is measured rather than defensive (pf-adversary,\n"
+    "round tz2rgc, D3).  This ask does NOT depend on anything else being\n"
+    "wired first: as of this round runtime.py contains NO\n"
+    "`seed_the_session_state` call and does not import\n"
+    "`mob_death_persistence` at all (`grep -c` = 0 for both), so an earlier\n"
+    "draft of this note that told chief to paste 'after the existing death\n"
+    "seed' was pointing at a line that does not exist.\n"
     "\n"
-    "    self.mob_combat_ledger = (\n"
-    "        world_scene_registry.seed_the_session_ledger(\n"
-    "            self.mob_combat_ledger, folder))\n"
+    "(1) INSIDE `if folder != self.mob_combat_scene_folder:`, immediately\n"
+    "    after the `for record in self.mob_death_register.records:` loop\n"
+    "    that rehydrates the graves, and BEFORE `register =\n"
+    "    mob_ai_control.open_register(roster, epoch=0)`.  On the LOCAL:\n"
+    "\n"
+    "        ledger = world_scene_registry.seed_the_session_ledger(\n"
+    "            ledger, folder)\n"
+    "\n"
+    "    THE LOCAL, NOT `self.`, is load-bearing: the three fields below it\n"
+    "    (ledger, mob_ai_register, mob_combat_scene_folder) are assigned\n"
+    "    together on purpose so that a raise out of `open_register` cannot\n"
+    "    leave them on two different scenes (pf-adversary, round pk14rf,\n"
+    "    quoted in runtime.py's own comment).  A statement writing `self.\n"
+    "    mob_combat_ledger` above that trio would break exactly the\n"
+    "    property the trio exists to hold.\n"
+    "\n"
+    "    THIS IS THE SEAM COO-DECISION 20260903_2245 ALREADY NAMED for a\n"
+    "    wound register: 'it plugs in HERE, at the same seam, AFTER the\n"
+    "    death rehydrate in _sync_combat_scene_state -- not at another call\n"
+    "    site' (runtime.py's own words).  That ruling assigned the feature\n"
+    "    to LANE-B; COO-DECISION 20260905_1152 (two days later) put the\n"
+    "    per-scene world registry in LANE-A's hands with LANE-B writing\n"
+    "    into it, which is why this module is LANE-A's -- the SEAM is\n"
+    "    unchanged and taken from 2245, only the owner moved.  If COO reads\n"
+    "    the two rulings differently, this module moves lanes without a\n"
+    "    line of it changing.\n"
+    "\n"
+    "(2) OUTSIDE that branch, on any dispatch, on the field:\n"
+    "\n"
+    "        self.mob_combat_ledger = (\n"
+    "            world_scene_registry.seed_the_session_ledger(\n"
+    "                self.mob_combat_ledger, folder))\n"
+    "\n"
+    "    WHY BOTH, and this is the whole of D3: runtime.py seeds\n"
+    "    `self.mob_combat_scene_folder` from the BOOT roster's own scene in\n"
+    "    __init__, so for a character whose stored scene IS the boot scene\n"
+    "    the branch in (1) never runs at all -- statement (2) is the only\n"
+    "    one that reaches bg0001, the scene the game boots into.  And for\n"
+    "    every OTHER scene, statement (2) alone is a no-op on the dispatch\n"
+    "    that matters: the ledger it is handed still belongs to the scene\n"
+    "    being left, and the scene-2 and scene-1 census branches compose\n"
+    "    the arrival frame from `self.mob_combat_ledger` in that SAME\n"
+    "    dispatch -- so the client is told the monster is at its ceiling,\n"
+    "    which is the R309 symptom this module exists to end.  Statement\n"
+    "    (1) is the one that reaches those.\n"
     "\n"
     "import: `from . import world_scene_registry`\n"
     "\n"
-    "WHY IT IS SAFE IN EITHER ORDER, even though the ask states one: this\n"
-    "seed re-reads the grave book itself and skips every identity buried\n"
-    "there, so a deploy that lands it before the grave seed still cannot\n"
-    "stand a corpse back up.  The stated order is for the reader of\n"
-    "runtime.py, not for correctness.\n"
+    "NEITHER STATEMENT CAN WRITE THE WRONG SCENE'S LEDGER: the function\n"
+    "refuses by name (`another_scenes_ledger`) unless `ledger.scene` folds\n"
+    "equal to `folder`, so (2) is inert precisely when it would be wrong\n"
+    "and (1) applies precisely when it is right.\n"
     "\n"
-    "WHY IT IS OUTSIDE `if folder != self.mob_combat_scene_folder:` for the\n"
-    "same reason DEATH_SEED_WIRING is: runtime.py seeds\n"
-    "`self.mob_combat_scene_folder` from the BOOT roster's own scene in\n"
-    "__init__, so for a character whose stored scene is the boot scene that\n"
-    "branch never runs -- and bg0001 is the scene the game boots into.\n"
+    "SAFE IN ANY ORDER WITH A FUTURE DEATH SEED: this one re-reads the\n"
+    "grave book itself and skips every identity buried there, and it can\n"
+    "only raise a row's health, never zero one.\n"
     "\n"
     "IT RETURNS THE CALLER'S OWN LEDGER on every refusal and never raises,\n"
-    "so the statement is safe on every dispatch.  It is silent when the\n"
+    "so both statements are safe on every dispatch.  It is silent when the\n"
     "scene's book is empty, which is the ordinary state of most scenes.\n"
     "\n"
     "THE WRITE HALF IS LANE-B'S AND IS NOT PART OF THIS ASK: LANE-B calls\n"
