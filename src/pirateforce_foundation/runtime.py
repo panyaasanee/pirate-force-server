@@ -5150,33 +5150,47 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
             # 20260905_0248 (GT-247 R314 measured the scenario-gated
             # SCENE-007 route dead on a real client, which always carries
             # TargetPos alongside ActionVital -- see action_ack.
-            # make_production_hit_pose_echo's own docstring).  UNSET or
+            # make_production_hit_pose_echo's own docstring).  ~~UNSET or
             # MALFORMED both return None here and add NOTHING: an unarmed
             # boot must stay exactly what it is today.  Only an owner who
             # armed PF_POSE_TRIAL as a comma-separated list before this
             # boot gets one extra ActionVital echo per accepted hit,
-            # cycling one id off that list per hit.
+            # cycling one id off that list per hit.~~ STRUCK 20260905 by the
+            # line below, which is three lines away and said the opposite
+            # for one round while this paragraph stayed: UNSET now takes the
+            # PRODUCTION path and composes the performer's class's swing.
+            # MALFORMED still adds nothing (see D7 in that round's adversary
+            # report: a trailing comma therefore SUPPRESSES the production
+            # pose for the whole boot, which is a live open question, not a
+            # settled behaviour).
             # 20260905_1600 (LANE-B CORRECTION to CORE-REQUEST 1352): the
             # performer's own class reaches the pose composer from here and
-            # nowhere else.  `selected` is bound eleven lines above, and its
-            # `class_id` is filled at login by `session.py`'s
-            # `_class_id_on_the_row` read, so an ordinary boot now composes
-            # the swing its class carries.  A character whose column is
-            # still NULL passes `None`, which is what every hit passed
-            # before this line existed -- byte-identical to main, with
-            # `POSE_NO_EQUIP_PROVENANCE` printed per hit saying why.
+            # nowhere else.  `selected` is bound at :4980 -- 197 lines above,
+            # not the "eleven" an earlier draft of this comment claimed and
+            # not the "three" `combat_pose.py`'s header claims; both numbers
+            # were inherited without opening the line.  It is still the
+            # performer's own object (`performer` at :4981-4983 is built from
+            # this same local, and nothing between here and there rebinds it
+            # -- `_sync_combat_scene_state` reads `foundation.selected` and
+            # never assigns it), which is the thing those numbers were trying
+            # to assert.  Its `class_id` is filled at login by `session.py`'s
+            # `_class_id_on_the_row` read.
             #
-            # `getattr`, NOT the letter's literal `selected.class_id`: the
-            # value is the same on every production login (`class_id` is a
-            # field of `Character`, `model.py:88`), but `foundation.selected`
-            # is a stub object in several other lanes' dispatch tests, and an
-            # `AttributeError` raised HERE leaves `_dispatch_mob_combat`
-            # entirely -- it would cost the hit its ANNOUNCE and BAR frames,
-            # not just the pose.  Same guard `session.py:53` already uses on
-            # the same attribute.
+            # ~~`getattr`, NOT the letter's literal `selected.class_id`,
+            # because `foundation.selected` is a stub in several other lanes'
+            # dispatch tests and an `AttributeError` here would cost the hit
+            # its ANNOUNCE and BAR frames.~~ STRUCK: `pf-adversary` measured
+            # it false.  Across all 11,379 collected tests NOT ONE reaches
+            # `_dispatch_mob_combat` with a `selected` lacking `class_id` --
+            # the GM stubs it named dispatch chat frames, whose `nested_id`
+            # is not `ACTION_VITAL`, so they never enter this method.  The
+            # only counter-example was a stub written in the same commit to
+            # justify the deviation, and `session.py:53` is a print helper
+            # ("never raises, always returns a str"), not this layer's guard.
+            # The letter's literal form is what ships.
             pose_trial_echo = make_production_hit_pose_echo(
                 legacy, fields, performer, self.mob_combat_hit_count,
-                class_id=getattr(selected, "class_id", None),
+                class_id=selected.class_id,
             )
             if pose_trial_echo is not None:
                 pose_trial_pc, pose_trial_frame = pose_trial_echo

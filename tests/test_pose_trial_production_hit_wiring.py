@@ -418,26 +418,32 @@ class ProductionClassPoseWiringTests(PoseWiringHarness):
         self.assertIn("POSE_TRIAL sent=60029 hit=1", out)
         self.assertNotIn("POSE_PRODUCTION", out)
 
-    def test_a_selected_without_the_attribute_costs_the_hit_nothing(self):
-        # foundation.selected is a stub in several other lanes' dispatch
-        # tests.  An AttributeError raised at the call site would leave
-        # _dispatch_mob_combat entirely and cost the hit its ANNOUNCE and
-        # BAR frames, not just the pose.
+    # ~~test_a_selected_without_the_attribute_costs_the_hit_nothing~~
+    # DELETED, and the `getattr` it existed to defend deleted with it.
+    # `pf-adversary` measured the premise false: across all 11,379
+    # collected tests not one reaches `_dispatch_mob_combat` with a
+    # `selected` lacking `class_id`, so this test's `_NoClassId` stub was
+    # the only counter-example in the repository -- written in the same
+    # commit, to justify the deviation it was cited as evidence for.  The
+    # call site now uses the letter's literal `selected.class_id`.
+    # Restoring a guard here needs a REAL caller that reaches this method
+    # without the attribute, not a stub authored to need one.
+
+    def test_a_cadence_refused_hit_composes_no_pose(self):
+        # pf-adversary D4: this suite only ever called `_hit`, which
+        # advances the injected clock past the cadence window every time,
+        # so it could not tell "the pose fires on an ACCEPTED hit" from
+        # "the pose fires on any ActionVital".  A player mashing attack
+        # faster than ATTACK_CADENCE_MS_PROVISIONAL must get no swing:
+        # a swing that appears while the server commits nothing stops
+        # meaning "damage landed".
         os.environ.pop(POSE_TRIAL_ENV, None)
-        state = self._state("mc_pose_cls_stub")
-
-        class _NoClassId:
-            def __init__(self, real):
-                self._real = real
-
-            def __getattr__(self, name):
-                if name == "class_id":
-                    raise AttributeError(name)
-                return getattr(self._real, name)
-
-        state.foundation.selected = _NoClassId(state.foundation.selected)
-        actions, out = self._hit(state)
-        names = [a[0] for a in actions]
-        self.assertIn("MOB_COMBAT_ANNOUNCE", names)
-        self.assertNotIn("MOB_COMBAT_POSE_TRIAL", names)
-        self.assertIn("POSE_NO_EQUIP_PROVENANCE", out)
+        state = self._state("mc_pose_cadence")
+        first, _ = self._attack(state, CONTROL_TARGET)
+        self.assertEqual(first[0][0], "MOB_COMBAT_POSE_TRIAL")
+        # No clock advance: the next click is inside the cadence window.
+        second, out = self._attack(state, CONTROL_TARGET)
+        self.assertNotIn(
+            "MOB_COMBAT_POSE_TRIAL", [a[0] for a in second],
+            "a cadence-refused click composed a swing frame")
+        self.assertNotIn("POSE_PRODUCTION", out)
