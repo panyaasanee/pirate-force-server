@@ -663,11 +663,17 @@ class MobCombatDispatchTests(unittest.TestCase):
             a for a in census_actions if a[0].startswith("WORLD_CENSUS_")
         ]
         self.assertEqual(len(census), 2)
+        # CORE-REQUEST-GM-061: the wired call site now passes this
+        # session's own actor identity as viewer_identity, so the expected
+        # side must too, or this "expected" body is bytes runtime.py no
+        # longer sends.
         wounded_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.control_mob, current_hp=balance.current_hp,
+            viewer_identity=self._performer(state),
         )
         full_hp_entry = field_mobs.hostile_actor_entry(
             self.legacy, self.control_mob, current_hp=self.control_mob.max_hp,
+            viewer_identity=self._performer(state),
         )
         dead_entry = mob_death.death_actor_entry(
             self.legacy, self.control_mob, death_timer=mob_death.DEAD_TIMER_SECONDS,

@@ -109,8 +109,19 @@ def hostile_override_for_scene_id(
     register: Any,
     *,
     ledger: Any,
+    viewer_identity: int | None = None,
 ) -> dict[int, bytes]:
     """Identity -> hostile body bytes for the monsters standing in ``scene_id``.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061, this round) PASSES STRAIGHT
+    THROUGH to :func:`mob_death.full_roster_override`, unchanged in meaning:
+    the identity of the SESSION this call's caller is composing a census
+    FOR, which is what lets that one session's own copy of a monster's body
+    carry that session's own associated-actor id (``mob_viewer_link``) for
+    the client's name-colour selector to read back.  ``None`` (the default)
+    is byte-identical to every call site that predates this keyword -- this
+    is a strictly additive keyword, not a behaviour change for an omitted
+    caller.
 
     THE ONE LINE A CENSUS CALL SITE NEEDS.  Equivalent to what the bg0001
     branch of ``runtime.py``'s census dispatcher already spells out, except
@@ -209,6 +220,7 @@ def hostile_override_for_scene_id(
     )
     return mob_death.full_roster_override(
         legacy, roster, register, ledger=admitted,
+        viewer_identity=viewer_identity,
     )
 
 

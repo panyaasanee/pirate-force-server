@@ -3067,8 +3067,22 @@ def repopulation_entries(
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> list[bytes]:
     """Actor entries for a re-apply that must not resurrect anybody.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061, this round) is passed straight
+    through to :func:`field_mobs.hostile_actor_entry` for every LIVING row --
+    it is the session this call's caller is composing a census FOR, and it is
+    what lets that session's own name-colour selector read back a real
+    associated-actor id.  Left ``None`` (the default, and every caller before
+    this round), nothing about the returned bytes changes.  It is deliberately
+    NOT forwarded to :func:`death_actor_entry` for dead rows: that helper
+    composes a corpse body through ``corpse_npc_attr``, a different composer
+    with no ``viewer_identity`` slot, and threading a viewer into a corpse's
+    name colour was never asked for by CORE-REQUEST-GM-061 (which is about a
+    living hostile monster's name) -- see the handback for this as a named,
+    deliberate gap rather than an oversight.
 
     PASS THE LEDGER.  It is optional only because a caller that has not opened
     one yet should still be able to build a scene, and leaving it out has a
@@ -3230,7 +3244,7 @@ def repopulation_entries(
                     )
             entries.append(field_mobs.hostile_actor_entry(
                 legacy, mob, current_hp=current_hp, faction=faction,
-                with_name=with_name))
+                with_name=with_name, viewer_identity=viewer_identity))
             continue
         row = register.record_of(mob.actor_identity, mob.scene)
         if ledger is not None:
@@ -3360,6 +3374,7 @@ def full_roster_override(
     with_name: bool = True,
     dead_timer: float = DEAD_TIMER_SECONDS,
     transitioning: tuple[str, int] | None = None,
+    viewer_identity: int | None = None,
 ) -> dict[int, bytes]:
     """Identity -> entry, for EVERY roster member, not just the ones that changed.
 
@@ -3367,6 +3382,13 @@ def full_roster_override(
     :func:`repopulation_entries` -- see that function's own docstring for the
     CODEX_URGENT 2026-09-01T20:40+07:00 re-arm fix this exists to carry.
     ``None`` (the default) is the old scalar-to-everyone behaviour, unchanged.
+
+    ``viewer_identity`` (CORE-REQUEST-GM-061) ALSO PASSES STRAIGHT THROUGH to
+    :func:`repopulation_entries`, unchanged in meaning: the identity of the
+    session THIS call's caller is composing a census for.  ``None`` (the
+    default) is byte-identical to every call site that predates this
+    keyword.  A real value only reaches the LIVING roster rows -- see
+    :func:`repopulation_entries` for why dead rows do not carry it.
 
     THIS CLOSES THE GAP ``field_mobs.py`` DESCRIBES AS "never sent, never
     observed".  :func:`corpse_override` deliberately narrows its result to
@@ -3514,7 +3536,7 @@ def full_roster_override(
     entries = repopulation_entries(
         legacy, roster, register, ledger=ledger, faction=faction,
         with_name=with_name, dead_timer=dead_timer,
-        transitioning=transitioning,
+        transitioning=transitioning, viewer_identity=viewer_identity,
     )
     return {mob.actor_identity: entry for mob, entry in zip(roster, entries)}
 

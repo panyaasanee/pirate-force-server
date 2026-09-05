@@ -10863,12 +10863,29 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 "scene_unaddressed_bg0002"
                             )
                         else:
+                            # CORE-REQUEST-GM-061: this session's own actor
+                            # identity, threaded through as the "viewer" the
+                            # name-colour selector reads back
+                            # (mob_viewer_link.MOB_VIEWER_LINK_WIRING).  Same
+                            # (identity_hi<<32)|identity_lo idiom this file
+                            # already uses for the "performer" identity
+                            # elsewhere (e.g. scene007 action-ack).
+                            # ``self.foundation.selected`` is guaranteed not
+                            # None here by the enclosing dispatch ``if``
+                            # (WORLD-CENSUS-001) a few hundred lines above.
+                            viewer_identity = (
+                                (self.foundation.selected.identity_hi
+                                 & 0xFFFFFFFF) << 32
+                                | (self.foundation.selected.identity_lo
+                                   & 0xFFFFFFFF)
+                            )
                             override = (
                                 mob_census_hostility
                                 .hostile_override_for_scene_id(
                                     legacy, scene_id,
                                     self.mob_death_register,
                                     ledger=self.mob_combat_ledger,
+                                    viewer_identity=viewer_identity,
                                 )
                             )
                         if override:
@@ -11425,10 +11442,46 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                                 "scene_unaddressed"
                             )
                         else:
+                            # CORE-REQUEST-GM-061: this session's own actor
+                            # identity, threaded through as the "viewer" the
+                            # name-colour selector reads back
+                            # (mob_viewer_link.MOB_VIEWER_LINK_WIRING).  Same
+                            # (identity_hi<<32)|identity_lo idiom this file
+                            # already uses for the "performer" identity
+                            # elsewhere (e.g. scene007 action-ack).
+                            # ``self.foundation.selected`` is guaranteed not
+                            # None here by the enclosing dispatch ``if``
+                            # (WORLD-CENSUS-001) a few hundred lines above.
+                            #
+                            # NOT WRAPPED IN A NEW try/except HERE, ON
+                            # PURPOSE: this ``else`` is the ``else`` of the
+                            # OUTER try/except a few lines up, whose
+                            # ``except`` only covers the ``try`` body
+                            # (``build_world_population``), not this clause
+                            # -- the comment a few lines above this one
+                            # already documents that a
+                            # ``ledger_disagrees_with_register`` refusal from
+                            # this exact call unwinds the listener thread
+                            # today (v141:7440 has no except).  A
+                            # ``MobViewerLinkError`` from a bad viewer
+                            # identity is the same shape of refusal from the
+                            # same call, so it is left to do the same thing
+                            # rather than quietly given softer handling only
+                            # here.  In practice this session's own identity
+                            # is always a positive account-derived qword
+                            # distinct from any 0x2000+n monster identity, so
+                            # this is not expected to fire.
+                            viewer_identity = (
+                                (self.foundation.selected.identity_hi
+                                 & 0xFFFFFFFF) << 32
+                                | (self.foundation.selected.identity_lo
+                                   & 0xFFFFFFFF)
+                            )
                             mob_death_override = mob_death.full_roster_override(
                                 legacy, synced_roster,
                                 self.mob_death_register,
                                 ledger=self.mob_combat_ledger,
+                                viewer_identity=viewer_identity,
                             )
                         if mob_death_override:
                             generation = _apply_mob_death_census_override(
