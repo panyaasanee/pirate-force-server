@@ -819,8 +819,13 @@ class SameSceneBareWarpTests(_Case):
         # opens here: the ForcePos constant only.  A command that started
         # sending on the strength of the WARP gate would be a real defect,
         # which is why this loop keeps running with it open.
+        #
+        # `/lv` is ALSO no longer in this list -- struck GM round `gm2vlx`:
+        # it now writes a real DB row through its own route
+        # (`chat_command_action._lv_action`) and no longer reaches the
+        # generic no-wire-path branch this loop checks.  Its own behaviour
+        # is pinned in `tests/test_gm_lv_action.py`.
         for text, name in (
-            ("/lv 5", "lv"),
             ("/item 1001 2", "item"),
             ("/npc on 7", "npc"),
             ("/spawn 42", "spawn"),
@@ -1800,6 +1805,36 @@ class EventNameContractTests(_Case):
         "EVENT_SPEED_DENIED_NOTICE_FAILED_PREFIX": (
             "gm_chat_action_speed_denied_notice_failed_"
         ),
+        # /lv <n> (GM round `gm2vlx`, PANYA-ORDER `20260906_0155`). Same
+        # shape as the `/speed` names above, `lv` instead of `speed`.
+        "EVENT_LV_WITHHELD_CANONICAL_DB": (
+            "gm_chat_action_lv_withheld_canonical_db"
+        ),
+        "EVENT_LV_NO_SELECTED_CHARACTER": (
+            "gm_chat_action_lv_no_selected_character"
+        ),
+        "EVENT_LV_REFUSED_PREFIX": "gm_chat_action_lv_refused_",
+        "EVENT_LV_NO_STORE": "gm_chat_action_lv_no_store",
+        "EVENT_LV_NO_CHARACTER_ID": "gm_chat_action_lv_no_character_id",
+        "EVENT_LV_PERSIST_REFUSED_PREFIX": (
+            "gm_chat_action_lv_persist_refused_"
+        ),
+        "EVENT_LV_PERSIST_READBACK_UNUSABLE": (
+            "gm_chat_action_lv_persist_readback_unusable"
+        ),
+        "EVENT_LV_ROW_WRITTEN": "gm_chat_action_lv_row_written",
+        "EVENT_LV_DENIED_NOTICE_COMPOSED": (
+            "gm_chat_action_lv_denied_notice_composed"
+        ),
+        "EVENT_LV_DENIED_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_lv_denied_notice_failed_"
+        ),
+        "EVENT_LV_STORED_NOTICE_COMPOSED": (
+            "gm_chat_action_lv_stored_notice_composed"
+        ),
+        "EVENT_LV_STORED_NOTICE_FAILED_PREFIX": (
+            "gm_chat_action_lv_stored_notice_failed_"
+        ),
         # The SAME on-screen half, one layer up: the SYNTAX refusal, for
         # every command name (COO-DECISION 2026-09-02T06:47+07:00,
         # `pf_bridge/notes_to_chief/consumed/20260902_0647_COO-DECISION-typo-
@@ -1853,6 +1888,11 @@ class EventNameContractTests(_Case):
         "TYPO_REFUSED_NOTICE_ACTION_LABEL": (
             "LANE_GM_CHAT_TYPO_REFUSED_LOCAL_TALK_NOTICE"
         ),
+        # /lv <n> (GM round `gm2vlx`). Covers BOTH the denial notice and the
+        # stored-row confirmation notice -- see `_lv_denied`/`_lv_action`'s
+        # own comments for why one label serves both (neither is the
+        # command's own effect; both are `is_notice=True` courtesies).
+        "LV_NOTICE_ACTION_LABEL": "LANE_GM_CHAT_LV_LOCAL_TALK_NOTICE",
     }
 
     # The live hook route's names, pinned here as text for the disjointness

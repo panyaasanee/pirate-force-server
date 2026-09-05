@@ -100,11 +100,17 @@ WHAT IT DOES NOT DO
   -- a config write, not a frame; the GM has to log out and back in, and
   every report that uses it has to say so.  See `_warp_action`'s routing
   rule for which of the three shapes a given command takes.
-* It does not send anything for `npc`/`item`/`lv`/`spawn`.  Those
+* It does not send anything for `npc`/`item`/`spawn`.  Those
   parse and audit exactly as before and return no action -- naming them here
   as "not wired yet" by event is the difference between a lane that is
   honest about its coverage and one that looks broken.
   ~~`say` belongs in that list too~~ -- NO LONGER TRUE as of round `w8hnu9`:
+  ~~and `lv` belongs in that list too~~ -- NO LONGER TRUE as of GM round
+  `gm2vlx`: `lv` now writes a real `characters.level` DB row through its own
+  route (`_lv_action`), unconditionally withholding only the LIVE
+  `UpdateAttrVital` send (see that function's own section banner for why).
+  It is not "not wired yet" the way `npc`/`item`/`spawn` are -- it is wired
+  to a durable write and deliberately not wired to a live frame.
   `say` now has an action path of its own (`_say_action`), gated on
   `say_wire.GM_GLOBAL_MESSAGE_VITAL_VERSION_CONFIRMED` exactly the way `warp`
   is gated on `teleport_wire`'s.  Both gates are shut today, but they are
@@ -296,6 +302,7 @@ from types import MappingProxyType
 from .. import gm_npc_toggle_recompose
 from .. import persistence_typed_attrs
 from . import (
+    attr_wire,
     bt_gm_probe,
     item_catalog,
     login_scene_stage,
@@ -1066,6 +1073,13 @@ def same_scene_with_basis(session: object, target_scene_id, position) -> tuple:
 # -- the COMMAND put nothing on the wire, and a sentence about that went out.
 NOTICE_CONSOLE_TOKEN = "GM_CHAT_NOTICE_SENT"
 
+#: What `_print_notice_sent` renders for `notice=` when `_Verdict.notice_text`
+#: is missing or not a `str` (GM round `gm2vlx`, pf-adversary this round: see
+#: that printer's own docstring for the bug this replaces). A distinct
+#: sentence, not a guess at any real notice body, so a reader can never
+#: mistake it for one of this module's actual 12-ASCII-character constants.
+NOTICE_TEXT_UNKNOWN = "notice text unknown"
+
 # The line COO-DECISION 2026-09-02T18:47+07:00 asked for BY ITS EXACT FIRST
 # TWO WORDS: "the `route=action` path must refuse and print one pure-ASCII
 # line: `SPEED DEFERRED` (a short reason may follow, but the prefix must be
@@ -1677,6 +1691,71 @@ OUTCOME_SPEED_PERSIST_COMPOSE_REFUSED_PREFIX = (
     f"{OUTCOME_SPEED_PERSIST_REFUSED_PREFIX}compose_"
 )
 
+# ---- /lv <n> constants (GM round `gm2vlx`) -- see the section banner above
+# `_lv_action`'s own definition, further down this file, for the full shape.
+#: `x=2` (`level`, `BasicAttr+0x5E`, u16, mask bit `0x0002`) is the row
+#: `RE-117`'s clue names and `gm/attr_wire.py.FIELDS` already carries
+#: `known=True` -- read by name from `BY_NAME`, never retyped as a bare `2`.
+LV_TYPED_COLUMN = persistence_typed_attrs.column_for(attr_wire.BY_NAME["level"][0])
+
+#: Not a real outbound frame -- see the section banner. Carried on the
+#: verdict only so `_announce_console_outcome`/`_make_action` can tell a
+#: local-talk courtesy notice from `/lv`'s own (nonexistent, this round)
+#: effect, same property `SPEED_DENIED_NOTICE_ACTION_LABEL` states for
+#: itself.
+LV_NOTICE_ACTION_LABEL = "LANE_GM_CHAT_LV_LOCAL_TALK_NOTICE"
+
+#: Printed to stderr, once, when this route wrote a level row. Distinct
+#: from `WITHHELD_CONSOLE_TOKEN`/`DROPPED_CONSOLE_TOKEN` above: those name a
+#: command that changed nothing; this one names a command that changed a
+#: durable row and is telling the console so, per this section's own
+#: reasoning about what `/lv` actually delivers today.
+LV_ROW_WRITTEN_CONSOLE_TOKEN = "GM_CHAT_LV_ROW_WRITTEN"
+
+EVENT_LV_WITHHELD_CANONICAL_DB = "gm_chat_action_lv_withheld_canonical_db"
+EVENT_LV_NO_SELECTED_CHARACTER = "gm_chat_action_lv_no_selected_character"
+EVENT_LV_REFUSED_PREFIX = "gm_chat_action_lv_refused_"
+EVENT_LV_NO_STORE = "gm_chat_action_lv_no_store"
+EVENT_LV_NO_CHARACTER_ID = "gm_chat_action_lv_no_character_id"
+#: An exception TYPE name follows, for the event log only -- the matching
+#: OUTCOME below is a single FIXED word, never this prefix, because
+#: `store.write_typed_attributes`'s own contract guarantees "nothing is
+#: written when anything is refused" for every one of its documented raises
+#: (unlike `store.write_speed_by_identity`, whose raise means a CONTRACT
+#: VIOLATION with unknown state -- see `_speed_action`'s own comment on
+#: `EVENT_SPEED_PERSIST_REFUSED_PREFIX`). A row this certainly untouched
+#: does not need `COMMITTED_ROW_BLOCKER_PREFIXES`'s "might already be
+#: committed" warning, and a fixed word is what lets the outcome carry a
+#: real blocker sentence (a `_PREFIX`-suffixed name is excluded from
+#: `test_every_no_bytes_outcome_this_module_can_write_has_a_blocker`).
+EVENT_LV_PERSIST_REFUSED_PREFIX = "gm_chat_action_lv_persist_refused_"
+#: Snake-cased, matching `OUTCOME_SPEED_PERSIST_READBACK_UNUSABLE`'s own
+#: naming -- see `_lv_action`'s comment at its use site for why this reads
+#: the row as WRITTEN, unlike the (never emitted) `_row_not_touched` shape.
+EVENT_LV_PERSIST_READBACK_UNUSABLE = "gm_chat_action_lv_persist_readback_unusable"
+EVENT_LV_ROW_WRITTEN = "gm_chat_action_lv_row_written"
+EVENT_LV_DENIED_NOTICE_COMPOSED = "gm_chat_action_lv_denied_notice_composed"
+EVENT_LV_DENIED_NOTICE_FAILED_PREFIX = "gm_chat_action_lv_denied_notice_failed_"
+EVENT_LV_STORED_NOTICE_COMPOSED = "gm_chat_action_lv_stored_notice_composed"
+EVENT_LV_STORED_NOTICE_FAILED_PREFIX = "gm_chat_action_lv_stored_notice_failed_"
+
+OUTCOME_LV_WITHHELD_CANONICAL_DB = f"{OUTCOME_WITHHELD_PREFIX}lv_canonical_db"
+OUTCOME_LV_NO_SELECTED_CHARACTER = f"{OUTCOME_REFUSED_PREFIX}lv_no_selected_character"
+OUTCOME_LV_NO_STORE = f"{OUTCOME_REFUSED_PREFIX}lv_no_store"
+OUTCOME_LV_NO_CHARACTER_ID = f"{OUTCOME_REFUSED_PREFIX}lv_no_character_id"
+#: See `EVENT_LV_PERSIST_REFUSED_PREFIX`'s own comment for why this is one
+#: fixed word rather than an exception-type-suffixed prefix.
+OUTCOME_LV_PERSIST_REFUSED = f"{OUTCOME_REFUSED_PREFIX}lv_persist_refused"
+OUTCOME_LV_PERSIST_READBACK_UNUSABLE = (
+    f"{OUTCOME_LV_PERSIST_REFUSED}_readback_unusable"
+)
+#: The frame is NEVER sent this round (see section banner) -- this is the
+#: outcome word for the one path that DOES succeed: the row is written and
+#: the live send is withheld unconditionally. Named `_deferred`, matching
+#: `OUTCOME_SPEED_DEFERRED`'s vocabulary, because the effect the owner asked
+#: for is not cancelled, only deferred to the next login.
+OUTCOME_LV_DEFERRED = f"{OUTCOME_WITHHELD_PREFIX}lv_deferred_login_read"
+
 # THE OUTCOME WORDS THAT MEAN A ROW IS ALREADY COMMITTED.  Every one of them
 # is a NO-BYTES outcome, so the console printer reaches for a blocker
 # sentence and would otherwise print `no blocker recorded` for exactly the
@@ -1819,6 +1898,42 @@ _NO_BYTES_BLOCKERS_SOURCE = {
         " character row still holds exactly what it held before this command"
         " -- nothing was stored, and no frame was sent"
     ),
+    # /lv <n> (GM round gm2vlx, PANYA-ORDER 20260906_0155). See the section
+    # banner above _lv_action for the full reasoning: this route only ever
+    # writes a DB row and withholds the live 0x309A send unconditionally.
+    OUTCOME_LV_WITHHELD_CANONICAL_DB: (
+        "session.foundation.lifecycle.store.path's filename is (or could not"
+        " be read as anything but) the canonical pirateforce.sqlite3; /lv"
+        " refuses to write against it -- boot with an explicit --db run-copy"
+    ),
+    OUTCOME_LV_NO_SELECTED_CHARACTER: (
+        "this connection has no selected character to read identity_lo/hi"
+        " from"
+    ),
+    OUTCOME_LV_NO_STORE: (
+        "session.foundation.lifecycle.store is unreadable, so /lv has no"
+        " database to write the level into"
+    ),
+    OUTCOME_LV_NO_CHARACTER_ID: (
+        "this connection's selected character carries no usable id, so /lv"
+        " cannot name the row to persist into"
+    ),
+    OUTCOME_LV_PERSIST_REFUSED: (
+        "store.write_typed_attributes refused the write (a value it will"
+        " not hold, a schema gap, a lock timeout, a soft-deleted row) --"
+        " its own contract guarantees nothing was written, and no frame"
+        " was sent"
+    ),
+    OUTCOME_LV_PERSIST_READBACK_UNUSABLE: (
+        "the level WAS written (write_typed_attributes only returns after a"
+        " real commit); this function's own read of the result was unusable"
+        " -- no frame was sent, but the row did change"
+    ),
+    OUTCOME_LV_DEFERRED: (
+        "the row now holds the new level; the live send is withheld"
+        " unconditionally (GT-193 killed a client on this same opcode) --"
+        " the next login reads this row and sends the new level"
+    ),
     WHY_AUDIT_ROW_NOT_WRITTEN: (
         "the outcome row could not be appended, so this command's audit"
         " trail is broken; anything it had in hand was dropped with it"
@@ -1927,6 +2042,16 @@ class _Verdict:
     #     audit reader cannot tell such a pair from a command that really ran
     #     (LANE-GM's letter `20260902_0419`, question 1).
     is_notice: bool = False
+    # THE ACTUAL 12-ASCII-CHARACTER BODY OF THE NOTICE ABOVE, when
+    # `is_notice` is True. GM round `gm2vlx` (pf-adversary, this round):
+    # `_print_notice_sent` used to hardcode `say_wire.SPEED_DENIED_NOTICE_
+    # TEXT` unconditionally, which was never wrong while `/speed` was the
+    # only caller and became a real, silent lie the moment a second one
+    # existed -- `/lv`'s console line read `notice='SPEED DENIED'` for a
+    # command that sent `'LEVEL STORED'`. Set by the handler that composes
+    # the notice, printed verbatim by `_print_notice_sent`, never guessed
+    # from the label or the outcome word.
+    notice_text: str | None = None
     # True when this handler composed the bare `/warp <n>` TeleportVital for
     # the scene the connection is ALREADY IN (`PANYA-DECISION 1800`).  Read
     # by `_announce_console_outcome` and by nothing else: it picks WHICH
@@ -2597,6 +2722,8 @@ def _make_action(
         verdict = _gmprobe_action(session, command, legacy)
     elif command.name == "speed":
         verdict = _speed_action(session, command, legacy)
+    elif command.name == "lv":
+        verdict = _lv_action(session, command, legacy)
     else:
         # Parsed and audited, but this lane has no proven server->client
         # wire for it yet.  Named, not silent: "nothing happened" and "we
@@ -4679,33 +4806,54 @@ def _print_speed_deferred(
 
 
 def _print_notice_sent(
-    session: object, token: str, command_name: object,
+    session: object, token: str, command_name: object, notice_text: object,
 ) -> None:
-    """Say that a refusal NOTICE went to the client for this command.
+    """Say that a NOTICE went to the client for this command, naming the
+    ACTUAL body sent -- never a different command's frozen constant.
 
-    Same shape as the other way-out printers in this module, and for the same
-    measured reasons rather than for symmetry:
+    !! `notice_text` USED TO BE HARDCODED TO `say_wire.SPEED_DENIED_NOTICE_
+    TEXT`, UNCONDITIONALLY, FOR EVERY CALLER (GM round `gm2vlx`, pf-adversary
+    this round -- MEASURED, not theoretical).  That was never wrong while
+    `/speed` was the only command whose verdict ever set `is_notice=True`,
+    and it silently became a lie the moment a second one did: a successful
+    `/lv <n>` printed `notice='SPEED DENIED'` on the very console line meant
+    to confirm the write, for a command that composed and sent
+    `'LEVEL STORED'`.  Fixed by having `_Verdict.notice_text` carry the real
+    body from wherever it was composed (`_speed_denied`, `_lv_denied`,
+    `_lv_action`'s stored-row branch), and this function print exactly that
+    -- never re-derived from the command name or the label, which is the
+    same class of guess this module's own `_note` docstring warns against.
 
-    * NOTHING TYPED IS EVER PRINTED.  Two fields, both lane-authored: the
+    Same shape as the other way-out printers in this module otherwise, and
+    for the same measured reasons rather than for symmetry:
+
+    * NOTHING TYPED IS EVER PRINTED.  Three fields, all lane-authored: the
       command NAME, rendered only when it is one of `commands.COMMAND_NAMES`,
-      and the notice text, which is this lane's own frozen constant.
-      `session.token` is the process-wide `--token` (see
+      the notice text (a caller's own frozen constant, never GM-typed text),
+      and `session.token`, the process-wide `--token` (see
       `_print_no_bytes_way_out`), so it names a process, not a person.
     * A DIAGNOSTIC MAY NEVER ALTER DISPATCH.  A stderr that is `None` or that
       raises must cost this line and nothing else -- the notice has already
       been composed and is about to be returned.
     * STDERR, not stdout: a JSON artifact from a headless replay tool must
       not gain a stray line (`lane_hooks/__init__.py`'s own incident).
+    * A `notice_text` this function cannot trust as one of this module's own
+      frozen constants (wrong type, or simply missing because an older
+      caller never set the field) prints `NOTICE_TEXT_UNKNOWN` rather than
+      guessing or omitting the field outright -- a console line with a
+      field missing reads as a different bug than "the field's value is
+      unknown", and only one of those is true here.
     """
     if command_name not in COMMAND_NAMES:
         return
     if sys.stderr is None:
         _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
         return
+    rendered = notice_text if isinstance(notice_text, str) else NOTICE_TEXT_UNKNOWN
     try:
         print(
             f"{NOTICE_CONSOLE_TOKEN} account={token!r} command={command_name}"
-            f" notice={say_wire.SPEED_DENIED_NOTICE_TEXT!r}",
+            f" notice={rendered!r}",
             file=sys.stderr,
         )
     except Exception as error:  # noqa: BLE001 - see the docstring
@@ -4756,7 +4904,9 @@ def _announce_console_outcome(
         # of this function says -- but a sentence about the refusal did go
         # out, and `GT-193` step 9 grades exactly that. Printing it here
         # keeps the "ONE place the console is told" property intact.
-        _print_notice_sent(session, token, getattr(command, "name", None))
+        _print_notice_sent(
+            session, token, getattr(command, "name", None), verdict.notice_text
+        )
     if sent and verdict.same_scene_teleport:
         # THE ONE SENT SHAPE THAT SPEAKS HERE (`PANYA-DECISION 1800`), and it
         # is keyed on the caller's `sent`, not on the verdict's action, for
@@ -5427,6 +5577,7 @@ def _speed_denied(
         outcome,
         undo,
         is_notice=True,
+        notice_text=say_wire.SPEED_DENIED_NOTICE_TEXT,
     )
 
 
@@ -5953,6 +6104,373 @@ def _speed_action(session: object, command: object, legacy: object) -> _Verdict:
         )
     return _Verdict(
         (SPEED_ACTION_LABEL, pc, frame, 0.0), OUTCOME_COMPOSED, undo
+    )
+
+
+# ============================================================================
+# /lv <n> -- GM round `gm2vlx` (2026-09-06), PANYA-ORDER `20260906_0155`
+# ============================================================================
+#
+# WHAT THIS ROUND SHIPS, AND WHAT IT DELIBERATELY DOES NOT, STATED FIRST.
+# The owner's own order defines "done" as: the logged-in character's level
+# changes to `n` REALLY ON SCREEN, and survives a relog.  This round ships
+# the SAFE HALF ONLY -- `store.write_typed_attributes` durably sets
+# `characters.level` -- and withholds the live half UNCONDITIONALLY, every
+# time, the same shape `_speed_action` has used since
+# `COO-DECISION 20260902_1847` and for the same reason: `/speed`'s own
+# sparse `UpdateAttrVital` send (ONE `BasicAttr` field, the same opcode
+# 0x309A a live `/lv` would need) killed a real client in `GT-193` (HP 0,
+# cash 0, then the client locked up -- 426 inbound frames, zero of them a
+# click, the revive buttons never sent a byte).  `gm/attr_wire.py`'s own
+# live-value source (`live_named_attr_values.values_for`) is independently
+# confirmed missing two of the six rows a login-shaped send would need
+# (`class_id`, `cash`) -- see this round's letter to LANE-DB -- so
+# attempting a live send today would either repeat `GT-193`'s shape or be
+# refused by `build_named_field_update`'s own completeness gate.  Neither
+# outcome is worth risking on an owner's live account before an RE ticket
+# says a live update is safe at all.  Filing that RE ticket FIRST, instead
+# of composing bytes and guessing, is the owner's own instruction
+# (`20260906_0155` item 2) -- this round's letters do exactly that.
+#
+# WHY THE DB WRITE ALONE STILL MOVES THE OWNER'S OWN CRITERION, WITH THE
+# ONE CONDITION THIS CLAIM ACTUALLY CARRIES (pf-adversary, this round --
+# the first draft of this paragraph stated the claim unconditionally,
+# which overstated what was actually traced).  The REAL production login
+# composer (`legacy_bridge.py`'s `start_game`) reads `character.level` off
+# the very row this write updates and puts it on the wire at every login
+# -- `CORE-REQUEST-022`/`023` landed that path in August, and it runs
+# unconditionally, independent of anything this lane's own `attr_wire.py`
+# gates.  BUT `character.level` is only ever non-`None` when `session.py`'s
+# login-vitals seam (`persistence_login_vitals.resolve_for_character`)
+# populates it, and that resolver's OWN documented rule is "all three or
+# none": `level`/`hp_current`/`hp_max` are sent together or not at all, so
+# a character whose HP columns are unseeded or inconsistent falls back to
+# the hardcoded `player_wire.PLAYER_LOGIN_LEVEL` regardless of what `/lv`
+# just wrote.  For the common case -- any character that already has a
+# real login (migrations 007/009 seed HP alongside level at birth) -- the
+# gate passes and the claim holds: the NEXT LOGIN shows level `n` on
+# screen, real, proven, already-shipped production code this round did not
+# have to touch, delivering the "survives a relog" half of the owner's own
+# two-part test a session early.  What is
+# NOT delivered is the level changing on the CURRENTLY OPEN connection
+# without a relog; that is the RE-gated half, named honestly rather than
+# attempted.
+#
+# THE SHAPE, COPIED FROM `_speed_action` ON PURPOSE, SIMPLER WHERE `/lv` HAS
+# LESS HISTORY TO CARRY.  `/speed` earned its trial gate, shape-hold and
+# undo machinery over many rounds of measured incidents; `/lv` has none of
+# that history yet, so this round does not invent a trial-override escape
+# hatch nobody has asked for.  The helper functions below duplicate
+# `_speed_action`'s session-attribute-chain reads under `_lv_`-prefixed
+# names rather than sharing them -- this file's own convention, unbroken
+# here: every GM command's safety gate stays independently auditable and
+# independently mutation-tested, so editing `/lv` can never silently change
+# what `/speed` does or vice versa.  `_speed_db_normalized_filename` (a pure
+# string function with no speed-specific logic) IS reused directly, not
+# duplicated, since it answers a question with nothing left to specialize.
+
+
+def _selected_lv_identity(session: object) -> tuple[int | None, int | None]:
+    """Same read as `_selected_speed_identity`, duplicated rather than
+    shared -- see the section banner above for why. `(None, None)` for "no
+    character selected" or a value this module cannot trust as an `int`;
+    never raises."""
+    selected = getattr(getattr(session, "foundation", None), "selected", None)
+    if selected is None:
+        return None, None
+    identity_lo = getattr(selected, "identity_lo", None)
+    identity_hi = getattr(selected, "identity_hi", None)
+    if type(identity_lo) is not int or type(identity_hi) is not int:
+        return None, None
+    return identity_lo, identity_hi
+
+
+def _lv_store(session: object) -> object | None:
+    """Same read as `_speed_store`. `None` for any break in
+    `session.foundation.lifecycle.store`; never raises."""
+    return getattr(
+        getattr(getattr(session, "foundation", None), "lifecycle", None),
+        "store",
+        None,
+    )
+
+
+def _selected_lv_character_id(session: object) -> int | None:
+    """Same read as `_selected_speed_character_id`. `None` for "no character
+    selected" or a non-positive/non-`int` id; never raises."""
+    selected = getattr(getattr(session, "foundation", None), "selected", None)
+    character_id = getattr(selected, "id", None)
+    if type(character_id) is not int or character_id <= 0:
+        return None
+    return character_id
+
+
+def _lv_db_filename(session: object) -> str | None:
+    """Same read as `_speed_db_filename`, against `_lv_store` instead of
+    `_speed_store`."""
+    path = getattr(_lv_store(session), "path", None)
+    if type(path) is not str or not path:
+        return None
+    return path.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _lv_db_is_the_canonical_file_on_disk(session: object) -> bool:
+    """Same check as `_speed_db_is_the_canonical_file_on_disk`, against
+    `_lv_store` instead of `_speed_store`. Fails closed: anything short of a
+    clean "these are two different files" answer is treated as canonical."""
+    path = getattr(_lv_store(session), "path", None)
+    if type(path) is not str or not path:
+        return True
+    try:
+        import os
+
+        directory = os.path.dirname(path.replace("\\", "/"))
+        sibling = os.path.join(directory, CANONICAL_DB_FILENAME)
+        if not os.path.exists(sibling):
+            return False
+        return os.path.samefile(path, sibling)
+    except Exception:  # noqa: BLE001 - see docstring; cannot ask => refuse
+        return True
+
+
+def _lv_db_is_canonical(session: object) -> bool:
+    """Same gate as `_speed_db_is_canonical`, against `_lv_db_filename`.
+    Reuses `CANONICAL_DB_FILENAME`/`_speed_db_normalized_filename`/
+    `SHORT_NAME_MARKER` (pure, not speed-specific) rather than duplicating
+    them -- only the session-to-path read differs between commands."""
+    filename = _lv_db_filename(session)
+    if filename is None:
+        return True
+    normalized = _speed_db_normalized_filename(filename)
+    if normalized == CANONICAL_DB_FILENAME.casefold():
+        return True
+    if SHORT_NAME_MARKER in normalized:
+        return True
+    return _lv_db_is_the_canonical_file_on_disk(session)
+
+
+def _lv_undo(store: object, character_id: int) -> object:
+    """Same shape as `_speed_undo`, for `LV_TYPED_COLUMN` instead of
+    `SPEED_TYPED_COLUMN`. Read before the write; returns a zero-argument
+    callable that restores the prior value, or reports `False` (never
+    raises) when there was nothing to restore or the restore itself fails."""
+    read = getattr(store, "read_typed_attributes", None)
+    write = getattr(store, "write_typed_attributes", None)
+    previous = None
+    if callable(read):
+        try:
+            previous = read(character_id).get(LV_TYPED_COLUMN)
+        except Exception:  # noqa: BLE001 - an unreadable prior value is a
+            # refused undo, never a crash on the listener thread.
+            previous = None
+
+    def _undo() -> bool:
+        if previous is None or not callable(write):
+            return False
+        try:
+            write(character_id, {LV_TYPED_COLUMN: previous})
+        except Exception:  # noqa: BLE001 - see docstring
+            return False
+        return True
+
+    return _undo
+
+
+#: `1..255`, NOT invented here: LANE-DB's typed reader over the client's
+#: own, sha256-pinned per-level progression table (`CONSTDATA_TH__STANDARD_
+#: STATUS.tsv`, 255 rows -- see `docs/GM_LANE.md`'s round `gm2vlx` note and
+#: `tests/test_gm_lv_action.py` for the exact reader this cross-checks
+#: against) measure this range at the time this constant was written. NOT
+#: IMPORTED HERE ON PURPOSE, and the reader's own module is not named on
+#: this line either: that reader is a reserved LANE-DB scaffold with NO
+#: production caller anywhere in the repository yet (a test guards exactly
+#: that, by a plain substring scan of `src/`, which is why this comment
+#: does not spell the module name literally) -- this lane does not get to
+#: be the first production caller, on its own say-so, in a round that is
+#: not LANE-DB's. If that table's row range ever changes, this constant
+#: goes stale silently; a future round that notices should re-derive it
+#: rather than assume this comment is still current.
+LV_MIN_LEVEL = 1
+LV_MAX_LEVEL = 255
+
+
+def _parse_lv_value(text: str) -> int:
+    """`command.args[0]` (already digit-shaped, per `commands._require_int`)
+    -> a level `store.write_typed_attributes` can hold.
+
+    Bounded to `[LV_MIN_LEVEL, LV_MAX_LEVEL]` -- the client's OWN per-level
+    progression table's row range, not a bound this lane invented (see that
+    constant's own comment for where the numbers come from and why they are
+    not imported live). A level `/lv` could write but the client's own
+    `STANDARD_STATUS` table has no row for is a value nothing in this
+    house has ever measured the client accepting, the same posture
+    `attr_wire.validate_field_value` takes for every other field's range.
+    Raises `AttrWireError` for anything outside that range or unparseable
+    -- `commands.py`'s own parse already guarantees digit shape, so a
+    failure here is a range failure, not a syntax one.
+    """
+    try:
+        value = int(text, 10)
+    except ValueError as error:
+        raise attr_wire.AttrWireError(f"lv: not an integer: {text!r}") from error
+    if not (LV_MIN_LEVEL <= value <= LV_MAX_LEVEL):
+        raise attr_wire.AttrWireError(
+            f"lv: {value} outside the client's own STANDARD_STATUS range "
+            f"[{LV_MIN_LEVEL}, {LV_MAX_LEVEL}]"
+        )
+    return value
+
+
+def _lv_denied(
+    session: object,
+    legacy: object,
+    outcome: str,
+    undo: object | None = None,
+) -> _Verdict:
+    """One refused `/lv`, with an on-screen courtesy notice when it can be
+    built -- same shape as `_speed_denied`, `LV_DENIED_NOTICE_TEXT` instead
+    of `SPEED_DENIED_NOTICE_TEXT`."""
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, say_wire.LV_DENIED_NOTICE_TEXT
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_LV_DENIED_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        return _Verdict(None, outcome, undo)
+    _note(session, EVENT_LV_DENIED_NOTICE_COMPOSED)
+    return _Verdict(
+        (LV_NOTICE_ACTION_LABEL, pc, frame, 0.0),
+        outcome,
+        undo,
+        is_notice=True,
+        notice_text=say_wire.LV_DENIED_NOTICE_TEXT,
+    )
+
+
+def _print_lv_row_written(
+    session: object, token: str, character_id: int, level_after: object,
+) -> bool:
+    """Print the one console line this route ever prints for a written row,
+    and report whether it reached the stream (same reporting contract
+    `_print_speed_deferred` uses, so `_Verdict.line_printed` means the same
+    thing on both routes).
+
+    Deliberately simpler than `_print_speed_deferred`: no `next_login=`
+    prediction, because there is no `login_level.resolve`-shaped module to
+    ask -- the real login composer (`legacy_bridge.py`) reads
+    `character.level` directly, and this line does not re-predict what that
+    read will return. `level_after` is the store's own read-back, never the
+    GM's typed text, matching every other printer in this module."""
+    if sys.stderr is None:
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}no_stderr")
+        return False
+    try:
+        print(
+            f"{LV_ROW_WRITTEN_CONSOLE_TOKEN} token={token} "
+            f"character_id={character_id} level_after={level_after!r} "
+            "next_login_reads_this_row=true",
+            file=sys.stderr,
+        )
+    except Exception as error:  # noqa: BLE001 - see `_note`'s own docstring
+        _note(session, f"{EVENT_CONSOLE_WRITE_FAILED_PREFIX}{type(error).__name__}")
+        return False
+    return True
+
+
+def _lv_action(session: object, command: object, legacy: object) -> _Verdict:
+    """One authorized `/lv <n>` -> a durable `characters.level` write.
+
+    See the section banner above for the full shape and why the live
+    `UpdateAttrVital` send is withheld unconditionally this round. The
+    ORDER mirrors `_speed_action`: canonical-DB check, then identity, then
+    parse, then the DB write -- never a frame."""
+    if _lv_db_is_canonical(session):
+        _note(session, EVENT_LV_WITHHELD_CANONICAL_DB)
+        return _lv_denied(session, legacy, OUTCOME_LV_WITHHELD_CANONICAL_DB)
+
+    identity_lo, identity_hi = _selected_lv_identity(session)
+    if identity_lo is None or identity_hi is None:
+        _note(session, EVENT_LV_NO_SELECTED_CHARACTER)
+        return _lv_denied(session, legacy, OUTCOME_LV_NO_SELECTED_CHARACTER)
+
+    try:
+        value = _parse_lv_value(command.args[0])
+    except Exception as error:  # noqa: BLE001 - includes AttrWireError
+        _note(session, f"{EVENT_LV_REFUSED_PREFIX}{type(error).__name__}")
+        return _lv_denied(
+            session, legacy, f"{OUTCOME_REFUSED_PREFIX}lv_{type(error).__name__}",
+        )
+
+    store = _lv_store(session)
+    write = getattr(store, "write_typed_attributes", None)
+    if not callable(write):
+        _note(session, EVENT_LV_NO_STORE)
+        return _lv_denied(session, legacy, OUTCOME_LV_NO_STORE)
+
+    character_id = _selected_lv_character_id(session)
+    if character_id is None:
+        _note(session, EVENT_LV_NO_CHARACTER_ID)
+        return _lv_denied(session, legacy, OUTCOME_LV_NO_CHARACTER_ID)
+
+    # Built BEFORE the write attempt, but deliberately NOT carried on the
+    # persist-refused branch just below: `store.write_typed_attributes`'s own
+    # contract guarantees nothing is written when it raises (unlike
+    # `store.write_speed_by_identity`, whose raise means unknown state --
+    # see `EVENT_LV_PERSIST_REFUSED_PREFIX`'s own comment), so a refusal
+    # there has nothing to undo and carrying one would let the backstop
+    # print the scarier "effect kept" word for an effect that never
+    # happened. It IS carried on the read-back-unusable branch further
+    # down, where the write's own contract says the row WAS changed.
+    undo = _lv_undo(store, character_id)
+
+    try:
+        after = write(character_id, {LV_TYPED_COLUMN: value})
+    except Exception as error:  # noqa: BLE001 - a value `validate` rejects,
+        # a schema gap, a lock timeout, a soft-deleted row -- one collapsed
+        # refusal, same trade `_speed_action`'s own comment names for its
+        # write door: the durable question outranks the diagnostic one.
+        _note(session, f"{EVENT_LV_PERSIST_REFUSED_PREFIX}{type(error).__name__}")
+        return _lv_denied(session, legacy, OUTCOME_LV_PERSIST_REFUSED)
+
+    level_after = after.get(LV_TYPED_COLUMN) if isinstance(after, dict) else None
+    if level_after is None:
+        # `write_typed_attributes` RAISES rather than returning when a write
+        # is refused (see above), so reaching this line means the write
+        # already happened -- the row genuinely changed. This branch is not
+        # "the write failed", it is "this function's own read of the
+        # write's result came back unusable" -- same split `_speed_action`
+        # keeps between its compose-refused and readback-unusable branches,
+        # and `undo` IS carried here for exactly that reason.
+        _note(session, EVENT_LV_PERSIST_READBACK_UNUSABLE)
+        return _lv_denied(session, legacy, OUTCOME_LV_PERSIST_READBACK_UNUSABLE, undo)
+
+    _note(session, EVENT_LV_ROW_WRITTEN)
+    printed = _print_lv_row_written(
+        session, getattr(session, "token", None), character_id, level_after,
+    )
+
+    try:
+        pc, frame = say_wire.make_local_talk_notice_frame(
+            legacy, say_wire.LV_STORED_NOTICE_TEXT
+        )
+    except Exception as error:  # noqa: BLE001 - includes NoticeWireError
+        _note(
+            session,
+            f"{EVENT_LV_STORED_NOTICE_FAILED_PREFIX}{type(error).__name__}",
+        )
+        return _Verdict(None, OUTCOME_LV_DEFERRED, undo, line_printed=printed)
+
+    _note(session, EVENT_LV_STORED_NOTICE_COMPOSED)
+    return _Verdict(
+        (LV_NOTICE_ACTION_LABEL, pc, frame, 0.0),
+        OUTCOME_LV_DEFERRED,
+        undo,
+        line_printed=printed,
+        is_notice=True,
+        notice_text=say_wire.LV_STORED_NOTICE_TEXT,
     )
 
 

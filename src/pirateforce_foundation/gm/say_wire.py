@@ -197,6 +197,15 @@ SPEED_DENIED_NOTICE_TEXT = "SPEED DENIED"
 # the screen answers the first two by wording and the third by silence.
 TYPO_REFUSED_NOTICE_TEXT = "TYPO REFUSED"
 
+# GM round `gm2vlx` (PANYA-ORDER `20260906_0155`, `/lv <n>`).  Same channel,
+# same pinned length, same reasoning as the two constants above -- 12 ASCII
+# characters is the only body length this house has watched render on
+# 0xAC52, so a third string had to fit inside it rather than be written
+# freely.  Two words, matching the shape `SPEED DENIED`/`TYPO REFUSED`
+# already use: the first names the command family, the second the verdict.
+LV_STORED_NOTICE_TEXT = "LEVEL STORED"
+LV_DENIED_NOTICE_TEXT = "LEVEL DENIED"
+
 NOTICE_TEXT_EXACT_LENGTH = 12
 
 # Every captured GT-006 frame on this shared serializer has carried an empty

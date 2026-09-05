@@ -280,8 +280,11 @@ class TheTwoStatesAreDistinguishableTests(_Case):
         )
 
     def test_a_command_with_no_wire_path_says_so_rather_than_nothing(self):
+        # `/item` in place of `/lv` -- struck GM round `gm2vlx`, which wired
+        # `/lv` to its own route (`chat_command_action._lv_action`); it no
+        # longer reaches `OUTCOME_NO_WIRE_PATH`. `/item` still does.
         session = FakeSession(position=FakePosition(scene_id=2))
-        action = self.act(session, "/lv 40")
+        action = self.act(session, "/item 1001 5")
         self.assertIsNone(action)
         self.assertEqual(
             self.outcome_rows()[0]["outcome"],
