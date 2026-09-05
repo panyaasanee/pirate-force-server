@@ -210,6 +210,24 @@ class SceneDoors:
     #: EXACT, not an upper bound, unlike :attr:`owner_refused`: this list is
     #: this lane's own and every index on it is a row this lane ships.
     lane_withheld: tuple = ()
+    #: The placement indices the HOSTILITY PREDICATE never selected, so they
+    #: are not roster rows at all (``field_mobs.unselected_by_predicate_
+    #: placements``).  ROUND r6isy5, pf-adversary D10.
+    #:
+    #: THE THIRD DENOMINATOR-SHRINK TERM, and the reason it is here: the two
+    #: above are refusals applied to rows this lane MINED, and this one is
+    #: one level up -- a placement with a combat AI but no rank never becomes
+    #: a row for a door to be measured on.  Scene 4 is the first
+    #: ``every_door=yes`` scene with a non-zero count (two: MOBS 640/641,
+    #: rank 0, no drop table, one wearing a player model).
+    #:
+    #: NOT A REFUSAL.  bg0001 has nine and always has; a non-zero count is
+    #: normal, and the point is that it travels as a greppable number beside
+    #: the verdict instead of living only in a round file.  It is also NOT
+    #: subtractable from :attr:`rows_walked` the way the other two are: these
+    #: rows were never candidates, so "rows + unselected" is not the scene's
+    #: placement count.
+    unselected_by_predicate: tuple = ()
     #: Did ``mob_ai_control.open_register`` open for this roster, and its name
     #: if it did not.  The register is the call the module header's own
     #: cautionary tale is about, and a scene whose register refuses has no
@@ -435,6 +453,8 @@ def walk_scene(legacy: Any, scene: Any) -> SceneDoors:
         roster = field_mobs.load_roster(scene=label)
         refused = tuple(field_mobs.owner_refused_placements(label))
         withheld = tuple(field_mobs.lane_withheld_placements(label))
+        unselected = tuple(
+            field_mobs.unselected_by_predicate_placements(label))
     except Exception:                                   # noqa: BLE001
         return SceneDoors(label, reason=REFUSE_ROSTER_UNREADABLE)
 
@@ -454,8 +474,10 @@ def walk_scene(legacy: Any, scene: Any) -> SceneDoors:
     except Exception:                                   # noqa: BLE001
         return SceneDoors(label, reason=REFUSE_ROSTER_UNREADABLE,
                           owner_refused=refused, lane_withheld=withheld,
+                          unselected_by_predicate=unselected,
                           ai_register=ai_open, ai_refusal=ai_refusal)
-    return SceneDoors(label, rows, "", refused, withheld, ai_open, ai_refusal)
+    return SceneDoors(label, rows, "", refused, withheld, unselected,
+                      ai_open, ai_refusal)
 
 
 def walk_live_scenes(legacy: Any) -> tuple:
@@ -495,12 +517,13 @@ def describe_scene_doors(walked: SceneDoors) -> str:
             SCENE_DOORS_REFUSED_TOKEN, _console_scene(walked.scene),
             walked.reason[:60])
     return (
-        "%s scene='%s' rows=%d owner_refusal_list=%d lane_withheld=%d ai=%s "
+        "%s scene='%s' rows=%d owner_refusal_list=%d lane_withheld=%d "
+        "not_selected=%d ai=%s "
         "target=%d kill=%d drop=%d every_door=%s short=%s"
         % (
             SCENE_DOORS_TOKEN, _console_scene(walked.scene),
             walked.rows_walked, len(walked.owner_refused),
-            len(walked.lane_withheld),
+            len(walked.lane_withheld), len(walked.unselected_by_predicate),
             "open" if walked.ai_register else (walked.ai_refusal or "shut"),
             walked.targetable, walked.killable, walked.dropping,
             "yes" if walked.every_door_open else "no",

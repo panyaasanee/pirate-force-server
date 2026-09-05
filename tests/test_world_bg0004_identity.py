@@ -199,17 +199,34 @@ class Bg0004TableShape(unittest.TestCase):
             (ROOT / "src" / "pirateforce_foundation").glob(
                 "field_mob_tables_bg0004*"))
         self.assertEqual(hits, ["field_mob_tables_bg0004.py"])
-        # The identity arithmetic this card was built to watch, asserted
-        # rather than assumed: every hostile placement LANE-B ships for this
-        # scene is one of this table's own placements, so the two lanes are
-        # describing the same map and not two readings of it.
+        # THE IDENTITY ARITHMETIC THIS CARD WAS BUILT TO WATCH.  pf-adversary
+        # D15 in the same round: a first draft asserted only
+        # ``theirs <= ours`` on placement INDICES, which is strictly weaker
+        # than what the struck comment was worried about -- it says the two
+        # lanes name the same placements, not that they resolve them to the
+        # same monster.  A lane-B table that read the CLINE block through the
+        # wrong column (GT-078's failure) would have passed it.  So the
+        # comparison is per-column, on every row lane B ships.
         from pirateforce_foundation import field_mob_tables_bg0004
-        ours = {row.placement_index
+        ours = {row.placement_index: row
                 for row in identity.shippable_placements()}
-        theirs = {row[0]
-                  for row in field_mob_tables_bg0004.HOSTILE_PLACEMENTS}
+        sets = field_mob_tables_bg0004.SET_NUMBER_FOR_PLACEMENT
+        theirs = field_mob_tables_bg0004.HOSTILE_PLACEMENTS
         self.assertTrue(theirs)
-        self.assertTrue(theirs <= ours, sorted(theirs - ours))
+        for row in theirs:
+            placement_index, template_id = row[0], row[1]
+            with self.subTest(placement=placement_index):
+                self.assertIn(placement_index, ours)
+                mine = identity.IDENTITIES.get(sets[placement_index])
+                self.assertIsNotNone(mine)
+                self.assertEqual(mine.mobs_n_id, template_id)
+                self.assertEqual(mine.name, row[6])
+                self.assertEqual(mine.outfit, row[5])
+                self.assertEqual(mine.level, row[7])
+                self.assertEqual(
+                    (ours[placement_index].x, ours[placement_index].y,
+                     ours[placement_index].z),
+                    (row[2], row[3], row[4]))
 
 
 if __name__ == "__main__":  # pragma: no cover

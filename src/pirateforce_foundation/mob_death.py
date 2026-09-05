@@ -535,10 +535,12 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     # ``tests/test_mob_death_wired_widening.py`` walks the crossing rather
     # than trusting this paragraph.
     # NOT APPROVED BEYOND THESE FIVE: placements 75 and 76 (MOBS 640 "Crazy
-    # Rose Regina" and 641 "Blood dragon Norman") have this scene's combat
-    # AI but rank 0, no drop table, level 105 and -- for 640 -- a PLAYER
-    # model body, so they are not in the roster and nothing here authorises
-    # killing them.  See ``field_mobs.BG0004_SCENE``'s own comment for the
+    # Rose Regina" and 641 "Blood dragon Norman") have ~~this scene's combat
+    # AI~~ -- pf-adversary D13, same round: they carry n_AI_COMBAT 3, which
+    # is NOT one of this scene's four (214/250/300/332) and is not in the
+    # mined AI union at all -- A combat AI, but rank 0, no drop table,
+    # level 105 and -- for 640 -- a PLAYER model body, so they are not in
+    # the roster and nothing here authorises killing them.  See ``field_mobs.BG0004_SCENE``'s own comment for the
     # reading.
     # NOT A GT UNLOCK, same as every scene ruling before it.
     "COO-DECISION 2026-09-05T05:46+07:00 "
@@ -643,8 +645,22 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # Tied to bg0004, and this is the tie that stops being merely prudent:
     # template 103 is in Bg0002's ruling set too, so WITHOUT this entry a
     # bg0004 Orc Chief would be killable under a letter the owner wrote
-    # about Prison Exile, and a Bg0002 Fighting Fish soldier under a letter
-    # the COO wrote about the Slave Market.  Placement 69 additionally
+    # about Prison Exile, and ~~a Bg0002 Fighting Fish soldier~~ STRUCK,
+    # pf-adversary D2 in this same round: the overlap is template 103 ALONE,
+    # and 103 in Bg0002 is the ORC CHIEF at placements 92-96, not a Fighting
+    # Fish soldier (template 34, which this letter has never named).  Those
+    # five rows are in Bg0002's mined table and are held out of its live
+    # roster by the owner's own n_id 101-104 refusal, so nothing is at risk
+    # TODAY -- but they are one lifted refusal away from being, which is
+    # what a tie is for.  pf-adversary drove the mutant to completion: with
+    # this entry deleted, Bg0002 placement 92 (0x205d) is killed under the
+    # Slave Market letter, 167 bytes on the wire, register says dead.
+    # THE MUTANT ALSO SURVIVED THE WHOLE SUITE (D1), which is the worse half
+    # of the finding: this round's own card iterated the LIVE rosters, where
+    # no row carries any of these five templates, so its loop body was
+    # vacuously true.  ``tests/test_field_mob_tables_bg0004.py`` now asserts
+    # this mapping directly AND drives a scene-relabelled row, the two
+    # things the sibling scenes' cards each do one of.  Placement 69 additionally
     # computes wire identity 0x2046 in THREE scenes now (3, 4 and 5), the
     # first three-way identity collision this lane ships -- see
     # ``field_mobs.cross_scene_identity_collisions()``, 11 pairs at HEAD.
@@ -2245,7 +2261,17 @@ def kill(
     # only while 0x201F was a real bg0001 roster row; COO-DECISION
     # 2026-08-29T00:41+07:00 withdrew that row, so the bypass now points at no
     # shipped actor and would hand a free kill to whichever scene is wired
-    # next.  PANYA-RULINGS-FOUR named a bg0001 actor, so the bypass is held to
+    # next.
+    # ROUND r6isy5, pf-adversary D8: THE SCENE THAT PARAGRAPH PREDICTED IS
+    # SCENE 4, AND IT IS WIRED NOW.  bg0004 placement 30 computes 0x201F, so
+    # ``SANCTIONED_FIRST_TARGET_IDENTITY`` is a live shipped identity again
+    # for the first time since round 8ftmbx -- and the scene half of this
+    # gate is what stops it being a free kill.  The strengthening is real
+    # and measured rather than argued: dropping ``and getattr(mob, "scene",
+    # ...)`` below now goes red ON A SHIPPED ROW (scene='bg0004',
+    # identity='0x201f'), where before it could only be caught by a
+    # constructed one.
+    # PANYA-RULINGS-FOUR named a bg0001 actor, so the bypass is held to
     # bg0001, which is what the ruling always meant and never had to say while
     # only one scene existed.  This TIGHTENS: nothing that could be killed
     # through a named ruling loses that route.
@@ -3374,8 +3400,17 @@ def pin_document(legacy: Any, mob: FieldMob, killer_identity: int = 0x750059) ->
         },
         "sanctioned_first_target_identity": "0x%X" % (
             SANCTIONED_FIRST_TARGET_IDENTITY),
+        # ROUND r6isy5, pf-adversary D8.  ~~identity alone~~: 0x201F stopped
+        # being "in NO shipped roster" the moment bg0004 placement 30 landed,
+        # so an identity-only test reports True for a SLAVE MARKET monster
+        # while the field's own name says "the sanctioned one", which is a
+        # bg0001 row.  Both halves of the gate ``kill`` uses, so the document
+        # cannot say a thing the gate would refuse.  (The pin's own subject is
+        # template 916 and answers False either way -- this is a wrong
+        # statement being made unable to arise, not a bug being fixed.)
         "pin_target_is_the_sanctioned_one": (
-            mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY),
+            mob.actor_identity == SANCTIONED_FIRST_TARGET_IDENTITY
+            and getattr(mob, "scene", None) == SANCTIONED_FIRST_TARGET_SCENE),
         "register_generation_after_the_kill": death.register.generation,
         "wiring": MOB_DEATH_WIRING,
         "selection": "none_default_behaviour_no_scenario_flag",

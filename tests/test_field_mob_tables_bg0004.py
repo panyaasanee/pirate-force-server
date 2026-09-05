@@ -6,33 +6,59 @@ ROUND r6isy5, on COO-DECISION 2026-09-05T05:46+07:00 ("roster of scene 4 +
 the kill letter of scene 4, in the shape of scenes 3/5"), which is also the
 letter that closed 1450 item 3 and put this scene back in the queue.
 
-WHAT A PLAYER SEES THAT THEY DID NOT YESTERDAY.  Seven monsters in the Slave
-Market appear as red-named, clickable, killable targets that drop loot on the
-ground.  Lane A opened this map's arrival census AND its
-``login_entry_allowed`` door back in round bq4mst -- scene 4 was the FIRST of
-the ten doors that opened -- so a player has been able to stand here for days
-with nothing in the map to swing at, because
-``field_mobs.scene_for_scene_id(4)`` returned ``None``.  That is what this
-commit changes.  What it does NOT change is the attended half: NOW.md still
-forbids an on-screen monster-hit GT for scenes 3/4/5/14 until P-2 (monster
-name colour) closes, so nobody has WATCHED any of this yet, and this card
-does not claim they have.
+WHAT THIS COMMIT CHANGES.  ~~Seven monsters in the Slave Market appear as
+red-named, clickable, killable targets that drop loot on the ground.~~
+STRUCK IN THE SAME ROUND, pf-adversary D5, and it is worth saying why
+rather than just softening it: every clause of that sentence was a
+CLIENT-OBSERVABLE claim, and this project has already MEASURED two of them
+negative.
+
+* "red-named" -- ``pf_bridge/NOW.md`` P-2 records R306 on screen: monster
+  names render PINK, still wrong.  Worse, ``RE-222`` SHA-pins that the "in
+  combat" and "dead" name styles are reachable only for actors the client
+  builds as ``CNetNPC``, and monsters delivered through the ``field_mobs``
+  census (``0x2000 + placement + 1``) are a different kind -- so that style
+  is not merely unwatched here, it is what RE-222 says this delivery path
+  cannot reach.  And under P-2's own spec red means IN COMBAT; an idle
+  monster would be orange anyway.
+* "drop loot on the ground" -- ``scene_door_walk``'s own NONCLAIM says the
+  drop door places rows and composes nothing, and GT-045 measured a name
+  label, brown dust and no model.
+
+WHAT IS TRUE, at the layer this file actually measures: seven monsters in
+scene 4 are ANNOUNCED to a client, are admitted by the targeting gate, take
+damage through ``mob_combat.strike``, die through ``mob_death.kill`` under a
+letter, and their kills place loot rows through ``mob_loot``.  Lane A opened
+this map's arrival census AND its ``login_entry_allowed`` door back in round
+bq4mst -- scene 4 was the FIRST of the ten doors that opened -- so a player
+has been able to stand here for days with nothing in the map to swing at,
+because ``field_mobs.scene_for_scene_id(4)`` returned ``None``.  NOW.md
+still forbids an on-screen monster-hit GT for scenes 3/4/5/14 until P-2
+closes, so nobody has WATCHED any of it, and a struck sentence at the top of
+a file is not undone by a disclaimer three paragraphs down -- which is why
+the sentence itself is struck rather than annotated.
 
 THE THREE THINGS THAT MAKE THIS SCENE DIFFERENT FROM 3, 5 AND 14, each
 measured below rather than asserted in a PR body:
 
-* THE FOUR HOSTILITY PREDICATES DISAGREE, for the first time in any scene
-  this lane ships: ai_combat 9, rank 7, drops_normal 7,
-  rank_and_ai_combat 7.  The generator's own docstring says a scene where
-  they disagree "must be read before its roster is shipped"; the reading is
-  in ``field_mobs.BG0004_SCENE``'s comment and the two extra rows are pinned
-  by name here (``test_the_two_rank_zero_combat_rows_are_named_and_not_
-  shipped``).
-* IT IS THE FIRST SCENE TO CARRY AN UNMINED ``n_DROPS_SPECIALLY`` SET.
-  Templates 94 and 97 name sets 2802253 and 2802236, which
-  ``field_drop_tables`` had never seen, and the drop door was MEASURED shut
-  on them before the miner was widened -- ``target=7 kill=7 drop=3`` with
-  four rows refusing ``drop:unknown_drop_set``.  Widened, it walks 7/7/7.
+* THE FOUR HOSTILITY PREDICATES DISAGREE: ai_combat 9, rank 7,
+  drops_normal 7, rank_and_ai_combat 7.  ~~for the first time in any scene
+  this lane ships~~ STRUCK, pf-adversary D3: bg0001 (9/0/0/0) and Bg0015
+  (12/12/11/12) already disagree, so this is the THIRD, not the first -- the
+  sibling modules' own ``PREDICATE_CENSUS`` was one import away and was not
+  opened.  What stands is the obligation: the generator's docstring says a
+  scene where they disagree "must be read before its roster is shipped", the
+  reading is in ``field_mobs.BG0004_SCENE``, and the two extra rows are
+  pinned by name here.
+* IT IS THE FIRST SCENE TO CARRY A ``n_DROPS_SPECIALLY`` SET THAT
+  ``field_drop_tables`` HAD NEVER MINED.  (Not the first to carry one at
+  all -- pf-adversary D4 counted 26 shipped rows across four scenes that
+  already name one.)  Templates 94 and 97 name sets 2802253 and 2802236, and
+  the drop door was MEASURED shut on them before the miner was widened --
+  ``target=7 kill=7 drop=3``, four rows refusing ``drop:unknown_drop_set``.
+  Widened, it walks 7/7/7 -- though see
+  ``test_the_two_specially_sets_this_scene_brought_are_mined`` for what
+  those two sets actually contribute, which is nothing.
 * 0x2046 IS NOW A THREE-WAY IDENTITY COLLISION (scenes 3, 4 and 5 all have a
   placement 69), and scene 3's ledger covers TWO of this scene's seven
   identities -- the widest partial overlap this project has had, and exactly
@@ -51,6 +77,7 @@ rather than counting them.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -69,6 +96,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 
 from pirateforce_foundation import field_drop_tables  # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0004  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
 from pirateforce_foundation import mob_ai_control  # noqa: E402
@@ -78,7 +106,9 @@ from pirateforce_foundation import mob_death  # noqa: E402
 from pirateforce_foundation import mob_ledger_admission  # noqa: E402
 from pirateforce_foundation import mob_loot  # noqa: E402
 from pirateforce_foundation import mob_scene_recompose  # noqa: E402
+from pirateforce_foundation import scene_door_walk  # noqa: E402
 from pirateforce_foundation import world_bg0004_identity  # noqa: E402
+from pirateforce_foundation import world_population_bg0004  # noqa: E402
 from pirateforce_foundation.lane_hooks import lane_a_scene_census  # noqa: E402
 
 
@@ -136,9 +166,36 @@ RULING_0546 = (
 EXPECTED_AI_COMBAT_IDS = frozenset({214, 250, 300, 332})
 EXPECTED_AI_WANDER_IDS = frozenset({11, 16})
 
-# The two DROPS_SPECIALLY sets this scene brought, which no earlier scene's
-# roster named.  Pinned because the drop door was measured SHUT on them.
+# The two DROPS_SPECIALLY sets this scene brought.  ~~which no earlier
+# scene's roster named~~ STRUCK, pf-adversary D4: 26 shipped rows across
+# Bg0002/Bg0003/Bg0015/bg0005 already name a specially set (2802234, 2802264,
+# 2802219, 2802215, 2802208, 2802250, 2802205, 2802214, 2802211, 2802235),
+# and origin/main's own REFERENCED_BY table listed six of them.  The true and
+# narrow claim is the one this constant is named for: these two are the first
+# specially-set ids ``field_drop_tables`` had never MINED, which is why the
+# drop door was measured SHUT on the four rows carrying them.
 FIRST_SPECIALLY_SETS = (2802236, 2802253)
+
+# pf-adversary D7: the whole shipped table, digested, so no column can move
+# on a clone with no bridge beside it (where the byte-for-byte regenerate
+# test is skipped by design).  Recompute with:
+#   hashlib.sha256(repr(field_mob_tables_bg0004.SHIPPED_PLACEMENTS)
+#                  .encode("ascii")).hexdigest()
+SHIPPED_ROWS_SHA256 = (
+    "5c3dd0b6168af916d41852bfb0ec85bf00c384fd3fe5761936a016aa2d4b6cac"
+)
+EXPECTED_UNRESOLVED = 51
+EXPECTED_WITHDRAWN = 16
+#: 65 unambiguous + 51 unresolved, which is every row of
+#: gamedata/scene/bg0004/bg0004.placements.tsv.
+PLACEMENTS_IN_THE_SCENE_FILE = 116
+MOBS_SHA256 = (
+    "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b"
+)
+EXPECTED_CONTROL_FINDINGS = {
+    "prison_exile_identity": "35/35",
+    "town_target_916_hp": "198125",
+}
 
 # Measured immediately before field_mob_tables_bg0004.py was added, on the
 # same discipline as the bg0003/bg0005/bg0015 cards: never updated to make a
@@ -147,6 +204,39 @@ BG0001_UNTOUCHED_SHA256 = (
     "574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5"
 )
 BG0001_UNTOUCHED_SIZE = 9708
+
+
+#: The frozen serializer every door-walking test in this project drives, so
+#: a kill here composes the same bytes production would.
+V141 = ROOT / "current" / "pf_login_game_server_v141.py"
+_LEGACY = None
+
+
+def _legacy():
+    """The project's own loader, not a hand-rolled one.
+
+    ``legacy_bridge.load_legacy`` is what every other card that drives the
+    frozen serializer uses; loading v141 under an ad-hoc module name instead
+    leaves its classes with a ``__module__`` that is not in ``sys.modules``,
+    which breaks ``dataclasses`` on anything that touches them.
+    """
+    global _LEGACY
+    if _LEGACY is None:
+        _LEGACY = load_legacy(V141)
+    return _LEGACY
+
+
+def _outcome_for(mob):
+    """A real killing blow on ``mob``, composed by production code.
+
+    Not a hand-built ``HitOutcome``: the point of the tests that use this is
+    that a kill would otherwise SUCCEED, so the blow has to be one
+    ``mob_death.kill`` would accept if the ruling let it through.
+    """
+    step = mob_combat.strike(
+        _legacy(), None, mob_combat.open_ledger((mob,)), None, mob,
+        scene_door_walk.WALKER_IDENTITY, scene_door_walk.WALKER)
+    return step.outcome
 
 
 def _load_tool():
@@ -213,10 +303,19 @@ class Bg0004ShapeTests(unittest.TestCase):
 
         640 wears a PLAYER model (``P_FEMALE_003_000_ARENAFIGHTER``), which
         the three-step methodology every scene before this one used refuses
-        by name; both are rank 0 with no drop table at level 105, more than
-        twice this scene's own 47-58.  This lane is not deciding WHAT they
-        are -- that is a content question -- only that a monster with no
-        ruling and no drop table is not a monster it ships.
+        by name; both are rank 0 with no drop table at level 105, ~~more
+        than twice this scene's own 47-58~~ (pf-adversary D12: 2 x 58 = 116,
+        so that is false for placements 69, 83 and 42) -- far outside this
+        scene's own 47-58 band.  This lane is not deciding WHAT they are --
+        that is a content question -- only that a monster with no ruling and
+        no drop table is not a monster it ships.
+
+        THE 3 IN EACH TUPLE IS THEIR ``n_AI_COMBAT``, and it is NOT one of
+        this scene's own combat AI ids (pf-adversary D13, correcting a
+        sentence in ``mob_death`` that called it "this scene's combat AI"):
+        the shipped rows point at 214/250/300/332, and AI row 3 is not in
+        the mined ``field_mob_ai_tables`` union at all.  Asserted below, so
+        the two facts cannot drift back together.
         """
         self.assertEqual(
             tuple(tuple(row) for row in
@@ -224,10 +323,60 @@ class Bg0004ShapeTests(unittest.TestCase):
             EXPECTED_RANK_ZERO_COMBAT,
         )
         shipped = {row[1] for row in field_mob_tables_bg0004.SHIPPED_PLACEMENTS}
-        for _placement, template, name, _ai in EXPECTED_RANK_ZERO_COMBAT:
+        for _placement, template, name, ai_combat in EXPECTED_RANK_ZERO_COMBAT:
             with self.subTest(template=template, name=name):
                 self.assertNotIn(template, shipped)
                 self.assertNotIn(template, EXPECTED_RULING_TEMPLATES)
+                self.assertNotIn(ai_combat, EXPECTED_AI_COMBAT_IDS)
+
+    def test_every_column_of_every_shipped_row_is_pinned_without_a_bridge(
+            self) -> None:
+        """~~EXPECTED_ROWS' four columns~~ ALL SIXTEEN, pf-adversary D7.
+
+        ``Bg0004RegenerateTests`` re-derives this module byte-for-byte, but
+        it needs the bridge clone and ``docs/PYTEST_SKIP_PINS.json`` declares
+        it a design skip on a fresh checkout -- which is the configuration
+        the Windows gate runs.  In that configuration pf-adversary landed
+        EIGHT hand-edits on the generated module and the suite stayed green:
+        ``speed_walk`` 100 -> 250, ``drops_equipment`` 5400002 -> 5400003,
+        ``drops_normal`` 2701003 -> 2701002, ``drops_specially`` 2802253 ->
+        0, a deleted ``UNRESOLVED_PLACEMENTS`` row, a deleted
+        ``WITHDRAWN_UNDER_THIS_RULE`` row, an all-zero ``SOURCE_DIGESTS``
+        entry, and a corrupted ``CONTROL_FINDINGS`` value.  Two of those
+        reach a player directly (``max_hp`` and the drop-set ids), and the
+        ``drops_specially`` one slipped past this card's own specially-set
+        test because that test is a set comprehension with a truthiness
+        filter -- zeroing one of three rows changes nothing it looks at.
+
+        A digest, not a re-typed table: sixteen columns times seven rows is
+        a wall nobody re-reads, and the row-by-row identity check is already
+        ``EXPECTED_ROWS`` above.  What this adds is that NOTHING in a row can
+        move silently.  Regenerate and paste the new digest only after
+        reading why it moved.
+        """
+        digest = hashlib.sha256(
+            repr(field_mob_tables_bg0004.SHIPPED_PLACEMENTS).encode("ascii")
+        ).hexdigest()
+        self.assertEqual(digest, SHIPPED_ROWS_SHA256)
+        # The two lists the module's own header arithmetic depends on
+        # ("unambiguous + unresolved = the scene's whole placement count"),
+        # which a deleted row silently falsifies.
+        self.assertEqual(
+            len(field_mob_tables_bg0004.UNRESOLVED_PLACEMENTS),
+            EXPECTED_UNRESOLVED)
+        self.assertEqual(
+            len(field_mob_tables_bg0004.WITHDRAWN_UNDER_THIS_RULE),
+            EXPECTED_WITHDRAWN)
+        self.assertEqual(
+            EXPECTED_UNAMBIGUOUS + EXPECTED_UNRESOLVED,
+            PLACEMENTS_IN_THE_SCENE_FILE)
+        # The provenance the module claims for itself.  A zeroed digest is
+        # how a hand-edited "generated" module stops being traceable to the
+        # data it claims to come from.
+        self.assertEqual(
+            field_mob_tables_bg0004.SOURCE_DIGESTS["mobs"], MOBS_SHA256)
+        self.assertEqual(
+            field_mob_tables_bg0004.CONTROL_FINDINGS, EXPECTED_CONTROL_FINDINGS)
 
     def test_the_scene_is_registered_and_reachable_through_its_scene_id(
             self) -> None:
@@ -361,14 +510,74 @@ class Bg0004DeathRulingTests(unittest.TestCase):
         self.assertEqual(
             mob_death.WIDENING_RULINGS[RULING_0546], EXPECTED_RULING_TEMPLATES)
 
+    def test_the_letter_is_tied_to_this_scene_in_the_registry_itself(
+            self) -> None:
+        """~~implied by the loop below~~ ASSERTED DIRECTLY, ROUND r6isy5.
+
+        pf-adversary D1: deleting this scene's entry from
+        ``WIDENING_RULING_SCENES`` left the ENTIRE suite green -- 10749
+        passed, byte-identical to baseline -- because the loop below walks
+        the LIVE rosters of scenes 1/2/3/5/14 and not one live row carries
+        a template in {94, 97, 103, 246, 519}.  The loop body was vacuously
+        true whether or not the tie existed.  The sibling cards each do one
+        of the two things that would have caught it (bg0005 asserts the
+        mapping, Bg0003 relabels a row and drives the refusal); this scene
+        now does BOTH, because it is the scene with the overlapping
+        template and the one where an untied letter costs something.
+        """
+        self.assertEqual(
+            mob_death.WIDENING_RULING_SCENES[RULING_0546], EXPECTED_SCENE)
+        # Every registered ruling is tied, not just this one -- an untied
+        # entry is the shape that goes green while reaching every scene.
+        for name in mob_death.WIDENING_RULINGS:
+            with self.subTest(ruling=name):
+                self.assertIn(name, mob_death.WIDENING_RULING_SCENES)
+
+    def test_a_scene_four_row_wearing_another_scenes_name_is_refused(
+            self) -> None:
+        """The tie driven, on the row where the overlap is real.
+
+        pf-adversary D1 drove the deletion mutant to completion: with the
+        tie gone, Bg0002 placement 92 (template 103, 0x205D, "Orc Chief")
+        is KILLED under the Slave Market letter -- 167 bytes on the wire,
+        register says dead.  Those five Bg0002 rows are held out of its
+        live roster by the owner's own n_id 101-104 refusal today, so this
+        relabels a real bg0004 row instead of resurrecting a refused one:
+        same question, no dependency on a refusal staying in place.
+        """
+        orc = [mob for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
+               if mob.template_id == 103]
+        self.assertEqual(len(orc), 1)
+        self.assertEqual(mob_death.ruling_for(orc[0]), RULING_0546)
+        for other_scene in ("Bg0002", "Bg0003", "bg0005", "Bg0015", "bg0001"):
+            relabelled = dataclasses.replace(orc[0], scene=other_scene)
+            with self.subTest(scene=other_scene):
+                self.assertNotIn(
+                    RULING_0546, mob_death.rulings_covering(relabelled))
+                with self.assertRaises(mob_death.MobDeathContractError) as box:
+                    mob_death.kill(
+                        _legacy(), relabelled, _outcome_for(relabelled),
+                        widened=RULING_0546)
+                self.assertIn(
+                    "target_outside_the_sanctioned_scope", str(box.exception))
+
     def test_the_0546_letter_does_not_reach_any_other_scene(self) -> None:
         """Measured from the tie's own side, on the scene where it bites.
 
         Template 103 ("Orc Chief") is in Bg0002's ruling set too -- the
         first overlap between two rulings in this dict since the pair the
-        scene axis was built for.  Without the tie, this scene's letter
-        would kill Prison Exile's Fighting Fish soldiers and Prison Exile's
-        letter would kill the Slave Market's Orc Chief.
+        scene axis was built for.  ~~Without the tie, this scene's letter
+        would kill Prison Exile's Fighting Fish soldiers~~ STRUCK, same
+        round, pf-adversary D2: the overlap is template 103 ALONE, and 103
+        in Bg0002 is the ORC CHIEF at placements 92-96 -- template 34, the
+        Fighting Fish soldier, is not in this letter and never was.  The
+        sentence named a monster nobody looked up.
+
+        THIS TEST ALONE CANNOT CATCH AN UNTIED LETTER (D1): no live row of
+        any other scene carries one of these five templates, so the loop is
+        vacuously true.  It is kept for what it does measure -- that the
+        five ids do not silently spread as rosters grow -- and the tie
+        itself is driven in the two tests above.
         """
         for scene_id in (1, 2, 3, 5, 14):
             for mob in field_mobs.roster_for_scene_id(scene_id):
@@ -524,12 +733,29 @@ class Bg0004LootTests(unittest.TestCase):
             self) -> None:
         """Measured shut first: four rows refused ``unknown_drop_set``.
 
-        Templates 94 and 97 are the first shipped rows in this project to
+        ~~Templates 94 and 97 are the first shipped rows in this project to
         name an ``n_DROPS_SPECIALLY`` set -- the THIRD drop column, which no
-        earlier scene's roster exercised at all.  Before
+        earlier scene's roster exercised at all.~~  STRUCK, pf-adversary D4:
+        26 shipped rows across Bg0002, Bg0003, Bg0015 and bg0005 already
+        name a specially set, and ``field_drop_tables``' own ``REFERENCED_BY``
+        table listed six of those ids on origin/main.  The true claim is the
+        narrow one: these are the first specially-set ids the DROP TABLE had
+        never mined, which is what shut the door.  Before
         ``tools/pf_mine_scene_drop_tables.py`` was widened to this scene,
         ``scene_door_walk`` reported ``drop=3`` for these seven rows with
         placements 30/31/32/42 refusing by that name.
+
+        AND WHAT THE TWO SETS CONTRIBUTE IS NOTHING, asserted below rather
+        than left for a reader to infer from ``drop=7`` (pf-adversary D9,
+        who rolled all seven rows over 5000 seeds each and never saw either
+        item).  Both rows carry a leading percent of 0.0, so items 2414053
+        ("Craig Firebird") and 2414036 ("Forest Green Eagle") can never be
+        placed.  The widening's real and only effect was to stop the
+        ``unknown_drop_set`` refusal; the seven-of-seven drop verdict is
+        produced entirely by ``drops_normal``/``drops_equipment``, the same
+        two columns every earlier scene used.  A reader who takes
+        ``every_door=yes`` to mean "the third column now pays out" has been
+        told something untrue, so this test says it out loud.
         """
         self.assertIn(
             EXPECTED_SCENE.lower(),
@@ -538,11 +764,31 @@ class Bg0004LootTests(unittest.TestCase):
         for set_id in FIRST_SPECIALLY_SETS:
             with self.subTest(set_id=set_id):
                 self.assertIn(set_id, field_drop_tables.DROPS_SPECIALLY)
+                # The zero that makes this column inert.  Pinned, so the day
+                # the data says otherwise this test says so rather than the
+                # docstring above quietly going stale.
+                leading_percent = field_drop_tables.DROPS_SPECIALLY[set_id][0]
+                self.assertEqual(leading_percent, 0.0)
+        # ~~a set comprehension with a truthiness filter~~ -- pf-adversary
+        # D7 zeroed placement 30's ``drops_specially`` and this assertion did
+        # not move, because two other rows carry the same id.  Compared per
+        # row now, against the pinned table.
         rows = field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID)
         self.assertEqual(
-            {mob.drops_specially for mob in rows if mob.drops_specially},
-            set(FIRST_SPECIALLY_SETS),
+            {mob.placement_index: mob.drops_specially for mob in rows},
+            {30: 2802253, 31: 2802253, 32: 2802253, 42: 2802236,
+             69: 0, 82: 0, 83: 0},
         )
+        # And no seed places either item, over the same search width the
+        # drop-door test uses -- the measurement behind the docstring.
+        for mob in rows:
+            if not mob.drops_specially:
+                continue
+            for seed in range(200):
+                roll = mob_loot.roll_drops(mob, random.Random(seed))
+                for item in roll.items:
+                    self.assertNotIn(
+                        getattr(item, "item_id", None), (2414053, 2414036))
 
     def test_every_row_rolls_something_placeable_and_none_refuses(
             self) -> None:
@@ -586,6 +832,49 @@ class Bg0004RecomposeRegistrationTests(unittest.TestCase):
             EXPECTED_SCENE_ID, mob_scene_recompose.ACKNOWLEDGED_WITHOUT_COMPOSER)
         self.assertIn(
             EXPECTED_SCENE_ID, mob_scene_recompose.composer_scene_ids())
+
+    def test_the_composer_body_actually_runs_and_composes_this_scene(
+            self) -> None:
+        """~~registration is the whole card~~ NOT ENOUGH, pf-adversary D6.
+
+        Two mutants of ``_build_bg0004`` survived the entire suite: a body
+        that raises on entry, and a body that calls scene 3's builder while
+        leaving ``serves_scene_id`` correct so
+        ``assert_every_non_delegated_kind_has_a_builder`` stayed satisfied.
+        The second is the one that costs something -- driven by hand it
+        gives ``state=refused_Bg0003CensusError ... the Bg0003 roster is
+        only valid in scene 3, not scene 4``, and since that state is not in
+        ``COMPOSING_STATES`` the runtime call site takes its one-entry
+        fallback: the replace-by-omission shape RE-092 named, on EVERY hit
+        and EVERY kill in scene 4.
+
+        A registration table proves the wiring is COMPLETE.  Only running
+        the body proves it is RIGHT.  The per-scene control pf-adversary ran
+        is worth recording: mutating ``_build_bg0002`` fails 23 tests,
+        ``_build_bg0015`` 3, ``_build_bg0005`` 1, and ``_build_bg0003``
+        ZERO -- scene 3 has this same hole, and closing it there is not this
+        card's to do.  This closes it here.
+        """
+        anchor = mob_scene_recompose.census_anchor(
+            EXPECTED_SCENE_ID, (0.0, 0.0, 0.0),
+            world_population_bg0004.DEFAULT_ACTOR_COUNT,
+        )
+        record = mob_scene_recompose.recompose_frames(
+            _legacy(), anchor, mob_death.DeathRegister(),
+            ledger=mob_combat.open_ledger_for_scene_id(EXPECTED_SCENE_ID),
+        )
+        self.assertEqual(record.state, mob_scene_recompose.STATE_COMPOSED)
+        self.assertIn(record.state, mob_scene_recompose.COMPOSING_STATES)
+        # Non-empty bytes, and the scene's own census rather than a
+        # neighbour's: the wrong-builder mutant refuses before this point,
+        # and a builder that composed some OTHER scene would not carry this
+        # scene's seven roster identities.
+        self.assertTrue(record.pc)
+        self.assertTrue(record.frame)
+        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
+            with self.subTest(identity=hex(mob.actor_identity)):
+                self.assertIn(
+                    mob.actor_identity.to_bytes(2, "little"), record.frame)
 
     def test_the_new_composer_kind_is_non_delegated_and_has_a_builder(
             self) -> None:
