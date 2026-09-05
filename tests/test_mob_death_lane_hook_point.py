@@ -405,6 +405,151 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
         self.assertIn("MOB_DEATH_LANE_HOOK_POINT", joined)
         self.assertIn("OPEN DOOR AND NOT A FEATURE", joined)
 
+    # ------------------------------------------------------------------
+    # D11 (pf-adversary, round 2zybdx, deferred to round dggvou): the hook
+    # can fire BEFORE the caller writes its own register back, because
+    # ``self.mob_death_register = mob_death.commit_death(...)`` is one
+    # Python statement and the assignment happens only after the whole
+    # right-hand side (hook included) has returned.
+    # ------------------------------------------------------------------
+
+    def test_the_ordering_hazard_is_real_on_the_undivided_call(self):
+        # THE EXACT STATEMENT SHAPE runtime.py's two roster kill sites use:
+        # ``self.mob_death_register = mob_death.commit_death(...)``.  A
+        # session-like stand-in plays the part of ``self`` here so the test
+        # can observe what a subscriber sees DURING the fire, before the
+        # assignment on this same line has happened.
+        session = types.SimpleNamespace(mob_death_register=DeathRegister())
+        observed_during_fire = []
+
+        def nosy_subscriber(*, mob_id, scene_id, **_):
+            # A real subscriber reaching back into the connection's own
+            # live state the way lane_hooks.current_session_scene_id lets
+            # one reach into OTHER per-session facts.
+            observed_during_fire.append(
+                session.mob_death_register.is_dead(mob_id, scene_id))
+
+        self._subscribe(nosy_subscriber)
+        stored, step = self._a_kill(session.mob_death_register)
+        with contextlib.redirect_stderr(io.StringIO()):
+            session.mob_death_register = mob_death.commit_death(
+                stored, step, announce=False)
+        self.assertEqual(
+            observed_during_fire, [False],
+            "the hazard is that a subscriber sees the OLD register while "
+            "still inside this statement's right-hand side")
+        self.assertTrue(
+            session.mob_death_register.is_dead(
+                step.record.actor_identity, step.record.scene),
+            "after the statement completes the write-back is visible, "
+            "which is exactly what makes the mid-statement False a real "
+            "ordering hazard and not simply a wrong answer")
+
+    def test_the_split_call_lets_a_caller_close_the_gap(self):
+        # THE FIX A CALLER CAN APPLY TODAY, without this lane touching
+        # runtime.py: write the register back BEFORE firing, using the two
+        # halves this round split commit_death into.
+        session = types.SimpleNamespace(mob_death_register=DeathRegister())
+        observed_during_fire = []
+
+        def nosy_subscriber(*, mob_id, scene_id, **_):
+            observed_during_fire.append(
+                session.mob_death_register.is_dead(mob_id, scene_id))
+
+        self._subscribe(nosy_subscriber)
+        stored, step = self._a_kill(session.mob_death_register)
+        with contextlib.redirect_stderr(io.StringIO()):
+            new_register, pending = mob_death.commit_death_and_prepare_hook(
+                stored, step, announce=False)
+            session.mob_death_register = new_register  # write back FIRST
+            mob_death.fire_mob_death_hook(pending, announce=False)  # THEN fire
+        self.assertEqual(
+            observed_during_fire, [True],
+            "writing the register back before firing closes the gap the "
+            "test above measures on the undivided call")
+
+    def test_commit_death_and_prepare_hook_fires_nothing_by_itself(self):
+        # Mirrors test_composing_a_kill_without_committing_it_fires_nothing:
+        # the split half that does the world-book write must not ALSO fire
+        # the point, or a caller using the split path would get it twice.
+        self._subscribe(lambda **kw: self.received.append(kw))
+        stored, step = self._a_kill()
+        with contextlib.redirect_stderr(io.StringIO()):
+            mob_death.commit_death_and_prepare_hook(
+                stored, step, announce=False)
+        self.assertEqual(self.received, [])
+
+    def test_the_split_path_and_the_undivided_path_send_the_same_arguments(
+            self):
+        # PARITY: two ways to reach the same point must not drift into two
+        # different contracts.
+        self._subscribe(lambda **kw: self.received.append(kw))
+        stored_a, step_a = self._a_kill()
+        stored_b, step_b = self._a_kill()
+        with contextlib.redirect_stderr(io.StringIO()):
+            mob_death.commit_death(stored_a, step_a, announce=False)
+            new_register, pending = mob_death.commit_death_and_prepare_hook(
+                stored_b, step_b, announce=False)
+            mob_death.fire_mob_death_hook(pending, announce=False)
+        self.assertEqual(len(self.received), 2)
+        undivided, split = self.received
+        self.assertEqual(sorted(undivided), sorted(split))
+        self.assertEqual(pending.mob_id, step_b.record.actor_identity)
+        self.assertEqual(pending.scene_id, step_b.record.scene)
+        self.assertEqual(
+            pending.killer_actor_identity, step_b.record.killer_identity)
+
+    def test_a_raising_subscriber_on_the_split_path_costs_only_the_hook(self):
+        # The same guarantee test_a_raising_subscriber_costs_the_hook_and_
+        # not_the_kill pins for commit_death, held for the split path too:
+        # a mutant that dropped the try/except from fire_mob_death_hook when
+        # it was extracted would go red here.
+        def explode(**_):
+            raise RuntimeError("a lane hook with a bug in it")
+
+        self._subscribe(explode)
+        self._subscribe(lambda **kw: self.received.append(kw))
+        stored, step = self._a_kill()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            register, pending = mob_death.commit_death_and_prepare_hook(
+                stored, step, announce=False)
+            mob_death.fire_mob_death_hook(pending, announce=False)
+        self.assertIs(register, step.register)
+        self.assertEqual(len(self.received), 1)
+
+    # ------------------------------------------------------------------
+    # D10 (pf-adversary, round 2zybdx, deferred to round dggvou): the hook
+    # has no timeout and runs on the caller's own thread.  This measures the
+    # CURRENT blocking behaviour for real rather than only asserting it in
+    # prose -- see notes_to_chief for why this stays a measurement plus a
+    # letter rather than a fix in this lane's own files.
+    # ------------------------------------------------------------------
+
+    def test_a_slow_subscriber_blocks_commit_death_for_its_full_duration(self):
+        import time as _time  # local import: this module's OWN import list
+        # is audited (test_nothing_is_installed_by_importing_this_module in
+        # test_mob_death.py) to carry no `time` -- this is the TEST file,
+        # which measures the production module from outside it, the same
+        # licence test_mob_death.py's own clock-based tests already use.
+
+        SLEEP_SECONDS = 0.05
+
+        def slow_subscriber(**_):
+            _time.sleep(SLEEP_SECONDS)
+
+        self._subscribe(slow_subscriber)
+        stored, step = self._a_kill()
+        started = _time.monotonic()
+        with contextlib.redirect_stderr(io.StringIO()):
+            mob_death.commit_death(stored, step, announce=False)
+        elapsed = _time.monotonic() - started
+        self.assertGreaterEqual(
+            elapsed, SLEEP_SECONDS,
+            "commit_death returned before its own subscriber finished "
+            "sleeping: this project's lane_hooks would then have grown a "
+            "timeout nobody wrote a letter about")
+
     def test_nothing_in_this_tree_registers_on_the_point_yet(self):
         # A NEGATIVE THAT IS ALLOWED TO GO STALE ON PURPOSE.  The nonclaim
         # above says no lane has registered a production hook on this point;
