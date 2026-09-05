@@ -513,9 +513,20 @@ class TheRosterGateTests(unittest.TestCase):
             (False, graves.REFUSE_IDENTITY_NOT_IN_THE_ROSTER))
 
     def test_a_scene_with_no_mined_table_is_refused_by_its_own_name(self):
+        # ROUND r6isy5: ~~"Bg0004"~~ -> "Bg0006".  The example moved because
+        # scene 4 acquired a mined roster this round; the property did not.
+        # "Bg0004" is now a WRONG SPELLING of a mined scene ("bg0004"), so
+        # it refuses one door later, with
+        # REFUSE_SCENE_SPELLING_IS_NOT_THE_ROSTERS -- which is the right
+        # refusal for what it now is, and is asserted below rather than
+        # dropped, because a scene that becomes mined is exactly when a
+        # capitalised leftover in somebody's fixture stops being harmless.
+        self.assertEqual(
+            self.world.bury(a_record(scene="Bg0006")),
+            (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
         self.assertEqual(
             self.world.bury(a_record(scene="Bg0004")),
-            (False, graves.REFUSE_SCENE_HAS_NO_MINED_ROSTER))
+            (False, graves.REFUSE_SCENE_SPELLING_IS_NOT_THE_ROSTERS))
 
     def test_the_rosters_own_spelling_is_required_not_merely_folded(self):
         # The book folds case for its KEY, but every consumer downstream

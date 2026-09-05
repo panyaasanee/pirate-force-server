@@ -1040,7 +1040,7 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
 
     def test_the_collisions_this_project_actually_has_today(self) -> None:
         """Named pairs, not a count, so one appearing or disappearing says
-        WHICH.  All seven are placement-index coincidences between scenes
+        WHICH.  All eleven are placement-index coincidences between scenes
         (``actor_identity`` is ``0x2000 + placement + 1`` with no scene
         term); pf-adversary round jqeo2m walked strike, ledger, rehydration,
         death and loot and found every one of them scene-scoped, so these
@@ -1066,7 +1066,32 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         the real rows of both scenes.  The loot leg refuses earlier still
         (scene 3's drop sets are unmined), which is recorded there too.  Every colliding pair also resolves a DIFFERENT
         template (907/150, 62/350, 61/348, 34/907), so no pair is two
-        spellings of one monster."""
+        spellings of one monster.
+
+        ~~seven pairs~~  ROUND r6isy5: scene 4's roster (seven placements)
+        brought FOUR more -- 0x2020 against Bg0015, 0x202B and 0x2046
+        against Bg0003, and 0x2046 again against bg0005 -- so the walk this
+        card demands was redone a third time rather than inherited, and
+        MEASURED rather than read:
+
+        * 0x2046 IS THE FIRST THREE-WAY COLLISION this lane ships: placement
+          69 exists in scenes 3, 4 and 5 and resolves template 907, 103 and
+          150 respectively.  Each scene's own letter kills only its own row
+          -- driven, not read: ``mob_death.kill`` on scene 4's 0x2046 under
+          the Bg0003 letter and under the bg0005 letter both refuse
+          ``target_outside_the_sanctioned_scope``, and under its own 0546
+          letter it dies.
+        * A FOREIGN LEDGER COVERING TWO OF SEVEN is the widest partial
+          overlap this project has had, and the shape a coverage-counting
+          admission would let through: ``mob_ledger_admission.admit_ledger``
+          on scene 4 with scene 3's ledger records ``other_scene``, coverage
+          2/7, ``admitted`` False and a ``None`` ledger (scene 5's and scene
+          14's are 1/7, likewise refused); scene 4's own is ``same_scene``,
+          7/7, admitted.
+        * Every colliding pair still resolves a DIFFERENT template (907/103,
+          103/150, 353/94, 62/97), so no pair is two spellings of one
+          monster.
+        """
         got = {
             (row["actor_identity"], row["scene_a"], row["scene_b"])
             for row in cross_scene_identity_collisions()
@@ -1079,6 +1104,10 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             (0x2046, "Bg0003", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
+            (0x2020, "Bg0015", "bg0004"),
+            (0x202B, "Bg0003", "bg0004"),
+            (0x2046, "Bg0003", "bg0004"),
+            (0x2046, "bg0004", "bg0005"),
         })
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(

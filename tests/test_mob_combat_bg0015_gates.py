@@ -204,8 +204,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # ROUND am1fw8: ~~(1, 2, 5, 14)~~ -> (1, 2, 3, 5, 14), scene 3 on
         # the same terms again.  This file's subject is still scene 14 and
         # none of its own answers moved.
+        # ROUND r6isy5: ~~(1, 2, 3, 5, 14)~~ -> (1, 2, 3, 4, 5, 14), scene 4
+        # on the same terms again -- and this one leaves
+        # ACKNOWLEDGED_WITHOUT_COMPOSER at the same time, which is what the
+        # second half of this test reads.  This file's subject is still
+        # scene 14 and none of its own answers moved.
         status = gates.recompose_status()
-        self.assertEqual(status["composer_scene_ids"], (1, 2, 3, 5, 14))
+        self.assertEqual(status["composer_scene_ids"], (1, 2, 3, 4, 5, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -343,12 +348,24 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # half of the same fact -- every scene here is registered and
         # reachable, so a pair appearing here is a pair a player can stand
         # in front of.
+        # ROUND r6isy5: scene 4's seven placements brought four more, one of
+        # which makes 0x2046 a THREE-way collision (scenes 3, 4 and 5 all
+        # have a placement 69).  Every scene named here is registered and
+        # reachable, so these are pairs a player can stand in front of --
+        # which is why the walk is measured in
+        # ``tests/test_field_mob_tables_bg0004.py`` (ledger 2-of-7 refused,
+        # each scene's kill letter refusing the others' rows, membership
+        # scene-scoped) and not merely listed.
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
             (0x201E, "Bg0003", "Bg0015"),
+            (0x2020, "Bg0015", "bg0004"),
+            (0x202B, "Bg0003", "bg0004"),
             (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "bg0004"),
             (0x2046, "Bg0003", "bg0005"),
+            (0x2046, "bg0004", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
         })
@@ -461,9 +478,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # field_mobs.py's own registration, never this module.  The
         # assertion this test exists for (reloading gates.py changes
         # nothing) is the one above and is still untouched.
+        # ROUND r6isy5: gains "bg0004", by the same mechanism a fourth
+        # time -- field_mobs.py's own registration, never this module.  The
+        # assertion this test exists for (reloading gates.py changes
+        # nothing) is the one above and is still untouched.
         self.assertEqual(
             set(before),
-            {"bg0001", "Bg0002", "Bg0003", "bg0005", "Bg0015"})
+            {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):

@@ -189,6 +189,7 @@ from typing import Any
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
 from . import field_mob_tables_bg0003
+from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
 from . import field_mobs
 from . import mob_combat
@@ -502,6 +503,48 @@ WIDENING_RULINGS: dict[str, frozenset[int]] = {
     "widen-death-scope-bg0003-seven-templates": frozenset(
         {60, 61, 62, 65, 194, 515, 907}
     ),
+    # COO-DECISION 2026-09-05T05:46+07:00 (notes_to_chief/20260905_0546_
+    # COO-DECISION-1450-item-3-met-scene-4-back-in-queue-LANE-B.md), whose
+    # "who does what next" is this ruling's whole authority in one line:
+    # "LANE-B: roster of scene 4 + THE KILL LETTER OF SCENE 4, in the shape
+    # of scenes 3/5".  That letter closed 1450's item 3 (no new scene until
+    # one armed scene has every door), which is what had scene 4 "explicitly
+    # OUT" in the bg0003 entry above -- struck by that closure, not by this
+    # lane's own reading.
+    # [LANE-B ASSUMPTION - AWAITING COO CONFIRMATION] WHICH ids, as opposed
+    # to whether there is a ruling at all, is this lane's answer and not the
+    # letter's: 0546 could not name them because nobody had mined the scene
+    # yet.  The ask that names all five and says what a NO would cost is
+    # notes_to_chief/20260905_1031_LANE-B-ASK-COO-scene-4-five-templates-
+    # need-a-death-ruling.md, written in the same round as this entry per
+    # "write the question, then keep walking".  Nothing on a player's screen
+    # depends on the answer this week: NOW.md still forbids an attended
+    # monster-hit GT for scenes 3/4/5/14 until P-2 closes.
+    # THE FIVE ARE EXACTLY ``field_mob_tables_bg0004.HOSTILE_PLACEMENTS``'s
+    # distinct template ids -- 94 An Gebo Little Firebird, 97 Mutant Green
+    # Eagle, 103 Orc Chief, 246 Jet cat thieves No.4, 519 Jet cat thieves
+    # No.3 -- re-derived from the mined roster in
+    # ``tests/test_field_mob_tables_bg0004.py`` rather than hand-copied a
+    # second time, the same discipline every other ruling in this dict is
+    # held to.
+    # TEMPLATE 103 IS ALSO IN Bg0002'S OWN SET {31, 34, 35, 103} ABOVE, and
+    # this is the first time two rulings in this dict overlap on a template
+    # since that Bg0002/bg0001 pair the scene axis was BUILT for.  Neither
+    # can reach the other's rows: both carry a
+    # ``WIDENING_RULING_SCENES`` tie, and
+    # ``tests/test_mob_death_wired_widening.py`` walks the crossing rather
+    # than trusting this paragraph.
+    # NOT APPROVED BEYOND THESE FIVE: placements 75 and 76 (MOBS 640 "Crazy
+    # Rose Regina" and 641 "Blood dragon Norman") have this scene's combat
+    # AI but rank 0, no drop table, level 105 and -- for 640 -- a PLAYER
+    # model body, so they are not in the roster and nothing here authorises
+    # killing them.  See ``field_mobs.BG0004_SCENE``'s own comment for the
+    # reading.
+    # NOT A GT UNLOCK, same as every scene ruling before it.
+    "COO-DECISION 2026-09-05T05:46+07:00 "
+    "widen-death-scope-bg0004-five-templates": frozenset(
+        {94, 97, 103, 246, 519}
+    ),
 }
 
 # Companion to WIDENING_RULINGS, added this round (PANYA-DECISION
@@ -597,6 +640,16 @@ WIDENING_RULING_SCENES: dict[str, str] = {
     # pair).  Each scene's own letter, on its own scene, or no kill.
     "COO-DECISION 2026-09-04T14:50+07:00 "
     "widen-death-scope-bg0003-seven-templates": field_mob_tables_bg0003.SCENE,
+    # Tied to bg0004, and this is the tie that stops being merely prudent:
+    # template 103 is in Bg0002's ruling set too, so WITHOUT this entry a
+    # bg0004 Orc Chief would be killable under a letter the owner wrote
+    # about Prison Exile, and a Bg0002 Fighting Fish soldier under a letter
+    # the COO wrote about the Slave Market.  Placement 69 additionally
+    # computes wire identity 0x2046 in THREE scenes now (3, 4 and 5), the
+    # first three-way identity collision this lane ships -- see
+    # ``field_mobs.cross_scene_identity_collisions()``, 11 pairs at HEAD.
+    "COO-DECISION 2026-09-05T05:46+07:00 "
+    "widen-death-scope-bg0004-five-templates": field_mob_tables_bg0004.SCENE,
 }
 
 
