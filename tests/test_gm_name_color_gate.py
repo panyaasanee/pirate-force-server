@@ -241,6 +241,13 @@ def test_transcribed_provenance_has_not_been_edited_silently():
     assert gate.ACTOR_ATTR_0X98_DEFAULT_WRITER_VA == 0x00464D69
     assert gate.LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS == (0x00443FE9, 0x00443FF2)
     assert gate.RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA == 0x00444018
+    # D4/D8 (pf-adversary, round y1evqj): the module used to cite this TSV
+    # by bare filename (read as living in external/) and to call the two
+    # LOCAL emit sites above "the" emit points. Both corrected this round.
+    assert gate.PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH == (
+        "notes_to_chief/reference_codex_attr/PF_ATTR_NAME_COLOR_SELECTOR.tsv"
+    )
+    assert gate.PF_ATTR_NAME_COLOR_SELECTOR_TSV_ROW_COUNT == 14
     assert gate.PAIR_RELATION_ZERO_GATE_ROUTE_VERDICT == (
         "RE-263 BOUNDED-NEGATIVE: not a second route"
     )

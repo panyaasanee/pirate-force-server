@@ -10304,3 +10304,46 @@ client image มาเติม และ `total_is_unknown()` เป็น `Tru
 **เทสที่ต้องขยับเพราะตัวเลขมีแล้ว**: `test_a_codec_is_not_the_same_claim_as_a_working_button` เคยผูก
 ครึ่งหลังไว้กับ `total_is_unknown()` ซึ่งหมดความหมายทันทีที่ตารางมีตัวส่วน — เปลี่ยนเป็นข้ออ้างที่มัน
 ตั้งใจจะพูดมาตลอด: มี codec เจ็ดตัว และ **ไม่มีแถวไหนเลย**ที่บอกว่าเซิร์ฟเวอร์ตอบมัน
+
+## รอบ `awgcfu` (2026-09-05T23:55+07:00) -- pf-adversary debt (D4/D8/D10/D11) จากรอบ `y1evqj` แก้ครบ
+
+**สิ่งที่แก้**: `gm/name_color_gate.py` เขียนไว้ว่า "the two sites that emit the name style" ในบริบทของ
+`RE-263` (ถูกต้องสำหรับเลนของ local CMyActor เท่านั้น) แต่รอบ `y1evqj` อ่านเป็น "ตัว selector มี emit
+point สองจุด" ทั้งที่ตาราง `PF_ATTR_NAME_COLOR_SELECTOR.tsv` มีจริง **14 แถว** (2 `typed_CMyActor_local`
+· 9 `untyped_dynamic_controller` · 3 `typed_CNetNPC`) — อ่านตารางทั้งไฟล์รอบนี้เพื่อยืนยัน (D4) แก้แล้ว
+ด้วยค่าคงที่ใหม่สองตัว: `PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH` และ `_TSV_ROW_COUNT` (=14) พร้อมคอมเมนต์
+แก้ประโยคเดิมให้บอกชัดว่า "two LOCAL emit sites" ไม่ใช่ "the" emit points
+
+**D8**: โมดูลเคยอ้าง `PF_ATTR_NAME_COLOR_SELECTOR.tsv` ด้วยชื่อไฟล์เปล่า (ไม่มี path) ซึ่งอ่านเป็นว่าอยู่
+`external/` โดยเทียบเคียงกับตารางอื่นในแพ็กเกจเดียวกัน (`PF_SERIALIZER_FIELDS.tsv` ที่อยู่ `external/`
+จริง) — ที่จริงตารางนี้อยู่ `pf_bridge/notes_to_chief/reference_codex_attr/` (ยืนยันด้วยการ list ไดเรกทอรี
+ของ pf_bridge clone ตรง ๆ รอบนี้) แก้ด้วย `PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH` ที่ pin path เต็ม
+
+**D10**: `tests/test_gm_p2_color_call_site_tripwire.py` สแกนเฉพาะ `gm/` — มองไม่เห็น `field_mobs.py`
+ซึ่งเป็นที่ที่จุด compose สีต่อ (คนดู, มอน) น่าจะไปลงจริงตาม `COO-DECISION 20260905_2348` ขยายการสแกนให้
+เห็น `field_mobs.py` เพิ่มหนึ่งไฟล์ (`FIELD_MOBS_PATH`) **อ่านอย่างเดียว** — ไม่แก้ไฟล์นั้นเลย (นอกเขตเขียน
+ของสายนี้) มีเทสแยกยืนยันว่า call เดียวที่ทำกับ path นี้คือ `.exists()`/`.read_text()` ผ่าน `_read()` เท่านั้น
+วันนี้ `field_mobs.py` สะอาด (ไม่มีโทเคนสีในโค้ด executable) เทสจึงเขียวโดยไม่ต้องมีการเปลี่ยนแปลงพฤติกรรม
+
+**D11**: แก้ citation หลวมสองจุด — (1) "Read the letter when a human needs a number" ไม่ได้ชี้ว่าใบไหน
+ทั้งที่ `RE_191_RESULT_LETTER` ถูก pin ไว้ไกลออกไป 200 บรรทัด แก้เป็นชี้ตรงไปที่ค่าคงที่นั้น (2) ประโยค
+"are named ONLY in the letters and in PF_ATTR_NAME_COLOR_SELECTOR.tsv" ไม่มี path แก้ให้เต็มพร้อมชี้ไปยัง
+ค่าคงที่ใหม่ทั้งสอง
+
+**เทสที่แตะ**: `tests/test_gm_name_color_gate.py` (pin ค่าคงที่ใหม่สองตัวใน
+`test_transcribed_provenance_has_not_been_edited_silently`) · `tests/test_gm_p2_color_call_site_tripwire.py`
+(เพิ่ม `test_field_mobs_is_scanned_for_p2_colour_tokens_read_only` และ
+`test_field_mobs_scan_is_read_only_by_construction`) · `docs/GM_LANE.md` (ไฟล์นี้)
+
+**มิวแทนต์ที่ตรวจ (ไม่มี Agent/Task tool ให้เรียก `pf-adversary` จริงในเซสชันนี้ -- ค้นด้วย ToolSearch ก่อน
+สรุปว่าไม่มี -- self-review แทน)**: ยืนยันด้วย python -c ว่า string ที่ไม่มีการ consult gate ยัง trip สแกน
+ได้จริง (`_token_hits`/`_consults_the_refusal` บน fixture จำลอง) และยืนยันว่าการพลิกค่า
+`PF_ATTR_NAME_COLOR_SELECTOR_TSV_ROW_COUNT` เป็นเลขเดิม (2) ทำให้ assertion แดง — ไม่ได้แก้ไฟล์
+`field_mobs.py` จริงแม้แต่ไบต์เดียวเพื่อทดสอบ (นอกเขตเขียน)
+
+**ADVERSARY_UNAVAILABLE**: กิ่ง `claude/keen-pasteur-awgcfu` -- ไม่มี Agent/Task tool ในเซสชันนี้เพื่อสั่ง
+`pf-adversary` จริง (ค้นด้วย ToolSearch ก่อนสรุป) ทำ self-review แทนตามกฎ
+
+**nonclaim**: ไม่อ้างว่ารู้ว่า field mob 14 แถวไหนคือแถวที่จะใช้จริงเมื่อ P-2 wiring เดินหน้า — รอบนี้แก้แค่
+คำเท็จ/คำหลวมในโค้ดของสายตัวเอง ไม่ได้เดินโค้ดสีใหม่ ไม่ได้แตะ `field_mobs.py`/`runtime.py`/`v141`/DB/
+`scenarios/world_*`/`scenarios/combat_*` · ไม่มีฟีเจอร์ใหม่บนจอผู้เล่น
