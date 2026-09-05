@@ -35,6 +35,7 @@ module's own docstring.
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 import sys
 import tempfile
@@ -1767,24 +1768,44 @@ class HookupWiringPinTests(RealDatabaseTests):
             and event.startswith(f"{warp_send_watch.EVENT_PREFIX}install_")
         ]
 
+    #: The three outcomes that all mean "this connection is wired".  Only
+    #: `refused_not_writable` means it is not.  pf-adversary D5 (round
+    #: `j2jluj`, MEASURED): the first draft asserted `INSTALL_OK` alone, so
+    #: landing shape A -- two real forwarding methods on chief's own class,
+    #: which this module's docstring says is still supported and still
+    #: compatible -- turned this pin RED with a message blaming the R350
+    #: mutant, while the end-to-end row test beside it stayed green because
+    #: production really was wired.  A pin that reds on the supported
+    #: alternative is a pin that will be deleted by whoever lands it.
+    WIRED_INSTALL_OUTCOMES = (
+        warp_send_watch.INSTALL_OK,
+        warp_send_watch.INSTALL_COMPLETED_HALF_DECLARED,
+        warp_send_watch.INSTALL_REFUSED_ALREADY_PRESENT,
+    )
+
     def test_the_real_installer_ran_on_a_production_built_session(self):
         state, _wrapped, _raw, stderr_text = self._production_session("pin01")
+        events = self._install_events(state)
         self.assertEqual(
-            self._install_events(state),
-            [f"{warp_send_watch.EVENT_PREFIX}install_{warp_send_watch.INSTALL_OK}"],
-            "no install announcement on a session built the way production "
-            "builds one. Either runtime.py no longer calls "
+            len(events), 1,
+            "expected exactly one install announcement on a session built the "
+            "way production builds one, got "
+            f"{events!r}. Either runtime.py no longer calls "
             "install_send_outcome_observers on the line after "
             "connection_bindings.bind(self), or something else is supplying "
             "those two names -- which is pf-adversary's R350 D1 mutant, and "
             "it disarms /warp send-failure rollback silently.",
         )
+        self.assertIn(
+            events[0].rsplit("install_", 1)[1],
+            self.WIRED_INSTALL_OUTCOMES,
+            "the installer ran and REFUSED on a production session: this "
+            "connection cannot carry the two observers at all, so a failed "
+            f"/warp send will not roll back on it. {events[0]!r}",
+        )
         # The second channel `_announce_install` writes, for the owner
         # grepping a boot log rather than a test reading a trail.
-        self.assertIn(
-            f"{warp_send_watch.INSTALL_CONSOLE_TOKEN} {warp_send_watch.INSTALL_OK}",
-            stderr_text,
-        )
+        self.assertIn(warp_send_watch.INSTALL_CONSOLE_TOKEN, stderr_text)
 
     def test_the_two_names_a_lambda_could_fake_are_not_what_is_asserted(self):
         """The guard chief's first draft had, kept ONLY as a cross-check.
@@ -1901,39 +1922,101 @@ class SendLockLivenessTests(RealDatabaseTests):
 
     #: `current/pf_login_game_server_v141.py:7420` -- `conn_done.wait(2.0)`.
     HEARTBEAT_PERIOD_S = 2.0
-    #: `store.py`'s `PRAGMA busy_timeout=5000`, in seconds.  Read from the
-    #: measurement, not from this file's own hope: the assertions below
-    #: bound the hold at TWO of these, so they pass whatever the exact
-    #: budget is and fail if the two connections' waits ever start stacking.
-    BUSY_TIMEOUT_S = 5.0
+
+    @staticmethod
+    def _busy_timeout_seconds():
+        """`store.py`'s own `PRAGMA busy_timeout`, DERIVED not retyped.
+
+        pf-adversary D9 (round `j2jluj`): a hand-typed 5.0 here is a number
+        that stops being re-derivable the day `store.py` changes its budget
+        -- the assertions would stay green while the measurement table in
+        `warp_send_watch.py`'s docstring went stale with nothing to say so.
+        Read out of the file instead, and fail loudly if the pragma this
+        whole class is about is no longer there to read.
+        """
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "store.py"
+        ).read_text(encoding="utf-8")
+        found = re.findall(r"PRAGMA busy_timeout=(\d+)", source)
+        if not found:
+            raise AssertionError(
+                "store.py no longer sets PRAGMA busy_timeout anywhere: the"
+                " bound these tests measure has moved, and the numbers in"
+                " gm/warp_send_watch.py's docstring are now unsourced."
+            )
+        return int(found[0]) / 1000.0
+
+    def setUp(self):
+        super().setUp()
+        self.BUSY_TIMEOUT_S = self._busy_timeout_seconds()
 
     def _hold_the_write_lock(self, seconds):
         """A second writer, on its own thread, holding `BEGIN IMMEDIATE`.
 
         The ordinary shape of contention on this database: another
         connection in the middle of its own transaction.  Returns once the
-        lock is really held, so a caller's timing starts from a known state
-        rather than racing the thread's start-up.
+        lock is REALLY held.
+
+        pf-adversary D8 (round `j2jluj`): the first draft signalled from a
+        `finally`, so a `BEGIN IMMEDIATE` that RAISED (any pre-existing
+        writer) still reported "held" and the caller then measured an
+        uncontended call while believing it was contended -- a wrong
+        diagnosis, not a false green, but a wrong diagnosis on the one
+        fixture the whole class rests on.  The flag is now set only on the
+        line after the statement that took the lock, the failure is carried
+        back across the thread boundary, and the join has a bound.
         """
-        started = threading.Event()
+        held = threading.Event()
+        finished = threading.Event()
+        failure: list = []
 
         def _hog():
             db = sqlite3.connect(str(self.store.path))
             try:
                 db.execute("PRAGMA busy_timeout=5000")
                 db.execute("BEGIN IMMEDIATE")
-                started.set()
+                held.set()
                 time.sleep(seconds)
                 db.rollback()
+            except BaseException as error:  # noqa: BLE001 - re-raised below
+                failure.append(error)
             finally:
-                started.set()
+                finished.set()
                 db.close()
 
         thread = threading.Thread(target=_hog)
         thread.start()
-        self.addCleanup(thread.join)
-        self.assertTrue(started.wait(10), "the contending writer never started")
+        self.addCleanup(self._join_hog, thread, finished, failure, seconds)
+        self.assertTrue(
+            held.wait(10) or finished.wait(0),
+            "the contending writer never took the write lock",
+        )
+        if failure:
+            raise failure[0]
         return thread
+
+    def _join_hog(self, thread, finished, failure, seconds):
+        thread.join(timeout=seconds + 30)
+        self.assertFalse(thread.is_alive(), "the contending writer wedged")
+        self.assertTrue(finished.is_set())
+        if failure:
+            raise failure[0]
+
+    def test_the_database_is_really_in_wal_mode(self):
+        """The non-stacking bound rests on WAL, so it is asserted, not hoped.
+
+        pf-adversary D7 (round `j2jluj`): `SQLiteStore.connect()` opens an
+        implicit DEFERRED transaction, so "one budget, not two" is a
+        property of WAL rather than of the transaction shape, and
+        `connect()` sets WAL only for a file database (`store.py:293-294`)
+        -- `PRAGMA journal_mode=WAL` can also silently fail to take on some
+        mounts.  If this ever comes back anything but `wal`, the lock
+        escalation moves to COMMIT and the numbers in this class stop being
+        the numbers production sees.
+        """
+        with self.store.connect() as db:
+            mode = db.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(str(mode).lower(), "wal")
 
     def _timed_failed_send(self, session, frame):
         started = time.monotonic()
@@ -1970,7 +2053,10 @@ class SendLockLivenessTests(RealDatabaseTests):
         """
         session = self._session("live02")
         frame = self._park(session)
-        self._hold_the_write_lock(self.BUSY_TIMEOUT_S + 1.0)
+        # pf-adversary D9: three seconds of headroom past the budget, not
+        # one, so a scheduling gap between the hog taking the lock and this
+        # thread reaching sqlite cannot turn a real measurement into a red.
+        self._hold_the_write_lock(self.BUSY_TIMEOUT_S + 3.0)
 
         outcome, held = self._timed_failed_send(session, frame)
 
@@ -1997,6 +2083,43 @@ class SendLockLivenessTests(RealDatabaseTests):
         self.assertEqual(self._row(session).scene_id, 1)
         self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
 
+    def test_the_whole_retry_budget_is_measured_not_extrapolated(self):
+        """pf-adversary D3 (round `j2jluj`): the table this class publishes
+        was a SINGLE-ATTEMPT table, and the same commit that published it
+        introduced the multiplier.  The aggregate is what
+        `heartbeat_worker` actually pays, so it is measured here rather than
+        multiplied on paper -- separate failed sends, never one long hold,
+        which is the property that keeps each individual wait bounded.
+        """
+        session = self._session("live04")
+        frame = self._park(session)
+        budget = warp_send_watch.MAX_ROLLBACK_ATTEMPTS
+        self._hold_the_write_lock(self.BUSY_TIMEOUT_S * budget + 3.0)
+
+        holds = []
+        for _attempt in range(budget):
+            _outcome, held = self._timed_failed_send(session, frame)
+            holds.append(held)
+
+        # Every attempt paid its own budget, and none paid two.
+        for held in holds:
+            self.assertLess(held, self.BUSY_TIMEOUT_S * 2)
+        aggregate = sum(holds)
+        self.assertLess(
+            aggregate, self.BUSY_TIMEOUT_S * budget * 1.5,
+            f"the budget cost {aggregate:.3f}s of send_lock in total; the"
+            f" docstring in gm/warp_send_watch.py claims {budget} budgets"
+            " spread over separate failed sends, and a larger number means"
+            " the attempts have started stacking inside one hold.",
+        )
+        # Spent, cleared, and said out loud -- the branch pf-adversary D4
+        # showed a budget of three had made unreachable in production.
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        self.assertIn(
+            f"{warp_send_watch.EVENT_PREFIX}failed_rollback_retries_exhausted_{budget}",
+            session.events,
+        )
+
     def test_the_other_threads_next_send_waits_behind_the_rollback_and_then_goes(
         self,
     ):
@@ -2015,7 +2138,9 @@ class SendLockLivenessTests(RealDatabaseTests):
         """
         session = self._session("live03")
         frame = self._park(session)
-        contention = 3.0
+        # D9 again: 5.0s of contention against a >= 2.0s assertion leaves
+        # three seconds of slack instead of one.
+        contention = 5.0
         self._hold_the_write_lock(contention)
 
         send_lock = threading.Lock()
@@ -2050,10 +2175,20 @@ class SendLockLivenessTests(RealDatabaseTests):
         self.assertFalse(sender.is_alive())
         self.assertFalse(heartbeat.is_alive(), "the heartbeat never got the lock")
 
-        self.assertEqual(
-            rollback_outcome, [warp_scene_persist.OUTCOME_ROLLED_BACK],
+        # Which outcome the undo reached is NOT this test's subject, and
+        # pinning it here would put the contention exactly on the budget's
+        # edge to satisfy two assertions at once (pf-adversary D9).  Either
+        # word is a real run of the code path being timed; the row is
+        # asserted only for the one that claims to have moved it.
+        self.assertIn(
+            rollback_outcome[0],
+            (
+                warp_scene_persist.OUTCOME_ROLLED_BACK,
+                warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME,
+            ),
         )
-        self.assertEqual(self._row(session).scene_id, 1)
+        if rollback_outcome[0] == warp_scene_persist.OUTCOME_ROLLED_BACK:
+            self.assertEqual(self._row(session).scene_id, 1)
         waited = heartbeat_waits[0]
         self.assertGreaterEqual(
             waited, self.HEARTBEAT_PERIOD_S,
@@ -2092,7 +2227,26 @@ class RollbackRetryBudgetTests(RealDatabaseTests):
                 )
         return answer, stream.getvalue()
 
-    def test_the_budget_stops_at_three_attempts_and_says_so_out_loud(self):
+    def test_the_budget_is_two_the_number_v141_can_actually_deliver(self):
+        """pf-adversary D2 (round `j2jluj`): the first draft of this test
+        read the budget out of the module under test, so
+        `MAX_ROLLBACK_ATTEMPTS = 1000` left the whole file green -- a test
+        named after a number that re-derived the number from the thing it
+        was grading.  The literal is asserted here, and the SOURCE of the
+        literal is asserted too: v141's `heartbeat_worker` `break`s on its
+        first failed send and the action loop `break`s its action list on
+        its first, so one dying connection delivers at most two failed
+        sends and a larger budget would leave the give-up branch below
+        unreachable in production (D4)."""
+        self.assertEqual(warp_send_watch.MAX_ROLLBACK_ATTEMPTS, 2)
+        v141 = (ROOT / "current" / "pf_login_game_server_v141.py").read_text(
+            encoding="utf-8", errors="replace",
+        )
+        heartbeat = v141.split("def heartbeat_worker():", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("RUNTIME_HEARTBEAT_SEND_FAILED", heartbeat)
+        self.assertIn("break", heartbeat.split("RUNTIME_HEARTBEAT_SEND_FAILED", 1)[1])
+
+    def test_the_budget_stops_and_says_so_out_loud(self):
         session = self._session("retry01")
         frame = self._park(session)
         retryable = warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME
@@ -2108,6 +2262,16 @@ class RollbackRetryBudgetTests(RealDatabaseTests):
             self.assertEqual(record.frame_bytes, frame)
             self.assertNotIn(
                 warp_send_watch.RETRIES_EXHAUSTED_CONSOLE_TOKEN, stderr_text,
+            )
+            # pf-adversary D10: every attempt writes its own outcome event,
+            # so a reader counting them on the trail sees all of them, not
+            # only the last.  The first draft returned early and wrote just
+            # the retry line.
+            self.assertEqual(
+                session.events.count(
+                    f"{warp_send_watch.EVENT_PREFIX}failed_rollback_{retryable}"
+                ),
+                spent,
             )
 
         answer, stderr_text = self._park_and_fail(session, frame, retryable)
@@ -2191,6 +2355,158 @@ class RollbackRetryBudgetTests(RealDatabaseTests):
                 session, frame, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME,
             )
         self.assertEqual(answer, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+
+class ParkExpiryTests(RealDatabaseTests):
+    """pf-adversary D1 (round `j2jluj`, MEASURED, CRITICAL) -- and its control.
+
+    The re-park this round added removed the one thing that ALWAYS retired a
+    park.  What was left had no expiry date: a record alive at
+    `attempts >= 1` is cleared only by another failed send, a byte-identical
+    successful send, a replacement `/warp`, or the withhold path -- and none
+    of those is guaranteed to arrive.  `connection.py` offers the observer
+    EVERY exception `sendall` raises, in its own words, so a TRANSIENT one
+    (`socket.timeout` from v141's `c.settimeout(600)`) leaves the connection
+    alive with the park armed, and it then fires on the disconnect at
+    logout, which is how sessions normally end.
+
+    Meanwhile `runtime.py:4164` durably writes the client's reported
+    position on every movement frame that differs.  The adversary composed
+    those two facts and measured the row being REWOUND to a pre-warp
+    snapshot the world had long moved past -- the player's real position
+    gone, caused by the safety net rather than by the failure it was
+    watching for.
+
+    The fix is in `on_game_frame_send_failed`: from the second attempt
+    onward the undo is offered only while the client has reported nothing
+    new.  The FIRST attempt is untouched, and `test_the_first_attempt_is_
+    not_gated_by_any_of_this` is why that claim is not just a sentence.
+
+    The first refusal is stubbed rather than driven with five real seconds
+    of database contention -- `SendLockLivenessTests` drives the real one.
+    What is stubbed is one thing: what `rollback_warp_scene` answers.  The
+    re-park, the walk, the durable write and the second failure are all
+    real.
+    """
+
+    def _refuse_once(self, session, frame):
+        """Attempt 1, refused the way a busy database refuses it."""
+        with mock.patch.object(
+            warp_send_watch, "rollback_warp_scene",
+            return_value=warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME,
+        ):
+            with redirect_stderr(io.StringIO()):
+                warp_send_watch.on_game_frame_send_failed(
+                    session, frame, ConnectionResetError(),
+                )
+        record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertIsNotNone(record)
+        self.assertEqual(record.attempts, 1)
+        return record
+
+    def _walk(self, session):
+        """The client reports a step, through the same door `runtime.py` uses."""
+        here = session.foundation.selected.position
+        walked = Position(
+            here.scene_id, here.scene_seq,
+            here.x + 500.0, here.y + 500.0, here.z,
+        )
+        session.foundation.checkpoint(walked)
+        return walked
+
+    def test_a_re_parked_undo_never_rewinds_a_position_the_client_reported_since(
+        self,
+    ):
+        session = self._session("expiry01")
+        frame = self._park(session)
+        self._refuse_once(session, frame)
+
+        walked = self._walk(session)
+        self.assertEqual(self._row(session).x, walked.x)
+
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+
+        self.assertEqual(
+            outcome, warp_send_watch.OUTCOME_PARK_ABANDONED_ROW_MOVED,
+        )
+        after = self._row(session)
+        self.assertEqual((after.scene_id, after.x, after.y),
+                         (walked.scene_id, walked.x, walked.y))
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
+            "an abandoned park must not be left for the NEXT failure to find",
+        )
+        self.assertIn(
+            f"{warp_send_watch.EVENT_PREFIX}failed_rollback_"
+            f"{warp_send_watch.OUTCOME_PARK_ABANDONED_ROW_MOVED}",
+            session.events,
+        )
+
+    def test_the_control_a_re_parked_undo_still_fires_when_nothing_moved(self):
+        """The guard must not have simply disabled the retry it guards."""
+        session = self._session("expiry02")
+        before = self._row(session)
+        frame = self._park(session)
+        self._refuse_once(session, frame)
+
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, before.scene_id)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_the_first_attempt_is_not_gated_by_any_of_this(self):
+        """`attempts == 0` takes the pre-`j2jluj` path byte for byte.
+
+        Driven in the one shape that would show a difference: the client has
+        walked since the warp, which is exactly what makes a RE-parked
+        record inactionable.  A first attempt still rolls back, because it
+        runs in the same breath as the failure that armed it and the old
+        behaviour every other test in this file pins depends on it.
+        """
+        session = self._session("expiry03")
+        before = self._row(session)
+        frame = self._park(session)
+        self._walk(session)
+
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, before.scene_id)
+
+    def test_a_re_parked_record_with_no_row_to_compare_is_abandoned_not_fired(
+        self,
+    ):
+        """Fail closed.  A record whose `previous_position` this module
+        cannot check is not evidence about anything; acting on it is the
+        defect, not the safeguard."""
+        session = self._session("expiry04")
+        frame = self._park(session)
+        record = self._refuse_once(session, frame)
+        setattr(
+            session, warp_send_watch.SESSION_ATTRIBUTE,
+            warp_send_watch.ParkedWarpSend(
+                record.label, record.frame_bytes, None, record.attempts,
+            ),
+        )
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+        self.assertEqual(
+            outcome, warp_send_watch.OUTCOME_PARK_ABANDONED_ROW_MOVED,
+        )
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
         self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
 
 

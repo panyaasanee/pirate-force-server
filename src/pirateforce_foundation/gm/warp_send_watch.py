@@ -102,10 +102,26 @@ file is the measurement).  The hold IS real and it IS bounded, at ONE
       7.0s                                5.010s               rollback_refused_OperationalError
      12.0s                                5.010s               rollback_refused_OperationalError
 
-`checkpoint()` fails at `BEGIN IMMEDIATE`, so the read-back's second
-connection is never opened and the five seconds cannot stack.  What that
-costs the other thread: `heartbeat_worker` wakes every 2.0s and takes the
-SAME `send_lock`, so a worst-case hold makes it miss at most two beats.
+ONE call's hold is bounded by ONE budget because `checkpoint()` never
+reaches the read-back: `save_position` (`store.py:668-671`) is a bare
+`with self.connect() as db:` + `UPDATE`, i.e. sqlite3's implicit DEFERRED
+transaction, and it is that `UPDATE` that waits and raises -- so the second
+connection the read-back would open is never opened.  (Corrected here by
+pf-adversary D7, round `j2jluj`: an earlier draft of this paragraph said
+"fails at `BEGIN IMMEDIATE`".  `SQLiteStore.connect()` issues no such
+statement; `BEGIN IMMEDIATE` belongs to the healing doors and to the test's
+own contending writer.  The non-stacking therefore rests on WAL, which
+`connect()` sets only for a file database (`store.py:293-294`) -- so
+`SendLockLivenessTests` asserts WAL is really in force rather than assuming
+it.)
+
+What that costs the other thread: `heartbeat_worker` wakes every 2.0s and
+takes the SAME `send_lock`, so ONE worst-case hold makes it miss at most
+two beats, and the WORST-CASE AGGREGATE over a park's whole retry budget is
+`MAX_ROLLBACK_ATTEMPTS` such holds -- 10.0s, five beats, across two
+SEPARATE failed sends, never one hold.  pf-adversary D3 (round `j2jluj`):
+an earlier draft of this paragraph quoted the single-attempt figure after
+the same commit had introduced the multiplier.
 It is not shortened here and this lane cannot shorten it -- `busy_timeout`
 is set in `store.py`, outside this lane's zone -- and shortening it would
 trade a bounded delay on a connection whose socket JUST FAILED for a
@@ -207,6 +223,7 @@ from dataclasses import dataclass
 
 from ..model import Position
 from .warp_scene_persist import (
+    _COMPARED_COLUMNS as _ROW_COLUMNS,
     OUTCOME_ROLLBACK_REFUSED_PREFIX,
     SEND_FAILURE_WARP_ACTION_LABEL,
     _console as _persist_console,
@@ -245,6 +262,25 @@ OUTCOME_CLEARED_OWN_FRAME = "cleared_own_frame"
 #: only the bookkeeping could not be retired.
 OUTCOME_CLEAR_NOT_CONFIRMED = "clear_not_confirmed"
 
+#: A RE-PARKED record (and only a re-parked one) whose row the world has
+#: moved past.  pf-adversary D1 (round `j2jluj`, MEASURED, CRITICAL): the
+#: re-park below removed the one thing that always retired a park, and
+#: nothing in this module expires one, so a park left alive at
+#: `attempts >= 1` on a connection whose send error was TRANSIENT
+#: (`socket.timeout` from v141's `c.settimeout(600)`, a transient `OSError`
+#: -- `connection.py` offers the observer EVERY exception `sendall` raises,
+#: in its own words) sat armed for the rest of the session and fired on the
+#: disconnect at logout, which is how sessions normally end.  Measured, on
+#: the real store: `/warp 2` fails to send, the DB is busy so the undo is
+#: refused and the park survives, the client -- still standing in scene 1,
+#: because the warp frame never left -- keeps walking and
+#: `runtime.py:4164`'s `checkpoint` durably writes each reported position;
+#: the next unrelated failed send then rolled the row back to the PRE-WARP
+#: snapshot and the player's real position was gone.  A first attempt is
+#: unaffected: it runs in the same breath as the failure that armed it, and
+#: its behaviour is byte-for-byte what it was before this round.
+OUTCOME_PARK_ABANDONED_ROW_MOVED = "park_abandoned_row_moved"
+
 #: The ONE rollback outcome a LATER failed send on this SAME connection can
 #: still fix, and the whole reason this module now re-parks instead of
 #: clearing unconditionally.  MEASURED this round (`COO-DECISION 20260905_
@@ -257,8 +293,10 @@ OUTCOME_CLEAR_NOT_CONFIRMED = "clear_not_confirmed"
 #:   contention 12.0s -> hold 5.010s, outcome `rollback_refused_OperationalError`
 #:
 #: The hold is bounded by ONE `store.py` `PRAGMA busy_timeout=5000`, not by
-#: two: `checkpoint()` fails at `BEGIN IMMEDIATE`, so the read-back that
-#: would have opened a second connection is never reached.  What the last
+#: two: `checkpoint()` never reaches the read-back, because `save_position`
+#: (`store.py:668-671`) waits and raises at its own `UPDATE` inside
+#: sqlite3's implicit DEFERRED transaction -- see the module docstring for
+#: why that distinction matters (pf-adversary D7).  What the last
 #: two rows cost is the point: the undo did NOT happen, and before this
 #: round the park was cleared anyway -- so the durable row stayed at a scene
 #: the client was never sent to, with nothing left on the connection that
@@ -266,19 +304,51 @@ OUTCOME_CLEAR_NOT_CONFIRMED = "clear_not_confirmed"
 #: `rollback_warp_scene` exists to refuse, reached through a busy database
 #: instead of through a refused write.
 #:
-#: Matched as a WHOLE WORD against the outcome, not by `startswith`, so a
+#: Matched as WHOLE WORDS against the outcome, not by `startswith`, so a
 #: `rollback_refused_PermissionError` (a stale or non-owning session -- a
 #: retry cannot change that answer) still clears exactly as it did before.
+#: `WriteLockTimeout` is in the set because `store.py:270` defines it as a
+#: SUBCLASS of `sqlite3.OperationalError` ("a caller that already handles
+#: that type keeps working unchanged") -- but the outcome word is built from
+#: `type(error).__name__` in `warp_scene_persist`, so a caller matching on
+#: the name is exactly the caller that would NOT keep working the day
+#: `save_position`'s door adopts the wait-loop the healing doors already use
+#: (`store.py:2062`, `:2138`).  pf-adversary D6 (round `j2jluj`): the name
+#: is the wrong key for "was this lock contention" and `isinstance` is the
+#: right one; naming both spellings is what this lane can do from its own
+#: zone, and it is written down here rather than left to be rediscovered.
+RETRYABLE_ROLLBACK_OUTCOMES = frozenset({
+    f"{OUTCOME_ROLLBACK_REFUSED_PREFIX}OperationalError",
+    f"{OUTCOME_ROLLBACK_REFUSED_PREFIX}WriteLockTimeout",
+})
+#: The one this module's own measurement produced, kept as a name so tests
+#: and letters can say which word they mean.
 RETRYABLE_ROLLBACK_OUTCOME = f"{OUTCOME_ROLLBACK_REFUSED_PREFIX}OperationalError"
 
 #: How many undo attempts ONE park may make in total before this module
-#: stops re-parking and says so out loud.  Three, not unbounded: each
-#: attempt can hold this connection's `send_lock` for up to one
-#: `busy_timeout` (5s measured above) while the OTHER thread's
-#: `heartbeat_worker` waits for the same lock, so an unbounded retry would
-#: convert a bounded stall into an unbounded one.  Each attempt is a
-#: SEPARATE failed send, never one long hold.
-MAX_ROLLBACK_ATTEMPTS = 3
+#: stops re-parking and says so out loud.
+#:
+#: TWO, and the number is derived from v141, not chosen.  pf-adversary D4
+#: (round `j2jluj`, MEASURED FROM SOURCE) counted how many failed sends one
+#: dying connection can actually deliver: `heartbeat_worker` `break`s its
+#: loop on its FIRST failed send (`current/pf_login_game_server_v141.py:
+#: 7429-7431`) and the action loop `break`s its whole action list on its
+#: first (`:7756-7759`), after which the outer loop's next `recv_frame` on a
+#: dead socket ends the connection.  So the reachable count is at most two
+#: -- one action-loop failure and one heartbeat failure -- and a budget of
+#: three made the give-up branch below unreachable in production, which is
+#: the same "which lines have never executed" defect this module keeps
+#: catching in other people's code.
+#:
+#: Bounded rather than unbounded for the other reason too: each attempt can
+#: hold this connection's `send_lock` for up to one `busy_timeout` (5.010s
+#: measured above) while `heartbeat_worker` waits for that same lock.  Each
+#: attempt is a SEPARATE failed send, never one long hold, so the WORST-CASE
+#: AGGREGATE is `MAX_ROLLBACK_ATTEMPTS` budgets spread across that many
+#: failed sends -- 10.0s of lock occupancy at this budget, not 5.0s.  That
+#: aggregate is what the docstring above means by the cost, and it is
+#: `SendLockLivenessTests`'s own measurement, not an estimate.
+MAX_ROLLBACK_ATTEMPTS = 2
 
 #: Printed on stderr, through `warp_scene_persist`'s own guarded writer, the
 #: one time a park gives up.  Same reasoning as `INSTALL_CONSOLE_TOKEN`
@@ -435,6 +505,54 @@ def clear_warp_send_watch(session: object) -> bool:
         return False
 
 
+def _client_reported_row(session: object) -> object:
+    """`foundation.selected.position`, or `None` for "cannot be read".
+
+    THE ONE FIELD THAT ANSWERS "HAS THE WORLD MOVED PAST THIS PARK".  A warp
+    deliberately does NOT update `selected` (`warp_scene_persist`'s own
+    docstring: "the durable row moves; the in-memory row does not"), and
+    `rollback_warp_scene` restores it after every attempt, so between a park
+    and a later attempt this value changes for exactly one reason: the
+    CLIENT reported a new position and `FoundationSession.checkpoint`
+    (`session.py:446`) replaced it -- the same call that durably wrote it.
+    Never raises: a session shape this cannot read answers `None`, which the
+    one caller treats as "do not act".
+    """
+    try:
+        return session.foundation.selected.position  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - see docstring
+        return None
+
+
+def _park_is_still_actionable(session: object, record: ParkedWarpSend) -> bool:
+    """May a RE-PARKED record still fire?  See `OUTCOME_PARK_ABANDONED_ROW_MOVED`.
+
+    Only ever consulted for `record.attempts >= 1`; a first attempt is not
+    routed through here at all, so nothing this round changed can alter the
+    behaviour every other test in this module already pins.
+
+    ACTIONABLE MEANS "THE CLIENT HAS REPORTED NOTHING SINCE".  Compared on
+    `warp_scene_persist`'s own `_COMPARED_COLUMNS`, not `==`, for the same
+    reason that function uses them: `heading` is not part of what a warp
+    moves or an undo restores, and a heading-only difference is not the
+    world moving past this row.  Anything unreadable -- a record with no
+    usable `previous_position`, a session whose `selected` cannot be read --
+    is NOT actionable: fail closed, because acting on a snapshot this module
+    cannot confirm is the defect, not the safeguard.
+    """
+    previous = record.previous_position
+    current = _client_reported_row(session)
+    if not isinstance(previous, Position) or current is None:
+        return False
+    for column in _ROW_COLUMNS:
+        try:
+            if getattr(current, column, None) != getattr(previous, column):
+                return False
+        except Exception:  # noqa: BLE001 - a hostile row is not actionable
+            return False
+    return True
+
+
 def _repark_for_retry(
     session: object, record: ParkedWarpSend, spent: int,
 ) -> bool:
@@ -584,6 +702,19 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     spent, up to `MAX_ROLLBACK_ATTEMPTS`, and cleared unconditionally for
     every other outcome exactly as this paragraph said.
 
+    A RE-PARKED RECORD IS CHECKED BEFORE IT IS ALLOWED TO FIRE, and the
+    first attempt is not.  pf-adversary D1 (round `j2jluj`, MEASURED): the
+    re-park removed the one thing that always retired a park, and a park
+    that outlives its own moment is a row snapshot with no expiry date --
+    on a connection whose send error was transient it fired at logout and
+    rewound the position the player had legitimately walked to since.  So
+    from `attempts >= 1` onward the undo is offered only while the client
+    has reported nothing new (`_park_is_still_actionable`); the moment it
+    has, the park is abandoned, unfired, as `OUTCOME_PARK_ABANDONED_ROW_
+    MOVED`.  The first attempt keeps its old behaviour exactly: it runs in
+    the same breath as the failure that armed it, so there is no window in
+    which the world could have moved.
+
     NEVER RAISES: both the delegate and `clear_warp_send_watch` already
     carry that contract, and this function adds no operation of its own
     that could break it.
@@ -600,6 +731,15 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     # reason `rollback_warp_scene_on_send_failure` checks it -- that
     # discipline must not go dead just because the row now travels with the
     # park.
+    if record.attempts and not _park_is_still_actionable(session, record):
+        # pf-adversary D1.  A record this module re-parked, on a connection
+        # that then went on living: the client has reported a position since,
+        # so this snapshot no longer describes anything to undo.  Abandon it
+        # WITHOUT firing -- the row is left exactly where the world put it --
+        # and retire the cell so nothing later finds it either.
+        clear_warp_send_watch(session)
+        _note(session, f"{EVENT_PREFIX}failed_rollback_{OUTCOME_PARK_ABANDONED_ROW_MOVED}")
+        return OUTCOME_PARK_ABANDONED_ROW_MOVED
     usable = (
         record.label == SEND_FAILURE_WARP_ACTION_LABEL
         and isinstance(record.previous_position, Position)
@@ -611,17 +751,29 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
             session, SEND_FAILURE_WARP_ACTION_LABEL,
         )
     spent = record.attempts + 1
-    if outcome == RETRYABLE_ROLLBACK_OUTCOME and spent < MAX_ROLLBACK_ATTEMPTS:
+    retryable = outcome in RETRYABLE_ROLLBACK_OUTCOMES
+    # EVERY attempt writes its own outcome event, including the ones that go
+    # on to re-park -- pf-adversary D10 (round `j2jluj`): the first draft
+    # returned early from the retry branch, so a reader counting
+    # `..._failed_rollback_rollback_refused_OperationalError` on the trail saw
+    # one where two attempts had really happened.  The retry branch adds a
+    # SECOND, more specific line; it does not replace this one.
+    _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
+    if retryable and spent < MAX_ROLLBACK_ATTEMPTS:
         # The undo did NOT happen and a later attempt on this same
         # connection can still make it happen -- see
-        # `RETRYABLE_ROLLBACK_OUTCOME` for the measurement.  Keeping the park
+        # `RETRYABLE_ROLLBACK_OUTCOMES` for the measurement.  Keeping the park
         # is what makes that later attempt exist at all: every failed send on
         # this connection reaches here (`connection.py`'s
         # `_offer_send_outcome`), and on a connection whose socket really
         # died that is `heartbeat_worker`'s own next send, ~2.0s later
-        # (`current/pf_login_game_server_v141.py:7427`).  Re-parking the SAME
-        # bytes and the SAME `previous_position` keeps the undo aimed at the
-        # row the run started from; only the attempt count moves.
+        # (`current/pf_login_game_server_v141.py:7427`) -- its FIRST and only
+        # one, because it `break`s out of its loop on it (`:7429-7431`), which
+        # is why `MAX_ROLLBACK_ATTEMPTS` is two and not more.  Re-parking the
+        # SAME bytes and the SAME `previous_position` keeps the undo aimed at
+        # the row the run started from; only the attempt count moves, and the
+        # renewed record must pass `_park_is_still_actionable` before it is
+        # ever allowed to fire.
         if _repark_for_retry(session, record, spent):
             _note(
                 session,
@@ -633,8 +785,8 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
         # holding a record this module cannot read back -- the same
         # fail-closed direction every other write here takes.
     clear_warp_send_watch(session)
-    if outcome == RETRYABLE_ROLLBACK_OUTCOME:
-        # Loud, and distinct from the first two attempts: the row is still at
+    if retryable:
+        # Loud, and distinct from the earlier attempts: the row is still at
         # a scene the client never reached, and nothing will try again.
         _note(session, f"{EVENT_PREFIX}failed_rollback_retries_exhausted_{spent}")
         try:
@@ -643,7 +795,6 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
             )
         except Exception:  # noqa: BLE001 - the report must never raise
             pass
-    _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome
 
 
