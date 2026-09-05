@@ -121,19 +121,25 @@ KNOWN_ENTRY_POINT_CALL_FAILURES = frozenset({
 
 #: Measured 2026-09-05, round 4jsydv, on the real 616-file corpus: calling
 #: every STANDARD_ENTRY_POINTS function present in each file, with every
-#: Quest/Trigger instance field (Var*/RewardItem*/StringVar*/...) reading
-#: STUB_DEFAULT=0 per script_host's own contract, produced 5057 total
-#: LUA_API_STUB emissions (STUB calls ONLY -- the 346 calls to Trigger's 5
-#: REAL methods, e.g. 201 NextStatus/121 GetTriggerStatus, are counted
-#: separately in report.total_real_calls, never folded in here; see
-#: script_host.REAL_QUALIFIED_NAMES and CorpusEntryPointReport's own
-#: docstring for why that split needed its own test after a first draft
-#: got this wrong) across 137 distinct <Namespace>.<Method> names.  A round
-#: that lands a real API implementation makes every call to that name, in
-#: every script that makes it, stop counting here -- so this number may
-#: only fall or hold; a round that raises it has made stub coverage worse,
-#: not a rounding artifact, and the test below is written to catch that.
-BASELINE_TOTAL_STUB_CALLS = 5057
+#: Quest/Trigger/Instance instance field (Var*/RewardItem*/StringVar*/...)
+#: reading STUB_DEFAULT=0 per script_host's own contract, originally
+#: produced 5057 total LUA_API_STUB emissions (STUB calls ONLY -- calls to
+#: any REAL method are counted separately in report.total_real_calls, never
+#: folded in here; see script_host.REAL_QUALIFIED_NAMES and
+#: CorpusEntryPointReport's own docstring for why that split needed its own
+#: test after a first draft got this wrong).  A later round made 7 of
+#: Instance's 9 names real (lua_api/instance.py), which moved 37 calls --
+#: 12 CallScoreCount, 9 AddKeyEvent, 7 GetLastingTime, 5 GetInstanceID,
+#: 2 RemoveKeyEvent, 1 GetInstanceId, 1 SetLastingTime -- out of this count
+#: and into report.total_real_calls (alongside Trigger's own 346: 201
+#: NextStatus/121 GetTriggerStatus/23 SetTriggerStatus/1 GetTeiggerStatus),
+#: for a new baseline of 5020 across fewer distinct still-stub
+#: <Namespace>.<Method> names.  A round that lands a real API implementation
+#: makes every call to that name, in every script that makes it, stop
+#: counting here -- so this number may only fall or hold; a round that
+#: raises it has made stub coverage worse, not a rounding artifact, and the
+#: test below is written to catch that.
+BASELINE_TOTAL_STUB_CALLS = 5020
 
 
 @LUA_CORPUS_RUNNABLE.skip_unless_present()
