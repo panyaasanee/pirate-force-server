@@ -262,6 +262,7 @@ from . import world_population_bg0010
 from . import world_population_bg0011
 from . import world_population_bg0015
 from . import world_population_bg3001
+from . import world_population_bg3007
 from . import world_population_bg4001
 from .world_population import (
     COLLECTION_TAG,
@@ -626,6 +627,25 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         report_of=world_population_bg3001.dispatch_report,
         generation_type=world_population_bg3001.Bg3001PopulationGeneration,
         full_roster_count=world_population_bg3001.DEFAULT_ACTOR_COUNT,
+    ),
+    # ADDED ROUND yob0a2 (2026-09-05, LANE-A), the fourteenth composer and
+    # the second ocean panel: scene 304 (Bg3007, "Dark Fog Sea").  Same
+    # shape as bg3001's entry above and, like it, NOT covered by the
+    # LOGIN_OWNED_SOURCES exclusion below - scene 304 has no login-path
+    # populator (no runtime.py branch dedicated to it) and no crossing call
+    # site reaches it, so this entry is not composing over anything.  ITS
+    # LOGIN DOOR IS SHUT (``login_entry_allowed: false``, untouched this
+    # round); the arrival that reaches this composer is a GM ``/warp 304``,
+    # admitted by the third arm in ``lane_hooks/lane_a_scene_census.py``.
+    "bg3007_roster": _SceneComposer(
+        source="bg3007_roster",
+        build=world_population_bg3007.build_bg3007_population,
+        full_roster_count_source=world_population_bg3007.COUNT_SOURCE_FULL_ROSTER,
+        membership_of=lambda generation: tuple(generation.placement_indices),
+        caller_count_source=world_population_bg3007.COUNT_SOURCE_CALLER,
+        report_of=world_population_bg3007.dispatch_report,
+        generation_type=world_population_bg3007.Bg3007PopulationGeneration,
+        full_roster_count=world_population_bg3007.DEFAULT_ACTOR_COUNT,
     ),
     # DELIBERATELY NOT ADDED, round ``vwekfq`` (LANE-A): scene 17's identity
     # and census pair (``world_bg1001_identity`` / ``world_population_

@@ -195,18 +195,21 @@ def _bare_warp_destinations() -> tuple[int, ...]:
 # and no other production census composer, ADDED round n4vqxc (LANE-A):
 # scenes 304 and 305 gained a `decreed_arrival` point (COO-DECISION
 # 20260905_1748), which is what makes them bare-warp reachable at all, but
-# this round deliberately built ONLY the arrival point -- the same narrow
+# that round deliberately built ONLY the arrival point -- the same narrow
 # scope scene 126 itself had in round ihjytc, before an EARLIER round
 # (4uztfj) built `world_bg3001_identity.py`/`world_population_bg3001.py` and
-# gave it a cast.  304/305 have no such module yet; building one is real
-# population work (identity resolution through a CLINE table, a composer,
-# CENSUS_SOURCES registration) that this backup task's letter did not ask
-# for and this round did not do.  Named here, checked below, rather than
-# silently widening `_arrival_census`'s exemptions or narrowing what counts
-# as "reachable": a future round that builds either scene's cast removes it
-# from this tuple and `test_every_map_a_bare_warp_can_reach_ships_one_on_
-# arrival` starts requiring a real census for it, with no other edit.
-SCENES_WITH_NO_CENSUS_COMPOSER_YET = (304, 305)
+# gave it a cast.
+# NARROWED round yob0a2 (LANE-A) to ONE scene, exactly as the sentence below
+# said a future round would: scene 304's cast now exists
+# (`world_bg3007_identity.py`/`world_population_bg3007.py`, registered in
+# `CENSUS_SOURCES` and in this lane's census hook, admitted by that hook's
+# third arm), so 304 comes out of this tuple and
+# `test_every_map_a_bare_warp_can_reach_ships_one_on_arrival` now REQUIRES a
+# real 50-actor census for it.  Scene 305 keeps its place: its cast is real
+# future LANE-A work (Bg3008, 59 placements) that this round did not do.
+# Named here, checked below, rather than silently widening
+# `_arrival_census`'s exemptions or narrowing what counts as "reachable".
+SCENES_WITH_NO_CENSUS_COMPOSER_YET = (305,)
 
 
 class _WarpChainHarness(unittest.TestCase):
