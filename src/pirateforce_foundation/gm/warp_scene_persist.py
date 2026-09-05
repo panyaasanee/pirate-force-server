@@ -876,17 +876,38 @@ def rollback_warp_scene_on_send_failure(session: object, label: object) -> str:
     write, no console line -- because a wrong-label call is not evidence of
     anything this module is about.
 
-    WHERE `previous` COMES FROM, AND WHY IT IS SAFE TO TRUST HERE.
-    `persist_warp_scene` restores `foundation.selected` to the PRE-WARP
-    snapshot immediately after the durable write succeeds (module docstring:
-    "the durable row moves; the in-memory row does not" -- it stays the last
-    position the client is KNOWN to have reported).  Nothing between then and
-    a `SEND_FAILED` on the very same action changes it: the client cannot
-    have reported a new position for a frame that never reached it.  So
-    `foundation.selected.position`, read HERE, is exactly the row
-    `_persist_warp_scene` captured with `row_before_warp` before the write --
-    without this function needing a second parameter chief's call site would
-    otherwise have to thread through 2,200 lines of unrelated code to supply.
+    WHERE `previous` COMES FROM, AND WHY IT IS ~~SAFE TO TRUST HERE~~ **NOT
+    SAFE TO TRUST WITHOUT A CALLER THAT RESTORES THE LABEL FIRST** (pf-
+    adversary D8, round `w7gah1`, MEASURED -- struck rather than rewritten,
+    because the sentence below was the exact reasoning the fallback in
+    `gm/warp_send_watch.py::on_game_frame_send_failed` had to work around,
+    and a reader comparing the two should see both).  ~~`persist_warp_scene`
+    restores `foundation.selected` to the PRE-WARP snapshot immediately after
+    the durable write succeeds (module docstring: "the durable row moves; the
+    in-memory row does not" -- it stays the last position the client is
+    KNOWN to have reported).  Nothing between then and a `SEND_FAILED` on the
+    very same action changes it: the client cannot have reported a new
+    position for a frame that never reached it.  So `foundation.selected.
+    position`, read HERE, is exactly the row `_persist_warp_scene` captured
+    with `row_before_warp` before the write -- without this function needing
+    a second parameter chief's call site would otherwise have to thread
+    through 2,200 lines of unrelated code to supply.~~  FALSE the moment a
+    caller sits between compose and this function's own read, which every
+    real caller does: `runtime.py`'s `_gm_warp_resync_selected_scene` relabels
+    `selected.position.scene_id` to the DESTINATION "in the same dispatch
+    that composed the warp" (`gm/warp_send_watch.py`'s own module docstring,
+    which this function's author had not yet reconciled with when the
+    paragraph above was written) -- BEFORE any send is attempted, not after
+    one fails.  So by the time a `SEND_FAILED` reaches this function,
+    `foundation.selected.position` is routinely the DESTINATION already, not
+    the pre-warp row this paragraph promised.  This function is still
+    correct to call -- but only as the fallback `warp_send_watch.
+    on_game_frame_send_failed` uses it as, AFTER that caller has put the
+    in-memory label back itself (`_restore_selected_scene`, `CORE-REQUEST-
+    GM-059`).  A caller that invokes this function directly, believing the
+    paragraph above, restores the row to the DESTINATION scene under the
+    word `rolled_back` -- measured, `gm/warp_send_watch.py` D2, round
+    `w7gah1`: row `1 -> 2` reported as a successful rollback.
 
     NEVER RAISES, same house rule as `rollback_warp_scene`: this runs inside
     the send loop's own `except` block, on the game-listener thread, and a
