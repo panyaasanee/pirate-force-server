@@ -523,5 +523,46 @@ class NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests(unittest.TestCase)
         self.assertEqual(len(with_passive_effect), 146)
 
 
+class NEquipTypeColumnsAreBoundedNotAccessorWorthyTests(unittest.TestCase):
+    """Round n4wk2z: pf-static-re found real evidence for what
+    ``n_EQUIPTYPE`` means in general (pf_bridge's RE-110 result letter names
+    ``EQUIP_VALUE.n_EQUIPTYPE`` as a client-read weapon-type bitmask feeding
+    attack-animation selection, value set ``{1, 2, 8, 16, 32, 64}``) but that
+    evidence is for a DIFFERENT table's column of the same name, not this
+    catalog's own ``SKILL_CONTEXT`` copy -- and every one of this catalog's 8
+    starting-kit ids carries ``n_EQUIPTYPE=0``/``n_EQUIPTYPE_LHAND=0``
+    regardless. See ``skill_catalog.py``'s module docstring [UPDATE, round
+    n4wk2z] paragraph for the full reasoning; this class pins the two facts
+    that close the question rather than leaving it as prose only."""
+
+    def test_every_starting_kit_id_carries_zero_equip_type_and_zero_lhand(self):
+        for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS:
+            with self.subTest(skill_id=skill_id):
+                raw = skill_catalog.skill_raw_context(skill_id)
+                self.assertEqual(raw["n_EQUIPTYPE"], "0")
+                self.assertEqual(raw["n_EQUIPTYPE_LHAND"], "0")
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_table_wide_value_sets_match_the_re110_bitmask_shape(self):
+        path = (
+            ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+            / "CONSTDATA_TH__SKILL_CONTEXT.tsv"
+        )
+        with path.open("r", encoding="ascii", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter="\t"))
+        equip_type_values = {int(row["n_EQUIPTYPE"]) for row in rows}
+        equip_type_lhand_values = {int(row["n_EQUIPTYPE_LHAND"]) for row in rows}
+        # RE-110's observed EQUIP_VALUE.n_EQUIPTYPE domain was exactly the
+        # non-zero powers of two {1, 2, 8, 16, 32, 64}; SKILL_CONTEXT's own
+        # column (a different table) takes the identical non-zero set, plus
+        # 0 for "no equip type recorded".
+        self.assertEqual(equip_type_values, {0, 1, 2, 8, 16, 32, 64})
+        # n_EQUIPTYPE_LHAND's non-zero values are a DIFFERENT subset,
+        # including 4 -- a bit RE-110 never observed on the EQUIP_VALUE
+        # side -- which is why this test pins it as its own fact rather than
+        # asserting it equals n_EQUIPTYPE's domain.
+        self.assertEqual(equip_type_lhand_values, {0, 1, 4})
+
+
 if __name__ == "__main__":
     unittest.main()
