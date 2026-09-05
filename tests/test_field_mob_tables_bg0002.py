@@ -72,15 +72,26 @@ GAMEDATA = ROOT.parent / "pf_bridge" / "gamedata"
 # round -- COO-DECISION 2026-08-29T00:41+07:00 withdrew the nine set-number
 # rows.  The previous digest is kept, not deleted:
 # ~~b9c142ba8e1b4702cfad2b9cbbe5bd40a910be56120fffb5ace28681c9910fee~~
+# ROUND hor2lh: re-pinned, and by a change that touched ALL SIX generated
+# tables on purpose -- pf-adversary D14 of round r6isy5b found the
+# generator stamping every scene with a control sentence that is true only
+# for bg0001, so the corrected comment was regenerated into each module.
+# Only the comment block moved; every row, digest and census value in
+# bg0001 is byte-identical (verified by regenerating and diffing).  The
+# previous digest is kept, not deleted:
+# ~~574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5~~
 BG0001_UNTOUCHED_SHA256 = (
-    "574fdca1391eb0aa4bc4a5a2b46b50c090839a86baf94426573312afff2866a5"
+    "c1a341c9d7721db45b07e2e7df2840719da5fcbcf5521d7f31eabd4a1ce26934"
 )
 # ROUND 8ftmbx: ~~10570~~ -> 9704.  bg0001's own module shrank when
 # COO-DECISION 2026-08-29T00:41+07:00 withdrew its nine set-number rows;
 # this constant exists to prove THIS round did not touch that file, so it
 # tracks that file's size and is re-pinned whenever bg0001's own lane
 # changes it on purpose.
-BG0001_UNTOUCHED_SIZE = 9708
+# ROUND hor2lh: ~~9708~~ -> 12316, the comment correction described
+# above.  This constant still means "this round did not touch that
+# file"; it is re-pinned when a round changes bg0001 on purpose.
+BG0001_UNTOUCHED_SIZE = 12316
 
 EXPECTED_SCENE = "Bg0002"
 EXPECTED_HOSTILE_COUNT = 17
