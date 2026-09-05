@@ -26,9 +26,15 @@ skills out of band.  What IS unambiguous and provable from one row each:
 the five selectable classes starts with.  That is the starting kit this tool
 mines -- 8 distinct skill ids shared/specific across all 5 classes (99, 110,
 111 are identical for every class; one class-specific "Basic Training" skill
-each: 40000 Gladiator, 41000 Sniper, 42000 Necromancer, 43000 Paladin, 44000
-Sorcerer).  Extending this to each class's full skill list is future RE work
-this tool does not attempt.
+each, named by its OWN ``s_SKILL_TITLE`` row, not by ``CHARCREATE_CLASS``'s
+``s_ICON``: 40000 "Gladiator Basic Training", 41000 "Sharpshooter Basic
+Training", 42000 "Stormherald Basic Training", 43000 "Imperial Knights Basic
+Training", 44000 "Light Priest Basic Training" -- ``s_ICON`` names the same
+five classes "Gladiator"/"Sniper"/"Necromancer"/"Paladin"/"Sorcerer", which
+agrees with the skill title only for class 1; see ``skill_catalog.py``'s
+module docstring and ``test_basic_training_title_differs_from_the_
+charcreate_icon_name`` for the measured collision).  Extending this to each
+class's full skill list is future RE work this tool does not attempt.
 
 VOODOOIST IS NOT A SIXTH ROW HERE.  CHARCREATE_CLASS ships only 5 rows (ids
 1/2/4/16/32).  A 6th "Basic Training" skill (id 45000, icon
