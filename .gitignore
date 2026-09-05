@@ -616,6 +616,13 @@
 # what pf-adversary flagged on this round's first draft.
 !/tools/pf_scene_cast_sources_extract.py
 
+# LANE-B round h4bgfl - re-derives combat_pose.py's two committed TSVs
+# (equip_value_attack_behavior.tsv, creation_gear_by_class.tsv) from
+# ../pf_bridge/gamedata.  tests/test_combat_pose.py's SourcePinTests
+# re-runs this tool in --check mode; without it that test cannot find the
+# file it invokes.
+!/tools/pf_equip_attack_behavior_extract.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/
