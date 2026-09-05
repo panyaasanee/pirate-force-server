@@ -40,9 +40,11 @@ from __future__ import annotations
 import ast
 import hashlib
 import inspect
+import io
 import pathlib
 import re
 import sys
+import tokenize
 
 import pytest
 
@@ -223,7 +225,25 @@ def test_transcribed_provenance_has_not_been_edited_silently():
         "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md"
     )
     assert gate.PAIR_RELATION_ZERO_GATE_SPAN == (0x0043C531, 0x0043C547)
-    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == "ActorAttr+0x98 bit 0x04000000"
+    # CORRECTED by RE-263.  The previous pin read "ActorAttr+0x98 bit
+    # 0x04000000", which says a bit lives inside the value at +0x98.  It does
+    # not: +0x98 is a one-byte uint8_enum and 0x04000000 is the presence bit
+    # in the mask word at +0x1B4.  A test that pins a wrong transcription is
+    # worse than no test -- it makes the error load-bearing -- so the pin
+    # moves with the correction rather than being relaxed.
+    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == (
+        "ActorAttr+0x98 (u8), presence bit +0x1B4 & 0x04000000"
+    )
+    assert gate.PAIR_RELATION_ZERO_GATE_CMP_LOCAL_VA == 0x0043C531
+    assert gate.PAIR_RELATION_ZERO_GATE_CMP_TARGET_VA == 0x0043C53A
+    assert gate.ACTOR_ATTR_0X98_PRESENCE_GATE == "+0x1B4 & 0x04000000"
+    assert gate.ACTOR_ATTR_0X98_CONSTRUCTOR_DEFAULT == 0
+    assert gate.ACTOR_ATTR_0X98_DEFAULT_WRITER_VA == 0x00464D69
+    assert gate.LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS == (0x00443FE9, 0x00443FF2)
+    assert gate.RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA == 0x00444018
+    assert gate.PAIR_RELATION_ZERO_GATE_ROUTE_VERDICT == (
+        "RE-263 BOUNDED-NEGATIVE: not a second route"
+    )
     assert gate.PAIR_RELATION_ZERO_GATE_STATUS == "PROVEN_ROLE_ONLY"
     assert gate.PAIR_RELATION_ZERO_GATE_SOURCE == (
         "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
@@ -375,6 +395,208 @@ def test_no_fontstyleid_number_is_hardcoded_in_the_gate_module():
     ]
     assert not offenders, "FontStyleID-range literal in code: " + "; ".join(offenders)
 
+
+#: A style id spelled inside a string or a COMMENT is not an int literal, so
+#: the test above cannot see it.  Round `srn7ksvmt` proved that gap the
+#: expensive way: its first draft carried
+#: ``..._LABEL_NAME_FontStyleID_56_else_55`` as a string constant, the int
+#: scan stayed green, and pf-adversary -- not the suite -- was what caught it.
+#:
+#: WHAT THIS SCANNER READS, and why each surface is here.  pf-adversary struck
+#: the FIRST draft of this scanner too, for announcing a closure it did not
+#: have:
+#:   * COMMENTS.  That draft read only ``ast`` nodes, which discard comments
+#:     -- and ``#:`` comments are where THIS module keeps its prose, including
+#:     the block that states the no-style-id rule.  The sibling module
+#:     ``gm/attr_wire.py`` deliberately keeps its own style-id domain in a
+#:     comment, so a comment is the single most likely place a future author
+#:     puts one here.  A three-line mutant (one comment, two constants)
+#:     survived that draft entirely.
+#:   * FOLDED strings, so ``"FontStyleID_5" + "6"``, implicit adjacency and an
+#:     f-string's literal parts are read as one value.
+#:   * String constants, docstrings included.
+#: The tokenize/folding machinery is the same shape as
+#: ``tests/test_gm_p2_color_call_site_tripwire.py`` -- which already solved
+#: this one file away, and which exempts this module (near its line 410),
+#: which is exactly why the hole existed.
+#:
+#: WHAT IT STILL DOES NOT CATCH -- named, not hidden, because the first
+#: draft's sin was announcing a closed gap:
+#:   * a spelling with no marker word from the list below;
+#:   * a style id written in hex (``0x38``) or spelled out in words;
+#:   * a number assembled at runtime from parts no literal contains.
+#: A bare-number rule (any standalone 55-67 anywhere) was tried and REMOVED:
+#: it fired on ``"64 bits"``, ``"scene 61"``, ``"line 61 of runtime.py"`` and
+#: on sha digests, and a guard that goes red on another lane's copy edit --
+#: with a message asserting a FontStyleID that is not there -- gets deleted,
+#: not obeyed.
+_STYLE_MARKERS = r"(?:fontstyle|style|label_?name|nameboard|name_?id)"
+#: A marker word with an id-range number glued to it or a short gap away:
+#: ``FontStyleID_56``, ``STYLE 61``, ``LABEL_NAME_ID_056``.  Zero padding is
+#: accepted; a longer digit run is not (``style610`` is not id 61).
+_STYLE_MARKER_THEN_NUMBER = re.compile(
+    _STYLE_MARKERS + r"[A-Za-z_]*[ _.:=-]*(?<![0-9])0{0,2}(?:5[5-9]|6[0-7])(?![0-9])",
+    re.IGNORECASE,
+)
+#: Provenance is the one exemption: a bridge artifact's own filename may carry
+#: a style id, because renaming someone else's letter to satisfy this test
+#: would break the citation.  NARROWED after pf-adversary: the first draft
+#: exempted any whitespace-free token ending in an artifact extension, so
+#: ``"STYLE_56.md"`` and ``"gm/style61_notes.py"`` walked through, and a
+#: mutant widening it to ``.*\.(md|...)$`` -- exempting whole prose sentences
+#: -- survived.  A real citation starts at a real top-level directory, and
+#: ``test_the_artifact_path_exemption_is_as_narrow_as_its_comment_says``
+#: kills that mutant now instead of a comment asserting it.
+_ARTIFACT_PATH = re.compile(
+    r"^(?:notes_to_chief|external|gamedata|archive|rounds|docs|src|tests"
+    r"|tools_bridge|scenarios|config)/[A-Za-z0-9_./-]+"
+    r"\.(?:md|tsv|json|py|txt|csv)$"
+)
+#: The ONE historical identifier this module's prose may name.  pf-adversary
+#: D1 of round `wggs0i` deleted ``typed_style61_tail_reachable`` and the
+#: module's docstring records that it did.  Forcing prose to stop naming what
+#: was removed buys a green bar by erasing the record, so the exemption is by
+#: exact value, pinned, and one entry long -- not the blanket "docstrings are
+#: exempt" the first draft used, which let a glued style id hide in any
+#: docstring.
+_HISTORICAL_IDENTIFIERS = ("typed_style61_tail_reachable",)
+
+
+def _folded_string_values(tree: ast.AST) -> list[tuple[int, str]]:
+    """String constants, ``+`` joins and an f-string's literal parts."""
+    values: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and type(node.value) is str:
+            values.append((node.lineno, node.value))
+        elif (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Add)
+            and isinstance(node.left, ast.Constant)
+            and isinstance(node.right, ast.Constant)
+            and type(node.left.value) is str
+            and type(node.right.value) is str
+        ):
+            values.append((node.lineno, node.left.value + node.right.value))
+        elif isinstance(node, ast.JoinedStr):
+            joined = "".join(
+                part.value
+                for part in node.values
+                if isinstance(part, ast.Constant) and type(part.value) is str
+            )
+            if joined:
+                values.append((node.lineno, joined))
+    return values
+
+
+def _comment_texts(source: str) -> list[tuple[int, str]]:
+    """Every ``#`` comment, which ``ast`` throws away."""
+    return [
+        (tok.start[0], tok.string)
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+        if tok.type is tokenize.COMMENT
+    ]
+
+
+def _without_historical_identifiers(text: str) -> str:
+    for name in _HISTORICAL_IDENTIFIERS:
+        text = text.replace(name, " ")
+    return text
+
+
+def _style_id_offenders_in_prose(source: str) -> list[str]:
+    """Every string or comment in ``source`` that names a FontStyleID value."""
+    tree = ast.parse(source)
+    offenders = []
+    surfaces = [("string", ln, v) for ln, v in _folded_string_values(tree)]
+    surfaces += [("comment", ln, v) for ln, v in _comment_texts(source)]
+    for kind, lineno, text in surfaces:
+        if _ARTIFACT_PATH.match(text.strip()):
+            continue
+        if _STYLE_MARKER_THEN_NUMBER.search(_without_historical_identifiers(text)):
+            offenders.append(f"line {lineno}: style id in {kind} {text[:60]!r}")
+    return offenders
+
+
+#: Spellings the scanner MUST catch.  Each is a shape a future author could
+#: plausibly write here; the first is the exact string round `srn7ksvmt`
+#: nearly shipped.  The numbers live in this fixture and not in the module --
+#: which is the whole rule.
+_MUST_CATCH = (
+    'X = "CNetActor_pair_relation_zero_gate__CMyActor_value_1_selects'
+    '_LABEL_NAME_FontStyleID_56_else_55"\n',
+    'X = "LABEL_NAME_ID_56_else_55"\n',
+    'X = "FontStyleID_056_else_055"\n',
+    'X = "the fallback picks style 61"\n',
+    'X = "nameboard 63 is the RE-191 one"\n',
+    '# FontStyleID 56 selects the label name; 55 otherwise\n',
+    'X = "FontStyleID_5" + "6"\n',
+    'X = "FontStyle" "ID_56"\n',
+    'sep = "_"\nX = f"FontStyleID{sep}56"\n',
+    'def f():\n    """FontStyleID_56 for the local actor."""\n',
+)
+
+#: Spellings the scanner MUST NOT catch.  pf-adversary measured the first
+#: draft going red on the middle four -- innocent prose from another lane --
+#: with a message asserting a FontStyleID that was not there.
+_MUST_NOT_CATCH = (
+    'X = "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"\n',
+    'X = ("notes_to_chief/"\n'
+    '     "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md")\n',
+    'X = "a 64-bit wire quantity"\n',
+    'X = "identity does not fit 64 bits of wire quantity"\n',
+    'X = "scene 61"\n',
+    'X = "line 61 of runtime.py"\n',
+    'X = "63a7211412ac60d50ad189ce5a629443ce928ec23a9f8d219dfb2b157028b623"\n',
+    'def f():\n    """typed_style61_tail_reachable was deleted by D1."""\n',
+)
+
+
+def test_the_prose_scanner_catches_every_shape_it_claims_to():
+    for fixture in _MUST_CATCH:
+        assert _style_id_offenders_in_prose(fixture), f"missed: {fixture!r}"
+
+
+def test_the_prose_scanner_stays_quiet_on_the_shapes_it_must_not_punish():
+    for fixture in _MUST_NOT_CATCH:
+        offenders = _style_id_offenders_in_prose(fixture)
+        assert not offenders, f"false positive on {fixture!r}: {offenders}"
+
+
+def test_the_artifact_path_exemption_is_as_narrow_as_its_comment_says():
+    """The exemption is the only way past the scanner, so it is pinned.
+
+    pf-adversary widened it to ``.*\\.(md|...)$`` and the suite stayed green:
+    the "real top-level directory" narrowing was asserted in a comment and by
+    nothing else.  These are the shapes that widening lets in.
+    """
+    for smuggled in (
+        'X = "STYLE_56.md"\n',
+        'X = "gm/style61_notes.py"\n',
+        'X = "the fallback picks style 56, see relation.md"\n',
+    ):
+        assert _style_id_offenders_in_prose(smuggled), f"exempted: {smuggled!r}"
+
+
+def test_the_historical_identifier_exemption_is_one_entry_and_exact():
+    """A blanket "prose is exempt" was the first draft; this replaced it.
+
+    If the exemption ever grows, it must grow on purpose: a second entry, or
+    a prefix match instead of an exact one, re-opens every docstring.
+    """
+    assert _HISTORICAL_IDENTIFIERS == ("typed_style61_tail_reachable",)
+    # The exemption is a substring blank, so a name CONTAINING the exempt one
+    # is covered too.  That is the price of not maintaining word boundaries
+    # for a one-entry list, and it is stated rather than papered over.
+    assert _style_id_offenders_in_prose(
+        'def f():\n    """style61 on its own is not the deleted identifier."""\n'
+    ), "the exemption is blanking more than one exact name"
+
+
+def test_no_fontstyleid_number_hides_in_this_module_s_prose():
+    """The gap the int scan above leaves open, narrowed on the same module."""
+    source = pathlib.Path(gate.__file__).read_text(encoding="utf-8")
+    offenders = _style_id_offenders_in_prose(source)
+    assert not offenders, "FontStyleID in prose: " + "; ".join(offenders)
 
 
 # --------------------------------------------------------------------------
