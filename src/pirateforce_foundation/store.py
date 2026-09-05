@@ -2500,6 +2500,97 @@ class SQLiteStore:
             # thread.  `KeyboardInterrupt` and `SystemExit` are not caught.
             return None
 
+    def read_class_id_by_identity(
+        self, identity_lo: int, identity_hi: int
+    ) -> "int | None":
+        """`class_id` of the ACTIVE character carrying this wire identity
+        pair, or `None`.
+
+        LANE-B's request (`pf_bridge/notes_to_chief/20260905_1353_LANE-B-
+        CORE-REQUEST-store-read-for-a-characters-class-id.md`): a reader
+        beside `write_speed_by_identity` above, for the same reason that one
+        takes an identity pair instead of a `character_id` -- the asking
+        lane holds `identity_lo`/`identity_hi` from `session.foundation.
+        selected` and no row id.  New method, this lane's charter
+        (`COO-DECISION 20260901_1100`: a new method here is allowed,
+        changing an old one is not); `write_speed_by_identity` itself is
+        untouched.
+
+        `None` is the ONLY report, for every one of these, indistinguishable
+        by design (a caller that needs to tell them apart is asking this
+        door to be something it is not -- read-only and boundary-safe):
+
+        * an identity part that is not an `int`, is a `bool`, or is outside
+          `[0, 0xFFFFFFFF]` (same guard `write_speed_by_identity` uses, same
+          reason -- SQLite binds `True` as `1`).
+        * no active character with that pair, or two (the partial unique
+          index `characters_active_identity`, `migrations/004`, makes two
+          unconstructible through normal writes, but this reader refuses
+          rather than picks one all the same, matching
+          `write_speed_by_identity`'s own `LIMIT 2` / `len(rows) != 1`).
+        * `class_id` is NULL on the row -- `migrations/006` adds the column
+          with no default and no backfill, and `persistence_class_id_
+          backfill`'s own contract is NULL-only, never a guess; `None` here
+          is that same "not yet known", not a zero.
+        * a database that predates migration 006 and has no `class_id`
+          column at all -- guarded the same way
+          `list_character_ids_missing_class_id` and `read_typed_attributes`
+          already are (`pf_bridge/notes_to_chief/20260905_0233_...boot-
+          crash-class-id-backfill.md`): a column that does not exist has no
+          honest value to report, so this is treated exactly like NULL
+          rather than raising `sqlite3.OperationalError`.
+        * a database `self.connect()` or the read itself cannot reach at all
+          -- a locked file, a corrupt one, an I/O error.  A `pf-adversary`
+          pass caught an earlier draft of this method that only wrapped the
+          identity-part guard in `try/except`, leaving the `with self.
+          connect()` block and everything inside it free to raise straight
+          across this door's boundary -- exactly the failure
+          `write_speed_by_identity`'s own docstring names as the reason ITS
+          whole body sits inside one `try`.  Reproduced concretely: writing
+          garbage bytes over the database file made `write_speed_by_identity`
+          report `None` (correct) while this method raised
+          `sqlite3.DatabaseError` straight into the caller.  Fixed by giving
+          this method the SAME shape -- one `try` around the whole body --
+          rather than only around the part that happened to be guarded
+          first.
+
+        Read-only, so unlike `write_speed_by_identity` this is one `SELECT`
+        under a plain `connect()` -- no `BEGIN IMMEDIATE`, nothing to roll
+        back.  But "nothing to roll back" is not "nothing that can raise":
+        `self.connect()` itself, and the `PRAGMA`/`SELECT` inside it, are
+        exactly as capable of raising as the write door's own `connect()`
+        call is, and this door promises the same boundary the write door
+        does.
+        """
+        try:
+            pair = (
+                _require_identity_part(identity_lo),
+                _require_identity_part(identity_hi),
+            )
+            with self.connect() as db:
+                columns = {
+                    str(row["name"])
+                    for row in db.execute("PRAGMA table_info(characters)")
+                }
+                if "class_id" not in columns:
+                    return None
+                rows = db.execute(
+                    "SELECT class_id FROM characters "
+                    "WHERE identity_lo=? AND identity_hi=? AND deleted_at IS NULL "
+                    "LIMIT 2",
+                    pair,
+                ).fetchall()
+            if len(rows) != 1:
+                return None
+            value = rows[0]["class_id"]
+            return None if value is None else int(value)
+        except Exception:
+            # Deliberately wide, and deliberately not `BaseException` --
+            # matching `write_speed_by_identity`'s own boundary exactly, for
+            # the same reason: a store method that raises into a chat/combat
+            # caller is how one bad read kills the thread that asked it.
+            return None
+
     def commit_ground_drop(
         self,
         scene: str,
