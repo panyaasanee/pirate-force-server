@@ -197,6 +197,11 @@ from . import field_mob_tables_bg0003
 from . import field_mob_tables_bg0004
 from . import field_mob_tables_bg0005
 from . import field_mob_tables_bg0015
+# LANE-B's per-(viewer, monster) link for the client's name-colour selector
+# (COO-DECISION 20260905_2348, CORE-REQUEST-GM-061).  Imported for the
+# OPTIONAL `viewer_identity` keyword below; with that keyword absent this
+# module composes exactly the bytes it composed before the import existed.
+from . import mob_viewer_link
 # Lane A's scene-id registry, read-only: the ONE public reader from a scene
 # id to that scene's own folder name (COO-DECISION 2026-08-29T08:48+07:00
 # item 3).  Imported for :func:`scene_for_scene_id`; nothing here writes to
@@ -1798,9 +1803,19 @@ def hostile_npc_attr(
     scene_sequence: int = SCENE_SEQUENCE,
     faction: int = FIELD_MOB_FACTION,
     with_name: bool = True,
+    viewer_identity: int | None = None,
 ) -> bytes:
     """The frozen named body plus its own mined speed and level, plus
     EXACTLY the faction bytes.
+
+    ``viewer_identity`` (LANE-B, this round) is the identity of the SESSION
+    this body is being composed FOR, and it is what the client's name-colour
+    selector reads back out of ``NPCAttr+0x98``.  Left ``None`` -- which is
+    every caller on main today -- the returned bytes are byte-identical to
+    what this function returned before the keyword existed, pinned by
+    ``tests/test_mob_viewer_link.py``.  Passed an identity, the NPC
+    field mask gains bit 0x08 and the tagged qword is appended; the shape
+    rules and the refusals live in ``mob_viewer_link``, not here.
 
     The result is refused unless it equals ``legacy.make_npc_attr(...)`` for
     the same monster with the BasicAttr mask widened by exactly bits
@@ -1911,7 +1926,16 @@ def hostile_npc_attr(
     )
     if len(composed) != len(baseline) + FACTION_SPLICE_BYTES + LEVEL_SPLICE_BYTES:
         raise FieldMobContractError("hostile NPCAttr length drift")
-    return composed
+    if viewer_identity is None:
+        return composed
+    return mob_viewer_link.link_viewer_to_npc_attr(
+        legacy,
+        composed,
+        viewer_identity=viewer_identity,
+        monster_identity=mob.actor_identity,
+        template_id=mob.template_id,
+        visual_preset=mob.visual_preset,
+    )
 
 
 def _basic_mask_offset(legacy: Any, baseline: bytes, actor_identity: int) -> int:
@@ -1938,15 +1962,22 @@ def hostile_actor_entry(
     scene_sequence: int = SCENE_SEQUENCE,
     faction: int = FIELD_MOB_FACTION,
     with_name: bool = True,
+    viewer_identity: int | None = None,
 ) -> bytes:
     """One actor entry: hostile named NPCAttr plus the frozen full-mask movement.
 
     This is the piece an override wiring needs - build the census, then replace
     the entries for :func:`hostile_placement_indices` with these.
+
+    ``viewer_identity`` is the slot CORE-REQUEST-GM-061 measured as missing
+    ("hostile_actor_entry does not take a viewer parameter at all").  It is
+    passed straight through to :func:`hostile_npc_attr`; absent, nothing
+    about the returned bytes changes.
     """
     npc_attr = hostile_npc_attr(
         legacy, mob, current_hp=current_hp, scene_id=scene_id,
         scene_sequence=scene_sequence, faction=faction, with_name=with_name,
+        viewer_identity=viewer_identity,
     )
     movement = legacy.make_remote_movement_attr(
         mob.actor_identity, mob.x, mob.y, mob.z,
