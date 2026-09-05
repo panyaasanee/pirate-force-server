@@ -231,5 +231,63 @@ class ResolveSkillDamageTests(unittest.TestCase):
         self.assertNotIn("not in the starting-kit catalog", str(ctx.exception))
 
 
+# The exact `action_u32_30` values GT-243 captured (attended, reproduced
+# twice each) -- pf_bridge/notes_to_chief/20260906_0155_KA1A-R320-RESULTS-
+# group2-GT266-257-255-230-243-RE235-237-261.md section "GT-243".
+_GT243_WIELD_Z_ACTION_U32_30 = 0x0000EA7E
+_GT243_SKILL_110_ACTION_U32_30 = 0x0000006E  # 110 decimal
+
+
+class CandidateSkillIdFromActionFieldsTests(unittest.TestCase):
+    """`candidate_skill_id_from_action_fields` has zero callers today (see
+    the module docstring's GT-243 update) -- these tests pin its behavior
+    against the exact bytes GT-243 measured, not invented fixtures, so a
+    future caller inherits a function already proven against the one real
+    capture that exists rather than one only ever exercised with made-up
+    numbers."""
+
+    def test_wield_z_with_no_weapon_returns_none(self):
+        fields = {"action_u32_30": _GT243_WIELD_Z_ACTION_U32_30}
+        got = damage_by_skill.candidate_skill_id_from_action_fields(
+            fields, wield_action_code=_GT243_WIELD_Z_ACTION_U32_30)
+        self.assertIsNone(got)
+
+    def test_skill_110_hotbar_click_returns_110(self):
+        fields = {"action_u32_30": _GT243_SKILL_110_ACTION_U32_30}
+        got = damage_by_skill.candidate_skill_id_from_action_fields(
+            fields, wield_action_code=_GT243_WIELD_Z_ACTION_U32_30)
+        self.assertEqual(got, 110)
+
+    def test_wield_action_code_has_no_default_hardcoding_it(self):
+        """Guards the "no second copy of 0xEA7E" claim in the docstring:
+        `wield_action_code` must stay a REQUIRED parameter with no default
+        -- a default of `0xEA7E` would be exactly the second copy of the
+        frozen v141 constant this function is designed to avoid, and would
+        still pass every other test above (they always pass it explicitly)."""
+        import inspect
+        sig = inspect.signature(
+            damage_by_skill.candidate_skill_id_from_action_fields)
+        self.assertIs(
+            sig.parameters["wield_action_code"].default, inspect.Parameter.empty)
+
+    def test_only_the_action_u32_30_key_is_required(self):
+        """A minimal fields dict (just the one key this function reads)
+        must work -- proves this does not accidentally require the rest of
+        the `ActionVital` shape `action_ack.py`'s stricter gate needs."""
+        fields = {"action_u32_30": 12345}
+        got = damage_by_skill.candidate_skill_id_from_action_fields(
+            fields, wield_action_code=_GT243_WIELD_Z_ACTION_U32_30)
+        self.assertEqual(got, 12345)
+
+    def test_missing_key_raises_rather_than_guessing(self):
+        with self.assertRaises(KeyError):
+            damage_by_skill.candidate_skill_id_from_action_fields(
+                {}, wield_action_code=_GT243_WIELD_Z_ACTION_U32_30)
+
+    def test_exported_in_dunder_all(self):
+        self.assertIn(
+            "candidate_skill_id_from_action_fields", damage_by_skill.__all__)
+
+
 if __name__ == "__main__":
     unittest.main()

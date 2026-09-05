@@ -232,17 +232,22 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         # Not a sample: every qualified name the census found THAT IS STILL
         # A STUB, called for real through a live ScriptHost, must log its
         # own stub line.  The 5 Trigger.* names that became real (round
-        # after s2fxf6) are excluded here -- calling them with a bare `()`
-        # is not a stub-reachability probe for them, it is a wrong-arity
-        # call (GetTriggerStatus/SetStatus/SetTriggerStatus require
-        # arguments a real implementation cannot invent) -- and their own
-        # reachability is proven exhaustively, at their real arity, by
-        # tests/test_script_lua_api_trigger.py.
+        # after s2fxf6) and the 7 Instance.* names that became real (a
+        # later round) are excluded here -- calling any of them with a bare
+        # `()` is not a stub-reachability probe for them, it is a
+        # wrong-arity call for the ones that take arguments (e.g.
+        # GetTriggerStatus/SetTriggerStatus/SetLastingTime/AddKeyEvent) --
+        # and their own reachability is proven exhaustively, at their real
+        # arity, by tests/test_script_lua_api_trigger.py and
+        # tests/test_script_lua_api_instance.py respectively.
         from pirateforce_foundation.lua_api import spec as api_spec
         from pirateforce_foundation.lua_api import trigger as lua_api_trigger
+        from pirateforce_foundation.lua_api import instance as lua_api_instance
 
         for fn in api_spec.API_FUNCTIONS:
             if fn.namespace == "Trigger" and fn.method in lua_api_trigger.REAL_METHODS:
+                continue
+            if fn.namespace == "Instance" and fn.method in lua_api_instance.REAL_METHODS:
                 continue
             with self.subTest(qualified=fn.qualified_name):
                 calls = []
@@ -264,6 +269,16 @@ class ApiNamespaceStubBehaviourTests(unittest.TestCase):
         self.assertEqual(lua_api_trigger.REAL_METHODS, frozenset({
             "GetTriggerStatus", "GetTeiggerStatus", "SetStatus",
             "NextStatus", "SetTriggerStatus",
+        }))
+
+    def test_the_7_real_instance_names_are_excluded_above_not_forgotten(self):
+        # Same regression guard as above, for Instance.*'s own real set.
+        from pirateforce_foundation.lua_api import instance as lua_api_instance
+
+        self.assertEqual(lua_api_instance.REAL_METHODS, frozenset({
+            "GetInstanceID", "GetInstanceId", "GetLastingTime",
+            "SetLastingTime", "AddKeyEvent", "RemoveKeyEvent",
+            "CallScoreCount",
         }))
 
     def test_writing_into_a_namespace_table_is_discarded_not_a_crash(self):
