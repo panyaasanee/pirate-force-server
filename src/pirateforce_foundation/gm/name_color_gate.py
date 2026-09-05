@@ -12,8 +12,8 @@ Evidence
    pixels still open) closed the PALETTE question.  Its numbers are
    deliberately NOT here: that ticket's own forbidden-actions section rules
    out writing monster-colour code from it, and ``NOW.md`` P-2 adds
-   "ห้าม hardcode FontStyleID" (``CODEX_URGENT 20260901_1627``).  Read the
-   letter when a human needs a number.
+   "ห้าม hardcode FontStyleID" (``CODEX_URGENT 20260901_1627``).  Read
+   :data:`RE_191_RESULT_LETTER`'s file when a human needs a number.
 2. ``RE-195`` (DONE/BOUNDED-NEGATIVE, opened for this lane out of
    ``CORE-REQUEST-GM-048``) closed the REACHABILITY question, negatively.
 
@@ -207,6 +207,22 @@ PAIR_RELATION_ZERO_GATE_SOURCE = (
 #: This changes NOTHING about the refusal below.  It closes a second route
 #: that was never a blocker; ``faction_is_a_fallback_operand_only`` is
 #: untouched and ``unaddressed_blockers()`` still returns exactly one.
+#:
+#: D4 (pf-adversary, round ``y1evqj``): the sentence above says "the two
+#: sites that emit the name style" -- true of the LOCAL CMyActor lane only,
+#: the ONE lane RE-263 walked.  A round ``y1evqj`` draft over-read that as
+#: "the selector has two emit points" and read only 3 of the table's rows.
+#: It does not.  :data:`PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH` (read in full
+#: this round; see :data:`PF_ATTR_NAME_COLOR_SELECTOR_TSV_ROW_COUNT`) carries
+#: FOURTEEN data rows, one per (identity-class, FontStyleID) branch the
+#: canonical selector's own control flow distinguishes: 2 rows
+#: ``typed_CMyActor_local`` (these two VAs, the LOCAL emit sites below), 9
+#: rows ``untyped_dynamic_controller`` (the identity-pair / NPCAttr tail
+#: RE-195's bounded negative is about), and 3 rows ``typed_CNetNPC`` (the
+#: typed tail this refusal keeps closed).  This module still transcribes
+#: only the 2 LOCAL rows into code; the other 12 are the untyped/typed-tail
+#: rows this module's whole refusal REFERS to without yet being a call site
+#: for -- naming the true count here so no later round repeats "two".
 LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS = (0x00443FE9, 0x00443FF2)
 RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA = 0x00444018
 ACTOR_ATTR_0X98_PRESENCE_GATE = "+0x1B4 & 0x04000000"
@@ -315,13 +331,32 @@ RE_222_RESULT_WHAT_IT_MEASURED = (
 # The styles RE-195's matrix covers, and the further ones that
 # CODEX_URGENT 20260901_1627 places behind the SAME identity lane (the first
 # draft of this module wrongly called those "unmeasured" -- pf-adversary D5),
-# are named ONLY in the letters and in PF_ATTR_NAME_COLOR_SELECTOR.tsv.
+# are named ONLY in the letters and in
+# notes_to_chief/reference_codex_attr/PF_ATTR_NAME_COLOR_SELECTOR.tsv (see
+# PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH below for the pinned path, and
+# PF_ATTR_NAME_COLOR_SELECTOR_TSV_ROW_COUNT for how many rows that is).
 # ---------------------------------------------------------------------------
 
 IDENTITY_CLASS_MEASURED_BYPASS = "positive_identity_high_dword_zero"
 
 #: Half-open bounds of the identity class RE-195 actually measured.
 MEASURED_BYPASS_IDENTITY_RANGE = (1, 2 ** 32)
+
+#: D8 (pf-adversary, round ``y1evqj``): earlier drafts of this module cited
+#: this TSV by bare filename only ("...and in PF_ATTR_NAME_COLOR_SELECTOR
+#: .tsv"), which reads as living under ``external/`` by analogy with the
+#: OTHER named tables this package cites that way (``PF_SERIALIZER_FIELDS
+#: .tsv``, ``PF_PROTOCOL_REGISTRY.tsv`` -- see ``prompts/COMMON_LANE_ROUND
+#: .md``).  It does not: this one is a bridge-side codex table, committed
+#: under ``notes_to_chief/``, not ``external/``.  Verified this round by
+#: listing the bridge clone directly.
+PF_ATTR_NAME_COLOR_SELECTOR_TSV_PATH = (
+    "notes_to_chief/reference_codex_attr/PF_ATTR_NAME_COLOR_SELECTOR.tsv"
+)
+#: D4: the full row count, read this round (14 data rows, one header row).
+#: See :data:`LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS` for the breakdown by
+#: ``selector_lane``.
+PF_ATTR_NAME_COLOR_SELECTOR_TSV_ROW_COUNT = 14
 
 #: Widest value this module will even look at: a 64-bit wire quantity in
 #: either signed or unsigned spelling.
