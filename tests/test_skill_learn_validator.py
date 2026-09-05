@@ -5,6 +5,7 @@ import math
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -81,7 +82,8 @@ class CanAffordToLearnTests(unittest.TestCase):
 
 class SkillPointsAfterLearningTests(unittest.TestCase):
     """The spend half `can_afford_to_learn`'s docstring names as a caller's
-    job -- pure arithmetic, and a refusal (not a guess) on fractional cost."""
+    job -- pure arithmetic, and (per `COO-DECISION 20260905_1245`) a
+    round-up-to-the-nearest-point spend on a fractional cost."""
 
     _WHOLE_COST_SKILL_IDS = tuple(
         skill_id for skill_id in skill_catalog.STARTING_KIT_SKILL_IDS
@@ -119,20 +121,62 @@ class SkillPointsAfterLearningTests(unittest.TestCase):
         result = skill_points_after_learning(1, 99)
         self.assertIs(type(result), int)
 
-    def test_fractional_cost_id_refuses_rather_than_guessing_a_rounding_rule(self):
+    def test_fractional_cost_id_spends_the_ceiling_of_the_cost(self):
+        # COO-DECISION 20260905_1245: a fractional cost spends
+        # math.ceil(cost), the house rule for any such skill_id, not a
+        # special case for 111.  A large surplus balance must come down by
+        # exactly the ceiling, never the raw float and never the floor --
+        # this is also the mutant guard for (ง) in the decision's rollout
+        # order: swapping math.ceil for math.floor in production would
+        # spend one point less than expected here and fail this assertion.
         for skill_id in self._FRACTIONAL_COST_SKILL_IDS:
             with self.subTest(skill_id=skill_id):
-                with self.assertRaises(SkillLearnValidatorError):
-                    skill_points_after_learning(100, skill_id)
+                cost = skill_catalog.skill_point_cost_to_learn(skill_id)
+                spend = math.ceil(cost)
+                self.assertEqual(
+                    skill_points_after_learning(spend + 50, skill_id), 50,
+                )
 
-    def test_fractional_refusal_fires_even_though_the_balance_affords_it(self):
-        # Guards against a shortcut implementation that only checks
-        # affordability and forgets the separate fractional-cost refusal:
-        # 111 costs ~0.2, so a balance of 100 easily affords it, but this
-        # must still refuse rather than silently truncating/rounding.
-        self.assertTrue(can_afford_to_learn(100, 111))
-        with self.assertRaises(SkillLearnValidatorError):
-            skill_points_after_learning(100, 111)
+    def test_id_111_spends_exactly_one_point(self):
+        # COO-DECISION 20260905_1245's own worked example, pinned literally:
+        # id 111 ("VIP Strive Jump") costs ~0.2 -- ceil(0.2) == 1.
+        self.assertLess(skill_catalog.skill_point_cost_to_learn(111), 1.0)
+        self.assertEqual(skill_points_after_learning(1, 111), 0)
+
+    def test_fractional_cost_spend_never_goes_negative_at_the_smallest_affording_balance(self):
+        # The smallest balance can_afford_to_learn accepts (math.ceil(cost),
+        # per CanAffordToLearnTests above) must spend down to exactly zero,
+        # not a negative number -- the module docstring's proof that an int
+        # balance >= a non-integer cost is always >= that cost's ceiling.
+        for skill_id in self._FRACTIONAL_COST_SKILL_IDS:
+            with self.subTest(skill_id=skill_id):
+                cost = skill_catalog.skill_point_cost_to_learn(skill_id)
+                smallest_affording_balance = math.ceil(cost)
+                self.assertEqual(
+                    skill_points_after_learning(
+                        smallest_affording_balance, skill_id
+                    ),
+                    0,
+                )
+
+    def test_non_positive_cost_refused_not_rounded_to_zero_or_spent_negative(self):
+        # No id in this catalog carries a cost <= 0 today (pinned by
+        # test_the_catalog_still_has_exactly_one_fractional_cost_id above),
+        # so this exercises the guard the same way pf-adversary did: patch
+        # the table accessor for one call.  COO-DECISION 20260905_1245 is
+        # explicit that this decision does not touch this case -- a
+        # non-positive cost must keep refusing, never be rounded to a free
+        # `0`-point spend and never be spent as a negative balance change.
+        with mock.patch.object(
+            skill_catalog, "skill_point_cost_to_learn", return_value=0.0
+        ):
+            with self.assertRaises(SkillLearnValidatorError):
+                skill_points_after_learning(5, 99)
+        with mock.patch.object(
+            skill_catalog, "skill_point_cost_to_learn", return_value=-1.0
+        ):
+            with self.assertRaises(SkillLearnValidatorError):
+                skill_points_after_learning(5, 99)
 
     def test_insufficient_balance_refuses_rather_than_returning_negative(self):
         for skill_id in self._WHOLE_COST_SKILL_IDS:
