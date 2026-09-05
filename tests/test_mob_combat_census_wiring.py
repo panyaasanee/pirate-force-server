@@ -132,6 +132,13 @@ class MobCombatCensusWiringTests(unittest.TestCase):
         state.runtime_ack_sent = True
         state.welcome_message_sent = True
         state.current_scene_music_sent = True
+        # CORE-REQUEST 20260905_2242: see tests/test_mob_combat_dispatch.py's
+        # `_state()` -- `_V25_REAL_CREATE_PC` now resolves to a class that
+        # makes the production pose composer fire an extra frame; this file
+        # is about census composition, not pose, so class_id is cleared.
+        state.foundation.selected = replace(
+            state.foundation.selected, class_id=None,
+        )
         return state
 
     def _target_pos_pc(self, xyz, heading=0.0, moving=0, derived=0):
