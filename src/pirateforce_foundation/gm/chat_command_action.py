@@ -2005,6 +2005,30 @@ def _note(session: object, event: str) -> None:
         pass
 
 
+def _selected_scene_id(session: object):
+    """The IN-MEMORY scene label right now, or None if it cannot be read.
+
+    `CORE-REQUEST-GM-059`.  Deliberately NOT `warp_scene_persist.
+    row_before_warp`, which reads the durable row -- see the call site in
+    `_warp_teleport_action_no_coords` for the measured case where the two
+    disagree, and `warp_send_watch.ParkedWarpSend` for what goes wrong when
+    one is used for the other.
+
+    Returns None rather than raising, for the same reason every other helper
+    on this path does: it is called while composing a frame the client is
+    about to be sent, and a session shaped unexpectedly must cost the park
+    its extra field, never the warp.  `warp_send_watch` answers `selected_
+    scene_unknown` for that park and writes nothing.
+    """
+    try:
+        scene_id = session.foundation.selected.position.scene_id
+    except Exception:  # noqa: BLE001 - see docstring
+        return None
+    if not isinstance(scene_id, int) or isinstance(scene_id, bool):
+        return None
+    return scene_id
+
+
 def _print_chat_tail_once(
     session: object,
     split: object,
@@ -3424,7 +3448,27 @@ def _warp_teleport_action_no_coords(
     # outcome already means nothing durable changed, so there is nothing
     # this connection is owed a send confirmation for.
     if _outcome == WARP_SCENE_OUTCOME_PERSISTED:
-        if not warp_send_watch.park_warp_send(session, frame, previous_row):
+        # `CORE-REQUEST-GM-059` (pf-adversary D1, MEASURED, round `bdl0w3`).
+        # The park carries TWO pre-warp values, because there are two and they
+        # can disagree: `previous_row` is the durable `character_positions`
+        # row, and this is the IN-MEMORY scene label.  `lifecycle.py:311`
+        # writes the durable row only when the registry allows it for that
+        # scene while `FoundationSession.checkpoint` updates `selected`
+        # regardless, so a session in scene 17 has an in-memory 17 over a
+        # durable row naming another scene.  `warp_send_watch` undoes an
+        # in-memory relabel, so it needs the in-memory value; handed the
+        # durable one it restored a scene the session was never in.
+        #
+        # READ HERE, AND ONLY HERE, BECAUSE OF WHEN "HERE" IS.
+        # `_persist_warp_scene` has already put `selected` back the way it
+        # found it (`warp_scene_persist._restore_selected`), and
+        # `runtime.py`'s `_gm_warp_resync_selected_scene` does not run until
+        # later in the same dispatch -- so this is the last instant at which
+        # the true pre-warp label is still readable, and the observer that
+        # needs it runs long after the relabel.
+        if not warp_send_watch.park_warp_send(
+            session, frame, previous_row, _selected_scene_id(session),
+        ):
             _note(session, EVENT_WARP_SEND_WATCH_NOT_PARKED)
 
     return _Verdict(

@@ -46,6 +46,7 @@ import time
 import unittest
 import weakref
 from contextlib import redirect_stderr
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -72,12 +73,18 @@ from pirateforce_foundation.model import Position  # noqa: E402
 from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
+from pirateforce_foundation import world_scene_travel  # noqa: E402
 
 LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
 
 #: Prison Exile: marker-backed, `login_entry_allowed` true -- the same
 #: destination every sibling warp-scene test file uses.
 DESTINATION_SCENE = 2
+#: A scene the world registry pins `persist_position_allowed=False`
+#: (GT-106's finding, `scenarios/world_scene_registry_001.json`), so a
+#: session can stand in it while its durable row names another scene.
+#: pf-adversary D1's fixture; asserted, never assumed, at its use site.
+SEA_SCENE_ID = 17
 
 #: Pinned `login_entry_allowed=False`, so the forward write refuses it and
 #: `_persist_warp_scene` never reaches `OUTCOME_PERSISTED` at all.
@@ -1073,54 +1080,93 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
     """`_restore_selected_scene` alone -- CORE-REQUEST-GM-059's helper.
 
     `RealDispatchSendFailureTests` proves the line where it matters (real
-    dispatch, real store, a real send failure). This class covers the four
-    words it can answer, including the three that a real fixture cannot
-    reach on purpose: the whole point of the helper's `except` clauses is
-    that a session too broken to relabel must not cost the listener thread
-    the failed send is already running on.
+    dispatch, real store, a real send failure). This class covers the five
+    words it can answer, including the ones a real fixture cannot reach on
+    purpose: the point of the helper's `except` clauses is that a session
+    too broken to relabel must not cost the listener thread the failed send
+    is already running on.
+
+    THE ARGUMENT IS AN IN-MEMORY SCENE LABEL, NOT A ROW (pf-adversary D1,
+    round `bdl0w3`). The first cut took `record.previous_position`, the
+    DURABLE row, and restored its scene into the in-memory label. Those two
+    values are allowed to differ -- `lifecycle.py:311` gates the durable
+    write per scene, `FoundationSession.checkpoint` does not -- so that cut
+    restored scenes the session had never been in and called them
+    `restored`. `DEPARTURE_LABEL` below is deliberately 17, the measured
+    shape: a scene the world registry pins `persist_position_allowed=False`,
+    so a session really can stand in it with a durable row naming another.
 
     NONCLAIM. Headless unit level, no store and no socket. Nothing here is
     evidence about a screen, and no account gains or loses GM status.
     """
 
-    PREVIOUS = Position(1, 0, -9239.957, -2830.045, 223.292)
+    #: The in-memory label before the warp. 17, not 1, so no test in this
+    #: class can pass by coincidence with a durable row's scene.
+    DEPARTURE_LABEL = 17
 
-    def _session(self, scene_id):
+    #: Where the client actually is, and where it stays. pf-adversary D4:
+    #: the first cut built the fixture with `dataclasses.replace(PREVIOUS,
+    #: scene_id=...)`, so the "coordinates are untouched" assertion compared
+    #: the pre-warp coordinates against themselves and a helper that
+    #: rebuilt the whole `Position` passed it. These are a WALKED position,
+    #: shared with no constant the helper could restore from.
+    WALKED = (-9232.957, -2819.045, 223.292)
+
+    def _session(self, scene_id, position=None):
         session = _FakeSession()
-        session.foundation = _FakeFoundation(
-            _FrozenSelected(dataclasses.replace(self.PREVIOUS, scene_id=scene_id))
-        )
+        if position is None:
+            position = Position(scene_id, 0, *self.WALKED)
+        session.foundation = _FakeFoundation(_FrozenSelected(position))
         return session
 
     def test_the_relabelled_scene_goes_back_and_the_coordinates_do_not(self):
         session = self._session(DESTINATION_SCENE)
 
         outcome = warp_send_watch._restore_selected_scene(
-            session, self.PREVIOUS,
+            session, self.DEPARTURE_LABEL,
         )
 
         self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_RESTORED)
         position = session.foundation.selected.position
-        self.assertEqual(position.scene_id, self.PREVIOUS.scene_id)
-        # x/y/z ride along untouched: the inverse of the resync, and no
-        # more.  Asserted, not incidental -- a helper that rebuilt the whole
-        # `Position` from `previous` would pass the scene_id check above and
-        # silently undo a walk the client really made.
+        self.assertEqual(position.scene_id, self.DEPARTURE_LABEL)
+        # The walked coordinates survive. Not a tautology: `WALKED` is not
+        # reachable from the one argument this function is given, so a
+        # helper that restored anything but `scene_id` fails here.
+        self.assertEqual((position.x, position.y, position.z), self.WALKED)
+
+    def test_the_label_restored_is_the_one_given_not_the_rows(self):
+        """The regression pf-adversary D1 measured, at unit level.
+
+        A session standing in 17 whose durable row says 1. The helper is
+        handed 17 and must write 17; being handed 1 (what the first cut
+        read off `record.previous_position`) would have written 1, a scene
+        this session was never in, under the word `restored`."""
+        session = self._session(DESTINATION_SCENE)
+
+        warp_send_watch._restore_selected_scene(session, self.DEPARTURE_LABEL)
+
         self.assertEqual(
-            (position.x, position.y, position.z),
-            (self.PREVIOUS.x, self.PREVIOUS.y, self.PREVIOUS.z),
+            session.foundation.selected.position.scene_id,
+            self.DEPARTURE_LABEL,
         )
+        self.assertNotEqual(session.foundation.selected.position.scene_id, 1)
 
     def test_a_label_already_on_the_departure_scene_is_left_alone(self):
-        """Same-scene warp, or a resync that never ran.  The word has to be
+        """Same-scene warp, or a resync that never ran. The word has to be
         different from `RESTORED`: the trail is the only place these two
         are distinguishable, and claiming work that did not happen there
-        would make the trail useless for exactly the case it exists for."""
-        session = self._session(self.PREVIOUS.scene_id)
+        would make the trail useless for exactly the case it exists for.
+
+        Honest only because the argument is the label the resync
+        overwrote. Measured against the durable row instead (the first
+        cut), this branch answered `already_there` -- "no relabel
+        happened" -- two entries after `gm_warp_selected_scene_resynced_1`
+        in the same trail (pf-adversary D2)."""
+        session = self._session(self.DEPARTURE_LABEL)
         before = session.foundation.selected
 
         outcome = warp_send_watch._restore_selected_scene(
-            session, self.PREVIOUS,
+            session, self.DEPARTURE_LABEL,
         )
 
         self.assertEqual(
@@ -1128,16 +1174,41 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
         )
         self.assertIs(session.foundation.selected, before)
 
+    def test_a_park_that_never_recorded_a_label_writes_nothing(self):
+        """The `None` population `previous_position`'s own `None` serves: a
+        park built outside this lane, or by hand. Guessing the label from
+        the durable row is D1 exactly, so the answer is a word."""
+        session = self._session(DESTINATION_SCENE)
+        before = session.foundation.selected
+
+        outcome = warp_send_watch._restore_selected_scene(session, None)
+
+        self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_UNKNOWN)
+        self.assertIs(session.foundation.selected, before)
+
+    def test_a_boolean_label_is_refused_rather_than_read_as_scene_one(self):
+        """`True == 1` and `isinstance(True, int)`, so a park carrying a
+        boolean would restore scene 1 and look entirely ordinary doing it --
+        the trap `#826` fell into one lane over with `class_id=True`."""
+        session = self._session(DESTINATION_SCENE)
+
+        outcome = warp_send_watch._restore_selected_scene(session, True)
+
+        self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_UNKNOWN)
+        self.assertEqual(
+            session.foundation.selected.position.scene_id, DESTINATION_SCENE,
+        )
+
     def test_a_session_whose_reads_raise_is_answered_not_propagated(self):
         outcome = warp_send_watch._restore_selected_scene(
-            _HostileSession(), self.PREVIOUS,
+            _HostileSession(), self.DEPARTURE_LABEL,
         )
         self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_UNREADABLE)
 
     def test_a_position_that_is_not_a_position_is_refused_before_the_write(
         self,
     ):
-        """Fail closed on the shape, not on the exception.  `_FakePosition`
+        """Fail closed on the shape, not on the exception. `_FakePosition`
         has a `scene_id` and would compare and `replace` its way to a
         plausible-looking answer, which is precisely why the type is
         checked: this module may not invent a `Position` for a session
@@ -1145,7 +1216,24 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
         session = _FakeSession()  # `_FakePosition`, not `model.Position`
 
         outcome = warp_send_watch._restore_selected_scene(
-            session, self.PREVIOUS,
+            session, self.DEPARTURE_LABEL,
+        )
+
+        self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_UNREADABLE)
+
+    def test_a_scene_id_whose_comparison_raises_costs_only_the_answer(self):
+        """pf-adversary D6: `Position` is an unvalidated dataclass, so a
+        hand-built park can carry a `scene_id` that raises on `==`. That
+        comparison used to sit outside every `try`, which made the NEVER
+        RAISES contract false for exactly the population the `UNKNOWN`
+        branch serves."""
+        session = self._session(
+            DESTINATION_SCENE,
+            position=Position(_RaisingSceneId(), 0, *self.WALKED),
+        )
+
+        outcome = warp_send_watch._restore_selected_scene(
+            session, self.DEPARTURE_LABEL,
         )
 
         self.assertEqual(outcome, warp_send_watch.SELECTED_SCENE_UNREADABLE)
@@ -1153,15 +1241,13 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
     def test_a_write_that_is_silently_lost_is_caught_by_the_read_back(self):
         session = _FakeSession()
         session.foundation = _SwallowingFrozenFoundation(
-            _FrozenSelected(
-                dataclasses.replace(self.PREVIOUS, scene_id=DESTINATION_SCENE)
-            )
+            _FrozenSelected(Position(DESTINATION_SCENE, 0, *self.WALKED))
         )
         stream = io.StringIO()
 
         with redirect_stderr(stream):
             outcome = warp_send_watch._restore_selected_scene(
-                session, self.PREVIOUS,
+                session, self.DEPARTURE_LABEL,
             )
 
         self.assertEqual(
@@ -1170,7 +1256,7 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
         # The one outcome nobody could otherwise see gets a console line.
         self.assertIn(
             f"{warp_send_watch.RESTORE_FAILED_CONSOLE_TOKEN} "
-            f"scene={self.PREVIOUS.scene_id}",
+            f"scene={self.DEPARTURE_LABEL}",
             stream.getvalue(),
         )
         self.assertEqual(
@@ -1185,15 +1271,13 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
         `SELECTED_SCENE_NOT_RESTORED` are walked."""
         session = _FakeSession()
         session.foundation = _FakeFoundation(
-            _FakeSelected(
-                dataclasses.replace(self.PREVIOUS, scene_id=DESTINATION_SCENE)
-            )
+            _FakeSelected(Position(DESTINATION_SCENE, 0, *self.WALKED))
         )
         stream = io.StringIO()
 
         with redirect_stderr(stream):
             outcome = warp_send_watch._restore_selected_scene(
-                session, self.PREVIOUS,
+                session, self.DEPARTURE_LABEL,
             )
 
         self.assertEqual(
@@ -1205,20 +1289,18 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
 
     def test_a_dead_console_costs_the_line_and_not_the_answer(self):
         """A closed stderr must not turn a reportable state into a raise
-        inside a failed send.  Same contract `warp_scene_persist`'s own
+        inside a failed send. Same contract `warp_scene_persist`'s own
         `_console` carries, exercised through this module's use of it."""
         session = _FakeSession()
         session.foundation = _FakeFoundation(
-            _FakeSelected(
-                dataclasses.replace(self.PREVIOUS, scene_id=DESTINATION_SCENE)
-            )
+            _FakeSelected(Position(DESTINATION_SCENE, 0, *self.WALKED))
         )
 
         with mock.patch.object(
             warp_send_watch, "_persist_console", return_value=False,
         ):
             outcome = warp_send_watch._restore_selected_scene(
-                session, self.PREVIOUS,
+                session, self.DEPARTURE_LABEL,
             )
 
         self.assertEqual(
@@ -1229,6 +1311,16 @@ class RestoreSelectedSceneUnitTests(unittest.TestCase):
             f"{warp_send_watch.SELECTED_SCENE_NOT_RESTORED}",
             session.events,
         )
+
+
+class _RaisingSceneId:
+    """A `scene_id` that refuses to compare. pf-adversary D6's fixture."""
+
+    def __eq__(self, other):
+        raise RuntimeError("scene_id comparison exploded")
+
+    __hash__ = None
+
 
 
 class _SwallowingSession:
@@ -2461,6 +2553,237 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
             "undo has been silently spent",
         )
         self.assertEqual((row.x, row.y), (walk_x, walk_y))
+
+    def test_the_label_restored_is_the_in_memory_one_not_the_durable_rows(self):
+        """pf-adversary D1, MEASURED -- the finding that sank the first cut.
+
+        The first cut restored `record.previous_position.scene_id`: the
+        DURABLE `character_positions` row. That is only ever right while the
+        durable row and the in-memory label agree, and this server has a
+        live path where they do not. `lifecycle.py:311` writes the row only
+        when `world_scene_travel.is_position_persist_allowed(scene_id)` says
+        so; `FoundationSession.checkpoint` (`session.py:446`) updates
+        `self.selected` unconditionally either way. Scene 17 -- the Columbus
+        sea scene, pinned `persist_position_allowed=False` in
+        `scenarios/world_scene_registry_001.json` after GT-106 -- is exactly
+        that shape, and `is_position_persist_allowed(17)` is asserted below
+        rather than assumed, so this test dies loudly if that pin ever moves
+        instead of quietly measuring nothing.
+
+        So: stand the session in 17 through the real checkpoint door, leave
+        the durable row at 1, then `/warp 2` and fail the send. The label
+        must come back to **17**, the scene the client is really in and the
+        one the resync overwrote -- not to 1, a scene this session has never
+        been in, which the first cut wrote while the trail said
+        `selected_scene_restored`.
+
+        MUTANT, RUN AND KILLED: hand `_restore_selected_scene` the durable
+        row's scene instead of the park's label and only this test goes red
+        (every other test in the file has a session whose row and label
+        agree, which is precisely how the defect survived the first cut).
+        """
+        self.assertFalse(
+            world_scene_travel.is_position_persist_allowed(SEA_SCENE_ID),
+            "this test needs a scene the durable write refuses; if scene "
+            f"{SEA_SCENE_ID} is now persistable, pick another or the "
+            "divergence this test is about cannot be built",
+        )
+        token = "gm_dispatch05"
+        state, wrapped = self._production_state(
+            token, error=ConnectionResetError(),
+        )
+        self._login_and_start(state, token)
+        home = state.foundation.selected.position
+        self.assertEqual(home.scene_id, 1)
+
+        # The real door, not a poke at the attribute: this is the call
+        # `lifecycle` makes on every accepted movement report.
+        state.foundation.checkpoint(
+            replace(home, scene_id=SEA_SCENE_ID, x=home.x + 4.0),
+        )
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, SEA_SCENE_ID,
+            "in-memory label must follow the checkpoint",
+        )
+        self.assertEqual(
+            self._row(state).scene_id, 1,
+            "durable row must NOT follow it -- that is the whole divergence",
+        )
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, f"/warp {DESTINATION_SCENE}")
+        frame = bytes(next(
+            action[2] for action in actions
+            if action[0] ==
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        ))
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, DESTINATION_SCENE,
+            "the resync must have relabelled, or there is nothing to undo",
+        )
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, SEA_SCENE_ID,
+            "the label must go back to the scene the session was really in "
+            f"({SEA_SCENE_ID}), not to the durable row's scene -- restoring "
+            "the row's scene here names a scene this session never occupied",
+        )
+        self.assertIn(
+            f"{warp_send_watch.EVENT_PREFIX}failed_"
+            f"{warp_send_watch.SELECTED_SCENE_RESTORED}",
+            state.events,
+        )
+
+    def test_a_same_scene_warp_from_a_divergent_label_is_not_called_restored(
+        self,
+    ):
+        """pf-adversary D2 -- the word that lied, at dispatch level.
+
+        Same divergent session as above, but the GM types `/warp 1`: the
+        DURABLE row's scene. Measured against the durable row, this branch
+        answered `SELECTED_SCENE_ALREADY_THERE` -- documented as "nothing
+        was relabelled" -- two entries after
+        `gm_warp_selected_scene_resynced_1` in the same trail. Against the
+        in-memory label it is a real relabel (17 -> 1) and a real restore.
+        """
+        token = "gm_dispatch06"
+        state, wrapped = self._production_state(
+            token, error=ConnectionResetError(),
+        )
+        self._login_and_start(state, token)
+        home = state.foundation.selected.position
+        state.foundation.checkpoint(
+            replace(home, scene_id=SEA_SCENE_ID, x=home.x + 4.0),
+        )
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, "/warp 1")
+        frames = [
+            bytes(action[2]) for action in actions
+            if action[0] ==
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        ]
+        # ASSERTED, NOT SKIPPED.  An earlier draft called `self.skipTest`
+        # here.  A conditional skip is the wrong shape twice over: this
+        # composition has no platform or precondition dependency to skip
+        # ON, and a skip that appears only on the gate is an unpinned entry
+        # in `docs/PYTEST_SKIP_PINS.json`'s census -- so the test would go
+        # from "measuring D2" to "silently measuring nothing" exactly where
+        # nobody is watching it run.
+        self.assertTrue(
+            frames,
+            "/warp 1 must compose the no-coords cross-scene action for the "
+            "D2 shape to exist at all; if this ever stops being true the "
+            "test has to be rewritten, not skipped",
+        )
+        self.assertIn(
+            "gm_warp_selected_scene_resynced_1", state.events,
+            "a relabel really happened, and the word below must not deny it",
+        )
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frames[0])
+
+        self.assertNotIn(
+            f"{warp_send_watch.EVENT_PREFIX}failed_"
+            f"{warp_send_watch.SELECTED_SCENE_ALREADY_THERE}",
+            state.events,
+            "'already there' means no relabel happened; the trail two "
+            "entries earlier says one did",
+        )
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, SEA_SCENE_ID,
+        )
+
+    def test_a_refused_rollback_leaves_the_label_where_the_resync_put_it(self):
+        """The `OUTCOME_ROLLED_BACK` guard, pinned (pf-adversary D3).
+
+        Measured: with the guard replaced by `if True:` the whole file
+        stayed green at 118 passed, and the mutant is NOT equivalent -- on
+        a refused rollback it left the durable row at the DESTINATION while
+        putting the in-memory label back to the departure scene. That is
+        the row/label divergence the restore exists to remove, produced by
+        the restore itself, and it is the state that makes the NEXT walk
+        frame write a row neither value agreed on.
+
+        `test_a_busy_database_leaves_the_row_wrong_and_says_nothing`
+        reaches the same refused outcome against a real contended
+        database, but through `RealDatabaseTests`, where dispatch never
+        runs and so the resync never relabels anything -- there the label
+        is already the departure scene and both HEAD and the mutant answer
+        `already_there`. Only this class can tell them apart, which is why
+        the pin lives here.
+
+        The refusal is injected rather than contended for: this test is
+        about what the observer does with a word, and `SendLockLiveness
+        Tests` already measures that a real busy database produces that
+        word. Patching this module's own imported name is the smallest
+        thing that changes the word without changing anything else.
+        """
+        token = "gm_dispatch04"
+        state, wrapped = self._production_state(
+            token, error=ConnectionResetError(),
+        )
+        self._login_and_start(state, token)
+        departure_scene = state.foundation.selected.position.scene_id
+
+        config_path = self._gm_config(token)
+        with mock.patch.dict(
+            gm_accounts.os.environ, {gm_accounts.ENV_OVERRIDE: str(config_path)},
+        ):
+            actions = self._say(state, f"/warp {DESTINATION_SCENE}")
+        frame = bytes(next(
+            action[2] for action in actions
+            if action[0] ==
+            chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
+        ))
+        # The resync really ran, or this test proves nothing.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, DESTINATION_SCENE,
+        )
+        refused = (
+            f"{warp_scene_persist.OUTCOME_ROLLBACK_REFUSED_PREFIX}"
+            "OperationalError"
+        )
+
+        with mock.patch.object(
+            warp_send_watch, "rollback_warp_scene", return_value=refused,
+        ):
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(ConnectionResetError):
+                    wrapped.sendall(frame)
+
+        # THE LABEL IS NOT TOUCHED.  The durable row was not put back, so
+        # putting the label back would invent a disagreement rather than
+        # remove one.
+        self.assertEqual(
+            state.foundation.selected.position.scene_id, DESTINATION_SCENE,
+            "a refused rollback must leave the in-memory label alone; "
+            "moving it here is the mutant that removes the guard",
+        )
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+        # And the trail says nothing about a restore that did not happen.
+        self.assertFalse(
+            [
+                event for event in state.events
+                if event.startswith(
+                    f"{warp_send_watch.EVENT_PREFIX}failed_selected_scene_"
+                )
+            ],
+            "no selected-scene word may be appended on a refused rollback",
+        )
+        self.assertNotEqual(departure_scene, DESTINATION_SCENE)
 
 
 class SendLockLivenessTests(RealDatabaseTests):
