@@ -526,7 +526,7 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
       instead of staging the next login".  Not re-implemented here.
 
     WHY BOTH, AND WHY NOT SIMPLY "A LIVE WARP CAN REACH IT".  Measured at
-    HEAD against the whole registry (19 rows): 15 scenes resolve a live
+    HEAD against the whole registry (19 rows): 16 scenes resolve a live
     warp, and every one of them except 126, 304 and 305 ALREADY has
     ``login_entry_allowed: true``, so the first arm admits it and a bare
     live-warp arm would add nothing for them.  What it WOULD add is a
@@ -552,6 +552,16 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     letter puts it in front of the COO.  If the answer is no, deleting this
     function restores today's behaviour exactly - an empty ocean for a GM
     standing in 304 - and nothing else in the round depends on it.
+
+    WHAT "GM-ONLY" DOES AND DOES NOT MEAN HERE, stated because the sentence
+    above is easy to over-read.  This predicate asks about a SCENE, never
+    about an account: it answers the same True for any session standing in
+    scene 304, and the only reason that session is a GM today is that a GM
+    ``/warp`` is the only route that reaches the scene at all.  The day
+    chief wires the sea-edge crossing (``world_sea_edge_crossing``), an
+    ORDINARY player who sails across scene 126's edge lands here and is sent
+    this same cast.  That is the intended outcome and not a hole - but it is
+    a consequence of this arm, so it is written down rather than discovered.
 
     WHICH REGISTRY EACH HALF READS, because they are not the same one and a
     reader should not have to find that out from a failing test.  The decree
