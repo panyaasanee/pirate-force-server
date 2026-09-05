@@ -53,10 +53,19 @@ weakly, idempotently, fail-closed.  `CORE-REQUEST-GM-058` had already
 handed chief two forwarding METHODS to paste into his class; the
 installer is offered as the alternative shape of the same hookup, so the
 forwarding logic and its failure discipline stay in this lane's zone
-instead of being copied into his.  Either shape closes the gap; NEITHER
+instead of being copied into his.  Either shape closes the gap; ~~NEITHER
 IS ON MAIN YET -- until one is, everything below is still reachable only
 from this lane's own tests and `chat_command_action.py`'s compose-time
-park.
+park.~~ **SHAPE B IS ON MAIN as of chief round `rs8uyz`/R350**: `runtime.py`
+calls `install_send_outcome_observers(self)` on the line after
+`connection_bindings.bind(self)`, so everything below now runs on every
+accepted connection in production.  Struck rather than deleted, because
+the sentence dates the change.  `HookupWiringPinTests` in this module's
+test file is what forced this edit into the same commit as the call, and
+it now pins the opposite answer -- if the call is ever reverted, that pin
+goes red instead of this paragraph going quietly stale.  Shape A (two
+forwarding methods on chief's class) is still not withdrawn and is still
+compatible: the installer leaves any name that already resolves alone.
 
 R348 asks a second, harder question before that hookup is safe to arm:
 "who accepts the offer, on which thread, under which lock" -- `sendall`'s

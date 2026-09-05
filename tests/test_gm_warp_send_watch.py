@@ -1516,14 +1516,33 @@ class LiveSocketFacadeTests(RealDatabaseTests):
         self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
 
     def test_without_the_install_the_same_failure_leaves_the_row_wrong(self):
-        """MAIN'S BEHAVIOUR TODAY, asserted on purpose.  R348: "no class in
-        `src/` declares `on_game_frame_sent`/`on_game_frame_send_failed`",
-        so `getattr(self.state, hook_name, None)` finds nothing and this
-        module is never reached.  The row stays at the destination the
-        client never arrived at, and the park is orphaned for the life of
-        the connection.  This is the defect the installer closes; if this
-        test ever starts failing, the hookup landed somewhere else and the
-        two tests above are no longer measuring what they claim.
+        """The defect the installer closes, kept as the measurement of WHY.
+
+        REWRITTEN BY CHIEF, round `rs8uyz`/R350, as edit (3) of the three
+        `HookupWiringPinTests` demanded from the commit that lands the
+        call.  It used to open "MAIN'S BEHAVIOUR TODAY, asserted on
+        purpose", and it was: R348 measured that no class in `src/`
+        declared either observer name, so `getattr(self.state, hook_name,
+        None)` (`connection.py:154`) found nothing and this module was
+        never reached in production.  **That stopped being true in the
+        same commit as this edit** -- `runtime.py` now installs both
+        forwards on every accepted connection -- and a test that keeps
+        claiming to describe `main` after `main` moved is worse than no
+        test, because the next round greps it and believes it.
+
+        What it measures is unchanged and still worth having: a session
+        that never had the installer run gets NO rollback.  The row stays
+        at a destination the client never reached and the park is orphaned
+        for the life of the connection.  That is the cost of the hookup
+        being absent, which is exactly what makes the two tests above
+        mean something -- they are otherwise green against a module that
+        might do nothing at all.
+
+        It is NO LONGER a canary for "the hookup landed somewhere else".
+        It never could be: pf-adversary D2 measured that it binds
+        `_Session`, a fixture defined in this file, so nothing chief does
+        to the real state class can move it.  `HookupWiringPinTests` is
+        the canary now, and it reads `runtime.py` itself.
         """
         session = self._session("facade04")
         self.assertIsNone(
@@ -1625,7 +1644,14 @@ class HookupWiringPinTests(unittest.TestCase):
 
     #: What the tree says today.  Change this to `True` in the SAME commit
     #: that lands the call, and this test starts asserting the opposite.
-    HOOKUP_IS_ON_MAIN = False
+    #:
+    #: Flipped by chief, round `rs8uyz`/R350, in the commit that landed
+    #: shape B (`runtime.py:1599`, the line after
+    #: `connection_bindings.bind(self)`).  The pin did exactly what this
+    #: lane built it for: it went red on the merge, its message named the
+    #: three edits, and all three are in that commit.  From here it guards
+    #: the other direction -- a revert of that call turns this red again.
+    HOOKUP_IS_ON_MAIN = True
 
     def _runtime_source(self):
         return (
