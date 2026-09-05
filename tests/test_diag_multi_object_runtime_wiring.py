@@ -31,6 +31,7 @@ the test account, and checks:
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import sys
@@ -119,6 +120,15 @@ class DiagMultiObjectRuntimeWiringTests(unittest.TestCase):
         state.runtime_ack_sent = True
         state.welcome_message_sent = True
         state.current_scene_music_sent = True
+        # CORE-REQUEST 20260905_2242: runtime.py's mob-combat dispatch now
+        # passes the selected Character's real `class_id` into the pose
+        # composer, and `_V25_REAL_CREATE_PC` resolves to a real class
+        # (Gladiator, class_id=1) -- see tests/test_mob_combat_dispatch.py's
+        # `_state()` for the full explanation. This file is not about pose,
+        # so class_id is cleared back to None here too.
+        state.foundation.selected = dataclasses.replace(
+            state.foundation.selected, class_id=None,
+        )
         return state
 
     def _arrive(self, state, env_override):

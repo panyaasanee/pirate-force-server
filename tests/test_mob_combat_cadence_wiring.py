@@ -35,6 +35,7 @@ on the production dispatch path, not that its number is the right one.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import sys
 import tempfile
@@ -115,6 +116,13 @@ class MobCombatCadenceWiringTests(unittest.TestCase):
         state.runtime_ack_sent = True
         state.welcome_message_sent = True
         state.current_scene_music_sent = True
+        # CORE-REQUEST 20260905_2242: see tests/test_mob_combat_dispatch.py's
+        # `_state()` -- `_V25_REAL_CREATE_PC` now resolves to a class that
+        # makes the production pose composer fire an extra frame; this file
+        # is about cadence gating, not pose, so class_id is cleared back.
+        state.foundation.selected = dataclasses.replace(
+            state.foundation.selected, class_id=None,
+        )
         return state
 
     def _action_vital_pc(self, target_identity):

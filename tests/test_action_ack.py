@@ -281,6 +281,56 @@ class ProductionHitPoseEchoTests(unittest.TestCase):
   self.assertIsNone(result)
   self.assertEqual(
    buf.getvalue().strip(),"POSE_NO_EQUIP_PROVENANCE reason=no_class_id")
+ def test_provenance_reported_none_prints_every_hit_unchanged(self):
+  # Default (no provenance_reported argument): every existing caller keeps
+  # today's per-hit behavior. This is the "additive, never breaks an
+  # existing caller" half of CORE-REQUEST 20260905_2242 item 2.
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  for hit in (1,2,3):
+   buf=io.StringIO()
+   with contextlib.redirect_stdout(buf):
+    result=make_production_hit_pose_echo(self.v,self.fields,7,hit,environ={})
+   self.assertIsNone(result)
+   self.assertEqual(
+    buf.getvalue().strip(),"POSE_NO_EQUIP_PROVENANCE reason=no_class_id")
+ def test_provenance_reported_flips_once_then_suppresses(self):
+  # CORE-REQUEST 20260905_2242 item 2, COO-DECISION 20260906_0346: a
+  # one-element mutable list threaded through like `hit_number`, flipped
+  # in place, never reset by this function.
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  slot=[False]
+  buf1=io.StringIO()
+  with contextlib.redirect_stdout(buf1):
+   result1=make_production_hit_pose_echo(
+    self.v,self.fields,7,1,environ={},provenance_reported=slot)
+  self.assertIsNone(result1)
+  self.assertEqual(
+   buf1.getvalue().strip(),"POSE_NO_EQUIP_PROVENANCE reason=no_class_id")
+  self.assertEqual(slot,[True])
+  buf2=io.StringIO()
+  with contextlib.redirect_stdout(buf2):
+   result2=make_production_hit_pose_echo(
+    self.v,self.fields,7,2,environ={},provenance_reported=slot)
+  self.assertIsNone(result2)
+  self.assertEqual(buf2.getvalue(),"")
+  self.assertEqual(slot,[True])
+ def test_provenance_reported_does_not_throttle_a_different_refusal(self):
+  # A POSE_REFUSED line (a real class whose equip type has no attack skill,
+  # or a behavior id not yet screen-confirmed) is a different fact each
+  # time and must keep printing even with the same slot already flipped.
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  slot=[True]  # already reported NO_EQUIP_PROVENANCE earlier this session
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   result=make_production_hit_pose_echo(
+    self.v,self.fields,7,3,class_id=1,environ={},provenance_reported=slot)
+  self.assertEqual(
+   buf.getvalue().strip(),
+   "POSE_PRODUCTION class=1 equip_type=1 base=2 behavior=280")
+  self.assertIsNotNone(result)
  def test_unset_with_a_class_id_composes_that_class_s_production_pose(self):
   from pirateforce_foundation.action_ack import (
    make_production_hit_pose_echo, build_action_vital_echo)
