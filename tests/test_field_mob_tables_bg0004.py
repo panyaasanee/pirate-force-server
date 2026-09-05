@@ -82,6 +82,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import random
+import struct
 import sys
 import unittest
 
@@ -96,6 +97,7 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 from pf_preconditions import BRIDGE_GAMEDATA  # noqa: E402
 
 from pirateforce_foundation import field_drop_tables  # noqa: E402
+from pirateforce_foundation import field_mob_ai_tables  # noqa: E402
 from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
 from pirateforce_foundation import field_mob_tables_bg0004  # noqa: E402
 from pirateforce_foundation import field_mobs  # noqa: E402
@@ -109,6 +111,7 @@ from pirateforce_foundation import mob_scene_recompose  # noqa: E402
 from pirateforce_foundation import scene_door_walk  # noqa: E402
 from pirateforce_foundation import world_bg0004_identity  # noqa: E402
 from pirateforce_foundation import world_population_bg0004  # noqa: E402
+from pirateforce_foundation import world_population_bg0005  # noqa: E402
 from pirateforce_foundation.lane_hooks import lane_a_scene_census  # noqa: E402
 
 
@@ -871,10 +874,85 @@ class Bg0004RecomposeRegistrationTests(unittest.TestCase):
         # scene's seven roster identities.
         self.assertTrue(record.pc)
         self.assertTrue(record.frame)
+        # ~~"a builder that composed some OTHER scene would not carry this
+        # scene's seven roster identities"~~ IS STRUCK, and the correction is
+        # this round's (`ti9gxr`, pf-adversary on the merged `#814`): that
+        # sentence is FALSE and was measured false.  Every scene assigns
+        # identities from the same low range (``0x2000 + placement + 1``), so
+        # a two-byte pattern in a 16-19 KB blob costs almost nothing to hit --
+        # Bg0002's and bg0005's own composed frames each carry **7 of 7** of
+        # scene 4's identities, and Bg0003's carry 5 of 7.  The whole
+        # wrong-builder mutant was being killed by ``record.state`` above,
+        # while the docstring credited the byte check.
+        #
+        # That matters beyond this card: COO-DECISION 20260905_1246 item 1
+        # makes exactly this pair ("state in COMPOSING_STATES + the bytes
+        # carry the roster's own identities") the GENERIC per-scene contract
+        # every future scene must pass, starting with LANE-A's scene 17.  A
+        # vacuous half was one round away from being generalised to the whole
+        # project.
+        #
+        # COORDINATES are what actually discriminate, because they come from
+        # this scene's own placement rows and no other scene's.  Measured on
+        # the same three controls: 7/7 present in scene 4's frame, **0/7** in
+        # scene 3's and 0/7 in scene 5's.
         for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
             with self.subTest(identity=hex(mob.actor_identity)):
                 self.assertIn(
-                    mob.actor_identity.to_bytes(2, "little"), record.frame)
+                    mob.actor_identity.to_bytes(2, "little"), record.frame,
+                    "necessary but NOT sufficient -- see the comment above; "
+                    "the coordinate check below is the discriminating one")
+                for axis, value in (("x", mob.x), ("y", mob.y), ("z", mob.z)):
+                    with self.subTest(axis=axis):
+                        self.assertIn(
+                            struct.pack("<f", value), record.frame,
+                            "scene %s's composed frame does not carry this "
+                            "roster row's own %s -- the body ran, but it "
+                            "composed some other scene's census"
+                            % (EXPECTED_SCENE_ID, axis))
+
+    def test_the_coordinate_check_above_is_not_vacuous(self) -> None:
+        """The control that makes the assertion above worth making.
+
+        pf-adversary's D2 this round was not "the test is wrong", it was "the
+        test passes for the wrong reason and nobody would notice".  A fix that
+        swaps one weak substring check for another weak substring check earns
+        nothing, so the discrimination is measured here rather than asserted
+        in a comment: a NEIGHBOURING scene's composed frame must NOT carry
+        scene 4's roster coordinates.
+
+        bg0005 is the control because it is one of the two scenes whose frames
+        were measured carrying 7/7 of scene 4's identity bytes -- i.e. the
+        exact frame that would have slipped past the old assertion.
+        """
+        anchor = mob_scene_recompose.census_anchor(
+            world_population_bg0005.SCENE_N_ID, (0.0, 0.0, 0.0),
+            world_population_bg0005.DEFAULT_ACTOR_COUNT,
+        )
+        neighbour = mob_scene_recompose.recompose_frames(
+            _legacy(), anchor, mob_death.DeathRegister(),
+            ledger=mob_combat.open_ledger_for_scene_id(
+                world_population_bg0005.SCENE_N_ID),
+        )
+        self.assertEqual(neighbour.state, mob_scene_recompose.STATE_COMPOSED)
+        carried_identities = 0
+        for mob in field_mobs.roster_for_scene_id(EXPECTED_SCENE_ID):
+            if mob.actor_identity.to_bytes(2, "little") in neighbour.frame:
+                carried_identities += 1
+            for value in (mob.x, mob.y, mob.z):
+                self.assertNotIn(
+                    struct.pack("<f", value), neighbour.frame,
+                    "a neighbouring scene's frame carries one of scene %s's "
+                    "own coordinates -- the check above is not discriminating "
+                    "after all and this card must be re-thought, not patched"
+                    % EXPECTED_SCENE_ID)
+        # And the measurement that motivated the change, pinned so it cannot
+        # quietly stop being true: the identity bytes really are shared.
+        self.assertGreater(
+            carried_identities, 0,
+            "if a neighbour's frame stopped carrying ANY of this scene's "
+            "identity bytes, the old assertion would have become meaningful "
+            "again and this comment would be misleading")
 
     def test_the_new_composer_kind_is_non_delegated_and_has_a_builder(
             self) -> None:
@@ -920,6 +998,109 @@ class Bg0004RegenerateTests(unittest.TestCase):
             "<bridge>/gamedata --scene bg0004 --identity-rule cline --out "
             "<this file>",
         )
+
+
+class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
+    """pf-adversary D1 of round `ti9gxr`, on this PR's own merged work.
+
+    The round that shipped scene 4 widened THREE generated modules and gave
+    only one of them the digest pin D7 had asked for.  Measured on a clone
+    with no `pf_bridge` sibling -- which is the configuration the Windows
+    merge gate runs, `actions/checkout@v4` with no sibling and these skips
+    pinned in `docs/PYTEST_SKIP_PINS.json` -- every one of these hand-edits
+    left a 2138-test drop/loot/pickup selection GREEN:
+
+      * `DROPS_NORMAL[2701003]` entry rate 10.0 -> 0.0 (Blood Cubic Crystal
+        stops dropping in six scenes, including all seven scene-4 rows)
+      * that entry's item id 2400046 -> 2400047
+      * `DROPS_EQUIPMENT[5400003]` entry-1 item id, and its rate 50.0 -> 5.0
+      * `ITEMS[2414053]` display name
+
+    The only guard was `@BRIDGE_GAMEDATA.skip_unless_present()` on the
+    byte-for-byte regenerate tests, which the gate never runs.  These two
+    digests are the non-bridge-gated half, in the shape D7 already
+    established next door: the whole shipped table digested, so no column can
+    move on a clone with no bridge beside it.
+
+    THEY ARE NOT A DRIFT CHECK against the client tables -- a self-hash
+    "keeps matching itself forever regardless of what pf_bridge does"
+    (pf-adversary, round iazmrv).  The regenerate tests remain the upstream
+    check.  This pair closes the OTHER hole: a hand-edit that never touches
+    the bridge at all.
+
+    Recompute with:
+      hashlib.sha256("".join(repr(getattr(field_drop_tables, name))
+                             for name in DROP_TABLE_NAMES)
+                     .encode("ascii")).hexdigest()
+    """
+
+    # REFERENCED_BY and SCENES are in the digest because the completeness
+    # test below caught them missing on the first cut -- and REFERENCED_BY is
+    # not incidental: D1 measured that reverting `REFERENCED_BY[2701003]`
+    # (which is how a scene stops being listed as using a drop set) was one
+    # of the edits that stayed green off-bridge.
+    DROP_TABLE_NAMES = (
+        "DROPS_NORMAL", "DROPS_EQUIPMENT", "DROPS_SPECIALLY", "ITEMS",
+        "REFERENCED_BY", "SCENES")
+    DROP_TABLES_SHA256 = (
+        "ddca33f5abbd10a9959d9ce02476316a55bbcd397c8827b8c32b415858004727")
+
+    AI_TABLE_NAMES = (
+        "AI_COMBAT_ROWS", "AI_COMBAT_PARALLEL", "AI_WANDER_ROWS",
+        "PLACEMENT_AI_LINKS")
+    AI_TABLES_SHA256 = (
+        "04ff9baa8cf7f43052e988ddc485af46165311e3a6ad06e4793b73d005fb7f29")
+
+    @staticmethod
+    def _digest(module, names):
+        return hashlib.sha256(
+            "".join(repr(getattr(module, name)) for name in names)
+            .encode("ascii")).hexdigest()
+
+    def test_no_drop_table_row_can_move_without_this_going_red(self):
+        self.assertEqual(
+            self._digest(field_drop_tables, self.DROP_TABLE_NAMES),
+            self.DROP_TABLES_SHA256,
+            "a row of field_drop_tables.py moved.  If you regenerated it with "
+            "tools/pf_mine_scene_drop_tables.py, recompute this digest in the "
+            "same commit and say in the PR which rows changed; if you did "
+            "not, something hand-edited what a player picks up")
+
+    def test_no_ai_table_row_can_move_without_this_going_red(self):
+        # D9 in the same pass: replacing AI_COMBAT_ROWS[300]'s whole mined
+        # script with two tokens left the AI test set green, because the only
+        # content assertion is `conditions.endswith("GO(0)")`.  Nothing parses
+        # these scripts yet, which is why D9 is LOW -- and why a digest is the
+        # proportionate guard rather than a parser this lane does not need.
+        self.assertEqual(
+            self._digest(field_mob_ai_tables, self.AI_TABLE_NAMES),
+            self.AI_TABLES_SHA256,
+            "a row of field_mob_ai_tables.py moved -- regenerate with "
+            "tools/pf_mine_mob_ai_rows.py and recompute this digest in the "
+            "same commit")
+
+    def test_the_digests_cover_every_table_each_module_ships(self):
+        """A digest that silently stops covering a table is worse than none.
+
+        Both modules' table names are enumerated by hand above, so a NEW
+        table added by a widening would be outside the pin and nobody would
+        notice.  This asserts the enumeration is complete instead.
+        """
+        for module, covered in (
+            (field_drop_tables, self.DROP_TABLE_NAMES),
+            (field_mob_ai_tables, self.AI_TABLE_NAMES),
+        ):
+            shipped = {
+                name for name in dir(module)
+                if name.isupper() and isinstance(
+                    getattr(module, name), (dict, tuple, list, frozenset))
+                and name not in ("SOURCE_DIGESTS",)
+            }
+            with self.subTest(module=module.__name__):
+                self.assertEqual(
+                    shipped - set(covered), set(),
+                    "this module ships a table the digest above does not "
+                    "cover; add it to the name tuple and recompute")
 
 
 if __name__ == "__main__":                              # pragma: no cover
