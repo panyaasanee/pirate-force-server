@@ -78,14 +78,49 @@ assumed from the sibling:
   assumed safe: leg 57 is CLINE 61656 -> MOBS 8167 and leg 58 is CLINE
   61657 -> MOBS 8171 - the SAME two MOBS rows scene 304's ``53|54`` pair
   resolves to, reached through this scene's own CLINE rows.  They agree on
-  every shipped column (``INVISIBLE``, no name, no title, level 110, rank
-  0, HP 260787, usage 7) and differ only on the MOBS id, and NEITHER has a
+  every column THIS MODULE SHIPS (``INVISIBLE``, no name, no title, level
+  110, rank 0, HP 260787, usage 7), and NEITHER has a
   ``TEXTDATA_TH__MOBS_TIP`` row - so neither can draw a name plate that
   would tell a player which leg they are looking at.
+  ~~and differ only on the MOBS id~~ -- STRUCK, pf-adversary (this round,
+  D2), MEASURED FALSE in ``CONSTDATA_TH__MOBS.tsv`` itself: the two rows
+  differ on FOUR columns besides ``n_ID``, and the sibling scene's own
+  docstring makes the same claim about the same two rows, so it is wrong
+  there too (corrected in that file this round).  8167 is
+  the row whose ``s_NAME`` is utf-8
+  ``e6b5b7e4b88ae5a4a9e5809928e99bb7e99bbbe9a2a8e69ab429`` (a THUNDERSTORM,
+  per the mined label) with
+  ``s_PROPERTIES = 8209;8211;8212;8213;8214;8215;8216;8196`` and speeds
+  600/600; 8171 is the row whose ``s_NAME`` is utf-8
+  ``e6b5b7e4b88ae5a4a9e5809928e9a2a8e5b9b3e6b5aae99d9c29`` (a DEAD CALM) with
+  ``s_PROPERTIES = 8190`` and speeds 200/200.  So the honest sentence is:
+  the legs are interchangeable IN WHAT THIS CENSUS PUTS ON THE WIRE, and
+  are two different weather events in the table.  Nothing this module
+  sends carries a property list or a speed, so shipping the first leg is
+  still correct TODAY - but ``multi_set_placement_refusals`` compares the
+  fields of ``SceneIdentity`` and structurally CANNOT see those four
+  columns, so the day any round adds ``s_PROPERTIES`` or a speed to what a
+  census ships, this pair stops being interchangeable and the gate will
+  not notice.  Asked as a design question in this round's
+  ``LANE-A-ASK-COO`` letter rather than answered here.
 * TWO NAMELESS SETS, not one.  Sets 56 (MOBS 8170) and 57 (MOBS 8167) both
   ship ``INVISIBLE`` with no ``MOBS_TIP`` row at all.
   ``NAMELESS_INVISIBLE_SETS`` names both; a nameless row with a visible
-  body is still a mining fault and still refused.
+  body is still a mining fault and still refused.  Set 56 is the ICEBERG
+  (utf-8 ``e6b5b7e4b88ae5a4a9e5809928e586b0e5b1b129``,
+  properties ``8222;8223``, speed 450) and it ships
+  SOLO on 2 placements - unlike 304, where the one nameless set was
+  reachable only through the pair, so a blind mirror of that scene's
+  ``NAMELESS_INVISIBLE_SETS = {53}`` would have raised at import here.
+* THE THREE NAMELESS BODIES CANNOT BE NAMED IN cp874 AT ALL, said here
+  because the obvious next step for a reader is to give them one
+  (pf-adversary, this round, D6).  Their ``MOBS.s_NAME`` values above are
+  Traditional Chinese; ``str.encode("cp874")`` RAISES for all three, so
+  there is no ``NAME_CP874_HEX`` pin that could carry them - the pin
+  mechanism is cp874-shaped because the bridge console is, and these names
+  are outside it.  What ships is the ``MOBS_TIP`` name, which for these
+  three does not exist; ``MOBS.s_NAME`` is a mining label this project has
+  never put on a wire.
 * 780 EXTRA SPAWN POINTS in 19 of the 59 placement rows are NOT shipped
   (304 carries 656 in 18 rows).  This composer sends one actor per primary
   placement point, the number the registry's ``native_placement_count``
@@ -117,7 +152,13 @@ inherited:
   shipped ``s_OUTFIT`` contains ``;``, no row's ``template_ids`` column
   reads the literal ``UNRESOLVED``, and every row's ``set_names`` numeric
   tail matches its ``template_ids`` column (the four ``57|58`` rows carry
-  ``Mob_Set_57|Mob_Set_58``, which agrees leg for leg).
+  ``MobSet_57|MobSet_58``, which agrees leg for leg).  ~~``Mob_Set_57|
+  Mob_Set_58``~~ -- STRUCK before the first push, pf-adversary (this round,
+  D4): that is the SIBLING's spelling.  This scene's file writes the column
+  without the second underscore and zero-pads the low numbers
+  (``MobSet_03``), which is the kind of detail a sentence carried over from
+  a sibling gets wrong while the claim around it stays true.  The claim was
+  re-measured on all 59 rows and holds; the token did not.
 * NO NON-ASCII NAME.  Every name this table ships is ASCII, so
   ``NAME_CP874_HEX`` is empty here.  The mechanism is kept, not deleted:
   it is the MEMBERSHIP GATE ``COO-DECISION 20260902_2146`` set for this
@@ -550,10 +591,24 @@ PLACEMENT_COUNT = len(_PLACEMENT_ROWS)
 def identity_for(template_id: int) -> SceneIdentity | None:
     """The identity of a Mob-Set number, or ``None`` if it cannot be shipped.
 
-    ``None`` is exactly the sets in ``UNRESOLVED`` and nothing else - which
-    for this scene is none of them: this function never substitutes, and
-    never falls back to the Mob-Set number itself, which is the specific
-    regression ``GT-078`` was.
+    WHAT ``None`` REALLY MEANS HERE, corrected before the first push
+    (pf-adversary, this round, D9, on a first draft that said "``None`` is
+    exactly the sets in ``UNRESOLVED``, which for this scene is none of
+    them" - read literally, that claimed this function never returns
+    ``None`` at all).  It returns ``None`` for two different populations:
+    the sets in ``UNRESOLVED`` (empty for this scene) AND every Mob-Set
+    number CLINE type 3008 defines that this scene never PLACES - 11 of the
+    58, namely 1, 2, 15, 16, 19, 23, 27, 28, 33, 55 and 58.  Set 58 is the
+    pair's second leg, deliberately unshipped.  SET 55 IS WORTH A READER'S
+    ATTENTION and is written down rather than left to be found: CLINE 61654
+    -> MOBS 8163 is ``Pirate Flagship``, ``SP_008_000_000_BOSS``, level 80,
+    rank 64, HP 104603 - the ONLY ``n_RANK != 0`` row in the whole CLINE
+    type, defined for this sea and placed at none of its 59 points.  This
+    module ships what the placement file places; a boss the scene's own
+    author did not place is not this crosswalk's to invent.
+
+    What this function still never does: substitute, or fall back to the
+    Mob-Set number itself, which is the specific regression ``GT-078`` was.
     """
     if type(template_id) is not int or type(template_id) is bool:
         raise Bg3008IdentityError("template id must be an int")

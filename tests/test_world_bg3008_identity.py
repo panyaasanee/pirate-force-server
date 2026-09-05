@@ -50,12 +50,70 @@ class TheTableSaysWhatTheDocstringSays(unittest.TestCase):
         """The one number this scene does not share with its sibling.
 
         Every placement resolves, so the census's shortfall line has nothing
-        to report - and an empty ``unshippable_placements()`` here means the
-        loop ran over 59 rows and found none, not that the loop is missing.
+        to report.  ~~an empty ``unshippable_placements()`` here means the
+        loop ran over 59 rows and found none, not that the loop is
+        missing.~~ -- STRUCK, pf-adversary (this round, D3): that sentence
+        was a claim about this test's discriminating power that this test
+        did not have.  Measured by mutation: replacing the whole function
+        body with ``return ()`` passed 75 tests and 886 subtests across all
+        four of this scene's files.  The test below is the one that makes
+        the sentence true; this one only pins the count.
         """
         self.assertEqual(identity.unshippable_placements(), ())
         shipped = {p.placement_index for p in identity.shippable_placements()}
         self.assertEqual(shipped, {row[0] for row in identity._PLACEMENT_ROWS})
+
+    def test_the_drop_reporter_still_reports_when_there_is_a_drop(
+        self,
+    ) -> None:
+        """The loop that never runs on this scene's real data, driven.
+
+        A scene with no drops ships a shortfall path nothing has executed,
+        and the day a regeneration loses a row that path is what the console
+        line's ``unresolved=`` count and the census's ``BG3008_UNSHIPPED``
+        lines come from.  So one set is removed from ``IDENTITIES`` here and
+        the reporter is asked what it says: the placements keyed by that set
+        (17, 18 and 19 are set 12, 13 and 14 - set 11's nine placements are
+        the densest, which is why set 11 is the one taken away), their
+        reason, and their coordinates.
+        """
+        taken_away = 11
+        placements_of_that_set = sorted(
+            row[0] for row in identity._PLACEMENT_ROWS
+            if row[1] == taken_away)
+        self.assertEqual(len(placements_of_that_set), 9)
+        original_identities = identity.IDENTITIES
+        original_unresolved = identity.UNRESOLVED
+        identity.IDENTITIES = {
+            key: row for key, row in original_identities.items()
+            if key != taken_away
+        }
+        identity.UNRESOLVED = {
+            taken_away: (61610, 8024, "driven by a test, not a real drop"),
+        }
+        try:
+            dropped = identity.unshippable_placements()
+            self.assertEqual(
+                sorted(row["placement_index"] for row in dropped),
+                placements_of_that_set)
+            for row in dropped:
+                with self.subTest(placement=row["placement_index"]):
+                    self.assertEqual(row["template_id"], taken_away)
+                    self.assertEqual(row["cline_row_id"], 61610)
+                    self.assertEqual(row["leader_n_id"], 8024)
+                    self.assertTrue(row["reason"].isascii())
+                    self.assertEqual(len(row["xyz"]), 3)
+            # And a set the table has never heard of falls back to the
+            # named reason rather than to a KeyError - the branch a real
+            # regeneration would hit before anyone wrote an UNRESOLVED row.
+            identity.UNRESOLVED = {}
+            self.assertTrue(
+                all("not in CLINE 3008" in row["reason"]
+                    for row in identity.unshippable_placements()))
+        finally:
+            identity.IDENTITIES = original_identities
+            identity.UNRESOLVED = original_unresolved
+        self.assertEqual(identity.unshippable_placements(), ())
 
     def test_control_1_scene_sets_and_the_table_keys_are_the_same_47(
         self,

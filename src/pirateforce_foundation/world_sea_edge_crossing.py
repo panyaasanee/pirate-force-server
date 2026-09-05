@@ -55,8 +55,14 @@ from `runtime.py` -- the same widening `#838` already made for scene 126,
 here as an accepted side effect of reusing that scene's own gate rather
 than a decision made on purpose for these two. Still GM-only
 (`accounts.is_gm_account` gates `/warp` itself, unchanged) and still with
-no ground bounds or census composed for either scene -- see
-`tests/test_gm_warp_chain_census_shipped.SCENES_WITH_NO_CENSUS_COMPOSER_YET`.
+no ground bounds composed for either scene. ~~and still with no ... census
+composed for either scene -- see `tests/test_gm_warp_chain_census_shipped.
+SCENES_WITH_NO_CENSUS_COMPOSER_YET`~~ -- STRUCK, and it had already gone
+stale once before this round noticed: scene 304 got its cast in round
+`yob0a2` and scene 305 in round `9zj630`, so BOTH scenes now compose a real
+arrival census for a GM standing in them, and that tuple is empty. The
+pointer is kept rather than deleted because the tuple is still the place a
+future bare-warp destination with no composer would be named.
 What is still NOT live is the ORDINARY-PLAYER route this module exists
 for: a real ship crossing scene 126's map edge, which needs the
 `runtime.py` hookup named above.

@@ -122,10 +122,21 @@ ASSUMED.  Six placements (44-49) name two Mob-Set numbers in one column.
 ``COO-DECISION 20260902_2146`` shape 2 allows the first leg to ship when the
 legs are interchangeable, and ``multi_set_placement_refusals`` is that rule
 executable.  Measured for this scene: leg 53 is CLINE 61452 -> MOBS 8167 and
-leg 54 is CLINE 61453 -> MOBS 8171; the two rows agree on every shipped
-column (``INVISIBLE``, no name, no title, level 110, rank 0, HP 260787,
-usage 7) and differ only on the MOBS id, and NEITHER has a
-``TEXTDATA_TH__MOBS_TIP`` row - so neither can draw a name plate that would
+leg 54 is CLINE 61453 -> MOBS 8171; the two rows agree on every column THIS
+MODULE SHIPS (``INVISIBLE``, no name, no title, level 110, rank 0, HP
+260787, usage 7), and NEITHER has a ``TEXTDATA_TH__MOBS_TIP`` row.
+~~and differ only on the MOBS id~~ -- STRUCK 2026-09-06 (LANE-A round
+``9zj630``; pf-adversary measured it there while checking scene 305, whose
+own ``57|58`` pair resolves to these SAME two MOBS rows and whose docstring
+had inherited this sentence).  In ``CONSTDATA_TH__MOBS.tsv`` the two rows
+differ on FOUR columns besides ``n_ID``: ``s_NAME`` (8167 is a thunderstorm,
+8171 a dead calm - both Traditional Chinese, neither encodable in cp874, so
+neither can be quoted in this file), ``s_PROPERTIES`` (eight entries against
+one) and both speed columns (600/600 against 200/200).  Shipping the first
+leg is still correct today because nothing this census sends carries any of
+those four - but ``multi_set_placement_refusals`` compares the fields of
+``SceneIdentity`` and structurally cannot see them, so "interchangeable"
+here means interchangeable ON THE WIRE, not in the table - so neither can draw a name plate that would
 tell a player which leg they are looking at.  That is the same pair shape
 scene 126 ships under, re-measured here on this scene's own rows.
 

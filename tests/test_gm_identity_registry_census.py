@@ -62,10 +62,13 @@ class RegistryCoverageTests(unittest.TestCase):
 
     def test_the_scene_count_is_pinned_so_a_family_cannot_vanish_quietly(self):
         # ~~15 since round `vwekfq` (LANE-A): world_bg1001_identity (scene
-        # 17) joined the registry.~~  16 since round `yob0a2` (LANE-A):
+        # 17) joined the registry.~~  ~~16 since round `yob0a2` (LANE-A):
         # world_bg3007_identity (scene 304, the Dark Fog Sea) joined it in
-        # the same commit that gave that scene a census.
-        self.assertEqual(16, len(census.scene_ids_with_a_census()))
+        # the same commit that gave that scene a census.~~  17 since round
+        # `9zj630` (LANE-A): world_bg3008_identity (scene 305, the Pale
+        # Silver Sea) joined it the same way, in the commit that gave THAT
+        # scene a census.
+        self.assertEqual(17, len(census.scene_ids_with_a_census()))
 
     def test_the_registry_holds_one_entry_per_source_and_lost_none(self):
         # A duplicate SCENE_N_ID would overwrite a whole family; the module

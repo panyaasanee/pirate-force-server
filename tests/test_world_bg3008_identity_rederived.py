@@ -156,6 +156,19 @@ class TheShippedTableMatchesTheSource(unittest.TestCase):
                 self.assertEqual(
                     int(source["extra_triple_count"]),
                     identity.EXTRA_TRIPLES_NOT_SHIPPED.get(index, 0))
+                # The set_names column, which NO test in this repository
+                # read until this round (pf-adversary D4 caught a docstring
+                # quoting the sibling scene's spelling of it - "Mob_Set_57"
+                # where this file writes "MobSet_57").  The claim the
+                # docstring makes is that each name's numeric tail agrees
+                # with its template_ids leg; that is what is checked here,
+                # on the real column, leg for leg.
+                names = source["set_names"].split("|")
+                self.assertEqual(len(names), len(legs))
+                for name, leg in zip(names, legs):
+                    tail = name.strip().rsplit("_", 1)[-1]
+                    self.assertTrue(tail.isdigit(), name)
+                    self.assertEqual(int(tail), int(leg))
 
     def test_nothing_is_dropped_and_the_sources_agree(self) -> None:
         """This scene's whole shortfall claim, re-derived rather than

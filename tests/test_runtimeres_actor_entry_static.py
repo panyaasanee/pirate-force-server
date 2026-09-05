@@ -436,9 +436,18 @@ class TestTheAnswer(unittest.TestCase):
         # - the identity/census pair COO-DECISION 20260905_0848 approved as
         # this round's main task.  Same single-module move as bg3001's and
         # bg4001's own entries above.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 41)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 31)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 30)
+        # 40 -> 41, 30 -> 31, 29 -> 30 on 2026-09-05 (LANE-A, round yob0a2):
+        # world_population_bg3007.py, scene 304's ("Dark Fog Sea") census.
+        # That round moved the numbers and left this comment block behind;
+        # the line is added here by the round below rather than left as a
+        # gap in the history.
+        # 41 -> 42, 31 -> 32, 30 -> 31 on 2026-09-06 (LANE-A, round 9zj630):
+        # world_population_bg3008.py, scene 305's ("Pale Silver Sea")
+        # census - the other sea of that same decreed pair.  Same
+        # single-module move as every entry above.
+        self.assertEqual(counts["src_actor_stream_call_sites"], 42)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 32)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 31)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
