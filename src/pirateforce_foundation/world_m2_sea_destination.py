@@ -425,17 +425,59 @@ CLINE_KEY_COLUMN = "n_CREATURE_TYPE"
 # 2026-08-29 from CONSTDATA_TH__CLINE.tsv.  The last two columns are what
 # make the ordinal misreading visible: type 14 spans keys 1..115 across only
 # 51 rows, so key and position cannot be the same thing.
+#
+# WIDENED round ``vwekfq`` (LANE-A) with the three types scene 17's own
+# INSTANCE rows name (109/122/124 -> 801/814/816 - see
+# ``world_bg1001_identity`` for the full crosswalk and why 801, not 814 or
+# 816, is the type that module actually keys on).  All three are dense (5
+# keys, 5 rows, no gaps) so none joins ``SPARSE_CLINE_TYPES`` below.
+#
+# TAGGED [PROPOSED], NOT MEASURED, AND DELIBERATELY NOT MOVED TO THE LINE
+# ABOVE.  Every other entry in this dict earned its place from a scene with
+# a CONTROL - type 1 and type 3001 both have an independent agreement (a
+# registry ``native_definition_count`` matching the CLINE block's own row
+# count; see ``world_bg3001_identity``'s CONTROL 1 for 3001's).  No such
+# agreement exists for 801/814/816: scene 17's own registry row gives
+# ``native_definition_count`` 6 (six free-text ``Mob_set_N`` labels in the
+# placement file, one of them stale - see ``world_bg1001_identity``'s own
+# docstring), while each of these three CLINE types holds exactly 5 rows.
+# 6 != 5, so this widening rests on the join resolving cleanly against the
+# scene's own placements (measured, and cross-checked by that module's
+# ``_self_check``), not on an independent control agreeing with it.  Per
+# COO-DECISION ``pf_bridge/notes_to_chief/20260905_0848_...`` condition (a),
+# this stays [PROPOSED] - in this comment, in ``PROPOSED_CLINE_TYPES``
+# below, and in every console line that names these three - until a control
+# appears or an attended round confirms the resulting cast on screen.
 CLINE_BLOCKS = {
     1: (1000, 113, 1, 113),
     4: (1600, 61, 1, 114),
     14: (3400, 51, 1, 115),
     3001: (60400, 56, 1, 56),
+    801: (26660, 5, 1, 5),
+    814: (26920, 5, 1, 5),
+    816: (26960, 5, 1, 5),
 }
 
 # The two types whose key range is wider than their row count.  Only these
 # expose the ordinal misreading; a rule tested on type 1 or type 3001 alone
 # passes while being wrong.
 SPARSE_CLINE_TYPES = (4, 14)
+
+# The types in ``CLINE_BLOCKS`` this file cannot call MEASURED - see the
+# widening comment above ``CLINE_BLOCKS`` for exactly what is missing
+# (a control, not a join).  Named as data, not just prose, so a caller (or a
+# console line) can ask ``is_cline_block_proposed(cline_type)`` instead of
+# re-reading this comment.
+PROPOSED_CLINE_TYPES = (801, 814, 816)
+
+
+def is_cline_block_proposed(cline_type: int) -> bool:
+    """Whether ``cline_type``'s ``CLINE_BLOCKS`` entry is [PROPOSED] rather
+    than measured against a control - condition (a) of COO-DECISION
+    ``20260905_0848``, made checkable rather than left as a comment only a
+    human reading this file's source would ever see.
+    """
+    return cline_type in PROPOSED_CLINE_TYPES
 
 # Scene 126 census feasibility, measured 2026-08-29.  Counts about a
 # possible FUTURE census of that scene, not a roster, and not a route.
@@ -1008,6 +1050,19 @@ def _self_check() -> None:
             raise SeaDestinationError(
                 "CLINE type %d is listed as sparse but its key range fits "
                 "inside its row count - one of the two was mis-measured"
+                % (cline_type,)
+            )
+    for cline_type in PROPOSED_CLINE_TYPES:
+        if cline_type not in CLINE_BLOCKS:
+            raise SeaDestinationError(
+                "PROPOSED_CLINE_TYPES names a type with no CLINE_BLOCKS "
+                "entry - the [PROPOSED] tag has nothing to attach to"
+            )
+        _base, count, lowest, highest = CLINE_BLOCKS[cline_type]
+        if highest - lowest + 1 != count:
+            raise SeaDestinationError(
+                "CLINE type %d (scene 17's own widening, round vwekfq) is "
+                "measured dense (5 keys, 5 rows) - this no longer agrees"
                 % (cline_type,)
             )
     route_targets = {row[3] for row in COLUMBUS_ROUTES}

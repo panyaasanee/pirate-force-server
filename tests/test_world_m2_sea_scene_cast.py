@@ -92,14 +92,21 @@ EXPECTED_SOURCE_DIGESTS = {
         "9a047da026c12c2909e9c2725a19e49713161c5d9e10c108e386157446323d2c",
 }
 
+# door_composer changed from "none" to "bg1001_roster" in round `vwekfq`
+# (LANE-A): `world_bg1001_identity`/`world_population_bg1001` now register
+# scene 17 in `world_scene_travel.CENSUS_SOURCES`, so this already-firing
+# per-crossing line reports it - the report layer's own flagless,
+# zero-touch confirmation that a roster now exists for the door itself,
+# separate from (and not implying) whether any admission gate sends it to
+# a client.  `targets_buildable_unbuilt` drops 17 for the same reason.
 EXPECTED_CONSOLE_LINE = (
     "M2_SEA_CAST door=17 door_contested=YES"
     " door_verdict=CAST_RESOLVES_PARTIALLY door_source=INSTANCE"
-    " door_cast=7/8 door_composer=none"
+    " door_cast=7/8 door_composer=bg1001_roster"
     " trial=126 trial_verdict=CAST_RESOLVES_PARTIALLY trial_source=SCENE_NAME"
     " trial_cast=37/38 trial_composer=bg3001_roster"
     " halves_agree=NO targets_resolving=8/8"
-    " targets_buildable_unbuilt=17,18,19,20,21,39,40,41 sources_checked=3"
+    " targets_buildable_unbuilt=18,19,20,21,39,40,41 sources_checked=3"
 )
 
 
@@ -245,12 +252,22 @@ class TheCorrectionTests(unittest.TestCase):
                 self.assertIn("ship",
                               cast.cast_capacity(scene_id).name_gloss)
 
-    def test_none_of_the_eight_has_a_roster_yet(self):
+    def test_one_of_the_eight_has_a_roster_now_the_rest_do_not(self):
+        """Round `vwekfq` (LANE-A) registered scene 17's roster - the first
+        of the eight Columbus targets to get one.  The other seven are
+        exactly as unbuilt as this test originally pinned all eight to be."""
         self.assertEqual(
             cast.targets_with_no_roster_yet(),
-            cast.COLUMBUS_TARGET_SCENE_IDS,
+            tuple(
+                scene_id for scene_id in cast.COLUMBUS_TARGET_SCENE_IDS
+                if scene_id != 17
+            ),
         )
+        self.assertIn(17, world_scene_travel.CENSUS_SOURCES)
+        self.assertEqual(world_scene_travel.CENSUS_SOURCES[17], "bg1001_roster")
         for scene_id in cast.COLUMBUS_TARGET_SCENE_IDS:
+            if scene_id == 17:
+                continue
             self.assertNotIn(scene_id, world_scene_travel.CENSUS_SOURCES)
 
 
@@ -309,13 +326,17 @@ class DerivedNotAssertedTests(unittest.TestCase):
                          cast.VERDICT_NO_SOURCE_ANSWERS)
 
     def test_a_target_that_gains_a_roster_drops_out_of_the_unbuilt_list(self):
+        # Scene 17 already has a real roster since round `vwekfq` (see
+        # `test_one_of_the_eight_has_a_roster_now_the_rest_do_not`), so this
+        # drive uses scene 18 - still genuinely unbuilt - to keep exercising
+        # the state TRANSITION rather than re-asserting a permanent fact.
         original = dict(world_scene_travel.CENSUS_SOURCES)
-        world_scene_travel.CENSUS_SOURCES[17] = "bg1001_roster"
+        world_scene_travel.CENSUS_SOURCES[18] = "bg1002_roster"
         self.addCleanup(
             lambda: (world_scene_travel.CENSUS_SOURCES.clear(),
                      world_scene_travel.CENSUS_SOURCES.update(original)))
-        self.assertIn(17, cast.targets_with_a_resolvable_cast())
-        self.assertNotIn(17, cast.targets_with_no_roster_yet())
+        self.assertIn(18, cast.targets_with_a_resolvable_cast())
+        self.assertNotIn(18, cast.targets_with_no_roster_yet())
 
     def test_halves_agree_answers_yes_when_the_two_ids_match(self):
         original = cast.DOOR_SCENE_ID

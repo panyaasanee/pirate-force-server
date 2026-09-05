@@ -109,11 +109,16 @@ class CrossingHandoffTests(unittest.TestCase):
     def test_the_sea_crossing_composes_a_clear_before_the_teleport(self):
         """The whole reason this module exists, asserted as bytes.
 
-        A clear is what scene 17 owes: the client is holding Port Royal's
-        collection, scene 17 has no composable population, and
-        ``make_runtime_remote_actors`` replaces rather than merges.  The slot
-        matters as much as the kind - a clear belongs to the scene the client
-        still renders, so it goes BEFORE the teleport.
+        STILL a CLEAR, deliberately, round ``vwekfq`` (LANE-A): scene 17 now
+        has a real, measured cast (``world_bg1001_identity`` /
+        ``world_population_bg1001``), but it is not registered in
+        ``world_population_handoff.ROSTER_COMPOSERS`` - see that table's own
+        comment for why (``runtime.py``'s Columbus call site hardcodes
+        ``crossing_handoff_dispatched=True`` on the assumption this composes
+        KIND_CLEAR every time, and flipping that without chief's review
+        would send a never-attended-tested roster to a live client).  So the
+        client is still holding Port Royal's collection, and
+        ``make_runtime_remote_actors`` still replaces rather than merges.
         """
         handoff = crossing.crossing_handoff(self.legacy, self.entry())
         self.assertEqual(handoff.kind, world_population_handoff.KIND_CLEAR)
@@ -129,22 +134,34 @@ class CrossingHandoffTests(unittest.TestCase):
         # must be exactly what the encoder wraps its own pc in.
         self.assertEqual(handoff.frame, self.legacy.frame_pc(handoff.pc))
 
-    def test_the_sea_says_it_is_empty_on_purpose_not_by_omission(self):
-        """A decision indistinguishable from an oversight is an oversight.
+    def test_the_sea_no_longer_says_it_is_castless_but_still_clears(self):
+        """A decision indistinguishable from an oversight is an oversight -
+        and so is the reverse: a stale decision left standing after the data
+        that grounded it turned out to be incomplete.
 
-        Scene 17 used to print ``scene_17_has_no_population_table`` - the same
-        string a scene nobody has ever looked at prints.  It is now in
-        ``SCENES_INTENTIONALLY_UNPOPULATED`` with the measurement that put it
-        there (8 Mob-Set placements, ``n_CLINE_TYPE`` absent, so GT-078's
-        rejected reading is the only one available and it stays rejected).
+        Scene 17 used to print ``left_empty_on_purpose`` with reason
+        ``sea_scene_no_cline_type_mob_set_placements_unresolvable_gt078`` -
+        which checked only the DIRECT ``n_CLINE_TYPE`` column
+        (``CONSTDATA_TH__SCENE_NAME``) and never opened the INDIRECT one
+        (``CONSTDATA_TH__INSTANCE``) that resolves 7 of 8 placements.  Round
+        ``vwekfq`` (LANE-A) removed the stale entry - see
+        ``world_population_handoff``'s own struck comment on
+        ``SCENES_INTENTIONALLY_UNPOPULATED`` - but did NOT register a
+        crossing-handoff composer (see the class docstring above), so the
+        reason is now the honest "not wired yet" string every other
+        registered-but-unrouted scene prints, not "impossible" and not the
+        stale "on purpose".
         """
         handoff = crossing.crossing_handoff(self.legacy, self.entry())
-        self.assertIn("left_empty_on_purpose", handoff.reason)
-        self.assertIn("cline", handoff.reason)
+        self.assertNotIn("left_empty_on_purpose", handoff.reason)
         self.assertNotIn("has_no_population_table", handoff.reason)
-        self.assertIn(
+        self.assertIn("bg1001_roster_has_no_crossing_handoff_yet", handoff.reason)
+        self.assertNotIn(
             columbus_quest_dispatch.COLUMBUS_DEST_SCENE_ID,
             world_population_handoff.SCENES_INTENTIONALLY_UNPOPULATED,
+        )
+        self.assertNotIn(
+            "bg1001_roster", world_population_handoff.ROSTER_COMPOSERS,
         )
 
     def test_a_clear_drops_both_membership_fields_together(self):
@@ -192,11 +209,17 @@ class CrossingConsoleLineTests(unittest.TestCase):
             emit=lambda line: None)
 
     def test_the_default_line_says_the_frame_was_not_dispatched(self):
-        """``dispatched=NO`` is a fact about the tree, not a placeholder.
+        """``dispatched=NO`` is a fact about the console-line PARAMETER, not
+        about whether ``runtime.py`` queues the underlying bytes - it does,
+        unconditionally, since chief round R250/65etwo (see
+        ``test_columbus_quest_dispatch_wiring.CrossingHandoffQueuedWiringTests``).
+        This function's own default just prints ``NO`` unless a caller says
+        otherwise, which is what ``test_dispatched_true_is_the_only_way_to_
+        get_a_yes`` below drives.
 
-        Nothing queues these bytes today.  The day ``runtime.py`` does, that
-        block passes ``dispatched=True`` and this assertion is the one that
-        makes the change visible instead of silent.
+        ``kind=clear``/``slot=before_teleport`` STILL, round ``vwekfq``
+        (LANE-A): see ``test_the_sea_crossing_composes_a_clear_before_the_
+        teleport``.
         """
         line = crossing.crossing_handoff_console_line(
             crossing.crossing_handoff(self.legacy, self.entry()))
