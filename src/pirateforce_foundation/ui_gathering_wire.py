@@ -11,8 +11,11 @@ shapes are copied field-for-field from
 identical) -- both classes are fully tagged (every field row has a real tag
 byte, no ``CALL_UNCLASSIFIED`` entries), unlike this catalog group's third
 class, ``Gathering_UpdateSceneGatheringPointVital`` (``0x4966``), whose rows
-mix real tags with fourteen ``CALL_UNCLASSIFIED``/``PE_IMPORT_*``/atomic-
-helper entries per direction and are therefore NOT implemented here.
+mix real tags with unresolved entries per direction (14 rows total, of
+which 10 are ``CALL_UNCLASSIFIED``/``PE_IMPORT_*``/atomic-helper entries
+and 4 are real ``0x12`` tags) and are therefore NOT implemented here
+(pf-adversary, round ``c585y5``: flagged the prior draft's "fourteen" as
+overstating the unclassified-only count).
 
 Grepped first, per ``AGENTS.md`` section 7's mandatory search: no hit for
 ``Gathering_`` in ``CLIENT_RE_QUEUE.md`` or ``GAME_TEST_QUEUE.md``. The only
