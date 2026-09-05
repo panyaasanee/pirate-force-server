@@ -607,6 +607,30 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "door still shut); field_mobs names no scene 126 at all, so it has "
         "no combat roster and no strike can reach a recompose."
     ),
+    # ADDED ROUND vwekfq (LANE-A): scene 17 (Bg1001, "one ship at sea")
+    # entered ``world_scene_travel.CENSUS_SOURCES`` this round
+    # (``world_bg1001_identity`` / ``world_population_bg1001``, a 7-actor
+    # cast resolved through ``CONSTDATA_TH__INSTANCE.tsv``).  Verified
+    # rather than assumed: ``field_mobs.scene_for_scene_id(17)`` also
+    # returns ``None`` -- scene 17 is in neither of field_mobs' two tables,
+    # so the identical reasoning applies verbatim.  UNLIKE every scene
+    # above, this composer is NOT YET REACHABLE AT ALL: it is registered in
+    # ``CENSUS_SOURCES`` but deliberately NOT in ``world_population_
+    # handoff.ROSTER_COMPOSERS`` (see that table's own
+    # ``PENDING_CROSSING_SAFETY_REVIEW`` comment for why - the flagless
+    # Columbus crossing that already reaches this scene composes a CLEAR,
+    # unconditionally, until chief reviews a runtime.py invariant this lane
+    # will not flip alone), and scene 17's own login_entry_allowed stays
+    # false.  So no player reaches this scene's arrival census yet either;
+    # acknowledged now, same reason as every entry above, so the tripwire
+    # does not fire silently the day either gate opens.
+    17: (
+        "Bg1001 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round vwekfq; NOT in "
+        "world_population_handoff.ROSTER_COMPOSERS yet, and ordinary login "
+        "door still shut); field_mobs names no scene 17 at all, so it has "
+        "no combat roster and no strike can reach a recompose."
+    ),
 }
 
 

@@ -334,8 +334,31 @@ CLEAR_REAPPLY_MS: int | None = None
 # ``world_population_bg0015``'s collision paragraph for what that reading
 # shipped last time it was trusted).  It stays on the CLEAR branch, by name,
 # until an owner verdict or an RE result gives it identities - arriving there
-# alone is still on purpose.  Scene 17 (the sea) is absent for the same class
-# of reason: it has no composed population at all.
+# alone is still on purpose.  ~~Scene 17 (the sea) is absent for the same
+# class of reason: it has no composed population at all.~~ WRONG WHEN
+# WRITTEN, corrected round ``vwekfq`` (LANE-A): ``world_m2_sea_scene_cast``
+# (round nmn123) had already measured that scene 17 resolves a cast through
+# ``CONSTDATA_TH__INSTANCE.tsv`` - an INDIRECT ``n_CLINE_TYPE`` route this
+# sentence never checked before declaring the direct column's absence final.
+# ``world_bg1001_identity``/``world_population_bg1001`` now hold that table
+# and ``world_scene_travel.CENSUS_SOURCES`` names ``bg1001_roster`` for
+# scene 17 - but THIS TABLE (``ROSTER_COMPOSERS``) deliberately has NO entry
+# for it yet.  Read ``runtime.py:6183-6197``'s own comment before adding
+# one: the Columbus crossing call site sets
+# ``crossing_handoff_dispatched=True`` UNCONDITIONALLY, and justifies that by
+# name - "unconditional True is safe AT THIS CALL SITE ONLY because ... a
+# successful dispatch here always composes a readable KIND_CLEAR handoff".
+# Registering ``bg1001_roster`` here would make ``crossing_handoff()`` (and
+# therefore that already-live, already-queued call site) compose and SEND a
+# real KIND_CENSUS roster to a real client on the very next Columbus
+# crossing, silently invalidating the one invariant that comment relies on -
+# a runtime.py safety assumption only chief can re-examine and requeue
+# against.  This round's CORE-REQUEST asks for exactly that review.  Until
+# it lands, ``handoff_for_arrival(17, ...)`` reads ``bg1001_roster`` from
+# ``CENSUS_SOURCES``, finds no entry here, and falls through to the
+# ``..._has_no_crossing_handoff_yet`` branch below - a KIND_CLEAR, same
+# bytes this crossing has always sent, now honestly labelled instead of
+# resting on the struck reasoning above.
 @dataclass(frozen=True)
 class _SceneComposer:
     """One finished per-scene composer, and how to read what it built.
@@ -604,6 +627,19 @@ ROSTER_COMPOSERS: dict[str, _SceneComposer] = {
         generation_type=world_population_bg3001.Bg3001PopulationGeneration,
         full_roster_count=world_population_bg3001.DEFAULT_ACTOR_COUNT,
     ),
+    # DELIBERATELY NOT ADDED, round ``vwekfq`` (LANE-A): scene 17's identity
+    # and census pair (``world_bg1001_identity`` / ``world_population_
+    # bg1001``) exist and are registered in ``world_scene_travel.
+    # CENSUS_SOURCES`` as ``"bg1001_roster"``, but NOT here - see the struck
+    # ``SCENES_INTENTIONALLY_UNPOPULATED[17]`` comment above for exactly why:
+    # ``runtime.py``'s Columbus crossing call site hardcodes
+    # ``crossing_handoff_dispatched=True`` on the documented assumption that
+    # this seam always answers scene 17 with a KIND_CLEAR.  Adding an entry
+    # here would flip that to KIND_CENSUS and start sending a real,
+    # never-attended-tested roster to a live client on every crossing -
+    # exactly the runtime.py-invariant question this lane cannot resolve by
+    # itself.  This round's CORE-REQUEST asks chief to review that call site
+    # and decide whether/how to re-enable it once this entry is safe to add.
 }
 
 
@@ -636,6 +672,30 @@ LOGIN_OWNED_SOURCES: dict[str, str] = {
 }
 
 
+# SOURCES NAMED IN CENSUS_SOURCES THAT THIS SEAM DELIBERATELY WITHHOLDS FROM
+# ROSTER_COMPOSERS, PENDING A RUNTIME.PY SAFETY REVIEW - A THIRD CATEGORY
+# BESIDE "BUILT" AND "RULED OUT BY A LOGIN-PATH OWNER".
+#
+# ADDED round ``vwekfq`` (LANE-A).  Not the same shape as
+# ``LOGIN_OWNED_SOURCES``: nothing else composes this source on a login
+# path, and this is not a ruling that the source should never be built -
+# the identity/census pair (``world_bg1001_identity`` / ``world_population_
+# bg1001``) is built, tested and registered in ``CENSUS_SOURCES``.  What
+# stands between it and ``ROSTER_COMPOSERS`` is that ``runtime.py``'s
+# Columbus crossing call site hardcodes ``crossing_handoff_dispatched=True``
+# on the documented assumption that ``world_m2_crossing_handoff.
+# crossing_handoff`` always answers scene 17 with KIND_CLEAR - adding a
+# composer here would silently flip that to KIND_CENSUS and start sending a
+# never-attended-tested cast to a live client on the very next crossing,
+# which only chief can safely re-examine (this lane does not edit
+# ``runtime.py``).  Kept as its own table, not folded into
+# ``LOGIN_OWNED_SOURCES``, so the reason a reader finds here is the true one
+# and not a borrowed one.
+PENDING_CROSSING_SAFETY_REVIEW: dict[str, str] = {
+    "bg1001_roster": "core_request_vwekfq_runtime_crossing_dispatch_assumes_clear",
+}
+
+
 # SCENES THAT ARRIVE EMPTY ON PURPOSE, WITH THE REASON EACH ONE DOES.
 #
 # This exists because the first version of this round claimed, in the module
@@ -657,7 +717,7 @@ SCENES_INTENTIONALLY_UNPOPULATED: dict[int, str] = {
     # The pinned candidate COO-DECISION 0550 did not choose.  No placements have
     # been mined for it at all - this one is genuinely "nobody has looked".
     997: "not_the_chosen_candidate_no_placements_mined",
-    # THE SEA, AND THE FIRST ENTRY IN THIS TABLE WITH A PRODUCTION READER.
+    # ~~THE SEA, AND THE FIRST ENTRY IN THIS TABLE WITH A PRODUCTION READER.
     # Added round pf-builder/M2 crossing-handoff.  278 and 997 are scenes no
     # crossing reaches; scene 17 is the ONE scene a player can send themselves
     # to on a default boot (Columbus, row 3021, ``columbus_quest_dispatch``;
@@ -684,7 +744,30 @@ SCENES_INTENTIONALLY_UNPOPULATED: dict[int, str] = {
     # composer for it would be an invented cast.  Arriving to an empty sea is
     # the honest world; arriving with Port Royal still on the client is not,
     # and that is what the CLEAR this branch composes is for.
-    17: "sea_scene_no_cline_type_mob_set_placements_unresolvable_gt078",
+    # 17: "sea_scene_no_cline_type_mob_set_placements_unresolvable_gt078",~~
+    #
+    # WRONG WHEN WRITTEN, AND THE ERROR IS NAMED SO IT IS NOT REPEATED.  This
+    # entry checked exactly one of the three tables
+    # ``world_m2_sea_scene_cast`` (round nmn123) names as the search space a
+    # "no cast is derivable" claim has to exhaust: ``CONSTDATA_TH__SCENE_
+    # NAME.n_CLINE_TYPE``, the DIRECT column, which is genuinely 0xFFFFFFFF
+    # for scene 17.  It never opened ``CONSTDATA_TH__INSTANCE.n_SCENE_ID``,
+    # the INDIRECT route, which resolves 7 of the scene's 8 placements
+    # through CLINE type 801 (this scene's own three tied candidate types -
+    # see ``world_bg1001_identity`` for the full crosswalk and why one is
+    # [PROPOSED] rather than measured).  Removed from this table round
+    # ``vwekfq`` (LANE-A): scene 17 now has a real identity/census pair
+    # (``world_bg1001_identity`` / ``world_population_bg1001``) and is named
+    # in ``world_scene_travel.CENSUS_SOURCES`` as ``"bg1001_roster"``, so it
+    # is no longer "intentionally unpopulated" in the sense this table
+    # means - the cast is not being withheld by a ruling, it simply has
+    # nowhere to compose FROM yet.  It is NOT added to ``ROSTER_COMPOSERS``
+    # this round for a separate, more serious reason - see that table's own
+    # comment on why it deliberately has no ``"bg1001_roster"`` entry.  Until
+    # that is resolved, ``handoff_for_arrival(17, ...)`` falls through to the
+    # ``..._has_no_crossing_handoff_yet`` branch below (a real, honest
+    # reason, not a stand-in for this struck one), which is functionally
+    # identical to being in this table but says the true thing instead.
 }
 
 

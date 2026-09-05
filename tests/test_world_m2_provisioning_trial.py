@@ -239,6 +239,15 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
             # The one send path, gated -- see the note above.
             "src/pirateforce_foundation/runtime.py",
             "tests/test_m2_survey_trial.py",
+            # WIDENED round `vwekfq` (LANE-A), same reason and same shape as
+            # this file's own name joining `test_navigationex_survey_
+            # record.py`'s exclusion set: condition (d) of COO-DECISION
+            # `20260905_0848_...` requires a byte-pin proving scene 17's new
+            # roster does not perturb GT-233's own records, and the only
+            # faithful way to do that is to call `encode_trial_records`
+            # directly and hash its output against a value captured before
+            # this round's changes.  Read-only, no socket, no `sendall`.
+            "tests/test_lane_a_scene17_roster_does_not_touch_gt233.py",
         }
         hits = []
         for path in ROOT.rglob("*.py"):

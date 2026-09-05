@@ -136,16 +136,32 @@ def _legacy():
 
 
 def _lane_census_scenes() -> tuple[int, ...]:
-    """Every non-home scene a registered, production-allowed composer claims.
+    """Every non-home scene a registered, production-allowed composer claims,
+    and whose seam (``world_population_handoff``) actually answers KIND_CENSUS
+    for it - not merely a scene named in ``CENSUS_SOURCES``.
 
     Read from the live registry for the reason
     ``test_world_census_arrival_trigger.py`` gives for the same helper: a
     scene a lane adds tomorrow is covered the day it registers, and a scene
     a lane REMOVES cannot leave a green test asserting nothing.
+
+    EXCLUDES ``PENDING_CROSSING_SAFETY_REVIEW`` SOURCES (round `vwekfq`,
+    LANE-A): scene 17 is registered in ``CENSUS_SOURCES`` (a real,
+    [PROPOSED] roster exists - ``world_bg1001_identity`` /
+    ``world_population_bg1001``) but deliberately NOT in
+    ``world_population_handoff.ROSTER_COMPOSERS`` yet - see that table's own
+    comment.  A GM ``/warp`` chain is attended, but this helper is shared by
+    tests that assert a REAL census queues on every hop, and scene 17 does
+    not have one to queue until that table gains the entry.  Filtering here
+    (rather than adding a per-test skip) keeps every consumer of this helper
+    consistent with the one seam that actually decides.
     """
     scenes = []
     for scene_id in sorted(world_scene_travel.CENSUS_SOURCES):
         if scene_id == world_population.SCENE_ID:
+            continue
+        source = world_scene_travel.CENSUS_SOURCES[scene_id]
+        if source in world_population_handoff.PENDING_CROSSING_SAFETY_REVIEW:
             continue
         composer = lane_hooks.scene_census_composer(scene_id)
         if composer is None:
