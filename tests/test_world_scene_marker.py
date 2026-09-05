@@ -290,6 +290,21 @@ class TheRulingIsPinnedNotJustWrittenTest(unittest.TestCase):
             if not name.startswith("_")
             and callable(getattr(world_scene_marker, name))
         )
+        # WIDENED ON PURPOSE 2026-09-05 (LANE-A round ihjytc), which is the
+        # act this test was rewritten to force.  `decreed_arrival_row` DOES
+        # take a marker id, so it is exactly the shape D7 planted - and it is
+        # admitted because of three properties the planted `marker_row()` did
+        # not have.  (a) It answers ONLY from `DECREED_ARRIVAL_ROWS`, a
+        # one-row allowlist, so the 390-row table it could have exposed is not
+        # behind it: `decreed_arrival_row(126)` - rule 2's shortcut, spelled
+        # out - answers None, and `test_world_scene_decreed_arrival.py` pins
+        # that. (b) It returns the row's own `n_SCENE` first, so a caller
+        # cannot use the coordinate without being handed the back-pointer to
+        # check it against; `world_scene_travel`'s loader, its only caller,
+        # refuses the row when that pointer does not name the scene. (c) A
+        # marker id reaches it only because an owner decision named one in the
+        # registry, never because a caller had a scene id in hand.
+        # Widening this list again needs the same three answers.
         self.assertEqual(public, [
             "Any",
             "MarkerArrival",
@@ -297,6 +312,7 @@ class TheRulingIsPinnedNotJustWrittenTest(unittest.TestCase):
             "arrival_point",
             "console_line",
             "dataclass",
+            "decreed_arrival_row",
             "forbidden_direct_index_scenes",
             "reverification_script",
             "rows_that_look_self_consistent_and_name_nobody",

@@ -5963,9 +5963,16 @@ gained `_warp_teleport_action_no_coords` and a new action label
 substring rule). A bare `/warp <scene_id>` naming a DIFFERENT scene now fires a live
 `TeleportVital` at that scene's `world_scene_travel.spawn_position(world_scene_travel.
 destination(scene_id))` -- the exact call pattern `R278`/`CHIEF-REPLY-GM-046` named -- instead of
-only staging, whenever that scene's `has_authored_entry` (n_MARKER != 0) is true. Scenes with no
-marker (17, 126, 278, 997) keep the old stage-only behaviour on purpose -- `GT-182`'s own
-nonclaim 4 requires it, and scene 278 specifically has a pinned regression test
+only staging, whenever that scene's `has_authored_entry` (~~n_MARKER != 0~~ n_MARKER != 0 OR an
+owner-decreed arrival, see below) is true. ~~Scenes with no marker (17, 126, 278, 997) keep the
+old stage-only behaviour on purpose~~ **AMENDED 2026-09-05 (LANE-A round ihjytc,
+PANYA-DECISION 20260905_1329 via COO-DECISION 20260905_1346): scene 126 no longer keeps it.**
+Its own `SCENE_NAME.n_MARKER` is still 0 and rule 1 still does not reach it; what changed is that
+its registry row now carries a `decreed_arrival` block naming `CONSTDATA_TH__MARKER.tsv` row
+`n_ID 17` (which carries `n_SCENE 126` at (3050, 232, 90)), and `has_authored_entry` answers True
+for a scene pinned that way. The narrow table fact lives on as `has_table_authored_entry`.
+**17, 278 and 997 are unchanged and still stage-only** -- `GT-182`'s
+nonclaim 4 still requires it for them, and scene 278 specifically has a pinned regression test
 (`ProductionCallShapeTests::test_the_default_argument_call_stages_where_gt141_says_it_does`)
 that would have broken under a looser "spawn is not None" gate. Full local suite green (6140
 passed / 0 failed) after fixing 12 tests across five other `test_gm_*.py` files whose fixtures
