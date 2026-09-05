@@ -391,6 +391,63 @@ class OptionalPackage:
         return "<OptionalPackage %s present=%s>" % (self.key, self.present)
 
 
+class AllOfThese:
+    """One key for a test that needs SEVERAL preconditions at once.
+
+    WHY THIS EXISTS, AND WHY IT IS NOT TWO STACKED DECORATORS (LANE-Q,
+    round s2fxf6).  ``tests/test_script_lua_corpus.py`` needs two unrelated
+    things: the game's script corpus in the sibling bridge checkout AND the
+    lupa package in this interpreter.  Stacking two
+    ``skip_unless_present()`` decorators looks right and is not: unittest
+    records ONE skip reason per test, so whichever decorator sits outermost
+    wins whenever both conditions are false, and
+    ``tools/pf_pytest_precondition_census.py`` - which grades each key
+    INDEPENDENTLY against its own ``present`` and a static pinned count -
+    then sees the losing key expecting N skips and observing zero.  There
+    is no pair of static counts that is right in all four machine states,
+    so the pin would be red on some machine no matter what number went in
+    it.  One key that owns the whole conjunction has exactly one count in
+    every state: zero when every part is present, its pin otherwise.
+
+    ``reason`` names the FIRST missing part, so the skip line still says
+    which of the two a machine actually lacks.
+    """
+
+    __slots__ = ("key", "parts", "what")
+
+    def __init__(self, key: str, parts, what: str) -> None:
+        if not key or any(ch.isspace() for ch in key):
+            raise ValueError("precondition key must be a single word: %r" % key)
+        parts = tuple(parts)
+        if len(parts) < 2:
+            raise ValueError("precondition %r composes fewer than two parts" % key)
+        self.key = key
+        self.parts = parts
+        self.what = what
+
+    @property
+    def present(self) -> bool:
+        return all(part.present for part in self.parts)
+
+    @property
+    def reason(self) -> str:
+        missing = [part for part in self.parts if not part.present]
+        first = missing[0] if missing else self.parts[0]
+        return "[precondition:%s] %s - the missing piece here is %s" % (
+            self.key, self.what, first.what,
+        )
+
+    def skip_unless_present(self):
+        return unittest.skipUnless(self.present, self.reason)
+
+    def require(self, case: unittest.TestCase) -> None:
+        if not self.present:
+            case.skipTest(self.reason)
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<AllOfThese %s present=%s>" % (self.key, self.present)
+
+
 # ---------------------------------------------------------------------------
 # The registry.  Adding an entry here is a deliberate act: it also needs a pin
 # in docs/PYTEST_SKIP_PINS.json, or the census goes red on an unknown key.
@@ -668,6 +725,19 @@ LUPA_PACKAGE = OptionalPackage(
     "line in .github/workflows/gate-windows.yml does not have it",
 )
 
+#: The one key ``tests/test_script_lua_corpus.py`` skips under: it needs
+#: BOTH the sibling corpus and the package (see AllOfThese for why this is
+#: one key rather than two stacked guards).  BRIDGE_LUA_SCRIPTS stays
+#: registered on its own too - it is the right guard for a future test that
+#: reads the corpus without running any Lua - and produces no skips of its
+#: own until such a test exists, which is what its (absent) pin says.
+LUA_CORPUS_RUNNABLE = AllOfThese(
+    "lua_corpus_runnable",
+    (BRIDGE_LUA_SCRIPTS, LUPA_PACKAGE),
+    "loading the game's own 616 shipped Lua scripts needs both the bridge "
+    "corpus beside this clone and the lupa package in this interpreter",
+)
+
 REGISTRY = {
     p.key: p
     for p in (
@@ -688,6 +758,7 @@ REGISTRY = {
         ORIGINAL_SCHEMA_HISTORY,
         AUDIT_HEAD_HISTORY,
         LUPA_PACKAGE,
+        LUA_CORPUS_RUNNABLE,
     )
 }
 

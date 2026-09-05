@@ -1,17 +1,18 @@
 """LANE-Q spike: the loader loads all 616 real shipped scripts headless.
 
-Guarded by BRIDGE_LUA_SCRIPTS (the real corpus lives in ../pf_bridge/, this
-repository vendors no more than two named fixture files - see
-test_script_host_spike.py) and LUPA_PACKAGE (the interpreter running this
-test needs the dependency installed).  On a fresh clone with neither, this
-module's tests skip with a declared, pinned reason (docs/PYTEST_SKIP_PINS.json)
-rather than failing or silently vanishing; on the bridge, and on any cloud
-round paired with a pf_bridge checkout, they run against the real files.
+Guarded by LUA_CORPUS_RUNNABLE, the one key composing the two things this
+module needs at once: the real corpus in the sibling bridge checkout (this
+repository vendors only two named fixture files, see
+test_script_host_spike.py) and the lupa package in this interpreter.  On a
+machine missing either, these tests skip with a declared, pinned reason
+(docs/PYTEST_SKIP_PINS.json) naming which piece is missing, rather than
+failing or silently vanishing; on the bridge, and on any cloud round
+paired with a pf_bridge checkout, they run against the real files.
 """
 import unittest
 from pathlib import Path
 
-from pf_preconditions import BRIDGE_LUA_SCRIPTS, LUPA_PACKAGE, SIBLING
+from pf_preconditions import LUA_CORPUS_RUNNABLE, SIBLING
 
 from pirateforce_foundation import script_host
 
@@ -35,20 +36,7 @@ KNOWN_LOAD_FAILURES = frozenset({
 })
 
 
-#: Two independent preconditions guard this class (the real corpus AND the
-#: package that reads it).  A stacked pair of skipUnless decorators would
-#: let the census attribute every skip to whichever decorator is closer to
-#: the class, hiding the other key's own contribution - so this picks ONE
-#: key per machine state instead, deterministically, the same way a single
-#: guard would.
-_REQUIREMENTS_MISSING = not (BRIDGE_LUA_SCRIPTS.present and LUPA_PACKAGE.present)
-_SKIP_REASON = (
-    BRIDGE_LUA_SCRIPTS.reason if not BRIDGE_LUA_SCRIPTS.present
-    else LUPA_PACKAGE.reason
-)
-
-
-@unittest.skipIf(_REQUIREMENTS_MISSING, _SKIP_REASON)
+@LUA_CORPUS_RUNNABLE.skip_unless_present()
 class FullCorpusLoadsHeadlessTests(unittest.TestCase):
     def test_loader_visits_every_lua_file_on_disk(self):
         on_disk = {p.relative_to(LUA_ROOT).as_posix() for p in LUA_ROOT.rglob("*.lua")}
