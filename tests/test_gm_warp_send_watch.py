@@ -35,9 +35,11 @@ module's own docstring.
 from __future__ import annotations
 
 import io
+import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import weakref
 from contextlib import redirect_stderr
@@ -61,6 +63,7 @@ from pirateforce_foundation.legacy_bridge import (  # noqa: E402
 )
 from pirateforce_foundation.lifecycle import CharacterLifecycle  # noqa: E402
 from pirateforce_foundation.model import Position  # noqa: E402
+from pirateforce_foundation.runtime import make_state_class  # noqa: E402
 from pirateforce_foundation.session import FoundationSession  # noqa: E402
 from pirateforce_foundation.store import SQLiteStore  # noqa: E402
 
@@ -374,6 +377,23 @@ class RealDatabaseTests(unittest.TestCase):
 
     def _row(self, session):
         return self.store.get_character(session.foundation.selected.id).position
+
+    def _park(self, session):
+        """Move the row with a REAL `/warp` and return its parked frame.
+
+        The same three lines `LiveSocketFacadeTests._warp_frame` runs, hoisted
+        here in round `j2jluj` because two more classes now need exactly this
+        starting state: a durable row at the destination, and one unconfirmed
+        park holding the composed frame's own bytes.
+        """
+        with redirect_stderr(io.StringIO()):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                session, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertIsNotNone(verdict.action)
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        self.assertIsNotNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        return bytes(verdict.action[2])
 
     # ---- the real call site really parks the real frame -----------------
 
@@ -1611,95 +1631,568 @@ class LiveSocketFacadeTests(RealDatabaseTests):
         self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
 
 
-class HookupWiringPinTests(unittest.TestCase):
-    """The tripwire pf-adversary D2/D3 measured to be missing.
+class HookupWiringPinTests(RealDatabaseTests):
+    """Is the hookup REALLY on, on an object production really builds?
 
-    D2: `LiveSocketFacadeTests`'s negative control says "if this ever starts
-    failing, the hookup landed somewhere else".  It cannot.  It binds
-    `_Session`, a fixture defined in this file, so nothing chief does to the
-    real state class can move it -- D2 applied chief's exact requested
-    one-liner at `runtime.py:1599` and the whole file stayed green.
-    D3: with that line applied, the ENTIRE suite was byte-identical --
-    10,571 passed either way.  The round's central claim is "one call at
-    `runtime.py:1599` is all that is owed", and nothing in the repository
-    could tell whether that call was present, absent, or silently refusing.
+    ROUND `j2jluj` REWROTE THIS CLASS.  It used to answer that question by
+    reading `runtime.py` as text and asking whether the string
+    `"install_send_outcome_observers("` appeared anywhere in it.
+    pf-adversary killed that in round `rs8uyz`/R350, and chief published the
+    mutant (`pf_bridge/notes_to_chief/20260905_0902_FROM_CHIEF_R350_
+    ADVERSARY-RESULT-wired-must-mean-observed-not-named.md`): comment the
+    real call out, assign two no-op lambdas to the same two names, and
+    `/warp` send-failure rollback is completely dead in production while
+    all 10,598 tests -- these included -- stay byte-identical.  A
+    commented-out line is still a substring.
 
-    THIS CLASS IS THAT SOMETHING.  It reads `runtime.py` as text (this lane
-    may not edit that file, only observe it) and pins TODAY'S answer: NOT
-    WIRED.  The moment either shape of `CORE-REQUEST-GM-058` lands, this
-    test goes RED, in the same commit that lands it, and the failure message
-    says exactly what to change.  That is the intended behaviour, not a
-    regression: it is the same "delete the `registered_but_not_fired` marker
-    in the same commit" discipline chief applied to LANE-UI's hookup in
-    R348.
+    ~~`_wiring_present` / `HOOKUP_IS_ON_MAIN`: either shape of
+    `CORE-REQUEST-GM-058`, as it would really appear in the text of
+    `runtime.py`.~~  STRUCK, not deleted: the pin was right to exist and
+    right about WHERE to look, and it did force the three edits it was
+    built to force when shape B landed.  It was wrong about WHAT to look
+    at.  `COO-DECISION 20260905_0947` made that a house rule -- "WIRED =
+    observed, not named", and `getattr(...) is not None`, `callable(...)`,
+    a substring and an AST name scan are all explicitly not guards -- and
+    `COO-DECISION 20260905_0948` item 2(a) ordered this class rewritten to
+    anchor on the event instead.
 
-    IT IS DELIBERATELY TEXTUAL, NOT AN IMPORT.  Importing `runtime` to ask
-    the class would need a constructed session, which needs a store, a
-    legacy projector and a socket; and the two names are what
-    `connection.py` reads off an INSTANCE, so a class-level `hasattr` would
-    miss shape B (the installer writes instance attributes) and a session
-    would miss shape A. Reading the source catches both shapes and cannot
-    be fooled by an import side effect.
+    WHAT IT ANCHORS ON NOW, AND WHY THAT CANNOT BE FORGED.  The event
+    `gm_warp_send_watch_install_installed` has exactly ONE writer in the
+    whole codebase -- `warp_send_watch._announce_install` -- and it is
+    written onto the session that was passed in.  So its presence on a
+    session that came out of `make_state_class(...)` + `GameConnectionBindings.
+    accepted()` + `bind()` (the three production steps, in production
+    order, from `runtime.py`'s own `__init__` and `connection.py`'s own
+    binding protocol) means the REAL installer really ran on THAT REAL
+    object.  No lambda, no stub, no `getattr` and no comment can put it
+    there.  Chief's own `tests/test_connection_lifecycle.py` pins the same
+    event from his side of the seam; this is the same standard applied on
+    the lane that owns the module, so a revert of either half is caught by
+    the half that did not move.
+
+    AND ONE STEP FURTHER THAN THE EVENT.  `test_a_real_send_failure_on_a_
+    production_built_session_puts_the_row_back` does not read the trail at
+    all: it builds the production session, moves a REAL character row with
+    a REAL `/warp` through the REAL router, makes the REAL
+    `AcceptedGameSocket.sendall` raise, and reads the DATABASE ROW back.
+    That is the whole chain -- constructor, installer, facade, observer,
+    store -- observed end to end, with nothing in it this file supplied.
+
+    NONCLAIM.  The raw socket is a fake object with a `sendall`; no byte
+    reaches a network and no client is involved.  This is evidence about
+    which rows the server holds after a send raises, not about a screen.
     """
 
-    #: What the tree says today.  Change this to `True` in the SAME commit
-    #: that lands the call, and this test starts asserting the opposite.
-    #:
-    #: Flipped by chief, round `rs8uyz`/R350, in the commit that landed
-    #: shape B (`runtime.py:1599`, the line after
-    #: `connection_bindings.bind(self)`).  The pin did exactly what this
-    #: lane built it for: it went red on the merge, its message named the
-    #: three edits, and all three are in that commit.  From here it guards
-    #: the other direction -- a revert of that call turns this red again.
-    HOOKUP_IS_ON_MAIN = True
+    class _RawSocket:
+        """The three methods the facade touches, and a record of the bytes."""
 
-    def _runtime_source(self):
-        return (
-            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
-        ).read_text(encoding="utf-8")
+        def __init__(self, error=None):
+            self.error = error
+            self.sent = []
 
-    def _wiring_present(self, source):
-        """Either shape of `CORE-REQUEST-GM-058`, as it would really appear."""
-        shape_b = "install_send_outcome_observers(" in source
-        shape_a = all(
-            f"def {name}(" in source
-            for name in (
-                warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
-                warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
-            )
+        def sendall(self, data, *args, **kwargs):
+            if self.error is not None:
+                raise self.error
+            self.sent.append(bytes(data))
+            return None
+
+        def shutdown(self, how):
+            return None
+
+        def close(self):
+            return None
+
+    def _production_session(self, token, error=None):
+        """The three steps production takes, in production's order.
+
+        `runtime.py`'s state `__init__` is what calls
+        `connection_bindings.bind(self)` and then the installer, so the ONLY
+        thing this helper supplies is the accepted socket that `bind` needs
+        -- exactly what `game_listener` supplies on a real login.  Nothing
+        here installs anything itself; if the constructor stops doing it,
+        every assertion below has nothing to find.
+        """
+        bindings = connection.GameConnectionBindings()
+        state_type = make_state_class(
+            self.legacy, self.lifecycle, self.projector,
+            connection_bindings=bindings,
         )
-        return shape_a or shape_b
+        raw = self._RawSocket(error)
+        wrapped = bindings.accepted(raw)
+        stream = io.StringIO()
+        with redirect_stderr(stream):
+            state = state_type(token)
+        self.assertIs(wrapped.state, state)
+        self.addCleanup(self._release, bindings, wrapped)
+        return state, wrapped, raw, stream.getvalue()
 
-    def test_the_pin_matches_what_runtime_py_actually_says(self):
-        present = self._wiring_present(self._runtime_source())
-        if self.HOOKUP_IS_ON_MAIN:
-            self.assertTrue(present, (
-                "HOOKUP_IS_ON_MAIN is True but runtime.py carries neither "
-                "shape of CORE-REQUEST-GM-058. Either the call was reverted "
-                "-- in which case /warp send failures are silently not "
-                "rolling back again -- or the pin was flipped early."
-            ))
-            return
-        self.assertFalse(present, (
-            "runtime.py now carries the CORE-REQUEST-GM-058 hookup, and this "
-            "pin still says it does not. THIS IS THE INTENDED FAILURE. In "
-            "the same commit that landed the call: (1) set "
-            "HookupWiringPinTests.HOOKUP_IS_ON_MAIN = True, (2) strike the "
-            "'NEITHER IS ON MAIN YET' sentence in gm/warp_send_watch.py's "
-            "module docstring, and (3) rewrite "
-            "LiveSocketFacadeTests.test_without_the_install_the_same_failure_"
-            "leaves_the_row_wrong, whose whole subject is main's pre-hookup "
-            "behaviour."
-        ))
+    def _release(self, bindings, wrapped):
+        if not wrapped.released:
+            with redirect_stderr(io.StringIO()):
+                bindings.release(wrapped)
+
+    def _adopt_character(self, state, login_name):
+        """Give the production-built session a real, selected character.
+
+        `_session` (this fixture's own helper) builds a `FoundationSession`
+        by hand for the lighter `_Session` double; here the session already
+        exists and came out of `runtime.py`, so only the character half is
+        supplied -- through the SAME `create` / `select_and_start` calls a
+        real login makes.  Returns the row as it stands before any warp.
+        """
+        foundation = state.foundation
+        _op, _has_actor, wire = self.legacy.parse_create_actor(
+            self.legacy.parse_outer(self.legacy._V25_REAL_CREATE_PC),
+        )
+        character, _reply = foundation.create(
+            self.legacy.decode_create_actor_data_ex(wire)["name"], wire,
+        )
+        with redirect_stderr(io.StringIO()):
+            foundation.select_and_start(character.selector)
+        return self._row(state)
+
+    def _warp_on(self, state):
+        with redirect_stderr(io.StringIO()):
+            verdict = chat_command_action._warp_teleport_action_no_coords(
+                state, DESTINATION_SCENE, self.legacy,
+            )
+        self.assertIsNotNone(verdict.action)
+        self.assertIsNotNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
+        return bytes(verdict.action[2])
+
+    def _install_events(self, state):
+        return [
+            event for event in getattr(state, "events", [])
+            if isinstance(event, str)
+            and event.startswith(f"{warp_send_watch.EVENT_PREFIX}install_")
+        ]
+
+    def test_the_real_installer_ran_on_a_production_built_session(self):
+        state, _wrapped, _raw, stderr_text = self._production_session("pin01")
+        self.assertEqual(
+            self._install_events(state),
+            [f"{warp_send_watch.EVENT_PREFIX}install_{warp_send_watch.INSTALL_OK}"],
+            "no install announcement on a session built the way production "
+            "builds one. Either runtime.py no longer calls "
+            "install_send_outcome_observers on the line after "
+            "connection_bindings.bind(self), or something else is supplying "
+            "those two names -- which is pf-adversary's R350 D1 mutant, and "
+            "it disarms /warp send-failure rollback silently.",
+        )
+        # The second channel `_announce_install` writes, for the owner
+        # grepping a boot log rather than a test reading a trail.
+        self.assertIn(
+            f"{warp_send_watch.INSTALL_CONSOLE_TOKEN} {warp_send_watch.INSTALL_OK}",
+            stderr_text,
+        )
+
+    def test_the_two_names_a_lambda_could_fake_are_not_what_is_asserted(self):
+        """The guard chief's first draft had, kept ONLY as a cross-check.
+
+        `callable(...)` is explicitly not a guard under the `0947` rule.  It
+        is asserted here anyway, immediately beside the event, because the
+        two together say something neither says alone: the names resolve AND
+        the thing that put them there was the real installer.  If a future
+        round ever deletes the event assertion, this one alone must not be
+        mistaken for a pin -- hence this docstring.
+        """
+        state, _wrapped, _raw, _stderr = self._production_session("pin02")
+        for name in (
+            warp_send_watch.SENT_OBSERVER_ATTRIBUTE,
+            warp_send_watch.FAILED_OBSERVER_ATTRIBUTE,
+        ):
+            self.assertTrue(callable(getattr(state, name, None)), name)
+        self.assertEqual(len(self._install_events(state)), 1)
+
+    def test_a_real_send_failure_on_a_production_built_session_puts_the_row_back(
+        self,
+    ):
+        """Constructor, installer, facade, observer, store -- end to end."""
+        state, wrapped, _raw, _stderr = self._production_session(
+            "pin03", error=ConnectionResetError(),
+        )
+        before = self._adopt_character(state, "pin03")
+        frame = self._warp_on(state)
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+
+        with redirect_stderr(io.StringIO()):
+            with self.assertRaises(ConnectionResetError):
+                wrapped.sendall(frame)
+
+        self.assertEqual(self._row(state).scene_id, before.scene_id)
+        self.assertIsNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_a_real_successful_send_on_a_production_built_session_clears_the_park(
+        self,
+    ):
+        """The other side of the same chain: nothing is rolled back when the
+        frame really does reach the wire, and the park retires."""
+        state, wrapped, raw, _stderr = self._production_session("pin04")
+        self._adopt_character(state, "pin04")
+        frame = self._warp_on(state)
+
+        with redirect_stderr(io.StringIO()):
+            wrapped.sendall(frame)
+
+        self.assertEqual(raw.sent, [frame])
+        self.assertEqual(self._row(state).scene_id, DESTINATION_SCENE)
+        self.assertIsNone(getattr(state, warp_send_watch.SESSION_ATTRIBUTE))
 
     def test_the_bind_point_this_lane_asks_chief_for_still_exists(self):
-        """A pin on the ADDRESS in the ask, not only on the ask's outcome.
+        """A pin on the ADDRESS in the letter, and NOT a wiring guard.
 
-        If `connection_bindings.bind(self)` is ever moved or renamed, the
-        letter to chief and this module's docstring both point at a line
-        that no longer means what they say, and nothing else would notice.
+        Deliberately kept after the rewrite, and deliberately named for what
+        it is: `CORE-REQUEST-GM-058` and this module's docstring both point
+        at the line after `connection_bindings.bind(self)`, and if that call
+        is ever moved or renamed both documents point at nothing.  Under the
+        `0947` rule this is a DOCUMENTATION pin, not evidence that anything
+        is wired -- the four tests above are that.
         """
-        self.assertIn("connection_bindings.bind(self)", self._runtime_source())
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("connection_bindings.bind(self)", source)
+
+
+class SendLockLivenessTests(RealDatabaseTests):
+    """R348's OTHER half, ordered measured rather than argued.
+
+    `COO-DECISION 20260905_0948` item 2(b): "answer your own liveness
+    question with a test, not a letter: `send_lock` is held across a
+    rollback that opens a new sqlite connection while `heartbeat_worker`
+    fires every 2.0s -- measure whether the heartbeat stalls; if it does,
+    fix it in the same round; if it does not, pin the test that proves it."
+    This lane had asked that question twice (this module's own docstring,
+    `CrossThreadObserverTests`'s "what this does not answer, on purpose")
+    and chief's R350 letter confirmed nobody -- including chief -- had
+    answered it.
+
+    THE REAL SHAPE, WHICH IS WHAT MAKES THE NUMBERS MEAN ANYTHING.  Every
+    `sendall()` on one connection is made under that connection's own
+    `send_lock` (`current/pf_login_game_server_v141.py:7754` the action
+    loop, `:7427` `heartbeat_worker`), and this module's observers are
+    reached from INSIDE `sendall()` (`connection.py`'s
+    `_offer_send_outcome`).  So a rollback's disk I/O really does run with
+    that lock held, and the other thread really is behind it.  The tests
+    below hold a REAL `threading.Lock` across a REAL rollback against the
+    REAL store, with a REAL second writer holding `BEGIN IMMEDIATE`, and
+    time it.
+
+    THE ANSWER: IT STALLS, AND THE STALL IS BOUNDED AT ONE `busy_timeout`.
+    Measured on this tree (the numbers are reproduced in
+    `warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME`'s own comment): 0.0023s
+    uncontended, tracking the contention while it is under five seconds,
+    and 5.010s -- never ten -- beyond it, because `checkpoint()` fails at
+    `BEGIN IMMEDIATE` and the read-back's second connection is never
+    opened.  Worst case therefore costs `heartbeat_worker` at most two of
+    its 2.0s beats, on a connection whose socket has just failed.
+
+    WHAT ROUND `j2jluj` CHANGED, AND WHAT IT DELIBERATELY DID NOT.  It did
+    not shorten the wait: `busy_timeout` lives in `store.py`, outside this
+    lane's zone, and shortening it would trade a bounded delay on a dying
+    connection for a durable row left naming a scene the client never
+    reached.  What it changed is that the wait now buys something -- before
+    this round the >5s case cleared the park anyway, so the undo was lost
+    with nothing left to try again.
+
+    NONCLAIM.  Headless.  No socket, no client, no screen.  These are wall
+    clock numbers about one process's own lock and its own sqlite file.
+    """
+
+    #: `current/pf_login_game_server_v141.py:7420` -- `conn_done.wait(2.0)`.
+    HEARTBEAT_PERIOD_S = 2.0
+    #: `store.py`'s `PRAGMA busy_timeout=5000`, in seconds.  Read from the
+    #: measurement, not from this file's own hope: the assertions below
+    #: bound the hold at TWO of these, so they pass whatever the exact
+    #: budget is and fail if the two connections' waits ever start stacking.
+    BUSY_TIMEOUT_S = 5.0
+
+    def _hold_the_write_lock(self, seconds):
+        """A second writer, on its own thread, holding `BEGIN IMMEDIATE`.
+
+        The ordinary shape of contention on this database: another
+        connection in the middle of its own transaction.  Returns once the
+        lock is really held, so a caller's timing starts from a known state
+        rather than racing the thread's start-up.
+        """
+        started = threading.Event()
+
+        def _hog():
+            db = sqlite3.connect(str(self.store.path))
+            try:
+                db.execute("PRAGMA busy_timeout=5000")
+                db.execute("BEGIN IMMEDIATE")
+                started.set()
+                time.sleep(seconds)
+                db.rollback()
+            finally:
+                started.set()
+                db.close()
+
+        thread = threading.Thread(target=_hog)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.assertTrue(started.wait(10), "the contending writer never started")
+        return thread
+
+    def _timed_failed_send(self, session, frame):
+        started = time.monotonic()
+        with redirect_stderr(io.StringIO()):
+            outcome = warp_send_watch.on_game_frame_send_failed(
+                session, frame, ConnectionResetError(),
+            )
+        return outcome, time.monotonic() - started
+
+    def test_an_uncontended_rollback_costs_far_less_than_one_heartbeat(self):
+        """The ordinary case, which is every case where nothing else is
+        writing: the lock is held for milliseconds, not beats."""
+        session = self._session("live01")
+        frame = self._park(session)
+        outcome, held = self._timed_failed_send(session, frame)
+        self.assertEqual(outcome, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, 1)
+        self.assertLess(
+            held, self.HEARTBEAT_PERIOD_S / 2,
+            f"an uncontended rollback held send_lock for {held:.3f}s; measured"
+            " 0.0023s on this tree, and anything approaching one heartbeat"
+            " period here means the undo grew disk work it did not have.",
+        )
+
+    def test_a_busy_database_bounds_the_hold_and_keeps_the_undo_alive(self):
+        """The worst case, and the defect this round fixed inside it.
+
+        One contending writer holds the database for longer than the store's
+        own budget.  Two things are asserted, and before this round the
+        second was false: the hold is bounded by ONE budget rather than the
+        two connections' worth the undo would need, AND the undo is not
+        lost -- the park stays, with one attempt spent, so the next failed
+        send on this connection tries again.
+        """
+        session = self._session("live02")
+        frame = self._park(session)
+        self._hold_the_write_lock(self.BUSY_TIMEOUT_S + 1.0)
+
+        outcome, held = self._timed_failed_send(session, frame)
+
+        self.assertEqual(outcome, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME)
+        self.assertLess(
+            held, self.BUSY_TIMEOUT_S * 2,
+            f"the hold was {held:.3f}s. One `PRAGMA busy_timeout` is the"
+            " bound because checkpoint() fails at BEGIN IMMEDIATE and the"
+            " read-back's second connection is never opened; two budgets'"
+            " worth means that stopped being true and heartbeat_worker now"
+            " waits twice as long.",
+        )
+        # NOT lost: the row is still wrong, and the park that will fix it
+        # is still here with its attempt counted.
+        self.assertEqual(self._row(session).scene_id, DESTINATION_SCENE)
+        record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertIsNotNone(record, "the undo was dropped on a busy database")
+        self.assertEqual(record.attempts, 1)
+        self.assertEqual(record.frame_bytes, frame)
+
+        # And the retry, once the contention is over, really does land.
+        outcome_two, _held_two = self._timed_failed_send(session, frame)
+        self.assertEqual(outcome_two, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertEqual(self._row(session).scene_id, 1)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_the_other_threads_next_send_waits_behind_the_rollback_and_then_goes(
+        self,
+    ):
+        """`heartbeat_worker`'s own position, reproduced with v141's lock.
+
+        One `threading.Lock` shared by both threads, exactly as v141 shares
+        one per connection.  The action-loop thread takes it and calls this
+        module's observer inside it, the way `connection.py` does from
+        inside `sendall()`; the heartbeat thread then asks for the same
+        lock.  What is measured is how long the heartbeat waits -- the
+        question, in the shape it is really asked.
+
+        The answer is a WAIT, not a hang: it is at least one 2.0s beat under
+        this contention, and it ends.  A starved heartbeat would never reach
+        the assertion at all.
+        """
+        session = self._session("live03")
+        frame = self._park(session)
+        contention = 3.0
+        self._hold_the_write_lock(contention)
+
+        send_lock = threading.Lock()
+        holding = threading.Event()
+        rollback_outcome: list = []
+        heartbeat_waits: list = []
+
+        def action_loop():
+            with send_lock:
+                holding.set()
+                with redirect_stderr(io.StringIO()):
+                    rollback_outcome.append(
+                        warp_send_watch.on_game_frame_send_failed(
+                            session, frame, ConnectionResetError(),
+                        )
+                    )
+
+        def heartbeat_worker():
+            # Only contend once the other thread really holds it, so this
+            # measures the wait and not a start-up race.
+            holding.wait(10)
+            asked_at = time.monotonic()
+            with send_lock:
+                heartbeat_waits.append(time.monotonic() - asked_at)
+
+        sender = threading.Thread(target=action_loop)
+        heartbeat = threading.Thread(target=heartbeat_worker)
+        sender.start()
+        heartbeat.start()
+        sender.join(timeout=30)
+        heartbeat.join(timeout=30)
+        self.assertFalse(sender.is_alive())
+        self.assertFalse(heartbeat.is_alive(), "the heartbeat never got the lock")
+
+        self.assertEqual(
+            rollback_outcome, [warp_scene_persist.OUTCOME_ROLLED_BACK],
+        )
+        self.assertEqual(self._row(session).scene_id, 1)
+        waited = heartbeat_waits[0]
+        self.assertGreaterEqual(
+            waited, self.HEARTBEAT_PERIOD_S,
+            f"the heartbeat waited only {waited:.3f}s under {contention:.1f}s"
+            " of database contention. If this stops being true the fixture"
+            " has stopped reproducing the shape it exists to measure, not"
+            " the stall has been fixed.",
+        )
+        self.assertLess(
+            waited, self.BUSY_TIMEOUT_S * 2,
+            f"the heartbeat waited {waited:.3f}s -- more than the store's own"
+            " budget can explain, which means something in the undo now"
+            " blocks without one.",
+        )
+
+
+class RollbackRetryBudgetTests(RealDatabaseTests):
+    """The budget on the re-park, and the outcomes that do NOT get one.
+
+    The measured shape (`SendLockLivenessTests`) needs five real seconds per
+    attempt, so the budget's own edges are driven here with the undo stubbed
+    to the outcome that measurement produced.  What is stubbed is exactly
+    one thing -- what `rollback_warp_scene` answers -- and everything else
+    (the park, the record, the counting, the clearing, the console line) is
+    the real module.
+    """
+
+    def _park_and_fail(self, session, frame, outcome):
+        stream = io.StringIO()
+        with mock.patch.object(
+            warp_send_watch, "rollback_warp_scene", return_value=outcome,
+        ):
+            with redirect_stderr(stream):
+                answer = warp_send_watch.on_game_frame_send_failed(
+                    session, frame, ConnectionResetError(),
+                )
+        return answer, stream.getvalue()
+
+    def test_the_budget_stops_at_three_attempts_and_says_so_out_loud(self):
+        session = self._session("retry01")
+        frame = self._park(session)
+        retryable = warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME
+
+        for spent in range(1, warp_send_watch.MAX_ROLLBACK_ATTEMPTS):
+            answer, stderr_text = self._park_and_fail(session, frame, retryable)
+            self.assertEqual(answer, retryable)
+            record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+            self.assertIsNotNone(record, f"dropped on attempt {spent}")
+            self.assertEqual(record.attempts, spent)
+            # The frame and the row to restore travel unchanged; only the
+            # count moves.
+            self.assertEqual(record.frame_bytes, frame)
+            self.assertNotIn(
+                warp_send_watch.RETRIES_EXHAUSTED_CONSOLE_TOKEN, stderr_text,
+            )
+
+        answer, stderr_text = self._park_and_fail(session, frame, retryable)
+        self.assertEqual(answer, retryable)
+        self.assertIsNone(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE),
+            "the park outlived its own budget -- every later failed send on"
+            " this connection would pay another busy_timeout for nothing.",
+        )
+        self.assertIn(
+            f"{warp_send_watch.RETRIES_EXHAUSTED_CONSOLE_TOKEN} attempts="
+            f"{warp_send_watch.MAX_ROLLBACK_ATTEMPTS}",
+            stderr_text,
+        )
+        self.assertIn(
+            f"{warp_send_watch.EVENT_PREFIX}failed_rollback_retries_exhausted_"
+            f"{warp_send_watch.MAX_ROLLBACK_ATTEMPTS}",
+            session.events,
+        )
+
+    def test_a_refusal_a_retry_cannot_fix_still_clears_on_the_first_attempt(self):
+        """`rollback_refused_PermissionError` -- a stale or non-owning
+        session.  Trying again cannot change that answer, so the park must
+        not survive it: matching the whole word, not the
+        `rollback_refused_` prefix, is what keeps this true."""
+        session = self._session("retry02")
+        frame = self._park(session)
+        answer, stderr_text = self._park_and_fail(
+            session, frame,
+            f"{warp_scene_persist.OUTCOME_ROLLBACK_REFUSED_PREFIX}PermissionError",
+        )
+        self.assertTrue(answer.endswith("PermissionError"))
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+        self.assertNotIn(
+            warp_send_watch.RETRIES_EXHAUSTED_CONSOLE_TOKEN, stderr_text,
+        )
+
+    def test_a_successful_undo_never_re_parks(self):
+        session = self._session("retry03")
+        frame = self._park(session)
+        answer, _stderr = self._park_and_fail(
+            session, frame, warp_scene_persist.OUTCOME_ROLLED_BACK,
+        )
+        self.assertEqual(answer, warp_scene_persist.OUTCOME_ROLLED_BACK)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
+    def test_a_replacement_park_starts_its_own_count_from_zero(self):
+        """A second `/warp` is a different frame owed a different send, not
+        a further attempt at the first one's undo."""
+        session = self._session("retry04")
+        frame = self._park(session)
+        self._park_and_fail(
+            session, frame, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME,
+        )
+        self.assertEqual(
+            getattr(session, warp_send_watch.SESSION_ATTRIBUTE).attempts, 1,
+        )
+        self.assertTrue(warp_send_watch.park_warp_send(session, b"a-second-frame"))
+        record = getattr(session, warp_send_watch.SESSION_ATTRIBUTE)
+        self.assertEqual(record.attempts, 0)
+        self.assertEqual(record.frame_bytes, b"a-second-frame")
+
+    def test_a_session_that_swallows_the_re_park_falls_through_to_clearing(self):
+        """Fail closed: a cell this module cannot read back is not left
+        holding a record it would act on later."""
+        session = self._session("retry05")
+        frame = self._park(session)
+        real_setattr = type(session).__setattr__
+
+        def _swallow_repark(instance, name, value):
+            if (
+                name == warp_send_watch.SESSION_ATTRIBUTE
+                and isinstance(value, warp_send_watch.ParkedWarpSend)
+                and value.attempts
+            ):
+                return None
+            return real_setattr(instance, name, value)
+
+        with mock.patch.object(type(session), "__setattr__", _swallow_repark):
+            answer, _stderr = self._park_and_fail(
+                session, frame, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME,
+            )
+        self.assertEqual(answer, warp_send_watch.RETRYABLE_ROLLBACK_OUTCOME)
+        self.assertIsNone(getattr(session, warp_send_watch.SESSION_ATTRIBUTE))
+
 
 # pf-adversary D9 (MEASURED, round `goxj0y`): this block used to sit ABOVE the
 # classes appended by that round, so `python tests/test_gm_warp_send_watch.py`
