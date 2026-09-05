@@ -976,11 +976,13 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_skill_catalog.py",
-      "count": 1,
+      "count": 3,
       "tests": [
-        "SkillCatalogTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
+        "SkillCatalogTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run",
+        "NTargetIsNotATypeColumnTests::test_meteor_rain_collides_with_normal_attack",
+        "NTargetIsNotATypeColumnTests::test_plainly_aoe_titles_also_sit_at_our_own_no_target_value"
       ],
-      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer."
+      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer. COUNT MOVED 1 -> 3, in the same commit as the two tests that moved it (this round, LANE-CS): NTargetIsNotATypeColumnTests checks n_TARGET (a candidate the s_CAST_CONDITION section of skill_catalog.py's module docstring flagged as needing a NEW ticket with independently-labeled rows) the same way NPassiveIsNotATypeColumnTests already checked n_PASSIVE and found the same smearing -- but unlike that class, the counter-example ids (7173 'Meteor Rain', 3210/3332/3762 'Grand Cannon'/'Great Cannon'/'Circle Attack') sit outside this catalog's own 8 ids, so pinning the collision means reading the full bridge table directly rather than skill_catalog's own accessors, hence the BRIDGE_GAMEDATA guard on a module that otherwise only needs it for the one generator-drift check already pinned here."
     }
   ],
   "windows_gate_excluded_modules": {

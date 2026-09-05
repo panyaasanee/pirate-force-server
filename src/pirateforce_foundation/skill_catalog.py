@@ -16,9 +16,20 @@ docstring first, it is the scope note for this whole module.
 SCOPE: 8 SKILL IDS, NOT "EVERY SKILL."  This module carries exactly the ids
 named by ``class_catalog.CLASS_ID_TO_STARTING_SKILL_IDS`` across all 5
 classes: 99 (Normal Attack), 110 (Strive Jump), 111 (VIP Strive Jump), and
-one "Basic Training" skill per class (40000 Gladiator, 41000 Sniper, 42000
-Necromancer, 43000 Paladin, 44000 Sorcerer).  pf-adversary (round iazmrv)
-measured that no committed table maps a class to its FULL skill list -- see
+one "Basic Training" skill per class -- named by its OWN ``s_SKILL_TITLE``
+row as 40000 "Gladiator Basic Training", 41000 "Sharpshooter Basic
+Training", 42000 "Stormherald Basic Training", 43000 "Imperial Knights
+Basic Training", 44000 "Light Priest Basic Training" (see
+``test_titles_from_textdata_th_skill_text``) -- NOT by ``CHARCREATE_CLASS``'s
+own ``s_ICON`` name for the class ("Gladiator"/"Sniper"/"Necromancer"/
+"Paladin"/"Sorcerer"; see ``class_catalog.class_name``), which agrees with
+the skill's title only for class 1.  Both names are real committed data for
+the same class id; neither is "the" name, and
+``test_basic_training_title_differs_from_the_charcreate_icon_name`` pins the
+one place this module used to conflate them (a stale draft of this very
+paragraph did, until this round -- see the [UPDATE, this round] paragraph
+below).  pf-adversary (round iazmrv) measured that no committed table maps a
+class to its FULL skill list -- see
 the extractor tool's docstring for the four separate reasons (self-
 referential n_ISCLASS bookkeeping, a same-id-range different-domain sailor
 skill table, a different class-code scheme in CURRICULUM, and further skills
@@ -123,6 +134,40 @@ than read as "usable by every class."
     independently-labeled rows (2 single-target, 2 AOE, 2 self-buff, 2 heal)
     is, per the result letter's own suggestion, and no such ticket exists
     yet as of this round.
+
+    [UPDATE, this round]: ``n_TARGET`` WAS CHECKED AS A CANDIDATE FOR THAT
+    MISSING TICKET, AND IT IS ALSO NOT A TYPE COLUMN.  Table-wide (all 2165
+    rows of ``CONSTDATA_TH__SKILL_CONTEXT.tsv`` on the bridge clone, not just
+    this catalog's 8), ``n_TARGET`` takes 5 values (0: 1904 rows, 1: 167, 2:
+    30, 4: 62, 5: 2), and a first look is suggestive: among the 883 of those
+    2165 rows whose id ALSO carries a real title in
+    ``TEXTDATA_TH__SKILL_TEXT.tsv`` (``s_SKILL_TITLE`` not blank/``?`` --
+    925 ids carry one there, but 42 of those ids have no row in
+    ``SKILL_CONTEXT`` at all, so the join is 883, not 925), value
+    4 skews toward unambiguous area-effect names ("Great Cannon", "Siege
+    Cannon", multiple "Hammer of Judgment" variants, "Minesweeper Bomb") and
+    value 2 toward party/support names ("Magic Circle", "Team Defensive
+    Call", "Advance Pray All", "Life Transfer").  That pattern breaks under
+    the same test the ``n_PASSIVE`` section above already applies: this
+    catalog's own id 99 "Normal Attack" -- the one skill here that is
+    unambiguously single-target -- carries ``n_TARGET=1``, and skill id 7173
+    "Meteor Rain", an unambiguously area-effect name by the same standard,
+    carries the SAME value, ``n_TARGET=1`` (a second "Meteor Rain", id 3241,
+    sits at ``n_TARGET=0`` -- the same value as this catalog's own movement
+    and Basic Training ids -- alongside other plainly-AOE titles at that
+    value, "Grand Cannon" id 3210, "Great Cannon" id 3332, "Circle Attack"
+    id 3762).  One column cannot mean "single target" and "area effect" at
+    the same value for two skills whose titles are this unambiguous in
+    English, the same smearing shape the ``n_PASSIVE`` section above found,
+    not a narrower miss.  Do not build a ``target_mode()``/``skill_type()``
+    accessor on ``n_TARGET`` either; see ``tests/test_skill_catalog.py``'s
+    ``NTargetIsNotATypeColumnTests`` (``BRIDGE_GAMEDATA``-guarded, since the
+    counter-example ids live outside this catalog's own 8 and have to be
+    read from the full bridge table) for the pinned collision.  The NEW
+    ticket the ``s_CAST_CONDITION`` paragraph above asks for -- independently
+    labeled control rows, not a shortcut off an existing column -- still
+    does not exist; this update narrows what such a ticket would have to
+    explain (at minimum, id 99 vs id 7173), it does not replace it.
 """
 from __future__ import annotations
 

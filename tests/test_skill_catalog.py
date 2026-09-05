@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import csv
 import hashlib
 import subprocess
 import sys
@@ -331,6 +332,94 @@ class NPassiveIsNotATypeColumnTests(unittest.TestCase):
         self.assertIn(99, by_value[2])
         self.assertIn(110, by_value[2])
         self.assertNotIn(99, by_value.get(1, []))
+
+
+class NTargetIsNotATypeColumnTests(unittest.TestCase):
+    """This round: ``n_TARGET`` was checked as a candidate for the "at least
+    8 more independently-labeled rows" ticket the ``s_CAST_CONDITION``
+    section of skill_catalog.py's module docstring says does not exist yet.
+    It fails the same way ``n_PASSIVE`` did (see
+    ``NPassiveIsNotATypeColumnTests`` above), but the counter-example ids
+    (7173, 3210, 3332, 3762) are outside this catalog's own 8 -- unlike that
+    class, this one has to read the full bridge table to pin it, hence the
+    ``BRIDGE_GAMEDATA`` guard, on the same file names ``skill_catalog.py``
+    already sources this catalog's own 8 ids from."""
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_meteor_rain_collides_with_normal_attack(self):
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        with (gamedata / "CONSTDATA_TH__SKILL_CONTEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            context_by_id = {
+                row["n_ID"]: row for row in csv.DictReader(handle, delimiter="\t")
+            }
+        with (gamedata / "TEXTDATA_TH__SKILL_TEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            title_by_id = {
+                row["n_ID"]: row["s_SKILL_TITLE"]
+                for row in csv.DictReader(handle, delimiter="\t")
+            }
+
+        # id 99 "Normal Attack" is this catalog's own unambiguously
+        # single-target skill (see test_titles_from_textdata_th_skill_text).
+        self.assertEqual(title_by_id["99"], "Normal Attack")
+        normal_attack_target = context_by_id["99"]["n_TARGET"]
+        self.assertEqual(normal_attack_target, "1")
+
+        # id 7173 "Meteor Rain" is an unambiguously area-effect name by the
+        # same plain-English standard, and outside this catalog entirely --
+        # yet it carries the SAME n_TARGET value as Normal Attack.  One
+        # column cannot mean "single target" and "area effect" at the same
+        # value for two titles this unambiguous; that is the collision, not
+        # a narrower miss.
+        self.assertEqual(title_by_id["7173"], "Meteor Rain")
+        self.assertEqual(
+            context_by_id["7173"]["n_TARGET"], normal_attack_target,
+            "n_TARGET no longer collides Normal Attack (99) with the "
+            "area-effect 'Meteor Rain' (7173) -- the counter-example this "
+            "test exists to pin has changed; re-investigate before "
+            "trusting n_TARGET as a type column again, do not just delete "
+            "this assertion")
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_plainly_aoe_titles_also_sit_at_our_own_no_target_value(self):
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        with (gamedata / "CONSTDATA_TH__SKILL_CONTEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            context_by_id = {
+                row["n_ID"]: row for row in csv.DictReader(handle, delimiter="\t")
+            }
+        with (gamedata / "TEXTDATA_TH__SKILL_TEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            title_by_id = {
+                row["n_ID"]: row["s_SKILL_TITLE"]
+                for row in csv.DictReader(handle, delimiter="\t")
+            }
+
+        # Every non-99 id in this catalog (movement, Basic Training) sits at
+        # n_TARGET=0 -- see skill_raw_context's own values for 110/111 and
+        # the five Basic Training ids.  These three ids are outside the
+        # catalog, plainly area-effect by name, and sit at the SAME value.
+        no_target_value = skill_catalog.skill_raw_context(110)["n_TARGET"]
+        self.assertEqual(no_target_value, "0")
+        aoe_titled_ids_at_no_target_value = {
+            "3210": "Grand Cannon",
+            "3332": "Great Cannon",
+            "3762": "Circle Attack",
+        }
+        for skill_id, expected_title in aoe_titled_ids_at_no_target_value.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(title_by_id[skill_id], expected_title)
+                self.assertEqual(
+                    context_by_id[skill_id]["n_TARGET"], no_target_value,
+                    "n_TARGET no longer puts %r (%s) in the same bucket as "
+                    "this catalog's own movement/Basic-Training ids -- "
+                    "re-investigate before trusting n_TARGET as a type "
+                    "column again" % (skill_id, expected_title))
 
 
 if __name__ == "__main__":
