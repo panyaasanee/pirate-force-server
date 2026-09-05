@@ -562,5 +562,30 @@ class SelectorForHitTests(unittest.TestCase):
             self.assertTrue(line.isascii())
 
 
+class HandTypedTableAgreesWithTheMinedOneTests(unittest.TestCase):
+    """Closes pf-adversary D3 for this module's copy of the six rows.
+
+    ``ATTACK_BEHAVIOR_BY_EQUIP_TYPE`` here is hand-typed on purpose (see the
+    comment above it: the attended instrument must not refuse an id because a
+    table disagrees).  What is NOT acceptable is the two copies drifting
+    silently, which is exactly what D3 measured -- 280 -> 281 left the suite
+    green.  ``combat_pose``'s copy is mined from the committed client table
+    behind a sha256 pin, so comparing against it makes a mistyped row here red
+    without this module having to load anything at runtime.
+    """
+
+    def test_the_six_rows_match_the_mined_crosswalk_exactly(self):
+        from pirateforce_foundation import combat_pose
+        self.assertEqual(
+            pose_trial.ATTACK_BEHAVIOR_BY_EQUIP_TYPE,
+            combat_pose.ATTACK_BEHAVIOR_BY_EQUIP_TYPE)
+
+    def test_the_sweep_order_is_those_same_six_ids(self):
+        from pirateforce_foundation import combat_pose
+        self.assertEqual(
+            set(pose_trial.TICKET_SWEEP_ORDER),
+            set(combat_pose.ATTACK_BEHAVIOR_BY_EQUIP_TYPE.values()))
+
+
 if __name__ == "__main__":
     unittest.main()

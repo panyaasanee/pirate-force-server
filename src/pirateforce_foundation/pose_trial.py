@@ -91,19 +91,31 @@ TRIAL_MALFORMED = "malformed"
 TRIAL_NO_PROVENANCE = "auto_no_equip_type_provenance"
 TRIAL_ARMED = "armed"
 
-# *** THIS TABLE CANNOT BE RE-DERIVED INSIDE THIS REPOSITORY, and saying so is
-# the point of this comment.  It is transcribed from ``RE-110-RESULT`` T2 (the
+# *** THIS COMMENT USED TO SAY, IN CAPITALS, THAT THIS TABLE "CANNOT BE
+# RE-DERIVED INSIDE THIS REPOSITORY".  ONE WORD OF THAT WAS WRONG and it is
+# corrected here rather than quietly overwritten: neither
+# ``CONSTDATA_TH__EQUIP_VALUE.tsv`` nor ``CONSTDATA_TH__BEHAVIOR.tsv`` is
+# tracked in THIS repository, but EQUIP_VALUE has been tracked in
+# ``pf_bridge/gamedata/tables/`` all along -- which is where every committed
+# copy in ``data/`` came from.  So the six rows WERE derivable, and the hole
+# pf-adversary measured (D3: changing 280 to 281 leaves the suite green) was
+# open for no good reason.
+#
+# It is closed now, next door: ``tools/pf_equip_attack_behavior_extract.py``
+# mines the table, ``combat_pose.py`` loads the result behind a sha256 pin,
+# and ``tests/test_combat_pose.py`` is the re-derivation test the old comment
+# asked for -- including the six rows, one assertion each.  This copy is left
+# in place, hand-typed, because it serves a different job: the attended sweep
+# arms ``PF_POSE_TRIAL`` with ids an owner names, and that instrument must not
+# start refusing a number because a table says the number is odd.  The two
+# tables are pinned equal by ``test_pose_trial.py`` instead, so a drift
+# between them is red rather than invisible.
+#
+# The values themselves are transcribed from ``RE-110-RESULT`` T2 (the
 # pf_bridge archive path in the module docstring); chief re-confirmed the
 # crosswalk ``EQUIP_VALUE.n_EQUIPTYPE -> n_ATTACK_SKILL -> BEHAVIOR.n_ID``
-# [PROVEN] on 2026-09-04 14:05.  Neither ``CONSTDATA_TH__EQUIP_VALUE.tsv`` nor
-# ``CONSTDATA_TH__BEHAVIOR.tsv`` is tracked here, so NO test in this repository
-# can catch a mistyped row -- pf-adversary measured exactly that (D3: changing
-# 280 to 281 leaves the suite green).  Two things bound the damage rather than
-# hide it: the ticket sweeps all six ids one at a time, so a wrong row shows up
-# as "that one value produced no pose" instead of a wrong conclusion; and the
-# console token prints the number actually sent, so the attended log can be
-# re-read against the table afterwards.  Anyone who lands the tables here
-# should replace this comment with a test that re-derives the six rows.
+# [PROVEN] on 2026-09-04 14:05, and GT-247 R315 then measured five of the six
+# producing a distinct animation on the client's screen (286 produced none).
 #
 # Animation names from the same table, for the attended log:
 #   280 `_C_ATTACK_000;30`   284 `_C_ATTACK_000;28`   288 `_C_ATTACK_000;24`

@@ -4049,7 +4049,20 @@ class DropLedgerCell:
         if not owed:
             return (), rows_left, ()
         if not view.drops:
-            return owed, 0, ()
+            # THE EMPTY FLOOR -- R307's own shape, and R316's.  Production
+            # behaviour here is UNCHANGED and that is a ruling, not an
+            # omission: COO-DECISION 20260905_1247 item 4 keeps this branch
+            # returning nothing until a screen says what an empty generation
+            # does.  ``frames_for_empty_floor`` is that measurement's arm and
+            # returns ``((), None)`` on every boot nobody armed by hand, so
+            # the two lines below are byte-identical to main unless
+            # PF_GROUND_EMPTY_TRIAL=1 is set in this process.
+            from . import ground_empty_trial
+            trial_frames, _trial_line = ground_empty_trial.\
+                frames_for_empty_floor(legacy)
+            if trial_frames and will_send:
+                self.note_scene_published(scene, view.drops)
+            return owed, 0, trial_frames
         frames = self._boundary_frames(legacy, view)
         if not frames:
             # _boundary_frames returns () only for an empty view, which the
