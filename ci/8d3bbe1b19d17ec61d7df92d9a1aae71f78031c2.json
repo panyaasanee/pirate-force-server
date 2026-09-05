@@ -1,1 +1,1 @@
-{"sha":"8d3bbe1b19d17ec61d7df92d9a1aae71f78031c2","conclusion":"failure","event":"push","ref":"refs/heads/claude/magical-hawking-h4bgfl","run_id":"33956105267","utc":"2026-09-05T08:45:30Z"}
+{"sha":"8d3bbe1b19d17ec61d7df92d9a1aae71f78031c2","conclusion":"failure","event":"pull_request","ref":"refs/pull/832/merge","run_id":"33956132810","utc":"2026-09-05T08:46:12Z"}
