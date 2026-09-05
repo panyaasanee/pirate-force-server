@@ -610,7 +610,7 @@ def _world_registry_line(scene_id: int) -> tuple[str, ...]:
     the same graves and the same ground.  This line is that reading, printed
     once per arrival at the one seam this lane owns end to end.
 
-    🔴 WHAT THIS LINE IS NOT EVIDENCE OF, and the trap is worth naming
+    !! WHAT THIS LINE IS NOT EVIDENCE OF, and the trap is worth naming
     because the first draft of this docstring walked into it: "grep the
     token twice and compare" is satisfied on TODAY'S BUILD by any two
     arrivals into any scene, because both readings are `monsters=0 graves=0
@@ -618,9 +618,13 @@ def _world_registry_line(scene_id: int) -> tuple[str, ...]:
     the `GM_WARP_POSITION_CONFIRMED` shape, a token compared against the
     previous reading rather than an intended target).  A comparison of two
     readings is only evidence when the FIRST one is non-zero, i.e. after
-    LANE-B's write call site exists.  The GT ticket for this feature says so
-    in its own preconditions; nobody should be asked to boot for it before
-    then.  What the line honestly gives today is that the world books are
+    LANE-B's write call site exists.  The GT ticket for this feature is drafted
+    in `pf_bridge/notes_to_chief/20260905_1340_LANE-A-TO-CHIEF-world-registry-
+    landed-gt-body-relogin-needs-a-number.md` and has no number yet; its own
+    preconditions say the same thing, and nobody should be asked to boot for
+    it before then.  (Stated as a pointer rather than as a fact about a
+    ticket that exists in this repository: it does not -- pf-adversary,
+    round `tz2rgc`, N9.)  What the line honestly gives today is that the world books are
     reachable from the arrival path at all, and a place for the numbers to
     appear the moment they are real.
 

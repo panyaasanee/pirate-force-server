@@ -144,8 +144,8 @@ class TheLedgerMustBelongToThisScene(unittest.TestCase):
 
     ``field_mobs`` identities are ``0x2000 + placement + 1`` with no scene
     term, so two different monsters in two different scenes really do carry
-    the same wire identity -- measured: nine of this game's fifteen
-    live-scene pairs share at least one.  Seeding on identity alone wrote
+    the same wire identity -- measured at this round's HEAD: eight of this
+    game's fifteen live-scene pairs share at least one.  Seeding on identity alone wrote
     one scene's remaining health under another scene's ceiling and printed a
     green line over it.
     """
@@ -601,6 +601,85 @@ class TheFailureIsReportedUnderItsOwnName(unittest.TestCase):
             world_scene_registry.install_world_scene_registry(previous)
 
 
+class TheConstantsAreTheOnesTheDocstringsJustify(unittest.TestCase):
+    """N4: a bound nothing pins can silently return to unbounded.
+
+    Mutating `SCENES_CAP` to a billion left both test files green, which is
+    the same hole D8 was opened for -- one level up.
+    """
+
+    def test_the_production_bounds_are_pinned(self):
+        self.assertEqual(world_scene_registry.VITALS_PER_SCENE_CAP, 4096)
+        self.assertEqual(world_scene_registry.SCENES_CAP, 128)
+        self.assertEqual(world_scene_registry._MAX_COORDINATE, 1.0e7)
+        # And the defaults are really what a bare registry gets.
+        bare = world_scene_registry.WorldSceneRegistry()
+        self.assertEqual(bare.vitals_per_scene,
+                         world_scene_registry.VITALS_PER_SCENE_CAP)
+
+    def test_a_health_exactly_at_the_ceiling_is_applied_not_skipped(self):
+        """N8: the boundary.  A row remembered at full health IS a row --
+        it is what a respawn or a full heal leaves behind, and skipping it
+        would silently drop the one value that says "this monster is whole".
+        """
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, CEILING, CEILING)
+        wounded = _ledger(mob_combat.MobBalance(SOLDIER, CEILING, 900))
+        seeded = world_scene_registry.seed_the_session_ledger(
+            wounded, SCENE, registry=registry, announce=False)
+        self.assertEqual(seeded.balance_of(SOLDIER).current_hp, CEILING)
+
+    def test_a_thing_that_is_not_a_ledger_is_named_as_that(self):
+        """N7: the scene check must not swallow `not_a_ledger`.
+
+        Deleting the isinstance check made a non-ledger come back as
+        `another_scenes_ledger` -- one fault reported under another's name,
+        which is the disease D5 was opened for.
+        """
+        registry = world_scene_registry.WorldSceneRegistry()
+        registry.note_balance(SCENE, SOLDIER, 900, CEILING)
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            world_scene_registry.seed_the_session_ledger(
+                object(), SCENE, registry=registry)
+        self.assertIn("reason=not_a_ledger", buffer.getvalue())
+        self.assertNotIn("another_scenes_ledger", buffer.getvalue())
+
+    def test_a_hostile_exception_cannot_break_the_console_line(self):
+        """N2: the reason that carries an error is clamped, ASCII and bounded."""
+
+        class _Raising:
+            @staticmethod
+            def is_buried(scene, identity):
+                raise RuntimeError("\u0e44\u0e17\u0e22 \u20ac " + "A" * 5000)
+
+        class _Unreprable(Exception):
+            def __repr__(self):
+                raise ValueError("no repr for you")
+
+        class _Worse:
+            @staticmethod
+            def is_buried(scene, identity):
+                raise _Unreprable()
+
+        for book in (_Raising, _Worse):
+            with self.subTest(book=book.__name__):
+                registry = world_scene_registry.WorldSceneRegistry()
+                registry.note_balance(SCENE, SOLDIER, 900, CEILING)
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    returned = world_scene_registry.seed_the_session_ledger(
+                        _ledger(), SCENE, registry=registry, deaths=book)
+                line = buffer.getvalue().strip()
+                self.assertEqual(returned.balance_of(SOLDIER).current_hp,
+                                 CEILING)
+                self.assertIn("reason=ledger_refused_the_row", line)
+                line.encode("ascii")
+                line.encode("cp874")
+                self.assertLess(len(line), 300, len(line))
+                self.assertNotIn("\n", line)
+
+
 class TheWiringAsk(unittest.TestCase):
 
     def test_the_pasteable_call_site_names_the_function_it_asks_for(self):
@@ -628,10 +707,18 @@ class TheWiringAsk(unittest.TestCase):
         ):
             with self.subTest(anchor=anchor[:40]):
                 self.assertIn(anchor, runtime)
-        # And the ask must keep telling the truth about what is NOT there.
-        text = world_scene_registry.WORLD_REGISTRY_SEED_WIRING
-        self.assertNotIn("seed_the_session_state", runtime)
-        self.assertIn("runtime.py contains NO", text)
+        self.assertIn(
+            "self.mob_combat_ledger = mob_combat.open_ledger(_boot_roster)",
+            runtime)
+        # NOT pinned here: the ABSENCE of mob_death_persistence's own queued
+        # statement.  A first draft asserted `assertNotIn(
+        # "seed_the_session_state", runtime)`, and pf-adversary (round
+        # tz2rgc, N3) measured what that costs: the moment chief does what
+        # the OTHER module's wiring ask says, THIS lane's suite goes red
+        # under a test named "anchor is really in runtime today".  A lane
+        # may pin what its own ask needs to exist; pinning that another
+        # lane's ask has not been granted yet is a tripwire under a
+        # colleague.
 
 
 if __name__ == "__main__":

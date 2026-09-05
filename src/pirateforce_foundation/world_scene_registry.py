@@ -68,7 +68,10 @@ in HERE, at the same seam, AFTER the death rehydrate in
 that wound register, and it is LANE-A's because ``COO-DECISION
 20260905_1152`` (two days later, under ``PANYA-DECISION 1140``) put the
 whole per-scene world registry in this lane's hands with LANE-B writing
-into it.  THE SEAM IS TAKEN UNCHANGED FROM 2245; only the owner moved.  If
+into it.  THE SEAM OF 2245 IS TAKEN UNCHANGED -- plus ONE statement 2245 did
+not name (a once-per-session seed at login), because that ruling's seam alone
+never runs for a character whose stored scene is the scene the process booted
+into, which is the town this game starts in.  Only the owner moved.  If
 COO reads the two rulings the other way, nothing in this file changes but
 the lane tag at the top -- and the round's letter puts that question in
 front of COO rather than deciding it here.  Round trips healing a wound is
@@ -125,7 +128,7 @@ VITALS_PER_SCENE_CAP = 4096
 #: identity modules ship six live rosters today, the folder copy names a few
 #: hundred) and it refuses by name rather than growing.
 #:
-#: 🔴 WHAT IS DELIBERATELY *NOT* HERE, and it is a real bound on this book:
+#: !! WHAT IS DELIBERATELY *NOT* HERE, and it is a real bound on this book:
 #: ``WorldDeaths.bury`` gates every row through ``roster_key_of`` -- a grave
 #: for an identity no mined table ships is refused, because such a row seeds
 #: a later login with a monster ``mob_death.repopulation_entries`` will
@@ -543,6 +546,14 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
     ``self.mob_combat_ledger = world_scene_registry.seed_the_session_ledger(
         self.mob_combat_ledger, folder)``
 
+    !! WHERE IT MAY BE CALLED: wherever a ledger is OPENED -- after a scene
+    change, and once at login -- and NOWHERE ELSE.  It is a seed, not an
+    authority: a caller that re-runs it on every dispatch pushes the book's
+    value back over blows this session has already landed, which
+    pf-adversary (round ``tz2rgc``, N1) measured as 2,218 of 6,000 damage
+    lost between two players on one monster.  See
+    :data:`WORLD_REGISTRY_SEED_WIRING`.
+
     NEVER RAISES, and on every refusal the caller gets back ITS OWN LEDGER,
     unchanged -- the same contract ``mob_death_persistence.
     seed_the_session_state`` gives, for the same reason: this runs on the
@@ -564,8 +575,10 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
       of the destination's rows", and pf-adversary (round ``tz2rgc``)
       MEASURED that sentence false on this game's own tables -- ``field_
       mobs`` identities are ``0x2000 + placement + 1`` with no scene term,
-      so nine of the fifteen live-scene pairs share at least one wire
-      identity.  A Bg0003 ledger was rewritten with bg0004's memory of
+      so eight of the fifteen live-scene pairs share at least one wire
+      identity (re-derived from `field_mobs.load_roster` over
+      `live_scenes()` at this round's HEAD -- the "nine" an earlier draft
+      of this comment carried was copied from a report and never re-run).  A Bg0003 ledger was rewritten with bg0004's memory of
       ``0x2046``: 12 HP out of one scene's monster under the other's
       ceiling, printed as a green seed.  ``CombatLedger.scene`` exists to
       answer exactly this question and now it is asked.
@@ -663,9 +676,14 @@ def seed_the_session_ledger(ledger: Any, scene: Any, *, registry: Any = None,
         # of ``with_balance`` and a broken ``identities()`` under one
         # borrowed name -- "above the ledger ceiling" -- which sends whoever
         # greps it to the mob tables for a fault that was never there.
+        # THROUGH ``_clamp`` AND NOT ``%r``: the same review measured a raw
+        # repr putting a five-million-character line, a non-cp874 character
+        # (which made the bridge console drop the WHOLE refusal line), and
+        # an exception whose own ``__repr__`` raises -- straight through the
+        # one line that says why the world was not seeded.
         outcome = SeedOutcome(
             fold, ledger, (), skipped,
-            "%s:%r" % (REFUSE_LEDGER_REFUSED_THE_ROW, error))
+            "%s:%s" % (REFUSE_LEDGER_REFUSED_THE_ROW, _clamp(error)))
         if announce:
             _say(describe_seeded(outcome))
         return ledger
@@ -722,6 +740,29 @@ def describe_view(scene_view: Any) -> str:
         return "WORLD_REGISTRY_VIEW scene=? monsters=? graves=? ground=?"
 
 
+def _clamp(error: Any) -> str:
+    """One short, ASCII, never-raising description of an exception.
+
+    Three separate scars in one helper, all measured by pf-adversary in
+    round ``tz2rgc`` against a raw ``%r``: a repr can be megabytes long, it
+    can carry characters cp874 has no mapping for (which makes ``print``
+    raise and the console lose the ENTIRE refusal line, so the one line that
+    says why becomes silence), and it can raise on its own.
+    """
+    try:
+        text = repr(error)
+    except Exception:                                        # noqa: BLE001
+        try:
+            text = type(error).__name__
+        except Exception:                                    # noqa: BLE001
+            return "unreprable"
+    try:
+        text = text[:120].encode("ascii", "replace").decode("ascii")
+    except Exception:                                        # noqa: BLE001
+        return "unreprable"
+    return text.replace("\n", " ").replace("\r", " ")
+
+
 def _say(line: str) -> None:
     """Print without ever being the reason a caller failed.
 
@@ -776,11 +817,27 @@ WORLD_REGISTRY_SEED_WIRING = (
     "    the two rulings differently, this module moves lanes without a\n"
     "    line of it changing.\n"
     "\n"
-    "(2) OUTSIDE that branch, on any dispatch, on the field:\n"
+    "(2) ONCE PER SESSION, in __init__, on the line after\n"
+    "    `self.mob_combat_ledger = mob_combat.open_ledger(_boot_roster)`\n"
+    "    (runtime.py:1348), with the boot roster's own folder:\n"
     "\n"
     "        self.mob_combat_ledger = (\n"
     "            world_scene_registry.seed_the_session_ledger(\n"
-    "                self.mob_combat_ledger, folder))\n"
+    "                self.mob_combat_ledger,\n"
+    "                self.mob_combat_scene_folder))\n"
+    "\n"
+    "    !! NOT ON EVERY DISPATCH, and this is the correction that matters\n"
+    "    most in this note.  An earlier draft asked for this statement\n"
+    "    outside the branch on every dispatch, and pf-adversary (round\n"
+    "    tz2rgc, N1) MEASURED what that does to a live fight: the book\n"
+    "    would be re-read into the session ledger between every blow, so\n"
+    "    two players hitting one monster lost 2,218 of 6,000 damage and a\n"
+    "    player's own landed hit was pushed back UP by the next dispatch's\n"
+    "    seed.  This function is a SEED -- it belongs where a ledger is\n"
+    "    OPENED (statement (1) after a scene change, statement (2) at\n"
+    "    login) and nowhere else.  A caller that re-seeds a ledger already\n"
+    "    carrying this session's own blows is using it as an authority it\n"
+    "    was never built to be.\n"
     "\n"
     "    WHY BOTH, and this is the whole of D3: runtime.py seeds\n"
     "    `self.mob_combat_scene_folder` from the BOOT roster's own scene in\n"
@@ -793,7 +850,17 @@ WORLD_REGISTRY_SEED_WIRING = (
     "    the arrival frame from `self.mob_combat_ledger` in that SAME\n"
     "    dispatch -- so the client is told the monster is at its ceiling,\n"
     "    which is the R309 symptom this module exists to end.  Statement\n"
-    "    (1) is the one that reaches those.\n"
+    "    (1) is the one that reaches those; statement (2) exists only for\n"
+    "    the login into the boot scene, where (1) never runs.\n"
+    "\n"
+    "!! THE ONE RULE THIS ASK DOES NOT SETTLE, and LANE-B must have an\n"
+    "answer before its write call site lands: when two sessions in one\n"
+    "scene write the same monster's health, `note_balance` is\n"
+    "last-writer-wins -- it has no compare-and-swap the way\n"
+    "`mob_death.commit_death` does.  With the seed confined to ledger-open\n"
+    "(above) a player's own blows are never undone, but two players on ONE\n"
+    "monster can still each overwrite the other's number.  The round's\n"
+    "letter puts that question to COO rather than inventing a rule here.\n"
     "\n"
     "import: `from . import world_scene_registry`\n"
     "\n"
@@ -809,6 +876,11 @@ WORLD_REGISTRY_SEED_WIRING = (
     "IT RETURNS THE CALLER'S OWN LEDGER on every refusal and never raises,\n"
     "so both statements are safe on every dispatch.  It is silent when the\n"
     "scene's book is empty, which is the ordinary state of most scenes.\n"
+    "\n"
+    "COST, MEASURED on this clone (the convention runtime.py holds this\n"
+    "seam to): 3.0 us on an empty book, 29 us on a full bg0001 book, 93 us\n"
+    "on a full Bg0002 book -- paid once per scene change and once per\n"
+    "login, not per dispatch.\n"
     "\n"
     "THE WRITE HALF IS LANE-B'S AND IS NOT PART OF THIS ASK: LANE-B calls\n"
     "`world_scene_registry.world_scene_registry().note_balance(...)` from\n"
