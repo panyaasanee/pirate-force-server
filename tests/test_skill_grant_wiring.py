@@ -3,22 +3,24 @@ grant composer that closes the gap `skill_learn_wiring.learn_skill_spend`'s
 own docstring names ("granting the skill itself ... is a separate write
 this module does not attempt").
 
-WHAT THIS FILE DOES NOT PROVE.  `grant_learned_skill` does not exist on
-the real `store.SQLiteStore` yet -- LANE-DB decided its shape (`pf_bridge/
-notes_to_chief/20260905_2228_LANE-DB-REPLY-grant_learned_skill-shape-
-decided-no-granted_at-param.md`) but its own migration/store PR was gated
-closed and has not re-landed on `main` as of this round -- every test here
-exercises the composer against `_FakeGrantStore` below, a thin wrapper
-that delegates the real spend-side calls
-(`get_skill_points`/`spend_skill_points`) to a real `store.SQLiteStore`
-(migrated, same as `test_skill_learn_wiring.py`'s own fixture) and fakes
-only the not-yet-real grant call (now taking no `granted_at` argument, per
-that reply). Nothing here is client-observable: same
-zero-production-caller posture as `skill_learn_wiring.py` and
-`skill_grant_wiring.py` themselves.
+`store.SQLiteStore.grant_learned_skill` is now real, landed on `main` in
+`pirate-force-server#863` -- `LearnAndGrantSkillTests` below still runs
+the composer against `_FakeGrantStore` (useful for exercising a mid-grant
+failure without needing the real method to cooperate), and
+`LearnAndGrantSkillAgainstRealStoreTests` runs the identical scenarios
+straight against `store.SQLiteStore` with zero code changes to
+`skill_grant_wiring.py` -- the module's `SkillGrantStore` Protocol already
+matched the real method's arity (fixed in `pirate-force-server#866`),
+proving the composer and the concrete store door actually fit together,
+not just that a fake shaped like one does. Nothing here is
+client-observable: same zero-production-caller posture as
+`skill_learn_wiring.py` and `skill_grant_wiring.py` themselves -- there is
+still no `runtime.py` request handler calling this from a real client
+frame.
 """
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -61,13 +63,17 @@ def _build_wire(selector):
 
 class _FakeGrantStore:
     """Delegates the real spend-side calls to a real, migrated
-    `store.SQLiteStore` unchanged; fakes only `grant_learned_skill`, the
-    one call `SkillGrantStore` (`skill_grant_wiring.py`) names as not-yet-
-    real. The fake dedups per `(character_id, skill_id)` the same way
-    `migrations/011_character_skills.sql`'s `UNIQUE(character_id,
-    skill_id)` + `INSERT OR IGNORE` does for the real (starting-kit-only,
-    today) table -- this is the idempotency shape this round proposed
-    LANE-DB build for a learned grant too.
+    `store.SQLiteStore` unchanged; fakes only `grant_learned_skill` -- kept
+    even though the real method now exists on `main`, so tests that need
+    to inject a mid-grant failure
+    (`test_spend_succeeded_but_grant_raised_propagates_not_swallowed`)
+    still can without depending on the real method cooperating. The fake
+    dedups per `(character_id, skill_id)` the same way
+    `migrations/014_character_skills_learned_source.sql`'s shared
+    `UNIQUE(character_id, skill_id)` + `INSERT OR IGNORE` does for the
+    real table -- the same idempotency shape the real
+    `grant_learned_skill` actually ships, verified directly in
+    `LearnAndGrantSkillAgainstRealStoreTests` below.
     """
 
     def __init__(self, store: SQLiteStore):
@@ -214,6 +220,144 @@ class LearnAndGrantSkillTests(_StoreFixture):
         # this test's expectation.
         self.assertEqual(self.store.get_skill_points(character.id), 4)
         self.assertEqual(len(self.fake.grant_calls), 1)
+
+
+class LearnAndGrantSkillAgainstRealStoreTests(_StoreFixture):
+    """Same composer, same scenarios as `LearnAndGrantSkillTests`, but
+    `store=self.store` throughout -- the real `store.SQLiteStore`, no
+    `_FakeGrantStore` involved anywhere. This is the check that actually
+    matters now that `grant_learned_skill` is real: `SkillGrantStore`
+    (a `typing.Protocol`) type-checks structurally, so nothing before this
+    file ever confirmed the real method's arity and return shape truly
+    line up with what `learn_and_grant_skill` calls -- only that a fake
+    written to the Protocol's declared shape does.
+    """
+
+    def _source_of(self, character_id, skill_id):
+        # Reads the persisted `character_skills.source` value directly
+        # with a second connection to the same on-disk file `self.store`
+        # already migrated -- independent of anything `store.py` computes
+        # in memory, the same second-connection-reads-the-file discipline
+        # `test_skill_learn_wiring.py` and `test_store_skill_points.py`
+        # both use to cross-check a write door's claim.
+        conn = sqlite3.connect(self.path)
+        try:
+            row = conn.execute(
+                "SELECT source FROM character_skills"
+                " WHERE character_id = ? AND skill_id = ?",
+                (character_id, skill_id),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row is not None else None
+
+    def test_happy_path_against_real_store_grants_source_learned(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        points_remaining, skills_after_grant = learn_and_grant_skill(
+            self.store, character.id, _WHOLE_COST_SKILL_ID
+        )
+        self.assertEqual(points_remaining, 4)
+        self.assertEqual(skills_after_grant, (_WHOLE_COST_SKILL_ID,))
+        self.assertEqual(self.store.get_skill_points(character.id), 4)
+        self.assertEqual(
+            self._source_of(character.id, _WHOLE_COST_SKILL_ID), "learned"
+        )
+
+    def test_grant_survives_a_reopened_store_real_persistence(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        learn_and_grant_skill(self.store, character.id, _WHOLE_COST_SKILL_ID)
+        reopened = SQLiteStore(self.path, MIGRATIONS)
+        self.assertEqual(
+            reopened.get_skill_points(character.id), 4
+        )
+        self.assertEqual(
+            self._source_of(character.id, _WHOLE_COST_SKILL_ID), "learned"
+        )
+
+    def test_insufficient_points_never_attempts_the_grant_real_store(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 0})
+        with self.assertRaises(SkillLearnValidatorError):
+            learn_and_grant_skill(
+                self.store, character.id, _WHOLE_COST_SKILL_ID
+            )
+        self.assertIsNone(
+            self._source_of(character.id, _WHOLE_COST_SKILL_ID)
+        )
+        self.assertEqual(self.store.get_skill_points(character.id), 0)
+
+    def _row_identity_of(self, character_id, skill_id):
+        # (id, granted_at) of the one row for this (character_id, skill_id)
+        # pair -- used to prove a repeat grant is a true no-op (`INSERT OR
+        # IGNORE`) and not a delete-and-reinsert (`INSERT OR REPLACE`),
+        # which would change both. `grant_starting_skills`'s own docstring
+        # (store.py) names row-identity/timestamp corruption on a
+        # reordered regrant as the specific failure mode a shared
+        # UNIQUE(character_id, skill_id) door must not produce, and
+        # `tests/test_persistence_character_skills_011.py` has a
+        # dedicated regression test for that door -- this is the same
+        # check for `grant_learned_skill`.
+        conn = sqlite3.connect(self.path)
+        try:
+            return conn.execute(
+                "SELECT id, granted_at FROM character_skills"
+                " WHERE character_id = ? AND skill_id = ?",
+                (character_id, skill_id),
+            ).fetchone()
+        finally:
+            conn.close()
+
+    def test_regranting_dedups_on_the_real_grant_door_only(self):
+        # Same non-dedup-on-spend behavior as the fake-backed test above,
+        # but this time `grant_learned_skill`'s own `INSERT OR IGNORE`
+        # (not the fake's dict) is what has to actually dedup.
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 5})
+        first_points, first_skills = learn_and_grant_skill(
+            self.store, character.id, _WHOLE_COST_SKILL_ID
+        )
+        row_after_first = self._row_identity_of(
+            character.id, _WHOLE_COST_SKILL_ID
+        )
+        second_points, second_skills = learn_and_grant_skill(
+            self.store, character.id, _WHOLE_COST_SKILL_ID
+        )
+        row_after_second = self._row_identity_of(
+            character.id, _WHOLE_COST_SKILL_ID
+        )
+        self.assertEqual(first_points, 4)
+        self.assertEqual(second_points, 3)  # spent again -- not deduped
+        self.assertEqual(first_skills, (_WHOLE_COST_SKILL_ID,))
+        self.assertEqual(second_skills, (_WHOLE_COST_SKILL_ID,))  # deduped
+        # Row identity AND its granted_at timestamp must survive the
+        # repeat grant untouched -- an `INSERT OR REPLACE` regression
+        # would still pass a row-count-only check (still one row) while
+        # silently changing both of these.
+        self.assertEqual(
+            row_after_first, row_after_second,
+            "a repeat grant must be a true no-op (same id, same "
+            "granted_at), not a delete-and-reinsert",
+        )
+        conn = sqlite3.connect(self.path)
+        try:
+            (row_count,) = conn.execute(
+                "SELECT COUNT(*) FROM character_skills"
+                " WHERE character_id = ? AND skill_id = ?",
+                (character.id, _WHOLE_COST_SKILL_ID),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row_count, 1)  # one row, not two
+
+    def test_unknown_skill_id_raises_key_error_real_store(self):
+        character = self._make_character()
+        self.store.write_typed_attributes(character.id, {"skill_points": 99})
+        with self.assertRaises(KeyError):
+            learn_and_grant_skill(self.store, character.id, 424242)
+        self.assertIsNone(self._source_of(character.id, 424242))
+        self.assertEqual(self.store.get_skill_points(character.id), 99)
 
 
 if __name__ == "__main__":

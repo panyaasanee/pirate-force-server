@@ -1,33 +1,35 @@
 """LANE-CS: the spend-then-grant composer for a LEARNED skill -- joins
 `skill_learn_wiring.learn_skill_spend` (real, on `main`, spends skill
-points) to a store method this module does NOT assume exists yet.
+points) to `store.SQLiteStore.grant_learned_skill` (also real, on `main`
+as of `pirate-force-server#863` -- LANE-DB re-landed it after the prior
+PR was gated red; migration `014_character_skills_learned_source.sql`
+widens `character_skills.source`'s `CHECK` to admit `'learned'`).
 
 WHY THIS MODULE EXISTS.  `skill_learn_wiring.py`'s own docstring names its
 boundary explicitly: "It does not grant the skill itself (writing a
 `character_skills` row) -- that is a separate write this module does not
 attempt; spending points and granting a skill are two different persisted
 facts, and conflating them here would silently assume an answer neither
-`store.py` nor this round settles."  `migrations/011_character_skills.sql`
-backs that up on the schema side: `source TEXT NOT NULL CHECK(source IN
-('starting_kit'))` -- the CHECK list has exactly one value today, and a
-LEARNED grant needs a second one LANE-DB has not added yet (see this
-round's CORE-REQUEST to LANE-DB, `pf_bridge/notes_to_chief/`, proposing a
-`'learned'` value and a `grant_learned_skill` store method). `store.py`
-and `migrations/` are LANE-DB's exclusive write zone (`AGENTS.md` section 7 /
-`prompts/LANE-CS.md`); this lane proposes, LANE-DB decides and builds.
+`store.py` nor this round settles."  `store.py` and `migrations/` are
+LANE-DB's exclusive write zone (`AGENTS.md` section 7 / `prompts/
+LANE-CS.md`); this lane proposed the shape (CORE-REQUEST `2119`), LANE-DB
+decided and built it (`pf_bridge/notes_to_chief/
+20260905_2228_LANE-DB-REPLY-grant_learned_skill-shape-decided-no-
+granted_at-param.md`) with one change from the proposal -- no `granted_at`
+parameter, the method computes its own timestamp internally.
 
-HOW THIS MODULE STAYS TESTABLE BEFORE THAT METHOD EXISTS.  `SkillGrantStore`
-below is a minimal `typing.Protocol` naming only the one not-yet-real call
-this module needs (`grant_learned_skill`) plus the two calls
-`skill_learn_wiring.learn_skill_spend` already requires
-(`get_skill_points`/`spend_skill_points`, inherited from `store.
-SQLiteStore` via duck typing -- this module does not re-declare them).  A
-fake implementing `SkillGrantStore` exercises every branch below today
-(`tests/test_skill_grant_wiring.py`); the real `store.SQLiteStore` already
-satisfies the two spend-side methods, so the only thing standing between
-this module and a real caller is LANE-DB shipping the third method with a
-matching name and signature -- no import of `store.SQLiteStore` needed
-here beyond what `skill_learn_wiring` itself already imports.
+HOW THIS MODULE STAYS TESTABLE INDEPENDENT OF THE STORE'S CONCRETE TYPE.
+`SkillGrantStore` below is a minimal `typing.Protocol` naming only the one
+call this module adds on top of what `skill_learn_wiring.learn_skill_spend`
+already requires (`get_skill_points`/`spend_skill_points`, inherited from
+`store.SQLiteStore` via duck typing -- this module does not re-declare
+them).  Both a fake (`tests/test_skill_grant_wiring.py`'s
+`_FakeGrantStore`, still useful for exercising failure branches like a
+mid-grant exception without needing the real method to cooperate) and the
+real `store.SQLiteStore` -- whose `grant_learned_skill(character_id,
+skill_id) -> tuple[int, ...]` signature matches this Protocol exactly, no
+adapter needed -- satisfy it; `tests/test_skill_grant_wiring.py` exercises
+`learn_and_grant_skill` against both.
 
 WHAT THIS MODULE DOES NOT DO.
 
@@ -61,13 +63,14 @@ WHAT THIS MODULE DOES NOT DO.
   unchanged, and in every one of those cases `grant_learned_skill` is
   never called -- the grant only runs after the spend has actually
   returned a balance.
-* It does not decide the `source` column's value or the store method's
-  final name/signature -- `_GRANT_SOURCE` documents what this round
-  proposed to LANE-DB; the real value ships in whatever migration and
-  store method LANE-DB actually builds, which may differ from the
-  proposal.
+* It does not decide the `source` column's value -- `_GRANT_SOURCE`
+  documents the value LANE-DB's migration actually committed
+  (`'learned'`, matching the proposal this round made); this module never
+  writes to `character_skills` itself, `grant_learned_skill` does.
 
-ZERO PRODUCTION CALLER, same posture as everything it composes.
+ZERO PRODUCTION CALLER, same posture as everything it composes -- landing
+on the real store closes the "does the door exist" gap, not the "does
+anything call this from a client frame" gap.
 """
 from __future__ import annotations
 
@@ -77,24 +80,26 @@ from . import skill_learn_wiring
 
 
 class SkillGrantStore(Protocol):
-    """The one not-yet-real store call this module needs, named as a
-    `Protocol` rather than imported from `store.py` so this module can be
-    fully exercised by a fake today.  `skill_learn_wiring.learn_skill_spend`
-    already requires `get_skill_points`/`spend_skill_points` on whatever
-    object is passed as `store` -- those are not re-declared here, this
-    Protocol only adds the third call `learn_and_grant_skill` below needs.
+    """The one store call this module adds beyond what `skill_learn_wiring.
+    learn_skill_spend` already requires (`get_skill_points`/
+    `spend_skill_points`, not re-declared here), named as a `Protocol`
+    rather than imported from `store.py` so this module can be exercised
+    by either a fake or the real `store.SQLiteStore` -- both satisfy this
+    shape (`tests/test_skill_grant_wiring.py` runs the full test suite
+    against each).
 
-    Shape LANE-DB decided (`pf_bridge/notes_to_chief/
+    Shape LANE-DB decided and built (`pf_bridge/notes_to_chief/
     20260905_2228_LANE-DB-REPLY-grant_learned_skill-shape-decided-no-
-    granted_at-param.md`, replying to this round's CORE-REQUEST `2119`):
-    same `INSERT OR IGNORE` idempotency shape as `store.
-    SQLiteStore.grant_starting_skills`, scoped to a single skill id and a
-    `source` value other than `'starting_kit'` -- with ONE difference from
-    what this lane proposed: `granted_at` is NOT a parameter.  The real
-    method computes it itself with `_now()` inside its own transaction
-    (identical to `grant_starting_skills`), because a caller-supplied
-    timestamp can be stale or wrong and the method's own transaction is the
-    only place that actually knows when the `INSERT` happened.
+    granted_at-param.md`, replying to this round's CORE-REQUEST `2119`;
+    landed on `main` in `pirate-force-server#863`): same `INSERT OR
+    IGNORE` idempotency shape as `store.SQLiteStore.grant_starting_skills`,
+    scoped to a single skill id and a `source` value other than
+    `'starting_kit'` -- with ONE difference from what this lane proposed:
+    `granted_at` is NOT a parameter.  The real method computes it itself
+    with `_now()` inside its own transaction (identical to
+    `grant_starting_skills`), because a caller-supplied timestamp can be
+    stale or wrong and the method's own transaction is the only place that
+    actually knows when the `INSERT` happened.
     """
 
     def grant_learned_skill(
@@ -103,10 +108,10 @@ class SkillGrantStore(Protocol):
         ...
 
 
-#: What this round proposed to LANE-DB as the new `character_skills.source`
-#: CHECK value for a learned (non-starting-kit) grant. Documentation only --
-#: this module never writes to `character_skills` itself, `grant_learned_
-#: skill` does, so the real value is whatever LANE-DB's migration commits.
+#: The `character_skills.source` value a learned (non-starting-kit) grant
+#: carries, per `migrations/014_character_skills_learned_source.sql`'s
+#: `CHECK` clause. Documentation only -- this module never writes to
+#: `character_skills` itself, `grant_learned_skill` does.
 _GRANT_SOURCE = "learned"
 
 
