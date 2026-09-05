@@ -192,7 +192,15 @@ class Bg0005ShapeTests(unittest.TestCase):
         """A fourth scene must not move the three already on the wire."""
         self.assertEqual(len(field_mobs.roster_for_scene_id(1)), 4)
         self.assertEqual(len(field_mobs.roster_for_scene_id(2)), 12)
-        self.assertEqual(len(field_mobs.roster_for_scene_id(14)), 12)
+        # ~~12~~ -> 11 for scene 14, round j5v7mu: COO-DECISION
+        # 20260905_0545 withheld placement 87 (Carlos) from what this lane
+        # ships.  Asserted as a live count minus the withheld list rather
+        # than as a bare 11, so this line keeps meaning "nothing else
+        # moved" if the ruling is lifted.
+        self.assertEqual(
+            len(field_mobs.roster_for_scene_id(14)),
+            12 - len(field_mobs.lane_withheld_placements("Bg0015")))
+        self.assertEqual(len(field_mobs.roster_for_scene_id(14)), 11)
         raw = BG0001_PATH.read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          BG0001_UNTOUCHED_SHA256)
@@ -529,7 +537,7 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             "LANE-B 20260904_1134, not a harmless leftover comment.",
         )
 
-    def test_this_lane_announces_three_lane_composed_scenes_now(
+    def test_this_lane_announces_four_lane_composed_scenes_now(
             self) -> None:
         """Named, so nobody arms a fourth without seeing the count move.
 
@@ -546,6 +554,20 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
         inferred, in ``tests/test_field_mob_tables_bg0003.py``'s
         ``test_the_lane_composed_arrival_now_announces_all_twelve``.
 
+        MOVED TO FOUR, ROUND r6isy5: scene 4 (Slave Market Island) joins,
+        and this card's own condition -- say what else is shut -- is
+        answered by saying that for this scene NOTHING in this lane is:
+        ``scene_door_walk.describe_live_scene_doors`` walks it at
+        ``target=7 kill=7 drop=7 every_door=yes`` on the same commit that
+        registers it, the first scene this lane has armed through all three
+        doors in ONE round (scene 3 needed two).  What IS shut, and is not
+        this lane's to open, is the attended half: NOW.md forbids an
+        on-screen monster-hit GT for scenes 3/4/5/14 until P-2 (monster
+        name colour) closes, so no player has yet SEEN any of this.  The
+        death ruling these seven rows travel under is the COO's 0546
+        letter, whose five template ids are this lane's own answer awaiting
+        confirmation -- see ``mob_death.WIDENING_RULINGS``' own entry.
+
         The set is still written as a tuple and not a count for the same
         reason as before: a scene LEAVING it has to be as visible as one
         joining.
@@ -555,7 +577,7 @@ class LaneComposedScenesAreNotFightableYetTest(unittest.TestCase):
             if scene_id not in (1, 2)
         )
         self.assertEqual(
-            armed_behind_the_seam, (3, 5, 14),
+            armed_behind_the_seam, (3, 4, 5, 14),
             "a scene joined or left the set of lane-composed scenes this "
             "lane ships a roster for.  Scenes 1 and 2 have their own "
             "dedicated arrival branches in runtime.py; every other scene "

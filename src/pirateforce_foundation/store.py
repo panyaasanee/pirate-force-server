@@ -20,6 +20,7 @@ from .inventory import (
 )
 from .model import Character, Position
 from .persistence_ground_drops import GroundDropRow
+from .persistence_home_marker import HomeMarkerRow
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -1141,12 +1142,48 @@ class SQLiteStore:
 
         Raises `KeyError` for a character that does not exist or has been
         soft-deleted, matching `get_character`.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same gap `list_character_ids_missing_class_id` was patched against
+        (`pf_bridge/notes_to_chief/
+        20260905_0233_...boot-crash-class-id-backfill.md`).  This is the
+        general-purpose typed-attribute reader, so it is the one a direct
+        caller (a test, a tool, a future call site) reaches with no guard of
+        its own.  [CORRECTED - pf-adversary, this round] an earlier draft of
+        this paragraph named `persistence_attr_compose.live_typed_values_for`
+        as the boot-wired caller that makes this urgent; that function has
+        NO callers anywhere in `src/` today (dead code), and the function
+        that IS actually wired at boot (`live_named_attr_values.
+        source_for_store`, via `lane_hooks.register_live_attr_values_source`)
+        already wraps this call in its own `try/except Exception`, with a
+        SECOND layer in `lane_hooks.current_named_attr_values` on top of
+        that -- so that specific path was already crash-safe before this
+        guard existed. The guard is still correct and still worth having:
+        it closes the hole for every OTHER caller of this method, including
+        `live_typed_values_for` if it ever gains one, and it matches the
+        precedent `list_character_ids_missing_class_id` already set rather
+        than leaving one general-purpose reader unguarded next to it. A
+        database missing one of `TYPED_COLUMNS` has no way to truthfully
+        report a value for it -- the column does not exist -- so it is
+        treated exactly like a column that exists but is NULL: omitted
+        from the result, never guessed. A database that HAS run migration
+        006 sees every column in `PRAGMA table_info` and this guard never
+        changes its projection, so behaviour there is unchanged byte for
+        byte.
         """
         from . import persistence_typed_attrs as typed_attrs
 
         columns = list(typed_attrs.TYPED_COLUMNS)
-        projection = ",".join(columns)
         with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            columns = [c for c in columns if c in existing]
+            # `id` is always in the projection (migration 001, never absent)
+            # so a database missing EVERY typed column still gets valid SQL
+            # instead of `SELECT  FROM ...` -- `columns` alone can be empty.
+            projection = ",".join(["id"] + columns)
             row = db.execute(
                 f"SELECT {projection} FROM characters "
                 "WHERE id=? AND deleted_at IS NULL",
@@ -1175,14 +1212,26 @@ class SQLiteStore:
         landing in it makes one half raise `KeyError` while the other still
         returns.  One connection, one row, closes the window; the character's
         name comes from the SAME `SELECT`, not a second query.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, same
+        as `read_typed_attributes` (see that method's docstring, corrected
+        this round by pf-adversary, for exactly which callers this defends
+        and which were already safe without it): a missing column is
+        treated as absent, matching NULL, never crashing and never guessed.
+        Already-migrated databases are unaffected byte for byte.
         """
         from . import persistence_typed_attrs as typed_attrs
 
         columns = list(typed_attrs.TYPED_COLUMNS)
-        projection = ",".join(columns)
         with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            columns = [c for c in columns if c in existing]
+            projection = ",".join(columns + ["name"])
             row = db.execute(
-                f"SELECT {projection},name FROM characters "
+                f"SELECT {projection} FROM characters "
                 "WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
             ).fetchone()
@@ -1220,16 +1269,41 @@ class SQLiteStore:
         lock as the write.
 
         Raises `KeyError` for a character that does not exist or has been
-        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a value
-        this schema may not hold.  Nothing is written when anything is refused.
+        soft-deleted, `persistence_typed_attrs.TypedAttrError` for a value
+        this schema may not hold, and `persistence_vitals.SchemaDriftError`
+        if this database predates migration 006 (see below).  Nothing is
+        written when anything is refused.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same gap `read_typed_attributes` was patched against
+        (`pf_bridge/notes_to_chief/20260905_0436_...read-crash-general-
+        fix.md`) -- confirmed live by `pf-adversary` on that same round via
+        `ALTER TABLE ... DROP COLUMN` against this exact method, which raised
+        a raw `sqlite3.OperationalError` out of the `UPDATE` below with no
+        column named. Unlike the read side, a write cannot silently narrow
+        its projection and drop the requested column -- writing nothing while
+        returning success would be exactly the kind of unannounced loss
+        `COO-DECISION 20260901_1059` forbids, so a missing column here is a
+        named failure, not an omission. This reuses the SAME check
+        (`persistence_vitals.verify_schema` / `SchemaDriftError`) every other
+        vitals-writing method in this file already calls right after `BEGIN
+        IMMEDIATE`, for the same set of columns (`persistence_vitals.
+        required_columns()` is built from `typed_attrs.TYPED_COLUMNS`, which
+        is every column this method can be asked to write) -- one guard,
+        already proven, not a second one invented for this method alone. A
+        database that has run migration 006 is unaffected: `verify_schema` is
+        a `PRAGMA table_info` read, nothing it checks changes what gets
+        written.
         """
         from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
 
         checked = typed_attrs.validate_all(values)
         assignments = ",".join(f"{column}=?" for column in checked)
         columns = list(typed_attrs.TYPED_COLUMNS)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
@@ -1285,16 +1359,34 @@ class SQLiteStore:
         who is allowed to still write it.
 
         Raises `KeyError` for a character that does not exist or has been
-        soft-deleted, and `persistence_typed_attrs.TypedAttrError` for a
-        value this schema may not hold -- validated before any SQL runs,
-        same as `write_typed_attributes`.
+        soft-deleted, `persistence_typed_attrs.TypedAttrError` for a value
+        this schema may not hold -- validated before any SQL runs, same as
+        `write_typed_attributes` -- and `persistence_vitals.SchemaDriftError`
+        if this database predates migration 006.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same exposure `write_typed_attributes` was patched against this same
+        round (`pf-adversary` reproduced it live here too, via `ALTER TABLE
+        ... DROP COLUMN`, before this guard existed): the `UPDATE` below
+        names a column from `typed_attrs.TYPED_COLUMNS`, which does not exist
+        on such a database, and raised a raw `sqlite3.OperationalError` with
+        no column named. Unreachable today -- the one boot path that skips
+        migration installs a read-only session with no write path at all,
+        and the one unconditional caller on that path only iterates ids that
+        are already empty there -- but nothing in this method itself enforced
+        that, so a future caller outside today's exact call graph would hit
+        the same raw crash. Same guard as every other vitals-writing method
+        in this file, called right after `BEGIN IMMEDIATE`; a database that
+        has run migration 006 is unaffected.
         """
         from . import persistence_typed_attrs as typed_attrs
+        from . import persistence_vitals as vitals
 
         checked = typed_attrs.validate_all({column: value})
         (validated_column,) = checked
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            vitals.verify_schema(db)
             row = db.execute(
                 "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
                 (character_id,),
@@ -1361,6 +1453,7 @@ class SQLiteStore:
                 for row in db.execute("PRAGMA table_info(characters)")
             }
             if "class_id" not in columns:
+                print("CLASS_ID_BACKFILL_SKIPPED reason=schema_not_migrated")
                 return ()
             rows = db.execute(
                 "SELECT id FROM characters "
@@ -2647,6 +2740,89 @@ class SQLiteStore:
                 (scene_fold,),
             ).fetchall()
         return tuple(GroundDropRow(*row) for row in rows)
+
+    def set_home_marker(
+        self, character_id: int, home_scene_id: int
+    ) -> HomeMarkerRow:
+        """Persist which scene is a character's "born again" home, and read
+        it straight back.
+
+        `migrations/013_character_home_marker.sql` gives the bare
+        `character_home_marker` table; this is the only thing in the
+        codebase that writes it, answering `notes_to_chief/
+        20260905_1154_COO-DECISION-db-takes-no-world-work-home-marker-
+        persistence-row-queued-after-1044-LANE-DB.md` point 3(b).
+
+        UPSERT, NOT INSERT-THEN-UPDATE.  A character may set home more than
+        once (that is the entire feature -- quest 3205 is a repeatable
+        choice, not a once-only birth fact), so this always writes the
+        CURRENT value and moves `updated_at`, whether or not a row already
+        existed.  `character_id` is the table's own `PRIMARY KEY`, so
+        `INSERT ... ON CONFLICT(character_id) DO UPDATE` is one statement,
+        not a read-then-branch this method would otherwise need to guard
+        against a second writer racing between the two halves.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted -- the same check, and the same reason, `write_typed_
+        attributes` above already gives: a home marker for a character
+        this database does not have a live row for is not a fact this
+        door can hold, and writing one anyway would be exactly the kind
+        of orphaned row `COO-DECISION 20260901_1059` forbids.
+
+        `home_scene_id` shares `character_positions.scene_id`'s own range
+        (`0 <= home_scene_id <= 0xFFFF`) -- the same u16 wire range `save_
+        position` already checks, not a second space this door invents.
+        """
+        if isinstance(home_scene_id, bool) or not isinstance(home_scene_id, int):
+            raise TypeError("home_scene_id must be an int")
+        if not 0 <= home_scene_id <= 0xFFFF:
+            raise ValueError(
+                "home_scene_id %d is outside the u16 scene-id range"
+                % home_scene_id
+            )
+        updated_at = _now()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id FROM characters WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            db.execute(
+                "INSERT INTO character_home_marker"
+                "(character_id,home_scene_id,updated_at) VALUES (?,?,?) "
+                "ON CONFLICT(character_id) DO UPDATE SET "
+                "home_scene_id=excluded.home_scene_id,"
+                "updated_at=excluded.updated_at",
+                (character_id, home_scene_id, updated_at),
+            )
+            after = db.execute(
+                "SELECT character_id,home_scene_id,updated_at "
+                "FROM character_home_marker WHERE character_id=?",
+                (character_id,),
+            ).fetchone()
+        return HomeMarkerRow(*after)
+
+    def get_home_marker(self, character_id: int) -> "HomeMarkerRow | None":
+        """The home marker row for one character, or `None` if it never set
+        one.
+
+        The read half of the door `set_home_marker` above writes.  `None`
+        is not an error -- it is the correct answer for every character
+        that predates `migrations/013_character_home_marker.sql`, and for
+        one that exists but has never chosen a home -- the caller (quest
+        3205's own dispatch) decides what "no home marker yet" means; this
+        door does not guess a default scene (see the migration's own
+        docstring for why).
+        """
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT character_id,home_scene_id,updated_at "
+                "FROM character_home_marker WHERE character_id=?",
+                (character_id,),
+            ).fetchone()
+        return HomeMarkerRow(*row) if row is not None else None
 
     def grant_starting_skills(
         self, character_id: int, skill_ids: "tuple[int, ...] | list[int]"

@@ -396,6 +396,15 @@
     },
     {
       "key": "bridge_gamedata",
+      "module": "tests/test_field_mob_tables_bg0004.py",
+      "count": 1,
+      "tests": [
+        "Bg0004RegenerateTests::test_regenerating_reproduces_the_committed_module_byte_for_byte"
+      ],
+      "note": "round r6isy5 (LANE-B): field_mob_tables_bg0004.py is GENERATED and REGISTERED in field_mobs._SCENE_TABLE_MODULES in the same commit that adds it, same shape as the bg0003 and bg0005 entries - scene 4's arrival census and login door were opened by LANE-A round bq4mst, so nothing was gated. The one pinned test re-runs tools/pf_mine_scene_mob_roster.py --scene bg0004 --identity-rule cline against the bridge clone's gamedata so the committed module cannot drift unnoticed. Unlike scene 3 this scene forced no generator fix (the clone spells it scene/bg0004/bg0004.placements.tsv, lower/lower), so there is one pinned test here and not four. Pinned in the same commit as the test."
+    },
+    {
+      "key": "bridge_gamedata",
       "module": "tests/test_field_mob_tables_bg0005.py",
       "count": 2,
       "tests": [
@@ -976,11 +985,27 @@
     {
       "key": "bridge_gamedata",
       "module": "tests/test_skill_catalog.py",
+      "count": 8,
+      "tests": [
+        "SkillCatalogTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run",
+        "NTargetIsNotATypeColumnTests::test_meteor_rain_collides_with_normal_attack",
+        "NTargetIsNotATypeColumnTests::test_plainly_aoe_titles_also_sit_at_our_own_no_target_value",
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_blank_cast_condition_is_exactly_25_rows_six_class_tiers_plus_one_exception",
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_the_one_blank_cast_condition_id_outside_the_tiers_has_zero_passive_effect",
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_an_actively_cast_attack_skill_carries_a_nonzero_non_self_referential_passive_effect",
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_buff_and_heal_flavored_actively_cast_skills_carry_zero_passive_effect",
+        "NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests::test_nonzero_passive_effect_among_actively_cast_rows_is_common_not_rare"
+      ],
+      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer. COUNT MOVED 1 -> 8 by two independent same-round LANE-CS sessions merging into each other (this round and round mps8zh), each adding a BRIDGE_GAMEDATA-guarded class checking a different candidate type-classifier column against the full bridge table and finding it also fails: NTargetIsNotATypeColumnTests (n_TARGET, counter-examples 7173 'Meteor Rain' / 3210 'Grand Cannon' / 3332 'Great Cannon' / 3762 'Circle Attack', this round) and NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests (the (s_CAST_CONDITION blank, n_PASSIVE_EFFECT nonzero) pair, counter-examples 2954/8200/3546/3547, round mps8zh) -- both sets of falsifying ids sit outside this catalog's own 8-id scope, so a clone without pf_bridge beside it cannot answer either."
+    },
+    {
+      "key": "bridge_gamedata",
+      "module": "tests/test_combat_pose.py",
       "count": 1,
       "tests": [
-        "SkillCatalogTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
+        "SourcePinTests::test_the_generator_reproduces_the_shipped_tables_when_it_can_run"
       ],
-      "note": "round iazmrv (LANE-CS, this lane's first round): same rationale as the matching entry for tests/test_class_catalog.py, for skill_catalog.py's two committed local copies (data/skill_context_starting_kit.tsv, data/skill_text_starting_kit.tsv) sourced from CONSTDATA_TH__SKILL_CONTEXT.tsv and TEXTDATA_TH__SKILL_TEXT.tsv. Re-runs tools/pf_class_skill_starting_kit_extract.py --check against the live ../pf_bridge/gamedata sibling; a clone without it cannot answer."
+      "note": "round ti9gxr (LANE-B): same rationale as the matching entries for tests/test_class_catalog.py and tests/test_mob_loot.py. combat_pose.py loads two committed local copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class.tsv) mined from CONSTDATA_TH__EQUIP_VALUE.tsv, CONSTDATA_TH__EQUIPMENT_BASE.tsv and CONSTDATA_TH__CHARCREATE_CLASS.tsv. This test re-runs tools/pf_equip_attack_behavior_extract.py --check against the live ../pf_bridge/gamedata sibling, which also re-runs that tool's three decode checks; a clone without the sibling cannot answer. The sha256 pins themselves are asserted unguarded in the same class, so a hand-edit to a committed copy is red on every clone."
     }
   ],
   "windows_gate_excluded_modules": {

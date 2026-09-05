@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 import struct
 
+from . import combat_pose
 from . import pose_trial
 from .mob_loot import (
     MobLootContractError,
@@ -207,7 +208,8 @@ def make_scene007_action_ack(legacy, fields, performer_identity: int,
 
 
 def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
-                                  hit_number: int, *, environ=None):
+                                  hit_number: int, *, class_id=None,
+                                  environ=None):
     """``(pc, frame)`` for one extra ActionVital echo on an accepted
     production mob-combat hit, or ``None`` -- compose and send NOTHING.
 
@@ -233,12 +235,43 @@ def make_production_hit_pose_echo(legacy, fields, performer_identity: int,
     call answers), 1-indexed, and the only state this function or
     ``pose_trial.selector_for_hit`` carries across hits -- the list index
     is derived from it, not from any counter this module keeps itself.
+
+    ``class_id``: the performer's class, or ``None`` when nothing resolved
+    one.  THE PRODUCTION PATH, added under ``COO-DECISION 20260905_1045``
+    after ``GT-247`` PASSED on the screen: with ``PF_POSE_TRIAL`` unset --
+    which is every ordinary boot -- this function now asks
+    ``combat_pose.production_behavior_for_class`` for the BEHAVIOR id of the
+    weapon that class carries, and composes the echo that makes the client
+    swing.  No flag, no scenario, no environment variable in that path.
+
+    ORDERING, AND WHY THE TRIAL STILL WINS.  ``PF_POSE_TRIAL`` is checked
+    FIRST and an armed list decides the selector on its own.  ``COO-DECISION
+    20260905_1045`` item 3 keeps the switch as an experiment instrument and
+    says production must not depend on it; an owner who armed it is running
+    a sweep and must get the id she armed, not the one her class implies.
+    Exactly one console line is printed per hit either way, so a log never
+    shows two answers for one swing.
+
+    ``class_id`` IS ``None`` ON EVERY HIT TODAY and the module says so in its
+    own header: ``characters.class_id`` has a writer and no reader, and this
+    function's caller (``runtime.py``, chief's file) does not pass one.  The
+    refusal is not silent -- ``POSE_NO_EQUIP_PROVENANCE`` prints per hit,
+    which is what item 2 of that decision asks for -- and the frame stays
+    byte-identical to main: the inherited v141 dispatch already echoed this
+    request's own ``+0x30`` back before ``_dispatch_mob_combat`` ran.
     """
     action_selector, pose_line = pose_trial.selector_for_hit(
         hit_number, environ,
     )
-    if pose_line is not None:
-        _say(pose_line)
+    if action_selector is None and pose_line is None:
+        # PF_POSE_TRIAL unset: the production path, not "send nothing".  A
+        # MALFORMED trial is NOT routed here -- selector_for_hit returns its
+        # own refusal line for that -- because an owner who armed the variable
+        # and typed it wrong must read that she typed it wrong, not watch a
+        # pose appear from somewhere else and conclude her list worked.
+        action_selector, pose_line = combat_pose.\
+            production_behavior_for_class(class_id)
+    _say(pose_line)
     if action_selector is None:
         return None
     return build_action_vital_echo(

@@ -73,6 +73,7 @@ from .gm.warp_target_record import (
     take_warp_target_with_reason,
 )
 from .gm.warp_executor import WarpTarget
+from .gm import warp_send_watch
 
 from .model import Position
 from .inventory import (
@@ -1597,6 +1598,33 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.scene_hostile_target_captured = False
                 if connection_bindings is not None:
                     connection_bindings.bind(self)
+                    # CORE-REQUEST-GM-058, form B (LANE-GM addendum
+                    # 20260905_0719; installer landed on main in #801).
+                    # `bind` is the call that makes THIS object the
+                    # `AcceptedGameSocket.state` that `connection.py:150`
+                    # reads `on_game_frame_sent` /
+                    # `on_game_frame_send_failed` off, so installing on the
+                    # next line leaves no window for a frame to be sent
+                    # before both forwards exist.  Never raises; answers one
+                    # of FOUR words -- `installed`, `completed_half_declared`,
+                    # `refused_already_present`, `refused_not_writable`.
+                    #
+                    # The answer is deliberately not consulted HERE, and that
+                    # is not the same as nobody reading it: LANE-GM's
+                    # `_announce_install` puts every outcome on the session's
+                    # event trail AND on stderr as `GM_WARP_SEND_OBSERVERS
+                    # <outcome>`, precisely because a bare statement in this
+                    # file was once the only channel.  So this line stays a
+                    # statement, and the outcome is still legible to a test,
+                    # a lane, and anyone grepping a boot log.
+                    #
+                    # Not consulting it is the safe direction: a refusal is
+                    # this connection keeping whatever it already had, and a
+                    # session that cannot carry the observers must still be
+                    # able to log in.  (pf-adversary D12 on R350: this
+                    # comment named three outcomes and called the answer
+                    # unread.  Both were stale the moment #804 merged.)
+                    warp_send_watch.install_send_outcome_observers(self)
             except BaseException as error:
                 try:
                     self.foundation.close_connection()
@@ -5179,6 +5207,11 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         self.foundation.selected.position.scene_id
                         if self.foundation.selected is not None else None
                     )
+                    # Set only by the composed arm below; read once,
+                    # after the bar frame is appended.  False here so
+                    # the two fallback arms and the no-anchor arm
+                    # cannot reach the extend at all.
+                    ground_companion_due = False
                     if (
                         anchor_record is not None
                         and census_scene_id == anchor_record.scene_id
@@ -5224,6 +5257,19 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                             bar_pc, bar_frame = (
                                 recompose_record.pc, recompose_record.frame,
                             )
+                            # CORE-REQUEST from LANE-A (#818,
+                            # mob_scene_recompose.GROUND_COMPANION_WIRING):
+                            # a bar recompose carries no ground-drop field,
+                            # so the client wipes another monster's loot off
+                            # the screen the moment this frame lands (R316
+                            # third labeled finding, measured on a screen).
+                            # The scoping the ask asked for is this flag --
+                            # the composed arm only, because the degraded
+                            # and no-anchor arms are not a real scene
+                            # recompose -- but the companion itself is
+                            # EMITTED AFTER THE BAR, not here.  See the
+                            # extend below the bar's append for why.
+                            ground_companion_due = True
                         else:
                             # Every non-composed state degrades to the
                             # one-entry frame, exactly as the old except
@@ -5312,6 +5358,48 @@ def make_state_class(legacy, lifecycle, projector, scenario=None,
                         )
                     )
                     actions.append(("MOB_COMBAT_BAR", bar_pc, bar_frame, 0.0))
+                    if ground_companion_due:
+                        # ORDER IS THE FIX, NOT JUST PRESENCE.  This lane's
+                        # own measurement (tests/
+                        # test_mob_combat_dispatch_bg0002_kill.py,
+                        # test_the_kills_generation_carries_the_whole_floor_
+                        # not_just_this_kills_rows) records that a ground
+                        # generation "carries the whole floor ... which is
+                        # why anything published behind it erases the
+                        # player's newest drop" -- and the kill burst pins
+                        # the presence generation as LAST for exactly that
+                        # reason.  The bar recompose is the ~18 KB frame
+                        # that clears the floor on the client, so a
+                        # companion emitted BEFORE it is overwritten by it
+                        # and buys the player nothing.  LANE-A's wiring ask
+                        # named an anchor inside the composed arm, which is
+                        # right about WHEN but wrong about WHERE: taken
+                        # literally it emits [announce, companion, bar] and
+                        # the bar still wipes the floor.  Split in two --
+                        # the flag keeps the ask's scoping, this extend
+                        # gives the ask's intent.
+                        companion = list(
+                            mob_scene_recompose.ground_companion_actions(
+                                getattr(self, "mob_loot_cell", None),
+                                legacy,
+                            )
+                        )
+                        actions.extend(companion)
+                        # The token ground_companion_actions prints fires on
+                        # COMPOSITION, and it prints even for a refusal.  This
+                        # event fires on the APPEND and carries the count, so
+                        # a paste that composes frames and then drops them (an
+                        # `actions` rebind, a bare call whose result is thrown
+                        # away) is distinguishable from a floor that was
+                        # genuinely bare -- the countermeasure the sibling
+                        # site at the CheckSecondPwdVital reannounce already
+                        # carries, reused here after pf-adversary measured a
+                        # bare-call mutant surviving the WHOLE suite on this
+                        # round's first commit.
+                        self.events.append(
+                            "ground_companion_after_bar_appended_%d"
+                            % len(companion)
+                        )
             if step.death_due:
                 # attack_from_observed_action already matched ``target``
                 # against this same roster, so it is here.

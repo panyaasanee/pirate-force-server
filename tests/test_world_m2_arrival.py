@@ -105,6 +105,31 @@ class _WithPlannedIds:
         return False
 
 
+class _WithMeasuredSceneIds:
+    """`world_scene_travel.MEASURED_SCENE_IDS` swapped and restored.
+
+    Needed only because `SceneDestination.sent_before` reads that module
+    global rather than a stored field, so `_registry_with`/`dataclasses.
+    replace` cannot fake an unconfirmed destination.  Since COO-DECISION
+    20260905_0251 both real M2 destinations (scene 2 and scene 3) are
+    genuinely client-confirmed, so exercising the `client_confirmed=no`
+    console branch needs this rather than the shipped tuple.
+    """
+
+    def __init__(self, ids):
+        self._ids = tuple(ids)
+        self._saved = ()
+
+    def __enter__(self):
+        self._saved = travel.MEASURED_SCENE_IDS
+        travel.MEASURED_SCENE_IDS = self._ids
+        return travel
+
+    def __exit__(self, *_exc):
+        travel.MEASURED_SCENE_IDS = self._saved
+        return False
+
+
 def _xyz_for(trigger_ids):
     """Plausible coordinates for the injection above, derived rather than
     typed: the HUD-to-record conversion COO 1147 sanctioned.  Their VALUES do
@@ -688,8 +713,25 @@ class TheConsoleSurfaces(unittest.TestCase):
         # The status the bridge's RE queue owns is REPORTED, never rewritten.
         self.assertIn("status=PROVEN", report)
         self.assertIn("status=CANDIDATE", report)
-        self.assertIn("client_confirmed=yes", report)
-        self.assertIn("client_confirmed=no", report)
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251): both real M2
+        # destinations are client-confirmed now (GT-210/GT-212 PASS widened
+        # `MEASURED_SCENE_IDS` to include scene 3), so the shipped report has
+        # no `client_confirmed=no` row left to assert -- that branch is
+        # exercised below instead, by forcing one destination unconfirmed.
+        self.assertEqual(report.count("client_confirmed=yes"), 2)
+        self.assertNotIn("client_confirmed=no", report)
+
+    def test_an_unconfirmed_destination_still_prints_no(self):
+        # The `no` branch of `client_confirmed` still has to render
+        # correctly even though nothing shipped currently takes it -- fake
+        # the pre-COO-DECISION-0251 state for scene 3 only.
+        with _WithMeasuredSceneIds((1, 2)):
+            report = arrival.console_report()
+        report.encode("ascii")
+        self.assertIn("Prison_Exile_Island", report)
+        self.assertIn("Spice_Paradise_Island", report)
+        self.assertEqual(report.count("client_confirmed=yes"), 1)
+        self.assertEqual(report.count("client_confirmed=no"), 1)
 
     def test_the_report_carries_the_refusal_field_it_exists_to_surface(self):
         # Dropping `refusal=` from the report survived the whole suite.

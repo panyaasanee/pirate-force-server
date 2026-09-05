@@ -61,7 +61,9 @@ class RegistryCoverageTests(unittest.TestCase):
         self.assertIn(population.SCENE_ID, census.scene_ids_with_a_census())
 
     def test_the_scene_count_is_pinned_so_a_family_cannot_vanish_quietly(self):
-        self.assertEqual(14, len(census.scene_ids_with_a_census()))
+        # 15 since round `vwekfq` (LANE-A): world_bg1001_identity (scene 17)
+        # joined the registry.
+        self.assertEqual(15, len(census.scene_ids_with_a_census()))
 
     def test_the_registry_holds_one_entry_per_source_and_lost_none(self):
         # A duplicate SCENE_N_ID would overwrite a whole family; the module
@@ -358,8 +360,18 @@ class WithinOneSceneTests(unittest.TestCase):
         # census identities of scene 3, so none is silently dropped by
         # ``apply_identity_override``.  This number only tracks how many
         # scenes were checked.
+        # ROUND r6isy5: ~~5~~ -> 6.  Scene 4 (bg0004) joined on the same
+        # terms scenes 14, 5 and 3 did, and the per-scene subTest above is
+        # again what proved it: all SEVEN of its roster identities are
+        # census identities of scene 4, so none is silently dropped by
+        # ``apply_identity_override``.  Worth one extra sentence on this
+        # scene: three of its seven identities collide with another live
+        # scene's (0x2020, 0x202B, 0x2046), and this containment is a
+        # WITHIN-scene question, so those collisions cannot help a roster
+        # row pass here on another scene's census.  This number only tracks
+        # how many scenes were checked.
         self.assertEqual(
-            5, checked, "only scenes 1, 2, 3, 5 and 14 ship rosters today")
+            6, checked, "only scenes 1, 2, 3, 4, 5 and 14 ship rosters today")
 
     def test_the_tripwire_fires_when_one_identity_names_two_placements(self):
         # The routing itself, driven directly.  Shipped data cannot reach

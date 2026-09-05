@@ -425,10 +425,30 @@ jobs:
           # same invocation blind to find out what failed. Surface it here
           # instead, on failure only, so the next red gate is diagnosable
           # from the log alone.
+          #
+          # R350: the window above was 40 lines and that was NOT enough, so
+          # this block did not deliver what its own comment promises.  Run
+          # 33920833517 (chief round s5uz94, 2026-09-04) failed one test in
+          # tests/test_boot_premigration_scene_load.py.  pytest echoes the
+          # failing function's SOURCE before the exception, that function
+          # opened with a 25-line comment, and the 40-line window ran out
+          # mid-source: the log shows the test body and then simply stops.
+          # The exception, the assertion message and the child process's
+          # captured output - the only three things that say WHY - were all
+          # past the cut.  COO-DECISION 20260905_0548 then told chief to
+          # "pull the raw job log, the traceback is there"; it is not, and
+          # this line is the reason.  Two rounds were spent on a red that
+          # the log could have explained.
+          #
+          # 200 covers the longest traceback this suite has produced.  The
+          # cost of being generous is log lines on a run that is ALREADY
+          # red; the cost of being stingy is a round.  If a future failure
+          # is still cut off, raise this again rather than guessing at the
+          # cause - that trade never favours guessing.
           if ($results['pytest_subset'].rc -ne 0) {
             Write-Host ''
             Write-Host '--- pytest_subset failure detail (full FAILED lines + tracebacks) ---'
-            $failureLines = Get-Content -Path $pytestLog | Select-String -Pattern '^FAILED |^=+ FAILURES =+$|^_+ .+ _+$' -Context 0,40
+            $failureLines = Get-Content -Path $pytestLog | Select-String -Pattern '^FAILED |^=+ FAILURES =+$|^_+ .+ _+$' -Context 0,200
             if ($failureLines) {
               $failureLines | ForEach-Object { $_.Line } | Select-Object -Unique | ForEach-Object { Write-Host $_ }
               $failureLines | ForEach-Object { $_.Context.PostContext } | ForEach-Object { Write-Host $_ }

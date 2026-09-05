@@ -88,13 +88,21 @@ is refused on arithmetic.  This does NOT make the fact mean "the scene opened"
 way of being wrong.  A scene the registry pins no spawn for is recorded with
 ``cross_checked=False`` so a reader can tell the two apart.
 
-WHERE THE LEDGER STARTS.  Two scene ids are pinned in this tree as
-``world_scene_travel.MEASURED_SCENE_IDS``, whose own documentation calls them
-"scene ids a live client in this project has accepted":
+WHERE THE LEDGER STARTS.  Seven scene ids are pinned in this tree as
+``world_scene_travel.MEASURED_SCENE_IDS`` (widened 2026-09-05,
+COO-DECISION 20260905_0251), whose own documentation calls them "scene ids a
+live client in this project has accepted":
 
 * scene 1, Port Royal.
 * scene 2, Prison Exile Island - ``docs/EXPERIMENT_LEDGER.md`` records
   SCENE-001 as a runtime pass in which the client loaded and rendered it.
+* scenes 3 (Spice Paradise) and 4/5 (two of the nine roster islands) -
+  ``GT-210``/``GT-212`` PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00.
+* scene 14, Hell Volcano - ``GT-134`` (``BG0015-FIRST-EYES-001``) PASS.
+* scene 126, the Atlantis ocean panel - round R313 put a live client on the
+  open sea with ``WORLD_SCENE scene_id=126`` on the wire; its own table row
+  still carries no save/marker (see ``world_scene_travel.
+  MEASURED_SCENE_IDS`` for the per-id citations this module borrows).
 
 They are seeded with ``from_this_process=False`` so an inherited fact is never
 read as something this boot saw.  Scene 278 is not seeded, and hand-seeding it
@@ -461,12 +469,39 @@ class SceneLivenessLedger:
         scene_id = _scene_id_field(line)
         if scene_id is None:
             return None
-        if scene_id in self._facts:
-            return scene_id
+        existing = self._facts.get(scene_id)
+        # A SEEDED fact does NOT excuse a settle line from the cross-check.
+        # Before 2026-09-05 the seed list was two ids, and returning early on
+        # any existing fact was harmless enough that nobody measured it.
+        # Widening the seed to seven (COO-DECISION 20260905_0251) made it
+        # matter: pf-adversary this round drove a settle line for scene 3 at
+        # (99999, 99999, 0) -- 100,000 units from its pinned spawn -- and the
+        # early return accepted it, left `refused_by_cross_check` at 0, and
+        # made `from_this_process` unreachable for every widened id.  So an
+        # inherited fact now falls through AS FAR AS THE ARITHMETIC, and no
+        # further: a bad line is refused and counted, and a line that passes
+        # leaves the existing fact exactly as it was.
+        #
+        # ~~a first version of this change UPGRADED a passing line to
+        # `from_this_process=True`~~ IS STRUCK the same round (pf-adversary
+        # pass 2): the pinned spawns of the widened ids sit 2,000-10,000
+        # units apart while `CROSS_CHECK_RADIUS_UNITS` is 12,000, so the
+        # arithmetic cannot tell them apart, and a settle line labelled
+        # scene 4 emitted while the player stands at 278's spawn passed --
+        # replacing GT-212's OBSERVER_CONFIRMED evidence with a
+        # server-labelled coordinate delta and printing it as
+        # `this_process`.  That breaks this module's own three contracts
+        # ("never records twice", "the first evidence is the evidence",
+        # "an inherited fact is never read as something this boot saw") in
+        # the module whose entire purpose is not doing that.  Refusing the
+        # false line is the whole win here; upgrading was never needed for
+        # it.
         checked = _cross_check(self._registry, scene_id, _settled_at(line))
         if checked is False:
             self._refused_by_cross_check += 1
             return None
+        if existing is not None:
+            return scene_id
         self._facts[scene_id] = ArrivalFact(
             scene_id=scene_id,
             evidence="coordinate discontinuity labelled with this scene id by "
@@ -484,6 +519,20 @@ def _seed_evidence(scene_id: int) -> str:
     if scene_id == 2:
         return ("docs/EXPERIMENT_LEDGER.md SCENE-001 runtime load pass - the "
                 "client loaded and rendered Prison Exile Island")
+    if scene_id == 3:
+        return ("GT-210 PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00 - an "
+                "NPC click on Spice Paradise was answered on screen")
+    if scene_id in (4, 5):
+        return ("GT-212 PASS, OBSERVER_CONFIRMED 2026-09-03T16:51+07:00 - "
+                "one of the nine roster islands, NPC click answered on "
+                "screen")
+    if scene_id == 14:
+        return ("GT-134 BG0015-FIRST-EYES-001 PASS - this project's first "
+                "confirmed eyes on Hell Volcano Island")
+    if scene_id == 126:
+        return ("round R313 (pf_bridge notes_to_chief KA1A-R313-RESULTS) - "
+                "WORLD_SCENE scene_id=126 name=Atlantis on the wire plus the "
+                "owner observed on the open sea, 2026-09-05T02:07+07:00")
     return "world_scene_travel.MEASURED_SCENE_IDS"
 
 

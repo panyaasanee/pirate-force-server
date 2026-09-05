@@ -563,6 +563,7 @@ def main(argv: list) -> int:
     from pirateforce_foundation import field_mob_tables
     from pirateforce_foundation import field_mob_tables_bg0002
     from pirateforce_foundation import field_mob_tables_bg0003
+    from pirateforce_foundation import field_mob_tables_bg0004
     from pirateforce_foundation import field_mob_tables_bg0005
     from pirateforce_foundation import field_mob_tables_bg0015
 
@@ -591,9 +592,21 @@ def main(argv: list) -> int:
     # (2701002 among them) this file has never mined.  A widened UNION is the
     # whole change: the id rule, the four controls and the refuse-on-empty
     # check above are untouched and apply identically to the wider roster.
+    #
+    # ROUND r6isy5: scene 4 (bg0004) joins the union in the round its roster
+    # lands, and unlike the widening above this one was FORCED by a measured
+    # refusal rather than chosen on principle.  With the roster registered
+    # and this union unwidened, ``scene_door_walk.walk_live_scenes`` reports
+    # ``SCENE_DOORS scene='bg0004' ... target=7 kill=7 drop=3`` with four
+    # rows refusing ``drop:unknown_drop_set``: placements 30/31/32 (template
+    # 94) and 42 (template 97) are the first shipped rows carrying a
+    # ``n_DROPS_SPECIALLY`` set id (2802253 and 2802236) this file has never
+    # mined -- the third drop column, which no earlier scene's roster
+    # exercised at all.
     roster_modules = (
         field_mob_tables, field_mob_tables_bg0002, field_mob_tables_bg0003,
-        field_mob_tables_bg0005, field_mob_tables_bg0015,
+        field_mob_tables_bg0004, field_mob_tables_bg0005,
+        field_mob_tables_bg0015,
     )
     by_scene = {module.SCENE: module for module in roster_modules}
     scenes = args.scene if args.scene else [

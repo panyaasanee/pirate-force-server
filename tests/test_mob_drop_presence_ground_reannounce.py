@@ -34,6 +34,7 @@ from pirateforce_foundation.mob_death import DeathRecord
 from pirateforce_foundation.mob_drop_presence import (
     GROUND_REANNOUNCE_REFUSED_TOKEN,
     GROUND_REANNOUNCE_TOKEN,
+    REFUSE_NO_SCENE,
     REFUSE_SCENE_DISAGREES,
     loot_actions,
     reannounce_ground,
@@ -216,6 +217,69 @@ class ConsoleTokenTests(ReannounceTestBase):
         out = buf.getvalue()
         self.assertIn(GROUND_REANNOUNCE_REFUSED_TOKEN, out)
         self.assertIn(REFUSE_SCENE_DISAGREES, out)
+
+
+class NoSceneCellWithACallerSuppliedSceneTests(ReannounceTestBase):
+    """ROUND ltuevf, COO-DECISION 2026-09-05T11:53+07:00 item 3(b).
+
+    R316 measured this on a real screen (negative control, step 3, before
+    any kill of the session): a cell that has never been told a scene
+    answered ``_REFUSED reason=refused_cell_has_no_scene_to_publish`` where
+    an ordinary bare-floor ``items=0`` would have been the honest line.
+    This is the fix -- ONLY when the caller supplies ``scene=`` (the
+    connection's own belief), never by inventing a scene the cell never
+    had.
+    """
+
+    def test_no_scene_cell_plus_caller_scene_answers_items_zero_not_refused(self):
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        self.assertIsNone(cell.current_scene)
+        result = reannounce_ground(cell, self.legacy, scene=SCENE)
+        self.assertEqual(result, ())
+
+    def test_same_case_prints_the_ok_token_with_items_zero_and_the_scene(self):
+        import io
+        import contextlib
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            reannounce_ground(cell, self.legacy, scene=SCENE)
+        out = buf.getvalue()
+        self.assertIn(GROUND_REANNOUNCE_TOKEN, out)
+        self.assertIn("items=0", out)
+        self.assertIn(SCENE, out)
+        self.assertNotIn(GROUND_REANNOUNCE_REFUSED_TOKEN, out)
+
+    def test_without_a_caller_scene_the_old_refusal_still_stands(self):
+        # Unchanged behaviour: this lane never invents a scene the cell
+        # never had.  Omitting ``scene=`` keeps the REFUSED line exactly as
+        # it was before this round.
+        import io
+        import contextlib
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            result = reannounce_ground(cell, self.legacy)
+        out = buf.getvalue()
+        self.assertEqual(result, ())
+        self.assertIn(GROUND_REANNOUNCE_REFUSED_TOKEN, out)
+        self.assertIn(REFUSE_NO_SCENE, out)
+
+    def test_a_real_no_scene_step_actually_carries_this_state_name(self):
+        # Cross-checks this test file's assumption against the function
+        # this fix branches on, rather than hard-coding the string twice.
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        step = sustain_a_kill(cell, self.legacy, ())
+        self.assertTrue(step.refused)
+        self.assertEqual(step.state, REFUSE_NO_SCENE)
+
+    def test_this_branch_never_takes_or_removes_anything(self):
+        # There is nothing to take -- a cell with no scene has no rows --
+        # but the branch must not, for example, mutate the cell's scene as
+        # a side effect of answering the caller's cross-check.
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        reannounce_ground(cell, self.legacy, scene=SCENE)
+        self.assertIsNone(cell.current_scene)
 
 
 class FailClosedTests(ReannounceTestBase):

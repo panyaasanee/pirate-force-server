@@ -253,8 +253,19 @@ def _hostile_mobs_by_placement_index() -> dict[int, Any]:
     two apart before choosing which encoder to call -- see its own call
     site below.
     """
+    # ROUND j5v7mu, EDITED BY LANE-B (this file is LANE-A's; the edit is
+    # one call and is here because the ruling behind it is LANE-B's and a
+    # letter instead of a change would have left the ruling not landed).
+    # ~~scene14_hostile_roster()~~ -> scene14_SHIPPED_hostile_roster():
+    # COO-DECISION 20260905_0545 withheld placement 87 (Carlos) from what
+    # LANE-B ships, and the mined roster still carries him on purpose for
+    # the death-ruling diagnostics.  Reading the mined one HERE would hand a
+    # client a hostile body for a monster whose combat ledger no longer has
+    # a row -- a red-named monster no strike can reach, which is a worse
+    # state than the zombie the ruling exists to remove.
     return {
-        mob.placement_index: mob for mob in hostile_bg0015.scene14_hostile_roster()
+        mob.placement_index: mob
+        for mob in hostile_bg0015.scene14_shipped_hostile_roster()
     }
 
 
@@ -317,16 +328,60 @@ def respond(
     # same guard scene 2's responder takes, for the collision measured in
     # ``lane_a_click_hp.ledger_for_this_scene``'s own docstring (these two
     # scenes share identity 0x2058).
-    # THE ROSTER THIS SCENE'S MONSTERS REALLY COME FROM, measured rather
-    # than assumed symmetric with scene 2: ``field_mobs.roster_for_scene_id
-    # (14)`` is EMPTY (field_mobs names no scene 14 at all -- the same fact
-    # ``mob_scene_recompose``'s own table records), and this scene's twelve
-    # hostile bodies come from ``field_mob_hostile_bg0015``.  Handing the
-    # admission an empty roster would have refused every ledger and quietly
-    # put this scene back on the ceiling for good.
+    # ~~THE ROSTER THIS SCENE'S MONSTERS REALLY COME FROM ... ``field_mobs
+    # .roster_for_scene_id(14)`` is EMPTY (field_mobs names no scene 14 at
+    # all) ... Handing the admission an empty roster would have refused every
+    # ledger and quietly put this scene back on the ceiling for good.~~
+    #
+    # STRUCK ROUND j5v7mu2 (pf-adversary D-E, LANE-B edit; this file is
+    # LANE-A's).  FALSE AT HEAD, and it is the justification for the very
+    # argument below it, which is why it could not be left standing under a
+    # correction that says what was measured.  Measured now:
+    # ``roster_for_scene_id(14)`` returns 11 rows, ``scene_for_scene_id(14)``
+    # returns ``'Bg0015'``, and ``admit_ledger(14, open_ledger_for_scene_id
+    # (14), roster=<shipped>)`` answers ``same_scene covered=11/11
+    # admitted=True``.  Bg0015 was registered by ``COO-DECISION
+    # 20260903_1942`` item 2.
+    #
+    # STILL TRUE, and still the reason this argument is passed at all: the
+    # bodies themselves come from ``field_mob_hostile_bg0015``, so the
+    # roster handed to the admission has to be that module's, not a
+    # re-derivation.  ~~twelve~~ eleven of them, since COO-DECISION
+    # 20260905_0545.
+    #
+    # THE SAME FALSE PARAGRAPH ALSO STANDS IN ``lane_a_click_hp.py``
+    # (~148-158, "so for scene 14 it reports scene=None, state=other_scene
+    # and refuses EVERY ledger").  Not edited here: it is a second LANE-A
+    # file this round has no other business in, and it is named in this
+    # round's letter to that lane instead.
     admitted_ledger = lane_a_click_hp.ledger_for_this_scene(
         SCENE_N_ID, mob_combat_ledger,
-        tuple(hostile_bg0015.scene14_hostile_roster()),
+        # ROUND j5v7mu (LANE-B edit, same ruling as above): the shipped
+        # rows, so this argument agrees with the census, the combat ledger
+        # and the hostile dict rather than being the last reader of the
+        # mined twelve.
+        #
+        # ~~otherwise the withheld placement stays strikeable through this
+        # door while being absent from every other one~~ IS STRUCK, ROUND
+        # j5v7mu2 (pf-adversary D5, MEASURED): reverting this one argument
+        # changes NOTHING that a client can observe.  ``admit_ledger`` does
+        # refuse the mined roster by name (``same_scene_incomplete
+        # covered=11/12 missing=0x2058``), but ``lane_a_click_hp
+        # .ledger_for_this_scene``'s scene-folder fallback hands the very
+        # same ledger back anyway, so all three ledger states answer
+        # identically either way.  Strikeability comes from
+        # ``hostile_by_idx`` above, not from here.  The change is kept
+        # because one source of truth for "what this scene ships" is worth
+        # having; the sentence claiming it fixed a second hole was wrong and
+        # a later reader would have believed it.
+        #
+        # NAMED, NOT FIXED HERE (pre-existing, outside this lane's ruling):
+        # that fallback means scene 14's click path accepts an INCOMPLETE
+        # ledger on its folder tag alone and never prints
+        # ``describe_ledger_admission``, so the admission verdict is
+        # computed and discarded.  LANE-A owns the file; this round's letter
+        # to them names it rather than changing behaviour nobody asked for.
+        tuple(hostile_bg0015.scene14_shipped_hostile_roster()),
         scene_folder=SCENE_FOLDER,
     )
     if mob_combat_ledger is not None and admitted_ledger is None:

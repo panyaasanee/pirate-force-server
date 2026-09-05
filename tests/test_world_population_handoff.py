@@ -555,6 +555,14 @@ class HandoffTests(unittest.TestCase):
         named = set(CENSUS_SOURCES.values()) - {CENSUS_SOURCE}
         composed = set(handoff_mod.ROSTER_COMPOSERS)
         ruled_out = set(handoff_mod.LOGIN_OWNED_SOURCES)
+        # WIDENED round vwekfq (LANE-A): a THIRD category, beside "built" and
+        # "ruled out by a login-path owner" - a source withheld from
+        # ROSTER_COMPOSERS pending a runtime.py safety review (see
+        # PENDING_CROSSING_SAFETY_REVIEW's own docstring for why this is not
+        # the same shape as LOGIN_OWNED_SOURCES).  Folded into `ruled_out`
+        # for this test's purposes: both mean "named here on purpose, not
+        # composed here on purpose", which is exactly what D7 checks for.
+        ruled_out = ruled_out | set(handoff_mod.PENDING_CROSSING_SAFETY_REVIEW)
         # WIDENED round ucaybn.  ~~named - composed == set()~~ became false by
         # RULING, not by drift, when scene 2's entry was removed
         # (COO-DECISION 20260829_2245).  The property that still has to hold
@@ -565,7 +573,8 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(
             named - composed - ruled_out, set(),
             "a scene names a composer that is neither in ROSTER_COMPOSERS nor "
-            "ruled out in LOGIN_OWNED_SOURCES, so it silently arrives empty",
+            "ruled out in LOGIN_OWNED_SOURCES/PENDING_CROSSING_SAFETY_REVIEW, "
+            "so it silently arrives empty",
         )
         self.assertEqual(
             composed - named, set(),
@@ -591,6 +600,22 @@ class HandoffTests(unittest.TestCase):
                 built = handoff_for_arrival(self.legacy, scene, self.anchor)
                 self.assertIs(
                     type(built.generation), composer.generation_type)
+
+    def test_the_pending_safety_review_source_still_answers_clear(self):
+        """round `vwekfq` (LANE-A): scene 17's real identity/census pair is
+        registered in CENSUS_SOURCES but deliberately withheld from
+        ROSTER_COMPOSERS pending a runtime.py safety review - see
+        PENDING_CROSSING_SAFETY_REVIEW's own docstring.  Pinned here so a
+        later round that adds ``"bg1001_roster"`` to ROSTER_COMPOSERS
+        without also removing it from this table trips
+        ``test_the_two_tables_that_add_a_scene_must_agree``'s own
+        ``composed & ruled_out`` check instead of silently going stale."""
+        import pirateforce_foundation.world_population_handoff as handoff_mod
+        self.assertIn("bg1001_roster", handoff_mod.PENDING_CROSSING_SAFETY_REVIEW)
+        self.assertNotIn("bg1001_roster", handoff_mod.ROSTER_COMPOSERS)
+        handoff = handoff_for_arrival(self.legacy, 17, self.anchor)
+        self.assertEqual(handoff.kind, KIND_CLEAR)
+        self.assertIn("has_no_crossing_handoff_yet", handoff.reason)
 
     def test_a_login_owned_source_is_refused_by_name_not_by_omission(self):
         """COO-DECISION 20260829_2245, carried out in round ucaybn.

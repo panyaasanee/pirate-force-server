@@ -21,11 +21,132 @@ THIS MODULE IS THE OTHER HALF OF THAT HOOKUP, AND IT DOES NOT WAIT FOR IT.
 Everything below is written and tested against a plain fake session, the
 same way `warp_target_record.py` and `warp_scene_persist.py` are; the
 letter's own words (translated) are "writable and testable in full without
-your hookup".  chief's one line at the
-`connection.py` layer is the ONLY thing standing between this module and a
-live send failure actually reaching it; until that line lands, these
-functions simply never get called by anything outside this lane's own
-tests and `chat_command_action.py`'s own compose-time call below.
+your hookup".  ~~chief's one line at the `connection.py` layer is the ONLY
+thing standing between this module and a live send failure actually
+reaching it; until that line lands, these functions simply never get
+called by anything outside this lane's own tests and `chat_command_
+action.py`'s own compose-time call below.~~  STRUCK by chief's own R348
+(`pf_bridge/notes_to_chief/FROM_CHIEF_R348_TO_ALL_20260905_0505.md`): that
+one line landed on main in server `#795` (`AcceptedGameSocket.sendall`
+now offers `state.on_game_frame_sent` / `state.on_game_frame_send_failed`
+if present -- see `connection.py`), and it was NOT the only thing standing
+in the way.  A SECOND, separate gap sits on the other side of that opt-in
+check: `state` in R348's own words is "no class in `src/` [that] declares
+`on_game_frame_sent`/`on_game_frame_send_failed`" -- `getattr(self.state,
+hook_name, None)` in `connection.py:150` finds nothing and returns without
+ever reaching this module.  `park_warp_send` IS being called for real (the
+one production call site, `chat_command_action._warp_teleport_action_no_
+coords`), so a live send failure today still leaves the row parked FOREVER
+with no observer to ever clear or roll it back -- worse than doing nothing,
+because a tester reading `warp_send_watch.SESSION_ATTRIBUTE` off a session
+that outlived one connection (it does not; sessions do not outlive their
+socket) would have no reason to suspect it.  Closing that second gap means
+the session object has to ANSWER to those two names, at the call
+`connection_bindings.bind(self)` (`runtime.py:1599`) whose `self` becomes
+`AcceptedGameSocket.state` -- that `self` already carries
+`self.foundation` and `self.events`, the exact shape this module's
+functions read -- but `runtime.py` is chief's file this lane may not edit
+(`AGENTS.md` section 7), so the code goes here and only the call goes to
+him.  `install_send_outcome_observers` (bottom of this file, round
+`goxj0y`) is that code: one call installs both forwards on one session,
+weakly, idempotently, fail-closed.  `CORE-REQUEST-GM-058` had already
+handed chief two forwarding METHODS to paste into his class; the
+installer is offered as the alternative shape of the same hookup, so the
+forwarding logic and its failure discipline stay in this lane's zone
+instead of being copied into his.  Either shape closes the gap; ~~NEITHER
+IS ON MAIN YET -- until one is, everything below is still reachable only
+from this lane's own tests and `chat_command_action.py`'s compose-time
+park.~~ **SHAPE B IS ON MAIN as of chief round `rs8uyz`/R350**: `runtime.py`
+calls `install_send_outcome_observers(self)` on the line after
+`connection_bindings.bind(self)`, so everything below now runs on every
+accepted connection in production.  Struck rather than deleted, because
+the sentence dates the change.  `HookupWiringPinTests` in this module's
+test file is what forced this edit into the same commit as the call, and
+it now pins the opposite answer -- if the call is ever reverted, that pin
+goes red instead of this paragraph going quietly stale.  Shape A (two
+forwarding methods on chief's class) is still not withdrawn and is still
+compatible: the installer leaves any name that already resolves alone.
+
+R348 asks a second, harder question before that hookup is safe to arm:
+"who accepts the offer, on which thread, under which lock" -- `sendall`'s
+critical section (`current/pf_login_game_server_v141.py:7754` the action
+loop, `:7427` `heartbeat_worker` every 2.0s once `teleport_sent`) is the
+SAME `threading.Lock` on both call sites, so `_offer_send_outcome` -- and
+therefore this module's two entry points, once wired -- can run on EITHER
+thread, synchronously, while that lock is held.  ONE HALF OF THAT QUESTION
+IS ANSWERED HERE, BY MEASUREMENT, NOT ARGUMENT
+(`tests/test_gm_warp_send_watch.py::CrossThreadObserverTests`): the
+`sqlite3.ProgrammingError` R348 named as the risk of "a consumer that
+writes sqlite on another thread's connection" does not reach this module's
+own database path, because `store.py`'s `SQLiteStore.connect()` opens and
+closes a BRAND NEW connection inside the one call that uses it
+(`store.py:285-305`) -- there is no connection object held across threads
+for either `rollback_warp_scene` or `rollback_warp_scene_on_send_failure`
+to collide on, on ANY thread that calls them.  Measured by calling both
+observers from a background thread against the real store and reading the
+row back on the main thread afterwards; see that test class for the
+~~un-guessed half (`send_lock` hold time: a real rollback opens a real
+connection and can block up to `PRAGMA busy_timeout=5000`'s five seconds
+while holding the SAME lock the other thread needs for its own next send --
+this module does not have an answer for that half, and does not pretend
+to; see `CORE-REQUEST-GM-058`).~~  **MEASURED, round `j2jluj`**
+(`COO-DECISION 20260905_0948` item 2(b) ordered the measurement rather than
+another letter; `SendLockLivenessTests` in this module's test file IS the
+measurement, and its numbers are re-derived there, not retyped here):
+
+    contention held by another writer   this observer's hold   outcome
+      none                                0.0023s              rolled_back
+      1.0s                                1.035s               rolled_back
+      3.0s                                3.038s               rolled_back
+      7.0s                                5.010s               rollback_refused_OperationalError
+     12.0s                                5.010s               rollback_refused_OperationalError
+
+IT STALLS, AND ONE CALL'S STALL IS BOUNDED AT ONE `busy_timeout`, NOT TWO.
+`checkpoint()` never reaches the read-back: `save_position`
+(`store.py:668-671`) is a bare `with self.connect() as db:` + `UPDATE`, an
+implicit DEFERRED transaction, and it is that `UPDATE` that waits and
+raises, so the second connection the read-back would open is never opened.
+The non-stacking therefore rests on WAL rather than on the transaction
+shape -- `connect()` sets WAL only for a file database
+(`store.py:293-294`) -- so `SendLockLivenessTests` asserts WAL is really in
+force rather than assuming it.  `heartbeat_worker` wakes every 2.0s and
+takes the SAME `send_lock`, so a worst-case hold makes it miss at most two
+beats, on a connection whose socket has just failed.
+
+THE WAIT IS NOT SHORTENED, AND THIS LANE CANNOT SHORTEN IT: `busy_timeout`
+is set in `store.py`, outside this lane's zone, and shortening it would
+trade a bounded delay on a dying connection for a durable row left naming a
+scene the client never reached.
+
+WHAT THE MEASUREMENT EXPOSED, AND WHY THIS FILE STILL DOES NOTHING ABOUT
+IT.  The last two rows are runs in which the undo DID NOT HAPPEN and the
+park was cleared anyway, so the row stays at the destination the client
+never reached with nothing left on the connection that would ever try
+again.  Round `j2jluj` built a re-park-and-retry for exactly that and
+WITHDREW IT BEFORE PUSHING, on its own two `pf-adversary` passes:
+
+  * pass 1 (D1): keeping the park removed the one thing that always retired
+    one, and on a connection whose send error was TRANSIENT the record
+    stayed armed and fired at logout, rewinding a position the player had
+    legitimately walked to since.
+  * pass 2 (D-1): the guard added for that compared
+    `foundation.selected.position` against the park's pre-warp row -- but
+    `runtime.py:6827` `_gm_warp_resync_selected_scene` rewrites
+    `selected.position.scene_id` to the DESTINATION in the same dispatch
+    that composed the warp, before any send.  So the guard answered "the
+    world moved" for every cross-scene warp, immediately, with zero client
+    frames: the retry could never complete and the give-up branch was
+    unreachable.
+
+Both are symptoms of a question this lane has not answered and will not
+guess at under a deadline: WHICH POSITION IS THE UNDO'S AUTHORITY.  Three
+different things are being read as one -- the durable `character_positions`
+row, the in-memory `foundation.selected.position`, and "did the client
+report something" -- and `runtime.py` writes the second without the first
+and derives the first FROM the second on every movement frame.  The
+question is in `notes_to_chief/20260905_1105_LANE-GM-ASK-COO-*`; until it
+has an answer this module keeps the behaviour it had on `main`, which is
+honest about losing the undo rather than wrong about restoring it.
 
 THE CELL, AND WHY IT LIVES ON THE SESSION.  `park_warp_send` records the
 exact frame bytes a persisted no-coords warp just composed, the moment
@@ -62,20 +183,48 @@ frame's bytes are attached to the failure; matching them would only narrow
 which failures this module notices, not which ones actually orphaned the
 row.
 
-WHERE THE UNDO'S `previous` COMES FROM IS NOT THIS MODULE'S PROBLEM.
+~~WHERE THE UNDO'S `previous` COMES FROM IS NOT THIS MODULE'S PROBLEM.
 `rollback_warp_scene_on_send_failure` reads `foundation.selected.position`
 itself -- the pre-warp snapshot `persist_warp_scene` restores there the
 moment the durable write lands (see that module's own docstring) -- so this
 file never needs to carry a position of its own.  It only ever needs to
 know ONE thing: is there still an unconfirmed persisted warp on this
-connection, yes or no.
+connection, yes or no.~~  STRUCK by pf-adversary D10 (round `goxj0y`), which
+caught this paragraph still asserting the story round `ff30oi` already
+refuted 60 lines below it: `ParkedWarpSend.previous_position` exists
+precisely because the delegate's re-derived row is two warps stale after two
+warps, and `on_game_frame_send_failed` prefers `rollback_warp_scene(session,
+record.previous_position)` when the park carries a usable one.  This file
+DOES carry a position of its own, and it needs to know two things, not one.
+The delegate path survives only as the fallback for a park without one.
 
 NEVER RAISES, ANYWHERE IN THIS FILE.  Every entry point here can run on the
 game-listener thread, most of them inside a `sendall` failure's own
-exception handling (`connection.py`'s proposed `_offer_send_outcome`,
-itself written to swallow and report whatever an observer raises) -- a
-raise from a diagnostic must never mask or replace the send failure that
-triggered it.
+exception handling (~~`connection.py`'s proposed `_offer_send_outcome`~~
+STRUCK -- landed on main in server `#795`, no longer proposed; itself
+written to swallow and report whatever an observer raises) -- a raise from
+a diagnostic must never mask or replace the send failure that triggered it.
+
+CALLERS MUST SERIALIZE PER CONNECTION -- NOT THIS MODULE'S JOB, BUT NOT
+OPTIONAL EITHER.  Neither `park_warp_send` nor `on_game_frame_send_failed`
+takes a lock of its own: `_parked_record` (read) and `clear_warp_send_watch`
+(write) are two separate attribute accesses, not one atomic operation, so
+two truly concurrent callers for the SAME session can both read a non-empty
+park before either clears it and both attempt the rollback (measured while
+drafting `tests/test_gm_warp_send_watch.py::CrossThreadObserverTests`,
+which deliberately does NOT exercise that shape -- see its own docstring).
+This module gets away with having no lock of its own only because its one
+real caller-to-be, `connection.py`'s `_offer_send_outcome`, is only ever
+reached from inside `sendall()`, and every `sendall()` call for a given
+connection is already made under that SAME connection's own `send_lock`
+(`current/pf_login_game_server_v141.py:7754`, `:7427`) -- a per-connection
+`threading.Lock`, not a global one, shared by the action loop and
+`heartbeat_worker` for that one connection.  A caller outside that
+discipline (a future hookup that offers frames without holding the sending
+connection's own lock, or a lock shared incorrectly across connections)
+would reintroduce the double-rollback race this paragraph names.  Naming
+that requirement here is this module's whole contribution to `CORE-REQUEST-
+GM-058`'s open threading question; enforcing it is the caller's.
 
 NONCLAIM.  Nothing in this file sends a byte, opens a socket, or touches
 `runtime.py` / `app.py` / `current/pf_login_game_server_v141.py` / the
@@ -87,10 +236,14 @@ whether the socket layer later agreed.
 """
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass
 
+from ..model import Position
 from .warp_scene_persist import (
     SEND_FAILURE_WARP_ACTION_LABEL,
+    _console as _persist_console,
+    rollback_warp_scene,
     rollback_warp_scene_on_send_failure,
 )
 
@@ -134,13 +287,23 @@ class ParkedWarpSend:
     makes uses the same constant (`SEND_FAILURE_WARP_ACTION_LABEL`), because
     `park_warp_send` does not take a label argument at all (see its own
     docstring for why that is deliberate, not an omission).
+
+    `previous_position` is THE ROW TO PUT BACK, captured by the call site
+    before its own durable write, and it is why round `ff30oi` widened this
+    record.  It defaults to `None` so a park made without one still gets the
+    older delegate path; see `on_game_frame_send_failed`.
     """
 
     label: str
     frame_bytes: bytes
+    previous_position: object = None
 
 
-def park_warp_send(session: object, frame_bytes: object) -> bool:
+def park_warp_send(
+    session: object,
+    frame_bytes: object,
+    previous_position: object = None,
+) -> bool:
     """Remember `frame_bytes` as the persisted warp still owed a send.
 
     Called from `chat_command_action._warp_teleport_action_no_coords`,
@@ -156,7 +319,27 @@ def park_warp_send(session: object, frame_bytes: object) -> bool:
     never confirm anything the row still cares about, and holding onto them
     would only delay noticing the frame that matters now.
 
-    ONE ARGUMENT, NOT TWO.  This module never parks any label other than
+    `previous_position` IS THE ROW THE UNDO MUST RESTORE, and passing it is
+    what round `ff30oi` added.  NOT every park carries one, and the docstring
+    that said it did was wrong (pf-adversary D-G): `_persist_warp_scene`
+    returns `previous=None` whenever `row_before_warp` finds no row, and the
+    call site still parks, because it branches on the write's outcome.  The
+    reachable shape is a character with no `character_positions` row yet --
+    its first-ever warp CREATES the row, so there is nothing to go back to.
+    Those parks take the older delegate path in `on_game_frame_send_failed`.  Measured on this tree before it was added
+    (`tests/test_gm_warp_send_watch.py::DoubleWarpTests`): with `/warp 2`
+    confirmed sent and `/warp 3` then failing to send, the undo read
+    `session.foundation.selected.position` and put the row back to scene 1 --
+    the scene the client had already been sent OUT of, and one neither warp
+    named.  `selected` is "the last position the CLIENT reported", which a
+    warp deliberately does not update, so after a SECOND warp it is two
+    warps stale rather than one.  The call site holds the right row
+    (`_persist_warp_scene`'s own `previous`), so it hands it over rather
+    than making the undo re-derive it from a field that cannot tell one
+    warp from two.
+
+    NO LABEL ARGUMENT, WHICH IS A DIFFERENT QUESTION.  This module never
+    parks any label other than
     `SEND_FAILURE_WARP_ACTION_LABEL` -- there is exactly one call site, and
     it is this lane's own -- so taking a caller-supplied label would only
     add a way for a future call site to park the wrong constant by typo,
@@ -175,7 +358,30 @@ def park_warp_send(session: object, frame_bytes: object) -> bool:
         frame_bytes = bytes(frame_bytes)
     except Exception:  # noqa: BLE001 - see docstring; nothing escapes this
         return False
-    record = ParkedWarpSend(SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes)
+    # THE OLDEST UNCONFIRMED ROW WINS, and it is the whole of pf-adversary's
+    # D-A (round `ff30oi`, MEASURED).  A park that is still here has NOT been
+    # confirmed sent -- `on_game_frame_sent` clears it the moment its own
+    # bytes go out -- so the warp it belongs to may never have reached the
+    # client either.  Taking the NEW `previous_position` on a replacement
+    # would name the scene that warp wrote, and the undo would then move the
+    # row FORWARD into a scene the client was never sent to: with `/warp 2`
+    # and `/warp 3` both composed before either frame left the socket, the
+    # first draft of this round left the row at 2 while the client sat in 1.
+    # That is the bricking shape `rollback_warp_scene` exists to refuse, and
+    # it was a REGRESSION -- the delegate this round replaced got it right.
+    #
+    # So a replacement keeps the row captured before the FIRST unconfirmed
+    # warp.  One cell still tracks one frame (that is what the bytes are
+    # for), but the row it would restore is the one that unwinds the whole
+    # unconfirmed run, which is the only row that is correct however many
+    # of those frames actually made it out.
+    carried = previous_position
+    standing = _parked_record(session)
+    if standing is not None and standing.previous_position is not None:
+        carried = standing.previous_position
+    record = ParkedWarpSend(
+        SEND_FAILURE_WARP_ACTION_LABEL, frame_bytes, carried,
+    )
     try:
         setattr(session, SESSION_ATTRIBUTE, record)
     except Exception:  # noqa: BLE001
@@ -294,11 +500,27 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     unconfirmed", and that alone already means the client cannot have
     received the warp.
 
-    Delegates the actual undo, and its outcome word, to `warp_scene_persist.
+    WHICH ROW IT PUTS BACK, and the correction round `ff30oi` made.  When
+    the park carries a usable `previous_position`, the undo goes to
+    `warp_scene_persist.rollback_warp_scene` with THAT row: the row the call
+    site captured with `row_before_warp` immediately before the FIRST
+    unconfirmed warp's durable write (see `park_warp_send` on why a
+    replacement carries the oldest one forward rather than its own).  It
+    therefore unwinds the whole unconfirmed run, which is the only answer
+    that is right however many of those frames actually reached the wire.
+
+    ~~Delegates the actual undo, and its outcome word, to `warp_scene_persist.
     rollback_warp_scene_on_send_failure` -- always with the one label this
     module ever parks under, never `frame_bytes` or `error` (that function
     reads the row to revert from `session.foundation.selected` itself; see
-    its own docstring for why that is safe).  The park is cleared
+    its own docstring for why that is safe).~~  STRUCK, and kept as the
+    fallback for a park with no `previous_position` (a caller outside this
+    lane, or a record built by hand): that delegate re-derives the row from
+    `session.foundation.selected.position`, which is the last position the
+    CLIENT reported.  A warp does not update it, so after TWO warps it is two
+    warps stale and the undo overshoots -- measured, with `/warp 2` confirmed
+    sent and `/warp 3` failing, putting the row back to scene 1.  See
+    `DoubleWarpTests` in this module's test file.  The park is cleared
     afterwards UNCONDITIONALLY, whether the undo itself reports success or
     a named failure: either way the story this cell was tracking is over,
     and leaving it parked would only make the NEXT unrelated failure on
@@ -311,9 +533,242 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
     record = _parked_record(session)
     if record is None:
         return OUTCOME_NOTHING_PARKED
-    outcome = rollback_warp_scene_on_send_failure(
-        session, SEND_FAILURE_WARP_ACTION_LABEL,
+    # THE GATE IS "A ROW I CAN ACT ON", NOT "NOT NONE" -- pf-adversary's D-B
+    # (MEASURED).  `rollback_warp_scene` answers
+    # `OUTCOME_NOTHING_TO_ROLL_BACK` for anything that is not a `Position`,
+    # so an `is None` test would send a wrong-TYPED row down the new path and
+    # get no rollback AND no fallback: the net disarms itself silently on the
+    # one shape it was widened for.  The label is checked here for the same
+    # reason `rollback_warp_scene_on_send_failure` checks it -- that
+    # discipline must not go dead just because the row now travels with the
+    # park.
+    usable = (
+        record.label == SEND_FAILURE_WARP_ACTION_LABEL
+        and isinstance(record.previous_position, Position)
     )
+    if usable:
+        outcome = rollback_warp_scene(session, record.previous_position)
+    else:
+        outcome = rollback_warp_scene_on_send_failure(
+            session, SEND_FAILURE_WARP_ACTION_LABEL,
+        )
     clear_warp_send_watch(session)
     _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome
+
+
+#: The two attribute names `connection.py`'s `AcceptedGameSocket._offer_
+#: send_outcome` looks up with `getattr(self.state, hook_name, None)`
+#: (`connection.py:150`).  Spelled once, here, so this module and the
+#: installer below cannot drift onto a third spelling of a string whose
+#: only other copy lives in a file this lane may not edit.  Verified
+#: against that file on `origin/main` this round, not from memory.
+SENT_OBSERVER_ATTRIBUTE = "on_game_frame_sent"
+FAILED_OBSERVER_ATTRIBUTE = "on_game_frame_send_failed"
+
+#: Console token every outcome of `install_send_outcome_observers` prints,
+#: on stderr, exactly once per connection.  pf-adversary D1/D3 (MEASURED,
+#: round `goxj0y`): the installer used to be the ONE function in this module
+#: that refused without saying so -- no `_note`, no console line -- while
+#: its only intended caller is a bare statement in `runtime.py` that
+#: discards the return value.  A refusal on a live connection was therefore
+#: invisible to chief, to CI, and to the owner's console alike, and the
+#: whole suite was bit-identical whether the hookup was armed, absent, or
+#: silently disarmed.  A word nobody can read is not an answer.
+INSTALL_CONSOLE_TOKEN = "GM_WARP_SEND_OBSERVERS"
+
+#: Both names were absent and both forwards landed.
+INSTALL_OK = "installed"
+#: BOTH names already resolve -- chief's own two methods
+#: (`CORE-REQUEST-GM-058` shape A), or a second install on this connection.
+#: Nothing is written: an instance attribute would SHADOW a class method, so
+#: an installer that overwrote would silently disarm the very hookup it is
+#: standing in for.
+INSTALL_REFUSED_ALREADY_PRESENT = "refused_already_present"
+#: EXACTLY ONE name resolved, and this call supplied the other.
+#:
+#: pf-adversary D1 (MEASURED, round `goxj0y`).  Refusing outright on "at
+#: least one present" was measured to be worse than doing nothing, in the
+#: real facade, against the real store: with only `on_game_frame_send_failed`
+#: declared, a `/warp` whose frame REALLY REACHED THE WIRE is never cleared
+#: (no success observer), and the next unrelated disconnect on that same
+#: connection rolls the durable row back to the origin scene while the
+#: client is really standing in the destination.  That is durable position
+#: corruption caused by refusing.  Supplying only the MISSING name shadows
+#: nothing -- the name being written did not resolve -- and completes a pair
+#: that is meaningless half-declared.  It is still a defect in whatever
+#: declared one half, so it gets its own word and its own console line
+#: rather than being folded into `installed`.
+INSTALL_COMPLETED_HALF_DECLARED = "completed_half_declared"
+#: `setattr` raised, or the read-back did not find what was written (a
+#: session that swallows attribute writes, `__slots__`, a read-only
+#: property).  Any partial install is undone before returning; see the
+#: function body.
+INSTALL_REFUSED_NOT_WRITABLE = "refused_not_writable"
+
+
+def _announce_install(session: object, outcome: str) -> str:
+    """Say the outcome out loud, then return it.  Never raises.
+
+    pf-adversary D1/D3 (MEASURED, round `goxj0y`).  Every other refusal in
+    this module reaches a reader: `park_warp_send`'s `False` becomes
+    `chat_command_action.EVENT_WARP_SEND_WATCH_NOT_PARKED`, the rollbacks
+    print `warp_scene_persist.ROLLBACK_CONSOLE_TOKEN`.  The installer
+    reported only through a return value that its one intended caller -- a
+    bare statement in `runtime.py` -- throws away, so a live connection that
+    refused was invisible everywhere: no event, no console line, and the
+    whole suite bit-identical whether the hookup was armed or silently
+    disarmed.  Two channels, because they answer different people: the
+    event trail is what a test or a lane reads back, the stderr token is
+    what the owner greps in a boot log.
+
+    STDERR, VIA `warp_scene_persist`'S OWN GUARDED WRITER, NOT `print`.
+    `sys.stderr` can be `None` (a detached console, `pythonw`), and `print`
+    reads `file=None` as "use stdout" and writes the token there without
+    raising -- the `lane_hooks` JSON-artifact incident (pf-adversary round
+    `741zlx`, finding 3).  Reusing that module's `_console` rather than
+    copying its guard means this line cannot drift away from the fix.
+    """
+    _note(session, f"{EVENT_PREFIX}install_{outcome}")
+    try:
+        _persist_console(f"{INSTALL_CONSOLE_TOKEN} {outcome}")
+    except Exception:  # noqa: BLE001 - the report must never raise
+        pass
+    return outcome
+
+
+def install_send_outcome_observers(session: object) -> str:
+    """Give one session the two names `connection.py` looks for.  Never raises.
+
+    WHY THIS EXISTS.  `#795` landed the first layer -- `AcceptedGameSocket.
+    sendall` offers each send's outcome to `state.on_game_frame_sent` /
+    `state.on_game_frame_send_failed` "if present".  R348's own measurement
+    (`pf_bridge/notes_to_chief/FROM_CHIEF_R348_TO_ALL_20260905_0505.md`) is
+    that NO class in `src/` declares either name, so that `getattr` finds
+    nothing and this module is never reached: `park_warp_send` is already
+    called in production and a live send failure today leaves the row parked
+    forever.  Closing that needs the session object to answer to those two
+    names.  `CORE-REQUEST-GM-058` hands chief two forwarding methods for
+    `runtime.py` (his file, `AGENTS.md` section 7); THIS function is the
+    same hookup as a single call this lane owns and tests, so that whichever
+    shape chief prefers, the forwarding logic and its failure discipline
+    stay in this lane's zone instead of being copied into his.
+
+    WHERE IT IS MEANT TO BE CALLED, AND WHY THAT PLACE AND NOT ANOTHER.
+    Once, per connection, on the connection's own thread, at the point that
+    already binds this session to its accepted socket -- `connection_
+    bindings.bind(self)` (`runtime.py:1599`), whose `self` is the SAME
+    object `connection.py` then stores as `AcceptedGameSocket.state`
+    (`connection.py:92`) and reads the two names off.  Installing there
+    means both forwards exist before this connection's first send, so no
+    frame can slip through the window between bind and install.  It is also
+    provably single-threaded: v141 constructs the state at `:7399` and only
+    starts `hb_thread` at `:7439`, so the install completes before the only
+    other thread that could touch this connection exists.
+
+    EACH NAME IS DECIDED SEPARATELY -- pf-adversary D1 (MEASURED).  A name
+    that ALREADY resolves is never touched, because an instance attribute
+    would shadow a real class method and silently disarm the very hookup
+    this stands in for.  A name that does NOT resolve is supplied, even when
+    its partner is already there.  Refusing outright on "at least one
+    present" was measured, in the real facade against the real store, to be
+    WORSE than doing nothing: with only `on_game_frame_send_failed`
+    declared, a `/warp` whose frame really reached the wire is never cleared
+    and the next unrelated disconnect rolls the durable row back while the
+    client is standing in the destination scene.  Completing the pair
+    shadows nothing and cannot produce that.  Three answers, not two:
+    `installed` (both were absent), `completed_half_declared` (exactly one
+    was, and this call supplied the other -- still somebody's defect, so it
+    keeps its own word), `refused_already_present` (both were).
+
+    THE SESSION IS HELD WEAKLY, ON PURPOSE.  A closure that captured the
+    session strongly and was then stored ON that session is a reference
+    cycle, freed by a full `gc` pass and not by refcount -- measured, with
+    the collector disabled.  ~~and `lane_hooks`'s live-session registry
+    holds sessions by WEAK reference precisely so a dead connection's
+    session stops answering `current_session_scene_id` promptly; a cycle
+    here would keep dead sessions answering for another lane until the
+    collector happened to run.~~  HALF STRUCK by pf-adversary D6 (MEASURED):
+    that registry is a `WeakValueDictionary` (`lane_hooks/__init__.py:
+    955-957`) and its assignment is UNGUARDED, so `register_live_session`
+    RAISES `TypeError` for a session that cannot be weak-referenced -- such
+    a session can never be in the registry, and therefore the fallback
+    branch below can never cause the harm that sentence used it to justify.
+    The weak default is still right for the ordinary path (the real state
+    class IS weak-referenceable, so that is the branch production takes);
+    the fallback is there only so a `__slots__` session gets a working
+    rollback instead of a refusal, and it is honest to say it protects
+    nothing else.
+
+    NEVER RAISES, and read-back is the proof, not `setattr` returning --
+    the same discipline `park_warp_send` and `clear_warp_send_watch` carry,
+    for the same reason (`_RefusingSession` in this module's test file).
+    Every outcome, including both refusals, is announced on the event trail
+    and on stderr by `_announce_install`; see that function on why a return
+    value alone was not an answer.
+    """
+    try:
+        present = tuple(
+            getattr(session, name, None) is not None
+            for name in (SENT_OBSERVER_ATTRIBUTE, FAILED_OBSERVER_ATTRIBUTE)
+        )
+    except Exception:  # noqa: BLE001 - a session whose getattr raises
+        return _announce_install(session, INSTALL_REFUSED_NOT_WRITABLE)
+    if all(present):
+        return _announce_install(session, INSTALL_REFUSED_ALREADY_PRESENT)
+
+    try:
+        holder = weakref.ref(session)
+    except TypeError:
+        # Not weak-referenceable; see the docstring on why this still
+        # installs rather than refusing.
+        strong = session
+
+        def holder():  # type: ignore[misc]
+            return strong
+
+    def _sent(frame_bytes: object) -> str:
+        live = holder()
+        if live is None:
+            return OUTCOME_NOTHING_PARKED
+        return on_game_frame_sent(live, frame_bytes)
+
+    def _failed(frame_bytes: object, error: object) -> str:
+        live = holder()
+        if live is None:
+            return OUTCOME_NOTHING_PARKED
+        return on_game_frame_send_failed(live, frame_bytes, error)
+
+    # PER NAME, NOT ALL-OR-NOTHING -- pf-adversary D1 (MEASURED).  A name
+    # that already resolves is left strictly alone (never shadowed); a name
+    # that does not is supplied.  `all(present)` above already returned, so
+    # at least one name is being written here.
+    written = []
+    for already, name, forward in (
+        (present[0], SENT_OBSERVER_ATTRIBUTE, _sent),
+        (present[1], FAILED_OBSERVER_ATTRIBUTE, _failed),
+    ):
+        if already:
+            continue
+        try:
+            setattr(session, name, forward)
+            landed = getattr(session, name, None) is forward
+        except Exception:  # noqa: BLE001 - see docstring
+            landed = False
+        if not landed:
+            # Undo whatever this call itself put on, and ONLY that -- a
+            # connection left with only the success forward would clear
+            # parks it can never roll back, strictly worse than having
+            # neither.  A name that was already there when this call
+            # started is never in `written`, so it is never disturbed.
+            for done in written:
+                try:
+                    setattr(session, done, None)
+                except Exception:  # noqa: BLE001
+                    pass
+            return _announce_install(session, INSTALL_REFUSED_NOT_WRITABLE)
+        written.append(name)
+    return _announce_install(
+        session,
+        INSTALL_COMPLETED_HALF_DECLARED if any(present) else INSTALL_OK,
+    )

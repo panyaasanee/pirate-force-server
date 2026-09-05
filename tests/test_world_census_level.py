@@ -41,7 +41,7 @@ SCENE_SEQUENCE = 0
 # list.  bg0001/bg0002 are deliberately absent -- see those tests.
 WIRED_SCENES = (
     "bg0003", "bg0004", "bg0005", "bg0006", "bg0007", "bg0008",
-    "bg0009", "bg0010", "bg0011", "bg0015", "bg3001", "bg4001",
+    "bg0009", "bg0010", "bg0011", "bg0015", "bg1001", "bg3001", "bg4001",
 )
 
 # bg0001 and bg0002 are wired too but are not in the loop above: bg0002's
@@ -84,6 +84,11 @@ CENSUS_SOURCE_COMPOSERS = {
     # vary (1, 5, 60, 110, 120), which the cross-scene loop asserts.
     "bg3001_roster": "world_population_bg3001",
     "bg4001_roster": "world_population_bg4001",
+    # ADDED round vwekfq (LANE-A): scene 17, the ship at sea.  Its level
+    # column is mined the same way every island's is (MOBS.n_LEVEL_MIN ->
+    # STANDARD_MOB), levels really do vary (30, 32, 34, 35) - the
+    # cross-scene loop asserts that too.
+    "bg1001_roster": "world_population_bg1001",
 }
 
 # A live census source that deliberately sends no level, and why.  Empty on

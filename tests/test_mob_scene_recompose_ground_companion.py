@@ -1,0 +1,409 @@
+"""LANE-A round (this round): the ground-drop companion for a mid-combat
+recompose -- R316 finding "kho" (the third labeled finding) (KA1A, pf_bridge/notes_to_chief/20260905_1102),
+COO-DECISION 20260905_1152 item 2(1).
+
+WHAT A PLAYER SEES, MEASURED ON A REAL CLIENT BEFORE THIS FIX (Panya,
+attended, R316): kill monster A, watch two items land on the ground, hit
+monster B for the first time -- and monster A's items vanish off the screen
+at the exact moment ``MOB_COMBAT_BAR_CENSUS_RECOMPOSE`` fires, because that
+frame carries no information about the floor and RE-130 says a generation
+that omits a live key erases it on the client.
+
+THIS FILE PINS TWO THINGS.
+
+  1. THE BUG, AS A MEASURED FACT ABOUT THE BYTES rather than an assumption:
+     ``mob_scene_recompose.recompose_frames`` has no channel for ground
+     state at all -- ``SceneRecompose`` carries no ground-shaped field, and
+     the bytes it composes for a hit on monster B are identical whether or
+     not monster A's drops are standing on the floor.  So the recompose
+     genuinely cannot be what preserves the floor; the fix has to be a
+     second, additional frame.
+
+  2. THE FIX: ``mob_scene_recompose.ground_companion_actions`` reuses the
+     exact mechanism ``mob_drop_presence.reannounce_ground`` already proved
+     correct for GT-242 (``sustain_a_kill(cell, legacy, ())``), returns the
+     scene's live ground-drop rows as ready-to-queue actions, and never
+     raises.
+
+Removing :func:`mob_scene_recompose.ground_companion_actions` makes every
+test in ``GroundCompanionActionsTests`` below fail with ``AttributeError`` --
+that is this file's proof that the function is the fix, not merely a
+description of one.
+"""
+from __future__ import annotations
+
+import contextlib
+import io
+import random
+import sys
+import unittest
+from dataclasses import fields
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from pirateforce_foundation import field_mobs  # noqa: E402
+from pirateforce_foundation import mob_combat  # noqa: E402
+from pirateforce_foundation import mob_death  # noqa: E402
+from pirateforce_foundation import mob_drop_presence  # noqa: E402
+from pirateforce_foundation import mob_loot  # noqa: E402
+from pirateforce_foundation import mob_scene_recompose as recompose  # noqa: E402
+from pirateforce_foundation import world_population_bg0002  # noqa: E402
+from pirateforce_foundation.legacy_bridge import load_legacy  # noqa: E402
+
+LEGACY_PATH = ROOT / "current" / "pf_login_game_server_v141.py"
+ANCHOR = (10.0, 20.0, 30.0)
+SCENE2 = world_population_bg0002.SCENE2_N_ID
+SCENE2_FOLDER = field_mobs.BG0002_SCENE
+KILLER = 0x750059
+
+
+class _Clock:
+    """A clock that only moves when a test says so."""
+
+    def __init__(self, now=1000.0):
+        self.now = float(now)
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += float(seconds)
+
+
+class GroundCompanionFixture(unittest.TestCase):
+    """Real scene-2 tables, the real frozen serializer, a real drop cell.
+
+    Two DIFFERENT monsters that each drop something -- the same search
+    ``tests/test_mob_drop_presence_ground_reannounce.py`` already uses,
+    reused here rather than a second hand-rolled copy, so this file's
+    fixture cannot silently disagree with the one GT-242's own tests pin.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.legacy = load_legacy(LEGACY_PATH)
+        cls.roster = field_mobs.roster_for_scene_id(SCENE2)
+        cls.ledger = mob_combat.open_ledger_for_scene_id(SCENE2)
+        cls.anchor = recompose.census_anchor(
+            SCENE2, ANCHOR, world_population_bg0002.DEFAULT_ACTOR_COUNT)
+        cls.dropping = []
+        for mob in cls.roster:
+            for seed in range(60):
+                roll = mob_loot.roll_drops(mob, random.Random(seed))
+                if roll.placeable_count:
+                    cls.dropping.append((mob, seed))
+                    break
+        if len(cls.dropping) < 2:
+            raise unittest.SkipTest(
+                "scene 2's tables do not drop for two distinct monsters "
+                "with this seed search")
+
+    def setUp(self):
+        self.register = mob_death.DeathRegister()
+        self.clock = _Clock()
+        self.cell = mob_loot.DropLedgerCell(
+            clock=self.clock, scene=SCENE2_FOLDER)
+
+    def _drop_monster_a(self):
+        mob_a, seed = self.dropping[0]
+        drops = self.cell.loot_a_kill(
+            mob_a,
+            mob_death.DeathRecord(mob_a.actor_identity, KILLER, mob_a.max_hp),
+            mob_loot.roll_drops(mob_a, random.Random(seed)),
+            kill_token=1,
+        )
+        self.assertTrue(drops, "fixture needs monster A to leave a real drop")
+        return drops
+
+
+class RecomposeIsBlindToTheFloorTests(GroundCompanionFixture):
+    """MEASURES THE BUG.  ``recompose_frames`` has no way to know the floor
+    exists, so it cannot be the thing that keeps it on screen -- the fix has
+    to be an additional frame, never a field on this one."""
+
+    def test_scene_recompose_carries_no_ground_shaped_field(self):
+        names = {f.name for f in fields(recompose.SceneRecompose)}
+        leaking = {
+            n for n in names
+            if "ground" in n or "drop" in n or "loot" in n
+        }
+        self.assertEqual(
+            leaking, set(),
+            "SceneRecompose grew a ground-shaped field -- the companion "
+            "wiring ask (GROUND_COMPANION_WIRING) and this test both need "
+            "to be revisited before this assertion is simply deleted")
+
+    def test_recompose_bytes_do_not_change_when_the_floor_gains_a_drop(self):
+        before = recompose.recompose_frames(
+            self.legacy, self.anchor, self.register, ledger=self.ledger)
+        self.assertEqual(before.state, recompose.STATE_COMPOSED)
+        self._drop_monster_a()
+        after = recompose.recompose_frames(
+            self.legacy, self.anchor, self.register, ledger=self.ledger)
+        self.assertEqual(after.state, recompose.STATE_COMPOSED)
+        # THIS is R316 finding "kho" (the third labeled finding), measured at the unit level: the census a
+        # hit on monster B would recompose is byte-for-byte identical
+        # whether or not monster A's drops are standing on the floor, so
+        # nothing about this frame is what tells the client to keep them --
+        # and nothing about it wipes them either.  The wipe RE-130 predicts
+        # is a property of the CLIENT reading an actor collection that omits
+        # a key it already drew, not of these bytes disagreeing with
+        # anything.
+        self.assertEqual(before.pc, after.pc)
+        self.assertEqual(before.frame, after.frame)
+
+
+class GroundCompanionActionsTests(GroundCompanionFixture):
+    """THE FIX.  Removing ``ground_companion_actions`` fails every test in
+    this class with ``AttributeError`` -- that failure IS this file's proof
+    that the function is the fix and not a description of one."""
+
+    def test_returns_an_explicit_empty_tuple_for_a_bare_floor(self):
+        result = recompose.ground_companion_actions(self.cell, self.legacy)
+        self.assertEqual(result, ())
+        self.assertIsInstance(result, tuple)
+
+    def test_reannounces_monster_as_drop_after_a_recompose_would_have_run(
+            self):
+        drops = self._drop_monster_a()
+        # The hit-on-a-different-monster recompose fires here, in the real
+        # dispatch order: composed first (proven blind to the floor above),
+        # THEN the companion.
+        record = recompose.recompose_frames(
+            self.legacy, self.anchor, self.register, ledger=self.ledger)
+        self.assertEqual(record.state, recompose.STATE_COMPOSED)
+        actions = recompose.ground_companion_actions(self.cell, self.legacy)
+        self.assertGreater(len(actions), 0)
+        for label, pc, frame, _hold in actions:
+            self.assertEqual(label, mob_drop_presence.ACTION_LABEL)
+            self.assertEqual(frame, self.legacy.frame_pc(pc))
+        # And the row is genuinely still on the ground afterwards -- the
+        # companion only RESENDS, it never claims or expires anything.
+        taken = self.cell.take(drops[0].drop_key)
+        self.assertEqual(taken.drop_key, drops[0].drop_key)
+
+    def test_matches_the_shipped_mechanism_exactly_not_a_second_encoder(
+            self):
+        self._drop_monster_a()
+        got = recompose.ground_companion_actions(self.cell, self.legacy)
+        expected = mob_drop_presence.loot_actions(
+            mob_drop_presence.sustain_a_kill(self.cell, self.legacy, ()))
+        self.assertEqual(got, expected)
+
+    def test_never_raises_on_something_that_is_not_a_cell(self):
+        self.assertEqual(
+            recompose.ground_companion_actions(None, self.legacy), ())
+        self.assertEqual(
+            recompose.ground_companion_actions("not a cell", self.legacy),
+            ())
+
+    def test_a_cell_with_no_scene_returns_an_empty_tuple(self):
+        cell = mob_loot.DropLedgerCell(clock=self.clock)
+        self.assertEqual(
+            recompose.ground_companion_actions(cell, self.legacy), ())
+
+    def test_the_console_line_does_not_claim_to_be_the_second_pwd_reannounce(
+            self):
+        # G-OBS: a token must name what actually happened.  This call site
+        # is a combat hit, not a CheckSecondPwdVital reply, so it must never
+        # print reannounce_ground's own cause-specific token.
+        self._drop_monster_a()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            recompose.ground_companion_actions(self.cell, self.legacy)
+        out = buf.getvalue()
+        self.assertNotIn(mob_drop_presence.GROUND_REANNOUNCE_TOKEN, out)
+        self.assertIn(mob_drop_presence.CONSOLE_TOKEN, out)
+
+    def test_the_console_line_is_printed_even_for_a_bare_floor(self):
+        # mob_drop_presence.describe_presence prints an explicit items=0
+        # line for a checked-and-bare floor -- silence would be
+        # indistinguishable from "this build has no call site yet".
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            recompose.ground_companion_actions(self.cell, self.legacy)
+        out = buf.getvalue()
+        self.assertIn(mob_drop_presence.CONSOLE_TOKEN, out)
+        self.assertIn("live=0", out)
+
+
+class WiringAskTests(unittest.TestCase):
+    """The pasteable ask itself, and an honest, self-updating statement of
+    whether runtime.py has taken it yet."""
+
+    def test_the_wiring_ask_names_the_function_and_the_call_site(self):
+        wiring = recompose.GROUND_COMPANION_WIRING
+        self.assertIn("ground_companion_actions", wiring)
+        self.assertIn("mob_loot_cell", wiring)
+        self.assertIn("MOB_COMBAT_BAR", wiring)
+        # cp874-encodable, not ASCII-only: this project's own console is
+        # cp874 (Thai), and the gate's tripwire scope is cp874, not ASCII.
+        wiring.encode("cp874")
+
+    def test_runtime_py_emits_the_companion_after_the_bar_frame(self):
+        """FLIPPED, AND CORRECTED, BY THE CHIEF ROUND THAT TOOK THE ASK
+        (r045nx / R354).
+
+        This test used to assert the opposite -- that ``runtime.py`` did NOT
+        call ``ground_companion_actions`` yet -- and its own docstring said
+        to flip it in the same PR that adds the call.  This is that PR.
+
+        WHAT IT DOES AND DOES NOT PIN -- CORRECTED AFTER pf-adversary
+        MEASURED IT (round r045nx, D3).  An earlier version of this docstring
+        claimed "a name scan would pass on every broken arrangement of those
+        two", implying this test would not.  MEASURED FALSE: of five mutants
+        run against the fixed code, this test caught ZERO.  It passed on a
+        bare call whose result is thrown away, on `legacy` replaced by None,
+        on the cell replaced by None, on an unreachable guard, and -- the
+        sharpest one -- on `actions[-1:-1] = list(...)`, which sits
+        lexically after the bar append and satisfies the ordering assertion
+        below while emitting the drop frame BEFORE the bar on the wire.
+        Every one of those five is killed by
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py``, which drives the
+        real dispatcher.  THAT file is this fix's behavioural pin; this test
+        is a redundant SOURCE-SHAPE check that broken code can satisfy, and
+        it is worth keeping only because it fails loudly if the wiring is
+        deleted or re-anchored, which is a different failure mode.  Anyone
+        rewriting the bg0002 test must not assume this one covers it.
+
+        IT PINS SOURCE-LEVEL ORDER, NOT JUST PRESENCE, and that is not
+        decoration.
+        ``GROUND_COMPANION_WIRING`` names an anchor inside the
+        ``if recompose_record.composed:`` arm, which is right about WHEN the
+        companion is due and wrong about WHERE it may be emitted: taken
+        literally the burst becomes [announce, companion, bar], and the bar
+        is the ~18 KB recompose that clears the floor on the client, so the
+        companion it publishes ahead of the bar is overwritten by the bar
+        and the player still watches the loot vanish.  This lane measured
+        that rule itself --
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py`` records that a
+        ground generation "carries the whole floor ... which is why
+        anything published behind it erases the player's newest drop", and
+        pins the presence generation as LAST in the kill burst for exactly
+        that reason.
+
+        So the wiring is split in two and both halves are pinned here: a
+        ``ground_companion_due`` flag set ONLY inside the composed arm (the
+        ask's scoping), and the extend itself AFTER the
+        ``actions.append(("MOB_COMBAT_BAR", ...))`` statement, in the same
+        block (the ask's intent).  Both halves are checked below -- but as
+        SOURCE SHAPE only; see the correction paragraph above for the five
+        mutants this check does not catch.
+        """
+        import ast
+
+        source = (
+            ROOT / "src" / "pirateforce_foundation" / "runtime.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        def _mentions(node, name):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call) and getattr(
+                        sub.func, "attr", None) == name:
+                    return True
+            return False
+
+        def _is_bar_append(node):
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Call):
+                    continue
+                if getattr(sub.func, "attr", None) != "append":
+                    continue
+                for arg in sub.args:
+                    if not isinstance(arg, ast.Tuple) or not arg.elts:
+                        continue
+                    first = arg.elts[0]
+                    if isinstance(first, ast.Constant) and (
+                            first.value == "MOB_COMBAT_BAR"):
+                        return True
+            return False
+
+        # 1. the call exists at all
+        self.assertTrue(
+            _mentions(tree, "ground_companion_actions"),
+            "runtime.py no longer calls ground_companion_actions -- the "
+            "CORE-REQUEST was taken in round r045nx/R354 and removing the "
+            "call silently restores the R316 defect (another monster's "
+            "loot wiped off the screen by a bar recompose)")
+
+        # 2. it is guarded by the flag, and the flag is set only inside
+        #    `if recompose_record.composed:`
+        guards = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Name)
+            and node.test.id == "ground_companion_due"
+            and _mentions(node, "ground_companion_actions")
+        ]
+        self.assertEqual(
+            len(guards), 1,
+            "expected exactly one `if ground_companion_due:` block carrying "
+            f"the companion call; found {len(guards)}")
+
+        setters = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if getattr(target, "id", None) != "ground_companion_due":
+                    continue
+                if isinstance(node.value, ast.Constant) and (
+                        node.value.value is True):
+                    setters.append(node)
+        self.assertEqual(
+            len(setters), 1,
+            "expected exactly one `ground_companion_due = True`; found "
+            f"{len(setters)}")
+        composed_arms = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Attribute)
+            and node.test.attr == "composed"
+            and getattr(node.test.value, "id", None) == "recompose_record"
+        ]
+        self.assertEqual(len(composed_arms), 1)
+        arm_setters = [
+            node for node in ast.walk(composed_arms[0])
+            if node in setters
+        ]
+        self.assertEqual(
+            len(arm_setters), 1,
+            "`ground_companion_due = True` moved out of the "
+            "`if recompose_record.composed:` arm -- the companion would "
+            "then fire on the degraded and no-anchor arms too, which the "
+            "wiring ask explicitly forbids")
+
+        # 3. THE ORDERING.  The guard must follow the bar append inside the
+        #    same statement list.
+        ordered = False
+        for node in ast.walk(tree):
+            for field in ("body", "orelse", "finalbody"):
+                block = getattr(node, field, None)
+                if not isinstance(block, list):
+                    continue
+                bar_at = [i for i, st in enumerate(block)
+                          if _is_bar_append(st)]
+                guard_at = [i for i, st in enumerate(block)
+                            if st in guards]
+                if bar_at and guard_at:
+                    self.assertGreater(
+                        guard_at[0], bar_at[-1],
+                        "the ground companion is emitted BEFORE the "
+                        "MOB_COMBAT_BAR recompose -- the bar clears the "
+                        "floor on the client, so the companion ahead of it "
+                        "is overwritten and the fix buys the player "
+                        "nothing")
+                    ordered = True
+        self.assertTrue(
+            ordered,
+            "could not find the MOB_COMBAT_BAR append and the ground "
+            "companion guard in one statement list -- the ordering this "
+            "fix depends on is no longer checkable, so the check must be "
+            "rewritten rather than deleted")
+
+
+if __name__ == "__main__":
+    unittest.main()

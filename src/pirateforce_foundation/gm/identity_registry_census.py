@@ -72,6 +72,7 @@ from .. import world_bg0009_identity
 from .. import world_bg0010_identity
 from .. import world_bg0011_identity
 from .. import world_bg0015_identity
+from .. import world_bg1001_identity
 from .. import world_bg3001_identity
 from .. import world_bg4001_identity
 
@@ -152,6 +153,7 @@ for _module in (
     world_bg0010_identity,
     world_bg0011_identity,
     world_bg0015_identity,
+    world_bg1001_identity,
     world_bg3001_identity,
     world_bg4001_identity,
 ):

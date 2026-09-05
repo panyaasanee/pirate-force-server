@@ -177,11 +177,39 @@ class MinedRowTests(unittest.TestCase):
         # registry.  Bg0015's links are now on the DERIVED side with every
         # other live scene, so the only extras left are the five the owner
         # refused -- which is what this assertion was always meant to say.
+        #
+        # ROUND j5v7mu: and the extras are no longer the OWNER's list alone.
+        # ``load_roster`` now drops two lists -- the owner's, and this
+        # lane's own withheld list (COO-DECISION 20260905_0545, Bg0015
+        # placement 87) -- so the mined links table is a superset by both.
+        # The dropped indices are DERIVED from the registry the same way
+        # ``derived`` is, for the same defect: a hand-typed tuple here went
+        # a scene stale and the test stayed green while it did.
         table = sorted(field_mob_ai_tables.PLACEMENT_AI_LINKS)
-        expected_extra = sorted(
-            (index, 11, 332) for index in (92, 93, 94, 95, 96)
-        )
-        self.assertEqual(sorted(set(table) - set(derived)), expected_extra)
+        dropped = set()
+        for scene in field_mobs.live_scenes():
+            dropped |= set(field_mobs.owner_refused_placements(scene))
+            dropped |= set(field_mobs.lane_withheld_placements(scene))
+        # Named as well as derived, so "dropped everything" cannot pass.
+        # The owner's list carries all EIGHT indices its ruling covers even
+        # though today's mining only resolves five of them (field_mobs says
+        # so in its own words), so this set is wider than the extras below.
+        self.assertEqual(
+            sorted(dropped), [87, 89, 90, 92, 93, 94, 95, 96, 97])
+        extras = sorted(set(table) - set(derived))
+        # The extras are named by index (a short literal, so "everything is
+        # an extra" cannot pass) AND every one of them is checked against
+        # the derived dropped set above (so a NEW extra with no ruling
+        # behind it fails here rather than being absorbed).
+        self.assertEqual([row[0] for row in extras], [87, 92, 93, 94, 95, 96])
+        for row in extras:
+            self.assertIn(row[0], dropped)
+        # Index 87 is in the LINKS TABLE TWICE -- Bg0002 ships a placement
+        # 87 too, with its own AI ids -- and only the Bg0015 one is an
+        # extra.  Measured, not assumed: the Bg0002 row is on the derived
+        # side, which is why this list has one 87 and not two.
+        self.assertEqual(
+            sum(1 for row in table if row[0] == 87), 2)
         self.assertEqual(sorted(set(derived) - set(table)), [])
 
     def test_the_two_wander_rows_are_the_ones_this_round_read(self):
@@ -1236,12 +1264,20 @@ class ContainmentTests(unittest.TestCase):
         # dispatch if Bg0015 is ever registered. It is a measurement, not a
         # third dispatcher: it mutates no register, composes no frame, and
         # runtime.py does not import it (that module's own test pins that).
+        # WIDENED round pcsjfr, and it is the SAME case as the line above
+        # rather than a new kind: scene_door_walk.py calls open_register once
+        # per scene for exactly the reason the Bg0015 gate module calls it --
+        # a live dispatch reaches it BEFORE mob_combat.strike, so a door walk
+        # that started at strike would be reporting on a path a swing cannot
+        # take (pf-adversary D8 of that round measured the walk starting one
+        # call too low).  It discards the register it opens, mutates nothing,
+        # composes no frame, and runtime.py does not import it.
         self.assertEqual(
             sorted(set(importers)),
             ["mob_ai_scheduler.py", "mob_combat_bg0015_gates.py",
-             "runtime.py"],
-            "exactly runtime.py, mob_ai_scheduler.py and the Bg0015 gate "
-            "measurement module should import this lane")
+             "runtime.py", "scene_door_walk.py"],
+            "exactly runtime.py, mob_ai_scheduler.py and the two measurement "
+            "modules should import this lane")
         app_body = (SRC_ROOT / "app.py").read_text(encoding="utf-8")
         self.assertNotIn("mob_ai_control", app_body,
                          "runtime.py owns this wiring, not app.py")

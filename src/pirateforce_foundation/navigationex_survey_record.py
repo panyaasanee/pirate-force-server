@@ -21,7 +21,12 @@ stays outside that module's own "who may name me" guard), behind the flag
 
 NESTED RECORD FIELD LAYOUT (RE-227, verbatim field order and offsets;
 nested-record serializer span `[0x0072e590,0x0072e691)` SHA
-`5b714541671c8731a3b88df657089f97645ad1a6d2dc7ec9f06ee7ee271aa8f2`):
+`5b714541671c8731a3b88df657089f97645ad1a6d2dc7ec9f06ee7ee271aa8f2`) --
+and INDEPENDENTLY, from a different RE round, `pf_bridge/archive/
+notes_to_chief_2026-08/20260827_0115_RE-086-RESULT-*.md` gives the same
+span the same field-for-field shape (found in this round's pass 2; the
+serializer-fields table has NO rows for this nested span, so RE-086's
+prose is the only corroboration that exists and it agrees tag-for-tag):
 
     `0B` byte  @ record `+0x10`  -- PROVEN: the contact tick selects a
                                     record only when this byte == 1
@@ -42,12 +47,62 @@ nested-record serializer span `[0x0072e590,0x0072e691)` SHA
     `32` qword @ `+0x28`         -- UNMEASURED.
     `12` u16   @ `+0x30`         -- UNMEASURED.
 
-THE OUTER ENVELOPE IS NOT RE-227's TO GIVE.  RE-227 pinned the outer
-serializer only as an address span and a hash
-(`[0x00733570,0x00733614)`), with no per-field breakdown -- unlike the
-nested record, which it gave field-by-field.  Guessing that shape from the
-span alone would be exactly the "guessing an opcode" this project's lanes
-are forbidden to do.  What IS already proven and already used by this same
+THE OUTER SERIALIZER OF THIS CLASS: WHAT RE-227 GAVE, AND WHAT WAS ON
+DISK ALL ALONG.  ~~"RE-227 pinned the outer serializer only as an address
+span and a hash, with no per-field breakdown, so guessing that shape would
+be guessing an opcode"~~ IS HALF STRUCK in round `f03s5f`.  RE-227 itself
+gave only the span `[0x00733570,0x00733614)` and its SHA -- that part
+stands -- but RE-227's own mandatory-search block cites "ผลเดิม
+RE-086/087/090" in `pf_bridge/external/`, and TWO tracked artifacts there
+carry this class's outer fields, at the same span and the same SHA:
+
+    `pf_bridge/external/PF_SERIALIZER_FIELDS.tsv` lines 6377-6388 -- six
+    R rows and six W rows.  Among them, in BOTH directions and gated
+    `ALWAYS`: a `0x0B`-tagged field of length 1 at
+    `STACK@0x00733570+0x18`.  The others are calls the table itself marks
+    unresolved (an indirect slot `DEREF(DEREF(DEREF(OBJ+0x14))+0x10)`, a
+    direct call `0x0072EC50`, and two refcount atomics that are not wire
+    fields at all).
+
+    `pf_bridge/archive/notes_to_chief_2026-08/20260827_0115_RE-086-RESULT-
+    *.md` -- RE-086's prose says the same thing: the outer serializer
+    "sends a presence byte then calls the nested object's vtable slot
+    +0x10", 63 instructions, gap/error 0/0, same SHA.
+
+THIS ROUND FOUND THAT BY BEING TOLD, NOT BY LOOKING.  pf-adversary
+surfaced it after this round had already written an RE ticket asking for
+a field list that was committed to this project's own repository.  The
+round read RE-227 and did not follow RE-227's own citation.  That is the
+mandatory-search rule failing on the consumer side, and it is recorded
+here rather than quietly fixed, because the same shortcut is available to
+every lane every round.
+
+The consequence for the frame is measurable and is the reason
+`outer_leading_byte` exists on the composer below: every byte R313 sent
+went out with NO `0B` between the envelope's `0B <vital_version>` and the
+record's own `0B 01` first field.  If that measured, ALWAYS-gated outer
+byte is what the client reads first, the reader consumes the record's
+kind byte as the outer field and then meets `12` where it wants `0B` --
+it stops inside this class, which is exactly the dialog R313 got.  That
+mis-read chain is still a HYPOTHESIS, not a finding: opening the window on
+screen, msg-id control, and the effect on M2 are attended-round questions
+this static fix does not touch.  ~~"the field's existence is measured, the
+mis-read is inference, and no value for the byte is measured anywhere for
+THIS class -- though the same construct elsewhere in this repository has an
+accepted-on-the-wire precedent, see `OUTER_PRESENCE_PRESENT` below"~~ IS
+STRUCK: RE-256 (`pf_bridge/notes_to_chief/
+20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+disassembled THIS class's own outer codec span
+(`[0x00733570,0x00733614)`, the same span and SHA RE-227 cited) and found
+the byte IS now measured, directly, for this class: `cmp dword ptr
+[esi+0x14],0` / `setne al` at `0x00733586-0x0073358E` writes a
+pointer-presence BOOLEAN (not a record count) into the buffer the
+`0x0B`-tagged writer sends -- one record present -> 1, none -> 0.
+`OUTER_PRESENCE_PRESENT` below is no longer only a precedent borrowed from
+a different class.
+
+THE ENVELOPE AROUND ALL OF THAT IS NOT GUESSED EITHER.  What IS already
+proven and already used by this same
 codebase for the same *kind* of frame -- one nested vital record pushed as
 the sole element of a client's VitalData collection -- is
 `current/pf_login_game_server_v141.py`'s own `make_runtime_vitals`, the
@@ -67,8 +122,60 @@ and `gm/chat_command_action.py:1281` records that error CLOSING the client
 in R306.  `tests/test_navigationex_survey_record.py` now pins the two bytes
 as a byte fact, so this cannot regress quietly.
 
+R313 (2026-09-05, attended, `pf_bridge/notes_to_chief/20260905_0212_KA1A-
+R313-RESULTS-*`) SENT THIS FOR REAL AND THE CLIENT REJECTED IT.  The client
+named the class itself in the error dialog -- "NavigationEx_AddSurveyDataVtial
+ErrorData=50351" -- which proves the msg_id is right (RE-227 never had a
+numeric id to cite) and that the reader reached this class before it
+stopped.  50351 is not an error code: it is `0xC4AF`, this class's own id
+(see `R313_SURVEY_DIALOG_ERRORDATA` below and `read_failure_layer`), by the
+same rule this repository already spells out for 28317 = `0x6E9D` = the
+outer envelope's id.  So the outer collection parsed, the client dispatched
+to THIS class, and this class's own reader stopped.  An id names a PLACE,
+not a cause: it does not say which field, and it does not distinguish the
+record's content from this class's own outer shape.
+
+*** WHAT `R313CaptureParityTests` CAN AND CANNOT SHOW.  It pins that this
+encoder reproduces R313's captured bytes exactly.  That is a no-drift pin
+and nothing more: `git diff` between the commit R313 booted and this one
+touches no executable line of this module, so the "capture" IS this
+encoder's own output, and comparing them cannot fail unless someone edits
+the encoder.  ~~"so the rejection is NOT an encoder-vs-RE-227 mismatch"~~
+IS STRUCK (pf-adversary, round `f03s5f`, D2): the bytes the client rejected
+ARE this encoder's output, so parity with them is evidence that the encoder
+is the rejected thing, not that it is exonerated.  ~~"The only check that this encoder
+implements RE-227's list is `_hand_built_record` -- a second construction
+from the same author's same reading of the same letter"~~ IS STRUCK
+(pf-adversary pass 2): the archived RE-086 letter cited above gives the
+nested record's wire shape field-for-field as well, from a DIFFERENT RE
+round than RE-227, and it agrees tag-for-tag with what
+`encode_survey_record` emits.  So the record layout has two independent
+static sources; what remains unchecked by anything in this tree is this
+class's OUTER shape, where the two sources disagree with what we send by
+one byte.  `pf_bridge/NOW.md` (03:47
+entry) already absorbed the struck claim as "ตัวผิดอาจไม่ใช่ layout"; this
+round's letter to COO asks for that line to be corrected rather than
+leaving a green test suite steering the next attended round.
+~~"As of this round GT-233's queue head still reads READY ... this round's
+letter ASKS for BLOCKED-ON-LAYOUT"~~ IS STRUCK: chief made that edit in
+round `s5uz94` (R347, 2026-09-05T03:3x+07:00) and `GAME_TEST_QUEUE.md`'s
+GT-233 head now reads BLOCKED-ON-LAYOUT -- read directly from the queue
+file this round, not carried over from the last one.
+
 `msg_id` IS A REQUIRED CALLER-SUPPLIED ARGUMENT, ON PURPOSE, WITH NO
-DEFAULT.  The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
+DEFAULT -- and it stays that way.  ~~"So this module never writes that
+number down as a fact"~~ IS STRUCK in round `f03s5f`: R313 supplied the
+client-observable half the paragraph below was waiting for (the client
+resolved `0xC4AF` to the class NAME on screen), so the number now has a
+home WITH its evidence, `NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID` below.
+The composer still refuses to default it -- naming a proven number and
+choosing it for every caller are two different things, and the trial's two
+numbers stay in chief's `m2_survey_trial.py` where the flag is.  The
+paragraph that follows is kept, unedited apart from that strike, because
+its reasoning is why the number was NOT written down for a fortnight and
+what would have to be true to write down the next one:
+
+The numeric wire id for `NavigationEx_AddSurveyDataVtial` is
 ABSENT from `pf_bridge/VITAL_REGISTRY_FROM_CLIENT_BINARY_20260817.tsv` --
 the same registry that supplied `TriggerVital = 0x1FB2` and
 `NavigationEx_EnterInstanceVital = 0xC723` elsewhere in this project
@@ -94,6 +201,76 @@ from typing import NamedTuple
 # +0x10 equals this value.
 SURVEY_RECORD_KIND = 1
 
+# The numeric wire id for `NavigationEx_AddSurveyDataVtial`.  The module
+# docstring above explains, at length, why this file refused to write this
+# number down -- a low-confidence census named it, the registry that this
+# project treats as ground truth does not carry the class at all, and
+# RE-227 never cites a numeric id.  R313 (attended, 2026-09-05) closed that
+# gap FROM THE SCREEN, both layers at once:
+#
+#   wire              -- the trial sent `msg_id=0xC4AF` (console line
+#                        `M2_SURVEY_TRIAL_SENT ... msg_id=0xC4AF`, and the
+#                        captured bytes `R313CaptureParityTests` pins).
+#   client-observable -- the client's own dialog resolved that id to the
+#                        class NAME: "NavigationEx_AddSurveyDataVtial
+#                        ErrorData=50351".  An id the client could not
+#                        resolve could not have been printed as a name.
+#
+# So the id is now proven in the way this project requires, and naming it
+# here is no longer a guess.  `encode_add_survey_data_outer` still takes
+# `msg_id` with NO default: what changed is that the number has a home with
+# its evidence attached, not that this composer picked one for its callers.
+NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID = 0xC4AF
+
+# The value a presence byte takes for a nested object that IS present.
+# Named here so a caller passing `outer_leading_byte` has somewhere to
+# point instead of typing a bare 1, and so the reasoning travels with the
+# number.  Two independent sources agree:
+#
+#   PRECEDENT   this repository's own accepted-on-the-wire construct: v141's
+#               `make_v137_marker1_transport_probe` sends `0B 01` before the
+#               present TeleportVital target and `0B 00` for the absent
+#               ones.
+#   MEASURED    RE-256 (`pf_bridge/notes_to_chief/
+#               20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-
+#               VERSION-ZERO.md`) disassembled THIS class's own outer codec
+#               (`[0x00733570,0x00733614)`) directly: `setne al` at
+#               `0x0073358E` writes exactly this boolean from
+#               `pointer != NULL` -- one record present -> 1, none -> 0.
+#
+# ~~"It is a PRECEDENT, not a measurement of this class's own field --
+# nothing in `PF_SERIALIZER_FIELDS.tsv` gives the value"~~ IS STRUCK
+# (RE-256): the value is now measured directly for this class, not only
+# borrowed by analogy.  It is a pointer-presence BOOLEAN, not a record
+# count -- RE-256 Job 4 also found this class's outer object holds exactly
+# one nested-record pointer and no loop/vector/count anywhere in its codec,
+# so "one record" and "presence=1" happen to coincide, but the wire
+# encoding itself is boolean, and a value of 0 means no nested record
+# follows at all.
+OUTER_PRESENCE_PRESENT = 1
+
+# `ErrorData` IN THE CLIENT'S "VitalData read failed" DIALOG IS A MESSAGE
+# ID, NOT AN ERROR CODE.  This repository already knew that for one number:
+# `delete_actor_hypothesis.py:32` and `mob_loot.py:159` both spell out
+# "28317 = 0x6E9D = GSCN_RunTimeProtocolRes, the class id itself".  R313's
+# number obeys the same rule and nobody had applied it yet:
+#
+#     50351 == 0xC4AF == NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID
+#
+# That matters for GT-233's diagnosis, because the R313 letter reads the
+# two numbers as two error codes ("คนละรหัสกับ 28317") and concludes from
+# their difference that the fault moved from the envelope to the record.
+# The difference does not carry that meaning on its own -- but the rule
+# does, and it happens to point the same way, more precisely: ErrorData
+# names the object whose reader stopped, so 28317 meant "the outer
+# RunTimeProtocolRes could not finish" while 50351 means "the outer
+# envelope parsed, the client dispatched to THIS class, and this class's
+# own reader is what failed".  What it does NOT say is WHICH field -- an
+# id names a place, not a cause.  `read_failure_layer` below is that rule
+# as code, so the next attended round can read a dialog number without
+# doing hex by hand at the screen.
+R313_SURVEY_DIALOG_ERRORDATA = 50351
+
 # Fixed nested-record length: 1 (tag 0x0B) + 1 (u8 value) + 3*(1+2) (three
 # u16 fields) + 3*(1+4) (three f32 fields) + 1+8 (one qword field)
 # + 1+2 (one trailing u16 field) = 2 + 9 + 15 + 9 + 3 = 38 bytes.
@@ -116,6 +293,32 @@ class SurveyRecordFields(NamedTuple):
     unmeasured_0x16: int = 0    # +0x16 u16, UNMEASURED
     unmeasured_0x28: int = 0    # +0x28 qword, UNMEASURED
     unmeasured_0x30: int = 0    # +0x30 u16, UNMEASURED
+
+
+def read_failure_layer(legacy, error_data: int) -> str:
+    """Which object's reader stopped, for an ``ErrorData`` number read off
+    the client's "VitalData read failed" dialog.
+
+    Returns one of:
+
+        ``"OUTER_ENVELOPE"``  -- the collection envelope itself
+                                 (``legacy.GSCN_RUNTIME_PROTOCOL_RES``);
+                                 the historical 28317.
+        ``"THIS_VITAL"``      -- the AddSurveyData object; R313's 50351.
+        ``"SOMETHING_ELSE"``  -- an id this module has no name for.  NOT
+                                 "unknown error": some other class failed,
+                                 and its id is the number itself.
+
+    This is a reading aid over a rule this repository already proved, not a
+    new claim: the number is an id.  It deliberately says nothing about
+    WHICH field of that object was wrong, because the client does not tell
+    us -- see the block comment above `R313_SURVEY_DIALOG_ERRORDATA`.
+    """
+    if error_data == legacy.GSCN_RUNTIME_PROTOCOL_RES:
+        return "OUTER_ENVELOPE"
+    if error_data == NAVIGATIONEX_ADD_SURVEY_DATA_VITAL_ID:
+        return "THIS_VITAL"
+    return "SOMETHING_ELSE"
 
 
 def encode_survey_record(legacy, fields: SurveyRecordFields) -> bytes:
@@ -144,6 +347,7 @@ def encode_survey_record(legacy, fields: SurveyRecordFields) -> bytes:
 
 def encode_add_survey_data_outer(
     legacy, msg_id: int, vital_version: int, fields: SurveyRecordFields,
+    outer_leading_byte: int | None = None,
 ) -> tuple[bytes, bytes]:
     """The full outbound frame: `legacy.make_runtime_vitals` (the frozen,
     already-proven VitalData-collection envelope, WITH the trailing
@@ -154,12 +358,99 @@ def encode_add_survey_data_outer(
     this project.  ``msg_id`` has no default -- see the module docstring
     for why the numeric wire id is not committed as a fact here.
 
+    ``outer_leading_byte`` IS THE ONE FIELD R313's FRAME DID NOT CARRY.
+    ``pf_bridge/external/PF_SERIALIZER_FIELDS.tsv`` (tracked; lines
+    6377-6388, span/SHA identical to the one RE-227 cites for this class's
+    OUTER serializer) records, for `NavigationEx_AddSurveyDataVtial`, a
+    ``0x0B``-tagged field of length 1 at ``STACK@0x00733570+0x18`` with
+    ``gate_condition ALWAYS``, in both directions.  Everything R313 sent
+    went out with no such byte between the envelope's ``0B
+    <vital_version>`` and the record's own ``0B 01``.  ~~That table names
+    the field but not its value~~ NO LONGER THE WHOLE STORY: RE-256
+    (`pf_bridge/notes_to_chief/
+    20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+    read the value straight out of the same span the table cites -- see
+    `OUTER_PRESENCE_PRESENT` above.
+
+    Left ``None``, this function emits exactly the bytes R313 sent -- the
+    frame RE-256 says is missing this byte entirely, which is a different
+    thing from carrying a wrong value for it.  Given an int, it emits
+    ``0B <value>`` after the vital header and before the record.  This
+    function keeps `None` as a valid input (a caller may still want R313's
+    exact original bytes, e.g. to reproduce that capture in a test); it is
+    the caller that sends a real record that must not choose `None` any
+    more -- see the M2 provisioning-trial module's own
+    `encode_trial_records` (not named here as an import-guarded string, the
+    same discipline the rest of this file already follows).
+
+    WHY BEFORE THE RECORD, HONESTLY.  ~~"the position the table's own
+    offsets put it in"~~ IS STRUCK (pf-adversary pass 2): sorted by the
+    table's own order column the WRITE side puts the byte first, but the
+    READ side -- the direction a client uses on a server frame -- lists the
+    nested call first and the byte second.  ~~"Every control checked ...
+    is R/W-symmetric for this shape and this class is not, which nobody has
+    explained"~~ IS STRUCK: RE-256 Job 2 explained it -- the table's R and W
+    rows for this span are ONE function with two branches selected by a
+    direction flag (`BL`), and the table is sorted by file offset across
+    both branches, which makes R look like it calls the nested object
+    before the byte when the image shows the opposite.  Read directly:
+    W writes presence at `0x00733597` then calls the nested record at
+    `0x007335AD`; R reads presence at `0x007335C0` then (if nonzero)
+    allocates and calls the nested record at `0x0073360C`.  Logical wire
+    order is presence-before-record in BOTH directions -- the table's
+    apparent asymmetry was a site-ordering artifact of the TSV, not a wire
+    fact.  Leading is what RE-086's prose describes ("sends a presence byte
+    THEN calls the nested object's vtable slot +0x10"), what RE-256 now
+    confirms by direct disassembly, and what the TeleportVital precedent
+    below does, so leading is what this composer builds.
+
+    THE VALUE IS NOW MEASURED DIRECTLY FOR THIS CLASS, AND IT IS 1
+    (`OUTER_PRESENCE_PRESENT`).  ~~"an attended round is what decides
+    between 0 and 1"~~ IS STRUCK (pf-adversary pass 2): they are not
+    symmetric candidates.  For the same construct -- a presence byte
+    guarding a nested object -- `current/pf_login_game_server_v141.py`'s
+    `make_v137_marker1_transport_probe`, a frame the real client ACCEPTED,
+    sends ``0B 01`` before the present nested target and ``0B 00`` for the
+    absent ones, and RE-090 (via RE-086) pins TeleportVital's own
+    `STACK@...+0x14/+0x1C` `0x0B` fields ahead of its nested subcall the
+    same way.  RE-256 then closed the remaining gap by reading THIS class's
+    own outer codec instead of only the precedent: `setne al` at
+    `0x0073358E` writes `pointer != NULL`, so 1 is what one record present
+    produces and 0 is this class's own "no object follows" value -- a frame
+    with ``0B 00`` followed by 38 bytes of record is still predicted to
+    fail, now by measurement rather than only by precedent.
+
+    This composer still has NO default: not because the value is unmeasured
+    any more (RE-256 measured it directly for this class), but because this
+    is the generic composer every caller of this shape can reach, and a
+    silent default here would hide the one number a caller must be seen to
+    choose.  The specific caller that sends a real GT-233 trial record --
+    the M2 provisioning-trial module's own `encode_trial_records` (not
+    named here as an import-guarded string) -- is where RE-256's measured
+    value is now wired in as that caller's own default; see that module.
+
     ~~CALLED FROM NO SEND PATH~~ IS STRUCK (2026-09-04, PR #760): GT-228
     measured the XYZ that COO-DECISION 20260904_0747 item 3(b) made the
     condition, and chief added the runtime.py call site it named, behind
     the attended-only flag.  It is still called from exactly one place.
     """
     record = encode_survey_record(legacy, fields)
+    if outer_leading_byte is not None:
+        # Range-checked because 0-vs-1 is the whole question this argument
+        # exists to ask: `256` silently encoding as `0B 00` would send the
+        # value that means "no object follows" while the console line said
+        # 256 (pf-adversary pass 2).  `bool` is rejected for the same
+        # reason -- `True` is not a wire value anybody meant to type.
+        if isinstance(outer_leading_byte, bool) or not isinstance(
+                outer_leading_byte, int):
+            raise TypeError(
+                "outer_leading_byte must be an int in 0..255 or None, not "
+                f"{type(outer_leading_byte).__name__}")
+        if not 0 <= outer_leading_byte <= 255:
+            raise ValueError(
+                "outer_leading_byte must fit one byte (0..255); got "
+                f"{outer_leading_byte}")
+        record = legacy.u8tag(0x0B, outer_leading_byte) + record
     # PLURAL, not `make_runtime_vital`.  Chief, round `t7bsfx`/R342, after
     # pf-adversary D1 measured the difference on this very frame: the two
     # composers agree byte-for-byte except that the plural one appends the

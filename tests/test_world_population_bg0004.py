@@ -235,9 +235,30 @@ class Bg0004Census(unittest.TestCase):
         # EXACT SET, not "contains" - a third importer, or the seam being
         # swapped for a direct runtime.py import, both fail here and have to
         # be argued for in a round of their own.
+        #
+        # [CROSS-LANE EDIT BY LANE-B, ROUND r6isy5 - LANE-A MAY REVERT OR
+        # REPLACE] ~~["lane_a_scene_census.py",
+        # "world_population_handoff.py"]~~ -- a THIRD importer arrived, and
+        # it is argued for here rather than waved through, which is what
+        # this card asked of it.  ``mob_scene_recompose.py`` (LANE-B) now
+        # imports this module for exactly the reason the other four scenes'
+        # composers import theirs: a RECOMPOSE after a monster dies has to
+        # rebuild scene 4's census from the same builder the arrival used,
+        # and ``COMPOSER_BG0004`` calls
+        # ``build_bg0004_population(..., count_source=COUNT_SOURCE_CALLER)``,
+        # the identical shape ``_build_bg0003``/``_build_bg0005`` already
+        # have.  The sentence this card really protects is UNCHANGED and
+        # still asserted by omission: ``runtime.py`` still does not import
+        # this module.  What HAS changed since round 2jdde8 is the clause
+        # about scene 4's door -- it is open (LANE-A round bq4mst), and this
+        # round gives the map something to fight.  Letter:
+        # ``notes_to_chief/20260905_1031_LANE-B-TO-LANE-A-scene-4-now-has-a-
+        # combat-roster-your-guard-fired-as-designed.md``.
         self.assertEqual(
             sorted(importers),
-            ["lane_a_scene_census.py", "world_population_handoff.py"])
+            ["lane_a_scene_census.py", "mob_scene_recompose.py",
+             "world_population_handoff.py"])
+        self.assertNotIn("runtime.py", importers)
 
 
 if __name__ == "__main__":  # pragma: no cover

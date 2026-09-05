@@ -139,6 +139,75 @@ class ClassOwnershipIsDerivedFromTheTableTests(unittest.TestCase):
                 unknown_class_id, 99, self.attacker, self.defender)
         self.assertIn("not in the class catalog", str(ctx.exception))
 
+    def test_attack_skill_ids_for_class_is_99_only_for_every_class(self):
+        """Table-derived, not a hand-typed constant: for all 5 classes today
+        only skill 99 is classified as an attack (`damage_by_skill.
+        is_classified_attack_skill`), so the filtered answer must equal
+        `(99,)` -- re-derived per class from `class_catalog.
+        starting_skill_ids` rather than asserting the literal `(99,)` alone,
+        so a future kit re-shuffle that drops 99 from a class's kit would
+        still be caught here."""
+        for class_id in class_catalog.CLASS_IDS:
+            kit = class_catalog.starting_skill_ids(class_id)
+            expected = tuple(
+                skill_id for skill_id in kit
+                if damage_by_skill.is_classified_attack_skill(skill_id))
+            self.assertEqual(expected, (99,))
+            self.assertEqual(
+                damage_by_class_skill.attack_skill_ids_for_class(class_id),
+                expected)
+
+    def test_attack_skill_ids_for_class_follows_the_classifier_not_a_constant(self):
+        """Patches `damage_by_skill.is_classified_attack_skill` to also
+        accept 110 -- proves this function re-derives its answer from that
+        classifier at call time rather than holding a cached/typed `(99,)`
+        of its own -- and, since 110 sits AFTER 99 in every class's real kit
+        order (`class_catalog.starting_skill_ids` puts 111/basic-training
+        before 99/110 for all 5 classes), also pins the returned pair's
+        order against the table rather than only checking membership."""
+        from unittest import mock
+        class_id = class_catalog.CLASS_IDS[0]
+        kit = class_catalog.starting_skill_ids(class_id)
+        self.assertIn(110, kit)
+        self.assertLess(kit.index(99), kit.index(110))
+        with mock.patch.object(
+                damage_by_skill, "is_classified_attack_skill",
+                side_effect=lambda skill_id: skill_id in (99, 110)):
+            got = damage_by_class_skill.attack_skill_ids_for_class(class_id)
+        self.assertEqual(got, (99, 110))
+
+    def test_attack_skill_ids_for_class_preserves_kit_order_on_real_data(self):
+        """pf-adversary (this round) found the classifier-mock test above
+        insufficient on its own to catch a reversed-iteration-order
+        regression, since it only existed for one class -- and found the
+        original version of THIS test self-referential (it derived its own
+        "expected" order from `got` itself, so it could never fail).  This
+        version instead patches the classifier to accept every id (not just
+        99) for all 5 real classes and asserts the RETURNED tuple equals the
+        REAL, unmocked `starting_skill_ids(class_id)` tuple exactly -- none
+        of the 5 classes' 4-id kits equal their own reverse (checked below),
+        so a `tuple(reversed(...))` mutation in the production function
+        would turn every one of these assertions red."""
+        from unittest import mock
+        with mock.patch.object(
+                damage_by_skill, "is_classified_attack_skill",
+                return_value=True):
+            for class_id in class_catalog.CLASS_IDS:
+                kit = class_catalog.starting_skill_ids(class_id)
+                self.assertNotEqual(
+                    kit, tuple(reversed(kit)),
+                    "class_id %r's kit is a palindrome -- this test can no "
+                    "longer distinguish forward from reversed order for it"
+                    % (class_id,))
+                got = damage_by_class_skill.attack_skill_ids_for_class(class_id)
+                self.assertEqual(got, kit)
+
+    def test_attack_skill_ids_for_class_unknown_class_id_raises_keyerror(self):
+        unknown_class_id = -1
+        self.assertFalse(class_catalog.is_known_class_id(unknown_class_id))
+        with self.assertRaises(KeyError):
+            damage_by_class_skill.attack_skill_ids_for_class(unknown_class_id)
+
     def test_unknown_skill_id_is_refused_by_name_not_by_ownership_message(self):
         class_id = class_catalog.CLASS_IDS[0]
         unknown_skill_id = 12345
@@ -154,6 +223,63 @@ class ClassOwnershipIsDerivedFromTheTableTests(unittest.TestCase):
         # view "no class grants you this" and "this class doesn't" are the
         # same fact for an id that is not anyone's starting-kit id.
         self.assertIn("is not in class_id", str(ctx.exception))
+
+
+class PerClassProductionPinAgainst916Tests(unittest.TestCase):
+    """LANE-CS queue item 4 ("สกิลโจมตีตัวแรกของแต่ละอาชีพ"), server half, per
+    `COO-DECISION 20260905_0647`: the class-gated resolver above was only ever
+    checked against the arbitrary stand-in attacker
+    (`ClassOwnershipIsDerivedFromTheTableTests.setUpClass`'s `cls.attacker`),
+    which proves the class gate passes an attacker through unchanged but is
+    not the attacker any real hit would carry.  `test_damage_by_skill.py`'s
+    `test_normal_attack_against_916_with_the_production_pin_attacker` already
+    did this for the ungated `damage_by_skill.resolve_skill_damage` -- this
+    class is that same check pushed one layer up, through EVERY class's own
+    `class_id`, not just the bare skill-id gate.
+
+    Today `attack_skill_ids_for_class(class_id)` answers `(99,)` for all 5
+    classes (see `test_attack_skill_ids_for_class_is_99_only_for_every_class`
+    above), so this loop only ever fires skill 99 -- the day RE-232's
+    successor classifies a class-specific "Basic Training" id as an attack
+    too, this loop starts firing that id as well without an edit here,
+    because it reads the ids to fire from `attack_skill_ids_for_class`
+    itself, never a literal `99`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        roster = field_mobs.load_roster()
+        training_iron_man = next(
+            mob for mob in roster
+            if mob.template_id == TRAINING_IRON_MAN_TEMPLATE_ID)
+        cls.defender = mob_combat.mob_defender(training_iron_man)
+        # The attacker `runtime.py` actually binds to production combat
+        # (`MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()`) -- see
+        # `test_damage_by_skill.py`'s own docstring for why the arbitrary
+        # stand-in attacker above is not a substitute for this.
+        cls.production_attacker = mob_combat.pin_attacker()
+
+    def test_every_classs_own_attack_skill_ids_hit_916_for_891(self):
+        expected = damage_by_skill.resolve_skill_damage(
+            99, self.production_attacker, self.defender)
+        self.assertEqual(expected, 891)
+        checked_a_class = False
+        for class_id in class_catalog.CLASS_IDS:
+            attack_ids = damage_by_class_skill.attack_skill_ids_for_class(class_id)
+            self.assertTrue(
+                attack_ids,
+                "class_id %r classifies no attack skill at all -- nothing "
+                "for this test to fire" % (class_id,))
+            for skill_id in attack_ids:
+                got = damage_by_class_skill.resolve_class_skill_damage(
+                    class_id, skill_id, self.production_attacker, self.defender)
+                self.assertEqual(
+                    got, expected,
+                    "class_id %r skill_id %r against Training Iron Man 916 "
+                    "did not match the production-pin number" % (
+                        class_id, skill_id))
+                checked_a_class = True
+        self.assertTrue(checked_a_class, "no class/skill pair was ever fired")
 
 
 if __name__ == "__main__":

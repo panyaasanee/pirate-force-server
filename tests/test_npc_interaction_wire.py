@@ -316,6 +316,14 @@ EXPECTED_TABLES = {
     # (notes_to_chief/20260901_1416 / 20260901_1459): this pin counts tables,
     # it does not test this file's own npc_interaction behaviour.
     "character_skills",
+    # character_home_marker: the "born again" home-scene persistence door,
+    # not quest/shop/reward state -- COO-DECISION 20260905_1154 point 3(b)
+    # ordered the table (migrations/013_character_home_marker.sql).  Same
+    # one-line whitelist pattern chief blessed for ground_drops/
+    # character_skills above (notes_to_chief/20260901_1416 / 20260901_1459):
+    # this pin counts tables, it does not test this file's own
+    # npc_interaction behaviour.
+    "character_home_marker",
 }
 
 
@@ -825,9 +833,22 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
         tests green and a planted `settle_trade` invisible, because they
         exercised `guard_hits` directly and nothing exercised the gate.
         """
+        # KEY SHAPE (LANE-A, 20260905_0129): keyed by the path RELATIVE to
+        # `directory`, not the bare filename -- `ALLOWED_SYMBOLS` already
+        # carries two subpackage-prefixed keys
+        # (`lane_hooks/lane_a_choose_npc_roster_scenes.py`,
+        # `gm/item_catalog.py`) that a bare-filename lookup can never match.
+        # They are silently unreachable today only because `glob("*.py")`
+        # below is not recursive; a `path.name`-keyed lookup would make both
+        # exemptions vanish the moment this glob becomes recursive, turning
+        # two already-granted exemptions red without anyone touching either
+        # module.  Every existing top-level key (`columbus_quest_dispatch.py`,
+        # `ui_trade_wire.py`, ...) is already a valid relative path, so this
+        # changes no behavior for any file this guard scans today.
         offenders = {}
         for path in sorted(Path(directory).glob("*.py")):
-            allowed = self.ALLOWED_SYMBOLS.get(path.name, set())
+            key = path.relative_to(directory).as_posix()
+            allowed = self.ALLOWED_SYMBOLS.get(key, set())
             unexplained = {}
             source = path.read_text(encoding="utf-8")
             for word, symbols in guard_hits_in_module(source).items():
@@ -835,7 +856,7 @@ class QuestAndShopStateGuardTests(unittest.TestCase):
                 if left:
                     unexplained[word] = left
             if unexplained:
-                offenders[path.name] = unexplained
+                offenders[key] = unexplained
         return offenders
 
     def test_no_foundation_module_implements_quest_or_shop_behavior(self):

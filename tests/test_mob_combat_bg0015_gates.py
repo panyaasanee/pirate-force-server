@@ -82,6 +82,22 @@ TWELVE_IDENTITIES = (
     0x202E, 0x202F, 0x2030, 0x2034, 0x2047, 0x2058,
 )
 
+# ROUND j5v7mu.  The table still produces twelve and the cross-check above
+# is still about all twelve -- but COO-DECISION 20260905_0545 withheld
+# placement 87 (0x2058, Carlos) from what this lane SHIPS, so the live
+# roster, the combat ledger and the splice dict are the ELEVEN below.
+# Derived from field_mobs, never a second hand-typed literal: the day the
+# ruling is lifted this file follows it instead of going red for a reason
+# that is not a defect.
+WITHHELD_IDENTITIES = tuple(
+    0x2000 + index + 1
+    for index in field_mobs.lane_withheld_placements("Bg0015")
+)
+SHIPPED_IDENTITIES = tuple(
+    identity for identity in TWELVE_IDENTITIES
+    if identity not in set(WITHHELD_IDENTITIES)
+)
+
 
 def _legacy():
     if not hasattr(_legacy, "cached"):
@@ -148,7 +164,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # measures); the death-ruling gate this test is actually named
         # for is unaffected by registration and unchanged below.
         self.assertTrue(gates.roster_gate_open())
-        self.assertEqual(gates.scene14_roster_size_today(), 12)
+        # ~~12~~ -> 11, round j5v7mu (COO-DECISION 20260905_0545 withheld
+        # placement 87).  The DEATH-RULING gate this test is named for is
+        # untouched: 924 is still the one template with no letter, which is
+        # why he was withheld rather than fixed.
+        self.assertEqual(gates.scene14_roster_size_today(), 11)
+        self.assertEqual(len(SHIPPED_IDENTITIES), 11)
+        self.assertEqual(WITHHELD_IDENTITIES, (0x2058,))
         self.assertEqual(
             gates.templates_without_a_death_ruling(), (924,))
         ruled, refused = [], []
@@ -182,8 +204,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # ROUND am1fw8: ~~(1, 2, 5, 14)~~ -> (1, 2, 3, 5, 14), scene 3 on
         # the same terms again.  This file's subject is still scene 14 and
         # none of its own answers moved.
+        # ROUND r6isy5: ~~(1, 2, 3, 5, 14)~~ -> (1, 2, 3, 4, 5, 14), scene 4
+        # on the same terms again -- and this one leaves
+        # ACKNOWLEDGED_WITHOUT_COMPOSER at the same time, which is what the
+        # second half of this test reads.  This file's subject is still
+        # scene 14 and none of its own answers moved.
         status = gates.recompose_status()
-        self.assertEqual(status["composer_scene_ids"], (1, 2, 3, 5, 14))
+        self.assertEqual(status["composer_scene_ids"], (1, 2, 3, 4, 5, 14))
         self.assertTrue(status["has_composer"])
         self.assertFalse(status["acknowledged_without_composer"])
         self.assertTrue(status["accounted_for"])
@@ -208,7 +235,11 @@ class Bg0015MeasurementTests(unittest.TestCase):
             i for i, (a, b) in enumerate(
                 zip(generation.entry_bytes, spliced.entry_bytes)) if a != b
         ]
-        self.assertEqual(len(changed), 12)
+        # ~~12~~ -> 11, round j5v7mu: the override dict no longer carries
+        # the withheld identity, so his census entry stays civilian through
+        # the splice.
+        self.assertEqual(len(changed), len(SHIPPED_IDENTITIES))
+        self.assertEqual(len(changed), 11)
         # ROUND 7ste68 (LANE-A) moved both numbers by exactly the level
         # splice, and they are re-pinned with the arithmetic rather than
         # with whatever the run printed: the ordinary census now sets
@@ -226,14 +257,36 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # frame moved by 87 * 3 + 1.  These two are checked here because both
         # are measured for THIS scene, whose pc (15109) is still 1275 bytes
         # short of the boundary.
+        # ROUND j5v7mu moved the SECOND number only, and by the withheld
+        # row's own byte delta rather than by anything this file measured
+        # once and copied: his hostile body is 192 bytes and his census body
+        # is 182, so not splicing him leaves the pc (and the frame, which is
+        # still short of the varint boundary named above) 10 bytes shorter.
+        #   ~~15242~~ -> 15035 + (81 - 12) * 3 - 10 = 15232
+        # The generation itself is untouched: this lane withholds a row from
+        # what it SPLICES, it does not remove an actor from lane A's census.
         self.assertEqual(len(generation.frame), 14879 + 81 * 3)
-        self.assertEqual(len(spliced.frame), 15035 + (81 - 12) * 3)
+        carlos_delta = (
+            len(field_mobs.hostile_actor_entry(
+                self.legacy,
+                [m for m in hostile_bg0015.scene14_hostile_roster()
+                 if m.actor_identity == 0x2058][0]))
+            - generation.entry_bytes[
+                list(generation.actor_identities).index(0x2058)])
+        self.assertEqual(carlos_delta, 10)
+        self.assertEqual(
+            len(spliced.frame), 15035 + (81 - 12) * 3 - carlos_delta)
 
     # ---- the cross-check, and what it cannot do ----------------------
 
     def test_splice_identities_come_from_the_visual_path(self) -> None:
+        # ~~TWELVE_IDENTITIES~~ -> the shipped eleven, round j5v7mu: this
+        # function reads the real override dict, and that is what a runtime
+        # branch would hand the recompose, so it must shrink with the roster
+        # rather than keep reporting a body nobody is sent.
         self.assertEqual(gates.splice_identities(self.legacy),
-                         TWELVE_IDENTITIES)
+                         SHIPPED_IDENTITIES)
+        self.assertNotIn(0x2058, gates.splice_identities(self.legacy))
 
     def test_the_backing_check_reports_exactly_the_identities_it_is_not_given(
             self) -> None:
@@ -242,11 +295,15 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # function with a set that is deliberately missing eleven of the
         # twelve, so a stub that always answers () cannot pass.
         census = set(_lane_a_census(self.legacy).actor_identities)
-        withheld = set(TWELVE_IDENTITIES[1:])
+        # ~~TWELVE_IDENTITIES[1:]~~ -> the shipped set minus its first, round
+        # j5v7mu: the withheld identity is not spliced any more, so asking
+        # for it back would be asking this function to report an identity it
+        # correctly does not carry.
+        held_back = set(SHIPPED_IDENTITIES[1:])
         reported = gates.splice_identities_missing_from(
-            census - withheld, self.legacy)
-        self.assertEqual(set(reported), withheld)
-        self.assertEqual(len(reported), 11)
+            census - held_back, self.legacy)
+        self.assertEqual(set(reported), held_back)
+        self.assertEqual(len(reported), 10)
         # And with the full census nothing is missing -- the real state.
         self.assertEqual(
             gates.splice_identities_missing_from(census, self.legacy), ())
@@ -291,12 +348,24 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # half of the same fact -- every scene here is registered and
         # reachable, so a pair appearing here is a pair a player can stand
         # in front of.
+        # ROUND r6isy5: scene 4's seven placements brought four more, one of
+        # which makes 0x2046 a THREE-way collision (scenes 3, 4 and 5 all
+        # have a placement 69).  Every scene named here is registered and
+        # reachable, so these are pairs a player can stand in front of --
+        # which is why the walk is measured in
+        # ``tests/test_field_mob_tables_bg0004.py`` (ledger 2-of-7 refused,
+        # each scene's kill letter refusing the others' rows, membership
+        # scene-scoped) and not merely listed.
         self.assertEqual(got, {
             (0x201C, "Bg0003", "Bg0015"),
             (0x201E, "Bg0003", "Bg0015"),
+            (0x2020, "Bg0015", "bg0004"),
+            (0x202B, "Bg0003", "bg0004"),
             (0x203B, "Bg0002", "Bg0003"),
             (0x203C, "Bg0002", "bg0005"),
+            (0x2046, "Bg0003", "bg0004"),
             (0x2046, "Bg0003", "bg0005"),
+            (0x2046, "bg0004", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
         })
@@ -322,6 +391,42 @@ class Bg0015MeasurementTests(unittest.TestCase):
 
     # ---- the pin the rename orphaned, restored -----------------------
 
+    def test_the_two_refusal_readers_answer_for_their_own_list(self) -> None:
+        """ROUND j5v7mu2, pf-adversary D4.
+
+        ``lane_withheld_placements_for_scene14`` shipped in round j5v7mu with
+        NO caller anywhere: the mutant ``raise AssertionError`` left the full
+        suite green, so the function was decoration.  It is kept rather than
+        deleted because its sibling
+        ``owner_refused_placements_for_scene14`` exists for the same reason
+        -- a reader asking "what does this scene refuse, and on whose
+        authority" needs both answers, separately -- and this is what makes
+        either answer falsifiable.
+        """
+        self.assertEqual(gates.owner_refused_placements_for_scene14(), ())
+        self.assertEqual(gates.lane_withheld_placements_for_scene14(), (87,))
+        # Read off field_mobs, not retyped: the day the ruling lifts, this
+        # answers () without anyone editing the function.
+        self.assertEqual(
+            gates.lane_withheld_placements_for_scene14(),
+            field_mobs.lane_withheld_placements(gates.BG0015_FOLDER))
+        self.assertEqual(
+            gates.owner_refused_placements_for_scene14(),
+            field_mobs.owner_refused_placements(gates.BG0015_FOLDER))
+        # AND THE TWO ARE NOT THE SAME ANSWER, which is the whole reason
+        # there are two functions.
+        self.assertNotEqual(
+            gates.owner_refused_placements_for_scene14(),
+            gates.lane_withheld_placements_for_scene14())
+        # Together they are exactly what load_roster drops for this scene.
+        dropped = (set(gates.owner_refused_placements_for_scene14())
+                   | set(gates.lane_withheld_placements_for_scene14()))
+        mined = {mob.placement_index
+                 for mob in hostile_bg0015.scene14_hostile_roster()}
+        shipped = {mob.placement_index
+                   for mob in field_mobs.load_roster(gates.BG0015_FOLDER)}
+        self.assertEqual(mined - shipped, dropped & mined)
+
     def test_the_two_scene_tag_readers_now_agree(
             self) -> None:
         # RENAMED, COO-DECISION 20260903_1942 item 2: the two readers this
@@ -343,7 +448,8 @@ class Bg0015MeasurementTests(unittest.TestCase):
         via_helper = mob_combat.open_ledger_for_scene_id(14)
         self.assertNotEqual(via_sync_shape, via_helper)
         self.assertEqual(via_sync_shape.identities(), ())
-        self.assertEqual(len(via_helper.identities()), 12)
+        # ~~12~~ -> 11, round j5v7mu (the withheld row).
+        self.assertEqual(len(via_helper.identities()), 11)
         self.assertEqual(
             via_helper.identities(),
             tuple(m.actor_identity
@@ -372,9 +478,13 @@ class Bg0015MeasurementTests(unittest.TestCase):
         # field_mobs.py's own registration, never this module.  The
         # assertion this test exists for (reloading gates.py changes
         # nothing) is the one above and is still untouched.
+        # ROUND r6isy5: gains "bg0004", by the same mechanism a fourth
+        # time -- field_mobs.py's own registration, never this module.  The
+        # assertion this test exists for (reloading gates.py changes
+        # nothing) is the one above and is still untouched.
         self.assertEqual(
             set(before),
-            {"bg0001", "Bg0002", "Bg0003", "bg0005", "Bg0015"})
+            {"bg0001", "Bg0002", "Bg0003", "bg0004", "bg0005", "Bg0015"})
 
 
 class Bg0015WiredPathTests(unittest.TestCase):
@@ -474,7 +584,9 @@ class Bg0015WiredPathTests(unittest.TestCase):
         for event in state.events:
             self.assertNotIn(mob_combat.REFUSE_TARGET_NOT_IN_LEDGER, event)
         self.assertEqual(state.mob_combat_scene_folder, gates.BG0015_FOLDER)
-        self.assertEqual(len(state.mob_combat_ledger.identities()), 12)
+        # ~~12~~ -> 11, round j5v7mu: a session in scene 14 is handed the
+        # shipped roster, so the ledger it opens is eleven rows.
+        self.assertEqual(len(state.mob_combat_ledger.identities()), 11)
         self.assertEqual(
             set(state.mob_combat_ledger.identities()),
             set(gates.splice_identities(self.legacy)))

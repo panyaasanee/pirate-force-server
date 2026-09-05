@@ -98,6 +98,13 @@ def _stage_row() -> Position:
     return _row(STAGE)
 
 
+def _seeded_evidence_for(ledger, scene_id) -> str:
+    """The evidence string the ledger seeded, read back from the ledger
+    itself rather than retyped, so a change to the seed text does not turn
+    into a test that pins a stale sentence."""
+    return SceneLivenessLedger.seeded().fact(scene_id).evidence
+
+
 def _settle_line(scene_id, x, y, z, jump=9000.0, reports=2) -> str:
     """Built by the real producer, never typed out by hand."""
     return world_travel_gate._settled_line(
@@ -114,7 +121,9 @@ class LedgerSeedTests(unittest.TestCase):
         self.assertEqual(
             ledger.observed_ids,
             tuple(sorted(world_scene_travel.MEASURED_SCENE_IDS)))
-        self.assertEqual(ledger.observed_ids, (1, 2))
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): widened
+        # from `(1, 2)` alongside `MEASURED_SCENE_IDS` itself.
+        self.assertEqual(ledger.observed_ids, (1, 2, 3, 4, 5, 14, 126))
         for fact in ledger.facts():
             with self.subTest(fact.scene_id):
                 self.assertFalse(fact.from_this_process)
@@ -378,6 +387,68 @@ class CrossCheckTests(unittest.TestCase):
         self.assertEqual(self.ledger.refused_by_cross_check, 1)
         self.assertEqual(self.ledger.settle_lines_seen, 1)
 
+    def test_a_seeded_scene_does_not_get_a_free_pass_from_the_cross_check(self):
+        """pf-adversary, round `f03s5f`, D5.
+
+        Widening the seed list from two ids to seven (COO-DECISION
+        20260905_0251) meant five more scenes had a fact before any line
+        arrived -- and `observe_console_line` used to return early on ANY
+        existing fact.  Driven with a settle line 100,000 units from scene
+        3's pinned spawn, the old code accepted it, left
+        `refused_by_cross_check` at 0 and made `from_this_process`
+        unreachable for every widened id.  A seeded fact now falls through
+        to the same arithmetic every other line faces.
+        """
+        seeded = 3
+        self.assertIn(seeded, world_scene_travel.MEASURED_SCENE_IDS)
+        self.assertFalse(self.ledger.fact(seeded).from_this_process)
+        line = _settle_line(seeded, 99999.0, 99999.0, 0.0)
+        self.assertIsNone(self.ledger.observe_console_line(line))
+        self.assertEqual(self.ledger.refused_by_cross_check, 1)
+        # The seed itself survives -- refusing a bad line must not erase an
+        # inherited fact that was never in question.
+        self.assertTrue(self.ledger.knows(seeded))
+        self.assertFalse(self.ledger.fact(seeded).from_this_process)
+
+    def test_a_passing_line_never_overwrites_a_seeded_fact(self):
+        """The other half of the same fix, and the half a first version got
+        wrong (pf-adversary pass 2).
+
+        Falling through to the cross-check must not turn into REPLACING an
+        inherited fact: the widened ids' pinned spawns are 2,000-10,000
+        units apart while the radius is 12,000, so a passing line is not
+        evidence that THIS scene opened -- and overwriting would swap
+        GT-212's OBSERVER_CONFIRMED evidence for a server-labelled
+        coordinate delta and print it as `this_process`.  The fall-through
+        exists to REFUSE false lines, nothing more.
+        """
+        seeded = 3
+        before = self.ledger.fact(seeded)
+        spawn = self.registry[seeded].spawn
+        line = _settle_line(seeded, spawn[0] + 40.0, spawn[1] - 12.0, spawn[2])
+        self.assertEqual(self.ledger.observe_console_line(line), seeded)
+        after = self.ledger.fact(seeded)
+        self.assertEqual(after.evidence, before.evidence)
+        self.assertFalse(after.from_this_process)
+        self.assertEqual(self.ledger.refused_by_cross_check, 0)
+
+    def test_a_line_for_a_seeded_scene_from_another_scenes_spawn_is_refused(self):
+        """The discriminating case, not the 100,000-unit one: scene 4's
+        pinned spawn is inside the radius of 3's, so this is what the
+        arithmetic can and cannot separate.  What it CAN do is refuse a
+        line labelled with a scene whose spawn is further than the radius,
+        which is the false learn this module was built for.
+        """
+        seeded = 3
+        far = self.registry[HOME].spawn
+        line = _settle_line(seeded, far[0], far[1], far[2])
+        self.assertIsNone(self.ledger.observe_console_line(line))
+        self.assertEqual(self.ledger.refused_by_cross_check, 1)
+        self.assertEqual(
+            self.ledger.fact(seeded).evidence,
+            _seeded_evidence_for(self.ledger, seeded),
+            "a refusal must leave the inherited fact untouched")
+
     def test_with_no_registry_the_fact_is_kept_but_marked_unchecked(self):
         ledger = SceneLivenessLedger.empty()
         home = self.registry[HOME].spawn
@@ -458,7 +529,10 @@ class ObservationTests(unittest.TestCase):
         for bad in JUNK:
             with self.subTest(repr(type(bad))):
                 self.assertIsNone(self.ledger.observe_console_line(bad))
-        self.assertEqual(self.ledger.observed_ids, (1, 2))
+        # UPDATED 2026-09-05 (COO-DECISION 20260905_0251, LANE-A): widened
+        # alongside `MEASURED_SCENE_IDS` -- junk input must still leave the
+        # seeded set exactly as it started, whatever that set is.
+        self.assertEqual(self.ledger.observed_ids, (1, 2, 3, 4, 5, 14, 126))
 
     def test_a_str_subclass_is_still_a_line(self):
         """A logging wrapper is a str subclass; an exact-type gate would make

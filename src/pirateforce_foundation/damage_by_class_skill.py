@@ -35,6 +35,38 @@ calls `resolve_skill_damage` in production, and by extension nothing calls
 `resolve_class_skill_damage` either.  This module only narrows what such a
 caller would be allowed to do once one exists -- it does not create the
 caller.
+
+[UPDATE, round `8p7jon`, per `COO-DECISION 20260905_0346` direction
+"basic attack 8 ตัว"]: `attack_skill_ids_for_class(class_id)` answers "which
+of THIS class's 4 starting-kit ids does this lane currently classify as an
+attack" -- today that is always `(99,)` for all 5 classes (see
+`damage_by_skill.py`'s docstring for why the other 7 starting-kit ids across
+the catalog are refused rather than guessed), but the function composes that
+answer from `class_catalog.starting_skill_ids` and
+`damage_by_skill.is_classified_attack_skill` at call time -- it holds no
+per-class or per-skill constant of its own, so the day RE-232's successor
+ticket classifies a second id, this function's answer changes with it
+without an edit here.  Same zero-production-caller posture as everything
+else in this file: nothing in `mob_combat.py` reads a skill id yet, so
+nothing calls this either.
+
+[UPDATE, this round, per `COO-DECISION 20260905_0647` ("คิวเริ่มต้นข้อ 2/4
+ครึ่งเซิร์ฟเวอร์ไม่บล็อก")]: every prior test of `resolve_class_skill_damage`
+against the house's standard test field used the arbitrary stand-in attacker
+(`Combatant(level=27, ability_str=132, ability_con=10)`), which proves the
+class gate passes an attacker through unchanged but is not the attacker any
+real hit would ever carry -- `runtime.py` binds exactly one attacker to
+production combat (`MOB_COMBAT_DEFAULT_ATTACKER = mob_combat.pin_attacker()`).
+`tests/test_damage_by_class_skill.py`'s new
+`PerClassProductionPinAgainst916Tests` fires, for every one of the 5 classes,
+every id `attack_skill_ids_for_class` classifies as an attack for that class
+(today always just `(99,)`), with the real production-pinned attacker,
+against Training Iron Man (template 916), and pins the result at 891 -- the
+same number `damage_by_skill.py`'s own production-pin test already reached
+through the bare skill-id gate, now reached through the class-ownership gate
+too, for all 5 classes.  Still zero production callers: this only proves
+what the gate WOULD return the day a caller exists, same as the sibling test
+it extends.
 """
 from __future__ import annotations
 
@@ -47,6 +79,7 @@ __all__ = [
     "DamageByClassSkillError",
     "is_skill_granted_to_class",
     "resolve_class_skill_damage",
+    "attack_skill_ids_for_class",
 ]
 
 
@@ -105,3 +138,23 @@ def resolve_class_skill_damage(
         return damage_by_skill.resolve_skill_damage(skill_id, attacker, defender)
     except DamageBySkillError as exc:
         raise DamageByClassSkillError(str(exc)) from exc
+
+
+def attack_skill_ids_for_class(class_id: int) -> tuple[int, ...]:
+    """The subset of `class_id`'s 4 starting-kit skill ids
+    (`class_catalog.starting_skill_ids`) that `damage_by_skill.
+    is_classified_attack_skill` classifies as an attack, in the class's own
+    `s_SKILL_1..4` table order.
+
+    Holds no table of its own -- every id it returns comes from
+    `class_catalog` and every classification decision comes from
+    `damage_by_skill`, so this is strictly a filter over two already-pinned
+    answers, not a third roster.  Raises `KeyError` for a `class_id`
+    `class_catalog` does not carry, same refusal as `class_catalog.
+    starting_skill_ids` itself.
+    """
+    return tuple(
+        skill_id
+        for skill_id in class_catalog.starting_skill_ids(class_id)
+        if damage_by_skill.is_classified_attack_skill(skill_id)
+    )

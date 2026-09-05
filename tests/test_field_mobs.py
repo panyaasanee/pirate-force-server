@@ -66,6 +66,7 @@ from pirateforce_foundation.field_mobs import (
     hostile_actor_entry,
     hostile_npc_attr,
     hostile_placement_indices,
+    lane_withheld_placements,
     load_roster,
     nearest_first,
     neighbour_census,
@@ -763,6 +764,12 @@ class FieldMobTests(unittest.TestCase):
         # importers and separately pins that no dispatch file has picked either
         # module up.  When the chief wires the one line, this goes red and the
         # letter has to be rewritten - which is exactly the intent it had.
+        # WIDENED AGAIN by SCENE-DOOR-WALK-001 (lane B, 2026-09-05, round
+        # pcsjfr): scene_door_walk.py loads a scene's roster and reads each
+        # row's own placement/template/identity to walk the three doors of
+        # M4/M5.  It dispatches nothing -- runtime.py does not import it, and
+        # the module carries the one line a call site would add as a string
+        # rather than as a request.
         source = (ROOT / "src/pirateforce_foundation").glob("*.py")
         importers = sorted(
             path.name for path in source
@@ -900,6 +907,20 @@ class FieldMobTests(unittest.TestCase):
             # is this round's one-line wiring ask
             # (``mob_death_persistence.DEATH_SEED_WIRING``), not a landed
             # call site.
+            # ROUND tz2rgc (lane A) adds world_scene_registry.py: the
+            # per-scene world book (COO-DECISION 20260905_1152 item 2(2)).
+            # It NAMES ``field_mobs`` in one comment only, to record why a
+            # ledger's scene tag has to be checked before its identities
+            # are: identities are ``0x2000 + placement + 1`` with no scene
+            # term, so eight of the fifteen live-scene pairs share one, and
+            # pf-adversary MEASURED one scene's remembered health being
+            # written into another scene's ledger before that check existed.
+            # It imports NOTHING from this module, and nothing in field_mobs
+            # changed for it.  IT DISPATCHES NOTHING: its read half's call
+            # site is this round's one-line wiring ask
+            # (``world_scene_registry.WORLD_REGISTRY_SEED_WIRING``) and its
+            # write half is LANE-B's own call site (COO-DECISION
+            # 20260905_1153) -- neither has landed.
             ["diag_multi_object_wiring.py", "field_mob_hostile_bg0015.py",
              "lane_a_click_hp.py",
              "mob_ai_control.py",
@@ -911,7 +932,9 @@ class FieldMobTests(unittest.TestCase):
              "mob_ledger_admission.py", "mob_loot.py",
              "mob_scene_recompose.py",
              "player_hostile_pairing.py", "runtime.py",
-             "world_census_level.py"],
+             "scene_door_walk.py",
+             "world_census_level.py",
+             "world_scene_registry.py"],
             "field_mobs importers changed; update the letter")
         runtime_body = (
             ROOT / "src/pirateforce_foundation/runtime.py"
@@ -1032,7 +1055,7 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
 
     def test_the_collisions_this_project_actually_has_today(self) -> None:
         """Named pairs, not a count, so one appearing or disappearing says
-        WHICH.  All seven are placement-index coincidences between scenes
+        WHICH.  All eleven are placement-index coincidences between scenes
         (``actor_identity`` is ``0x2000 + placement + 1`` with no scene
         term); pf-adversary round jqeo2m walked strike, ledger, rehydration,
         death and loot and found every one of them scene-scoped, so these
@@ -1058,7 +1081,32 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         the real rows of both scenes.  The loot leg refuses earlier still
         (scene 3's drop sets are unmined), which is recorded there too.  Every colliding pair also resolves a DIFFERENT
         template (907/150, 62/350, 61/348, 34/907), so no pair is two
-        spellings of one monster."""
+        spellings of one monster.
+
+        ~~seven pairs~~  ROUND r6isy5: scene 4's roster (seven placements)
+        brought FOUR more -- 0x2020 against Bg0015, 0x202B and 0x2046
+        against Bg0003, and 0x2046 again against bg0005 -- so the walk this
+        card demands was redone a third time rather than inherited, and
+        MEASURED rather than read:
+
+        * 0x2046 IS THE FIRST THREE-WAY COLLISION this lane ships: placement
+          69 exists in scenes 3, 4 and 5 and resolves template 907, 103 and
+          150 respectively.  Each scene's own letter kills only its own row
+          -- driven, not read: ``mob_death.kill`` on scene 4's 0x2046 under
+          the Bg0003 letter and under the bg0005 letter both refuse
+          ``target_outside_the_sanctioned_scope``, and under its own 0546
+          letter it dies.
+        * A FOREIGN LEDGER COVERING TWO OF SEVEN is the widest partial
+          overlap this project has had, and the shape a coverage-counting
+          admission would let through: ``mob_ledger_admission.admit_ledger``
+          on scene 4 with scene 3's ledger records ``other_scene``, coverage
+          2/7, ``admitted`` False and a ``None`` ledger (scene 5's and scene
+          14's are 1/7, likewise refused); scene 4's own is ``same_scene``,
+          7/7, admitted.
+        * Every colliding pair still resolves a DIFFERENT template (907/103,
+          103/150, 353/94, 62/97), so no pair is two spellings of one
+          monster.
+        """
         got = {
             (row["actor_identity"], row["scene_a"], row["scene_b"])
             for row in cross_scene_identity_collisions()
@@ -1071,6 +1119,10 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             (0x2046, "Bg0003", "bg0005"),
             (0x2047, "Bg0015", "bg0005"),
             (0x2058, "Bg0002", "Bg0015"),
+            (0x2020, "Bg0015", "bg0004"),
+            (0x202B, "Bg0003", "bg0004"),
+            (0x2046, "Bg0003", "bg0004"),
+            (0x2046, "bg0004", "bg0005"),
         })
 
     def test_bg0001_vs_bg0002_matches_the_identities_the_load_roster_test_pins(
@@ -1112,6 +1164,41 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             {row["actor_identity"] for row in probe},
             {mob.actor_identity for mob in load_roster()})
 
+    def test_the_withheld_list_and_its_reason_cover_the_same_scenes(
+            self) -> None:
+        """ROUND j5v7mu2, pf-adversary D6/D9.
+
+        ``lane_withheld_reason``'s docstring claimed "the test file for this
+        change asserts the two dictionaries cover exactly the same scenes".
+        No such assertion existed, and the mutant that added two withheld
+        scenes with NO reason entries survived the whole suite -- which is
+        the write-only-literal failure ``OWNER_REFUSAL_REASON`` already had
+        once (round z096sw, pf-adversary D4).  A row withheld with no reason
+        beside it vanishes from a roster with nothing to say why.
+
+        The reason's CONTENT is pinned too, not just its presence: the
+        mutant ``'because_924_lane_b_felt_like_it'`` also survived, and a
+        reason that does not name the ruling cannot be traced back to it.
+        """
+        from pirateforce_foundation import field_mobs as fm
+        self.assertEqual(
+            set(fm.LANE_WITHHELD_PLACEMENTS), set(fm.LANE_WITHHELD_REASON))
+        for scene in fm.LANE_WITHHELD_PLACEMENTS:
+            self.assertTrue(fm.lane_withheld_placements(scene), scene)
+            reason = fm.lane_withheld_reason(scene)
+            self.assertTrue(reason, scene)
+            # ASCII, lower-case, underscore-joined, like the owner's own.
+            self.assertEqual(reason, reason.lower(), scene)
+            self.assertTrue(reason.isascii(), scene)
+        # Bg0015's reason names the template in question AND the ruling that
+        # withheld it, so a reader can find the decision from the code.
+        self.assertEqual(
+            fm.lane_withheld_reason("Bg0015"),
+            "no_death_ruling_covers_template_924_coo_decision_20260905_0545")
+        # A scene with no lane ruling answers empty on both, not KeyError.
+        self.assertEqual(fm.lane_withheld_placements("bg0001"), ())
+        self.assertEqual(fm.lane_withheld_reason("bg0001"), "")
+
     def test_bg0015_is_measurable_and_load_roster_now_accepts_it(self) -> None:
         # RENAMED, COO-DECISION 20260903_1942 item 2: field_mob_tables_bg0015
         # is now registered in field_mobs._SCENE_TABLE_MODULES (layer 2/3
@@ -1122,7 +1209,18 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
         # call shape it always used -- is unchanged and is the assertion
         # below; only the load_roster half flips from refusal to success.
         roster = load_roster(scene=field_mob_tables_bg0015.SCENE)
-        self.assertEqual(len(roster), 12)
+        # ROUND j5v7mu: ~~12~~ -> 11.  COO-DECISION 20260905_0545 withheld
+        # placement 87 (template 924, Carlos) through
+        # field_mobs.LANE_WITHHELD_PLACEMENTS, and load_roster drops it in
+        # the same pass it drops the owner's list.  The DENOMINATOR is
+        # derived, not retyped, so this stays true the day he comes back.
+        self.assertEqual(
+            len(roster),
+            len(field_mob_tables_bg0015.HOSTILE_PLACEMENTS)
+            - len(lane_withheld_placements(field_mob_tables_bg0015.SCENE)))
+        self.assertEqual(len(roster), 11)
+        self.assertNotIn(
+            87, {mob.placement_index for mob in roster})
         for mob in roster:
             self.assertEqual(mob.scene, field_mob_tables_bg0015.SCENE)
         # ROUND 8ftmbx: ~~3~~ -> 0 for this pair too; the three were

@@ -171,19 +171,62 @@ class Bg0004TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_the_lane_b_hostile_roster_module_for_this_scene_now_exists(
         self,
     ) -> None:
-        # Unlike Bg0015 (which collides with a committed field_mob_tables_
-        # bg0015.py for the same scene), no such sibling exists here yet: a
-        # 0-hit glob this round, re-checked here so a future addition is
-        # something a red test notices instead of a silent
-        # actor_identity == 0x2000 + index + 1 collision (the shape
-        # world_bg0015_identity.COLLIDING_PLACEMENTS documents for scene 14).
-        hits = list(
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+
+        [CROSS-LANE EDIT BY LANE-B, ROUND r6isy5 - LANE-A MAY REVERT OR
+        REPLACE] The struck test asserted a 0-hit glob "so a future addition
+        is something a red test notices instead of a silent
+        actor_identity == 0x2000 + index + 1 collision".  It did exactly
+        that job: ``field_mob_tables_bg0004.py`` landed this round and this
+        card went red on the commit that added it.  What replaces it is the
+        same question answered rather than deferred -- the module exists,
+        and the collisions it brings are enumerated and walked, not silent.
+        LANE-B did not widen this test's reach; the letter is
+        ``notes_to_chief/20260905_1031_LANE-B-TO-LANE-A-scene-4-now-has-a-
+        combat-roster-your-guard-fired-as-designed.md``.
+
+        The collision walk itself lives in LANE-B's own files (this is a
+        LANE-A card and stays one): ``tests/test_field_mobs.py`` pins all
+        eleven pairs by name, and
+        ``tests/test_field_mob_tables_bg0004.py`` measures the four new ones
+        through ledger, death, loot and membership.
+        """
+        hits = sorted(
+            path.name for path in
             (ROOT / "src" / "pirateforce_foundation").glob(
                 "field_mob_tables_bg0004*"))
-        self.assertEqual(hits, [])
+        self.assertEqual(hits, ["field_mob_tables_bg0004.py"])
+        # THE IDENTITY ARITHMETIC THIS CARD WAS BUILT TO WATCH.  pf-adversary
+        # D15 in the same round: a first draft asserted only
+        # ``theirs <= ours`` on placement INDICES, which is strictly weaker
+        # than what the struck comment was worried about -- it says the two
+        # lanes name the same placements, not that they resolve them to the
+        # same monster.  A lane-B table that read the CLINE block through the
+        # wrong column (GT-078's failure) would have passed it.  So the
+        # comparison is per-column, on every row lane B ships.
+        from pirateforce_foundation import field_mob_tables_bg0004
+        ours = {row.placement_index: row
+                for row in identity.shippable_placements()}
+        sets = field_mob_tables_bg0004.SET_NUMBER_FOR_PLACEMENT
+        theirs = field_mob_tables_bg0004.HOSTILE_PLACEMENTS
+        self.assertTrue(theirs)
+        for row in theirs:
+            placement_index, template_id = row[0], row[1]
+            with self.subTest(placement=placement_index):
+                self.assertIn(placement_index, ours)
+                mine = identity.IDENTITIES.get(sets[placement_index])
+                self.assertIsNotNone(mine)
+                self.assertEqual(mine.mobs_n_id, template_id)
+                self.assertEqual(mine.name, row[6])
+                self.assertEqual(mine.outfit, row[5])
+                self.assertEqual(mine.level, row[7])
+                self.assertEqual(
+                    (ours[placement_index].x, ours[placement_index].y,
+                     ours[placement_index].z),
+                    (row[2], row[3], row[4]))
 
 
 if __name__ == "__main__":  # pragma: no cover

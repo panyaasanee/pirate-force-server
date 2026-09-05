@@ -122,6 +122,83 @@ RELATIONSHIP_PREDICATE_SPAN = (0x0043C380, 0x0043C63C)
 FACTION_COMPARATOR_VA = 0x004A1D50
 FACTION_COMPARATOR_SOLE_CALL_SITE_VA = 0x0043C5E0
 
+#: A SECOND, EARLIER gate inside the SAME predicate span, cross-referenced
+#: this round against a bridge artifact ``faction_is_a_fallback_operand_only``
+#: never cited: ``notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA
+#: .tsv`` rows 6-7 name a branch at this span testing ``ActorAttr+0x98`` bit
+#: ``0x04000000``, status ``PROVEN_ROLE_ONLY`` (that TSV's own words:
+#: "structural/consumer role is proved but the broader gameplay noun or full
+#: value domain is not unique").  The TSV's own ``semantic_name`` field for
+#: this row spells out the two FontStyleID values this bit selects between --
+#: deliberately NOT transcribed here, digits included, in either code or
+#: prose: read the TSV row itself for them, per this module's existing rule
+#: a few lines below ("kept them out of its prose too").
+#:
+#: ``0x0043C547 < FACTION_COMPARATOR_SOLE_CALL_SITE_VA`` (both inside
+#: ``RELATIONSHIP_PREDICATE_SPAN``) -- this gate sits at a LOWER ADDRESS than
+#: the faction comparator's call site.  That is the only claim the ordering
+#: proves: a static layout fact, NOT a walked control-flow fact -- nothing
+#: here says execution actually reaches this branch before the comparator,
+#: only that it is placed earlier in the same span.  It is a candidate for
+#: (one of) the "earlier exits" RE-195's prose names without an address.
+#:
+#: !! THIS DOES NOT RETIRE THE BLOCKER BELOW, AND NOTHING BELOW CONSUMES IT !!
+#: ``PROVEN_ROLE_ONLY`` does not say whether ``field_mobs``' measured-bypass
+#: identities ever reach this gate, nor what value ``ActorAttr+0x98`` carries
+#: for them -- nobody has asked that question yet, so unlike every other
+#: constant in this module these four are NOT wired into
+#: :data:`P2_COLOR_WIRING_BLOCKERS` or :func:`p2_color_wiring_verdict` --
+#: consuming an answer that does not exist yet would be the same overclaim
+#: :class:`NameColorGateUnmeasured` exists to refuse, in constant form instead
+#: of code form.  They are named here, pinned by value, only so a later round
+#: does not have to re-discover this citation from a cold TSV grep; see the
+#: RE ticket request this round files for the reachability question itself.
+PAIR_RELATION_ZERO_GATE_SPAN = (0x0043C531, 0x0043C547)
+#: CORRECTED by RE-263.  The round that first pinned this wrote
+#: ``"ActorAttr+0x98 bit 0x04000000"``, which reads as "a bit inside the value
+#: at +0x98" and is wrong twice over: +0x98 is a ONE-BYTE ``uint8_enum``
+#: (PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7, ``storage_width=1``, ``tag=0x0B``),
+#: and ``0x04000000`` is the PRESENCE bit in the separate mask word at +0x1B4
+#: that decides whether the byte appears on the wire at all -- a bit this
+#: repository already models correctly one module away, in
+#: ``gm/attr_wire.py`` (x=39, ``1 << 26`` on the mask, ``offset=0x098``).
+#: The two published instructions in the span are byte compares against zero,
+#: not a bit test: ``cmp byte ptr [esi+0x98], 0`` at 0x0043C531 and
+#: ``cmp byte ptr [edi+0x98], 0`` at 0x0043C53A.
+PAIR_RELATION_ZERO_GATE_OPERAND = (
+    "ActorAttr+0x98 (u8), presence bit +0x1B4 & 0x04000000"
+)
+PAIR_RELATION_ZERO_GATE_CMP_LOCAL_VA = 0x0043C531
+PAIR_RELATION_ZERO_GATE_CMP_TARGET_VA = 0x0043C53A
+PAIR_RELATION_ZERO_GATE_STATUS = "PROVEN_ROLE_ONLY"
+PAIR_RELATION_ZERO_GATE_SOURCE = (
+    "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
+)
+
+#: RE-263, CLOSED BOUNDED-NEGATIVE.  The route this lane opened last round --
+#: "maybe the gate above reaches the name style without going through the
+#: faction comparator" -- is a dead end, and NOT for the reason the ticket
+#: anticipated.  The ticket guessed the predicate would be skipped along with
+#: the typed CNetNPC tail; it is not (the predicate is called on the POSITIVE
+#: identity lane at 0x00444018, which is the lane a FieldMob identity lands
+#: in).  It is a dead end because the two sites that emit the name style are
+#: not in the predicate at all: they sit at the VAs below, gated on the
+#: receiver being the LOCAL CMyActor singleton -- the player's own nameboard,
+#: which no field mob can ever be.  Separately, the gate's operand is the
+#: constant this server always leaves it: the presence bit above is never set,
+#: so the client never executes the wire read and the byte keeps its
+#: constructor default of 0 for every actor.
+#:
+#: This changes NOTHING about the refusal below.  It closes a second route
+#: that was never a blocker; ``faction_is_a_fallback_operand_only`` is
+#: untouched and ``unaddressed_blockers()`` still returns exactly one.
+LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS = (0x00443FE9, 0x00443FF2)
+RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA = 0x00444018
+ACTOR_ATTR_0X98_PRESENCE_GATE = "+0x1B4 & 0x04000000"
+ACTOR_ATTR_0X98_CONSTRUCTOR_DEFAULT = 0
+ACTOR_ATTR_0X98_DEFAULT_WRITER_VA = 0x00464D69
+PAIR_RELATION_ZERO_GATE_ROUTE_VERDICT = "RE-263 BOUNDED-NEGATIVE: not a second route"
+
 RE_191_RESULT_LETTER = (
     "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"
 )

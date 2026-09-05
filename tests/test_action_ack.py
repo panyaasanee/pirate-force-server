@@ -265,14 +265,48 @@ class ProductionHitPoseEchoTests(unittest.TestCase):
   self.fields={"field_qword_20":0x203D,"field_qword_28":0,"action_u32_30":0xEA7D,
    "field_u32_34":0,"heading_f32_38":1.25,"x_f32_3c":2.5,"y_f32_40":3.5,
    "z_f32_44":4.5,"field_u8_48":0,"field_u16_4a":1,"field_u8_4c":0}
- def test_unset_returns_none_and_prints_nothing(self):
+ def test_unset_without_a_class_id_sends_nothing_and_names_the_reason(self):
+  # WAS ``test_unset_returns_none_and_prints_nothing``, and the rename is the
+  # whole change: with PF_POSE_TRIAL unset this call is no longer "do
+  # nothing", it is the PRODUCTION path (COO-DECISION 20260905_1045 item 1).
+  # The BYTE half of the old contract is unchanged and still pinned here --
+  # no class id, no frame -- but item 2 of that decision requires the console
+  # to say WHY no pose was sent, so "prints nothing" is now the wrong
+  # assertion and is replaced rather than deleted.
   from pirateforce_foundation.action_ack import make_production_hit_pose_echo
   import io,contextlib
   buf=io.StringIO()
   with contextlib.redirect_stdout(buf):
    result=make_production_hit_pose_echo(self.v,self.fields,7,1,environ={})
   self.assertIsNone(result)
-  self.assertEqual(buf.getvalue(),"")
+  self.assertEqual(
+   buf.getvalue().strip(),"POSE_NO_EQUIP_PROVENANCE reason=no_class_id")
+ def test_unset_with_a_class_id_composes_that_class_s_production_pose(self):
+  from pirateforce_foundation.action_ack import (
+   make_production_hit_pose_echo, build_action_vital_echo)
+  import io,contextlib
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   pc,frame=make_production_hit_pose_echo(
+    self.v,self.fields,7,1,class_id=1,environ={})
+  self.assertEqual(
+   buf.getvalue().strip(),
+   "POSE_PRODUCTION class=1 equip_type=1 base=2 behavior=280")
+  expected_pc,expected_frame=build_action_vital_echo(self.v,self.fields,7,280)
+  self.assertEqual((pc,frame),(expected_pc,expected_frame))
+  self.assertEqual(frame,self.v.frame_pc(pc))
+ def test_an_armed_trial_list_still_outranks_the_class_s_production_pose(self):
+  # COO-DECISION 20260905_1045 item 3: the switch stays an experiment
+  # instrument.  An owner sweeping ids must get the id she armed -- and
+  # exactly ONE console line, so the log never shows two answers for one hit.
+  from pirateforce_foundation.action_ack import make_production_hit_pose_echo
+  import io,contextlib
+  buf=io.StringIO()
+  with contextlib.redirect_stdout(buf):
+   pc,frame=make_production_hit_pose_echo(
+    self.v,self.fields,7,1,class_id=1,environ={"PF_POSE_TRIAL":"290"})
+  self.assertEqual(buf.getvalue().strip(),"POSE_TRIAL sent=290 hit=1")
+  self.assertNotIn("POSE_PRODUCTION",buf.getvalue())
  def test_armed_composes_through_the_shared_encoder(self):
   from pirateforce_foundation.action_ack import (
    make_production_hit_pose_echo, build_action_vital_echo)

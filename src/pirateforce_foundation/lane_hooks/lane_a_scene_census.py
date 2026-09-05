@@ -159,9 +159,12 @@ from .. import world_population_bg0009
 from .. import world_population_bg0010
 from .. import world_population_bg0011
 from .. import world_population_bg0015
+from .. import world_population_bg1001
 from .. import world_population_bg3001
 from .. import world_population_bg4001
 from .. import world_population_handoff
+from .. import world_scene_folder
+from .. import world_scene_registry
 from .. import world_scene_travel
 
 # The gate every lane_hooks module is held to.  True means "shippable, no
@@ -350,6 +353,20 @@ _CONSOLE_LINES_OF = {
         (world_population_bg4001.census_console_line(generation),)
         + world_population_bg4001.actor_lines(generation)
         + world_population_bg4001.unresolved_lines()
+    ),
+    # ADDED round vwekfq (2026-09-05, LANE-A): scene 17, the ship at sea.
+    # Registered here AND in ``world_scene_travel.CENSUS_SOURCES`` in the
+    # same commit, so neither table can be true without the other for even
+    # one round.  This scene's registry door stays exactly as it was
+    # (``login_entry_allowed: false``, guarding the ordinary LOGIN path
+    # only - see ``world_scene_travel``'s own comment on
+    # ``SHIP_AT_SEA_SCENE_ID``), so THE ADMISSION CHECK above declines
+    # every call this composer receives in production today, the same
+    # inert-until-opened shape scene 4's and scene 10's own rows carried.
+    "bg1001_roster": lambda generation: (
+        (world_population_bg1001.census_console_line(generation),)
+        + world_population_bg1001.actor_lines(generation)
+        + world_population_bg1001.unresolved_lines()
     ),
 }
 
@@ -582,6 +599,60 @@ def _membership_if_answerable(scene_id: int, handoff: Any) -> Any | None:
     return handoff.membership_reset
 
 
+def _world_registry_line(scene_id: int) -> tuple[str, ...]:
+    """One line saying what the WORLD remembers about this scene.  Never raises.
+
+    WHY IT IS HERE, ON THE ARRIVAL PATH, AND NOT IN A DIAGNOSTIC.  A shared
+    world is only shared if it can be MEASURED as shared, and the criterion
+    `PANYA-DECISION 20260905_1140` sets is a comparison across two readings:
+    two sessions standing in one scene, or one session before and after a
+    relogin on a server that never restarted, must see the same monsters,
+    the same graves and the same ground.  This line is that reading, printed
+    once per arrival at the one seam this lane owns end to end.
+
+    !! WHAT THIS LINE IS NOT EVIDENCE OF, and the trap is worth naming
+    because the first draft of this docstring walked into it: "grep the
+    token twice and compare" is satisfied on TODAY'S BUILD by any two
+    arrivals into any scene, because both readings are `monsters=0 graves=0
+    ground=0` and zero equals zero (pf-adversary, round `tz2rgc`, D6 --
+    the `GM_WARP_POSITION_CONFIRMED` shape, a token compared against the
+    previous reading rather than an intended target).  A comparison of two
+    readings is only evidence when the FIRST one is non-zero, i.e. after
+    LANE-B's write call site exists.  The GT ticket for this feature is drafted
+    in `pf_bridge/notes_to_chief/20260905_1340_LANE-A-TO-CHIEF-world-registry-
+    landed-gt-body-relogin-needs-a-number.md` and has no number yet; its own
+    preconditions say the same thing, and nobody should be asked to boot for
+    it before then.  (Stated as a pointer rather than as a fact about a
+    ticket that exists in this repository: it does not -- pf-adversary,
+    round `tz2rgc`, N9.)  What the line honestly gives today is that the world books are
+    reachable from the arrival path at all, and a place for the numbers to
+    appear the moment they are real.
+
+    IT CHANGES NO BYTES.  It is appended to `console_lines`; the census
+    frame, the actor count and the membership are exactly what they were.
+    Until the seed and write halves are wired (`world_scene_registry.
+    WORLD_REGISTRY_SEED_WIRING`, and LANE-B's own write call site) the
+    numbers it prints are the honest ones -- an empty book reads zero, which
+    is itself the "not wired yet" the round file states rather than hides.
+
+    A scene id with no folder (nothing mined, a scene outside the copy) is
+    NOT an error here: this lane composes for scenes it has rosters for, and
+    a missing folder means the world books have no key for it either, so
+    there is nothing to say and no line is printed.
+    """
+    try:
+        folder = world_scene_folder.scene_folder_for_scene_id(scene_id)
+        if not folder:
+            return ()
+        return (world_scene_registry.describe_view(
+            world_scene_registry.view(folder)),)
+    except Exception:                                       # noqa: BLE001
+        # An observability line is never worth an arrival.  The composer's
+        # own contract is that it either composes or declines by name, and
+        # "the world registry could not be read" is neither.
+        return ()
+
+
 def _compose_for_scene(scene_id: int):
     """Build the composer closure for one scene.
 
@@ -626,6 +697,7 @@ def _compose_for_scene(scene_id: int):
             + tuple(_CONSOLE_LINES_OF[source](handoff.generation))
             + _hostility_lines(scene_id, handoff.generation)
             + (() if field_mob_note is None else (field_mob_note,))
+            + _world_registry_line(scene_id)
         )
         return lane_hooks.SceneCensusResult(
             actor_count=handoff.actor_count,

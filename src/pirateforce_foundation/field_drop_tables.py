@@ -12,7 +12,7 @@ a real row because of it.
 DROPS_QUEST IS ABSENT ON PURPOSE.  Only 311 of the 2478 DROPS_QUEST
 sets the mobs reference exist client-side, so ~87 pct of that model is
 missing and any DROPS_QUEST row written here would be invention.
-51 roster row(s) name one; they are carried without it.
+58 roster row(s) name one; they are carried without it.
 
 ``drop_model_type`` is copied for information and is NOT a claim.  In
 particular a nonzero value is NOT SUFFICIENT to make an item model
@@ -45,7 +45,7 @@ from __future__ import annotations
 # tables below are their UNION: a drop-set id and an item id mean the
 # same thing in every scene, so this is a superset of each scene's own
 # table and never a merge of disagreeing rows.
-SCENES = ('bg0001', 'Bg0002', 'Bg0003', 'bg0005', 'Bg0015')
+SCENES = ('bg0001', 'Bg0002', 'Bg0003', 'bg0004', 'bg0005', 'Bg0015')
 # ~~SCENE~~, kept as the first mined scene so an existing reader does
 # not break; SCENES is what this module is actually about now.
 SCENE = 'bg0001'
@@ -240,8 +240,14 @@ DROPS_SPECIALLY = {
     2802235: (0.0, 1, 1, (
         (1, 2414035, 100),
     )),
+    2802236: (0.0, 1, 1, (
+        (1, 2414036, 100),
+    )),
     2802250: (0.0, 1, 1, (
         (1, 2414050, 100),
+    )),
+    2802253: (0.0, 1, 1, (
+        (1, 2414053, 100),
     )),
     2802264: (0.0, 1, 1, (
         (1, 2414064, 100),
@@ -325,7 +331,9 @@ ITEMS = {
     2414019: (24, 14019, 'Toxic Vine', 0),
     2414034: (24, 14034, 'Desert Eagle', 0),
     2414035: (24, 14035, 'Blood red eagle', 0),
+    2414036: (24, 14036, 'Forest Green Eagle', 0),
     2414050: (24, 14050, 'Fire Euglena', 0),
+    2414053: (24, 14053, 'Craig Firebird', 0),
     2414064: (24, 14064, 'Fighting Fish soldier', 0),
     2600091: (26, 91, 'Damage Piece', 0),
     2600093: (26, 93, 'Illegible Piece', 0),
@@ -339,7 +347,7 @@ ITEMS = {
 REFERENCED_BY = {
     2701001: (31, 34, 35),
     2701002: (61, 62, 65, 60, 194, 515, 907),
-    2701003: (103,),
+    2701003: (103, 94, 97, 519, 246),
     2701004: (148, 150, 144, 146, 523, 525),
     2701010: (343, 345, 348, 350, 353, 355),
     2802205: (348,),
@@ -350,10 +358,12 @@ REFERENCED_BY = {
     2802219: (61,),
     2802234: (31,),
     2802235: (144,),
+    2802236: (97,),
     2802250: (343,),
+    2802253: (94,),
     2802264: (34, 35),
     5400001: (31, 34, 35),
-    5400002: (61, 62, 65, 60, 194, 515, 907),
-    5400003: (103, 148, 150, 144, 146, 523, 525),
+    5400002: (61, 62, 65, 60, 194, 515, 907, 94),
+    5400003: (103, 97, 519, 246, 148, 150, 144, 146, 523, 525),
     5400004: (343, 345, 348, 350, 353, 355),
 }

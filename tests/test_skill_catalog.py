@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import csv
 import hashlib
 import subprocess
 import sys
@@ -331,6 +332,195 @@ class NPassiveIsNotATypeColumnTests(unittest.TestCase):
         self.assertIn(99, by_value[2])
         self.assertIn(110, by_value[2])
         self.assertNotIn(99, by_value.get(1, []))
+
+
+class NTargetIsNotATypeColumnTests(unittest.TestCase):
+    """This round: ``n_TARGET`` was checked as a candidate for the "at least
+    8 more independently-labeled rows" ticket the ``s_CAST_CONDITION``
+    section of skill_catalog.py's module docstring says does not exist yet.
+    It fails the same way ``n_PASSIVE`` did (see
+    ``NPassiveIsNotATypeColumnTests`` above), but the counter-example ids
+    (7173, 3210, 3332, 3762) are outside this catalog's own 8 -- unlike that
+    class, this one has to read the full bridge table to pin it, hence the
+    ``BRIDGE_GAMEDATA`` guard, on the same file names ``skill_catalog.py``
+    already sources this catalog's own 8 ids from."""
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_meteor_rain_collides_with_normal_attack(self):
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        with (gamedata / "CONSTDATA_TH__SKILL_CONTEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            context_by_id = {
+                row["n_ID"]: row for row in csv.DictReader(handle, delimiter="\t")
+            }
+        with (gamedata / "TEXTDATA_TH__SKILL_TEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            title_by_id = {
+                row["n_ID"]: row["s_SKILL_TITLE"]
+                for row in csv.DictReader(handle, delimiter="\t")
+            }
+
+        # id 99 "Normal Attack" is this catalog's own unambiguously
+        # single-target skill (see test_titles_from_textdata_th_skill_text).
+        self.assertEqual(title_by_id["99"], "Normal Attack")
+        normal_attack_target = context_by_id["99"]["n_TARGET"]
+        self.assertEqual(normal_attack_target, "1")
+
+        # id 7173 "Meteor Rain" is an unambiguously area-effect name by the
+        # same plain-English standard, and outside this catalog entirely --
+        # yet it carries the SAME n_TARGET value as Normal Attack.  One
+        # column cannot mean "single target" and "area effect" at the same
+        # value for two titles this unambiguous; that is the collision, not
+        # a narrower miss.
+        self.assertEqual(title_by_id["7173"], "Meteor Rain")
+        self.assertEqual(
+            context_by_id["7173"]["n_TARGET"], normal_attack_target,
+            "n_TARGET no longer collides Normal Attack (99) with the "
+            "area-effect 'Meteor Rain' (7173) -- the counter-example this "
+            "test exists to pin has changed; re-investigate before "
+            "trusting n_TARGET as a type column again, do not just delete "
+            "this assertion")
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_plainly_aoe_titles_also_sit_at_our_own_no_target_value(self):
+        gamedata = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        with (gamedata / "CONSTDATA_TH__SKILL_CONTEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            context_by_id = {
+                row["n_ID"]: row for row in csv.DictReader(handle, delimiter="\t")
+            }
+        with (gamedata / "TEXTDATA_TH__SKILL_TEXT.tsv").open(
+            "r", encoding="utf-8", newline=""
+        ) as handle:
+            title_by_id = {
+                row["n_ID"]: row["s_SKILL_TITLE"]
+                for row in csv.DictReader(handle, delimiter="\t")
+            }
+
+        # Every non-99 id in this catalog (movement, Basic Training) sits at
+        # n_TARGET=0 -- see skill_raw_context's own values for 110/111 and
+        # the five Basic Training ids.  These three ids are outside the
+        # catalog, plainly area-effect by name, and sit at the SAME value.
+        no_target_value = skill_catalog.skill_raw_context(110)["n_TARGET"]
+        self.assertEqual(no_target_value, "0")
+        aoe_titled_ids_at_no_target_value = {
+            "3210": "Grand Cannon",
+            "3332": "Great Cannon",
+            "3762": "Circle Attack",
+        }
+        for skill_id, expected_title in aoe_titled_ids_at_no_target_value.items():
+            with self.subTest(skill_id=skill_id):
+                self.assertEqual(title_by_id[skill_id], expected_title)
+                self.assertEqual(
+                    context_by_id[skill_id]["n_TARGET"], no_target_value,
+                    "n_TARGET no longer puts %r (%s) in the same bucket as "
+                    "this catalog's own movement/Basic-Training ids -- "
+                    "re-investigate before trusting n_TARGET as a type "
+                    "column again" % (skill_id, expected_title))
+
+
+class NPassiveEffectDoesNotDiscriminatePassiveFromActiveTests(unittest.TestCase):
+    """Round mps8zh: with ``n_PASSIVE`` falsified as a type column (round
+    6o11t1, above), the next natural guess is the pair (``s_CAST_CONDITION``
+    blank, ``n_PASSIVE_EFFECT`` nonzero) -- our own 5 known Basic Training
+    ids fit that shape exactly.  pf-static-re re-derived it across the FULL
+    ``CONSTDATA_TH__SKILL_CONTEXT.tsv`` (2165 data rows, not just this
+    catalog's 8-id scope) and it is BOUNDED-NEGATIVE: real outside this
+    catalog, which is why this class is BRIDGE_GAMEDATA-guarded rather than
+    living among ``SkillCatalogTests`` above.  See ``skill_catalog.py``'s
+    module docstring for the full narrative; this class pins the falsifying
+    rows so a future round that tries to build an
+    ``is_pure_passive_effect()``-shaped accessor on this column pair goes
+    red here instead of only in an investigation report nobody re-reads.
+    SCOPED CLAIM (pf-adversary, this round): this only rules out THIS ONE
+    column pair as a classifier -- it is not a claim that no combination of
+    SKILL_CONTEXT columns could ever separate passive from active, only
+    that this specific, obvious next guess does not."""
+
+    @staticmethod
+    def _load_full_skill_context_rows() -> list[dict]:
+        path = (
+            ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+            / "CONSTDATA_TH__SKILL_CONTEXT.tsv"
+        )
+        with path.open("r", encoding="ascii", newline="") as handle:
+            return list(csv.DictReader(handle, delimiter="\t"))
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_blank_cast_condition_is_exactly_25_rows_six_class_tiers_plus_one_exception(self):
+        rows = self._load_full_skill_context_rows()
+        blank_ids = sorted(
+            int(row["n_ID"]) for row in rows if row["s_CAST_CONDITION"] == ""
+        )
+        # Literal ids, not a formula -- the per-class tier offsets above the
+        # root id are NOT uniform across classes (41000's tier is
+        # 41000/41007/41010/41025, 40000's is 40000/40013/40022/40025), so a
+        # base+offset generator would silently paper over that irregularity.
+        expected = [
+            2954,
+            40000, 40013, 40022, 40025,
+            41000, 41007, 41010, 41025,
+            42000, 42004, 42016, 42025,
+            43000, 43023, 43024, 43025,
+            44000, 44023, 44024, 44025,
+            45000, 45023, 45024, 45025,
+        ]
+        self.assertEqual(blank_ids, sorted(expected))
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_the_one_blank_cast_condition_id_outside_the_tiers_has_zero_passive_effect(self):
+        # id 2954 falsifies even the narrow claim "blank implies nonzero
+        # n_PASSIVE_EFFECT" before the hypothesis leaves its own best bucket.
+        rows = self._load_full_skill_context_rows()
+        row = next(r for r in rows if r["n_ID"] == "2954")
+        self.assertEqual(row["s_CAST_CONDITION"], "")
+        self.assertEqual(int(row["n_PASSIVE_EFFECT"]), 0)
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_an_actively_cast_attack_skill_carries_a_nonzero_non_self_referential_passive_effect(self):
+        # id 8200 (an actively-cast single-target physical attack per its
+        # own TEXTDATA_TH__SKILL_TEXT.tsv flavor text) has a non-blank
+        # s_CAST_CONDITION yet n_PASSIVE_EFFECT = 40002 -- nonzero, and
+        # pointing at a DIFFERENT id (itself another actively-cast variant,
+        # not a passive) rather than at its own row.  Falsifies both
+        # "nonzero implies passive/blank" and "nonzero always
+        # self-references its own row" (the n_ISCLASS-style reading) at once.
+        rows = self._load_full_skill_context_rows()
+        row = next(r for r in rows if r["n_ID"] == "8200")
+        self.assertNotEqual(row["s_CAST_CONDITION"], "")
+        passive_effect = int(row["n_PASSIVE_EFFECT"])
+        self.assertEqual(passive_effect, 40002)
+        self.assertNotEqual(passive_effect, 8200)
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_buff_and_heal_flavored_actively_cast_skills_carry_zero_passive_effect(self):
+        # ids 3546/3547 -- TEXTDATA_TH__SKILL_TEXT.tsv flavor text reads as
+        # exactly the buff/heal-shaped passive bonus this project is
+        # hunting for -- are actively cast (s_CAST_CONDITION = "GO(0)")
+        # with n_PASSIVE_EFFECT = 0: the opposite corner from what the
+        # hypothesis predicts.
+        rows = self._load_full_skill_context_rows()
+        for skill_id in (3546, 3547):
+            with self.subTest(skill_id=skill_id):
+                row = next(r for r in rows if r["n_ID"] == str(skill_id))
+                self.assertEqual(row["s_CAST_CONDITION"], "GO(0)")
+                self.assertEqual(int(row["n_PASSIVE_EFFECT"]), 0)
+
+    @BRIDGE_GAMEDATA.skip_unless_present()
+    def test_nonzero_passive_effect_among_actively_cast_rows_is_common_not_rare(self):
+        # A clean split needs actively-cast rows to almost never carry a
+        # nonzero n_PASSIVE_EFFECT.  146 of 2140 non-blank-condition rows do
+        # (6.8%) -- not a rounding-error tail.
+        rows = self._load_full_skill_context_rows()
+        non_blank = [r for r in rows if r["s_CAST_CONDITION"] != ""]
+        with_passive_effect = [
+            r for r in non_blank if int(r["n_PASSIVE_EFFECT"]) != 0
+        ]
+        self.assertEqual(len(non_blank), 2140)
+        self.assertEqual(len(with_passive_effect), 146)
 
 
 if __name__ == "__main__":

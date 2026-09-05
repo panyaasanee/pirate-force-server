@@ -134,6 +134,11 @@ class EncodeTrialRecordsTests(unittest.TestCase):
             trigger_id, pc, frame = by_trigger[record.trigger_id]
             expect_pc, expect_frame = survey.encode_add_survey_data_outer(
                 legacy, 0x1234, 1, record.fields,
+                # `encode_trial_records` now defaults `outer_leading_byte`
+                # to `survey.OUTER_PRESENCE_PRESENT` (RE-256, round
+                # `vwekfq`), so the byte-for-byte comparison must ask the
+                # same question of the encoder to stay meaningful.
+                outer_leading_byte=survey.OUTER_PRESENCE_PRESENT,
             )
             with self.subTest(trigger_id=trigger_id):
                 self.assertEqual(pc, expect_pc)
@@ -239,6 +244,15 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
             # The one send path, gated -- see the note above.
             "src/pirateforce_foundation/runtime.py",
             "tests/test_m2_survey_trial.py",
+            # WIDENED round `vwekfq` (LANE-A), same reason and same shape as
+            # this file's own name joining `test_navigationex_survey_
+            # record.py`'s exclusion set: condition (d) of COO-DECISION
+            # `20260905_0848_...` requires a byte-pin proving scene 17's new
+            # roster does not perturb GT-233's own records, and the only
+            # faithful way to do that is to call `encode_trial_records`
+            # directly and hash its output against a value captured before
+            # this round's changes.  Read-only, no socket, no `sendall`.
+            "tests/test_lane_a_scene17_roster_does_not_touch_gt233.py",
         }
         hits = []
         for path in ROOT.rglob("*.py"):
@@ -263,6 +277,80 @@ class NotWiredToAnySendPathTests(unittest.TestCase):
         self.assertNotIn("socket.socket", source)
         self.assertNotIn("sendall", source)
         self.assertNotIn(".send(", source)
+
+
+
+class OuterLeadingByteIsForwardedTests(unittest.TestCase):
+    """pf-adversary pass 2, round `f03s5f`; re-baselined round `vwekfq`
+    (LANE-A) once RE-256 measured the byte.
+
+    The composer grew `outer_leading_byte` and this function -- the only
+    path between it and the wire -- could not pass it.  An attended round
+    would have armed the trial, sent byte-identical bytes, seen the same
+    dialog and reported that the byte did not help, without ever having
+    sent it.
+
+    RE-256 (`pf_bridge/notes_to_chief/
+    20260905_1007_RE-256-RESULT-PRESENCE-ONE-SINGLE-RECORD-VERSION-ZERO.md`)
+    has since measured this class's own presence byte directly: `1` for one
+    record present, `0` for none, never a record count.  This function's
+    default therefore moved from `None` (R313's original, byte-missing
+    frame) to `survey.OUTER_PRESENCE_PRESENT` -- this is the caller RE-256's
+    BUILD_IMPACT line means, and moving the default here (instead of
+    editing `runtime.py`, which does not pass this argument at all) is how
+    the fix reaches the one real call site with no edit to a chief-owned
+    file.  `None` remains a valid EXPLICIT choice -- e.g. to reproduce
+    R313's original capture on purpose -- it is simply no longer what a
+    real send falls back to.
+    """
+
+    _SCENE = plan.XYZ_FRAME_SCENE_ID
+
+    def test_the_default_now_carries_the_re256_measured_presence_byte(self):
+        default = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+        )
+        explicit_one = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=survey.OUTER_PRESENCE_PRESENT,
+        )
+        self.assertEqual(default, explicit_one)
+        self.assertTrue(default)
+        for _trigger, pc, _frame in default:
+            self.assertEqual(pc[20:22], bytes([0x0B, 1]))
+
+    def test_explicit_none_still_reproduces_r313s_original_missing_byte_shape(self):
+        # `None` is kept as a valid override -- never as what a real send
+        # falls back to any more (module docstring, this round).
+        explicit_none = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=None,
+        )
+        default = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+        )
+        self.assertEqual(len(explicit_none), len(default))
+        for (_t1, pc_none, _f1), (_t2, pc_def, _f2) in zip(
+            explicit_none, default,
+        ):
+            self.assertEqual(len(pc_def), len(pc_none) + 2)
+
+    def test_a_value_reaches_every_record_this_function_composes(self):
+        bare = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=None,
+        )
+        withbyte = trial.encode_trial_records(
+            legacy, msg_id=0xC4AF, vital_version=0, player_scene_id=self._SCENE,
+            outer_leading_byte=survey.OUTER_PRESENCE_PRESENT,
+        )
+        self.assertEqual(len(withbyte), len(bare))
+        for (trigger_a, pc_a, _), (trigger_b, pc_b, _) in zip(bare, withbyte):
+            self.assertEqual(trigger_a, trigger_b)
+            self.assertEqual(len(pc_b), len(pc_a) + 2)
+            self.assertEqual(pc_b[20:22], bytes([0x0B, 1]))
+            self.assertEqual(pc_b[:20], pc_a[:20])
+            self.assertEqual(pc_b[22:], pc_a[20:])
 
 
 if __name__ == "__main__":
