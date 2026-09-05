@@ -54,9 +54,17 @@ What is being DONE about the bounded negative, and what is not
 --------------------------------------------------------------
 Round ``5ddsii`` filed the ticket chief queued as ``RE-222`` (drawn as
 ~~``RE-211``~~; see :data:`RE_222_TICKET_ID` for why the number moved, and
-:data:`RE_222_TICKET_LETTER`).  The refusal below did NOT move because of it
-and this docstring is the wrong place to look for a result -- nothing in this
-module reads one.
+:data:`RE_222_TICKET_LETTER`).  ~~The refusal below did NOT move because of
+it and this docstring is the wrong place to look for a result -- nothing in
+this module reads one.~~  It came back **DONE/PASS** on 2026-09-03T21:49
+(:data:`RE_222_RESULT_LETTER`) and this file did not notice for two days;
+:data:`RE_222_RESULT_WHAT_IT_MEASURED` is what it retires (Q3: a negative
+identity survives the client's containers intact) and what it does not
+(whose colour it is -- a per-(viewer, monster) selection that collides with
+the shared-world rule, and a decision no lane takes alone).  The refusal
+below still did not move, but for a DIFFERENT and weaker reason than the
+one this paragraph used to give: not "no evidence", but "an open design
+question".
 
 Read :func:`unaddressed_blockers` before :func:`open_questions`, in that
 order.  The first names the route NOTHING is filed against; the second names
@@ -70,6 +78,13 @@ direction; it does not retire any blocker below, so it maps to none of them
 and :data:`RE_222_QUESTION_LABELS` is where all three are named.  pf-adversary
 (round ``5ddsii``, O1) found the first draft describing Q3 in a comment while
 no executable value carried it.
+
+Q3 IS NOW ANSWERED, and the sentence above survives it exactly.  The answer
+(:data:`RE_222_RESULT_WHAT_IT_MEASURED`) is that the price is ZERO -- the
+client's containers keep a signed-negative identity intact -- which prices
+the direction without retiring a blocker, which is what "maps to none of
+them" always said it would do.  A round that reads "Q3 answered" as "a
+blocker fell" is reading the mapping backwards.
 
 Nothing here PRINTS.  The first draft of this section said "prints", and had
 a ``route_out()`` method that no call site in either repository ever called
@@ -211,8 +226,21 @@ RE_195_RESULT_LETTER = (
 #: behind it (``COO-DECISION 2026-09-03T10:46+07:00`` item (b), which lifted
 #: that day's "no new RE tickets" rule for this ONE ticket, because a ticket
 #: that PRODUCES a measurement from the client image is not a ticket that
-#: consumes one).  It is filed, not answered: nothing below reads a result,
-#: and the refusal is exactly as strong as it was before it was filed.
+#: consumes one).  ~~It is filed, not answered: nothing below reads a
+#: result, and the refusal is exactly as strong as it was before it was
+#: filed.~~
+#:
+#: !! THAT SENTENCE WAS FALSE FROM 2026-09-03T21:49 ONWARD AND SAT HERE FOR
+#: TWO DAYS.  ``RE-222`` came back **DONE/PASS** that evening
+#: (:data:`RE_222_RESULT_LETTER`), was consumed, and was copied to
+#: ``consumed/`` -- while this comment went on telling every later round
+#: that no result existed.  Found by pf-adversary in round ``y1evqj``, which
+#: is exactly the failure this module exists to prevent, wearing this
+#: module's own clothes: a refusal that names its evidence is only as good
+#: as its evidence being re-read.  The predicates below are UNCHANGED by
+#: this correction -- see :data:`RE_222_RESULT_WHAT_IT_MEASURED` for what the
+#: answer does and does not retire, and the round ``y1evqj``
+#: ``LANE-GM-ASK-COO`` letter for the decision that has to precede any wire.
 #:
 #: THE NUMBER CHANGED AFTER THIS LANE DREW IT, and the old one is struck
 #: through rather than deleted: ~~``RE-211``~~ -> ``RE-222``.  The draft
@@ -234,6 +262,46 @@ RE_222_TICKET_LETTER = (
     "notes_to_chief/"
     "20260903_1119_LANE-GM-RE-211-TICKET-"
     "typed-and-live-gate-for-nonpositive-identity.md"
+)
+
+#: The answer this module spent two days saying did not exist.  DONE/PASS,
+#: Q0-Q3 closed, static-only, against the same client image the pins at the
+#: top of this file name.
+RE_222_RESULT_LETTER = (
+    "notes_to_chief/"
+    "20260903_2149_RE-222-RESULT-PARTIAL-updateattr-and-name-color-gates.md"
+)
+
+#: WHAT THE ANSWER RETIRES, AND WHAT IT DOES NOT -- kept as prose in a
+#: constant because the distinction is the whole reason no predicate below
+#: moved in the round that found the answer.
+#:
+#: RETIRED (Q3): the fear that a nonpositive identity would be mangled by
+#: the client's own containers.  The letter walks tree insert (ordered on
+#: the SIGNED high dword), node copy, lower-bound, the find wrapper, and
+#: both population paths of the selector-local scene list, and reports no
+#: sign rejection, no truncation and no aliasing.  So "a negative identity
+#: costs the client's registry something" is answered: measurably, it does
+#: not.
+#:
+#: NOT RETIRED: everything about WHOSE colour it is.  The same letter puts
+#: the ``NPCAttr`` name-colour check inside the nonpositive-identity family
+#: and requires the qword to equal the LOCAL PLAYER's identity -- so the
+#: style is a property of the (viewer, monster) PAIR, not of the monster.
+#: ``NOW.md``'s shared-world rule says a scene's monster state lives once
+#: per scene; a per-viewer wire body is a different shape of object.  That
+#: collision is a decision, not a measurement, and this lane does not get to
+#: make it alone: round ``y1evqj`` sent it to COO rather than wiring past
+#: it.  Until it comes back, the blockers below stand AS THEY WERE -- not
+#: because the evidence is missing, but because the design question is open.
+RE_222_RESULT_WHAT_IT_MEASURED = (
+    "Q3 retired: the client's actor containers keep a signed-negative "
+    "identity intact (tree insert ordered on the signed high dword, node "
+    "copy, lower-bound, find wrapper, both scene-list population paths -- "
+    "no sign rejection, truncation or aliasing).  NOT retired: the name "
+    "colour is selected per (viewer, monster) pair, not per monster, which "
+    "collides with the shared-world rule and is a decision for COO/Panya, "
+    "not a measurement this lane can take"
 )
 
 # ---------------------------------------------------------------------------
