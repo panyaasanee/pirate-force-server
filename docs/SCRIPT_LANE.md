@@ -473,3 +473,189 @@ per charter: the remaining 12 `Trigger.*` rows, then `Quest.*` (queue item
    sent, `COO-DECISION 20260905_2058`).
 4. Follow-up noted above, not done this round: a narrow safe clock/RNG
    surface so `utility.lua` stops failing closed on `os.time()`.
+
+## Round 4jsydv (2026-09-05) -- entry-point call census, stub-count baseline
+
+### Why this round did not touch `Trigger.*`/`Quest.*` themselves
+
+All three "next round" items above were checked, in order, and all three
+are genuinely blocked, not skipped:
+
+1. **Trigger-id -> script-file mapping.** Grepped for it before assuming
+   absent, per house rule (`AGENTS.md` SS7): `gamedata/tables/` (no file
+   name matches, no column matches `\.lua|ScriptStart|script_name|s_Script`
+   in any table), `external/` (only hit is `PF_SERIALIZER_FIELDS.tsv`,
+   already known -- the `TriggerVital` wire layout, not an id->script
+   table), `archive/` and `notes_to_chief/consumed/` (no hit).
+   `gamedata/scene/*/*.placements.tsv` has no script-name column (checked
+   its header row). The script filenames themselves do not encode a
+   numeric trigger id either (`t_nex_t6.lua` is not "trigger 6 in scene
+   nex" -- read the file: its own `Var1..Var6` are SIX OTHER trigger ids it
+   gates on, unrelated to its own filename suffix). This is a real gap in
+   the committed artifacts, not a grep miss -- it needs either an RE
+   ticket or a capture, not a guess. Not opened this round (see nonclaims).
+2. **LANE-DB's `Quest.*` state-door contract.** Declared in two letters
+   this round consumed (`pf_bridge/notes_to_chief/consumed/
+   20260905_2212_LANE-DB-TO-LANE-Q-*` and its `2237` correction), but the
+   PR is NOT on `main` -- confirmed with `git log`/`git merge-base
+   --is-ancestor`, not assumed from the letter (the `2237` letter itself
+   says the PR tripped a chief-owned coverage guard and is waiting on
+   chief's read, not code review). `grep -rl "quest_flag\|quest_counter"
+   src/` in this repo: no hits. Building `Quest.*` against a contract that
+   is not live yet would be inventing the door myself.
+3. **The other 12 `Trigger.*` names.** Re-read `lua_api/trigger.py`'s own
+   `STILL_STUBBED` -- every one of the 12 names the previous round left
+   named its missing seam explicitly (a CS/A/UI wire-frame encoder this
+   lane does not own, `Quest.*` state per item 2, or an RE ticket for
+   `GetContactMode`). None is free to implement without one of those.
+
+### What this round built instead: does the corpus get RUN, not just loaded
+
+`load_corpus()` (round `s2fxf6`) proves all 616 files PARSE and their
+top-level chunk executes without raising. It never calls a single one of
+the functions those chunks DEFINE, so it has never actually exercised the
+API surface at anything like realistic volume -- every existing
+`lua_api_*` unit test calls one function, by hand, once. The charter's own
+backup-work item 2 (`prompts/LANE-Q.md`: "regression test: load all 616
+scripts every round, count remaining `LUA_API_STUB`, this number must fall
+every week") asks for exactly the thing that was still missing.
+
+`script_host.run_corpus_entry_points()` (new): loads every script (same
+isolation as `load_corpus`), then calls every one of
+`STANDARD_ENTRY_POINTS` -- the eight zero-argument names the ORIGINAL
+engine calls (`ScriptStart`, `Accept_Check`, `Accept_Run`, `Report_Check`,
+`Report_Run`, `Delete_Run`, `OpenAcceptUI_Run`, `OpenReportUI_Run`,
+measured by grepping every top-level `function Name(...)` definition in
+the real corpus: these eight account for 2396 of ~2451 definitions; the
+rest are internal helpers a script calls on itself, not something an
+outside caller invokes) -- that the script actually defines, and tallies
+every `LUA_API_STUB`/`LUA_TRIGGER_REAL` call each one made, reading each
+namespace's own `.calls` list rather than parsing log text.
+
+**Measured on the real corpus this round: 5057 total STUB calls across 137
+distinct `<Namespace>.<Method>` names** (`BASELINE_TOTAL_STUB_CALLS` in
+`tests/test_script_lua_corpus.py`, pinned exact-match, same idiom as
+`KNOWN_LOAD_FAILURES`) -- separately, **346 calls landed on Trigger's 5
+REAL methods** (`Trigger.NextStatus` 201, `GetTriggerStatus` 121,
+`SetTriggerStatus` 23, `GetTeiggerStatus` 1; `report.total_real_calls`/
+`real_call_counts`), which this function deliberately does NOT fold into
+the stub count -- a first draft summed every namespace's raw `.calls` list
+length and got 5403, silently counting those 346 real calls as if they
+were still-stubbed (`RealTriggerNamespace` appends both real and stub
+calls to the same `.calls` list); caught by hand before push, now pinned
+against regressing back by `test_stub_vs_real_call_split_is_not_conflated`.
+Top five STUB names by volume: `Player.MobAppear` (1096),
+`Mob.ShowAnimation` (658), `Quest.SetFlag` (405), `Player.RemoveItem`
+(289), `Scene.PlacementOFF` (173). This is the FLOOR this
+lane's future rounds should watch fall -- undercounts on purpose (every
+`Quest.VarN`/`RewardItemN`/`StringVarN` field this harness supplies reads
+`STUB_DEFAULT=0`, so a branch gated on one being nonzero, e.g. half of
+`q_kill5.lua`'s own `Report_Run`, never runs here), documented as a
+nonclaim on the dataclass itself.
+
+**Two real bugs in the SHIPPED scripts found by actually calling them**,
+neither visible from `load_corpus`'s load-only check (pinned in
+`KNOWN_ENTRY_POINT_CALL_FAILURES`, 17 `(path, entry_point)` pairs):
+
+- 4 files (`Quest/q_gather_anticlass.lua`, `q_kill_anticlass.lua`,
+  `q_repeat_gather_new.lua`, `q_repeat_kill_new.lua`) declare `local
+  check_N` INSIDE nested `if`/`else` blocks in `Report_Check`, then read
+  `check_N` again after those blocks close -- ordinary Lua lexical scoping
+  resolves that later read to a stray, ever-nil GLOBAL `check_N`, and
+  `check_1 * check_2 * check_3` on a nil raises. Read straight from the
+  source (`grep -n "check_1" gamedata/lua/Quest/q_gather_anticlass.lua`);
+  not a guess about Lua semantics.
+- 13 files (`t_ge2tm_rat.lua` and 12 more matching `*rat*.lua`) call a bare
+  global `rate(dicevalue)` that is defined in a DIFFERENT file,
+  `utility.lua` -- this host gives every script its OWN Lua state
+  (deliberate, `script_host.py`'s own module docstring: stops 616 files
+  sharing one global table from overwriting each other's same-named entry
+  points), so a name defined in one file is never visible from another.
+  `utility.lua` is itself one of the 5 `KNOWN_LOAD_FAILURES` (calls
+  `os.time()` at its own top level, sandbox-blocked), so even a
+  shared-preload design would not make `rate` real without also widening
+  the `os` sandbox (named as unfinished follow-up by round `s2fxf6`).
+
+### Nonclaims
+
+1. Does not close the charter's GT criterion for ANY queue item -- no
+   player-visible change this round; this is instrumentation over the
+   existing sandbox, not a new feature a tester can see on screen.
+2. Does not open the trigger-id -> script-file RE ticket -- the grep in
+   the section above establishes the gap is real, not that this round
+   asked the RE runner to close it (RE runner time is scarce, one ticket
+   per machine round per `AGENTS.md` SS7; a status letter to COO carries
+   this forward instead, see `pf_bridge/notes_to_chief/`).
+3. Does not claim `rate`'s original-engine behavior -- plausibly the real
+   client loads `utility.lua` once into a shared global environment before
+   running any trigger/quest script, which this per-script-isolated host
+   does not attempt. Not measured against the real client either way.
+4. `BASELINE_TOTAL_STUB_CALLS` is a floor, not a live-game call count --
+   see the dataclass docstring; do not read 5057 as "how many times a
+   player's actions call a stub", only as "how many times these 616 files'
+   own zero-arg entry points call one with no per-instance data".
+5. Does not touch `runtime.py`/`app.py`/`store.py` or any other lane's
+   write zone. No new CORE-REQUEST.
+6. `run_corpus_entry_points`/`ScriptHost.call` has no instruction-count or
+   wall-clock budget (pf-adversary, this round): a Lua entry point that
+   never returns (adversary's repro: `function f() return f() end`, a
+   proper tail call that never overflows the C stack into a catchable
+   error) hangs the call with nothing to except-catch. `grep -rlE
+   "\bwhile\b" gamedata/lua` is empty (checked independently this round)
+   and no confirmed unbounded-recursion pattern exists in the real 616
+   files today, so this has no known live trigger in the current corpus --
+   but it is the same `host.call` path `lua_api/trigger.py` names as the
+   template a future live `TriggerVital` dispatch reuses, so a hang there
+   would wedge a listener thread for a whole scene, not just fail a test.
+   Not fixed this round (see `run_corpus_entry_points`'s own docstring for
+   what a fix needs); named so the next round that wires live dispatch
+   does not rediscover it.
+
+### ADVERSARY
+
+Ordered at round start, per the mandatory rule (`AGENTS.md` SS7: any
+session with the Agent tool runs it every round that changes more than a
+typo). Reported on the diff's first draft; **4 real findings, all fixed
+before this round's commit, one already covered above (nonclaim 6)**:
+
+1. **HIGH, fixed**: the first draft's `total_stub_calls`/`stub_call_counts`
+   summed every namespace's raw `.calls` list length, which silently
+   folded 346 calls to Trigger's 5 REAL methods into a number that is
+   supposed to mean "still stubbed" (`RealTriggerNamespace` appends both
+   kinds of call to one shared list) -- caught independently by adversary
+   AND by hand before adversary's report came back (see the "STUB VS REAL"
+   discussion above); both arrived at the same corrected split (5057
+   stub / 346 real), which is strong corroboration the fix is right, not
+   just silencing. Fixed: `REAL_QUALIFIED_NAMES` + a structural split, with
+   its own regression test (`test_stub_vs_real_call_split_is_not_conflated`).
+2. **HIGH, no fix landed this round**: no timeout/instruction budget on
+   `host.call` -- see nonclaim 6.
+3. **MEDIUM-HIGH, fixed**: the first draft's `actual_failures` test
+   reconstruction checked `name in (run.error or "")` -- a SUBSTRING search
+   over a concatenated error string, not a structural match. Adversary
+   built a counter-example (`Accept_Check` returning cleanly but appearing
+   in the pinned-failure set because its name was a substring of a
+   DIFFERENT entry point's error message) and confirmed it actually
+   reproduces against the code. Fixed: `EntryPointRun.errors` is now a
+   `dict` keyed by entry-point name, no string search.
+4. **NIT, fixed**: a leftover duplicate `return report` (dead, unreachable
+   second line) at the end of `run_corpus_entry_points`.
+
+One claimed finding did not hold up on independent re-derivation: adversary
+reported `Accept_Run` at 306 definitions (comment said 305); re-counting
+with `find ... -print0 | xargs -0 grep -c` (needed because one file,
+`t_test auto.lua`, has a space in its name and silently splits under a
+bare `xargs`) reproduces 305, matching the comment -- not changed.
+
+### Next round
+
+Unchanged from round `456vso` (all three still blocked, see "Why this
+round did not touch" above for the fresh evidence): (1) trigger-id ->
+script-file mapping needs an RE ticket or capture, (2) `Quest.*` needs
+LANE-DB's PR to land on `main`, (3) the remaining 12 `Trigger.*` names
+each need a seam this lane does not own. Whichever unblocks first is the
+next round's first job. If both stay blocked, the next backup-work slot is
+`STILL_STUBBED`'s highest-call-volume name that turns out NOT to need a
+wire frame after all (re-check `GetContactMode`'s RE ticket status first;
+it is the only one of the 12 that is a pure RE gap like item 1, not a
+cross-lane wire-frame wait).
