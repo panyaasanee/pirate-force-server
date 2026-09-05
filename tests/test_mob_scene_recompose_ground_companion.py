@@ -242,23 +242,36 @@ class WiringAskTests(unittest.TestCase):
         # cp874 (Thai), and the gate's tripwire scope is cp874, not ASCII.
         wiring.encode("cp874")
 
-    def test_runtime_py_calls_it_from_inside_the_composed_arm(self):
-        """FLIPPED BY THE CHIEF ROUND THAT TOOK THE ASK (r045nx / R354).
+    def test_runtime_py_emits_the_companion_after_the_bar_frame(self):
+        """FLIPPED, AND CORRECTED, BY THE CHIEF ROUND THAT TOOK THE ASK
+        (r045nx / R354).
 
         This test used to assert the opposite -- that ``runtime.py`` did NOT
         call ``ground_companion_actions`` yet -- and its own docstring said
         to flip it in the same PR that adds the call.  This is that PR.
 
-        It does NOT merely scan for the name.  A bare name scan is exactly
-        the shape that let a dead-code mutant pass twice in this project
-        (chief round 5e00uw, D2/D3; round rs8uyz, D1), so this re-derives
-        the ANCHOR from the syntax tree: the call must sit in the body of
-        an ``if recompose_record.composed:`` statement, with no ``return``
-        ahead of it in that same block.  Moving the call out to the sibling
-        level after the if/else -- the anchor the ask's own first draft got
-        wrong -- makes this test red, which is the whole point: that
-        placement would fire the companion on the no-anchor fallback arm
-        too, which runs in ordinary play.
+        IT PINS ORDER, NOT JUST PRESENCE, and that is not decoration.
+        ``GROUND_COMPANION_WIRING`` names an anchor inside the
+        ``if recompose_record.composed:`` arm, which is right about WHEN the
+        companion is due and wrong about WHERE it may be emitted: taken
+        literally the burst becomes [announce, companion, bar], and the bar
+        is the ~18 KB recompose that clears the floor on the client, so the
+        companion it publishes ahead of the bar is overwritten by the bar
+        and the player still watches the loot vanish.  This lane measured
+        that rule itself --
+        ``tests/test_mob_combat_dispatch_bg0002_kill.py`` records that a
+        ground generation "carries the whole floor ... which is why
+        anything published behind it erases the player's newest drop", and
+        pins the presence generation as LAST in the kill burst for exactly
+        that reason.
+
+        So the wiring is split in two and both halves are pinned here: a
+        ``ground_companion_due`` flag set ONLY inside the composed arm (the
+        ask's scoping), and the extend itself AFTER the
+        ``actions.append(("MOB_COMBAT_BAR", ...))`` statement, in the same
+        block (the ask's intent).  A name scan would pass on every broken
+        arrangement of those two, which is the shape that let a dead-code
+        mutant through twice in this project already.
         """
         import ast
 
@@ -267,57 +280,110 @@ class WiringAskTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         tree = ast.parse(source)
 
-        def _calls_it(block):
-            for stmt in block:
-                for node in ast.walk(stmt):
-                    if not isinstance(node, ast.Call):
+        def _mentions(node, name):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call) and getattr(
+                        sub.func, "attr", None) == name:
+                    return True
+            return False
+
+        def _is_bar_append(node):
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Call):
+                    continue
+                if getattr(sub.func, "attr", None) != "append":
+                    continue
+                for arg in sub.args:
+                    if not isinstance(arg, ast.Tuple) or not arg.elts:
                         continue
-                    name = getattr(node.func, "attr", None)
-                    if name == "ground_companion_actions":
+                    first = arg.elts[0]
+                    if isinstance(first, ast.Constant) and (
+                            first.value == "MOB_COMBAT_BAR"):
                         return True
             return False
 
-        anywhere = _calls_it(tree.body) or any(
-            _calls_it([node]) for node in tree.body)
+        # 1. the call exists at all
         self.assertTrue(
-            anywhere,
+            _mentions(tree, "ground_companion_actions"),
             "runtime.py no longer calls ground_companion_actions -- the "
             "CORE-REQUEST was taken in round r045nx/R354 and removing the "
             "call silently restores the R316 defect (another monster's "
             "loot wiped off the screen by a bar recompose)")
 
-        anchored = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.If):
-                continue
-            test = node.test
-            if not isinstance(test, ast.Attribute):
-                continue
-            if test.attr != "composed":
-                continue
-            value = test.value
-            if getattr(value, "id", None) != "recompose_record":
-                continue
-            if not _calls_it(node.body):
-                continue
-            before = []
-            for stmt in node.body:
-                if _calls_it([stmt]):
-                    break
-                before.append(stmt)
-            self.assertFalse(
-                any(isinstance(s, ast.Return) for s in before),
-                "the ground-companion call is below a return inside the "
-                "composed arm -- it can never run")
-            anchored.append(node)
-
+        # 2. it is guarded by the flag, and the flag is set only inside
+        #    `if recompose_record.composed:`
+        guards = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Name)
+            and node.test.id == "ground_companion_due"
+            and _mentions(node, "ground_companion_actions")
+        ]
         self.assertEqual(
-            len(anchored), 1,
-            "expected exactly one `if recompose_record.composed:` block "
-            "carrying the ground-companion call; found "
-            f"{len(anchored)}.  A call outside that block would also fire "
-            "on the degraded and no-anchor arms, which is what the wiring "
-            "ask explicitly forbids")
+            len(guards), 1,
+            "expected exactly one `if ground_companion_due:` block carrying "
+            f"the companion call; found {len(guards)}")
+
+        setters = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if getattr(target, "id", None) != "ground_companion_due":
+                    continue
+                if isinstance(node.value, ast.Constant) and (
+                        node.value.value is True):
+                    setters.append(node)
+        self.assertEqual(
+            len(setters), 1,
+            "expected exactly one `ground_companion_due = True`; found "
+            f"{len(setters)}")
+        composed_arms = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Attribute)
+            and node.test.attr == "composed"
+            and getattr(node.test.value, "id", None) == "recompose_record"
+        ]
+        self.assertEqual(len(composed_arms), 1)
+        arm_setters = [
+            node for node in ast.walk(composed_arms[0])
+            if node in setters
+        ]
+        self.assertEqual(
+            len(arm_setters), 1,
+            "`ground_companion_due = True` moved out of the "
+            "`if recompose_record.composed:` arm -- the companion would "
+            "then fire on the degraded and no-anchor arms too, which the "
+            "wiring ask explicitly forbids")
+
+        # 3. THE ORDERING.  The guard must follow the bar append inside the
+        #    same statement list.
+        ordered = False
+        for node in ast.walk(tree):
+            for field in ("body", "orelse", "finalbody"):
+                block = getattr(node, field, None)
+                if not isinstance(block, list):
+                    continue
+                bar_at = [i for i, st in enumerate(block)
+                          if _is_bar_append(st)]
+                guard_at = [i for i, st in enumerate(block)
+                            if st in guards]
+                if bar_at and guard_at:
+                    self.assertGreater(
+                        guard_at[0], bar_at[-1],
+                        "the ground companion is emitted BEFORE the "
+                        "MOB_COMBAT_BAR recompose -- the bar clears the "
+                        "floor on the client, so the companion ahead of it "
+                        "is overwritten and the fix buys the player "
+                        "nothing")
+                    ordered = True
+        self.assertTrue(
+            ordered,
+            "could not find the MOB_COMBAT_BAR append and the ground "
+            "companion guard in one statement list -- the ordering this "
+            "fix depends on is no longer checkable, so the check must be "
+            "rewritten rather than deleted")
 
 
 if __name__ == "__main__":

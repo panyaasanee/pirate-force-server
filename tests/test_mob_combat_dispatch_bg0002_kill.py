@@ -496,8 +496,28 @@ class Bg0002KillDispatchTests(unittest.TestCase):
                 pc[offset + 1] & mob_loot.RUNTIME_DERIVED_BIT_GROUND_LIST)
         return False
 
-    def test_a_hit_that_does_not_kill_leaves_the_floor_cleared_behind_it(self):
-        """The owner's R306 vanish, in the owner's scene, with his floor.
+    def test_a_hit_that_does_not_kill_now_reannounces_the_floor_behind_it(self):
+        """The owner's R306 vanish, in the owner's scene, with his floor --
+        AND THE FIX FOR IT.
+
+        FLIPPED BY chief (LANE-E) ROUND r045nx / R354, in the PR that
+        granted LANE-A's CORE-REQUEST from #818
+        (``mob_scene_recompose.GROUND_COMPANION_WIRING``).  Everything this
+        test measured about the DEFECT is still true of the code that
+        composes the frames; what changed is that ``runtime.py`` now queues
+        ``mob_scene_recompose.ground_companion_actions`` AFTER the bar, so
+        the burst is [announce, bar, drop] and the floor is re-announced
+        behind the recompose that cleared it.  The paragraphs below are kept
+        verbatim because they are the measurement that justifies the fix --
+        read them as "what this burst did before R354".
+
+        THIS TEST IS ALSO THE ONE THAT CAUGHT THE WIRING ASK BEING WRONG
+        ABOUT WHERE: with the companion emitted at the anchor the ask names
+        (inside the composed arm, ahead of the bar's append) the burst was
+        [announce, companion, bar], and by this file's own rule two tests
+        down -- a ground generation carries the WHOLE floor, so anything
+        published behind it erases what came before -- the bar would still
+        have wiped the floor on the client.  Right burst, wrong position.
 
         WHAT WAS WATCHED (R306 / GT-216, 2026-09-03, attended): a dropped
         item disappears from the floor while he hits the NEXT monster, and
@@ -554,23 +574,38 @@ class Bg0002KillDispatchTests(unittest.TestCase):
         burst = actions[start:]
         self.assertEqual(
             [label for label, *_r in burst],
-            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR"],
-            "the hit burst is not [announce, bar]: %r" % (labels,),
+            ["MOB_COMBAT_ANNOUNCE", "MOB_COMBAT_BAR",
+             mob_drop_presence.ACTION_LABEL],
+            "the hit burst is not [announce, bar, drop]: %r" % (labels,),
         )
         self.assertEqual(
             [self._ground_bit_is_set(pc) for _label, pc, _f, _d in burst],
-            [True, False],
+            [True, False, True],
         )
         # The bar really is the wide recompose, not this lane's one-entry
-        # frame: without that, "the burst ends cleared" would be measuring
+        # frame: without that, "the bar clears the floor" would be measuring
         # a frame production never sends after an arrival.
-        self.assertGreater(len(burst[-1][1]), 10000)
+        self.assertGreater(len(burst[1][1]), 10000)
+        # THE FIX, PINNED AT THE ONLY PLACE THAT MATTERS -- ORDER.  The
+        # companion is LAST, behind the frame that cleared the floor.  Move
+        # it ahead of the bar and this assertion is the one that goes red.
         self.assertEqual(
-            self._ground(actions), [],
-            "a hit that does not kill published a ground generation",
+            burst[-1][0], mob_drop_presence.ACTION_LABEL,
+            "the ground re-announce is no longer the last action of a "
+            "non-killing hit -- anything the bar publishes after it erases "
+            "the floor on the client again",
         )
-        # The row the client can no longer see is still standing here.
+        self.assertEqual(
+            len(self._ground(actions)), 1,
+            "a hit that does not kill published no ground generation -- "
+            "this is the R316 defect, restored",
+        )
+        # The row is still standing in the server's own ledger, and now it
+        # is also on the wire behind the recompose.
         self.assertEqual(state.mob_loot_cell.ledger.drops, floor)
+        self.assertTrue(
+            self._ground_bit_is_set(self._ground(actions)[0][1]),
+        )
 
         # And the next burst -- the kill -- is what puts it back, with the
         # death frames measured NOT to be the carrier.
