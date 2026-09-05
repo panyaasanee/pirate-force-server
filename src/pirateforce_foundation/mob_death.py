@@ -185,7 +185,7 @@ import math
 import re
 import struct
 import sys
-from typing import Any, NamedTuple
+from typing import Any
 
 from . import field_mob_tables
 from . import field_mob_tables_bg0002
@@ -1544,6 +1544,7 @@ REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER = "census_frame_without_a_ledger"
 # that should not get a census that quietly used the old, unsafe scalar
 # behaviour for every row instead.
 REFUSE_TRANSITIONING_NOT_A_DEAD_ROW = "transitioning_not_a_dead_row"
+REFUSE_HOOK_ALREADY_FIRED = "hook_already_fired"
 MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_VALUE_NOT_INT,
     REFUSE_VALUE_OUT_OF_RANGE,
@@ -1572,6 +1573,7 @@ MOB_DEATH_REFUSAL_REASONS = (
     REFUSE_CENSUS_FRAME_WITHOUT_A_LEDGER,
     REFUSE_RULING_NAME_HAS_NO_TIMESTAMP,
     REFUSE_TRANSITIONING_NOT_A_DEAD_ROW,
+    REFUSE_HOOK_ALREADY_FIRED,
 )
 
 _FLOAT32_MAX = 3.4028234663852886e38
@@ -2579,7 +2581,7 @@ def _first_in_the_world(grave: Any) -> bool | None:
     return not already
 
 
-class PendingMobDeathHook(NamedTuple):
+class PendingMobDeathHook:
     """The four :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`, computed and waiting.
 
     ROUND ``dggvou``, pf-adversary D11 of round ``2zybdx``: the world-book
@@ -2588,17 +2590,34 @@ class PendingMobDeathHook(NamedTuple):
     kill - a caller cannot "compute the hook args" twice just to change when
     it fires without burying the same monster twice.  So the computation and
     the firing are two different functions (:func:`_commit_death_core` and
-    :func:`fire_mob_death_hook`) and this tuple is the one thing that has to
-    survive the gap between them intact.  A plain dict would do the same job
-    with none of the field-name protection; this project's other event
-    payloads (``DeathRecord``, ``DeathStep``) are all typed for the same
-    reason.
+    :func:`fire_mob_death_hook`) and this object is the one thing that has to
+    survive the gap between them intact.
+
+    NOT A NAMEDTUPLE, on purpose, and it was one until pf-adversary (round
+    ``dggvou``, reviewing this same split) fired the SAME instance at
+    :func:`fire_mob_death_hook` twice by hand and got two identical
+    ``mob_death`` events for one accepted kill - the exact double-count this
+    round's whole ``first_in_the_world`` field exists to let a subscriber
+    detect, reopened one layer up where that field cannot see it, because
+    both fires carry the same payload.  A plain dict or tuple has no room to
+    remember "already spent"; this carries a private ``_fired`` flag so
+    :func:`fire_mob_death_hook` can refuse a second call on the same pending
+    hook by name instead of the mistake shipping silently.
     """
 
-    mob_id: int
-    scene_id: str
-    killer_actor_identity: int
-    first_in_the_world: bool | None
+    __slots__ = (
+        "mob_id", "scene_id", "killer_actor_identity", "first_in_the_world",
+        "_fired",
+    )
+
+    def __init__(
+            self, mob_id: int, scene_id: str, killer_actor_identity: int,
+            first_in_the_world: bool | None) -> None:
+        self.mob_id = mob_id
+        self.scene_id = scene_id
+        self.killer_actor_identity = killer_actor_identity
+        self.first_in_the_world = first_in_the_world
+        self._fired = False
 
 
 def _commit_death_core(
@@ -2751,7 +2770,22 @@ def fire_mob_death_hook(
     needs ``runtime.py``'s own two call sites reordered (write the register,
     THEN fire), and that file is chief's; the exact lines are named in this
     round's CORE-REQUEST letter rather than edited here.
+
+    RAISES :class:`MobDeathContractError` (:data:`REFUSE_HOOK_ALREADY_FIRED`)
+    if ``pending`` has already been passed here once.  pf-adversary (round
+    ``dggvou``) fired one ``PendingMobDeathHook`` twice by hand and got two
+    ``mob_death`` events for one accepted kill; the guard below is the fix,
+    checked and latched BEFORE the door to ``lane_hooks`` opens so a second
+    call costs nothing but a raise, never a second announcement.
     """
+    if pending._fired:
+        raise MobDeathContractError(
+            REFUSE_HOOK_ALREADY_FIRED,
+            "this PendingMobDeathHook (mob_id=0x%X scene_id=%r) already "
+            "fired once; commit_death_and_prepare_hook a fresh one for a "
+            "new kill instead of reusing this one" % (
+                pending.mob_id, pending.scene_id))
+    pending._fired = True
     # THE "A MONSTER DIED" EXTENSION POINT, opened by round 2zybdx because
     # LANE-B promised it in writing and nothing on main had it.  LANE-B's
     # letter to LANE-Q (pf_bridge/notes_to_chief/20260905_2112_LANE-B-TO-
