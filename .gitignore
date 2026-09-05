@@ -610,6 +610,12 @@
 # committed local TSV copies from ../pf_bridge/gamedata.
 !/tools/pf_class_skill_starting_kit_extract.py
 
+# LANE-A round nmn123 - re-derives world_m2_sea_scene_cast's frozen rows and
+# digests from ../pf_bridge/gamedata.  Has to ship with the module: without
+# it the pinned sha256 digests are pins nothing can check, which is exactly
+# what pf-adversary flagged on this round's first draft.
+!/tools/pf_scene_cast_sources_extract.py
+
 # round 9fv1m8 - Claude Code Agent tool isolated worktrees, local tool
 # machinery only, never project content
 /.claude/worktrees/

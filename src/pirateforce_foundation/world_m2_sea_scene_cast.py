@@ -1,96 +1,98 @@
-"""Which sea a cast can stand on at all - LANE-A, M2.
+"""Which table answers "what cast can this scene hold" - LANE-A, M2.
 
-WHAT THIS MODULE MEASURES.  M2's bar is "leave the town": sail out, see an
-island, get the captain-report window, confirm, stand on the island.  Two
-halves of that are already built in this tree and they target DIFFERENT
-scenes, which ``world_m2_survey_plan``'s own docstring has said in prose
-since round ``zk50rd``:
+THIS FILE EXISTS BECAUSE ITS OWN FIRST DRAFT WAS WRONG, AND THE WRONG
+VERSION IS THE REASON FOR THE SHAPE OF THE RIGHT ONE.
 
-* the door a player can walk through by themselves sends them to scene
-  **17** (``world_m2_sea_destination.DESTINATION_SCENE_N_ID``), and
-* the survey/docking mechanism provisions its records in scene **126**
-  (``world_m2_survey_plan.XYZ_FRAME_SCENE_ID``).
+The first draft of this module read ``n_CLINE_TYPE`` out of
+``CONSTDATA_TH__SCENE_NAME.tsv``, found the all-ones sentinel on all eight
+Columbus destination scenes, found no ``CONSTDATA_TH__CLINE.tsv`` row
+carrying that value, and concluded: no cast is derivable for any of them,
+ever, so M2's two halves cannot be reconciled by populating the door's
+destination.  ``pf-adversary`` refuted it in one step: THREE committed
+tables carry an ``n_CLINE_TYPE`` column, and the draft had opened one.
 
-Prose is where that stopped.  Nothing in this tree ever asked the question
-that decides which of the two is reconcilable with the other: CAN EITHER
-SCENE CARRY A CAST AT ALL?  This module asks it, from the client's own
-tables, and the answer is eight-of-eight and one-sided.
+    CONSTDATA_TH__SCENE_NAME.tsv     keyed by n_ID       (the scene's own)
+    CONSTDATA_TH__INSTANCE.tsv       keyed by n_SCENE_ID (338 rows)
+    CONSTDATA_TH__SAILING_RESULT.tsv keyed by n_AREA     (138 rows)
 
-THE MEASUREMENT, AND IT IS THE WHOLE POINT OF THE FILE.  Every scene row in
-``CONSTDATA_TH__SCENE_NAME.tsv`` carries ``n_CLINE_TYPE``: the creature-line
-block a scene's Mob-Set placements resolve through.  Every per-scene
-identity module in this lane (``world_bg0002_identity`` .. ``world_bg4001_
-identity``) is built on exactly that resolution.  Read for the eight
-Columbus ship destinations and the four ocean panels those options
-advertise:
+``CONSTDATA_TH__INSTANCE.tsv`` answers for every one of the eight, and
+``grep -rn "INSTANCE.tsv" src/ docs/`` returned ZERO hits before this
+round: no file in this project had ever opened it.  So the module is not
+the sentinel reader it started as.  It is the enumeration of the sources a
+"this scene can hold nothing" claim has to exhaust before it may be made,
+plus the measurement of what those sources actually answer.
 
-    scene  n_SCENE_TYPE  n_CLINE_TYPE  CLINE rows  n_MARKER  n_SAVE
-    17     4             0xFFFFFFFF    0           0         0
-    18     4             0xFFFFFFFF    0           0         0
-    19     4             0xFFFFFFFF    0           0         0
-    20     4             0xFFFFFFFF    0           0         0
-    21     4             0xFFFFFFFF    0           0         0
-    39     4             0xFFFFFFFF    0           0         0
-    40     4             0xFFFFFFFF    0           0         0
-    41     4             0xFFFFFFFF    0           0         0
-    126    8             3001          56          0         0
-    127    8             3002          58          0         0
-    304    8             3007          58          0         0
-    305    8             3008          58          0         0
+THE CORRECTED MEASUREMENT.  Re-derived at HEAD from the digests pinned
+below, using THIS PROJECT'S OWN key rule - ``world_m2_sea_destination``'s
+``CLINE_KEY_COLUMN``: ``CLINE[n_CLINE_TYPE == <type> and n_CREATURE_TYPE ==
+<Mob-Set number>] -> n_LEADER_BK1 -> CONSTDATA_TH__MOBS`` - against each
+scene's own committed ``.placements.tsv``:
 
-``0xFFFFFFFF`` is the same value scene 278 (the beach test field) and scene
-997 (the film set) carry in this project's own pinned registry - the three
-scenes nobody has ever composed a cast for.  It is read here as "this row
-names no creature line", NOT decoded from the client image, and the
-distinction is stated because it is the one inference in the file: what is
-MEASURED is that no ``CONSTDATA_TH__CLINE.tsv`` row carries that value in
-``n_CLINE_TYPE``, so the resolution every identity module in this lane
-performs returns nothing for these scenes whatever the sentinel means.
+    scene  model   n_SCENE_TYPE  direct  via INSTANCE   placements resolved
+    17     Bg1001  4             none    801 814 816    8          7
+    18     Bg1002  4             none    803 805 818    8          8
+    19     Bg1003  4             none    821            8          8
+    20     Bg1004  4             none    809 823        10         10
+    21     Bg1005  4             none    811 825        13         13
+    39     Bg1023  4             none    519            11         11
+    40     Bg1024  4             none    520            37         35
+    41     Bg1025  4             none    521            10         10
+    126    Bg3001  8             3001    (sailing 8000) 38         37
 
-WHAT THAT SETTLES, AND WHAT IT DOES NOT.
+EIGHT OF EIGHT RESOLVE.  Scene 21 at 13/13 and scene 39 at 11/11 resolve
+MORE COMPLETELY than scene 126 does at 37/38, and 126 is the scene this
+project already ships a roster for.  ``world_population_bg1001`` and its
+seven siblings are buildable today, from committed data, with the same
+identity-module shape this lane has shipped thirteen times.  The first
+draft would have told a later round not to try.
 
-SETTLED: the eight ship scenes cannot be given a cast by this server from
-committed data.  Scene 17's own eight placements are real (they carry
-coordinates; the registry's ``ground`` block for scene 17 is derived from
-them) and they resolve to NOTHING, because there is no creature-line block
-for them to resolve through.  A round that sets out to build
-``world_population_bg1001`` the way this lane built thirteen other rosters
-would find that out after writing the identity module, not before.  That is
-the day of work this file exists to not spend.
+THREE OF THE EIGHT ARE NOT SHIPS, WHICH MATTERS FOR M2 SPECIFICALLY.
+``s_SCENE_NAME`` at HEAD: 17-21 are "one/two/three ships at sea"
+variants, but 39, 40 and 41 are "small island, style 9/10/11" - islands,
+which is the noun M2's own bar uses ("sail near an island ... stand on the
+island").  The first draft called all eight "ship destinations" and hid
+that.  They are named here as what the table calls them.
 
-SETTLED: the four ocean panels can.  Scene 126 already has its roster
-(``world_population_bg3001``, 37 of 38 placements resolving, the missing one
-being a CLINE row with leader 0), and R313 measured 37 actors on screen in
-that scene at 2026-09-05T02:07+07:00.  The measurement and the screen agree.
+WHAT IS MEASURED AND WHAT IS NOT, KEPT APART ON PURPOSE.
 
-NOT SETTLED, AND NOT DECIDED HERE: which scene the door should lead to.
-``PANYA-DECISION 2026-08-27T15:25+07:00`` (``M2-NO-VEHICLE-OWNER-20260827-
-1525``) accepted "talk to Columbus, arrive at scene 17 as an ordinary
-character" as M2's bar, and ``QUESTDATA_TH__QUEST.tsv`` row 3021's
-``n_VARI_2`` says 17 with eight sibling rows agreeing.  Moving the door
-would contradict an owner ruling on a measurement, which is not a thing a
-lane does on its own - so this module MOVES NOTHING.  It measures, it
-prints, and this round's letter to the COO asks for the ruling.  The
-attended ticket that would decide it by eye already exists and is blocked
-for the matching reason (it needs a server that sends the panel, and no such
-server is on ``main``).
+[MEASURED] every number in the table above, and the fact that no CLINE row
+carries the all-ones sentinel.
+[MEASURED] that ``INSTANCE.n_SCENE_ID`` and ``SAILING_RESULT.n_AREA`` carry
+an ``n_CLINE_TYPE`` for these scenes, and which types.
+[PROPOSED] that a walk-in arrival may compose a cast FROM an INSTANCE row.
+The rows carry ``n_MIN_LEVEL``/``n_MAX_LEVEL`` tiers and an ``n_EXIT``,
+which is the shape of an instanced dungeon entry, not necessarily of an
+ordinary arrival.  Nothing here decides that; a round that builds the
+roster owns the question, and this module deliberately makes the DATA
+question ("does a cast resolve") separate from the DESIGN question ("may
+this arrival send it").
+[CONTESTED] that the door's destination is scene id 17 at all.
+``world_m2_sea_destination`` labels ``DESTINATION_SCENE_N_ID`` `[CONTESTED]`
+in its own source and says in so many words that nothing in that file may
+be quoted as measuring row 3021's destination is a scene id: the rival
+reading is ``MARKER.n_ID``, under which 17 resolves to ``MARKER[17].n_SCENE
+= 126``.  This module carries that tag rather than dropping it -
+``DOOR_SCENE_ID_IS_CONTESTED`` below - because under the rival reading the
+door and the survey trial are the SAME scene and ``halves_agree()`` is
+True.
 
-WHAT THIS MODULE DOES NOT CLAIM.
+WHAT THIS MODULE DOES NOT DO.
 
-1. IT DOES NOT CLAIM SCENE 17 IS EMPTY ON A PLAYER'S SCREEN.  A scene with
-   no creature line still has terrain, a skybox and a ship model; what is
-   measured here is that no SERVER-COMPOSED ACTOR can be derived for it,
-   which is a different sentence.  Nobody in this project has watched scene
-   17 with an eye on what is standing in it.
-2. IT SENDS NOTHING AND REFUSES NOTHING.  No frame, no row, no gate.  It
-   composes a console line, the same report-only shape as every other file
-   in this M2 family (``world_m2_sea_destination``,
+1. IT SENDS NOTHING, REFUSES NOTHING, MOVES NOTHING.  No frame, no row, no
+   gate, no door.  It composes a console line, the same report-only shape
+   as every other file in this M2 family (``world_m2_sea_destination``,
    ``world_m2_crossing_handoff``, ``world_m2_return_leg``,
    ``world_m2_columbus_trigger_readiness``).
-3. IT READS NO FILE.  The table above is frozen here with the two source
-   sha256 digests that produced it, because this package is imported by a
-   gate run that has no ``pf_bridge`` beside it - the same reason every
-   identity module in this lane carries frozen rows instead of a reader.
+2. IT READS NO FILE.  The rows below are frozen with the digests that
+   produced them, because this package is imported by a gate run with no
+   ``pf_bridge`` beside it - the same reason every identity module in this
+   lane carries frozen rows instead of a reader.  ``tools/pf_scene_cast_
+   sources_extract.py`` is the re-derivation, and it is the thing to run
+   when a digest below stops matching.
+3. IT DOES NOT SAY ANY SCENE IS CASTLESS.  After this round, that sentence
+   is only sayable about a scene for which every source in
+   ``CREATURE_LINE_SOURCES`` was checked and answered nothing, and the
+   verdict names which sources were checked.
 """
 
 from __future__ import annotations
@@ -105,105 +107,136 @@ from . import world_scene_travel
 production_allowed = True
 
 
-# The two tables the frozen rows below came from, pinned by digest so a
-# later round can re-derive them and find out if they moved.
-SCENE_NAME_TABLE = "gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv"
-SCENE_NAME_TABLE_SHA256 = (
-    "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b"
+MEASURED_AT = "2026-09-05T07:46+07:00"
+
+# THE ENUMERATED SEARCH SPACE.  A "no cast is derivable" claim about a
+# scene is only well formed once every entry here has been checked for it.
+# Named as data, with the key column each one is joined on, so the next
+# round that wants to make such a claim has a list to exhaust instead of a
+# habit to follow - which is the exact hole pf-adversary put this round's
+# first draft through.
+CREATURE_LINE_SOURCES = (
+    ("gamedata/tables/CONSTDATA_TH__SCENE_NAME.tsv", "n_ID",
+     "e38114a802576266ce37b2abcf8ebce3f105d7d5abaf4bc5ca066e7848c5d60b"),
+    ("gamedata/tables/CONSTDATA_TH__INSTANCE.tsv", "n_SCENE_ID",
+     "e3b54a192b886284f30cdf94922d3ee2f5907f4db6c8ab24a6850318d21558f4"),
+    ("gamedata/tables/CONSTDATA_TH__SAILING_RESULT.tsv", "n_AREA",
+     "9a047da026c12c2909e9c2725a19e49713161c5d9e10c108e386157446323d2c"),
 )
+# The block table every source above resolves INTO, and the row table the
+# block's leader points at.  Not sources of an n_CLINE_TYPE; the other end
+# of the join.
 CLINE_TABLE = "gamedata/tables/CONSTDATA_TH__CLINE.tsv"
 CLINE_TABLE_SHA256 = (
     "aa4a55b8db882eb965d0b7e186cd7bc7b5a81da8f057fee24586a27c94b2dc40"
 )
-MEASURED_AT = "2026-09-05T07:2x+07:00"
+MOBS_TABLE = "gamedata/tables/CONSTDATA_TH__MOBS.tsv"
+MOBS_TABLE_SHA256 = (
+    "3c0d33d68f832eefda56c845495008338dcef56f4277584b9ca479b7e1b3916b"
+)
 
-# The value the scene row carries when it names no creature-line block.
-# NOT decoded from the client image - see the module docstring for exactly
-# what is measured and what is inferred.
-NO_CLINE_TYPE = 0xFFFFFFFF
+# The value a SCENE_NAME row carries when it names no creature line of its
+# own.  252 of the 271 scene rows carry it - it is the DEFAULT, not a
+# marker for "empty", which is the reading the first draft got wrong.
+NO_DIRECT_CLINE_TYPE = 0xFFFFFFFF
 
-# n_SCENE_TYPE families this file distinguishes, by their own numbers.
-SCENE_TYPE_SHIP = 4
-SCENE_TYPE_OCEAN_PANEL = 8
+SCENE_TYPE_SEA_MAP = 4        # what 17-21 and 39-41 all are
+SCENE_TYPE_OCEAN_PANEL = 8    # what 126/127/304/305 all are
 
-VERDICT_NO_CAST_POSSIBLE = "NO_CAST_POSSIBLE_NO_CLINE_TYPE"
-VERDICT_CAST_POSSIBLE_COMPOSED = "CAST_POSSIBLE_COMPOSED"
-VERDICT_CAST_POSSIBLE_NOT_COMPOSED = "CAST_POSSIBLE_NOT_COMPOSED"
+SOURCE_DIRECT = "SCENE_NAME"
+SOURCE_INSTANCE = "INSTANCE"
+SOURCE_SAILING = "SAILING_RESULT"
+
+VERDICT_CAST_RESOLVES = "CAST_RESOLVES"
+VERDICT_CAST_RESOLVES_PARTIALLY = "CAST_RESOLVES_PARTIALLY"
+VERDICT_NO_SOURCE_ANSWERS = "NO_SOURCE_ANSWERS"
 VERDICT_NOT_MEASURED = "NOT_MEASURED"
 
+# ``world_m2_sea_destination`` labels its own DESTINATION_SCENE_N_ID
+# [CONTESTED]; carried here rather than dropped.  See the docstring.
+DOOR_SCENE_ID_IS_CONTESTED = True
+DOOR_RIVAL_READING_SCENE_ID = 126
 
-class SeaSceneCast(NamedTuple):
-    """One sea scene's ability to carry a server-composed cast.
 
-    ``composer_source`` is this lane's own name for the roster builder
-    registered for the scene in ``world_scene_travel.CENSUS_SOURCES``, or
-    ``None`` when no builder is registered.  It is read live rather than
-    frozen, so the day a roster is added for one of these scenes the verdict
-    below changes with it instead of going stale.
+class SceneCast(NamedTuple):
+    """What cast one scene resolves, and out of which source.
+
+    ``resolved``/``placements`` are counts of that scene's own committed
+    ``.placements.tsv`` rows that reach a ``MOBS`` row through
+    ``best_cline_type``.  ``composer_source`` is this lane's registered
+    roster builder for the scene if there is one, read live from
+    ``world_scene_travel.CENSUS_SOURCES`` rather than frozen, so the day a
+    roster lands the report changes with it.
     """
 
     scene_id: int
+    model_id: str
+    name_gloss: str
     scene_type: int
-    cline_type: int
-    cline_rows: int
-    marker: int
-    save: int
+    direct_cline_type: int
+    instance_cline_types: tuple[int, ...]
+    sailing_cline_types: tuple[int, ...]
+    placements: int
+    resolved: int
+    best_cline_type: int
+    answering_source: str | None
     composer_source: str | None
     verdict: str
 
     @property
-    def can_carry_a_cast(self) -> bool:
-        return self.cline_rows > 0
+    def a_cast_resolves(self) -> bool:
+        return self.resolved > 0
 
 
-# scene id -> (n_SCENE_TYPE, n_CLINE_TYPE, CLINE rows carrying that type,
-#              n_MARKER, n_SAVE)
-# The eight Columbus ship destinations (world_m2_sea_destination.
-# COLUMBUS_ROUTES' own target scenes) and the four ocean panels those same
-# options advertise.  Measured, not modelled; see the module docstring's
-# table, which is this data in prose.
-_MEASURED_ROWS: dict[int, tuple[int, int, int, int, int]] = {
-    17: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    18: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    19: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    20: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    21: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    39: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    40: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    41: (SCENE_TYPE_SHIP, NO_CLINE_TYPE, 0, 0, 0),
-    126: (SCENE_TYPE_OCEAN_PANEL, 3001, 56, 0, 0),
-    127: (SCENE_TYPE_OCEAN_PANEL, 3002, 58, 0, 0),
-    304: (SCENE_TYPE_OCEAN_PANEL, 3007, 58, 0, 0),
-    305: (SCENE_TYPE_OCEAN_PANEL, 3008, 58, 0, 0),
+# scene id -> (model, ASCII gloss of s_SCENE_NAME, n_SCENE_TYPE,
+#              direct n_CLINE_TYPE, INSTANCE types, SAILING_RESULT types,
+#              placements, resolved, best type)
+# Measured at MEASURED_AT from the digests above; re-derivable with
+# tools/pf_scene_cast_sources_extract.py.  The glosses are translations of
+# the CJK s_SCENE_NAME column, kept ASCII because this console is cp874.
+_MEASURED_ROWS: dict[int, tuple] = {
+    17: ("Bg1001", "one ship at sea", 4, NO_DIRECT_CLINE_TYPE,
+         (801, 814, 816), (), 8, 7, 801),
+    18: ("Bg1002", "two ships at sea style 1", 4, NO_DIRECT_CLINE_TYPE,
+         (803, 805, 818), (), 8, 8, 818),
+    19: ("Bg1003", "two ships at sea style 2", 4, NO_DIRECT_CLINE_TYPE,
+         (821,), (), 8, 8, 821),
+    20: ("Bg1004", "two ships at sea style 3", 4, NO_DIRECT_CLINE_TYPE,
+         (809, 823), (), 10, 10, 809),
+    21: ("Bg1005", "three ships at sea style 1", 4, NO_DIRECT_CLINE_TYPE,
+         (811, 825), (), 13, 13, 811),
+    39: ("Bg1023", "small island style 9", 4, NO_DIRECT_CLINE_TYPE,
+         (519,), (), 11, 11, 519),
+    40: ("Bg1024", "small island style 10", 4, NO_DIRECT_CLINE_TYPE,
+         (520,), (), 37, 35, 520),
+    41: ("Bg1025", "small island style 11", 4, NO_DIRECT_CLINE_TYPE,
+         (521,), (), 10, 10, 521),
+    126: ("Bg3001", "Atlantis", 8, 3001, (), (8000,), 38, 37, 3001),
 }
 
-# The eight ship scenes, in the order world_m2_sea_destination lists their
-# routes.  Derived from the measurement above rather than typed twice.
-SHIP_DESTINATION_SCENE_IDS = tuple(
-    scene_id
-    for scene_id, row in sorted(_MEASURED_ROWS.items())
-    if row[0] == SCENE_TYPE_SHIP
+# The eight scenes row 302x's own options target, and the panels those
+# options advertise.  Both read from world_m2_sea_destination's
+# COLUMBUS_ROUTES columns rather than typed again here.
+COLUMBUS_TARGET_SCENE_IDS = tuple(
+    sorted({row[3] for row in world_m2_sea_destination.COLUMBUS_ROUTES})
 )
-OCEAN_PANEL_SCENE_IDS = tuple(
-    scene_id
-    for scene_id, row in sorted(_MEASURED_ROWS.items())
-    if row[0] == SCENE_TYPE_OCEAN_PANEL
+ADVERTISED_PANEL_SCENE_IDS = tuple(
+    sorted({row[4] for row in world_m2_sea_destination.COLUMBUS_ROUTES})
 )
 
 # The scene a player's own action reaches, and the scene the survey records
 # are provisioned in.  Both READ from the modules that own them; neither
-# number is re-declared here, so this file cannot drift away from the two
-# halves it is comparing.
+# number is re-declared here.
 DOOR_SCENE_ID = world_m2_sea_destination.DESTINATION_SCENE_N_ID
 TRIAL_SCENE_ID = world_m2_survey_plan.XYZ_FRAME_SCENE_ID
 
 
-def cast_capacity(scene_id: int) -> SeaSceneCast:
-    """What this project can compose for ``scene_id``, as a measured row.
+def cast_capacity(scene_id: int) -> SceneCast:
+    """What cast ``scene_id`` resolves, as a measured row.
 
-    A scene this round did not measure answers ``VERDICT_NOT_MEASURED`` with
-    zeroes rather than raising: the callers are report paths, and a scene id
-    nobody measured is a thing to say out loud, not to fail a crossing over.
+    A scene this round did not measure answers ``VERDICT_NOT_MEASURED``
+    rather than raising, and rather than answering "no cast": those are
+    different sentences and conflating them is what the first draft did.
     """
     try:
         key = int(scene_id)
@@ -212,23 +245,33 @@ def cast_capacity(scene_id: int) -> SeaSceneCast:
     row = _MEASURED_ROWS.get(key)
     source = _composer_source(key)
     if row is None:
-        return SeaSceneCast(key, -1, -1, 0, -1, -1, source,
-                            VERDICT_NOT_MEASURED)
-    scene_type, cline_type, cline_rows, marker, save = row
-    if cline_rows <= 0:
-        verdict = VERDICT_NO_CAST_POSSIBLE
-    elif source is None:
-        verdict = VERDICT_CAST_POSSIBLE_NOT_COMPOSED
+        return SceneCast(key, "", "", -1, -1, (), (), 0, 0, -1, None,
+                         source, VERDICT_NOT_MEASURED)
+    (model, gloss, scene_type, direct, instance_types, sailing_types,
+     placements, resolved, best) = row
+    if direct != NO_DIRECT_CLINE_TYPE:
+        answering = SOURCE_DIRECT
+    elif instance_types:
+        answering = SOURCE_INSTANCE
+    elif sailing_types:
+        answering = SOURCE_SAILING
     else:
-        verdict = VERDICT_CAST_POSSIBLE_COMPOSED
-    return SeaSceneCast(key, scene_type, cline_type, cline_rows, marker,
-                        save, source, verdict)
+        answering = None
+    if resolved <= 0:
+        verdict = VERDICT_NO_SOURCE_ANSWERS
+    elif resolved < placements:
+        verdict = VERDICT_CAST_RESOLVES_PARTIALLY
+    else:
+        verdict = VERDICT_CAST_RESOLVES
+    return SceneCast(key, model, gloss, scene_type, direct, instance_types,
+                     sailing_types, placements, resolved, best, answering,
+                     source, verdict)
 
 
 def _composer_source(scene_id: int) -> str | None:
     """This lane's registered roster builder for the scene, or None.
 
-    Wrapped rather than inlined so a table that will not import cannot make
+    Wrapped rather than inlined so a table that will not answer cannot make
     a report path raise - the same fail-closed shape the admission
     predicates in ``lane_hooks/lane_a_scene_census.py`` use.
     """
@@ -238,63 +281,72 @@ def _composer_source(scene_id: int) -> str | None:
         return None
 
 
-def every_ship_destination_refuses_a_cast() -> bool:
-    """Is the eight-of-eight result still eight-of-eight?
+def targets_with_a_resolvable_cast() -> tuple[int, ...]:
+    """Which of the eight Columbus targets resolve a cast at all.
 
-    Exists as a function rather than a constant so the day one of these
-    scenes turns out to have a creature line after all - a corrected table,
-    a wider measurement - the answer changes with the data instead of with
-    a sentence somebody has to remember to edit.
+    Derived from ``_MEASURED_ROWS`` through ``cast_capacity`` rather than
+    stated, so a corrected row changes the answer instead of leaving a
+    sentence somebody has to remember to edit.
     """
-    return all(
-        not cast_capacity(scene_id).can_carry_a_cast
-        for scene_id in SHIP_DESTINATION_SCENE_IDS
+    return tuple(
+        scene_id
+        for scene_id in COLUMBUS_TARGET_SCENE_IDS
+        if cast_capacity(scene_id).a_cast_resolves
+    )
+
+
+def targets_with_no_roster_yet() -> tuple[int, ...]:
+    """Targets whose cast resolves and which this lane has NOT built yet.
+
+    This is the buildable-today list the first draft would have hidden.
+    """
+    return tuple(
+        scene_id
+        for scene_id in targets_with_a_resolvable_cast()
+        if cast_capacity(scene_id).composer_source is None
     )
 
 
 def halves_agree() -> bool:
     """Do the door and the survey trial name the same scene?
 
-    False today (17 vs 126).  Reported, not enforced: the door's number is
-    an owner ruling and a table column, and this module moves neither.
+    False under the scene-id reading of the door (17 vs 126) and True under
+    the rival ``MARKER`` reading (126 vs 126).  Reported with
+    ``DOOR_SCENE_ID_IS_CONTESTED`` beside it precisely because the answer
+    is a function of an unsettled reading, not a measurement.
     """
     return DOOR_SCENE_ID == TRIAL_SCENE_ID
 
 
 def sea_scene_cast_console_line() -> str:
-    """One ASCII line naming both halves of M2's sea and what each can hold.
+    """One ASCII line: what each half of M2's sea resolves, and how many of
+    the eight targets are buildable but unbuilt.
 
-    Greppable token: ``M2_SEA_CAST``.  ``door_*`` is the scene a player
-    reaches by their own action; ``trial_*`` is the scene the survey records
-    are provisioned in.
+    Greppable token: ``M2_SEA_CAST``.
     """
     door = cast_capacity(DOOR_SCENE_ID)
     trial = cast_capacity(TRIAL_SCENE_ID)
+    unbuilt = targets_with_no_roster_yet()
+    unbuilt_text = ",".join(str(scene_id) for scene_id in unbuilt) or "none"
     return (
         "M2_SEA_CAST"
         f" door={door.scene_id}"
+        f" door_contested={'YES' if DOOR_SCENE_ID_IS_CONTESTED else 'NO'}"
         f" door_verdict={door.verdict}"
-        f" door_cline={_cline_text(door)}"
-        f" door_cline_rows={door.cline_rows}"
+        f" door_source={door.answering_source or 'none'}"
+        f" door_cast={door.resolved}/{door.placements}"
         f" door_composer={door.composer_source or 'none'}"
         f" trial={trial.scene_id}"
         f" trial_verdict={trial.verdict}"
-        f" trial_cline={_cline_text(trial)}"
-        f" trial_cline_rows={trial.cline_rows}"
+        f" trial_source={trial.answering_source or 'none'}"
+        f" trial_cast={trial.resolved}/{trial.placements}"
         f" trial_composer={trial.composer_source or 'none'}"
         f" halves_agree={'YES' if halves_agree() else 'NO'}"
-        " ship_destinations_refusing_a_cast="
-        f"{sum(1 for s in SHIP_DESTINATION_SCENE_IDS if not cast_capacity(s).can_carry_a_cast)}"
-        f"/{len(SHIP_DESTINATION_SCENE_IDS)}"
+        f" targets_resolving={len(targets_with_a_resolvable_cast())}"
+        f"/{len(COLUMBUS_TARGET_SCENE_IDS)}"
+        f" targets_buildable_unbuilt={unbuilt_text}"
+        f" sources_checked={len(CREATURE_LINE_SOURCES)}"
     )
-
-
-def _cline_text(row: SeaSceneCast) -> str:
-    if row.cline_type == NO_CLINE_TYPE:
-        return "none"
-    if row.cline_type < 0:
-        return "unmeasured"
-    return str(row.cline_type)
 
 
 def sea_scene_cast_console_line_safe() -> str:

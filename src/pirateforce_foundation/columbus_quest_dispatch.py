@@ -722,20 +722,24 @@ def dispatch_columbus_quest3021(*, registry=None, emit=print, legacy=None,
     # every other report in this family.
     emit(world_m2_columbus_trigger_readiness.trigger_readiness_console_line(
         legacy=legacy))
-    # WHETHER THE SEA THIS DOOR OPENS ON CAN HOLD ANYTHING AT ALL -- ROUND
-    # (LANE-A, M2), APPENDED LAST AGAIN FOR THE SAME POSITION-PINNED REASON
-    # AS EVERY REPORT ABOVE.  The two reports above ask whether the registry
-    # holds a place to land and whether each island's Columbus is placed;
-    # neither asks the question that decides whether M2's two halves (this
-    # door, scene 17; the survey trial, scene 126) can ever be reconciled by
-    # populating the door's own destination.  ``world_m2_sea_scene_cast``
-    # answers it from the client's own ``n_CLINE_TYPE`` column: eight of
-    # eight ship destinations name no creature line, so no cast is derivable
-    # for any of them, while all four advertised ocean panels do name one.
-    # Takes no argument -- it reads the two scene ids from the modules that
-    # own them and its own frozen measurement -- and it MOVES NOTHING: the
-    # door's number is an owner ruling (M2-NO-VEHICLE-OWNER-20260827-1525)
-    # and a table column, and this line is a report, not a gate.
+    # WHAT CAST THE SEA THIS DOOR OPENS ON CAN HOLD -- ROUND (LANE-A, M2),
+    # APPENDED LAST AGAIN FOR THE SAME POSITION-PINNED REASON AS EVERY
+    # REPORT ABOVE.  The two reports above ask whether the registry holds a
+    # place to land and whether each island's Columbus is placed; neither
+    # asks whether the destination can hold anyone once the player is
+    # standing in it.  ``world_m2_sea_scene_cast`` answers that from the
+    # THREE committed tables that carry an ``n_CLINE_TYPE`` column, which is
+    # the correction that file was rewritten around: its own first draft
+    # opened one of the three, found the sentinel in the scene's own row,
+    # and concluded no cast was derivable for any of the eight.  Measured
+    # against ``CONSTDATA_TH__INSTANCE.tsv`` (keyed by ``n_SCENE_ID``, and
+    # never opened anywhere in this project before that round) all eight
+    # resolve -- two of them more completely than scene 126, whose roster
+    # this lane already ships.  Takes no argument; reads the two scene ids
+    # from the modules that own them.  MOVES NOTHING: this is a report, not
+    # a gate, and the door's number is an owner ruling
+    # (M2-NO-VEHICLE-OWNER-20260827-1525) plus a reading its own module
+    # labels [CONTESTED].
     emit(world_m2_sea_scene_cast.sea_scene_cast_console_line_safe())
     return entry
 
