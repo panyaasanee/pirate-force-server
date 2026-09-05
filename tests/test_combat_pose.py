@@ -153,15 +153,72 @@ class ProductionResolutionTests(unittest.TestCase):
     def test_nothing_a_caller_can_pass_raises(self):
         """Interlock X07: this runs inside state.dispatch() under a listener
         with no except handlers, so a caller bug must cost one hit's pose and
-        never the accept loop."""
+        never the accept loop.
+
+        ~~`if behavior is not None: assertIn(behavior, CONFIRMED)`~~ IS STRUCK.
+        pf-adversary measured that this test was GREEN BECAUSE OF the bug it
+        was written to cover: `True` and `1.0` both hash equal to `1`, the
+        lookup answered 280, 280 is in the confirmed set, and the assertion
+        was satisfied by a frame that should never have been composed.  A test
+        whose pass condition is met by the defect is worse than no test.  The
+        rule is now absolute -- nothing but a real `int` resolves.
+        """
+        class HostileHash:
+            def __hash__(self):
+                raise ValueError("hash boom")
+
+        class HostileEq:
+            def __eq__(self, other):
+                raise ValueError("eq boom")
+
+            def __hash__(self):
+                return 1        # collides with class 1's bucket on purpose
+
         for bad in (None, "1", 1.0, b"1", [1], {"class_id": 1}, object(),
-                    -1, 0, True, 2 ** 64):
-            with self.subTest(bad=bad):
+                    -1, 0, True, False, 2 ** 64, HostileHash(), HostileEq()):
+            with self.subTest(bad=repr(bad)):
                 behavior, line = combat_pose.production_behavior_for_class(bad)
                 self.assertIsInstance(line, str)
-                if behavior is not None:
-                    self.assertIn(behavior,
-                                  combat_pose.SCREEN_CONFIRMED_BEHAVIOR_IDS)
+                self.assertIsNone(
+                    behavior,
+                    "a value that is not a real int must never resolve to a "
+                    "selector -- bool and float hash equal to an int and "
+                    "composed a frame before this was pinned")
+
+    def test_a_bool_or_float_class_id_composes_nothing_at_all(self):
+        """The D4 mutant, pinned from the direction that actually matters.
+
+        `True == 1` and `1.0 == 1`, so before the type guard these produced
+        bytes byte-identical to a genuine Gladiator's while the console said
+        `class=<bool>`.  The module reported the bad type and acted on it
+        anyway.  Both halves are asserted here: no selector, and a line that
+        names the type rather than laundering it into a number.
+        """
+        for bad in (True, 1.0):
+            with self.subTest(bad=repr(bad)):
+                behavior, line = combat_pose.production_behavior_for_class(bad)
+                self.assertIsNone(behavior)
+                self.assertTrue(line.startswith(
+                    combat_pose.POSE_NO_EQUIP_PROVENANCE))
+                self.assertIn(type(bad).__name__, line)
+                self.assertNotIn("behavior=", line)
+
+    def test_a_kind_the_table_never_heard_of_is_not_reported_as_silent(self):
+        """pf-adversary D8: two different facts had one reason string.
+
+        `n_ATTACK_SKILL = 0` is EQUIP_VALUE saying "this kind does not swing".
+        An equip type with no EQUIP_VALUE row at all is EQUIP_VALUE saying
+        nothing -- and two shipped item types are already in that state (0 and
+        524288).  Reporting them alike is the same measured-negative-versus-
+        untested confusion this module refuses to make about 286.
+        """
+        self.assertIn(4, combat_pose.KNOWN_EQUIP_TYPES)       # shield, atk 0
+        self.assertNotIn(524288, combat_pose.KNOWN_EQUIP_TYPES)
+        self.assertNotIn(0, combat_pose.KNOWN_EQUIP_TYPES)
+        self.assertEqual(
+            len(combat_pose.KNOWN_EQUIP_TYPES), 17,
+            "KNOWN_EQUIP_TYPES must be every EQUIP_VALUE row, not just the "
+            "swinging ones")
 
     def test_a_non_integer_class_id_is_reported_by_type_not_by_value(self):
         # Same rule three other modules in this package learned by
@@ -219,6 +276,155 @@ class SourcePinTests(unittest.TestCase):
             finished.returncode, 0,
             "the shipped attack-behavior tables are not what a fresh mining "
             "produces:\n%s%s" % (finished.stdout, finished.stderr))
+
+
+@BRIDGE_GAMEDATA.skip_unless_present()
+class ExtractorRefusalTests(unittest.TestCase):
+    """The guards, driven on falsifying input.
+
+    pf-adversary, this round: every one of the extractor's seven guards could
+    be neutered (`if X:` -> `if False:`) with the whole suite green, because
+    the only test that ran the tool asserted `returncode == 0` on known-good
+    data.  `MineError` had never been raised by anything.  Seven guards were
+    the round's headline evidence and not one line of them had ever executed
+    on an input that should trip it.
+
+    These tests build a mutated copy of the bridge's `gamedata/tables` and
+    assert the tool REFUSES -- exit 2, nothing written.  "Nothing written" is
+    asserted too: the class's own promise is that there is no partial output.
+    """
+
+    TABLES = (
+        "CONSTDATA_TH__EQUIP_VALUE.tsv",
+        "CONSTDATA_TH__EQUIPMENT_BASE.tsv",
+        "CONSTDATA_TH__CHARCREATE_CLASS.tsv",
+    )
+
+    def _run_against(self, mutate):
+        """Copy the three source tables, apply `mutate`, run the tool."""
+        import shutil
+        import tempfile
+        source = ROOT.parent / "pf_bridge" / "gamedata" / "tables"
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            tables = work / "gamedata" / "tables"
+            tables.mkdir(parents=True)
+            for name in self.TABLES:
+                shutil.copy(source / name, tables / name)
+            mutate(tables)
+            out_dir = work / "out"
+            finished = subprocess.run(
+                [sys.executable,
+                 str(ROOT / "tools/pf_equip_attack_behavior_extract.py"),
+                 "--gamedata", str(work / "gamedata"),
+                 "--out-dir", str(out_dir)],
+                capture_output=True, text=True)
+            written = sorted(p.name for p in out_dir.glob("*")) \
+                if out_dir.is_dir() else []
+            return finished, written
+
+    @staticmethod
+    def _rewrite(path, transform):
+        rows = [line.split("\t")
+                for line in path.read_text(encoding="utf-8").splitlines()]
+        transform(rows[0], rows[1:])
+        path.write_text(
+            "\n".join("\t".join(row) for row in rows) + "\n", encoding="utf-8")
+
+    def _assert_refused(self, finished, written, fragment):
+        self.assertEqual(
+            finished.returncode, 2,
+            "the tool accepted falsifying input:\n%s%s"
+            % (finished.stdout, finished.stderr))
+        self.assertIn("REFUSED", finished.stdout)
+        self.assertIn(fragment, finished.stdout)
+        self.assertEqual(
+            written, [],
+            "a refusal wrote %s -- there is supposed to be no partial output"
+            % written)
+
+    def test_check_a_a_slot_that_decodes_to_no_row_is_refused(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__CHARCREATE_CLASS.tsv"
+
+            def transform(header, rows):
+                column = header.index("n_SLOT_RHAND")
+                # 2200099 -> EQUIPMENT_BASE id 99, which is not a row.
+                rows[0][column] = "2200099"
+            self._rewrite(path, transform)
+        finished, written = self._run_against(mutate)
+        self._assert_refused(finished, written, "has no row")
+
+    def test_check_b_a_slot_that_decodes_to_a_non_creation_row_is_refused(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__CHARCREATE_CLASS.tsv"
+
+            def transform(header, rows):
+                column = header.index("n_SLOT_RHAND")
+                # EQUIPMENT_BASE id 1 exists but is a real shipped item, not
+                # one of the six character-creation rows.
+                rows[0][column] = "2200001"
+            self._rewrite(path, transform)
+        finished, written = self._run_against(mutate)
+        self._assert_refused(
+            finished, written, "character-creation rows")
+
+    def test_check_c_a_row_whose_class_mask_disagrees_is_refused(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__EQUIPMENT_BASE.tsv"
+
+            def transform(header, rows):
+                identity = header.index("n_ID")
+                column = header.index("n_CONDITION_CLASS")
+                for row in rows:
+                    if row[identity] == "2":      # class 1's blade
+                        row[column] = "32"        # every class but 1 and 2
+            self._rewrite(path, transform)
+        finished, written = self._run_against(mutate)
+        self._assert_refused(finished, written, "does not carry class")
+
+    def test_the_slot_base_guard_refuses_a_slot_below_the_key_base(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__CHARCREATE_CLASS.tsv"
+
+            def transform(header, rows):
+                rows[0][header.index("n_SLOT_RHAND")] = "42"
+            self._rewrite(path, transform)
+        finished, written = self._run_against(mutate)
+        self._assert_refused(finished, written, "weapon-key base")
+
+    def test_a_changed_equip_value_row_count_is_refused(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__EQUIP_VALUE.tsv"
+            text = path.read_text(encoding="utf-8")
+            path.write_text(
+                text + "18\tx\t131072\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t\n",
+                encoding="utf-8")
+        finished, written = self._run_against(mutate)
+        self._assert_refused(finished, written, "equipment-kind roster")
+
+    def test_a_duplicated_equip_type_is_refused(self):
+        def mutate(tables):
+            path = tables / "CONSTDATA_TH__EQUIP_VALUE.tsv"
+
+            def transform(header, rows):
+                column = header.index("n_EQUIPTYPE")
+                rows[1][column] = rows[0][column]
+            self._rewrite(path, transform)
+        finished, written = self._run_against(mutate)
+        self._assert_refused(finished, written, "twice")
+
+    def test_the_control_the_refusals_are_measured_against(self):
+        """Unmutated input still writes both files, exit 0.
+
+        Without this, every test above would also pass against a tool that
+        refused everything.
+        """
+        finished, written = self._run_against(lambda _tables: None)
+        self.assertEqual(finished.returncode, 0, finished.stdout)
+        self.assertEqual(
+            written,
+            ["creation_gear_by_class.tsv", "equip_value_attack_behavior.tsv"])
 
 
 if __name__ == "__main__":

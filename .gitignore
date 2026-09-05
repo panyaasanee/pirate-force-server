@@ -610,6 +610,20 @@
 # committed local TSV copies from ../pf_bridge/gamedata.
 !/tools/pf_class_skill_starting_kit_extract.py
 
+# LANE-B round ti9gxr - the generator for combat_pose.py's two committed local
+# TSV copies (data/equip_value_attack_behavior.tsv, data/creation_gear_by_class
+# .tsv) from ../pf_bridge/gamedata.  IT SHIPPED WITHOUT THIS LINE and
+# pf-adversary measured what that costs: on a clone WITH the bridge sibling the
+# re-derive test went red accusing the tables of being stale when they were
+# byte-perfect and the TOOL was absent, and on the Windows merge gate -- which
+# runs with no sibling, so the test skips -- it was GREEN.  The gate would have
+# merged a commit whose whole cited provenance chain ("the crosswalk is
+# derived, not typed", three module headers naming this file) did not exist in
+# the artifact being merged, leaving the two .tsv files as unsourceable
+# literals pinned to a hash of themselves.  Same reason as every sibling above:
+# the generator has to ship with what it generates.
+!/tools/pf_equip_attack_behavior_extract.py
+
 # LANE-A round nmn123 - re-derives world_m2_sea_scene_cast's frozen rows and
 # digests from ../pf_bridge/gamedata.  Has to ship with the module: without
 # it the pinned sha256 digests are pins nothing can check, which is exactly
