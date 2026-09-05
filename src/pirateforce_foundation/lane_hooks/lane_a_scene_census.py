@@ -69,11 +69,14 @@ in outcome to the ``skipped_scene_<id>_not_home`` branch this replaced.
     all three of those scenes.
 
 HOW A SCENE GETS ADDED.  ~~Two tables, and a scene needs a row in BOTH~~ --
-SEVEN REGISTRATIONS, counted round ``yob0a2`` by adding scene 304 and reading
-the red tests one at a time (pf-adversary: the round found five of the seven
-only BECAUSE tests went red, and two more were still missing when it first
-committed).  The two this file has always named come first because they are
-the ones this module reads:
+~~SEVEN REGISTRATIONS~~ NINE, counted round ``yob0a2`` by adding scene 304 and
+reading the red tests one at a time (pf-adversary: the round found five of
+the seven only BECAUSE tests went red, and two more were still missing when
+it first committed) and corrected to nine round ``dyi95m`` (pf-adversary D3,
+on the merged ``umt3io`` diff: THIS round's own re-land of 304 was closed by
+the gate over exactly the ninth one, which the list did not yet name when it
+was written).  The two this file has always named come first because they
+are the ones this module reads:
 
     1. ``world_scene_travel.CENSUS_SOURCES`` - the seam's own table, which
        decides what composes the roster
@@ -92,15 +95,27 @@ the ones this module reads:
     7. ``tools/pf_runtimeres_actor_entry_static.py`` + its report +
        ``tests/test_runtimeres_actor_entry_static.py`` - three copies of
        the actor-entry call-site counts, which a new composer moves by one
+    8. ``lane_a_choose_npc_roster_scenes._IDENTITY_OF_SCENE`` - ONLY when the
+       new scene ships a ChooseNPC responder this round; see "THE CHOOSENPC
+       RESPONDER GATE" below for why the absence of a row here can be the
+       correct, recorded answer rather than an omission (scene 304 ships
+       today with no row here at all - see that composer's own note on it)
+    9. ``docs/PYTEST_SKIP_PINS.json`` - the gate's skip-pin ledger.  A new
+       composer's own test file almost always adds a sibling-gated skip
+       (``@BRIDGE_GAMEDATA.skip_unless_present()``), and the gate machine
+       checks out ONE repository, so that skip is invisible to a rehearsal
+       run beside the bridge and to ``-q -rs`` alike - the one row this list
+       omitted closed ``#847`` with no line pointing back here.
 
 An earlier draft claimed the answer lived in exactly one place and not here;
 that was wrong, and the second table is a gate rather than a formality - a
 census nobody can grep is a census nobody can grade.  A scene in the first
 table and not the second is SKIPPED AND SAID SO, loudly, at import
 (``LANE_A_CENSUS_SKIPPED``): silence there is the same defect in mirror image
-as the one round 80x5ba existed to fix.  Rows 3-7 have no such import-time
-report; they are caught by tests, which is why this list exists rather than
-the sentence it replaces.
+as the one round 80x5ba existed to fix.  Rows 3-9 have no such import-time
+report; they are caught by tests (row 9's own test is the gate's own
+``skip_census`` rehearsal, not a test in this repository), which is why this
+list exists rather than the sentence it replaces.
 
 WHY IT DELEGATES INSTEAD OF COMPOSING.  ``world_population_handoff`` already
 resolves scene -> composer, caps a caller's count against the roster size,
@@ -157,6 +172,19 @@ membership for scene 14, and this composer's ``membership`` field is armed
 on every arrival -- see that responder module's own docstring for what a
 player sees because of the flip and the two gaps it ships with, pinned
 rather than fixed.
+
+SCENE 304 SHIPS WITH NO ROW HERE AT ALL, and that is a gap this round records
+rather than one it closes (pf-adversary, round `dyi95m`, D7, on the merged
+``umt3io`` diff: "the first live composer with no ChooseNPC responder, and
+nothing recorded that").  ``lane_a_choose_npc_roster_scenes._IDENTITY_OF_
+SCENE`` carries no entry for 304, so ``_membership_if_answerable`` answers
+``None`` for it the same way it does for any scene with no responder at all,
+and a GM clicking a mob in Dark Fog Sea gets whatever the frozen ChooseNPC
+handler does with no membership supplied -- untested by this round, because
+this round's whole subject is the census frame, not the click that follows
+it.  Closing this is future work with its own shape (a placement identity
+table for 304, the responder module, and the runtime.py guard scene 14
+needed before its own gate could open), not a one-line follow-up.
 
 EVERY COMPOSER'S RESULT NOW CARRIES LANE B'S ROSTER IDENTITIES TOO
 (COO-DECISION 20260903_2247).  ``SceneCensusResult.actor_identities`` is
@@ -549,6 +577,39 @@ def scene_is_sanctioned_for_a_gm_entry(
         return False
 
 
+# THE THIRD ARM'S OWN ALLOWLIST, ADDED ROUND `dyi95m` (pf-adversary D1, on
+# the merged `umt3io` diff), CLOSING THE SECOND DOOR TO SCENE 126.
+#
+# The arm below used to gate ENTIRELY on
+# `login_scene_admission.is_sanctioned_barred_scene(scene_id)` being false
+# right now.  That table is the GM lane's, and pf-adversary measured that
+# lane's own documented way of closing a sanction -- RETIRING the row once
+# the ordinary predicate already admits the scene, not revoking the
+# predicate that admitted it -- reopens scene 126 through this arm instead:
+# 126 already carries a decreed arrival (`DECREED_ARRIVAL_ROWS` in
+# `world_scene_marker.py`) and an already-live warp target, so the moment
+# it is no longer a KEY in `SANCTIONED_BARRED_SCENES`, the check below would
+# have nothing left to say no with.
+#
+# This tuple is the fix: which scenes this arm may EVER claim is decided
+# HERE, in this lane's own file, the same round a COO ruling names a new
+# decreed row for this arm rather than for the second one.  It cannot be
+# changed by another lane retiring anything, and it does not widen what the
+# arm already covers -- 304 and 305 are exactly the two scenes
+# `test_the_arms_whole_reach_at_head_is_the_two_ungoverned_seas` already
+# measured this arm reaching.  Scene 126 is deliberately NOT here: it is
+# the second arm's scene, permanently, regardless of what
+# `SANCTIONED_BARRED_SCENES` says on any given round.  A future decreed row
+# this arm is meant to serve needs adding here in the SAME commit as its
+# `DECREED_ARRIVAL_ROWS` row (see that function's own "HOW A DECREED ROW IS
+# REVOKED" note for the two other files a new or withdrawn row touches).
+ARM_THREE_ELIGIBLE_SCENE_IDS = (
+    world_scene_travel.DARK_FOG_SEA_SCENE_ID,
+    305,  # Pale Silver Sea (Bg3008) - decreed, no composer or named seam
+          # constant yet (that is the cast this lane still owes it).
+)
+
+
 def scene_arrival_was_decreed_and_is_gm_reachable(
     scene_id: int, registry: Any = None
 ) -> bool:
@@ -595,6 +656,37 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     unchanged; 304 and 305 are in no sanction table, which is why they need
     this arm at all.
 
+    THE SECOND DOOR pf-adversary found the FOLLOWING round (round `dyi95m`,
+    D1, on the merged ``umt3io`` diff, PR #872): the check above asks whether
+    ``is_sanctioned_barred_scene`` is CURRENTLY true, and
+    ``gm/login_scene_admission.py``'s own docstring names RETIRING that row
+    as the normal way a sanction is closed out, once the ordinary predicate
+    already admits the scene.  Retiring the row is not the same event as
+    revoking the predicate: measured end to end, retiring scene 126's row
+    (rather than revoking ``CORE-REQUEST-GM-038``) makes the check above
+    answer False, and scene 126 ALREADY has a decreed-arrival row (see
+    ``DECREED_ARRIVAL_ROWS`` in ``world_scene_marker.py``) and an already-
+    live warp target -- so this arm answered True for it through the door
+    the first fix left open, shipping the exact 37-actor census
+    ``TheSecondAdmissionArmTests`` exists to prevent.  A lever any lane
+    could pull by retiring a row it does not own is the same defect the
+    first fix was written to close; it was only closed for one of the two
+    ways to pull it.
+
+    ``ARM_THREE_ELIGIBLE_SCENE_IDS`` below is the fix: a scene reaches this
+    arm's decree/warp check ONLY if a round has explicitly added it there,
+    which -- unlike ``SANCTIONED_BARRED_SCENES`` -- is this lane's OWN file
+    and changes only when a round decides this arm (not arm two) is the
+    right admission path for a newly decreed scene.  Scene 126 is not on
+    that list and never has been: arm two owns it, permanently, independent
+    of whatever the GM lane's sanction table says on any given round.  This
+    narrows the arm; it cannot widen it, because the sanctioned-scene
+    stand-aside above is kept as well, unchanged, for exactly the case
+    ``test_a_scene_the_gm_lane_governs_cannot_be_claimed_by_this_arm``
+    pins -- a scene NOT on the allowlist can never reach this arm regardless
+    of the sanction table, and a scene ON it still stands aside for as long
+    as the GM lane's table currently names it.
+
     WHY THIS IS NOT A DOOR, the same sentence the second arm carries and
     for the same reason: this predicate gates what a session ALREADY
     STANDING IN A SCENE is sent.  It cannot move a character, cannot stage
@@ -629,6 +721,25 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     Deleting this function still restores the pre-round behaviour exactly -
     an empty ocean for a GM standing in 304 - and nothing else depends on it.
 
+    THE STEP THIS PARAGRAPH LEFT OUT (pf-adversary, round `dyi95m`, D6, on
+    ``umt3io``'s merged text): the tuple is not the only place a decreed row
+    lives.  ``world_scene_travel``'s registry loader validates each row's
+    JSON ``decreed_arrival`` block AGAINST the matching ``DECREED_ARRIVAL_
+    ROWS`` entry and refuses to load ANY scene's registry if a block and its
+    tuple row disagree (a mismatch is not this one scene's problem -
+    ``load_scene_registry()`` raises for the whole file).  So the withdrawal
+    a COO letter orders is two edits in the SAME commit, not one:  the row
+    leaves ``DECREED_ARRIVAL_ROWS`` in ``world_scene_marker.py``, AND its
+    ``decreed_arrival`` block leaves (or is corrected to match) the matching
+    row in ``scenarios/world_scene_registry_001.json`` - doing only the
+    first, followed literally, breaks the loader for every scene in the
+    file, not just the one being withdrawn.  A scene added to
+    ``ARM_THREE_ELIGIBLE_SCENE_IDS`` below is the third edit a NEW decreed
+    row needs in this arm's own file, alongside those two; a withdrawal
+    should remove it from there as well, though a stray id left behind is
+    merely inert (see that constant's own docstring) rather than a loader
+    crash.
+
     WHAT "GM-ONLY" DOES AND DOES NOT MEAN HERE, stated because the sentence
     above is easy to over-read.  This predicate asks about a SCENE, never
     about an account: it answers the same True for any session standing in
@@ -654,16 +765,30 @@ def scene_arrival_was_decreed_and_is_gm_reachable(
     than assumed cheap: ``warp_no_coords_live_target`` performs its OWN read
     of the pin file (it takes no registry argument), so a scene that reaches
     this arm pays one extra registry load on top of whatever the first two
-    arms did - the same shape and the same order of magnitude as the second
-    arm's own ~3.2ms.  Two things keep it acceptable: this arm is only
-    reached for a scene BOTH earlier arms refused AND the GM lane does not
-    govern (two scene ids today, 304 and 305), and a census is composed once
-    per arrival, not in a loop.
+    arms did.  ~~the same shape and the same order of magnitude as the
+    second arm's own ~3.2ms~~ -- STRUCK, pf-adversary (round `dyi95m`, D4),
+    MEASURED: the second arm costs ~0.003 ms and this one ~1.0 ms on the
+    same clone, roughly two orders of magnitude apart, not the same one --
+    the earlier sentence compared this arm's cost to the second arm's TOTAL
+    click cost (~3.2 ms, most of which is the second arm's OWN registry
+    reads) rather than to the second arm's own per-call figure, which is
+    the comparison that mattered.  Two things keep the true cost acceptable:
+    this arm is only reached for a scene in ``ARM_THREE_ELIGIBLE_SCENE_IDS``
+    (two ids today, 304 and 305, by construction rather than by measuring
+    which ones happen to fall through the earlier arms), and a census is
+    composed once per arrival, not in a loop.
 
     Fail-closed in every direction, the same as the other two arms: a
     registry that will not load, an import that is not there, a predicate
     that raises - all answer False.
     """
+    if scene_id not in ARM_THREE_ELIGIBLE_SCENE_IDS:
+        # A scene this arm has not been explicitly given, in THIS lane's own
+        # file.  See ``ARM_THREE_ELIGIBLE_SCENE_IDS``'s docstring for why
+        # this check exists ahead of (and independent from) the sanctioned-
+        # scene stand-aside below: unlike that one, this list cannot change
+        # underneath this lane when another lane retires a row of its own.
+        return False
     try:
         from ..gm import login_scene_admission
         if login_scene_admission.is_sanctioned_barred_scene(scene_id):
@@ -697,9 +822,14 @@ def scene_may_be_populated(scene_id: int, registry: Any = None) -> bool:
     that every arm is testable by name, and so a reader who greps for
     ``scene_is_open_to_players`` still finds the registry pin unchanged
     where it always was.  ORDER IS COST, NOT MEANING: the registry pin is
-    the cheapest question and answers True for every scene this lane
-    composes in production today, so the two GM arms are only reached for a
-    scene it refused.
+    the cheapest question, and it is also the one that answers True for
+    most scenes this lane composes for.  ~~answers True for every scene
+    this lane composes in production today~~ -- STRUCK, pf-adversary (round
+    `dyi95m`, D5): self-refuting the moment it is read next to the two
+    sentences after it, since 126, 304 and 305 are composed for and reach
+    this function precisely BECAUSE the registry pin answers False for
+    them; the two GM arms below exist for that handful, not as dead code
+    the cheap arm never lets them reach.
     """
     return (
         scene_is_open_to_players(scene_id, registry)
@@ -880,12 +1010,16 @@ def _compose_for_scene(scene_id: int):
         if not scene_may_be_populated(scene_id, scene_entry_registry):
             # THE ADMISSION CHECK.  Decline, which the call site latches with
             # a named event and no frame - the same outcome the not-home skip
-            # produced before this file existed.  TWO ARMS since round
-            # `4uztfj`: the registry pin, and the GM lane's own sanctioned
-            # single-use predicate for a session that is already standing in
-            # a scene whose ordinary door is shut (scene 126 today).  See
-            # ``scene_is_sanctioned_for_a_gm_entry`` for why the second arm
-            # opens nothing.
+            # produced before this file existed.  THREE ARMS since round
+            # `yob0a2` (~~TWO ARMS since round `4uztfj`~~, pf-adversary round
+            # `dyi95m` D5: stale the moment the third arm landed): the
+            # registry pin, the GM lane's own sanctioned single-use
+            # predicate for a session that is already standing in a scene
+            # whose ordinary door is shut (scene 126 today), and the decreed-
+            # arrival arm for a scene the owner named (304 and 305 today).
+            # See ``scene_is_sanctioned_for_a_gm_entry`` and
+            # ``scene_arrival_was_decreed_and_is_gm_reachable`` for why
+            # neither of the last two opens a door.
             return None
         handoff = world_population_handoff.handoff_for_arrival(
             legacy, scene_id, anchor,
