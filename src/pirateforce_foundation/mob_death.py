@@ -184,6 +184,7 @@ from dataclasses import dataclass, field
 import math
 import re
 import struct
+import sys
 from typing import Any
 
 from . import field_mob_tables
@@ -218,34 +219,80 @@ MOB_DEATH_LANE = "B_COMBAT"
 #: kill, opened by round ``2zybdx`` for LANE-Q (COO-DECISION
 #: ``20260905_2057``, answered by LANE-B's letter ``20260905_2112``).
 #:
-#: A lane registers onto it with the mechanism every other point uses::
+#: A lane registers onto it with the mechanism every other point uses --
+#: and 🔴 WITH THE STRING LITERAL, NOT WITH THIS CONSTANT::
 #:
-#:     @lane_hooks.hook(mob_death.MOB_DEATH_LANE_HOOK_POINT)
-#:     def count_it(*, mob_id, scene_id, killer_actor_identity, **_):
+#:     @lane_hooks.hook("mob_death")     # the literal, deliberately
+#:     def count_it(*, mob_id, scene_id, killer_actor_identity,
+#:                  first_in_the_world, **_):
 #:         ...
 #:
 #: and must set ``production_allowed = True`` in its own module or
-#: ``_discover()`` withdraws the registration again.  The name is a
-#: constant rather than a bare string at the call site so a registering
-#: module can import the value instead of copying a literal that a typo
-#: turns into silence -- the failure mode this point is most likely to
-#: have, since ``fire()`` on a point nobody registered is a no-op with no
-#: console line by design.
+#: ``_discover()`` withdraws the registration again.
+#:
+#: WHY THE LITERAL, WHEN EVERY INSTINCT SAYS IMPORT THE CONSTANT.  A first
+#: draft of this comment told the registering lane to import it, and
+#: pf-adversary measured what that costs: ``gm/lane_gate_name_audit.py``
+#: scans ``hook()`` REGISTRATIONS as well as ``fire()`` calls, and one
+#: non-literal point name anywhere makes "does anything fire this point?"
+#: unanswerable FOR THE WHOLE TREE -- it returns
+#: ``FINDING_UNDECIDABLE_DYNAMIC_POINT`` and stops, disabling the only
+#: guard against a hook registered on a point nothing fires.  The red would
+#: land in LANE-GM's test file over a line LANE-Q wrote.  So both sides use
+#: the literal, and this constant exists to be COMPARED against and quoted
+#: in prose, never to be passed to ``hook()`` or ``fire()``.
+#: ``tests/test_mob_death_lane_hook_point.py`` pins the literal at the call
+#: site to this value so the two cannot drift apart in silence.
 MOB_DEATH_LANE_HOOK_POINT = "mob_death"
 
-#: What :func:`commit_death` passes to that point, in order, as the
-#: keyword names themselves.  Named here so a test can pin the contract
-#: LANE-B published in a letter, rather than the contract a later edit
-#: happens to leave behind.
+#: What :func:`commit_death` passes to that point, as the keyword names
+#: themselves.  They are keywords, so this tuple is a SET, not a sequence:
+#: a subscriber names what it wants and ignores the rest.  Pinned here so a
+#: test can hold the contract LANE-B published in a letter, rather than the
+#: contract a later edit happens to leave behind.
+#:
+#: ``mob_id`` IS A PLACEMENT SLOT, NOT A KIND OF MONSTER.  It is
+#: ``FieldMob.actor_identity`` = ``0x2000 + placement_index + 1``, with no
+#: scene term in it -- which is why ``scene_id`` travels beside it and why
+#: this lane's own register is keyed by the PAIR (``COO-DECISION``
+#: ``2026-08-27T22:49``).  A quest of the shape "kill ten iron men" wants
+#: ``FieldMob.template_id``, which ``DeathRecord`` does not carry, so this
+#: point cannot pass it and a subscriber must not read ``mob_id`` as a
+#: species.
+#:
+#: ``scene_id`` IS A ``str``, and it is the odd one out on purpose: every
+#: other ``scene_id`` in ``lane_hooks`` (``census_composer``,
+#: ``choose_npc_responder``, ``current_session_scene_id``) is an ``int``.
+#: This one is the scene KEY this lane's register, ledger and roster all
+#: use (``"bg0001"``).  Handing it to ``field_mobs.roster_for_scene_id``
+#: raises, and handing it to ``lane_hooks.scene_census_composer`` returns
+#: ``None`` silently -- both measured -- so the type is stated here rather
+#: than discovered from a swallowed error.
 #:
 #: ``killer_actor_identity`` IS NOT A CHARACTER ID and the name says so on
 #: purpose: the value is ``HitOutcome.attacker_identity``, the killer's
 #: identity ON THE WIRE.  Turning that into the DB character row a quest
 #: would credit is LANE-DB/chief ground and no line in this module can do
 #: it honestly today.
+#:
+#: ``first_in_the_world`` IS THE FIELD A KILL COUNTER MUST READ.  ``True``
+#: means this commit is the one that newly dug the grave in the
+#: PROCESS-WIDE book; ``False`` means the world had already buried this
+#: monster and some other session is announcing its own accepted copy of
+#: the same death; ``None`` means the world book could not answer because
+#: the burial itself was refused.  Without it the point is per-session and
+#: two players in one scene count two kills for one monster -- measured,
+#: not feared.  A counter that ignores this field is wrong; a counter that
+#: treats ``None`` as ``True`` is guessing.
 MOB_DEATH_LANE_HOOK_ARGUMENTS = (
-    "mob_id", "scene_id", "killer_actor_identity",
+    "mob_id", "scene_id", "killer_actor_identity", "first_in_the_world",
 )
+
+#: Set the first time the hook door itself refuses, so a broken import
+#: cannot be driven into an unbounded log by a player with a sword.  See
+#: the handler in :func:`commit_death`; ``lane_hooks.
+#: current_named_attr_values`` latches for the same stated reason.
+_LANE_HOOK_DOOR_REFUSAL_ANNOUNCED = False
 
 # COO-DECISION 2026-08-27T22:49+07:00 (answering LANE-B-ASK-COO 2026-08-27
 # 21:53+07:00, notes_to_chief/20260827_2153_LANE-B-ASK-COO-actor-identity-
@@ -1396,14 +1443,31 @@ MOB_DEATH_NONCLAIMS = (
     "ROUND 2zybdx: MOB_DEATH_LANE_HOOK_POINT is an OPEN DOOR AND NOT A "
     "FEATURE.  commit_death fires it, and this round proves the firing "
     "through the real fire() with a probe subscriber; what NOTHING in this "
-    "tree does is register a production hook on it -- grep for "
-    "hook(\"mob_death\") under lane_hooks/ returns nothing, LANE-Q has "
-    "written no file yet, and no quest, no counter and no player-visible "
-    "behaviour changes because this call site exists.  A player sees "
-    "NOTHING different today; what changes is that the next lane that wants "
-    "a kill count needs no chief round to get one.  Also unclaimed: "
-    "killer_actor_identity is a WIRE identity and this lane has never "
-    "mapped one to a DB character row",
+    "tree does is register a production hook on it -- an AST scan of "
+    "lane_hooks/ finds no registration, LANE-Q has written no file yet, and "
+    "no quest, no counter and no player-visible behaviour changes because "
+    "this call site exists.  A player sees NOTHING different today; what "
+    "changes is that the next lane that wants a kill count needs no chief "
+    "round to get one",
+    "ROUND 2zybdx: THE POINT FIRES ONCE PER ACCEPTED COMMIT, NOT ONCE PER "
+    "MONSTER, and a draft of it claimed the second.  runtime.py builds a "
+    "DeathRegister per CONNECTION, so two sessions in one scene each "
+    "legitimately accept a kill on the same monster and the point fires "
+    "twice -- pf-adversary measured it before first_in_the_world existed.  "
+    "That field carries the process-wide grave book's answer so a counter "
+    "can tell the cases apart; what is NOT claimed is that any subscriber "
+    "reads it, or that this lane has watched two real clients do it on a "
+    "screen.  No TWO_SESSIONS_SAME_SCENE observation backs this, only a "
+    "test",
+    "ROUND 2zybdx: mob_id IS A PLACEMENT SLOT (0x2000 + placement_index + "
+    "1), NOT A SPECIES.  A quest of the shape 'kill ten iron men' needs "
+    "FieldMob.template_id, which DeathRecord does not carry and this point "
+    "therefore does not pass.  Also unclaimed: killer_actor_identity is a "
+    "WIRE identity and this lane has never mapped one to a DB character "
+    "row; and the seam is synchronous on the listener thread, so a "
+    "subscriber that BLOCKS delays the dying/dead frame chain by however "
+    "long it blocks -- fire()'s fail-closed contract covers raising, not "
+    "hanging, and nothing here measures that",
 )
 
 REFUSE_VALUE_NOT_INT = "value_not_int"
@@ -2491,6 +2555,30 @@ def kill(
     )
 
 
+def _first_in_the_world(grave: Any) -> bool | None:
+    """Did THIS commit newly bury the monster in the process-wide book?
+
+    ``True`` newly, ``False`` the world already held it (another session's
+    accepted copy of one death), ``None`` unknown because the burial was
+    refused or answered with something this function does not recognise.
+
+    READ DEFENSIVELY ON PURPOSE.  ``mob_death_persistence.remember_death``
+    promises never to raise, and this function is one statement away from
+    the lane hook that must never cost a caller its frames; an outcome of
+    an unexpected shape has to become ``None`` rather than an
+    ``AttributeError`` on the death path.  ``None`` is a real answer here
+    ("nobody knows") and a subscriber is told, at
+    :data:`MOB_DEATH_LANE_HOOK_ARGUMENTS`, not to read it as ``True``.
+    """
+    if grave is None:
+        return None
+    buried = getattr(grave, "buried", None)
+    already = getattr(grave, "already_buried", None)
+    if buried is not True or type(already) is not bool:
+        return None
+    return not already
+
+
 def commit_death(
     current: DeathRegister, step: DeathStep, *,
     world: Any = None, announce: bool = True,
@@ -2590,10 +2678,24 @@ def commit_death(
     # seam existed -- the monster stands back up on the next relogin -- and
     # it arrives as a named console line from `remember_death` itself, which
     # is the only place it can arrive without lying to somebody.
+    # THE OUTCOME IS KEPT NOW, and the comment above that said it is
+    # "deliberately not acted on" stays true of the KILL: no refusal here
+    # can cost the player a death this function has already accepted.  What
+    # changed is that ONE FIELD OF IT IS PASSED ON.  pf-adversary (round
+    # 2zybdx) measured the reason: ``runtime.py`` builds a DeathRegister PER
+    # CONNECTION, so two players standing in one scene each read a live
+    # monster, each kill it, and each commit is legitimately "accepted" --
+    # the lane-hook point below fired TWICE FOR ONE MONSTER, and a quest
+    # counting it credited two kills.  The one process-wide answer to "is
+    # this the death, or a second session's copy of it" was already in this
+    # function's hand and was being thrown away one statement before the
+    # event whose whole purpose is to be counted.  It is now handed to the
+    # subscriber instead of being rediscovered by every lane that registers.
+    grave = None
     try:
         from . import mob_death_persistence
 
-        mob_death_persistence.remember_death(
+        grave = mob_death_persistence.remember_death(
             step.record, world=world, announce=announce)
     except Exception as error:                          # noqa: BLE001
         # NAMED, NOT SWALLOWED, and pf-adversary had to point out that the
@@ -2629,7 +2731,41 @@ def commit_death(
     # against a fresher register, and a quest that counted THAT would credit
     # a player for a monster whose death frames were never sent.  Past every
     # refusal above and past the compare-and-swap, so only a death this
-    # function ACCEPTED is announced, exactly once.
+    # function ACCEPTED is announced.
+    #
+    # "ONCE PER ACCEPTED COMMIT" AND NOT "ONCE PER MONSTER", and the
+    # difference is the whole reason ``first_in_the_world`` is passed.  A
+    # draft of this block said "exactly once per death"; pf-adversary
+    # measured it false and it would have been false in the only reading
+    # LANE-Q can use.  ``runtime.py`` builds a DeathRegister per CONNECTION,
+    # so the compare-and-swap this fires behind is SESSION state, not world
+    # state: two players in one scene each kill the same monster, both
+    # commits are accepted, and a subscriber that counted the events counted
+    # two.  Relogging without a server restart makes a third.  So the event
+    # carries the process-wide answer with it, from the world book the
+    # burial above just wrote -- and the honest name for what this point
+    # announces is "this session's books accepted a death", with one field
+    # saying whether the WORLD had already seen it.
+    #
+    # KWARG NAMES ARE THE CONTRACT AND TWO OF THE FOUR ARE NOT WHAT THE
+    # LETTER SAID.  That letter sketched ``killer_character_id``; this
+    # passes ``killer_actor_identity``, because that is what the value IS --
+    # ``outcome.attacker_identity``, a WIRE actor identity -- and a quest
+    # crediting a DB character row from it would credit the wrong player
+    # silently.  Mapping actor identity to character id is LANE-DB/chief
+    # ground and no line in this lane can do it honestly today.  The round
+    # letter to LANE-Q carries the correction rather than leaving it to be
+    # discovered from a TypeError in a console.
+    #
+    # AND ``mob_id`` IS A PLACEMENT SLOT, NOT A KIND OF MONSTER.  It is
+    # ``FieldMob.actor_identity`` = 0x2000 + placement_index + 1, with no
+    # scene term -- which is exactly why COO-DECISION 2026-08-27T22:49 keys
+    # this lane's register by the PAIR (scene, actor_identity), and why
+    # ``scene_id`` travels beside it rather than as decoration.  A quest of
+    # the shape "kill ten iron men" needs ``FieldMob.template_id``, which
+    # ``DeathRecord`` does not carry and this point therefore cannot pass;
+    # that is a gap to close with a real request, not to paper over by
+    # letting a lane read a placement slot as a species.
     #
     # KWARG NAMES ARE THE CONTRACT AND TWO OF THE THREE ARE NOT WHAT THE
     # LETTER SAID.  That letter sketched ``killer_character_id``; this
@@ -2651,6 +2787,18 @@ def commit_death(
     # own behalf.  A bookkeeping seam must cost the world a hook, never the
     # player their kill, and this function's callers dispatch the death
     # frames on what it returns.
+    #
+    # WHAT THE TRY DOES NOT COVER, SAID OUT LOUD RATHER THAN IMPLIED BY
+    # "never costs the caller its frames".  ``except Exception`` does not
+    # catch ``BaseException``, and neither does ``fire()`` -- that package's
+    # own docstring calls the gap "real, intentional ... not an oversight".
+    # So a subscriber that calls ``sys.exit()`` on a missing config, or that
+    # is interrupted, DOES unwind this function, and past it v141's
+    # ``game_listener`` has a ``finally`` and no ``except``.  Widening this
+    # to ``BaseException`` would swallow a deliberate interpreter shutdown
+    # inside a kill, which is its own defect; the gap is named here so the
+    # next reader weighs it instead of trusting a promise that has an
+    # asterisk on it.
     try:
         from . import lane_hooks
 
@@ -2672,17 +2820,32 @@ def commit_death(
             mob_id=step.record.actor_identity,
             scene_id=step.record.scene,
             killer_actor_identity=step.record.killer_identity,
+            first_in_the_world=_first_in_the_world(grave),
         )
     except Exception as error:                          # noqa: BLE001
         # NAMED, for the reason the burial's own handler gives: "no lane has
         # registered a mob_death hook yet" and "the hook package is broken"
         # must not share a signature, or a round grading a quest counter
         # reads one as the other.
-        if announce:
+        #
+        # LATCHED, AND ON STDERR, both on pf-adversary findings this round.
+        # STDERR because every other token this seam's package prints moved
+        # there the day LANE_HOOK_FIRED landed in a --json tool's stdout
+        # artifact, and this line reports on that package.  LATCHED because
+        # the failure it reports is a broken IMPORT, which is the same on
+        # every kill and is retried on every kill: unlatched, a player with
+        # a sword drives an unbounded log.  ``lane_hooks.
+        # current_named_attr_values`` latches for that exact reason and says
+        # so; this is the same discipline in the same feature.
+        global _LANE_HOOK_DOOR_REFUSAL_ANNOUNCED
+        if announce and not _LANE_HOOK_DOOR_REFUSAL_ANNOUNCED:
+            _LANE_HOOK_DOOR_REFUSAL_ANNOUNCED = True
             try:
                 print("MOB_DEATH_LANE_HOOK_REFUSED scene=%r "
-                      "reason=hook_door_raised:%r"
-                      % (getattr(step.record, "scene", ""), error))
+                      "reason=hook_door_raised:%r (latched: printed once "
+                      "per process)"
+                      % (getattr(step.record, "scene", ""), error),
+                      file=sys.stderr)
             except Exception:                           # noqa: BLE001
                 pass
     return step.register

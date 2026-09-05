@@ -29,6 +29,7 @@ import ast
 import contextlib
 import io
 import sys
+import types
 from pathlib import Path
 import unittest
 
@@ -36,7 +37,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pirateforce_foundation import field_mobs, lane_hooks, mob_death
+from pirateforce_foundation import (
+    field_mobs,
+    lane_hooks,
+    mob_death,
+    mob_death_persistence,
+)
 from pirateforce_foundation.legacy_bridge import load_legacy
 from pirateforce_foundation.mob_combat import Combatant, open_ledger, strike
 from pirateforce_foundation.mob_death import DeathRegister, kill
@@ -143,6 +149,19 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
               step.record.killer_identity)],
         )
 
+    def test_an_older_subscriber_survives_a_later_argument(self):
+        # WHY **_ IS NOT DECORATION.  This round already added a fourth
+        # argument to a contract published in a letter three hours earlier.
+        # A hook written against the first three still has to run.
+        def count_it(*, mob_id, **_):
+            self.received.append(mob_id)
+
+        self._subscribe(count_it)
+        stored, step = self._a_kill()
+        with contextlib.redirect_stderr(io.StringIO()):
+            mob_death.commit_death(stored, step, announce=False)
+        self.assertEqual(self.received, [step.record.actor_identity])
+
     def test_the_scene_the_hook_is_told_is_the_scene_the_grave_is_in(self):
         # ``scene_id`` is a scene KEY STRING (the project's own scene name),
         # never an integer, and a LANE-Q author who assumed otherwise would
@@ -153,6 +172,73 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
             mob_death.commit_death(stored, step, announce=False)
         self.assertIsInstance(self.received[0]["scene_id"], str)
         self.assertEqual(self.received[0]["scene_id"], self.mob.scene)
+
+    # ------------------------------------------------------------------
+    # the field that makes a kill COUNTER possible (pf-adversary D1)
+    # ------------------------------------------------------------------
+
+    def test_two_sessions_killing_one_monster_are_told_apart(self):
+        # THE DEFECT THIS EXISTS FOR, measured before it was fixed: the
+        # register commit_death compare-and-swaps against is built PER
+        # CONNECTION (runtime.py), so two players standing in one scene each
+        # read a live monster, each kill it, and BOTH commits are accepted.
+        # The point fired twice for one monster, and a quest counting the
+        # events counted two kills.  The world's grave book is the one
+        # process-wide answer, and it is now carried on the event.
+        world = mob_death_persistence.WorldDeaths()
+        self._subscribe(lambda **kw: self.received.append(kw))
+        first_register, first_step = self._a_kill()
+        second_register, second_step = self._a_kill()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            mob_death.commit_death(
+                first_register, first_step, world=world, announce=False)
+            mob_death.commit_death(
+                second_register, second_step, world=world, announce=False)
+        self.assertEqual(
+            len(self.received), 2,
+            "both commits are accepted -- that part is correct and is why "
+            "the field below has to exist")
+        self.assertEqual(
+            [event["first_in_the_world"] for event in self.received],
+            [True, False],
+            "a kill counter cannot tell one monster's death from two")
+
+    def test_a_world_book_that_could_not_answer_says_so_rather_than_true(self):
+        # A refused burial must not read as "this is the first death": a
+        # counter that treated the unknown as a yes would over-count exactly
+        # when the books are already broken.
+        class RefusingWorld:
+            def remember(self, *a, **k):
+                raise RuntimeError("the grave book is unavailable")
+
+        self._subscribe(lambda **kw: self.received.append(kw))
+        stored, step = self._a_kill()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            after = mob_death.commit_death(
+                stored, step, world=RefusingWorld(), announce=False)
+        self.assertIs(after, step.register)
+        self.assertEqual(len(self.received), 1)
+        self.assertIsNone(self.received[0]["first_in_the_world"])
+
+    def test_an_outcome_of_an_unexpected_shape_is_unknown_not_a_crash(self):
+        # _first_in_the_world sits one statement from the lane hook and on
+        # the death path: an outcome it does not recognise has to become
+        # None, never an AttributeError.
+        self.assertIsNone(mob_death._first_in_the_world(None))
+        self.assertIsNone(mob_death._first_in_the_world(object()))
+        self.assertIsNone(
+            mob_death._first_in_the_world(
+                types.SimpleNamespace(buried=True, already_buried="no")))
+        self.assertIs(
+            mob_death._first_in_the_world(
+                types.SimpleNamespace(buried=True, already_buried=False)),
+            True)
+        self.assertIs(
+            mob_death._first_in_the_world(
+                types.SimpleNamespace(buried=True, already_buried=True)),
+            False)
 
     # ------------------------------------------------------------------
     # what must NOT fire
@@ -214,16 +300,30 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
         original = lane_hooks.fire
         lane_hooks.fire = raising_fire
         self.addCleanup(setattr, lane_hooks, "fire", original)
+        mob_death._LANE_HOOK_DOOR_REFUSAL_ANNOUNCED = False
+        self.addCleanup(
+            setattr, mob_death, "_LANE_HOOK_DOOR_REFUSAL_ANNOUNCED", False)
         stored, step = self._a_kill()
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out), \
-                contextlib.redirect_stderr(io.StringIO()):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             after = mob_death.commit_death(stored, step)
+            # THE LATCH, measured on the path a player drives: the door that
+            # raises is a broken IMPORT, identical on every kill and retried
+            # on every kill.  Unlatched, a player with a sword drives an
+            # unbounded log.  pf-adversary measured three kills, three lines.
+            second_register, second_step = self._a_kill()
+            mob_death.commit_death(second_register, second_step)
         self.assertIs(
             after, step.register,
             "a broken hook door cost the caller the register it dispatches "
             "the death frames on")
-        self.assertIn("MOB_DEATH_LANE_HOOK_REFUSED", out.getvalue())
+        self.assertEqual(
+            err.getvalue().count("MOB_DEATH_LANE_HOOK_REFUSED"), 1,
+            "the hook door refusal is not latched")
+        self.assertNotIn(
+            "MOB_DEATH_LANE_HOOK_REFUSED", out.getvalue(),
+            "this token belongs on stderr: every other token this package "
+            "prints moved there the day one landed in a --json artifact")
 
     def test_a_silent_commit_stays_silent_even_when_the_door_raises(self):
         def raising_fire(point, **kwargs):
@@ -268,7 +368,8 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
         self.assertIsInstance(mob_death.MOB_DEATH_LANE_HOOK_ARGUMENTS, tuple)
         self.assertEqual(
             mob_death.MOB_DEATH_LANE_HOOK_ARGUMENTS,
-            ("mob_id", "scene_id", "killer_actor_identity"))
+            ("mob_id", "scene_id", "killer_actor_identity",
+             "first_in_the_world"))
 
     def test_the_literal_at_the_call_site_is_the_constant_lanes_import(self):
         # THE ONE PLACE THIS FEATURE CAN DRIFT IN SILENCE.  The call site has
@@ -310,13 +411,37 @@ class MobDeathLaneHookPointTests(unittest.TestCase):
         # this is the grep behind that sentence, so the DAY LANE-Q lands one
         # this test fails and forces the nonclaim to be rewritten instead of
         # left standing as a lie.
+        # READ WITH THE PARSER, NOT WITH ``in``.  A substring version of
+        # this test was written first and pf-adversary defeated it in one
+        # line: wrapping the decorator to this project's own 79-column
+        # style breaks ``hook("mob_death")`` across a newline and the guard
+        # goes green over a live registration.  So does importing the
+        # constant by any other spelling.  The parser sees the call however
+        # it is laid out, and resolves the two spellings this file
+        # deliberately maintains.
         hooks_dir = ROOT / "src/pirateforce_foundation/lane_hooks"
-        registering = [
-            path.name for path in sorted(hooks_dir.glob("lane_*.py"))
-            if 'hook("mob_death")' in path.read_text(encoding="utf-8")
-            or "hook(mob_death.MOB_DEATH_LANE_HOOK_POINT)"
-            in path.read_text(encoding="utf-8")
-        ]
+        registering = []
+        for path in sorted(hooks_dir.glob("lane_*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                called = node.func
+                name = getattr(called, "attr", None) or getattr(
+                    called, "id", None)
+                if name != "hook":
+                    continue
+                first = node.args[0]
+                names_the_point = (
+                    (isinstance(first, ast.Constant)
+                     and first.value == mob_death.MOB_DEATH_LANE_HOOK_POINT)
+                    or getattr(first, "attr", None)
+                    == "MOB_DEATH_LANE_HOOK_POINT"
+                    or getattr(first, "id", None)
+                    == "MOB_DEATH_LANE_HOOK_POINT"
+                )
+                if names_the_point:
+                    registering.append(path.name)
+                    break
         self.assertEqual(
             registering, [],
             "a lane registered on the mob_death point: rewrite the nonclaim "
