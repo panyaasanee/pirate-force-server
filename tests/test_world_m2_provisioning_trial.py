@@ -20,6 +20,9 @@ from pirateforce_foundation import (  # noqa: E402
     world_m2_provisioning_trial as trial,
 )
 from pirateforce_foundation import navigationex_survey_record as survey  # noqa: E402
+from pirateforce_foundation import (  # noqa: E402
+    world_m2_sailing_result_key as sailing_result,
+)
 
 
 class TrialSurveyRecordsTests(unittest.TestCase):
@@ -43,9 +46,23 @@ class TrialSurveyRecordsTests(unittest.TestCase):
                 self.assertEqual(fields.y, planned.y)
                 self.assertEqual(fields.z, planned.z)
 
-    def test_unmeasured_fields_default_to_zero_not_a_guess(self):
+    def test_the_0x14_field_carries_a_real_distinct_sailing_result_key(self):
+        # RE-265 + COO-DECISION 20260905_1947 item 2: a bare 0 at +0x14 is
+        # the null-lookup gate RE-265 measured exits BEFORE the distance
+        # test -- this field must no longer be that value.  pf-adversary
+        # (round wjprxa, D1): the two records must not share one candidate
+        # -- see world_m2_sailing_result_key.provisional_area_126_keys.
+        records = trial.trial_survey_records()
+        keys = [r.fields.unmeasured_0x14 for r in records]
+        expected = sailing_result.provisional_area_126_keys(len(records))
+        self.assertEqual(tuple(keys), expected)
+        self.assertEqual(len(set(keys)), len(keys))
+        for value in keys:
+            self.assertNotEqual(value, 0)
+            self.assertIn(value, sailing_result.AREA_126_SAILING_RESULT_IDS)
+
+    def test_the_remaining_unmeasured_fields_still_default_to_zero(self):
         for record in trial.trial_survey_records():
-            self.assertEqual(record.fields.unmeasured_0x14, 0)
             self.assertEqual(record.fields.unmeasured_0x16, 0)
             self.assertEqual(record.fields.unmeasured_0x28, 0)
             self.assertEqual(record.fields.unmeasured_0x30, 0)

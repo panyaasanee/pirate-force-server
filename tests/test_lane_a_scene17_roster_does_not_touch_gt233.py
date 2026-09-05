@@ -76,14 +76,28 @@ from pirateforce_foundation import world_scene_travel  # noqa: E402
 # hand-guessed) and this test's own PURPOSE is unchanged -- it still proves
 # scene 17's roster does not perturb GT-233's bytes ANY FURTHER than the
 # RE-256 fix itself already, deliberately, does.
+# RE-PINNED this round (LANE-A, COO-DECISION 20260905_1947 item 2, answering
+# RE-265): the provisioning trial's record `+0x14` moved from a bare 0 to a
+# real, per-record `world_m2_sailing_result_key` candidate, ON PURPOSE -- that
+# is this round's own deliverable, not a drift this guard exists to catch.
+# Re-pinned a SECOND time in the same round (pf-adversary D1): the two
+# records must carry DISTINCT candidates rather than one repeated, so 153
+# (first in `PLANNED_TRIGGER_IDS` order) keeps the lowest id and 154 moved to
+# the second-lowest -- see `world_m2_sailing_result_key.
+# provisional_area_126_keys`.  This file's own docstring says the pin is
+# taken "from THIS round's own start"; re-derived here, after both
+# intentional changes, with every module this round touches already
+# imported, exactly as before.  Scene 17's roster (the four modules named
+# above) still touches none of this -- re-verified by re-running this same
+# file's other two tests unchanged.
 GT233_EXPECTED_SHA256 = {
     153: (
-        "1d45beace4b3950ef70a67de6341d06f7c779387279288bb9c3e8819cf6ff2a9",
-        "6263b09144f3613b57a096fad1c47315ec6f72736e135b39118c1606a61f75a8",
+        "1a6f4ed97738fd7e0ed6cacea280ec3ed42237729867f77ac39971416b45c63b",
+        "92d0a1a4b2b3a91c06291fd992f47ca3b1371b2422efcbc48a26c81261964590",
     ),
     154: (
-        "032db84a0e860e7729dc8af2358105a366530fae329e50f7a539a6dbee74bca3",
-        "a13c09cfc733577fadf158ef91ccb688c6af7e71e3484b7004505c68e0eac362",
+        "d7ddbbf9c104dbef4cdaa31be1a07818442fae249b1e33fdf3d48b288e780192",
+        "53fcb4f1d91da41699820a01dda582fba8701da44d95a2c3c354fd34b0c26818",
     ),
 }
 GT233_SCENE_ID = 126
