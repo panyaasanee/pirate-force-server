@@ -91,6 +91,20 @@ class TierThreeDestinationReadinessTests(unittest.TestCase):
                 self.assertIsNotNone(gate)
                 self.assertEqual(crossing.destination, gate)
 
+    def test_pinning_the_decree_also_opens_bare_warp_to_both_scenes(self):
+        # pf-adversary (round n4vqxc): the first draft of this module's own
+        # docstring and both scenes' registry `status` text claimed 304/305
+        # were reachable ONLY through this module's (not yet wired)
+        # responder. False, measured by calling the gate directly: pinning
+        # `decreed_arrival` also satisfies `has_authored_entry`, which is
+        # ALL `warp_no_coords_live_target` checks -- so a bare GM `/warp 304`
+        # or `/warp 305` is live today, independent of whether anything ever
+        # calls `crossing_target` from `runtime.py`. Pinned here so the
+        # claim is checked rather than merely corrected in prose.
+        for scene_id in sea.SEA_EDGE_TRIGGER_TARGETS.values():
+            with self.subTest(scene_id=scene_id):
+                self.assertIsNotNone(warp_no_coords_live_target(scene_id))
+
     def test_a_scene_the_gate_refuses_would_refuse_here_too(self):
         # Simulated by asking for a wire id this module has never pinned to
         # a scene the gate is known to refuse (278, markerless, no decree):

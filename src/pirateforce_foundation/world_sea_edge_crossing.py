@@ -41,6 +41,26 @@ two paths cannot disagree about which scenes qualify) -- and persist
 `/warp`. Handed to chief as a CORE-REQUEST this round rather than guessed at
 here.
 
+ONE THING THIS ROUND DELIBERATELY WIDENS, PF-ADVERSARY MEASURED, RECORDED
+RATHER THAN LEFT TO BE FOUND. Pinning `decreed_arrival` on 304/305 so THIS
+module's own third gate (below) can check them makes
+`gm.warp_executor.warp_no_coords_live_target(304)`/`(305)` resolve too --
+that function gates on `has_authored_entry`, which `has_decreed_arrival`
+now satisfies. The first draft of this docstring and of both scenes'
+registry `status` text claimed the opposite ("no /warp gate names this
+scene either"); pf-adversary measured it false by calling the function.
+So a bare GM `/warp 304` or `/warp 305` is LIVE TODAY, on this round's own
+commit, independent of whichever line eventually calls `crossing_target`
+from `runtime.py` -- the same widening `#838` already made for scene 126,
+here as an accepted side effect of reusing that scene's own gate rather
+than a decision made on purpose for these two. Still GM-only
+(`accounts.is_gm_account` gates `/warp` itself, unchanged) and still with
+no ground bounds or census composed for either scene -- see
+`tests/test_gm_warp_chain_census_shipped.SCENES_WITH_NO_CENSUS_COMPOSER_YET`.
+What is still NOT live is the ORDINARY-PLAYER route this module exists
+for: a real ship crossing scene 126's map edge, which needs the
+`runtime.py` hookup named above.
+
 THE THREE-TIER SCOPE (COO-DECISION 20260905_1748 item 6)
 -----------------------------------------------------------
 `crossing_target()` refuses unless all three hold:
