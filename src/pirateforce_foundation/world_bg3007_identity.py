@@ -13,17 +13,19 @@ quotes is the placement count; an earlier lane round shipped a ticket that
 counted names and sent a tester looking for the wrong number):
 
     50 of the scene's 66 native placements ship, over 37 of the 41
-    first-leg Mob-Set numbers those placements use:
+    first-leg Mob-Set numbers those placements use.  The four lines below
+    add up to 50 placements, and they were re-added after pf-queue-author
+    caught an earlier draft of this paragraph adding up to 49:
 
-    14 invisible weather markers: 13 named ``Tornado`` (sets 33, 35-39,
-       41-48) and 1 nameless (set 53, six placements - see below)
+    20 invisible bodies (``INVISIBLE``): 14 named ``Tornado``, one
+       placement each from sets 33, 35-39 and 41-48, plus 6 placements of
+       the ONE nameless set 53 (the ``53|54`` pair - see below)
     19 hulls (``SP_*``) with a name plate: 9 Merchant Ship, 3 of the mined
        "Merchant marine" row, and one each of Ulysses, Bismarck, Yamato,
        Black beard, Red beard, Smuggling Ship and a set-52 Pirate Ship
      9 level-120 Pirate Ships (sets 21, 22, 24-30), the only rows in this
        scene that carry a real HP number rather than the level-1 floor
      2 islands-as-actors (``MAP_ISLAND_01``): Mad Sand Island, Pirate Lair
-     6 placements of the nameless INVISIBLE set 53 (the ``53|54`` pair)
 
     ~~44~~ 50, corrected before the first commit: the round's own opening
     measurement counted the six ``53|54`` placements as unresolvable, which

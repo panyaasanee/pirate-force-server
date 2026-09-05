@@ -436,9 +436,9 @@ class TestTheAnswer(unittest.TestCase):
         # - the identity/census pair COO-DECISION 20260905_0848 approved as
         # this round's main task.  Same single-module move as bg3001's and
         # bg4001's own entries above.
-        self.assertEqual(counts["src_actor_stream_call_sites"], 40)
-        self.assertEqual(counts["src_actor_entry_call_sites"], 30)
-        self.assertEqual(counts["src_modules_building_actor_entries"], 29)
+        self.assertEqual(counts["src_actor_stream_call_sites"], 41)
+        self.assertEqual(counts["src_actor_entry_call_sites"], 31)
+        self.assertEqual(counts["src_modules_building_actor_entries"], 30)
         self.assertIn(
             "npc_hostile_hypothesis.py",
             counts["src_modules_building_actor_entries_names"],
