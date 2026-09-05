@@ -269,6 +269,25 @@ def _require_identity_part(value: object) -> int:
     return value
 
 
+#: SQLite's `INTEGER` storage class is a signed 64-bit two's-complement value
+#: (https://www.sqlite.org/datatype3.html): a Python `int` outside this range
+#: cannot be bound as a parameter at all -- `sqlite3` raises a raw
+#: `OverflowError` instead, one call further down than any of this file's own
+#: named exceptions.  Used by `get_skill_points`/`spend_skill_points` (added
+#: `pf-adversary`, this round, after that exact `OverflowError` was
+#: reproduced live) to turn that crash into a documented refusal BEFORE the
+#: value ever reaches a `db.execute(...)` call, for `character_id` (an id
+#: this far out of range can never be a real row anyway -- `KeyError` is the
+#: honest answer) and for `cost` (`ValueError`, alongside the existing
+#: negative-cost refusal).
+_SQLITE_INT64_MIN = -(2 ** 63)
+_SQLITE_INT64_MAX = 2 ** 63 - 1
+
+
+def _fits_sqlite_integer(value: int) -> bool:
+    return _SQLITE_INT64_MIN <= value <= _SQLITE_INT64_MAX
+
+
 class WriteLockTimeout(sqlite3.OperationalError):
     """A write lock could not be acquired inside the budget, said in full.
 
@@ -278,6 +297,28 @@ class WriteLockTimeout(sqlite3.OperationalError):
     been written when it is raised -- it is raised at `BEGIN IMMEDIATE`, so
     the transaction never opened.
     """
+
+
+class InsufficientSkillPointsError(RuntimeError):
+    """`spend_skill_points` refused: the row's balance does not cover `cost`.
+
+    Nothing is written when this is raised -- the refusal happens inside the
+    same transaction the read did, before any `UPDATE` runs, matching
+    `write_typed_attributes`' "nothing is written when anything is refused"
+    contract.
+    """
+
+
+class UnmeasuredSkillPointsError(RuntimeError):
+    """`spend_skill_points` refused: the row's `skill_points` is NULL.
+
+    A NULL column is "nobody has measured this yet"
+    (`COO-DECISION 20260901_1059`), not zero -- so spending against it would
+    be guessing a balance rather than reading one.  The caller needs a real
+    write (a birth default, a migration backfill, `write_typed_attributes`)
+    before anything may be spent from this row.
+    """
+
 
 class SQLiteStore:
     def __init__(self, path: str | Path, migrations: str | Path):
@@ -3028,6 +3069,205 @@ class SQLiteStore:
                 (character_id,),
             ).fetchall()
         return tuple(r["skill_id"] for r in rows)
+
+    def get_skill_points(self, character_id: int) -> int | None:
+        """A character's `skill_points` balance, or `None` if unmeasured.
+
+        `PANYA-DECISION 20260904_0328` piece 5 / `LANE-CS CORE-REQUEST
+        pf_bridge/notes_to_chief/20260905_1510` (rerouted from chief, whose
+        answer named `store.py` as this lane's write zone, not his):
+        `can_afford_to_learn`/`skill_points_after_learning`
+        (`skill_learn_validator.py`) are pure functions that take a balance
+        as a plain `int` argument -- this is the read that supplies one.
+
+        ITS OWN NARROW QUERY, NOT A CALL TO `read_typed_attributes` --
+        DELIBERATELY, not merely for DRY's sake.  `tests/
+        test_persistence_speed_walk_seed_008.py` scans this whole FILE for
+        `read_typed_attributes` (a reader that can carry the walk-speed
+        column that file guards) appearing anywhere alongside an attribute
+        encoder (`store.py` already imports `compose_sparse_block` for
+        `write_typed_attributes_and_compose_sparse`'s own, unrelated,
+        `/speed` door): that combination is exactly the shape
+        `COO-DECISION 20260902_0742` point 4 forbids, because a file that can
+        both read every typed column AND encode a block is one refactor away
+        from sending that column on that migration's un-adjudicated say-so.
+        This method calling the shared reader would trip that file-wide scan
+        even though it never touches the walk-speed column at all -- a real
+        false positive, caught live by the full suite this round.  The fix
+        is not to weaken that scan (it exists to catch exactly this shape,
+        and an exemption for `store.py` would blind it to a REAL future
+        violation here); it is to make this method structurally incapable of
+        ever returning that column in the first place, by naming only
+        `skill_points` in its own read -- which is also the narrower, more
+        honest implementation regardless of the test, since a method that
+        reads one column should not route through one that reads
+        twenty-one.
+
+        Column-existence guard done by hand (mirrors `list_character_ids_
+        missing_class_id`'s own `PRAGMA table_info` check, the same
+        precedent `read_typed_attributes` itself follows) rather than by
+        calling that method: a database predating migration 006 has no
+        `skill_points` column to name in a query at all, so this reports it
+        the same way an unset column on an already-migrated database is
+        reported -- `None`, never a crash, never a guess.
+
+        `None` is returned, NOT `0`, when the column is NULL (a fresh
+        character before anything seeds this column, or any character on a
+        database that predates migration 006): the owner's rule
+        (`COO-DECISION 20260901_1059`) is that a field nobody has measured
+        must never be guessed at, and `0` is a value a real spend could also
+        leave behind, so it cannot stand in for "unmeasured" without lying to
+        a caller who checks `points == 0`.
+
+        Raises `KeyError` for a character that does not exist or has been
+        soft-deleted, or for a `character_id` outside SQLite's representable
+        `INTEGER` range (`[pf-adversary, this round]`: binding a wider
+        Python `int` straight into SQL raised a raw, undocumented
+        `OverflowError` instead of this documented refusal, and an id that
+        far out of range can never be a real row's id either).
+        """
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+        with self.connect() as db:
+            existing = {
+                str(row["name"])
+                for row in db.execute("PRAGMA table_info(characters)")
+            }
+            if "skill_points" not in existing:
+                row = db.execute(
+                    "SELECT id FROM characters "
+                    "WHERE id=? AND deleted_at IS NULL",
+                    (character_id,),
+                ).fetchone()
+                if row is None:
+                    raise KeyError(character_id)
+                return None
+            row = db.execute(
+                "SELECT skill_points FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(character_id)
+        return row["skill_points"]
+
+    def spend_skill_points(self, character_id: int, cost: int) -> int:
+        """Deduct `cost` from a character's `skill_points`, returning the
+        balance AFTER the deduction.
+
+        `PANYA-DECISION 20260904_0328` piece 5 / `LANE-CS CORE-REQUEST
+        pf_bridge/notes_to_chief/20260905_1510`.  `cost` must already be the
+        rounded, positive amount to deduct -- `skill_learn_validator.
+        skill_points_after_learning` (`COO-DECISION 20260905_1245`'s
+        `math.ceil` house rule) computes that on the caller's side; this
+        method does not know about `skill_catalog`, fractional costs or any
+        particular `skill_id`, the same "store.py does not need to know the
+        skill table" boundary the CORE-REQUEST proposed.
+
+        NEVER GUESSES ZERO.  If the row's `skill_points` is NULL (nobody has
+        ever written it -- a fresh character, or one on a database predating
+        migration 006/009), this raises `UnmeasuredSkillPointsError` rather
+        than treating the balance as `0` and refusing every spend on that
+        ground, or as unlimited and allowing every spend: neither is a
+        measurement, and `COO-DECISION 20260901_1059` forbids guessing either
+        one. Raises `InsufficientSkillPointsError` if the measured balance is
+        below `cost` -- no partial spend, matching
+        `skill_points_after_learning`'s own refusal shape one layer up.
+
+        ONE TRANSACTION, READ-MODIFY-READ-BACK, same discipline
+        `write_typed_attribute_if_unset` uses: `BEGIN IMMEDIATE` takes
+        SQLite's write lock before the balance is read, so nothing can spend
+        against the same points between this method's read and its `UPDATE`
+        -- the `AND skill_points=?` clause on the `UPDATE` is not there to
+        catch that (it cannot happen inside one `BEGIN IMMEDIATE`), it is
+        there for the same reason `write_typed_attributes` repeats
+        `deleted_at IS NULL` on its own `UPDATE`: so that removing either
+        guard alone cannot silently widen what this method is allowed to do.
+
+        Raises `TypeError` for a non-int/bool `character_id` or `cost`, and
+        `ValueError` for a negative `cost` (this project's own tables have
+        never produced one -- `skill_points_after_learning` already refuses a
+        non-positive skill cost before it would ever reach here) or for
+        either argument outside SQLite's representable `INTEGER` range
+        (signed 64-bit -- `[CORRECTED - pf-adversary, this round]`: binding a
+        wider Python `int` straight into SQL raised a raw, undocumented
+        `OverflowError` instead of a documented refusal).  Raises `KeyError`
+        for a character that does not exist or has been soft-deleted --
+        including a `character_id` past that same range, which can never be
+        a real row's id either.  Raises `WriteLockTimeout`
+        (`[CORRECTED - pf-adversary, this round]`, reproduced live under
+        concurrent writers) instead of leaking a raw
+        `sqlite3.OperationalError: database is locked` when `BEGIN IMMEDIATE`
+        cannot take the write lock inside `connect()`'s own busy-timeout
+        budget: this method's docstring names its exceptions, so a caller
+        that catches only those must not be handed one it was never told
+        about, the same reasoning `_begin_immediate_for_damage` was written
+        for.  Nothing is written when anything is refused.
+
+        GUARDED AGAINST A DATABASE THAT HAS NOT RUN MIGRATION 006 YET, the
+        same guard every other typed-attribute-writing method in this file
+        calls right after `BEGIN IMMEDIATE`.
+        """
+        if isinstance(character_id, bool) or not isinstance(character_id, int):
+            raise TypeError("character_id must be an int")
+        if isinstance(cost, bool) or not isinstance(cost, int):
+            raise TypeError("cost must be an int")
+        if cost < 0:
+            raise ValueError(f"cost must be >= 0, got {cost!r}")
+        if not _fits_sqlite_integer(cost):
+            raise ValueError(
+                f"cost {cost!r} is outside SQLite's representable "
+                "INTEGER range"
+            )
+        if not _fits_sqlite_integer(character_id):
+            raise KeyError(character_id)
+
+        from . import persistence_vitals as vitals
+
+        with self.connect() as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as error:
+                if _LOCKED not in str(error):
+                    raise
+                raise WriteLockTimeout(
+                    "could not take the write lock for character "
+                    f"{character_id}'s skill_points spend within "
+                    f"connect()'s busy_timeout: {error}"
+                ) from error
+            vitals.verify_schema(db)
+            row = db.execute(
+                "SELECT skill_points FROM characters "
+                "WHERE id=? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(character_id)
+            current = row["skill_points"]
+            if current is None:
+                raise UnmeasuredSkillPointsError(
+                    f"character {character_id} has no skill_points value "
+                    "yet (NULL) -- refusing to spend against an unmeasured "
+                    "balance rather than treating it as 0 or unlimited "
+                    "(COO-DECISION 20260901_1059)"
+                )
+            if current < cost:
+                raise InsufficientSkillPointsError(
+                    f"character {character_id} has {current} skill_points, "
+                    f"cannot spend {cost}"
+                )
+            updated = db.execute(
+                "UPDATE characters SET skill_points=?,updated_at=? "
+                "WHERE id=? AND deleted_at IS NULL AND skill_points=?",
+                (current - cost, _now(), character_id, current),
+            ).rowcount
+            if updated != 1:
+                raise KeyError(character_id)
+            after = db.execute(
+                "SELECT skill_points FROM characters WHERE id=?",
+                (character_id,),
+            ).fetchone()
+        return after["skill_points"]
 
     @staticmethod
     def _character(r):
