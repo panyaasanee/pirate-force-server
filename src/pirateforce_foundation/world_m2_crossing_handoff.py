@@ -55,12 +55,37 @@ It composes.  It does not send.  ``crossing_handoff`` feeds the SceneEntry a
 crossing already produced to the seam that already ships, and hands back the
 ``SceneHandoff`` - kind, reason, bytes, dispatch slot and membership reset,
 all of it the existing encoder's answer and none of it re-derived here.  For
-scene 17 today that is a 27-byte CLEAR in slot ``before_teleport``.
+scene 17 today that is STILL a 27-byte CLEAR in slot ``before_teleport`` -
+deliberately, not by omission (round ``vwekfq``, LANE-A).  Scene 17 now has
+a real, measured 7-actor cast (``world_bg1001_identity`` /
+``world_population_bg1001``, resolved through ``CONSTDATA_TH__INSTANCE.tsv``
+- the indirect route the old ``SCENES_INTENTIONALLY_UNPOPULATED`` entry
+never checked before declaring this scene castless, see that struck entry in
+``world_population_handoff``), and it is named in
+``world_scene_travel.CENSUS_SOURCES`` - but it is deliberately NOT in
+``world_population_handoff.ROSTER_COMPOSERS`` yet.  ``runtime.py``'s own
+call site (below) hardcodes ``crossing_handoff_dispatched=True`` on the
+documented assumption that this composes KIND_CLEAR every time; adding the
+roster there would flip that to KIND_CENSUS and start sending a
+never-attended-tested cast to a live client on the very next crossing,
+which is a runtime.py-invariant question this lane cannot resolve alone.
+See this round's CORE-REQUEST.
 
-Queueing those bytes is one block in ``runtime.py``, which is the chief's
-file.  ``dispatched=`` below is the parameter that block flips, so the console
-line stops saying ``dispatched=NO`` in the same edit that makes it untrue,
-rather than in a later round that has to remember to come back for it.
+~~Queueing those bytes is one block in ``runtime.py``, which is the chief's
+file.  ``dispatched=`` below is the parameter that block flips, so the
+console line stops saying ``dispatched=NO`` in the same edit that makes it
+untrue, rather than in a later round that has to remember to come back for
+it.~~ ALREADY DONE WHEN THIS ROUND FOUND IT (chief round R250/65etwo,
+predating round ``vwekfq``): ``runtime.py``'s Columbus call site passes
+``crossing_handoff_dispatched=True`` unconditionally and queues
+``handoff.pc``/``handoff.frame`` for real -
+``tests/test_columbus_quest_dispatch_wiring.py``'s
+``CrossingHandoffQueuedWiringTests`` pins it end to end.  This paragraph is
+kept struck rather than deleted because a reader who still believes
+"nothing is queued yet" is the reader who will make exactly the mistake
+this round's CORE-REQUEST exists to prevent - registering a real roster
+here on the assumption that doing so is still inert.  It is not: it would
+be dispatched.
 
 WHY NOT JUST CALL ``handoff_on_crossing`` FROM THE DISPATCH.  Because the
 dispatch has a ``SceneEntry``, and the seam wants a scene id and an (x, y, z).
@@ -72,13 +97,19 @@ the function that does it.
 
 WHAT THIS COSTS ON THE FRAME PATH, SAID OUT LOUD RATHER THAN LEFT TO BE
 DISCOVERED.  Composing a handoff in order to PRINT it means composing bytes
-that are then thrown away.  For the only crossing that exists today that is a
-27-byte clear and the cost is nothing.  It would not stay nothing: a scene
-with a roster would build the whole roster per crossing for one console line.
-That is not reachable now (``columbus_quest_dispatch``'s destination is the
-constant 17, and 17 is in ``SCENES_INTENTIONALLY_UNPOPULATED`` with a measured
-reason), and the round that makes it reachable should queue the bytes rather
-than keep discarding them - which is the same edit the CORE-REQUEST asks for.
+that are then thrown away.  For the only crossing that exists today that is
+STILL a 27-byte clear and the cost is nothing - unchanged this round on
+purpose (see the paragraph above).  It would not stay nothing the day a
+roster is wired here: a scene with a roster would build the whole roster per
+crossing for one console line, AND - unlike when this paragraph was
+written - that frame is now known to be QUEUED AND SENT for real
+(``runtime.py``'s ``crossing_handoff_dispatched=True``, wired chief round
+R250/65etwo, well after this paragraph was first drafted), not merely
+composed and discarded.  So "the round that makes it reachable should queue
+the bytes rather than keep discarding them" is moot - queueing already
+happened - and the open question this round's CORE-REQUEST asks is the
+opposite one: whether it is safe to let that already-live queue start
+carrying a real, never-attended-tested cast at all.
 
 WHAT NOBODY HAS SEEN.  No human has watched a client render scene 17 at all:
 ``GT-106`` is PENDING, and ``RE-162`` marks the in-session transition

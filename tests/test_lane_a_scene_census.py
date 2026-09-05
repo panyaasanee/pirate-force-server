@@ -535,6 +535,18 @@ class ComposerContractTests(unittest.TestCase):
             world_population_bg0015.INITIAL_REAPPLY_MS)
         self.assertGreater(result.initial_reapply_ms, 0)
 
+    # Scene 17 is registered in `world_scene_travel.CENSUS_SOURCES` (round
+    # `vwekfq`, LANE-A) but deliberately NOT in `world_population_handoff.
+    # ROSTER_COMPOSERS` yet - see that table's own comment for why
+    # (`runtime.py`'s Columbus crossing call site assumes this seam always
+    # answers scene 17 with a CLEAR, and this lane cannot flip that
+    # assumption without chief's review).  So `handoff_for_arrival(17, ...)`
+    # still answers KIND_CLEAR, not KIND_CENSUS, and this loop - which is
+    # about what a composed CENSUS looks like - correctly does not cover it.
+    # Named here rather than silently narrowed, so a reader who widens this
+    # exclusion for a NEW scene has to say why too.
+    NOT_YET_A_ROSTER_COMPOSER_THIS_ROUND = frozenset({17})
+
     def test_the_reapply_field_can_never_reach_the_call_site_as_none(self):
         # SceneHandoff.reapply_ms is `int | None` and the call site coerces
         # it, so None there would refuse the census instead of shipping it.
@@ -547,6 +559,8 @@ class ComposerContractTests(unittest.TestCase):
         # does not exist under that name.  Declining every non-census kind is
         # what keeps both out.
         for scene_id in lane_a.scenes_this_lane_composes_for():
+            if scene_id in self.NOT_YET_A_ROSTER_COMPOSER_THIS_ROUND:
+                continue
             with self.subTest(scene=scene_id):
                 handoff = world_population_handoff.handoff_for_arrival(
                     self.legacy, scene_id,

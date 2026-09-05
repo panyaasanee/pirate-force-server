@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pirateforce_foundation import columbus_quest_dispatch
 from pirateforce_foundation import world_bg0015_identity
+from pirateforce_foundation import world_bg1001_identity
 from pirateforce_foundation import world_m2_sea_destination as sea
 from pirateforce_foundation import world_scene_travel
 
@@ -381,6 +382,47 @@ class CrosswalkKeyRuleTests(unittest.TestCase):
     def test_an_unmeasured_cline_type_is_refused(self):
         with self.assertRaises(sea.SeaDestinationError):
             sea.cline_key(3002, 1)
+
+
+class SceneSeventeenClineWideningTests(unittest.TestCase):
+    """Round `vwekfq` (LANE-A): CLINE_BLOCKS widened by measurement for
+    scene 17's three tied candidate types (801/814/816), COO-DECISION
+    `pf_bridge/notes_to_chief/20260905_0848_...` condition (a).  Tagged
+    [PROPOSED], not [MEASURED] - see PROPOSED_CLINE_TYPES."""
+
+    def test_the_three_new_types_are_dense_five_key_blocks(self):
+        for cline_type, base in ((801, 26660), (814, 26920), (816, 26960)):
+            with self.subTest(cline_type=cline_type):
+                self.assertEqual(
+                    sea.CLINE_BLOCKS[cline_type], (base, 5, 1, 5))
+                self.assertNotIn(cline_type, sea.SPARSE_CLINE_TYPES)
+
+    def test_the_three_new_types_are_named_proposed_not_measured(self):
+        for cline_type in (801, 814, 816):
+            with self.subTest(cline_type=cline_type):
+                self.assertIn(cline_type, sea.PROPOSED_CLINE_TYPES)
+                self.assertTrue(sea.is_cline_block_proposed(cline_type))
+        # And the pre-existing, controlled types are NOT proposed - the
+        # whole point of the tag is that it does not apply to everything.
+        for cline_type in (1, 4, 14, 3001):
+            with self.subTest(cline_type=cline_type):
+                self.assertFalse(sea.is_cline_block_proposed(cline_type))
+
+    def test_the_key_rule_resolves_every_set_scene_17_actually_ships(self):
+        # Same shape as scene 14's own witness test above: every Mob-Set
+        # number `world_bg1001_identity` ships must key cleanly under
+        # CLINE type 801 (this file's own key function, not that module's
+        # frozen row copy).
+        for placement in world_bg1001_identity.shippable_placements():
+            sea.cline_key(801, placement.template_id)
+
+    def test_set_six_is_outside_all_three_types_own_measured_range(self):
+        # The one placement none of the three tied types resolves - see
+        # world_bg1001_identity's own docstring for why.
+        for cline_type in (801, 814, 816):
+            with self.subTest(cline_type=cline_type):
+                with self.assertRaises(sea.SeaDestinationError):
+                    sea.cline_key(cline_type, 6)
 
 
 class FeasibilityCountTests(unittest.TestCase):
