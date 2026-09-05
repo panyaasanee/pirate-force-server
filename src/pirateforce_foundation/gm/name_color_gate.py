@@ -154,11 +154,50 @@ FACTION_COMPARATOR_SOLE_CALL_SITE_VA = 0x0043C5E0
 #: does not have to re-discover this citation from a cold TSV grep; see the
 #: RE ticket request this round files for the reachability question itself.
 PAIR_RELATION_ZERO_GATE_SPAN = (0x0043C531, 0x0043C547)
-PAIR_RELATION_ZERO_GATE_OPERAND = "ActorAttr+0x98 bit 0x04000000"
+#: CORRECTED by RE-263.  The round that first pinned this wrote
+#: ``"ActorAttr+0x98 bit 0x04000000"``, which reads as "a bit inside the value
+#: at +0x98" and is wrong twice over: +0x98 is a ONE-BYTE ``uint8_enum``
+#: (PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7, ``storage_width=1``, ``tag=0x0B``),
+#: and ``0x04000000`` is the PRESENCE bit in the separate mask word at +0x1B4
+#: that decides whether the byte appears on the wire at all -- a bit this
+#: repository already models correctly one module away, in
+#: ``gm/attr_wire.py`` (x=39, ``1 << 26`` on the mask, ``offset=0x098``).
+#: The two published instructions in the span are byte compares against zero,
+#: not a bit test: ``cmp byte ptr [esi+0x98], 0`` at 0x0043C531 and
+#: ``cmp byte ptr [edi+0x98], 0`` at 0x0043C53A.
+PAIR_RELATION_ZERO_GATE_OPERAND = (
+    "ActorAttr+0x98 (u8), presence bit +0x1B4 & 0x04000000"
+)
+PAIR_RELATION_ZERO_GATE_CMP_LOCAL_VA = 0x0043C531
+PAIR_RELATION_ZERO_GATE_CMP_TARGET_VA = 0x0043C53A
 PAIR_RELATION_ZERO_GATE_STATUS = "PROVEN_ROLE_ONLY"
 PAIR_RELATION_ZERO_GATE_SOURCE = (
     "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
 )
+
+#: RE-263, CLOSED BOUNDED-NEGATIVE.  The route this lane opened last round --
+#: "maybe the gate above reaches the name style without going through the
+#: faction comparator" -- is a dead end, and NOT for the reason the ticket
+#: anticipated.  The ticket guessed the predicate would be skipped along with
+#: the typed CNetNPC tail; it is not (the predicate is called on the POSITIVE
+#: identity lane at 0x00444018, which is the lane a FieldMob identity lands
+#: in).  It is a dead end because the two sites that emit the name style are
+#: not in the predicate at all: they sit at the VAs below, gated on the
+#: receiver being the LOCAL CMyActor singleton -- the player's own nameboard,
+#: which no field mob can ever be.  Separately, the gate's operand is the
+#: constant this server always leaves it: the presence bit above is never set,
+#: so the client never executes the wire read and the byte keeps its
+#: constructor default of 0 for every actor.
+#:
+#: This changes NOTHING about the refusal below.  It closes a second route
+#: that was never a blocker; ``faction_is_a_fallback_operand_only`` is
+#: untouched and ``unaddressed_blockers()`` still returns exactly one.
+LOCAL_ACTOR_NAME_STYLE_EMIT_SITE_VAS = (0x00443FE9, 0x00443FF2)
+RELATION_PREDICATE_POSITIVE_LANE_CALL_SITE_VA = 0x00444018
+ACTOR_ATTR_0X98_PRESENCE_GATE = "+0x1B4 & 0x04000000"
+ACTOR_ATTR_0X98_CONSTRUCTOR_DEFAULT = 0
+ACTOR_ATTR_0X98_DEFAULT_WRITER_VA = 0x00464D69
+PAIR_RELATION_ZERO_GATE_ROUTE_VERDICT = "RE-263 BOUNDED-NEGATIVE: not a second route"
 
 RE_191_RESULT_LETTER = (
     "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"
