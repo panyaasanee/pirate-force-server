@@ -1026,6 +1026,24 @@
     },
     {
       "key": "bridge_gamedata",
+      "module": "tests/test_world_bg3008_identity_rederived.py",
+      "count": 10,
+      "tests": [
+        "TheShippedTableMatchesTheSource::test_every_source_digest_is_the_file_that_is_there",
+        "TheShippedTableMatchesTheSource::test_every_shipped_row_matches_the_table_chain",
+        "TheShippedTableMatchesTheSource::test_every_placement_row_matches_the_scene_file",
+        "TheShippedTableMatchesTheSource::test_nothing_is_dropped_and_the_sources_agree",
+        "TheShippedTableMatchesTheSource::test_no_shipped_name_needs_a_cp874_pin_on_this_scene",
+        "TheShippedTableMatchesTheSource::test_the_second_leg_is_real_and_never_shipped",
+        "TheShippedTableMatchesTheSource::test_every_second_leg_column_is_the_tables_own",
+        "TheShippedTableMatchesTheSource::test_the_tip_row_answer_each_leg_carries_is_measured",
+        "TheShippedTableMatchesTheSource::test_the_docstrings_measured_numbers_are_still_true",
+        "TheShippedTableMatchesTheSource::test_no_crew_column_is_set_on_this_cline_block"
+      ],
+      "note": "round 9zj630 (LANE-A), pinned in the SAME commit that ships the module rather than in a re-land: the sibling scene's own pin (below/above this one) records that pull request #847 was closed unmerged by the gate for exactly this missing pin, and #852 the same day for the same shape, so this round wrote the pin and ran the rehearsal before pushing instead of learning it again. world_bg3008_identity.py ships the committed CLINE 3008 crosswalk for scene 305 (Bg3008, Pale Silver Sea): all 59 placements ship over 47 first-leg Mob-Set numbers, and NOTHING is dropped - which is why this file's fourth test proves the absence of drops where scene 304's proves four named ones. The ten tests pinned here are the whole of TheShippedTableMatchesTheSource, which RE-DERIVES every shipped row, every placement field, every source digest and the no-drop claim itself straight from the bridge clone's own TSVs, so a clone without pf_bridge beside it cannot answer them and the guard BRIDGE_GAMEDATA.skip_unless_present() fires on the class. WHY THE COUNT IS 10 AND NOT 0: on the bridge, and on every cloud clone, pf_bridge IS beside this repository, the guard does not fire, and `pytest tests/test_world_bg3008_identity_rederived.py -q -rs` reports 0 skipped - measuring skips on such a machine can never see this skip. It exists only in the gate shape (one repository checked out alone), which is why the rehearsal in pf_bridge/HOWTO_OPEN_A_PR.md:24-31 (the BRIDGE repository's house rules, not this one's) is the only thing that measures it: a worktree under mktemp -d, pytest with -rs, then tools/pf_pytest_precondition_census.py on that log, reading BOTH exit codes. This round ran that rehearsal before pushing and read the count off it rather than off the class. WHAT THE SKIP COSTS: on the machine that closes pull requests, the shipped crosswalk is never re-derived from the upstream tables, so a hand-edit to world_bg3008_identity.py that is internally consistent would pass the gate. The gate-runnable remainder is tests/test_world_bg3008_identity.py, tests/test_world_population_bg3008.py and tests/test_lane_a_scene_census_bg3008.py, which grade the committed table's own shape, its serializer output and the hook's registration on every clone."
+    },
+    {
+      "key": "bridge_gamedata",
       "module": "tests/test_world_bg3007_identity_rederived.py",
       "count": 10,
       "tests": [

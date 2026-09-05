@@ -996,15 +996,20 @@ guard("make_remote_actor_entry" in _v141,
 # in it.  Same shape as every sibling: one entry builder, one carrier.  Its
 # registry LOGIN door stays shut; what admits it is the census hook's third
 # arm (an owner-decreed arrival plus a live GM warp).
-guard(SRC_ACTOR_ENTRY_SITES == 31,
-      "src/ builds actor entries at exactly 31 call sites (4 spawns + the "
+# ROUND 9zj630 (lane A): 31 -> 32.  world_population_bg3008.py, scene 305's
+# ("Pale Silver Sea") census - the THIRD ocean panel and the other sea of
+# that same pair, built for the same reason and admitted by the same third
+# arm.  Same shape as every sibling: one entry builder, one carrier.  Its
+# registry LOGIN door stays shut.
+guard(SRC_ACTOR_ENTRY_SITES == 32,
+      "src/ builds actor entries at exactly 32 call sites (4 spawns + the "
       "round-86 death re-send + the round-96 remote-player probe + the "
       "round-99 hostile spawn + the round-111 NPC HP ladder + the "
       "HYP-PF-038 hostile HP link + the lane-B production modules + the "
       "GT-114 multi-object diagnostic + the lane-A bg0002, bg0015, bg0004, "
       "bg0010, bg0005, bg0006, bg0008, bg0003, bg0007, bg0009, bg0011, "
-      "bg4001, bg3001, bg1001 and bg3007 censuses + the jqxe6v Bg0015 "
-      "hostile-splice proof's civilian entry)")
+      "bg4001, bg3001, bg1001, bg3007 and bg3008 censuses + the jqxe6v "
+      "Bg0015 hostile-splice proof's civilian entry)")
 # ROUND y9s0xo (lane B): 25 -> 26.  mob_scene_recompose.py re-encodes the
 # collection when it splices a scene's roster override into a recompose --
 # the same encoder, one more call site, and no new actor ENTRY builder.
@@ -1021,9 +1026,10 @@ guard(SRC_ACTOR_ENTRY_SITES == 31,
 # than either side's number being kept.
 # ROUND vwekfq (lane A): 39 -> 40, world_population_bg1001.py's own carrier.
 # ROUND yob0a2 (lane A): 40 -> 41, world_population_bg3007.py's own carrier.
-guard(SRC_ACTOR_STREAM_SITES == 41,
-      "src/ sends the actor-entry carrier at exactly 41 call sites")
-guard(SRC_MODULES_WITH_ACTOR_ENTRY == 30
+# ROUND 9zj630 (lane A): 41 -> 42, world_population_bg3008.py's own carrier.
+guard(SRC_ACTOR_STREAM_SITES == 42,
+      "src/ sends the actor-entry carrier at exactly 42 call sites")
+guard(SRC_MODULES_WITH_ACTOR_ENTRY == 31
       and SRC_MODULES_WITH_ACTOR_ENTRY_NAMES == (
           "field_mob_hostile_bg0015.py",
           "field_mobs.py",
@@ -1049,8 +1055,9 @@ guard(SRC_MODULES_WITH_ACTOR_ENTRY == 30
           "world_population_bg1001.py",
           "world_population_bg3001.py",
           "world_population_bg3007.py",
+          "world_population_bg3008.py",
           "world_population_bg4001.py"),
-      "30 named src/ modules build actor entries %s"
+      "31 named src/ modules build actor entries %s"
       % (SRC_MODULES_WITH_ACTOR_ENTRY_NAMES,))
 # Round 97 re-pin, 4 -> 5.  DAMAGE-HP-LINK-001 added the fifth mention:
 # damage_hp_link_hypothesis.py names bit 0x0080 because its two lethal frames

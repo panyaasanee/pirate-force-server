@@ -692,6 +692,28 @@ ACKNOWLEDGED_WITHOUT_COMPOSER = {
         "field_mobs names no scene 304 at all, so it has no combat roster "
         "and no strike can reach a recompose."
     ),
+    # ADDED ROUND 9zj630 (LANE-A): scene 305 (Bg3008, "Pale Silver Sea")
+    # entered ``world_scene_travel.CENSUS_SOURCES`` this round
+    # (``world_bg3008_identity`` / ``world_population_bg3008``, all 59 of the
+    # scene's 59 native placements).  Reachable in production the day it
+    # lands, exactly like 304: the scene is in ``world_population_handoff.
+    # ROSTER_COMPOSERS`` and the census hook's third admission arm admits a
+    # GM standing there after a live ``/warp 305``.  BOTH HALVES MEASURED
+    # THIS ROUND rather than carried over from the entry above:
+    # ``field_mobs.scene_for_scene_id(305)`` returns ``None`` (scene 305 is
+    # in NEITHER of field_mobs' two tables) and
+    # ``field_mobs.roster_for_scene_id(305)`` is ``()``.  With no combat
+    # roster there is nothing to strike in scene 305, so no strike reaches a
+    # recompose and the one-entry world wipe cannot happen today.  THE DAY
+    # LANE-B GIVES THIS SCENE A ROSTER ROW, this entry must be replaced by a
+    # real composer in the same round.
+    305: (
+        "Bg3008 -- lane A's arrival census composes it (lane_hooks/"
+        "lane_a_scene_census.py, registered round 9zj630, LIVE for a GM "
+        "standing there after /warp 305; ordinary login door still shut); "
+        "field_mobs names no scene 305 at all, so it has no combat roster "
+        "and no strike can reach a recompose."
+    ),
 }
 
 

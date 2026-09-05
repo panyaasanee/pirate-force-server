@@ -205,11 +205,18 @@ def _bare_warp_destinations() -> tuple[int, ...]:
 # `CENSUS_SOURCES` and in this lane's census hook, admitted by that hook's
 # third arm), so 304 comes out of this tuple and
 # `test_every_map_a_bare_warp_can_reach_ships_one_on_arrival` now REQUIRES a
-# real 50-actor census for it.  Scene 305 keeps its place: its cast is real
-# future LANE-A work (Bg3008, 59 placements) that this round did not do.
-# Named here, checked below, rather than silently widening
+# real 50-actor census for it.  ~~Scene 305 keeps its place: its cast is real
+# future LANE-A work (Bg3008, 59 placements) that this round did not do.~~
+# EMPTIED round 9zj630 (LANE-A): that future round happened, and 305's cast
+# is now `world_bg3008_identity.py`/`world_population_bg3008.py` -- all 59
+# placements, registered in `CENSUS_SOURCES`, in this lane's census hook and
+# in `world_population_handoff.ROSTER_COMPOSERS`, admitted by the same third
+# arm.  So the test below now REQUIRES a real census on every bare-warp
+# destination without exception, which is the strongest form this pin has
+# ever had; a scene added to this tuple again is a scene someone has to
+# argue for.  Named here, checked below, rather than silently widening
 # `_arrival_census`'s exemptions or narrowing what counts as "reachable".
-SCENES_WITH_NO_CENSUS_COMPOSER_YET = (305,)
+SCENES_WITH_NO_CENSUS_COMPOSER_YET: tuple[int, ...] = ()
 
 
 class _WarpChainHarness(unittest.TestCase):
