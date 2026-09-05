@@ -1120,6 +1120,41 @@ class CrossSceneIdentityCollisionTests(unittest.TestCase):
             {row["actor_identity"] for row in probe},
             {mob.actor_identity for mob in load_roster()})
 
+    def test_the_withheld_list_and_its_reason_cover_the_same_scenes(
+            self) -> None:
+        """ROUND j5v7mu2, pf-adversary D6/D9.
+
+        ``lane_withheld_reason``'s docstring claimed "the test file for this
+        change asserts the two dictionaries cover exactly the same scenes".
+        No such assertion existed, and the mutant that added two withheld
+        scenes with NO reason entries survived the whole suite -- which is
+        the write-only-literal failure ``OWNER_REFUSAL_REASON`` already had
+        once (round z096sw, pf-adversary D4).  A row withheld with no reason
+        beside it vanishes from a roster with nothing to say why.
+
+        The reason's CONTENT is pinned too, not just its presence: the
+        mutant ``'because_924_lane_b_felt_like_it'`` also survived, and a
+        reason that does not name the ruling cannot be traced back to it.
+        """
+        from pirateforce_foundation import field_mobs as fm
+        self.assertEqual(
+            set(fm.LANE_WITHHELD_PLACEMENTS), set(fm.LANE_WITHHELD_REASON))
+        for scene in fm.LANE_WITHHELD_PLACEMENTS:
+            self.assertTrue(fm.lane_withheld_placements(scene), scene)
+            reason = fm.lane_withheld_reason(scene)
+            self.assertTrue(reason, scene)
+            # ASCII, lower-case, underscore-joined, like the owner's own.
+            self.assertEqual(reason, reason.lower(), scene)
+            self.assertTrue(reason.isascii(), scene)
+        # Bg0015's reason names the template in question AND the ruling that
+        # withheld it, so a reader can find the decision from the code.
+        self.assertEqual(
+            fm.lane_withheld_reason("Bg0015"),
+            "no_death_ruling_covers_template_924_coo_decision_20260905_0545")
+        # A scene with no lane ruling answers empty on both, not KeyError.
+        self.assertEqual(fm.lane_withheld_placements("bg0001"), ())
+        self.assertEqual(fm.lane_withheld_reason("bg0001"), "")
+
     def test_bg0015_is_measurable_and_load_roster_now_accepts_it(self) -> None:
         # RENAMED, COO-DECISION 20260903_1942 item 2: field_mob_tables_bg0015
         # is now registered in field_mobs._SCENE_TABLE_MODULES (layer 2/3

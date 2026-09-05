@@ -511,6 +511,26 @@ def describe_scene_doors(walked: SceneDoors) -> str:
     )
 
 
+def _withheld_by_scene(walked: Any) -> str:
+    """``0`` when no scene withholds a row, else ``1(Bg0015)``-style detail.
+
+    ROUND j5v7mu2 (pf-adversary D7).  Bounded and ASCII like every other
+    field on these lines: the scene names go through :func:`_console_scene`,
+    and only scenes that actually withhold something are named, so the
+    ordinary case stays one character.
+    """
+    total = 0
+    named = []
+    for one in walked:
+        count = len(getattr(one, "lane_withheld", ()) or ())
+        if count:
+            total += count
+            named.append("%s:%d" % (_console_scene(one.scene), count))
+    if not named:
+        return "0"
+    return "%d(%s)" % (total, ",".join(named))
+
+
 def describe_live_scene_doors(legacy: Any) -> tuple:
     """The console block a boot can print: one line per live scene.
 
@@ -527,11 +547,16 @@ def describe_live_scene_doors(legacy: Any) -> tuple:
     finished = tuple(
         _console_scene(one.scene) for one in walked if one.every_door_open)
     lines.append(
-        "%s summary live_scenes=%d owner_refusal_list=%d lane_withheld=%d "
+        # ROUND j5v7mu2, pf-adversary D7: the withheld total is SCENE-
+        # ATTRIBUTED.  A bare sum over five scenes sat next to an
+        # ``every_door`` list naming four of them, and a reader could not
+        # tell which of the four owed its ``yes`` to a removed row -- which
+        # is the single thing this number exists to say.
+        "%s summary live_scenes=%d owner_refusal_list=%d lane_withheld=%s "
         "every_door=%s"
         % (SCENE_DOORS_TOKEN, len(walked),
            sum(len(one.owner_refused) for one in walked),
-           sum(len(one.lane_withheld) for one in walked),
+           _withheld_by_scene(walked),
            ",".join(finished) or "none"))
     return tuple(lines)
 

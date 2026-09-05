@@ -337,10 +337,31 @@ def respond(
     # put this scene back on the ceiling for good.
     admitted_ledger = lane_a_click_hp.ledger_for_this_scene(
         SCENE_N_ID, mob_combat_ledger,
-        # ROUND j5v7mu (LANE-B edit, same ruling as above): the ledger this
-        # click path admits must be the SHIPPED rows, otherwise the withheld
-        # placement stays strikeable through this door while being absent
-        # from every other one.
+        # ROUND j5v7mu (LANE-B edit, same ruling as above): the shipped
+        # rows, so this argument agrees with the census, the combat ledger
+        # and the hostile dict rather than being the last reader of the
+        # mined twelve.
+        #
+        # ~~otherwise the withheld placement stays strikeable through this
+        # door while being absent from every other one~~ IS STRUCK, ROUND
+        # j5v7mu2 (pf-adversary D5, MEASURED): reverting this one argument
+        # changes NOTHING that a client can observe.  ``admit_ledger`` does
+        # refuse the mined roster by name (``same_scene_incomplete
+        # covered=11/12 missing=0x2058``), but ``lane_a_click_hp
+        # .ledger_for_this_scene``'s scene-folder fallback hands the very
+        # same ledger back anyway, so all three ledger states answer
+        # identically either way.  Strikeability comes from
+        # ``hostile_by_idx`` above, not from here.  The change is kept
+        # because one source of truth for "what this scene ships" is worth
+        # having; the sentence claiming it fixed a second hole was wrong and
+        # a later reader would have believed it.
+        #
+        # NAMED, NOT FIXED HERE (pre-existing, outside this lane's ruling):
+        # that fallback means scene 14's click path accepts an INCOMPLETE
+        # ledger on its folder tag alone and never prints
+        # ``describe_ledger_admission``, so the admission verdict is
+        # computed and discarded.  LANE-A owns the file; this round's letter
+        # to them names it rather than changing behaviour nobody asked for.
         tuple(hostile_bg0015.scene14_shipped_hostile_roster()),
         scene_folder=SCENE_FOLDER,
     )

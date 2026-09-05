@@ -51,7 +51,13 @@ LANE_A_MEASURED_IDENTITIES = {
 # because that is what it is for -- is no longer the same set as the
 # override dict.  DERIVED from field_mobs rather than a second hand-typed
 # eleven-entry literal, so the day the ruling is lifted this file follows.
-WITHHELD_PLACEMENTS = set(field_mobs.lane_withheld_placements("Bg0015"))
+# ROUND j5v7mu2 (pf-adversary D8): BOTH of load_roster's refusal lists, so
+# this fixture keeps meaning "what this lane does not ship" if an owner
+# refusal ever lands for Bg0015 as well.
+WITHHELD_PLACEMENTS = (
+    set(field_mobs.owner_refused_placements("Bg0015"))
+    | set(field_mobs.lane_withheld_placements("Bg0015"))
+)
 SHIPPED_MEASURED_IDENTITIES = {
     index: identity
     for index, identity in LANE_A_MEASURED_IDENTITIES.items()
@@ -112,6 +118,39 @@ class FieldMobHostileBg0015Tests(unittest.TestCase):
             {mob.placement_index
              for mob in field_mobs.load_roster(scene="Bg0015")},
         )
+
+    def test_the_shipped_roster_is_exactly_what_load_roster_hands_a_session(
+            self) -> None:
+        """ROUND j5v7mu2, pf-adversary D6.
+
+        ``scene14_shipped_hostile_roster``'s docstring promised this file
+        asserted the agreement; it did not, and the function meanwhile
+        subtracted one of ``load_roster``'s two refusal lists (D8).  The two
+        must agree ROW FOR ROW, because that function is what decides which
+        hostile bodies reach a client and which rows the click ledger holds:
+        the moment it disagrees with the roster a session is handed, a
+        player meets a red-named monster with no ledger row behind it.
+        """
+        shipped = hostile_bg0015.scene14_shipped_hostile_roster()
+        live = field_mobs.load_roster(scene="Bg0015")
+        self.assertEqual(
+            [mob.placement_index for mob in shipped],
+            [mob.placement_index for mob in live])
+        self.assertEqual(
+            [mob.actor_identity for mob in shipped],
+            [mob.actor_identity for mob in live])
+        # BOTH of load_roster's lists, not just the lane's (D8).  Bg0015 has
+        # no owner refusal today, so the property is asserted against the
+        # union rather than against today's data.
+        mined = {mob.placement_index
+                 for mob in hostile_bg0015.scene14_hostile_roster()}
+        dropped = (set(field_mobs.owner_refused_placements("Bg0015"))
+                   | set(field_mobs.lane_withheld_placements("Bg0015")))
+        self.assertEqual(
+            {mob.placement_index for mob in shipped}, mined - dropped)
+        # And the mined roster is still whole -- the diagnostics need it.
+        self.assertEqual(len(hostile_bg0015.scene14_hostile_roster()), 12)
+        self.assertEqual(len(shipped), 11)
 
     def test_actor_identities_match_lane_As_measured_numbers(self) -> None:
         roster = {

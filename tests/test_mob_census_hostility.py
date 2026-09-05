@@ -45,6 +45,45 @@ GHOST_IDENTITY = 0x205D
 SUBJECT_IDENTITY = 0x2033  # Tornado Eagle, placement 50
 
 
+class LaneWithheldReportedTests(unittest.TestCase):
+    """ROUND j5v7mu2, pf-adversary D3.
+
+    ``census_backing_report`` gained ``withheld``/``withheld_count`` in round
+    j5v7mu and nothing read them: the mutant ``withheld = ()`` left the whole
+    suite green, which makes the keys a report nobody observes -- the exact
+    shape this project bans.  The keys exist because ``roster_count`` is
+    POST-filter, so a report naming only the owner's list says
+    ``refused_count=0`` for a scene whose roster is a row short.  These tests
+    are what make that claim falsifiable.
+    """
+
+    def test_scene_fourteen_reports_the_row_its_roster_is_short_by(self):
+        report = mch.census_backing_report(14, ())
+        self.assertEqual(report["withheld"], (87,))
+        self.assertEqual(report["withheld_count"], 1)
+        # THE POINT OF THE KEY: the owner's list is empty here, so a reader
+        # with only ``refused`` would read a whole denominator.
+        self.assertEqual(report["refused"], ())
+        self.assertEqual(report["refused_count"], 0)
+        self.assertEqual(
+            report["roster_count"],
+            len(field_mobs.load_roster("Bg0015")))
+        self.assertEqual(
+            report["roster_count"] + report["withheld_count"], 12)
+
+    def test_a_scene_that_withholds_nothing_reports_nothing(self):
+        report = mch.census_backing_report(BG0002_SCENE_ID, ())
+        self.assertEqual(report["withheld"], ())
+        self.assertEqual(report["withheld_count"], 0)
+        self.assertTrue(report["refused"])
+
+    def test_an_unknown_scene_id_still_answers_both_keys(self):
+        """``scene`` is ``None`` there, and the keys must not vanish."""
+        report = mch.census_backing_report(9999, ())
+        self.assertEqual(report["withheld"], ())
+        self.assertEqual(report["refused"], ())
+
+
 class OwnerRefusalTests(unittest.TestCase):
     """The filter at ``load_roster``, and the guard that keeps it honest."""
 
