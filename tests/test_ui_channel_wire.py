@@ -1,4 +1,4 @@
-"""Pure unit tests for ``ui_channel_wire.py`` -- the nine ``Channel_*Vital``
+"""Pure unit tests for ``ui_channel_wire.py`` -- the ten ``Channel_*Vital``
 classes not already owned by this project's five-class shared-serializer
 chat module (see ``ui_channel_wire.py``'s module docstring for why that
 module's name is deliberately not spelled out again here -- an ownership
@@ -55,6 +55,34 @@ class TaggedWstringCodecTests(unittest.TestCase):
         payload = ch.encode_channel_tagged_wstring("ab")
         with self.assertRaises(ch.wire.WireDecodeError):
             ch.read_channel_tagged_wstring(payload[:-1], 0)
+
+
+class ForbidTalkNotificationWireTests(unittest.TestCase):
+    def _fields(self):
+        return ch.ForbidTalkNotificationFields(field1_u8=1)
+
+    def test_round_trip(self):
+        fields = self._fields()
+        payload = ch.encode_forbid_talk_notification_payload(fields)
+        self.assertEqual(
+            ch.decode_forbid_talk_notification_payload(payload), fields
+        )
+
+    def test_truncated_payload_fails_closed(self):
+        payload = ch.encode_forbid_talk_notification_payload(self._fields())
+        self.assertIsNone(
+            ch.decode_forbid_talk_notification_payload(payload[:-1])
+        )
+
+    def test_wrong_tag_fails_closed(self):
+        payload = bytes([0x00, 1])
+        self.assertIsNone(ch.decode_forbid_talk_notification_payload(payload))
+
+    def test_trailing_bytes_fail_closed(self):
+        payload = ch.encode_forbid_talk_notification_payload(self._fields())
+        self.assertIsNone(
+            ch.decode_forbid_talk_notification_payload(payload + b"\xaa")
+        )
 
 
 class WhisperWireTests(unittest.TestCase):
@@ -131,6 +159,14 @@ class OriginalSinChannelMessageWireTests(unittest.TestCase):
             ch.decode_original_sin_channel_message_payload(payload[:-1])
         )
 
+    def test_trailing_bytes_fail_closed(self):
+        payload = ch.encode_original_sin_channel_message_payload(
+            self._fields()
+        )
+        self.assertIsNone(
+            ch.decode_original_sin_channel_message_payload(payload + b"\xaa")
+        )
+
 
 class JoinCustomChannelWireTests(unittest.TestCase):
     def _fields(self):
@@ -173,6 +209,12 @@ class LeaveCustomChannelWireTests(unittest.TestCase):
         payload = ch.encode_leave_custom_channel_payload(self._fields())
         self.assertIsNone(
             ch.decode_leave_custom_channel_payload(payload[:-1])
+        )
+
+    def test_trailing_bytes_fail_closed(self):
+        payload = ch.encode_leave_custom_channel_payload(self._fields())
+        self.assertIsNone(
+            ch.decode_leave_custom_channel_payload(payload + b"\xaa")
         )
 
 

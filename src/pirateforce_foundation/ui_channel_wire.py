@@ -1,4 +1,4 @@
-"""Nine ``Channel_*Vital`` classes -- pure encode/decode, wire shape only.
+"""Ten ``Channel_*Vital`` classes -- pure encode/decode, wire shape only.
 
 Grepped first, per ``AGENTS.md`` section 7's mandatory search: ``Channel_``
 has a lot of history in this repo, all of it read before writing a single
@@ -34,20 +34,38 @@ line here.
     the coarser TSV row, per the class-by-class table at that report's line
     63-76.
   * Two classes from that report, ``Channel_JoinClassChannelVital`` and
-    ``Channel_ClassChannelMessageVital``, are deliberately EXCLUDED here even
-    though their layout is equally proven: ``prompts/COMMON_LANE_ROUND.md``'s
-    per-lane grep hint table lists ``Channel_JoinClassChannel`` under
-    **LANE-CS**'s search terms (grouped with ``CLearnSkill*``/skill-class
-    vitals), not this lane's. Building a codec for a class-channel pair that
-    turns out to be CS's is a one-round mistake to avoid by just not picking
-    it up; CS can grep this module and the report directly if it wants them.
-  * No open RE/GT ticket for any of the nine classes below in
+    ``Channel_ClassChannelMessageVital``, are deliberately EXCLUDED here
+    even though their layout is equally proven. Only the first half of this
+    is a sourced fact: ``prompts/COMMON_LANE_ROUND.md``'s per-lane grep hint
+    table lists ``Channel_JoinClassChannel`` (only that one name, checked by
+    grep) under **LANE-CS**'s search terms (grouped with
+    ``CLearnSkill*``/skill-class vitals), not this lane's.
+    ``Channel_ClassChannelMessageVital`` itself is NOT named anywhere in
+    that file, or in any CS-owned doc -- excluding it too is this round's
+    own judgment call (keep the ``Join``/``Message`` pair for one channel
+    concept together rather than split them across two lanes), not a second
+    citation. Flagged as a call, not a measurement, so a future round can
+    revisit it if CS says otherwise.
+  * A tenth class from the same report, ``Channel_ForbidTalkNotificationVtial``
+    (misspelled ``Vtial`` in the client binary itself -- the wire id hash is
+    computed from that exact spelling, changing it to ``Vital`` gives a
+    different id; report line 53), was missed in an earlier draft of this
+    module (pf-adversary, this round: "16 accounted for, 17th silently
+    missing") and is now included below. It is a real, structurally
+    ``CLOSED``/``KNOWN`` single-field class per
+    ``notes_to_chief/reference_codex_attr/PF_PROTOCOL_PRIORITY.tsv:173``, not
+    a stub.
+  * No open RE/GT ticket for any of the ten classes below in
     ``CLIENT_RE_QUEUE.md`` or ``GAME_TEST_QUEUE.md`` (both empty grep hits),
     and no prior wire module in ``src/``/``tests/`` for any of them
     (``archive/`` checked too: only unrelated GM chat-command history hits).
 
-The nine classes covered here, with their proven field order (report lines
+The ten classes covered here, with their proven field order (report lines
 66-76; every wstring is tag ``0x48`` + u32 byte-length + UTF-16LE, no NUL):
+
+  * ``Channel_ForbidTalkNotificationVtial`` ``0xFDF2`` -- serializer
+    ``0x65AE00``, a ``Channel_BasicVtial`` node (neither ``Command`` nor
+    ``Message``): ``u8(0x0B)@+0x18`` alone (report line 75)
 
   * ``Channel_WhisperVital`` ``0x556C`` -- serializer ``0x65AEA0``:
     ``wstring@+0x34`` (speaker) -> ``wstring@+0x18`` (body) ->
@@ -82,7 +100,7 @@ are the exact same legend already confirmed project-wide by
 ``ui_*_wire.py`` module in this batch -- none invented here.
 
 ``external/PF_FIELD_VALIDATION.tsv`` shows ``status=NOT_OBSERVED``,
-``observed_frames=0`` for both ``W`` and ``R`` on all nine classes above
+``observed_frames=0`` for both ``W`` and ``R`` on all ten classes above
 (unlike ``Channel_LocalTalkMessageVital``, which IS ``VALIDATED`` with real
 captured frames -- that is exactly the class this module does not touch, see
 the ownership note above). So nothing below claims which side sends which
@@ -90,7 +108,7 @@ class in production, what any field MEANS (channel handle values, result
 byte semantics, etc. are all ``proven_semantics=UNKNOWN``), or reproduces a
 live-captured frame -- the report's grade A is byte-exact STATIC disassembly
 cross-checked against the GT-006 capture for the five shared-serializer
-classes only, not a live capture of any of these nine. Same "receive frame
+classes only, not a live capture of any of these ten. Same "receive frame
 (decode) + compose the same shape back (encode), no business logic" scope as
 every sibling module in this batch (``CORE-REQUEST 1120``'s own words). Not
 wired into ``runtime.py``/``vital_walk.py`` -- wiring any of these is a
@@ -103,6 +121,7 @@ from dataclasses import dataclass
 
 from . import ui_social_wire as wire
 
+CHANNEL_FORBID_TALK_NOTIFICATION_VITAL_ID = 0xFDF2
 CHANNEL_WHISPER_VITAL_ID = 0x556C
 CHANNEL_CUSTOM_CHANNEL_MESSAGE_VITAL_ID = 0xE064
 CHANNEL_ORIGINAL_SIN_CHANNEL_MESSAGE_VITAL_ID = 0x265C
@@ -156,6 +175,13 @@ def read_channel_tagged_wstring(buf: bytes, offset: int) -> tuple[str, int]:
     except UnicodeDecodeError as error:
         raise wire.WireDecodeError("malformed UTF-16LE payload") from error
     return text, end
+
+
+@dataclass(frozen=True)
+class ForbidTalkNotificationFields:
+    """Wire order: u8 alone (report line 75)."""
+
+    field1_u8: int
 
 
 @dataclass(frozen=True)
@@ -234,6 +260,23 @@ class LocalPerformanceFields:
     field1_u64: int
     field2_u64: int
     field3_u16: int
+
+
+def encode_forbid_talk_notification_payload(
+    fields: ForbidTalkNotificationFields,
+) -> bytes:
+    return bytes([_TAG_U8_A, fields.field1_u8 & 0xFF])
+
+
+def decode_forbid_talk_notification_payload(
+    payload: bytes,
+) -> ForbidTalkNotificationFields | None:
+    try:
+        field1, offset = wire.read_u8tag(payload, 0, _TAG_U8_A)
+        wire.require_exhausted(payload, offset)
+    except wire.WireDecodeError:
+        return None
+    return ForbidTalkNotificationFields(field1)
 
 
 def encode_whisper_payload(fields: WhisperFields) -> bytes:
