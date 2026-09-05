@@ -2673,11 +2673,19 @@ class RealDispatchSendFailureTests(RealDatabaseTests):
             if action[0] ==
             chat_command_action.WARP_CROSS_SCENE_NO_COORDS_TELEPORT_ACTION_LABEL
         ]
-        if not frames:
-            self.skipTest(
-                "/warp 1 did not compose the no-coords cross-scene action on "
-                "this tree; the D2 shape needs that exact label"
-            )
+        # ASSERTED, NOT SKIPPED.  An earlier draft called `self.skipTest`
+        # here.  A conditional skip is the wrong shape twice over: this
+        # composition has no platform or precondition dependency to skip
+        # ON, and a skip that appears only on the gate is an unpinned entry
+        # in `docs/PYTEST_SKIP_PINS.json`'s census -- so the test would go
+        # from "measuring D2" to "silently measuring nothing" exactly where
+        # nobody is watching it run.
+        self.assertTrue(
+            frames,
+            "/warp 1 must compose the no-coords cross-scene action for the "
+            "D2 shape to exist at all; if this ever stops being true the "
+            "test has to be rewritten, not skipped",
+        )
         self.assertIn(
             "gm_warp_selected_scene_resynced_1", state.events,
             "a relabel really happened, and the word below must not deny it",
