@@ -1059,8 +1059,15 @@ class GeneratedSiblingTablesAreProtectedOffBridgeTests(unittest.TestCase):
     AI_TABLE_NAMES = (
         "AI_COMBAT_ROWS", "AI_COMBAT_PARALLEL", "AI_WANDER_ROWS",
         "PLACEMENT_AI_LINKS")
+    # ROUND 4m2kx7: recomputed, and the rows that moved are named here rather
+    # than left for a reader to diff.  tools/pf_mine_mob_ai_rows.py's union
+    # gained field_mob_tables_bg0008, so the regenerated tables carry FOUR new
+    # rows and nine new links and NOTHING ELSE changed: AI_COMBAT 162, 200 and
+    # 471 and AI_WANDER 2, which scene 8's nine placements point at, plus their
+    # PLACEMENT_AI_LINKS entries.  Every row that was here before is byte-for-
+    # byte what it was.
     AI_TABLES_SHA256 = (
-        "04ff9baa8cf7f43052e988ddc485af46165311e3a6ad06e4793b73d005fb7f29")
+        "a83c4d9b9ae24cf1a243f7d2c24e28b2337b2eb43f9ad5189e4dde1ff573895f")
 
     @staticmethod
     def _digest(module, names):

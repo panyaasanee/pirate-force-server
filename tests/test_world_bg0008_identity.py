@@ -171,13 +171,60 @@ class Bg0008TableShape(unittest.TestCase):
             identity._RESOLVED_ROWS = original
         identity._self_check()
 
-    def test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet(
+    def test_lane_bs_hostile_roster_for_this_scene_agrees_with_this_table(
         self,
     ) -> None:
-        hits = list(
-            (ROOT / "src" / "pirateforce_foundation").glob(
-                "field_mob_tables_bg0008*"))
-        self.assertEqual(hits, [])
+        """~~test_no_lane_b_hostile_roster_module_exists_for_this_scene_yet~~
+        RENAMED ROUND 4m2kx7, because the word it turned on was "yet".
+
+        That test asserted an ABSENCE, and the absence ended: LANE-B mined
+        this scene's hostile roster into ``field_mob_tables_bg0008``.  An
+        absence test whose subject arrives has exactly two honest futures --
+        be deleted, or become the check the absence was standing in for --
+        and this is the second.  Deleting it would have thrown away the one
+        thing this file is uniquely placed to do.
+
+        THE CHECK.  This module resolved scene 8's CLINE type 8 block with
+        lane A's miner, for lane A's arrival census.  Lane B's generator
+        resolved the same block again, with a different tool, for the combat
+        roster.  Two lanes, two miners, two tables, one answer per row -- or
+        this names the row that disagrees.  The failure it exists to catch is
+        GT-078's: a map wearing another map's names.
+
+        The same pairing lives in lane B's own test module for scenes 3, 4
+        and 5, and here for scene 14 -- see the provenance block the roster
+        generator stamps into every module it writes.  Scene 8 is checked
+        from BOTH sides on purpose: this file cannot import a module that
+        does not exist, so a lane-A-side check is what proves the roster is
+        still there at all.
+        """
+        module_path = (ROOT / "src" / "pirateforce_foundation"
+                       / "field_mob_tables_bg0008.py")
+        self.assertTrue(module_path.is_file())
+        from pirateforce_foundation import field_mob_tables_bg0008
+        from pirateforce_foundation import field_mobs
+
+        sets = field_mob_tables_bg0008.SET_NUMBER_FOR_PLACEMENT
+        roster = field_mobs._parse_hostile_placements(field_mob_tables_bg0008)
+        self.assertEqual(len(roster), 9)
+        disagreements = []
+        for mob in roster:
+            set_number = sets[mob.placement_index]
+            ours = identity.IDENTITIES.get(set_number)
+            if ours is None:
+                disagreements.append(
+                    "placement %d (Mob-Set %d) resolves to %d in lane B and "
+                    "is UNRESOLVED here"
+                    % (mob.placement_index, set_number, mob.template_id))
+                continue
+            if (ours.mobs_n_id, ours.name) != (
+                    mob.template_id, mob.display_name):
+                disagreements.append(
+                    "placement %d (Mob-Set %d): lane B says %d %r, this "
+                    "table says %d %r" % (
+                        mob.placement_index, set_number, mob.template_id,
+                        mob.display_name, ours.mobs_n_id, ours.name))
+        self.assertEqual(disagreements, [])
 
 
 if __name__ == "__main__":  # pragma: no cover
