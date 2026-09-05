@@ -670,6 +670,89 @@ def _restore_selected_scene(session: object, previous_scene_id: object) -> str:
     return SELECTED_SCENE_RESTORED
 
 
+#: The four attributes `runtime.py`'s warp-confirmation window is armed
+#: through (`runtime.py:6750-6791`), spelled once here for the same reason
+#: `SENT_OBSERVER_ATTRIBUTE` is: the other copy lives in a file this lane may
+#: not edit, so a third spelling would drift silently.  Verified against
+#: `runtime.py` on `main` this round, not from memory.
+CONFIRM_WINDOW_ATTRIBUTES = (
+    ("gm_warp_position_pending", False),
+    ("gm_warp_confirm_window_open", False),
+    ("gm_warp_confirm_target", None),
+    ("gm_warp_confirm_target_reason", None),
+)
+
+#: The word for a disarm that had something to disarm, and for one that did
+#: not.  Both are `_note`d: "the window was already shut" and "the window was
+#: shut by this undo" are different facts about the same connection, and this
+#: module's founding rule is that two different states never share a word.
+CONFIRM_WINDOW_DISARMED = "confirm_window_disarmed"
+CONFIRM_WINDOW_ALREADY_SHUT = "confirm_window_already_shut"
+
+
+def _disarm_warp_confirm_window(session: object) -> str:
+    """Shut the confirmation window a warp that never left the box opened.
+
+    pf-adversary round `w7gah1`, D1 (CRITICAL, MEASURED WITH A CONTROL).  The
+    previous round taught the send-failure undo to put the in-memory scene
+    label back.  That fix is right and stays -- but it turned a loud failure
+    into a false SUCCESS, because it restored ONE member of a set that
+    `runtime.py`'s `_gm_warp_resync_selected_scene` writes as a group.
+
+    Measured, `/warp 2` from scene 1 with `sendall` raising, then one ordinary
+    step:
+
+        restore OFF: verdict `mismatch` (43,413 units), token withheld -- correct
+        restore ON:  verdict `unknown` (different scene), so `runtime.py:4227`
+                     prints GM_WARP_POSITION_CONFIRMED, appends
+                     `gm_warp_position_confirmed`, notes
+                     `client_confirmed_scene_1_warp_confirmed` and CLEARS
+                     `scene_label_is_server_guess`
+
+    So the project's own warp proof token printed green for a warp whose
+    frame never reached the wire, and the trail recorded a confirmation to a
+    scene nobody warped to.  A false green is worse than the defect it hid:
+    every gate in `EVIDENCE_GATES.md` that reads that token reads it wrong.
+
+    THE INVERSE HAS TO INCLUDE THE WINDOW, because the window is what makes
+    the label mean something.  The resync arms `gm_warp_position_pending` and
+    parks `gm_warp_confirm_target` at the DESTINATION's spawn; putting the
+    label back while leaving that armed asks the next walk step "does the
+    client agree with a warp?" about a warp that was undone -- and
+    `distance_to_target` cannot answer across scenes, so it answers
+    `unknown`, which `runtime.py` reads as "not a mismatch" and therefore as
+    confirmation.
+
+    UNCONDITIONAL ON THE SEND FAILURE, not on the rollback's outcome.  The
+    frame did not reach the wire; that alone is the whole reason the window is
+    wrong, and it is true whether or not the durable undo then succeeded.
+    Gating this on `OUTCOME_ROLLED_BACK` would leave the false-confirm path
+    open on exactly the runs where the row could not be put back -- the ones
+    already in the worst state.
+
+    WHAT IT DOES NOT TOUCH, on purpose: `scene_label_is_server_guess`.  After
+    an undone warp that flag is HONESTLY set -- the client has confirmed
+    nothing -- and this lane has asked chief to restore its pre-warp value in
+    `CORE-REQUEST-GM-060` rather than guess at one here.  Clearing it would be
+    the same class of lie this function exists to stop.
+
+    NEVER RAISES: a session that refuses attributes answers a word.
+    """
+    touched = False
+    for name, cleared in CONFIRM_WINDOW_ATTRIBUTES:
+        try:
+            if getattr(session, name, cleared) == cleared:
+                continue
+        except Exception:  # noqa: BLE001 - a property that raises on read
+            continue
+        try:
+            setattr(session, name, cleared)
+        except Exception:  # noqa: BLE001 - a session that refuses writes
+            continue
+        touched = True
+    return CONFIRM_WINDOW_DISARMED if touched else CONFIRM_WINDOW_ALREADY_SHUT
+
+
 def _report_restore_failure(session: object, scene_id: object) -> None:
     """One console line for the one outcome nobody could otherwise see.
 
@@ -759,9 +842,37 @@ def on_game_frame_send_failed(session: object, frame_bytes: object, error: objec
                 f"{_restore_selected_scene(session, record.previous_selected_scene_id)}",
             )
     else:
+        # THE LABEL GOES BACK FIRST, AND THE ORDER IS THE FIX (pf-adversary
+        # round `w7gah1`, D2, MEASURED).  This delegate re-derives the row it
+        # reverts to from `foundation.selected.position` -- which the resync
+        # has ALREADY moved to the destination.  So on a park whose
+        # `previous_position` is missing (a transient read failure at compose
+        # time is enough: this module's own `SendLockLivenessTests` measured
+        # `rollback_refused_OperationalError` under contention) the "rollback"
+        # wrote the durable row FORWARD to the destination scene the client
+        # was never sent to, reported it as `rolled_back`, and the next login
+        # landed there.  Measured: row `1 -> 2` under the word `rolled_back`.
+        #
+        # The park held `previous_selected_scene_id` the whole time and the
+        # branch did not use it.  Putting the label back BEFORE delegating
+        # makes the delegate re-derive from the departure scene, which is the
+        # row it was always documented to write.  A park with no label answers
+        # `SELECTED_SCENE_UNKNOWN`, writes nothing, and this branch then
+        # behaves exactly as it did before -- the honest old behaviour for the
+        # only population that cannot be helped.
+        _note(
+            session,
+            f"{EVENT_PREFIX}failed_"
+            f"{_restore_selected_scene(session, record.previous_selected_scene_id)}",
+        )
         outcome = rollback_warp_scene_on_send_failure(
             session, SEND_FAILURE_WARP_ACTION_LABEL,
         )
+    # D1, and deliberately outside both branches: the frame did not reach the
+    # wire, so the confirmation window this warp opened is wrong however the
+    # durable undo went.  See `_disarm_warp_confirm_window` for the measured
+    # false `GM_WARP_POSITION_CONFIRMED` that leaving it armed produces.
+    _note(session, f"{EVENT_PREFIX}failed_{_disarm_warp_confirm_window(session)}")
     clear_warp_send_watch(session)
     _note(session, f"{EVENT_PREFIX}failed_rollback_{outcome}")
     return outcome

@@ -1853,9 +1853,18 @@ def live_full_block_values(character_id, *, hooks=None, legacy=None, rows=None) 
     # did not happen -- that needs the fence lifted, which
     # `COO-DECISION 20260904_1149` item 3 holds until the (b'') GT answers.
     #
-    # `CORE-REQUEST-GM-054`'s read point (`current_session_scene_id`) is
+    # ~~`CORE-REQUEST-GM-054`'s read point (`current_session_scene_id`) is
     # STILL NOT LANDED (checked on `main` this round; `lane_hooks` has no
-    # such attribute).  It was never a blocker for this re-routing -- the old
+    # such attribute).~~ -- STRUCK, round `w7gah1`, MEASURED on main:
+    # `lane_hooks.current_session_scene_id` EXISTS
+    # (`lane_hooks/__init__.py`), so the sentence above is false as of this
+    # round and is struck rather than deleted.  What it says about this
+    # function's routing is unaffected and stands; what changes is that the
+    # FENCE's precondition is now met, and whether the fence may therefore be
+    # lifted is `COO-DECISION 20260904_1149` item 3's call, not this comment's
+    # and not this lane's to take silently.  Reported to chief in
+    # `notes_to_chief/20260905_19xx_LANE-GM-CORE-REQUEST-GM-060-*`.
+    # It was never a blocker for this re-routing -- the old
     # code already called `live_current_scene` unconditionally whenever x=9
     # was in the block, so a boot without the read point already refused the
     # whole block, exactly as it does now.  What GM-054 gates is the fence
