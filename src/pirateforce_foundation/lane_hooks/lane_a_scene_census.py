@@ -246,6 +246,7 @@ from .. import world_population_bg0015
 from .. import world_population_bg1001
 from .. import world_population_bg3001
 from .. import world_population_bg3007
+from .. import world_population_bg3008
 from .. import world_population_bg4001
 from .. import world_population_handoff
 from .. import world_scene_folder
@@ -469,6 +470,23 @@ _CONSOLE_LINES_OF = {
         + world_population_bg3007.actor_lines(generation)
         + world_population_bg3007.unresolved_lines()
     ),
+    # ADDED round 9zj630 (2026-09-06, LANE-A): scene 305 (Bg3008, "Pale
+    # Silver Sea"), the OTHER of those two seas.  Registered here AND in
+    # ``world_scene_travel.CENSUS_SOURCES`` in the same commit, so neither
+    # table can be true without the other for even one round.  Same
+    # not-inert shape as the row above and for the same measured reason: the
+    # registry row still reads ``login_entry_allowed: false``, a bare GM
+    # ``/warp 305`` already lands here live (round n4vqxc's pin), and this
+    # scene has been named by THE THIRD ADMISSION ARM below since round
+    # dyi95m - which is why it is the arm's docstring, not this comment,
+    # that carries the reason 305 belongs to that arm rather than the
+    # second.  What the scene lacked until this round was a composer; this
+    # row is it.
+    "bg3008_roster": lambda generation: (
+        (world_population_bg3008.census_console_line(generation),)
+        + world_population_bg3008.actor_lines(generation)
+        + world_population_bg3008.unresolved_lines()
+    ),
 }
 
 
@@ -619,8 +637,13 @@ def scene_is_sanctioned_for_a_gm_entry(
 # REVOKED" note for the two other files a new or withdrawn row touches).
 ARM_THREE_ELIGIBLE_SCENE_IDS = (
     world_scene_travel.DARK_FOG_SEA_SCENE_ID,
-    305,  # Pale Silver Sea (Bg3008) - decreed, no composer or named seam
-          # constant yet (that is the cast this lane still owes it).
+    # Pale Silver Sea (Bg3008).  ~~a bare 305, because the scene had no
+    # composer and no named seam constant~~ - round ``9zj630`` shipped both
+    # (``world_bg3008_identity`` / ``world_population_bg3008``), so this row
+    # now reads through the same constant its sibling does.  Both ids are
+    # decreed by ``COO-DECISION 20260905_1748``, which is the citation
+    # ``COO-DECISION 20260906_0347`` item 3 requires of every row here.
+    world_scene_travel.PALE_SILVER_SEA_SCENE_ID,
 )
 
 
