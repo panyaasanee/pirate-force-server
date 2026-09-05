@@ -222,6 +222,40 @@ def test_transcribed_provenance_has_not_been_edited_silently():
         "notes_to_chief/"
         "20260902_0341_RE-195-RESULT-RELATION-FALLBACK-STYLE61-NOT-CURRENT.md"
     )
+    assert gate.PAIR_RELATION_ZERO_GATE_SPAN == (0x0043C531, 0x0043C547)
+    assert gate.PAIR_RELATION_ZERO_GATE_OPERAND == "ActorAttr+0x98 bit 0x04000000"
+    assert gate.PAIR_RELATION_ZERO_GATE_SEMANTIC_NAME == (
+        "CNetActor_pair_relation_zero_gate__CMyActor_value_1_selects_"
+        "LABEL_NAME_FontStyleID_56_else_55"
+    )
+    assert gate.PAIR_RELATION_ZERO_GATE_STATUS == "PROVEN_ROLE_ONLY"
+    assert gate.PAIR_RELATION_ZERO_GATE_SOURCE == (
+        "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
+    )
+
+
+def test_the_new_gate_sits_earlier_in_the_same_predicate_than_the_comparator():
+    """Cross-referenced this round: a second, earlier branch in the SAME
+    predicate span RE-195 already named, never cited before.  This is the
+    load-bearing geometric fact -- everything else about it is [PROPOSED]."""
+    lo, hi = gate.RELATIONSHIP_PREDICATE_SPAN
+    gate_lo, gate_hi = gate.PAIR_RELATION_ZERO_GATE_SPAN
+    assert lo <= gate_lo < gate_hi <= hi
+    assert gate_hi < gate.FACTION_COMPARATOR_SOLE_CALL_SITE_VA
+
+
+def test_the_new_gate_does_not_retire_the_faction_blocker():
+    """PROVEN_ROLE_ONLY is not a reachability proof for our identities --
+    naming this gate must not quietly change the verdict or the blocker
+    count (pf-adversary would read a silent count change as an overclaim,
+    the same shape RE-195's own converse-not-measured warning guards
+    against at the top of this module)."""
+    verdict = gate.p2_color_wiring_verdict()
+    assert verdict.allowed is False
+    assert len(gate.blocker_names()) == 3
+    assert gate.unaddressed_blockers() == (
+        "faction_is_a_fallback_operand_only",
+    )
 
 
 # --------------------------------------------------------------------------

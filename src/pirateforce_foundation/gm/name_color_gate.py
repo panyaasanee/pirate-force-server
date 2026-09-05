@@ -122,6 +122,35 @@ RELATIONSHIP_PREDICATE_SPAN = (0x0043C380, 0x0043C63C)
 FACTION_COMPARATOR_VA = 0x004A1D50
 FACTION_COMPARATOR_SOLE_CALL_SITE_VA = 0x0043C5E0
 
+#: A SECOND, EARLIER gate inside the SAME predicate span, cross-referenced
+#: this round (`j2jluj`+1, static-only, no new binary access) against a
+#: bridge artifact ``faction_is_a_fallback_operand_only`` never cited:
+#: ``notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv`` rows 6-7
+#: name a branch at this span testing ``ActorAttr+0x98`` bit ``0x04000000``,
+#: semantic name ``CNetActor_pair_relation_zero_gate__CMyActor_value_1_
+#: selects_LABEL_NAME_FontStyleID_56_else_55``, status ``PROVEN_ROLE_ONLY``
+#: (that TSV's own words: "structural/consumer role is proved but the
+#: broader gameplay noun or full value domain is not unique").
+#: ``0x0043C547 < FACTION_COMPARATOR_SOLE_CALL_SITE_VA`` -- this gate sits
+#: BEFORE the faction comparator's call site in the same predicate, so it is
+#: a candidate for (one of) the "earlier exits" RE-195's prose names without
+#: an address.  !! THIS DOES NOT RETIRE THE BLOCKER BELOW !! ``PROVEN_ROLE_ONLY``
+#: does not say whether ``field_mobs``' measured-bypass identities ever reach
+#: this gate, nor what value ``ActorAttr+0x98`` carries for them -- nobody has
+#: asked that question yet. It is named here, pinned by value, so a later
+#: round does not have to re-discover it from a cold TSV grep; see the RE
+#: ticket request this round files for the next static step.
+PAIR_RELATION_ZERO_GATE_SPAN = (0x0043C531, 0x0043C547)
+PAIR_RELATION_ZERO_GATE_OPERAND = "ActorAttr+0x98 bit 0x04000000"
+PAIR_RELATION_ZERO_GATE_SEMANTIC_NAME = (
+    "CNetActor_pair_relation_zero_gate__CMyActor_value_1_selects_"
+    "LABEL_NAME_FontStyleID_56_else_55"
+)
+PAIR_RELATION_ZERO_GATE_STATUS = "PROVEN_ROLE_ONLY"
+PAIR_RELATION_ZERO_GATE_SOURCE = (
+    "notes_to_chief/reference_codex_attr/PF_A2_ATTR_FIELD_DELTA.tsv rows 6-7"
+)
+
 RE_191_RESULT_LETTER = (
     "notes_to_chief/20260901_1439_CODEX-RE191-RESULT-FONTSTYLE63-RGBA.md"
 )
